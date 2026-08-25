@@ -21,7 +21,14 @@ mod l1_embedded;
 mod pool;
 mod witness_source;
 
-use std::{collections::HashMap, env, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    env,
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_primitives::{Address, B256};
 use alloy_provider::{Provider as _, RootProvider};
@@ -335,6 +342,7 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
         rollup_config.deploy_block,
         Arc::clone(&l1_head),
         system_tx_cfg,
+        checkpoint_dir(),
     );
 
     wait_for_l1_ready(&l1_reader, rollup_config.deploy_block, read_l1_chain_id()?).await?;
@@ -967,6 +975,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         rollup_config.deploy_block,
         Arc::clone(&l1_head),
         Some(system_tx_cfg),
+        checkpoint_dir(),
     );
 
     // Bind before the L1 wait so port checks see a live front. Submissions are
@@ -1090,6 +1099,25 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     xchain_ready.store(true, std::sync::atomic::Ordering::Relaxed);
 
     handle.wait_for_node_exit().await
+}
+
+/// Resolve the L2 datadir once at startup. A missing or unusable directory
+/// disables the boot-checkpoint cache and preserves the safe full L1 rescan.
+fn checkpoint_dir() -> Option<PathBuf> {
+    let configured = env::var("EEZ_L2_DATADIR").ok();
+    let checkpoint_dir = configured
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir());
+    if checkpoint_dir.is_none() {
+        event!(
+            name: "eez.node.checkpoint.disabled",
+            Level::INFO,
+            configured = ?configured,
+            "no usable EEZ_L2_DATADIR; boot will rescan L1 from the deploy block",
+        );
+    }
+    checkpoint_dir
 }
 
 /// Blocks until L1 serves our history: head at or past the deploy block, with
