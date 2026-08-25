@@ -260,8 +260,8 @@ fn exec_outcome<H>(result: &ExecutionResult<H>) -> TxOutcome {
 /// `EthBlockExecutor` transacts and commits the same way; the rest of its work
 /// is receipts and block-gas accounting, which carry no state).
 ///
-/// Cumulative block gas is therefore NOT tracked here; the final
-/// [`build_sync_block`] over the accumulated tx list is what enforces it.
+/// The caller tracks cumulative block gas off [`TxOutcome::gas_used`] — the
+/// same per-tx figure the block executor adds to its own total.
 ///
 /// The uninspected path passes [`NoOpInspector`], the same inspector reth uses
 /// when a caller supplies none.
@@ -309,6 +309,9 @@ pub struct SyncBlockState {
     state: DraftDb,
     /// Number of txs applied — the next tx's block position.
     applied: usize,
+    /// Cumulative gas of the applied txs, matching the block executor's own
+    /// total: the drain needs it to stop before the block overflows.
+    gas_used: u64,
 }
 
 impl std::fmt::Debug for SyncBlockState {
@@ -316,6 +319,7 @@ impl std::fmt::Debug for SyncBlockState {
         f.debug_struct("SyncBlockState")
             .field("parent_hash", &self.parent_hash)
             .field("applied", &self.applied)
+            .field("gas_used", &self.gas_used)
             .finish_non_exhaustive()
     }
 }
@@ -345,6 +349,7 @@ impl SyncBlockState {
         // Drive the prefix through the real block builder, then drop it WITHOUT
         // `finish`: that applies the pre-execution changes exactly once and
         // leaves `state` at the mid-block point appended txs continue from.
+        let mut gas_used: u64 = 0;
         {
             let mut builder = evm_config
                 .builder_for_next_block(&mut state, parent, attributes)
@@ -353,12 +358,15 @@ impl SyncBlockState {
                 .apply_pre_execution_changes()
                 .map_err(|e| BuildError::Builder(format!("apply_pre_execution_changes: {e}")))?;
             for (idx, raw) in prefix_txs.iter().enumerate() {
-                builder
+                // The builder's own per-tx figure, so a reopened prefix reports
+                // the gas the block it rebuilds actually holds.
+                let gas = builder
                     .execute_transaction(recover_tx(raw, idx)?)
                     .map_err(|e| BuildError::ExecuteTx {
                         idx,
                         msg: e.to_string(),
                     })?;
+                gas_used = gas_used.saturating_add(gas.tx_gas_used());
             }
         }
 
@@ -369,7 +377,15 @@ impl SyncBlockState {
             evm_env,
             state,
             applied: prefix_txs.len(),
+            gas_used,
         })
+    }
+
+    /// Gas the applied txs have used, the same total the block builder holds.
+    /// The block's remaining room is measured against it.
+    #[must_use]
+    pub const fn gas_used(&self) -> u64 {
+        self.gas_used
     }
 
     /// Execute one raw EIP-2718 tx with full real-STF semantics and commit it,
@@ -388,6 +404,7 @@ impl SyncBlockState {
             NoOpInspector,
         )?;
         self.applied += 1;
+        self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
     }
 
@@ -409,17 +426,18 @@ impl SyncBlockState {
             evm_env: self.evm_env.clone(),
             state,
             applied: self.applied,
+            gas_used: self.gas_used,
         })
     }
 }
 
-/// Restore point of a [`SyncBlockFork`]. Forks never merge transitions, so the
-/// cache carries every state effect a rollback must undo; `applied` rides along
-/// so a rewound fork also reports the right tx position.
+/// Restore point of a [`SyncBlockFork`]. The cache holds every state effect a
+/// rollback undoes; `applied` and `gas_used` ride along so both rewind too.
 #[derive(Debug)]
 pub struct ForkSnapshot {
     cache: CacheState,
     applied: usize,
+    gas_used: u64,
 }
 
 /// A throwaway copy of a [`SyncBlockState`] for simulation: probes and source
@@ -430,12 +448,14 @@ pub struct SyncBlockFork {
     evm_env: EvmEnvFor<EthEvmConfig>,
     state: DraftDb,
     applied: usize,
+    gas_used: u64,
 }
 
 impl std::fmt::Debug for SyncBlockFork {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SyncBlockFork")
             .field("applied", &self.applied)
+            .field("gas_used", &self.gas_used)
             .finish_non_exhaustive()
     }
 }
@@ -473,6 +493,7 @@ impl SyncBlockFork {
             NoOpInspector,
         )?;
         self.applied += 1;
+        self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
     }
 
@@ -564,6 +585,7 @@ impl SyncBlockFork {
         ForkSnapshot {
             cache: self.state.cache.clone(),
             applied: self.applied,
+            gas_used: self.gas_used,
         }
     }
 
@@ -571,6 +593,7 @@ impl SyncBlockFork {
     pub fn restore(&mut self, snapshot: ForkSnapshot) {
         self.state.cache = snapshot.cache;
         self.applied = snapshot.applied;
+        self.gas_used = snapshot.gas_used;
     }
 
     /// Raw state + env, for callers that drive their own EVM (a source
@@ -970,5 +993,57 @@ mod tests {
                 tx_count: 1,
             }
         ));
+    }
+
+    /// Block gas is the drain's accept budget, so a fork must start from the
+    /// block's total and a rollback must give it back.
+    #[test]
+    fn fork_inherits_and_restores_gas_used() {
+        let f = fixture();
+        let builder_gas = f.builder_gas();
+
+        let mut prefix = f.open(&f.txs[..2]);
+        let inherited = builder_gas[0] + builder_gas[1];
+        assert_eq!(
+            prefix.gas_used(),
+            inherited,
+            "a reopened prefix reports the gas the block builder charged",
+        );
+
+        let mut fork = prefix.fork().expect("fork");
+        assert_eq!(
+            fork.gas_used, inherited,
+            "a fork starts at the block's total"
+        );
+
+        let snapshot = fork.snapshot();
+        fork.execute_tx(&f.txs[2]).expect("probe run");
+        assert_eq!(fork.gas_used, inherited + builder_gas[2]);
+        fork.restore(snapshot);
+        assert_eq!(
+            fork.gas_used, inherited,
+            "restore must rewind the gas with the cache",
+        );
+
+        // The fork's spend never reached the block.
+        assert_eq!(prefix.gas_used(), inherited);
+        prefix.execute_tx(&f.txs[2]).expect("execute on prefix");
+        assert_eq!(prefix.gas_used(), inherited + builder_gas[2]);
+    }
+
+    /// A reverted tx still burns its gas in the block, so the drain must count
+    /// it — `txs[2]` reverts and is charged all the same.
+    #[test]
+    fn reverted_txs_are_charged_to_the_block() {
+        let f = fixture();
+        let mut prefix = f.open(&[]);
+        for raw in &f.txs {
+            prefix.execute_tx(raw).expect("execute on prefix");
+        }
+        assert_eq!(
+            prefix.gas_used(),
+            f.build(&f.txs).header.gas_used(),
+            "the live prefix and the built block must agree on block gas",
+        );
     }
 }
