@@ -473,7 +473,6 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
     )
     .await
     .unwrap();
-
     open_drain_window(&w).await;
     let mut nonce = pending_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
     let first = sign_and_send(
