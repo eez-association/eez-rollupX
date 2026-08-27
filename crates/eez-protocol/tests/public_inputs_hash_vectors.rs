@@ -10,7 +10,7 @@ use std::{fs, path::PathBuf};
 use alloy_primitives::{Address, B256, Bytes, I256, U256, hex, keccak256};
 use alloy_sol_types::{SolValue, sol};
 use eez_protocol::abi::{
-    ExecutionEntrySol, ExpectedStateRootPerRollupSol, StateUpdateSol, StaticExecutionEntrySol,
+    ExecutionEntrySol, ExpectedRootPerRollupSol, RootUpdateSol, StaticExecutionEntrySol,
 };
 use eez_protocol::public_inputs::{
     all_per_ps_hashes, entry_hash, shared_public_input, static_entry_hash,
@@ -142,10 +142,10 @@ fn build_plan(vector: &Vector) -> ProofPlan {
 #[test]
 fn execution_entry_encoding_matches_pinned_solidity() {
     let entry = ExecutionEntrySol {
-        stateUpdates: vec![StateUpdateSol {
+        rootUpdates: vec![RootUpdateSol {
             rollupId: 1,
-            currentState: B256::from(U256::from(0x1111)),
-            newState: B256::from(U256::from(0x2222)),
+            currentRoot: B256::from(U256::from(0x1111)),
+            newRoot: B256::from(U256::from(0x2222)),
             etherDelta: I256::ZERO,
         }],
         proxyEntryHash: B256::from(U256::from(0x3333)),
@@ -166,9 +166,9 @@ fn execution_entry_encoding_matches_pinned_solidity() {
 #[test]
 fn static_execution_entry_encoding_matches_pinned_solidity() {
     let entry = StaticExecutionEntrySol {
-        expectedStateRoots: vec![ExpectedStateRootPerRollupSol {
+        expectedRoots: vec![ExpectedRootPerRollupSol {
             rollupId: 1,
-            stateRoot: B256::from(U256::from(0x1111)),
+            root: B256::from(U256::from(0x1111)),
         }],
         proxyEntryHash: B256::from(U256::from(0x5555)),
         l2ToL1Calls: Vec::new(),

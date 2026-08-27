@@ -146,7 +146,7 @@ pub(super) enum SettlementPipelineError {
     #[error(transparent)]
     BlockInspection(#[from] settlement::BlockInspectionError),
     #[error(transparent)]
-    StateUpdateChain(#[from] settlement::StateUpdateChainError),
+    RootUpdateChain(#[from] settlement::RootUpdateChainError),
     #[error(transparent)]
     EffectPrefix(#[from] settlement::EffectPrefixError),
     #[error(transparent)]
@@ -165,7 +165,7 @@ impl SettlementPipelineError {
             Self::PostBatchCalldata(_) => "post_batch_calldata",
             Self::PublicInputs(_) => "public_inputs",
             Self::BlockInspection(_) => "block_inspection",
-            Self::StateUpdateChain(_) => "state_update_chain",
+            Self::RootUpdateChain(_) => "root_update_chain",
             Self::EffectPrefix(_) => "effect_prefix",
             Self::InboundEffects(_) => "inbound_effects",
             Self::OutboundEffects(_) => "outbound_effects",
@@ -226,7 +226,7 @@ impl SettlementPipelineError {
                 ),
             },
             Self::PublicInputs(settlement::PublicInputError::InvalidStructure(_))
-            | Self::StateUpdateChain(_)
+            | Self::RootUpdateChain(_)
             | Self::InboundEffects(_)
             | Self::OutboundEffects(_) => (
                 tonic::Code::FailedPrecondition,
@@ -288,7 +288,7 @@ pub(super) fn run_settlement(
         expected_proof_system,
     )?;
 
-    let verified_state_chain = settlement::verify_state_update_chain(
+    let verified_state_chain = settlement::verify_root_update_chain(
         &canonical_batch,
         expected_rollup_id,
         validated_window.window_pre_state_root(),

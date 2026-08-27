@@ -981,22 +981,22 @@ sol! {
         error InvalidProof();
         error InvalidProofSystemConfig();
         event BatchPosted(uint256 rollupCount);
-        event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newState);
+        event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot);
         event L2TxSkipped(uint256 indexed transientIdx, bytes revertData);
-        function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 stateRoot, uint256 etherBalance);
+        function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 root, uint256 etherBalance);
         function rollupCounter() external view returns (uint256);
-        function registerRollup(address rollupContract, bytes32 initialState) external returns (uint64 rollupId);
+        function registerRollup(address rollupContract, bytes32 initialRoot) external returns (uint64 rollupId);
     }
 }
 
 pub const INVALID_PROOF_SELECTOR: [u8; 4] = IEEZ::InvalidProof::SELECTOR;
 pub const INVALID_PROOF_SYSTEM_CONFIG_SELECTOR: [u8; 4] = IEEZ::InvalidProofSystemConfig::SELECTOR;
 
-/// Reth's `--chain dev` genesis state root. Used as the `initialState`
+/// Reth's `--chain dev` genesis state root. Used as the `initialRoot`
 /// when registering the rollup so the very first batch's prestate
-/// (`l2_state_root(0)`) matches the on-chain `rollups[rid].stateRoot`.
-/// With the default `B256::ZERO`, every batch's `_applyStateUpdates`
-/// reverts with `StateRootMismatch`, caught by the try/catch,
+/// (`l2_state_root(0)`) matches the on-chain `rollups[rid].root`.
+/// With the default `B256::ZERO`, every batch's `_applyRootUpdates`
+/// reverts with `RootMismatch`, caught by the try/catch,
 /// emitting `L2TxSkipped` instead of `L2ExecutionPerformed`.
 pub fn dev_genesis_state_root() -> B256 {
     reth_chainspec::DEV.genesis_header().state_root
@@ -1191,7 +1191,7 @@ async fn deploy_contracts_with_initial(
     // accounts); avoids the alloy wallet-filler requirement on `to`.
     let calldata = IEEZ::registerRollupCall {
         rollupContract: rollup_manager_address,
-        initialState: initial_state,
+        initialRoot: initial_state,
     }
     .abi_encode();
     let receipt = provider
@@ -1925,7 +1925,7 @@ pub async fn state_root(rpc_url: &str, eez: Address, rollup_id: u64) -> Result<B
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
     let registry = IEEZ::new(eez, &provider);
     let r = registry.rollups(rollup_id).call().await?;
-    Ok(r.stateRoot)
+    Ok(r.root)
 }
 
 /// Count events of `event_sig_hash` emitted by `contract` since
@@ -2006,7 +2006,7 @@ pub async fn assert_latest_batch_signature(
     Ok(())
 }
 
-/// Return the `newState` of the latest `L2ExecutionPerformed` event
+/// Return the `newRoot` of the latest `L2ExecutionPerformed` event
 /// emitted by `contract` for `rollup_id`, or `None` if none exist.
 /// Cross-checks the on-chain `stateRoot` against the per-batch event.
 pub async fn latest_l2_execution_state(
@@ -2027,7 +2027,7 @@ pub async fn latest_l2_execution_state(
         return Ok(None);
     };
     let decoded = IEEZ::L2ExecutionPerformed::decode_log(&last.inner)?;
-    Ok(Some(decoded.newState))
+    Ok(Some(decoded.newRoot))
 }
 
 pub async fn all_l2_execution_states(
@@ -2047,7 +2047,7 @@ pub async fn all_l2_execution_states(
     logs.into_iter()
         .map(|log| {
             IEEZ::L2ExecutionPerformed::decode_log(&log.inner)
-                .map(|d| d.newState)
+                .map(|d| d.newRoot)
                 .map_err(Into::into)
         })
         .collect()
@@ -2406,7 +2406,7 @@ pub async fn deploy_protocol_dev(
 
     let calldata = IEEZ::registerRollupCall {
         rollupContract: rollup_manager_address,
-        initialState: initial_state,
+        initialRoot: initial_state,
     }
     .abi_encode();
     let nonce = pending_nonce(l1_rpc, key).await?;

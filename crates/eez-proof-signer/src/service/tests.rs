@@ -13,7 +13,7 @@ use eez_control_rpc::v1::prover_client::ProverClient;
 use eez_control_rpc::v1::{
     BlockWitness, ExecutionWitness, PostBatch, ProveChunk, ProveHeader, ProveResponse, prove_chunk,
 };
-use eez_protocol::abi::{ExecutionEntrySol, L2ToL1CallSol, StateUpdateSol};
+use eez_protocol::abi::{ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
 use reth_primitives_traits::BlockBody as _;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
@@ -128,10 +128,10 @@ fn anchor_batch() -> eez_protocol::EvmBatch {
 fn anchor_batch_for(rollup_id: u64) -> eez_protocol::EvmBatch {
     let mut batch = eez_protocol::EvmBatch::default();
     batch.entries.push(ExecutionEntrySol {
-        stateUpdates: vec![StateUpdateSol {
+        rootUpdates: vec![RootUpdateSol {
             rollupId: rollup_id,
-            currentState: B256::ZERO,
-            newState: B256::ZERO,
+            currentRoot: B256::ZERO,
+            newRoot: B256::ZERO,
             etherDelta: I256::ZERO,
         }],
         proxyEntryHash: B256::ZERO,
@@ -159,12 +159,12 @@ fn outbound_batch(
 ) -> eez_protocol::EvmBatch {
     let mut batch = anchor_batch();
     let anchor = &mut batch.entries[0];
-    anchor.stateUpdates[0].currentState = anchor_root;
-    anchor.stateUpdates[0].newState = pre_settling_root;
+    anchor.rootUpdates[0].currentRoot = anchor_root;
+    anchor.rootUpdates[0].newRoot = pre_settling_root;
 
     let mut effect = anchor.clone();
-    effect.stateUpdates[0].currentState = pre_settling_root;
-    effect.stateUpdates[0].newState = final_root;
+    effect.rootUpdates[0].currentRoot = pre_settling_root;
+    effect.rootUpdates[0].newRoot = final_root;
     effect.l2ToL1Calls.push(l2_to_l1_call());
     batch.entries.push(effect);
     batch.immediateEntryCount = U256::from(2);
@@ -217,7 +217,7 @@ fn canonical_outbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256)
 fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
     let mut batch = outbound_batch(B256::ZERO, B256::ZERO, B256::ZERO);
     batch.entries[1].l2ToL1Calls[0].value = value;
-    batch.entries[1].stateUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     let call = &batch.entries[1].l2ToL1Calls[0];
     let call_hash = eez_protocol::l2_outbound_call_hash(
@@ -286,7 +286,7 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
         strict_inbound_transaction(value);
 
     let mut inbound_entry = batch.entries[0].clone();
-    inbound_entry.stateUpdates[0].etherDelta = I256::try_from(value).unwrap();
+    inbound_entry.rootUpdates[0].etherDelta = I256::try_from(value).unwrap();
     inbound_entry.proxyEntryHash = inbound_call_hash;
     inbound_entry.returnData = return_data;
     batch.entries.push(inbound_entry);
@@ -561,7 +561,7 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
         .unwrap();
     let call_hash = entry.proxyEntryHash;
     let sidecar = ExecutionEntrySol {
-        stateUpdates: Vec::new(),
+        rootUpdates: Vec::new(),
         proxyEntryHash: call_hash,
         l2ToL1Calls: vec![L2ToL1CallSol {
             revertNextNCalls: 0,
@@ -579,14 +579,7 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
         success: true,
         returnData: return_data.clone(),
     };
-    let input = eez_protocol::entries::encode_execute_incoming(
-        target,
-        value,
-        data,
-        source,
-        eez_protocol::RollupId(0),
-        entry,
-    );
+    let input = eez_protocol::entries::encode_execute_incoming(entry);
     let context = system_transaction_context();
     let raw = eez_protocol::system_tx::build_inbound_system_txs(
         std::slice::from_ref(&sidecar),

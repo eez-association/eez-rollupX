@@ -8,7 +8,7 @@ use alloy_provider::Provider;
 use alloy_rpc_types_eth::Filter;
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_protocol::abi::{
-    BatchPosted, L2ExecutionPerformed, ProofSystemBatchPerVerificationEntriesSol,
+    BatchPosted, L2ExecutionPerformed, L2TxSkipped, ProofSystemBatchPerVerificationEntriesSol,
     postAndVerifyBatchCall,
 };
 use tracing::{Level, event};
@@ -19,7 +19,7 @@ use crate::error::{L1Error, L1Result};
 /// split before hitting RPCs that reject long `eth_getLogs` ranges.
 pub(crate) const LOG_SCAN_CHUNK_BLOCKS: u64 = 100_000;
 
-/// One `L2ExecutionPerformed.newState` for our rollup, tagged with where in the
+/// One `L2ExecutionPerformed.newRoot` for our rollup, tagged with where in the
 /// L1 block it was emitted so it can be attributed to the owning batch.
 #[derive(Debug, Clone, Copy)]
 struct SettledRoot {
@@ -44,8 +44,13 @@ struct DecodedBatchLog {
     verifies_our_rollup: bool,
     call_data: Bytes,
     post_batch_input: Bytes,
-    claimed_current_state: Option<B256>,
+    claimed_current_root: Option<B256>,
     claimed_chain: Vec<B256>,
+    /// Persisted entry outcome aligned 1:1 with `claimed_chain`. Failed entries
+    /// and immediate entries reported through `L2TxSkipped` do not leave
+    /// `L2ExecutionPerformed` logs, but their L2 checkpoints are carried by the
+    /// preceding successful settlement step.
+    claimed_successes: Vec<bool>,
 }
 
 /// Stateful `BatchPosted` log chunks. Callers own when scanned ranges are
@@ -80,7 +85,7 @@ impl BatchLogChunks {
 }
 
 /// One decoded `BatchPosted` log: winner flag plus the claimed state
-/// roots from our rollup's `StateUpdate`. The Deriver's catch-up scan and
+/// roots from our rollup's `RootUpdate`. The Deriver's catch-up scan and
 /// the live [`L1Watcher`](crate::L1Watcher) poll consume the same shape.
 #[derive(Debug, Clone)]
 pub struct ScannedBatch {
@@ -101,15 +106,16 @@ pub struct ScannedBatch {
     pub state_applied: bool,
     /// Which of this batch's claimed steps L1 actually ran. See [`Settlement`].
     pub settlement: Settlement,
-    pub claimed_current_state: Option<B256>,
-    pub claimed_new_state: Option<B256>,
+    pub claimed_current_root: Option<B256>,
+    pub claimed_new_root: Option<B256>,
 }
 
-/// Which of a batch's claimed steps L1 actually ran. Each step moves the stored
-/// root one hop and emits one `L2ExecutionPerformed`, in order, so the observed
-/// roots identify them. The run is always contiguous — a skipped step stops the
-/// root advancing, failing every later `currentState` check
-/// (`EEZ.sol:_applyStateDeltas`) — so `(start, len)` describes it fully.
+/// Which of a batch's claimed L2 steps an observed L1 carrier committed. A
+/// successful entry moves the stored root and emits `L2ExecutionPerformed`;
+/// failed entries emit nothing because their frames revert, so their L2
+/// checkpoints are assigned to the preceding successful carrier. The expanded
+/// committed run remains contiguous, so `(start, len)` describes it fully in
+/// the virtual `[anchor | producing effects...]` index space.
 ///
 /// `start > 0` = leading steps skipped: a competing same-block batch already made
 /// those hops (routine with two composers on a shared tx stream, since identical
@@ -121,12 +127,12 @@ pub struct Settlement {
     pub start: usize,
     /// How many consecutive steps ran. `0` = nothing settled → skip the batch.
     pub len: usize,
-    /// `newState` of the last step that ran — L1's ACTUAL stored root after this
+    /// `newRoot` of the last step that ran — L1's ACTUAL stored root after this
     /// batch (a prefix endpoint under partial consumption). Reconciliation
     /// validates against THIS, never the claimed full-chain end.
     pub final_state: Option<B256>,
     /// The stored root the applied run STARTED from — what reconciliation compares
-    /// its local cursor against. The claimed `currentState` when `start == 0`,
+    /// its local cursor against. The claimed `currentRoot` when `start == 0`,
     /// else `claimed_chain[start - 1]`; using the claimed value on a mid-chain
     /// resume reports a divergence that isn't one.
     pub entry_state: Option<B256>,
@@ -281,16 +287,55 @@ pub(crate) async fn scan_batch_logs_range(
         .await
         .map_err(|e| L1Error::Provider(format!("get_logs(BatchPosted): {e}")))?;
 
-    let winners_filter = Filter::new()
+    // Keep settlement outcomes in one RPC query. Besides reducing scan work,
+    // this guarantees that performed and skipped entries are observed over the
+    // same block range. `L2TxSkipped.topic1` is the transient entry index (not
+    // the rollup id), so filter the performed events for our rollup locally.
+    let outcomes_filter = Filter::new()
         .address(eez)
-        .event_signature(L2ExecutionPerformed::SIGNATURE_HASH)
-        .topic1(U256::from(rollup_id))
+        .event_signature(vec![
+            L2ExecutionPerformed::SIGNATURE_HASH,
+            L2TxSkipped::SIGNATURE_HASH,
+        ])
         .from_block(from_block)
         .to_block(BlockNumberOrTag::Number(to_block));
-    let winner_logs = provider
-        .get_logs(&winners_filter)
+    let outcome_logs = provider
+        .get_logs(&outcomes_filter)
         .await
-        .map_err(|e| L1Error::Provider(format!("get_logs(L2ExecutionPerformed): {e}")))?;
+        .map_err(|e| L1Error::Provider(format!("get_logs(settlement outcomes): {e}")))?;
+    let rollup_topic = B256::from(U256::from(rollup_id));
+    let winner_logs = outcome_logs
+        .iter()
+        .filter(|log| {
+            log.topic0() == Some(&L2ExecutionPerformed::SIGNATURE_HASH)
+                && log.topics().get(1) == Some(&rollup_topic)
+        })
+        .collect::<Vec<_>>();
+    let skipped_logs = outcome_logs
+        .iter()
+        .filter(|log| log.topic0() == Some(&L2TxSkipped::SIGNATURE_HASH))
+        .collect::<Vec<_>>();
+    let mut skipped_by_tx: HashMap<(B256, B256), HashSet<usize>> = HashMap::new();
+    for log in &skipped_logs {
+        let (Some(block_hash), Some(tx_hash)) = (log.block_hash, log.transaction_hash) else {
+            continue;
+        };
+        let decoded = L2TxSkipped::decode_log(&alloy_primitives::Log {
+            address: log.address(),
+            data: log.data().clone(),
+        })
+        .map_err(|error| L1Error::Decode(format!("decode L2TxSkipped({tx_hash}): {error}")))?;
+        let entry_index = usize::try_from(decoded.transientIdx).map_err(|error| {
+            L1Error::Decode(format!(
+                "L2TxSkipped({tx_hash}) index {} does not fit usize: {error}",
+                decoded.transientIdx
+            ))
+        })?;
+        skipped_by_tx
+            .entry((block_hash, tx_hash))
+            .or_default()
+            .insert(entry_index);
+    }
     // Pinned by block hash too: the same tx can sit on both sides of a fork.
     let winner_tx_hashes: HashSet<(B256, B256)> = winner_logs
         .iter()
@@ -372,7 +417,12 @@ pub(crate) async fn scan_batch_logs_range(
             data: log.data().clone(),
         })
         .map_err(|e| L1Error::Decode(format!("decode BatchPosted({tx_hash}): {e}")))?;
-        let (claimed_current_state, claimed_chain) = our_state_chain(&decoded.batch, rollup_id);
+        let skipped_indices = skipped_by_tx
+            .get(&(l1_block_hash, tx_hash))
+            .cloned()
+            .unwrap_or_default();
+        let (claimed_current_root, claimed_chain, claimed_successes) =
+            our_state_chain(&decoded.batch, rollup_id, &skipped_indices);
         decoded_batches.push(DecodedBatchLog {
             l1_block_number,
             l1_block_hash,
@@ -388,8 +438,9 @@ pub(crate) async fn scan_batch_logs_range(
                 .any(|r| r.rollupId == rollup_id),
             call_data: decoded.batch.callData,
             post_batch_input: input.clone(),
-            claimed_current_state,
+            claimed_current_root,
             claimed_chain,
+            claimed_successes,
         });
     }
 
@@ -430,7 +481,12 @@ pub(crate) async fn scan_batch_logs_range(
         let observed: Vec<B256> = block_roots
             .map(|roots| window_roots(roots, b.tx_index, window_end, b.l1_block_hash))
             .unwrap_or_default();
-        let settlement = attribute_settlement(b.claimed_current_state, &b.claimed_chain, &observed);
+        let settlement = attribute_settlement_with_successes(
+            b.claimed_current_root,
+            &b.claimed_chain,
+            &b.claimed_successes,
+            &observed,
+        );
         out.push(ScannedBatch {
             l1_block_number: b.l1_block_number,
             l1_block_hash: b.l1_block_hash,
@@ -440,32 +496,35 @@ pub(crate) async fn scan_batch_logs_range(
             post_batch_input: b.post_batch_input,
             state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
             settlement,
-            claimed_current_state: b.claimed_current_state,
-            claimed_new_state: b.claimed_chain.last().copied(),
+            claimed_current_root: b.claimed_current_root,
+            claimed_new_root: b.claimed_chain.last().copied(),
         });
     }
     Ok(out)
 }
 
-/// Our rollup's state-update chain in a batch: the first update's
-/// `currentState` (pre-batch root) and the ordered per-update `newState` roots.
+/// Our rollup's root-update chain in a batch: the first update's
+/// `currentRoot` (pre-batch root) and the ordered per-update `newRoot` roots.
 fn our_state_chain(
     batch: &ProofSystemBatchPerVerificationEntriesSol,
     rollup_id: u64,
-) -> (Option<B256>, Vec<B256>) {
+    skipped_entry_indices: &HashSet<usize>,
+) -> (Option<B256>, Vec<B256>, Vec<bool>) {
     let mut first_curr: Option<B256> = None;
-    let mut new_states: Vec<B256> = Vec::new();
-    for entry in &batch.entries {
-        for update in &entry.stateUpdates {
+    let mut new_roots: Vec<B256> = Vec::new();
+    let mut successes: Vec<bool> = Vec::new();
+    for (entry_index, entry) in batch.entries.iter().enumerate() {
+        for update in &entry.rootUpdates {
             if update.rollupId == rollup_id {
                 if first_curr.is_none() {
-                    first_curr = Some(update.currentState);
+                    first_curr = Some(update.currentRoot);
                 }
-                new_states.push(update.newState);
+                new_roots.push(update.newRoot);
+                successes.push(entry.success && !skipped_entry_indices.contains(&entry_index));
             }
         }
     }
-    (first_curr, new_states)
+    (first_curr, new_roots, successes)
 }
 
 /// Roots settled inside this batch's tx-index window AND on this batch's own
@@ -484,25 +543,97 @@ fn window_roots(
 }
 
 /// Which of this batch's claimed steps L1 ran (see [`Settlement`]). `observed` is
-/// the ordered `newState` sequence emitted inside this batch's window, located as
+/// the ordered `newRoot` sequence emitted inside this batch's window, located as
 /// a consecutive slice of `claimed_chain` — positional, not set membership, so
 /// duplicate roots stay distinct and a coincidental match can't inflate the count.
 /// [`Settlement::NONE`] when nothing matches (empty window or phantom roots).
+#[cfg(test)]
 fn attribute_settlement(
     claimed_current: Option<B256>,
     claimed_chain: &[B256],
     observed: &[B256],
 ) -> Settlement {
-    if observed.is_empty() || claimed_chain.is_empty() {
+    attribute_settlement_with_successes(
+        claimed_current,
+        claimed_chain,
+        &vec![true; claimed_chain.len()],
+        observed,
+    )
+}
+
+/// One root update whose successful L1 frame persists, plus the contiguous L2
+/// effect range whose checkpoints that update carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SettlementCarrier {
+    claimed_index: usize,
+    root: B256,
+    effect_start: usize,
+    effect_end: usize,
+}
+
+/// Collapse the claimed per-entry root chain into the steps that can actually
+/// emit on L1. Entry zero is the successful anchor. Every later successful
+/// entry carries its own L2 checkpoint and the checkpoints of immediately
+/// following failed entries; leading failed entries are carried by the anchor.
+fn settlement_carriers(
+    claimed_chain: &[B256],
+    claimed_successes: &[bool],
+) -> Vec<SettlementCarrier> {
+    if claimed_chain.is_empty() || claimed_chain.len() != claimed_successes.len() {
+        return Vec::new();
+    }
+
+    let effect_count = claimed_chain.len() - 1;
+    let successful_effects = claimed_successes[1..]
+        .iter()
+        .enumerate()
+        .filter_map(|(effect_index, success)| success.then_some(effect_index))
+        .collect::<Vec<_>>();
+    let leading_end = successful_effects.first().copied().unwrap_or(effect_count);
+    let mut carriers = Vec::with_capacity(1 + successful_effects.len());
+    carriers.push(SettlementCarrier {
+        claimed_index: 0,
+        root: claimed_chain[0],
+        effect_start: 0,
+        effect_end: leading_end,
+    });
+    for (position, effect_start) in successful_effects.iter().copied().enumerate() {
+        let effect_end = successful_effects
+            .get(position + 1)
+            .copied()
+            .unwrap_or(effect_count);
+        carriers.push(SettlementCarrier {
+            claimed_index: effect_start + 1,
+            root: claimed_chain[effect_start + 1],
+            effect_start,
+            effect_end,
+        });
+    }
+    carriers
+}
+
+fn attribute_settlement_with_successes(
+    claimed_current: Option<B256>,
+    claimed_chain: &[B256],
+    claimed_successes: &[bool],
+    observed: &[B256],
+) -> Settlement {
+    let carriers = settlement_carriers(claimed_chain, claimed_successes);
+    if observed.is_empty() || carriers.is_empty() {
         return Settlement::NONE;
     }
-    // The run must appear as a consecutive slice of the claimed chain.
-    if observed.len() > claimed_chain.len() {
+    // The run must appear as a consecutive slice of the updates whose L1
+    // frames can persist. Failed entries are absent from `observed` because
+    // their events roll back with the intentional revert.
+    if observed.len() > carriers.len() {
         return Settlement::NONE;
     }
-    let Some(start) = (0..=(claimed_chain.len() - observed.len()))
-        .find(|&s| claimed_chain[s..].starts_with(observed))
-    else {
+    let Some(carrier_start) = (0..=(carriers.len() - observed.len())).find(|&start| {
+        carriers[start..start + observed.len()]
+            .iter()
+            .map(|carrier| carrier.root)
+            .eq(observed.iter().copied())
+    }) else {
         // The window settled roots this batch never claimed. Not attributable
         // to it — treat as "nothing of ours applied" and let the caller skip;
         // the cursor guard catches any real misalignment loudly.
@@ -515,16 +646,27 @@ fn attribute_settlement(
         );
         return Settlement::NONE;
     };
+    let first = carriers[carrier_start];
+    let last = carriers[carrier_start + observed.len() - 1];
+
+    // Preserve Settlement's virtual `[anchor | producing effects...]` index
+    // space. A carrier expands to every failed effect checkpoint it commits,
+    // so `producing_slice()` continues to return one contiguous effect range.
+    let (start, len) = if first.claimed_index == 0 {
+        (0, 1 + last.effect_end)
+    } else {
+        (first.effect_start + 1, last.effect_end - first.effect_start)
+    };
     Settlement {
         start,
-        len: observed.len(),
+        len,
         final_state: observed.last().copied(),
         // Leading steps skipped ⇒ the run began at the last skipped step's
-        // `newState` (a competing batch had already made that hop).
-        entry_state: if start == 0 {
+        // `newRoot` (a competing batch had already made that hop).
+        entry_state: if first.claimed_index == 0 {
             claimed_current
         } else {
-            claimed_chain.get(start - 1).copied()
+            claimed_chain.get(first.claimed_index - 1).copied()
         },
     }
 }
@@ -571,8 +713,8 @@ async fn fetch_log_transaction(
 mod tests {
     use super::{
         BatchLogChunks, LOG_SCAN_CHUNK_BLOCKS, SettledRoot, Settlement, attribute_settlement,
-        fetch_log_transaction, initial_log_scan_ranges, scan_batch_logs_range,
-        scan_next_batch_log_chunk, window_roots,
+        attribute_settlement_with_successes, fetch_log_transaction, initial_log_scan_ranges,
+        our_state_chain, scan_batch_logs_range, scan_next_batch_log_chunk, window_roots,
     };
     use crate::error::L1Error;
     use alloy_consensus::transaction::TxHashRef;
@@ -582,9 +724,10 @@ mod tests {
     use alloy_transport::mock::Asserter;
     use eez_protocol::abi::{
         BatchPosted, ExecutionEntrySol, L2ExecutionPerformed,
-        ProofSystemBatchPerVerificationEntriesSol, RollupIdWithProofSystemsSol, StateUpdateSol,
+        ProofSystemBatchPerVerificationEntriesSol, RollupIdWithProofSystemsSol, RootUpdateSol,
         postAndVerifyBatchCall,
     };
+    use std::collections::HashSet;
 
     #[test]
     fn initial_log_scan_ranges_stack_order() {
@@ -690,7 +833,7 @@ mod tests {
 
     /// A loser gets an EMPTY window (its rival's events belong to the rival's
     /// window), so nothing is attributed to it ⇒ the deriver skips it. Crediting
-    /// the loser with the winner's root let its phantom `currentState` reach the
+    /// the loser with the winner's root let its phantom `currentRoot` reach the
     /// cursor guard and fail boot catch_up.
     #[test]
     fn loser_with_empty_window_is_skipped() {
@@ -794,7 +937,7 @@ mod tests {
     /// `len - 1` would under-count them and truncate a system tx.
     #[test]
     fn anchor_skipped_run_starts_at_one() {
-        let b = B256::repeat_byte(0x0B); // anchor's newState
+        let b = B256::repeat_byte(0x0B); // anchor's newRoot
         let c = B256::repeat_byte(0x0C);
         let d = B256::repeat_byte(0x0D);
         let s = attribute_settlement(None, &[b, c, d], &[c, d]);
@@ -844,7 +987,7 @@ mod tests {
         // Skip the producing entry the competitor settled (tx-1), take tx-2.
         assert_eq!(s.producing_slice(), (1, 1));
         // Reconciliation compares its cursor against `C` — the root the run began
-        // at — not the claimed `currentState` (`A`), which would look diverged.
+        // at — not the claimed `currentRoot` (`A`), which would look diverged.
         assert_eq!(s.entry_state, Some(c));
     }
 
@@ -879,6 +1022,84 @@ mod tests {
             attribute_settlement(None, &[b, c], &[c, b]),
             Settlement::NONE
         );
+    }
+
+    /// A failed source entry leaves no L1 execution event, but its successful
+    /// L2 delivery is already committed by the anchor's carrier root. The
+    /// deriver must therefore rebuild one producing effect, not an empty Sync
+    /// block.
+    #[test]
+    fn anchor_event_carries_a_leading_failed_effect() {
+        let root = B256::repeat_byte(0x0B);
+        let settlement =
+            attribute_settlement_with_successes(None, &[root, root], &[true, false], &[root]);
+        assert_eq!((settlement.start, settlement.len), (0, 2));
+        assert_eq!(settlement.producing_slice(), (0, 1));
+        assert_eq!(settlement.final_state, Some(root));
+    }
+
+    /// Carrier groups partition `[failed, failed, success, failed, success]`
+    /// as `anchor:[0,2)`, `success-2:[2,4)`, `success-4:[4,5)`.
+    #[test]
+    fn carrier_events_expand_over_failed_effect_groups() {
+        let a = B256::repeat_byte(0x0A);
+        let b = B256::repeat_byte(0x0B);
+        let c = B256::repeat_byte(0x0C);
+        let chain = [a, a, a, b, b, c];
+        let successes = [true, false, false, true, false, true];
+
+        let full = attribute_settlement_with_successes(None, &chain, &successes, &[a, b, c]);
+        assert_eq!((full.start, full.len), (0, 6));
+        assert_eq!(full.producing_slice(), (0, 5));
+
+        let resumed = attribute_settlement_with_successes(None, &chain, &successes, &[b, c]);
+        assert_eq!((resumed.start, resumed.len), (3, 3));
+        assert_eq!(resumed.producing_slice(), (2, 3));
+        assert_eq!(resumed.entry_state, Some(a));
+    }
+
+    /// A nominally successful immediate entry can still be skipped by EEZ when
+    /// its destination call reverts. Treating that entry as an event-producing
+    /// carrier leaves the deriver waiting for a root log that cannot exist.
+    #[test]
+    fn skipped_immediate_entry_is_carried_by_the_preceding_success() {
+        let rollup_id = 17;
+        let current = B256::repeat_byte(0x09);
+        let anchor = B256::repeat_byte(0x0A);
+        let effect = B256::repeat_byte(0x0B);
+        let root_update = |current_root, new_root| RootUpdateSol {
+            rollupId: rollup_id,
+            currentRoot: current_root,
+            newRoot: new_root,
+            etherDelta: I256::ZERO,
+        };
+        let batch = ProofSystemBatchPerVerificationEntriesSol {
+            entries: vec![
+                ExecutionEntrySol {
+                    success: true,
+                    rootUpdates: vec![root_update(current, anchor)],
+                    ..Default::default()
+                },
+                ExecutionEntrySol {
+                    success: true,
+                    rootUpdates: vec![root_update(anchor, effect)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let skipped = HashSet::from([1]);
+
+        let (claimed_current, chain, persisted) = our_state_chain(&batch, rollup_id, &skipped);
+        assert_eq!(claimed_current, Some(current));
+        assert_eq!(chain, vec![anchor, effect]);
+        assert_eq!(persisted, vec![true, false]);
+
+        let settlement =
+            attribute_settlement_with_successes(claimed_current, &chain, &persisted, &[anchor]);
+        assert_eq!((settlement.start, settlement.len), (0, 2));
+        assert_eq!(settlement.producing_slice(), (0, 1));
+        assert_eq!(settlement.final_state, Some(anchor));
     }
 
     /// Roots this batch never claimed (window contamination) are not attributed.
@@ -952,10 +1173,10 @@ mod tests {
             entries: step
                 .map(|(current, new)| {
                     vec![ExecutionEntrySol {
-                        stateUpdates: vec![StateUpdateSol {
+                        rootUpdates: vec![RootUpdateSol {
                             rollupId: rollup_id,
-                            currentState: current,
-                            newState: new,
+                            currentRoot: current,
+                            newRoot: new,
                             etherDelta: I256::ZERO,
                         }],
                         ..Default::default()
@@ -1030,7 +1251,7 @@ mod tests {
                 address: Address::ZERO,
                 data: L2ExecutionPerformed {
                     rollupId: rollup_id,
-                    newState: root,
+                    newRoot: root,
                 }
                 .encode_log_data(),
             },

@@ -4,9 +4,9 @@ use super::*;
 fn refresh_l1_rolling_hash(entry: &mut ExecutionEntrySol) {
     let mut rolling_hash = EntryRollingHash::seed_for_l1(
         entry
-            .stateUpdates
+            .rootUpdates
             .iter()
-            .map(|update| (update.rollupId, update.currentState)),
+            .map(|update| (update.rollupId, update.currentRoot)),
         entry.proxyEntryHash,
     );
     for call in &entry.l2ToL1Calls {
@@ -404,7 +404,7 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let value = U256::from(7);
     batch.entries[1].l2ToL1Calls[0].value = value;
-    batch.entries[1].stateUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
     refresh_l1_rolling_hash(&mut batch.entries[1]);
     let mut settling = settling_with_outbound_pairs(&batch);
     settling
@@ -480,11 +480,11 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
     );
 
     // Composer DA carries the pre-settlement projection, not the batch entry
-    // after its state update has been attached.
-    let with_state_update =
+    // after its root update has been attached.
+    let with_root_update =
         encode_da_payload(&[vec![user.clone()]], &[batch.entries[1].abi_encode()]);
     assert_eq!(
-        verify(&with_state_update, [(41, settling_rlp.as_slice())]),
+        verify(&with_root_update, [(41, settling_rlp.as_slice())]),
         Err(DaPayloadError::L2EntryMismatch {
             entry_index: 0,
             transaction_index: 1,
@@ -737,8 +737,7 @@ fn da_payload_binds_the_complete_mixed_sync_sequence_and_sidecar_order() {
         .unwrap();
     batch.entries[2].proxyEntryHash = inbound_observation.recomputed_call_hash;
     batch.entries[2].returnData = inbound_observation.return_data.clone();
-    batch.entries[2].stateUpdates[0].etherDelta =
-        I256::try_from(inbound_observation.value).unwrap();
+    batch.entries[2].rootUpdates[0].etherDelta = I256::try_from(inbound_observation.value).unwrap();
     refresh_l1_rolling_hash(&mut batch.entries[2]);
     settling
         .outbound_event_candidates_mut_for_test()

@@ -111,7 +111,7 @@ where
     /// Builds a deriver. Cursor + per-batch index are populated lazily
     /// by `catch_up_to`, which walks historical `BatchPosted` events
     /// applying the same linearity check live events get — so losers
-    /// (competing batches whose `currentState` no longer matches the
+    /// (competing batches whose `currentRoot` no longer matches the
     /// cursor) don't pollute the index.
     ///
     /// `system_tx_cfg = Some(_)` enables the cross-chain STF path: the
@@ -422,7 +422,7 @@ where
             // batch's APPLIED run started from must equal our state root here,
             // else this scan is misaligned with L1 — bail before replaying onto
             // blocks that exist on no other node. `entry_state`, not the claimed
-            // `currentState`, so a batch whose leading hops a competing same-block
+            // `currentRoot`, so a batch whose leading hops a competing same-block
             // batch already made isn't flagged as diverged.
             if let Some(entry_state) = batch.settlement.entry_state {
                 let local_root = self.l2_state_root_at(*cumulative_l2)?;
@@ -469,9 +469,9 @@ where
                 if resumed {
                     None
                 } else {
-                    batch.settlement.entry_state.or(batch.claimed_current_state)
+                    batch.settlement.entry_state.or(batch.claimed_current_root)
                 },
-                batch.settlement.final_state.or(batch.claimed_new_state),
+                batch.settlement.final_state.or(batch.claimed_new_root),
                 batch_first_l2,
                 batch_last_l2,
                 batch.l1_block_number,
@@ -794,8 +794,8 @@ where
                 post_batch_input,
                 state_applied,
                 settlement,
-                claimed_current_state,
-                claimed_new_state,
+                claimed_current_root,
+                claimed_new_root,
                 ..
             } => {
                 self.on_batch_posted(
@@ -807,8 +807,8 @@ where
                     post_batch_input,
                     state_applied,
                     settlement,
-                    claimed_current_state,
-                    claimed_new_state,
+                    claimed_current_root,
+                    claimed_new_root,
                 )
                 .await
             }
@@ -843,8 +843,8 @@ where
         post_batch_input: Bytes,
         state_applied: bool,
         settlement: eez_l1::Settlement,
-        claimed_current_state: Option<B256>,
-        claimed_new_state: Option<B256>,
+        claimed_current_root: Option<B256>,
+        claimed_new_root: Option<B256>,
     ) -> DeriverResult<()> {
         let decoded = eez_payload_codec::decode(call_data.as_ref())?;
         let block_count = decoded.block_count() as u64;
@@ -903,7 +903,7 @@ where
         );
 
         // `state_applied` only catches the IMMEDIATE-entry path, where
-        // `_applyStateUpdates` fires in the postBatch tx itself. In the
+        // `_applyRootUpdates` fires in the postBatch tx itself. In the
         // DEFERRED-entry path (our setter / deposit flow) it fires later
         // inside the user_tx calling `executeCrossChainCall` — a
         // different tx hash in the same L1 block — so the batch-log scanner
@@ -929,7 +929,7 @@ where
         // Cursor-alignment guard: the root the batch's APPLIED run started from
         // must equal our state root at the cursor, else the local index is
         // misaligned with L1 (e.g. a dropped event) — bail and let the run-loop
-        // resync re-anchor. `entry_state`, not the claimed `currentState`, so a
+        // resync re-anchor. `entry_state`, not the claimed `currentRoot`, so a
         // batch whose leading hops a competing same-block batch already made
         // isn't flagged as diverged.
         if let Some(entry_state) = settlement.entry_state {
@@ -982,9 +982,9 @@ where
             if resumed {
                 None
             } else {
-                settlement.entry_state.or(claimed_current_state)
+                settlement.entry_state.or(claimed_current_root)
             },
-            settlement.final_state.or(claimed_new_state),
+            settlement.final_state.or(claimed_new_root),
             from_block,
             to_block,
             l1_block_number,
@@ -1654,23 +1654,23 @@ where
     /// Loud-fail if the batch's claimed state-root chain disagrees with
     /// our STF's actual L2 roots at the batch boundaries:
     ///
-    /// - `claimed_current_state` (first state update's `currentState`) vs the
+    /// - `claimed_current_root` (first root update's `currentRoot`) vs the
     ///   local root at `from_block - 1`.
-    /// - `claimed_new_state` (last state update's `newState`) vs the local
+    /// - `claimed_new_root` (last root update's `newRoot`) vs the local
     ///   root at `to_block`.
     ///
     /// Both ends are checked — the composer chains deltas across
     /// entries, so checking one would let a crafted chain pass. Matters
     /// under the mock prover, which can't enforce linearity; halting
     /// here surfaces the mismatch at its origin rather than at our next
-    /// post's `StateRootMismatch`.
+    /// post's `RootMismatch`.
     ///
     /// `entry_root` is [`eez_l1::Settlement::entry_state`], not the claimed chain
     /// head — the claimed head would contradict the cursor guard on a mid-chain resume.
     fn check_claimed_state(
         &self,
         entry_root: Option<B256>,
-        claimed_new_state: Option<B256>,
+        claimed_new_root: Option<B256>,
         from_block: u64,
         to_block: u64,
         l1_block_number: u64,
@@ -1701,7 +1701,7 @@ where
                 return Err(DeriverError::local_diverged(pre));
             }
         }
-        if let Some(claimed_new) = claimed_new_state {
+        if let Some(claimed_new) = claimed_new_root {
             let local_post = self
                 .inner
                 .l2_provider
@@ -1720,7 +1720,7 @@ where
                     to_block,
                     local_root = %local_post,
                     claimed = %claimed_new,
-                    "local L2 state root at to_block differs from batch's claimed newState",
+                    "local L2 state root at to_block differs from batch's claimed newRoot",
                 );
                 return Err(DeriverError::local_diverged(to_block));
             }
@@ -2085,7 +2085,7 @@ mod outbound_wiring_tests {
 
     fn outbound_entry(call: L2ToL1CallSol) -> ExecutionEntrySol {
         ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: B256::ZERO, // outbound immediate
             l2ToL1Calls: vec![call],
             expectedL1ToL2Calls: Vec::new(),

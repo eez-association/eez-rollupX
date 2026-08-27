@@ -2,13 +2,14 @@
 
 use alloy_primitives::{B256, I256};
 use eez_protocol::RollupId;
-use eez_protocol::abi::{ExecutionEntrySol, StateUpdateSol};
+use eez_protocol::abi::{ExecutionEntrySol, RootUpdateSol};
 use eez_protocol::entries::{NestedPairDirection, verify_nested_group};
 use eez_protocol::rolling_hash::EntryRollingHash;
+use eez_protocol::system_tx::outbound_settlement_root_counts;
 use thiserror::Error;
 
 use super::blocks::SettlingBlockObservations;
-use super::state_chain::VerifiedStateUpdateChain;
+use super::state_chain::VerifiedRootUpdateChain;
 use crate::validate::TransactionStateCheckpoint;
 
 /// Shape classification of one claimed batch entry; every unsupported shape
@@ -58,7 +59,7 @@ pub(super) struct BoundEffect<'batch> {
     callback_start_transaction_index: usize,
     kind: EffectKind,
     claimed_entry: &'batch ExecutionEntrySol,
-    claimed_state_update: &'batch StateUpdateSol,
+    claimed_root_update: &'batch RootUpdateSol,
 }
 
 impl<'batch> BoundEffect<'batch> {
@@ -98,8 +99,8 @@ impl<'batch> BoundEffect<'batch> {
         self.claimed_entry
     }
 
-    pub(super) const fn claimed_state_update(&self) -> &'batch StateUpdateSol {
-        self.claimed_state_update
+    pub(super) const fn claimed_root_update(&self) -> &'batch RootUpdateSol {
+        self.claimed_root_update
     }
 }
 
@@ -149,7 +150,7 @@ pub(crate) enum EffectPrefixError {
     )]
     EffectCountMismatch { claimed: usize, observed: usize },
     #[error(
-        "anchor claims post-state {claimed_anchor_post_state}; validated pre-settling root is {validated_pre_settling_root}"
+        "anchor claims post-state {claimed_anchor_post_state}; expected root carrier endpoint is {validated_pre_settling_root}"
     )]
     AnchorRootMismatch {
         validated_pre_settling_root: B256,
@@ -177,7 +178,7 @@ pub(crate) enum EffectPrefixError {
         observed: ObservedEffectKind,
     },
     #[error(
-        "settlement entry {entry_index} claims post-state {claimed_post_state}; transaction {transaction_index} recomputed {recomputed_checkpoint}"
+        "settlement entry {entry_index} claims post-state {claimed_post_state}; effect candidate {transaction_index} requires carrier root {recomputed_checkpoint}"
     )]
     EffectStateRootMismatch {
         entry_index: usize,
@@ -232,10 +233,18 @@ fn derive_effect_positions(
         .collect::<Result<Vec<_>, _>>()
         .ok()
         .map(|counts| counts.into_iter().sum::<usize>());
-    let claimed_source_count = outbound_entries
-        .iter()
-        .map(|entry| entry.l2ToL1Calls.len())
-        .sum::<usize>();
+    let claimed_source_count = outbound_entries.iter().try_fold(
+        0usize,
+        |total, entry| -> Result<usize, EffectPrefixError> {
+            let count = outbound_settlement_root_counts(std::slice::from_ref(*entry))
+                .map_err(|reason| EffectPrefixError::InvalidEffectTransactionLayout { reason })?[0];
+            total.checked_add(count).ok_or_else(|| {
+                EffectPrefixError::InvalidEffectTransactionLayout {
+                    reason: "outbound source-entry count overflows usize".into(),
+                }
+            })
+        },
+    )?;
     if loaded_source_count != Some(claimed_source_count) || incoming.len() < inbound_count {
         // Keep malformed selector-level candidates in the later direction
         // gates. Boolean framing is sufficient for the legacy two-tx shape;
@@ -319,7 +328,8 @@ fn derive_effect_positions(
                     reason: "missing claimed host for outbound source roots".into(),
                 }
             })?;
-            let source_entry_count = claimed.l2ToL1Calls.len();
+            let source_entry_count = outbound_settlement_root_counts(std::slice::from_ref(claimed))
+                .map_err(|reason| EffectPrefixError::InvalidEffectTransactionLayout { reason })?[0];
             if source_entry_count == 0 || source_entry_start + source_entry_count > entries.len() {
                 return Err(EffectPrefixError::InvalidEffectTransactionLayout {
                     reason: format!(
@@ -439,15 +449,17 @@ fn derive_effect_positions(
     Ok(positions)
 }
 
-/// Bind each verified state-update-chain entry to its settling-block candidate and
+/// Bind each verified root-update-chain entry to its settling-block candidate and
 /// transaction state checkpoint.
 ///
-/// [`VerifiedStateUpdateChain`] already guarantees a nonempty batch with exactly
+/// [`VerifiedRootUpdateChain`] already guarantees a nonempty batch with exactly
 /// one continuous, expected-rollup update per entry. This gate adds effect-shape,
-/// candidate, and checkpoint bindings. For a nonempty effect set, the anchor's
-/// `newState` must equal the validated pre-settling root.
+/// candidate, checkpoint, and root-carrier bindings. A successful entry carries
+/// its checkpoint and those of any immediately following failed entries. The
+/// anchor carries leading failed checkpoints, and failed entries claim no-op
+/// root updates because their L1 execution rolls updates back.
 pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
-    verified_state_chain: &VerifiedStateUpdateChain<'batch>,
+    verified_state_chain: &VerifiedRootUpdateChain<'batch>,
     validated_settling_pre_state_root: B256,
     computed_transaction_state_checkpoints: &[TransactionStateCheckpoint],
     settling_observations: &'settling SettlingBlockObservations,
@@ -505,7 +517,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
         });
     }
     // With no effects the batch never represents the pre-settling root; the
-    // state-update-chain gate binds the anchor's `newState` to the final root instead.
+    // root-update-chain gate binds the anchor's `newRoot` to the final root instead.
     if claimed == 0 {
         if !computed_transaction_state_checkpoints.is_empty() {
             return Err(EffectPrefixError::TransactionStateCheckpointCountMismatch {
@@ -519,12 +531,6 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
         });
     }
 
-    if anchor_update.newState != validated_settling_pre_state_root {
-        return Err(EffectPrefixError::AnchorRootMismatch {
-            validated_pre_settling_root: validated_settling_pre_state_root,
-            claimed_anchor_post_state: anchor_update.newState,
-        });
-    }
     let has_grouped_callbacks = effect_positions
         .iter()
         .any(|position| position.end != position.user)
@@ -537,13 +543,8 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             actual: computed_transaction_state_checkpoints.len(),
         });
     }
-    let mut bound_effects = Vec::with_capacity(claimed);
-    // Equal counts were established above, so one index names the claim, its
-    // observed transaction boundary, and the locally recomputed checkpoint.
-    for (effect_index, (entry_index, kind, entry, update)) in
-        claimed_effects.into_iter().enumerate()
-    {
-        let position = effect_positions[effect_index];
+    let mut matched_checkpoints = Vec::with_capacity(claimed);
+    for (effect_index, position) in effect_positions.iter().copied().enumerate() {
         let transaction_index = position.end;
         let checkpoint = if has_grouped_callbacks {
             computed_transaction_state_checkpoints
@@ -564,6 +565,32 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             }
             checkpoint
         };
+        matched_checkpoints.push(checkpoint);
+    }
+
+    let (expected_anchor_root, expected_effect_roots) =
+        eez_protocol::settlement::settlement_root_carriers(
+            validated_settling_pre_state_root,
+            matched_checkpoints
+                .iter()
+                .zip(&claimed_effects)
+                .map(|(checkpoint, (_, _, entry, _))| (checkpoint.state_root, entry.success)),
+        );
+    if anchor_update.newRoot != expected_anchor_root {
+        return Err(EffectPrefixError::AnchorRootMismatch {
+            validated_pre_settling_root: expected_anchor_root,
+            claimed_anchor_post_state: anchor_update.newRoot,
+        });
+    }
+
+    let mut bound_effects = Vec::with_capacity(claimed);
+    // Candidate positions and checkpoints were joined above. Bind direction
+    // and the independently derived carrier root in that same order.
+    for (effect_index, (entry_index, kind, entry, update)) in
+        claimed_effects.into_iter().enumerate()
+    {
+        let position = effect_positions[effect_index];
+        let transaction_index = position.end;
         let claimed_kind = kind.claimed_shape();
         let observed_kind = if settling_observations.system_sender_flags()[position.user] {
             ObservedEffectKind::Inbound
@@ -583,8 +610,8 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             });
         }
 
-        let recomputed_checkpoint = checkpoint.state_root;
-        let claimed_post_state = update.newState;
+        let recomputed_checkpoint = expected_effect_roots[effect_index];
+        let claimed_post_state = update.newRoot;
         if claimed_post_state != recomputed_checkpoint {
             return Err(EffectPrefixError::EffectStateRootMismatch {
                 entry_index,
@@ -603,7 +630,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             callback_start_transaction_index: position.callback_start,
             kind,
             claimed_entry: entry,
-            claimed_state_update: update,
+            claimed_root_update: update,
         });
     }
 
@@ -617,7 +644,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
 /// kind; the per-kind gates bind that shape to locally recovered evidence.
 fn classify_claimed_entry(
     entry: &ExecutionEntrySol,
-    update: &StateUpdateSol,
+    update: &RootUpdateSol,
     settled_rollup: u64,
 ) -> ClaimedEntryShape {
     if eez_protocol::system_tx::check_entry_shape(entry, "settlement").is_err() {
@@ -628,7 +655,11 @@ fn classify_claimed_entry(
         return ClaimedEntryShape::Inbound;
     }
     if !entry.l2ToL1Calls.is_empty() {
-        return ClaimedEntryShape::Outbound;
+        return if entry.success {
+            ClaimedEntryShape::Outbound
+        } else {
+            ClaimedEntryShape::Invalid
+        };
     }
 
     if !entry.expectedL1ToL2Calls.is_empty() {
@@ -636,9 +667,10 @@ fn classify_claimed_entry(
     }
 
     let expected_anchor_hash =
-        EntryRollingHash::seed_for_l1([(update.rollupId, update.currentState)], B256::ZERO)
+        EntryRollingHash::seed_for_l1([(update.rollupId, update.currentRoot)], B256::ZERO)
             .current();
-    if entry.destinationRollupId == settled_rollup
+    if entry.success
+        && entry.destinationRollupId == settled_rollup
         && entry.returnData.is_empty()
         && entry.rollingHash == expected_anchor_hash
     {

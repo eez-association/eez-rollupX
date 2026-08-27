@@ -120,7 +120,7 @@ async fn multi_sequencer_intra_batch_suffix_replay_converges() {
 /// observable invariant in one place:
 ///   - lockstep: `BatchPosted == L2ExecutionPerformed`, always;
 ///   - zero `L2TxSkipped` (no prestate/rolling-hash misfire);
-///   - `latest_event.newState == rollups[rid].stateRoot` (event-state
+///   - `latest_event.newRoot == rollups[rid].root` (event-state
 ///     consistency);
 ///   - state advances forward (≠ `B256::ZERO`, monotonic);
 ///   - across restart: counts keep lockstep (no replay), state keeps
@@ -182,7 +182,7 @@ async fn happy_case_composer_sustained() {
         assert_eq!(
             chain.latest_execution_state().await.unwrap().unwrap(),
             root_before,
-            "latest event's newState == on-chain stateRoot",
+            "latest event's newRoot == on-chain stateRoot",
         );
     }
 

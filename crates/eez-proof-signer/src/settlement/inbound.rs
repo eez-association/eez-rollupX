@@ -7,7 +7,7 @@ use alloy_primitives::{Address, B256, Bytes, I256, U256};
 use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::abi::{ExecutionEntrySol, executeIncomingCrossChainCallCall};
 use eez_protocol::entries::{NestedPairDirection, verify_nested_pair};
-use eez_protocol::system_tx::{check_entry_shape, lift_entry_from_l2};
+use eez_protocol::system_tx::{check_entry_shape, committed_l2_table_value, lift_entry_from_l2};
 use eez_protocol::{CallHashInput, CallMode, RollupId, common_cross_chain_call_hash};
 use thiserror::Error;
 
@@ -74,7 +74,7 @@ pub(crate) enum InboundObservationError {
     InvalidAbi { reason: String },
     #[error("inbound calldata is not its canonical complete ABI encoding")]
     NonCanonicalAbi,
-    #[error("native transaction value is {actual}; outer inbound value is {expected}")]
+    #[error("native transaction value is {actual}; committed L2 table value is {expected}")]
     NativeValueMismatch { expected: U256, actual: U256 },
     #[error("inbound source rollup is {actual}; expected L1 rollup 0")]
     SourceRollup { actual: u64 },
@@ -84,8 +84,6 @@ pub(crate) enum InboundObservationError {
     StaticEntryCount { actual: usize },
     #[error("inbound execution entry has invalid {field}")]
     InvalidEntryShape { field: &'static str },
-    #[error("outer and inner inbound {field} differ")]
-    OuterInnerMismatch { field: &'static str },
     #[error("inbound claimed call hash is {claimed}; recomputed {recomputed}")]
     CallHashMismatch { recomputed: B256, claimed: B256 },
     #[error("inbound call hash is the reserved zero value")]
@@ -116,17 +114,6 @@ pub(super) fn inspect_inbound_candidate(
     if call.abi_encode().as_slice() != calldata {
         return Err(InboundObservationError::NonCanonicalAbi);
     }
-    if transaction_value != call.value {
-        return Err(InboundObservationError::NativeValueMismatch {
-            expected: call.value,
-            actual: transaction_value,
-        });
-    }
-    if call.sourceRollup != RollupId::MAINNET.0 {
-        return Err(InboundObservationError::SourceRollup {
-            actual: call.sourceRollup,
-        });
-    }
     let [entry] = call._entries.as_slice() else {
         return Err(InboundObservationError::EntryCount {
             actual: call._entries.len(),
@@ -142,34 +129,36 @@ pub(super) fn inspect_inbound_candidate(
             field: "incomingCalls",
         });
     };
-    if !entry.success {
-        return Err(InboundObservationError::InvalidEntryShape { field: "success" });
-    }
-    for (matches, field) in [
-        (call.destination == inner.targetAddress, "destination"),
-        (call.value == inner.value, "value"),
-        (call.data == inner.data, "data"),
-        (call.sourceAddress == inner.sourceAddress, "sourceAddress"),
-        (call.sourceRollup == inner.sourceRollupId, "sourceRollup"),
-    ] {
-        if !matches {
-            return Err(InboundObservationError::OuterInnerMismatch { field });
-        }
+    if inner.sourceRollupId != RollupId::MAINNET.0 {
+        return Err(InboundObservationError::SourceRollup {
+            actual: inner.sourceRollupId,
+        });
     }
     for (valid, field) in [(!inner.isStatic, "isStatic"), (inner.gas == 0, "gas")] {
         if !valid {
             return Err(InboundObservationError::InvalidEntryShape { field });
         }
     }
+    let committed_value = committed_l2_table_value(call._entries.as_slice()).map_err(|_| {
+        InboundObservationError::InvalidEntryShape {
+            field: "committedValue",
+        }
+    })?;
+    if transaction_value != committed_value {
+        return Err(InboundObservationError::NativeValueMismatch {
+            expected: committed_value,
+            actual: transaction_value,
+        });
+    }
 
     let recomputed_call_hash = common_cross_chain_call_hash(CallHashInput {
         call_mode: CallMode::Mutable,
-        source_address: call.sourceAddress,
+        source_address: inner.sourceAddress,
         source_rollup_id: RollupId::MAINNET,
-        target_address: call.destination,
+        target_address: inner.targetAddress,
         target_rollup_id: RollupId(expected_rollup_id.get()),
-        value: call.value,
-        data: &call.data,
+        value: inner.value,
+        data: &inner.data,
     });
     if recomputed_call_hash == B256::ZERO {
         return Err(InboundObservationError::ZeroCallHash);
@@ -188,7 +177,7 @@ pub(super) fn inspect_inbound_candidate(
     }
     Ok(InboundObservation {
         recomputed_call_hash,
-        value: call.value,
+        value: inner.value,
         return_data: entry.returnData.clone(),
         derived_da_entry: DerivedInboundDaEntry(derived_da_entry),
     })
@@ -455,7 +444,12 @@ fn authorize_inbound_effect(
             claimed: entry.proxyEntryHash,
         });
     }
-    if entry.returnData != observation.return_data {
+    let expected_delivery_return = if entry.success {
+        entry.returnData.as_ref()
+    } else {
+        &[]
+    };
+    if observation.return_data.as_ref() != expected_delivery_return {
         return Err(InboundEffectError::ReturnDataMismatch { entry_index });
     }
     I256::try_from(observation.value).map_err(|_| InboundEffectError::ValueOutOfRange {
@@ -524,7 +518,7 @@ fn authorize_inbound_effect(
             });
         }
     }
-    let update = effect.claimed_state_update();
+    let update = effect.claimed_root_update();
     let expected = verification.ether_delta;
     if update.etherDelta != expected {
         return Err(InboundEffectError::EtherDeltaMismatch {

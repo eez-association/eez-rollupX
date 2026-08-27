@@ -21,7 +21,7 @@ use super::l1_call_from_action;
 ///
 /// L2 entries are finalized immediately from their state-independent seed.
 /// L1 entries retain this trace until settlement attaches the ordered
-/// `StateUpdate`s whose current roots form the entry seed.
+/// `RootUpdate`s whose current roots form the entry seed.
 #[derive(Clone, Debug, Default)]
 pub struct EntryTrace {
     events: Vec<TraceEvent>,
@@ -55,8 +55,8 @@ pub(crate) struct MaterializedBatch {
 
 /// Materialize every chain touched by one source transaction.
 ///
-/// The supported nested profile is mutable execution with successful
-/// top-level calls, plus terminal failed nested rows whose frames roll back.
+/// The supported nested profile is mutable execution with terminal failed
+/// top-level calls and terminal failed nested rows whose frames roll back.
 /// Source-frame revert spans are lowered to per-destination-array
 /// `revertNextNCalls` markers. The executing source chain restores its own
 /// rolling-hash branch, while every other chain preserves its execution folds
@@ -68,6 +68,9 @@ pub(crate) fn materialize_batches(
     entry_rollup_id: RollupId,
 ) -> ProtocolResult<HashMap<RollupId, MaterializedBatch>> {
     let forest = CallForest::new(recorded, entry_rollup_id)?;
+    let l2_plan = (!entry_rollup_id.is_mainnet())
+        .then(|| L2RootPlan::build(recorded, &forest))
+        .transpose()?;
     let mut materializer = Materializer::new(
         recorded,
         forest.children,
@@ -75,8 +78,9 @@ pub(crate) fn materialize_batches(
         forest.regions,
     );
 
-    let source_entry_count = forest.roots.len();
+    let source_entry_count;
     if entry_rollup_id.is_mainnet() {
+        source_entry_count = forest.roots.len();
         for root in forest.roots {
             materializer.begin_region(root)?;
             let call = recorded[root].clone();
@@ -91,13 +95,16 @@ pub(crate) fn materialize_batches(
             materializer.close_region_at_subtree(root)?;
         }
     } else {
-        // Every top-level L2-origin call has one seed-only source entry, and
-        // the whole source transaction has exactly one immediate L1 host.
-        // The source user transaction consumes those entries before L1
-        // settlement runs, so callbacks from L1 are not embedded in them:
-        // each callback is a separate executeIncomingCrossChainCall delivery.
-        let roots = forest.roots;
-        for &root in &roots {
+        // Each source-table cursor slot has one seed-only L2 entry. Flat roots
+        // share an immediate L1 host, while a root that returns to L2 gets its
+        // own host so its callback delivery stays aligned with that effect.
+        // A reverted source frame restores its cursor, so a later retry reuses
+        // both the same source entry and the same L1 host; all remotely
+        // executed attempts stay in that host so `revertNextNCalls` can mirror
+        // the rollback.
+        let plan = l2_plan.expect("non-mainnet entry has an L2 root plan");
+        source_entry_count = plan.slot_roots.len();
+        for &root in &plan.slot_roots {
             let call = recorded[root].clone();
             materializer.push_entry(
                 entry_rollup_id,
@@ -107,27 +114,38 @@ pub(crate) fn materialize_batches(
             );
         }
 
-        let host_index = materializer.open_host_entry(RollupId::MAINNET, entry_rollup_id);
-        let mut source_callback_counts = Vec::with_capacity(roots.len());
-        for root in roots {
-            materializer.begin_region(root)?;
+        let mut host_indices = vec![None; plan.host_count];
+        let mut source_callback_counts = vec![0usize; source_entry_count];
+        for assignment in plan.assignments {
+            materializer.begin_region(assignment.root)?;
+            let host_index = match host_indices[assignment.host_group] {
+                Some(index) => {
+                    materializer.install_context(RollupId::MAINNET, index);
+                    index
+                }
+                None => {
+                    let index = materializer.open_host_entry(RollupId::MAINNET, entry_rollup_id);
+                    host_indices[assignment.host_group] = Some(index);
+                    index
+                }
+            };
             let callback_start = materializer
                 .outputs
                 .get(&entry_rollup_id)
                 .expect("source entries installed")
                 .entries
                 .len();
-            materializer.execute_call(root)?;
+            materializer.execute_call(assignment.root)?;
             let callback_end = materializer
                 .outputs
                 .get(&entry_rollup_id)
                 .expect("source entries installed")
                 .entries
                 .len();
-            source_callback_counts.push(callback_end - callback_start);
-            materializer.close_region_at_subtree(root)?;
+            source_callback_counts[assignment.source_slot] += callback_end - callback_start;
+            materializer.close_region_at_subtree(assignment.root)?;
+            materializer.close_entry(RollupId::MAINNET, host_index);
         }
-        materializer.close_entry(RollupId::MAINNET, host_index);
         materializer.source_callback_counts = source_callback_counts;
     }
 
@@ -135,7 +153,7 @@ pub(crate) fn materialize_batches(
 }
 
 /// Finalize nested position keys and the rolling hash for L1 entries after
-/// settlement has attached the exact ordered state updates.
+/// settlement has attached the exact ordered root updates.
 pub fn finalize_l1_entry_traces(batch: &mut EvmBatch, traces: &[EntryTrace]) -> ProtocolResult<()> {
     if batch.entries.len() != traces.len() {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
@@ -152,9 +170,9 @@ pub fn finalize_l1_entry_traces(batch: &mut EvmBatch, traces: &[EntryTrace]) -> 
     }
 
     for (entry_index, (entry, trace)) in batch.entries.iter_mut().zip(traces).enumerate() {
-        if entry.stateUpdates.is_empty() {
+        if entry.rootUpdates.is_empty() {
             return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "L1 entry {entry_index} has no StateUpdates"
+                "L1 entry {entry_index} has no RootUpdates"
             ))
             .into());
         }
@@ -163,9 +181,9 @@ pub fn finalize_l1_entry_traces(batch: &mut EvmBatch, traces: &[EntryTrace]) -> 
             trace,
             EntryRollingHash::seed_for_l1(
                 entry
-                    .stateUpdates
+                    .rootUpdates
                     .iter()
-                    .map(|update| (update.rollupId, update.currentState)),
+                    .map(|update| (update.rollupId, update.currentRoot)),
                 entry.proxyEntryHash,
             ),
         )?;
@@ -179,8 +197,9 @@ fn finalize_trace(
     mut rolling_hash: EntryRollingHash,
 ) -> ProtocolResult<()> {
     let mut next_row = 0usize;
+    let mut seen_rows = vec![false; entry.expectedL1ToL2Calls.len()];
     let mut nested_frames: Vec<(usize, EntryRollingHash)> = Vec::new();
-    let mut region_hash: Option<EntryRollingHash> = None;
+    let mut region_state: Option<(EntryRollingHash, usize)> = None;
     for event in &trace.events {
         match event {
             TraceEvent::CallBegin(call_hash) => rolling_hash.call_begin(*call_hash),
@@ -206,7 +225,15 @@ fn finalize_trace(
                             "reentrant trace references missing row {row_index}"
                         )))
                     })?;
-                row.expectedL1toL2Hash = nested_position_key(*call_hash, rolling_hash.current());
+                seen_rows[*row_index] = true;
+                let position_key = nested_position_key(*call_hash, rolling_hash.current());
+                if row.expectedL1toL2Hash != B256::ZERO && row.expectedL1toL2Hash != position_key {
+                    return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                        "reused reentrant row {row_index} has inconsistent position keys"
+                    ))
+                    .into());
+                }
+                row.expectedL1toL2Hash = position_key;
                 nested_frames.push((*row_index, rolling_hash.clone()));
                 rolling_hash.nested_begin(*call_hash);
                 next_row += 1;
@@ -249,7 +276,10 @@ fn finalize_trace(
                 rolling_hash = saved_hash;
             }
             TraceEvent::RegionBegin => {
-                if region_hash.replace(rolling_hash.clone()).is_some() {
+                if region_state
+                    .replace((rolling_hash.clone(), next_row))
+                    .is_some()
+                {
                     return Err(ProtocolErrorKind::InvalidEncoding(
                         "nested revert regions are not supported".into(),
                     )
@@ -257,11 +287,13 @@ fn finalize_trace(
                 }
             }
             TraceEvent::RegionRestore => {
-                rolling_hash = region_hash.take().ok_or_else(|| {
+                let (saved_hash, saved_cursor) = region_state.take().ok_or_else(|| {
                     crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                        "revert region restore has no saved rolling hash".into(),
+                        "revert region restore has no saved state".into(),
                     ))
                 })?;
+                rolling_hash = saved_hash;
+                next_row = saved_cursor;
             }
         }
     }
@@ -271,16 +303,15 @@ fn finalize_trace(
         )
         .into());
     }
-    if region_hash.is_some() {
+    if region_state.is_some() {
         return Err(ProtocolErrorKind::InvalidEncoding(
             "entry trace ended with an open revert region".into(),
         )
         .into());
     }
-    if next_row != entry.expectedL1ToL2Calls.len() {
+    if seen_rows.iter().any(|seen| !seen) {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "entry has {} reentrant rows but trace finalized {next_row}",
-            entry.expectedL1ToL2Calls.len(),
+            "entry trace did not exercise every reentrant row: cursor={next_row}, seen_rows={seen_rows:?}",
         ))
         .into());
     }
@@ -307,6 +338,152 @@ struct RevertRegion {
     end: usize,
     host_chain: RollupId,
     root_level: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct L2RootAssignment {
+    root: usize,
+    source_slot: usize,
+    host_group: usize,
+}
+
+#[derive(Debug)]
+struct L2RootPlan {
+    assignments: Vec<L2RootAssignment>,
+    slot_roots: Vec<usize>,
+    host_count: usize,
+}
+
+impl L2RootPlan {
+    fn build(recorded: &[ExecutedAction], forest: &CallForest) -> ProtocolResult<Self> {
+        let mut assignments = Vec::with_capacity(forest.roots.len());
+        let mut slot_roots = Vec::new();
+        let mut slot_hosts = Vec::new();
+        let mut cursor = 0usize;
+        let mut next_host = 0usize;
+        let mut flat_host = None;
+        let mut active_region: Option<(usize, usize, usize, bool)> = None;
+
+        for &root in &forest.roots {
+            if let Some(region) = forest.regions.get(&root).filter(|region| region.root_level) {
+                if active_region.is_some() {
+                    return Err(ProtocolErrorKind::Unsupported(
+                        "nested root-level revert regions are not supported",
+                    )
+                    .into());
+                }
+                let has_callbacks = root_range_returns_to_source(
+                    recorded,
+                    root,
+                    region.end,
+                    recorded[root].source_rollup_id,
+                );
+                let host = slot_hosts.get(cursor).copied().unwrap_or_else(|| {
+                    if !has_callbacks && let Some(host) = flat_host {
+                        return host;
+                    }
+                    let host = next_host;
+                    next_host += 1;
+                    host
+                });
+                if has_callbacks {
+                    flat_host = None;
+                } else {
+                    flat_host = Some(host);
+                }
+                active_region = Some((region.end, cursor, host, has_callbacks));
+            }
+
+            let source_slot = cursor;
+            cursor += 1;
+            let has_callbacks = root_range_returns_to_source(
+                recorded,
+                root,
+                forest.subtree_ends[root],
+                recorded[root].source_rollup_id,
+            );
+            let host_group = if let Some((_, _, host, _)) = active_region {
+                host
+            } else if let Some(host) = slot_hosts.get(source_slot).copied() {
+                flat_host = (!has_callbacks).then_some(host);
+                host
+            } else if !has_callbacks && let Some(host) = flat_host {
+                host
+            } else {
+                let host = next_host;
+                next_host += 1;
+                flat_host = (!has_callbacks).then_some(host);
+                host
+            };
+            if has_callbacks && active_region.is_none() {
+                flat_host = None;
+            }
+
+            if let Some(&previous_root) = slot_roots.get(source_slot) {
+                let previous = &recorded[previous_root];
+                let current = &recorded[root];
+                if source_call_hash(previous) != source_call_hash(current)
+                    || previous.outcome.is_success() != current.outcome.is_success()
+                    || previous.outcome.return_data() != current.outcome.return_data()
+                {
+                    return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                        "L2 source cursor slot {source_slot} is reused with a different entry"
+                    ))
+                    .into());
+                }
+                if slot_hosts[source_slot] != host_group {
+                    return Err(ProtocolErrorKind::Unsupported(
+                        "a root-level revert region crosses existing settlement hosts",
+                    )
+                    .into());
+                }
+            } else {
+                debug_assert_eq!(source_slot, slot_roots.len());
+                slot_roots.push(root);
+                slot_hosts.push(host_group);
+            }
+
+            assignments.push(L2RootAssignment {
+                root,
+                source_slot,
+                host_group,
+            });
+
+            if let Some((end, saved_cursor, _, has_callbacks)) = active_region
+                && forest.subtree_ends[root] == end
+            {
+                cursor = saved_cursor;
+                if has_callbacks {
+                    flat_host = None;
+                }
+                active_region = None;
+            }
+        }
+
+        if active_region.is_some() {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "L2 source cursor ended with an open root-level revert region".into(),
+            )
+            .into());
+        }
+
+        Ok(Self {
+            assignments,
+            slot_roots,
+            host_count: next_host,
+        })
+    }
+}
+
+fn root_range_returns_to_source(
+    recorded: &[ExecutedAction],
+    start: usize,
+    end: usize,
+    source: RollupId,
+) -> bool {
+    recorded[start..end]
+        .iter()
+        .any(|call| call.target_rollup_id == source)
 }
 
 impl CallForest {
@@ -447,6 +624,7 @@ impl CallForest {
 struct ActiveContext {
     entry_index: usize,
     frame_rows: Vec<usize>,
+    next_row: usize,
 }
 
 #[derive(Default)]
@@ -467,6 +645,7 @@ struct ActiveRegion {
     end: usize,
     host_chain: RollupId,
     branched: bool,
+    saved_row_cursor: Option<usize>,
     first_calls: HashMap<CallArrayLocation, usize>,
 }
 
@@ -511,6 +690,12 @@ impl<'a> Materializer<'a> {
             .into());
         }
         let branched = !region.root_level && self.active.contains_key(&region.host_chain);
+        let saved_row_cursor = branched.then(|| {
+            self.active
+                .get(&region.host_chain)
+                .expect("branched region host is active")
+                .next_row
+        });
         if branched {
             self.push_event(region.host_chain, TraceEvent::RegionBegin);
         }
@@ -518,6 +703,7 @@ impl<'a> Materializer<'a> {
             end: region.end,
             host_chain: region.host_chain,
             branched,
+            saved_row_cursor,
             first_calls: HashMap::new(),
         });
         Ok(())
@@ -540,6 +726,12 @@ impl<'a> Materializer<'a> {
         }
         let region = self.active_region.take().expect("region checked above");
         if region.branched {
+            self.active
+                .get_mut(&region.host_chain)
+                .expect("branched region host is active")
+                .next_row = region
+                .saved_row_cursor
+                .expect("branched region saved its row cursor");
             self.push_event(region.host_chain, TraceEvent::RegionRestore);
         }
         Ok(())
@@ -575,6 +767,39 @@ impl<'a> Materializer<'a> {
         entry_index
     }
 
+    /// Open an L2 entry used by `executeIncomingCrossChainCall`.
+    ///
+    /// A failed destination call and a failed delivery are different things.
+    /// The former is folded into this entry's rolling hash and is replayed by
+    /// the source-chain entry.  The delivery itself must still commit, or the
+    /// system transaction would discard the verified call trace.  Successful
+    /// calls keep their pre-computed return value; failed calls have no normal
+    /// return value on the destination side.
+    fn open_delivery_entry(
+        &mut self,
+        chain: RollupId,
+        proxy_entry_hash: B256,
+        destination: RollupId,
+        outer: &ExecutedAction,
+    ) -> usize {
+        let entry_index = self.push_entry(chain, proxy_entry_hash, destination, outer);
+        self.outputs
+            .get_mut(&chain)
+            .expect("delivery chain output")
+            .immediate_count += 1;
+        if !outer.outcome.is_success() {
+            let entry = &mut self
+                .outputs
+                .get_mut(&chain)
+                .expect("delivery chain output")
+                .entries[entry_index];
+            entry.success = true;
+            entry.returnData = Bytes::new();
+        }
+        self.install_context(chain, entry_index);
+        entry_index
+    }
+
     fn push_entry(
         &mut self,
         chain: RollupId,
@@ -606,6 +831,7 @@ impl<'a> Materializer<'a> {
             ActiveContext {
                 entry_index,
                 frame_rows: Vec::new(),
+                next_row: 0,
             },
         );
         debug_assert!(previous.is_none(), "one active entry per chain");
@@ -629,7 +855,7 @@ impl<'a> Materializer<'a> {
                 ))
                 .into());
             }
-            Some(self.open_entry(
+            Some(self.open_delivery_entry(
                 destination,
                 destination_call_hash(&call),
                 destination,
@@ -679,7 +905,13 @@ impl<'a> Materializer<'a> {
             ))
             .into());
         }
-        let row_index = self.push_row(source_chain, &call);
+        let (row_index, reused) = self.push_row(source_chain, &call)?;
+        if reused && !self.children[node_index].is_empty() {
+            return Err(ProtocolErrorKind::Unsupported(
+                "reusing a reverted reentrant row with descendants is not supported",
+            )
+            .into());
+        }
         self.push_event(
             source_chain,
             TraceEvent::NestedBegin {
@@ -779,14 +1011,36 @@ impl<'a> Materializer<'a> {
         }
     }
 
-    fn push_row(&mut self, chain: RollupId, call: &ExecutedAction) -> usize {
-        let entry_index = self
-            .active
-            .get(&chain)
-            .expect("source context active")
-            .entry_index;
+    fn push_row(
+        &mut self,
+        chain: RollupId,
+        call: &ExecutedAction,
+    ) -> ProtocolResult<(usize, bool)> {
+        let context = self.active.get_mut(&chain).expect("source context active");
+        let entry_index = context.entry_index;
+        let row_index = context.next_row;
+        context.next_row += 1;
         let entry = &mut self.outputs.get_mut(&chain).expect("chain output").entries[entry_index];
-        let row_index = entry.expectedL1ToL2Calls.len();
+        if let Some(row) = entry.expectedL1ToL2Calls.get(row_index) {
+            let return_data = call
+                .outcome
+                .return_data()
+                .expect("materializable outcome is resolved");
+            if row.success != call.outcome.is_success() || row.returnData.as_ref() != return_data {
+                return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                    "reverted reentrant cursor row {row_index} is reused with a different outcome"
+                ))
+                .into());
+            }
+            return Ok((row_index, true));
+        }
+        if row_index != entry.expectedL1ToL2Calls.len() {
+            return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                "reentrant row cursor {row_index} advances beyond {} rows",
+                entry.expectedL1ToL2Calls.len(),
+            ))
+            .into());
+        }
         entry.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
             expectedL1toL2Hash: B256::ZERO,
             l2ToL1Calls: Vec::new(),
@@ -798,7 +1052,7 @@ impl<'a> Materializer<'a> {
                     .expect("materializable outcome is resolved"),
             ),
         });
-        row_index
+        Ok((row_index, false))
     }
 
     fn push_event(&mut self, chain: RollupId, event: TraceEvent) {
@@ -909,7 +1163,7 @@ mod tests {
 
     use super::*;
     use crate::CallMode;
-    use crate::abi::StateUpdateSol;
+    use crate::abi::RootUpdateSol;
 
     fn action(
         index: usize,
@@ -933,6 +1187,46 @@ mod tests {
             },
             revert_span: None,
         }
+    }
+
+    #[test]
+    fn failed_inbound_root_replays_failure_on_l1_but_commits_l2_delivery() {
+        let l2 = RollupId(1);
+        let mut call = action(0, None, RollupId::MAINNET, l2);
+        call.outcome = crate::ExecutionOutcome::Resolved {
+            return_data: b"destination reverted".to_vec(),
+            gas_used: 30_000,
+            success: false,
+        };
+
+        let mut batches = materialize_batches(std::slice::from_ref(&call), RollupId::MAINNET)
+            .expect("materialize failed inbound root");
+        let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        let l2_output = batches.remove(&l2).expect("L2 delivery");
+        assert!(batches.is_empty());
+
+        let l1_entry = &mut l1.batch.entries[0];
+        assert!(!l1_entry.success);
+        assert_eq!(l1_entry.returnData.as_ref(), b"destination reverted");
+        l1_entry.rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0x11),
+            newRoot: B256::with_last_byte(0x12),
+            etherDelta: I256::ZERO,
+        });
+        finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
+            .expect("finalize failed inbound root");
+
+        let l2_entry = &l2_output.batch.entries[0];
+        assert!(l2_entry.success, "the system delivery must commit");
+        assert!(l2_entry.returnData.is_empty());
+        crate::entries::verify_nested_pair(
+            &l1.batch.entries[0],
+            l2_entry,
+            crate::entries::NestedPairDirection::Inbound,
+            l2,
+        )
+        .expect("verify failed inbound root projection");
     }
 
     #[test]
@@ -1011,10 +1305,10 @@ mod tests {
         l2_hash.call_end(true, calls[1].outcome.return_data().unwrap());
         assert_eq!(callback_entry.rollingHash, l2_hash.current());
 
-        l1.batch.entries[0].stateUpdates.push(StateUpdateSol {
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
-            currentState: B256::with_last_byte(0x51),
-            newState: B256::with_last_byte(0x52),
+            currentRoot: B256::with_last_byte(0x51),
+            newRoot: B256::with_last_byte(0x52),
             etherDelta: I256::ZERO,
         });
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
@@ -1092,10 +1386,10 @@ mod tests {
         assert_eq!(l1.batch.entries[0].l2ToL1Calls.len(), 2);
         assert!(l1.batch.entries[0].expectedL1ToL2Calls.is_empty());
 
-        l1.batch.entries[0].stateUpdates.push(StateUpdateSol {
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
-            currentState: B256::with_last_byte(0x61),
-            newState: B256::with_last_byte(0x62),
+            currentRoot: B256::with_last_byte(0x61),
+            newRoot: B256::with_last_byte(0x62),
             etherDelta: I256::ZERO,
         });
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
@@ -1127,6 +1421,33 @@ mod tests {
     }
 
     #[test]
+    fn callback_bearing_l2_roots_get_separate_l1_hosts() {
+        let l2 = RollupId(1);
+        let calls = vec![
+            action(0, None, l2, RollupId::MAINNET),
+            action(1, Some(0), RollupId::MAINNET, l2),
+            action(2, None, l2, RollupId::MAINNET),
+            action(3, Some(2), RollupId::MAINNET, l2),
+        ];
+
+        let mut batches = materialize_batches(&calls, l2).expect("materialize callback roots");
+        let l1 = batches.remove(&RollupId::MAINNET).expect("L1 hosts");
+        let l2_output = batches.remove(&l2).expect("L2 source and callbacks");
+        assert!(batches.is_empty());
+
+        assert_eq!(l2_output.source_entry_count, 2);
+        assert_eq!(l2_output.source_callback_counts, [1, 1]);
+        assert_eq!(l2_output.batch.entries.len(), 4);
+        assert_eq!(l1.batch.immediateEntryCount, U256::from(2));
+        assert_eq!(l1.batch.entries.len(), 2);
+        assert!(
+            l1.batch.entries.iter().all(|entry| {
+                entry.l2ToL1Calls.len() == 1 && entry.expectedL1ToL2Calls.len() == 1
+            })
+        );
+    }
+
+    #[test]
     fn root_revert_region_is_lowered_to_one_l1_array_span() {
         let l2 = RollupId(1);
         let mut calls = vec![
@@ -1147,26 +1468,131 @@ mod tests {
         assert_eq!(table_calls[0].revertNextNCalls, 0);
         assert_eq!(table_calls[1].revertNextNCalls, 2);
         assert_eq!(table_calls[2].revertNextNCalls, 0);
+        assert_eq!(
+            crate::system_tx::outbound_settlement_root_counts(&l1.batch.entries).unwrap(),
+            [3]
+        );
 
-        l1.batch.entries[0].stateUpdates.push(StateUpdateSol {
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
-            currentState: B256::with_last_byte(0x71),
-            newState: B256::with_last_byte(0x72),
+            currentRoot: B256::with_last_byte(0x71),
+            newRoot: B256::with_last_byte(0x72),
             etherDelta: I256::ZERO,
         });
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces).expect("finalize rollback host");
+        let mut expected =
+            EntryRollingHash::seed_for_l1([(l2.0, B256::with_last_byte(0x71))], B256::ZERO);
+        for call in &calls {
+            expected.call_begin(destination_call_hash(call));
+            expected.call_end(
+                call.outcome.is_success(),
+                call.outcome.return_data().expect("resolved test outcome"),
+            );
+        }
+        assert_eq!(l1.batch.entries[0].rollingHash, expected.current());
+
         let verified = crate::entries::verify_nested_group(
             &l1.batch.entries[0],
             &l2_output.batch.entries,
             crate::entries::NestedPairDirection::Outbound,
             l2,
         )
-        .expect("verify rollback group");
-        assert_eq!(
-            verified.l2_outbound_hashes,
-            vec![source_call_hash(&calls[0])]
-        );
+        .expect("verify committed root and reverted sibling span");
+        assert_eq!(verified.l2_outbound_hashes, [source_call_hash(&calls[0])]);
         assert_eq!(verified.ether_delta, I256::ZERO);
+    }
+
+    #[test]
+    fn root_revert_retry_reuses_source_slot_and_l1_host() {
+        let l2 = RollupId(1);
+        let mut calls = vec![
+            action(0, None, l2, RollupId::MAINNET),
+            action(0, None, l2, RollupId::MAINNET),
+        ];
+        calls[0].revert_span = Some(1);
+
+        let mut batches = materialize_batches(&calls, l2).expect("materialize rollback retry");
+        let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 host");
+        let l2_output = batches.remove(&l2).expect("L2 source");
+        assert!(batches.is_empty());
+
+        assert_eq!(l2_output.source_entry_count, 1);
+        assert_eq!(l2_output.source_callback_counts, [0]);
+        assert_eq!(l2_output.batch.entries.len(), 1);
+        assert_eq!(l1.batch.entries.len(), 1);
+        assert_eq!(l1.batch.immediateEntryCount, U256::from(1));
+        assert_eq!(l1.batch.entries[0].l2ToL1Calls.len(), 2);
+        assert_eq!(l1.batch.entries[0].l2ToL1Calls[0].revertNextNCalls, 1);
+        assert_eq!(l1.batch.entries[0].l2ToL1Calls[1].revertNextNCalls, 0);
+        assert_eq!(
+            crate::system_tx::outbound_settlement_root_counts(&l1.batch.entries).unwrap(),
+            [1]
+        );
+
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0x81),
+            newRoot: B256::with_last_byte(0x82),
+            etherDelta: I256::ZERO,
+        });
+        finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
+            .expect("finalize rollback retry host");
+
+        let verified = crate::entries::verify_nested_group(
+            &l1.batch.entries[0],
+            &l2_output.batch.entries,
+            crate::entries::NestedPairDirection::Outbound,
+            l2,
+        )
+        .expect("verify rollback retry group");
+        assert_eq!(verified.l2_outbound_hashes, [source_call_hash(&calls[1])]);
+        assert_eq!(
+            verified.ether_delta,
+            -I256::try_from(calls[1].value).unwrap()
+        );
+    }
+
+    #[test]
+    fn nested_revert_retry_reuses_reentrant_row() {
+        let l2 = RollupId(1);
+        let mut calls = vec![
+            action(0, None, RollupId::MAINNET, l2),
+            action(1, Some(0), l2, RollupId::MAINNET),
+            action(1, Some(0), l2, RollupId::MAINNET),
+        ];
+        calls[1].revert_span = Some(1);
+
+        let mut batches = materialize_batches(&calls, RollupId::MAINNET)
+            .expect("materialize nested rollback retry");
+        let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        let l2_output = batches.remove(&l2).expect("L2 destination");
+        assert!(batches.is_empty());
+
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0x91),
+            newRoot: B256::with_last_byte(0x92),
+            etherDelta: I256::ZERO,
+        });
+        finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
+            .expect("finalize nested rollback retry");
+
+        let l1_entry = &l1.batch.entries[0];
+        let l2_entry = &l2_output.batch.entries[0];
+        assert_eq!(l1_entry.l2ToL1Calls.len(), 2);
+        assert_eq!(l1_entry.l2ToL1Calls[0].revertNextNCalls, 1);
+        assert_eq!(l1_entry.l2ToL1Calls[1].revertNextNCalls, 0);
+        assert_eq!(l2_entry.expectedL1ToL2Calls.len(), 1);
+
+        let verified = crate::entries::verify_nested_pair(
+            l1_entry,
+            l2_entry,
+            crate::entries::NestedPairDirection::Inbound,
+            l2,
+        )
+        .expect("verify reused nested row");
+        assert_eq!(verified.l2_outbound_hashes, [source_call_hash(&calls[2])]);
+        assert_eq!(verified.ether_delta, I256::try_from(-1).unwrap());
     }
 
     #[test]
@@ -1189,10 +1615,10 @@ mod tests {
         let l2_output = batches.remove(&l2).expect("L2 target");
         assert!(batches.is_empty());
         let l1_entry = &mut l1.batch.entries[0];
-        l1_entry.stateUpdates.push(StateUpdateSol {
+        l1_entry.rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
-            currentState: B256::with_last_byte(0x71),
-            newState: B256::with_last_byte(0x72),
+            currentRoot: B256::with_last_byte(0x71),
+            newRoot: B256::with_last_byte(0x72),
             etherDelta: I256::ZERO,
         });
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)

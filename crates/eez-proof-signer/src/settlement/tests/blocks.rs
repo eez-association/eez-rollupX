@@ -180,6 +180,9 @@ fn strict_inbound_observation_binds_the_envelope_entry_and_outcome() {
 
 #[test]
 fn strict_inbound_observation_rejects_unbound_envelope_fields() {
+    use alloy_sol_types::SolCall as _;
+    use eez_protocol::abi::{ExpectedOutgoingCrossChainCallSol, executeIncomingCrossChainCallCall};
+
     let value = U256::from(7);
     let calldata = strict_inbound_calldata(value, true);
 
@@ -201,6 +204,35 @@ fn strict_inbound_observation_rejects_unbound_envelope_fields() {
         inspect_inbound_candidate(value, &trailing, true, expected_rollup_id()),
         Err(InboundObservationError::InvalidAbi { .. } | InboundObservationError::NonCanonicalAbi)
     ));
+
+    let mut table = executeIncomingCrossChainCallCall::abi_decode(&calldata).unwrap();
+    let mut nested = table._entries[0].incomingCalls[0].clone();
+    nested.value = U256::from(5);
+    table._entries[0]
+        .expectedOutgoingCalls
+        .push(ExpectedOutgoingCrossChainCallSol {
+            expectedOutgoingHash: B256::repeat_byte(0x31),
+            incomingCalls: vec![nested],
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: Bytes::new(),
+        });
+    assert_eq!(
+        inspect_inbound_candidate(value, &table.abi_encode(), true, expected_rollup_id()),
+        Err(InboundObservationError::NativeValueMismatch {
+            expected: U256::from(12),
+            actual: value,
+        })
+    );
+    assert!(
+        inspect_inbound_candidate(
+            U256::from(12),
+            &table.abi_encode(),
+            true,
+            expected_rollup_id(),
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -212,7 +244,6 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
     let call = executeIncomingCrossChainCallCall::abi_decode(&calldata).unwrap();
 
     let mut wrong_source_rollup = call.clone();
-    wrong_source_rollup.sourceRollup = 2;
     wrong_source_rollup._entries[0].incomingCalls[0].sourceRollupId = 2;
     assert_eq!(
         inspect_inbound_candidate(
@@ -225,7 +256,7 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
     );
 
     type Mutation = fn(&mut executeIncomingCrossChainCallCall);
-    let mutations: [(Mutation, InboundObservationError); 11] = [
+    let mutations: [(Mutation, InboundObservationError); 5] = [
         (
             |call| call._entries.clear(),
             InboundObservationError::EntryCount { actual: 0 },
@@ -253,38 +284,6 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
                 field: "incomingCalls",
             },
         ),
-        (
-            |call| call._entries[0].success = false,
-            InboundObservationError::InvalidEntryShape { field: "success" },
-        ),
-        (
-            |call| call._entries[0].incomingCalls[0].targetAddress = Address::ZERO,
-            InboundObservationError::OuterInnerMismatch {
-                field: "destination",
-            },
-        ),
-        (
-            |call| call._entries[0].incomingCalls[0].value = U256::from(8),
-            InboundObservationError::OuterInnerMismatch { field: "value" },
-        ),
-        (
-            |call| {
-                call._entries[0].incomingCalls[0].data = Bytes::from_static(&[0xff]);
-            },
-            InboundObservationError::OuterInnerMismatch { field: "data" },
-        ),
-        (
-            |call| call._entries[0].incomingCalls[0].sourceAddress = Address::ZERO,
-            InboundObservationError::OuterInnerMismatch {
-                field: "sourceAddress",
-            },
-        ),
-        (
-            |call| call._entries[0].incomingCalls[0].sourceRollupId = 1,
-            InboundObservationError::OuterInnerMismatch {
-                field: "sourceRollup",
-            },
-        ),
     ];
     for (mutate, expected) in mutations {
         let mut malformed = call.clone();
@@ -294,6 +293,42 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
             Err(expected)
         );
     }
+
+    let mut failed = call.clone();
+    failed._entries[0].success = false;
+    assert!(
+        inspect_inbound_candidate(value, &failed.abi_encode(), true, expected_rollup_id()).is_ok(),
+        "terminal destination reverts are valid observations"
+    );
+
+    for mutate in [
+        (|call: &mut executeIncomingCrossChainCallCall| {
+            call._entries[0].incomingCalls[0].targetAddress = Address::ZERO;
+        }) as Mutation,
+        |call: &mut executeIncomingCrossChainCallCall| {
+            call._entries[0].incomingCalls[0].data = Bytes::from_static(&[0xff]);
+        },
+        |call: &mut executeIncomingCrossChainCallCall| {
+            call._entries[0].incomingCalls[0].sourceAddress = Address::ZERO;
+        },
+    ] {
+        let mut malformed = call.clone();
+        mutate(&mut malformed);
+        assert!(matches!(
+            inspect_inbound_candidate(value, &malformed.abi_encode(), true, expected_rollup_id()),
+            Err(InboundObservationError::CallHashMismatch { .. })
+        ));
+    }
+
+    let mut wrong_value = call.clone();
+    wrong_value._entries[0].incomingCalls[0].value = U256::from(8);
+    assert_eq!(
+        inspect_inbound_candidate(value, &wrong_value.abi_encode(), true, expected_rollup_id(),),
+        Err(InboundObservationError::NativeValueMismatch {
+            expected: U256::from(8),
+            actual: value,
+        })
+    );
 
     for (mutate, field) in [
         (

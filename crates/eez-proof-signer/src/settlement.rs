@@ -52,7 +52,7 @@ pub(crate) use post_batch::{
     CanonicalPostBatch, CheckedPublicInputProfile, PostBatchDecodeError, PublicInputError,
     RecomputedPublicInputsHash, decode_canonical_post_batch,
 };
-pub(crate) use state_chain::{StateUpdateChainError, verify_state_update_chain};
+pub(crate) use state_chain::{RootUpdateChainError, verify_root_update_chain};
 pub(crate) use system_transactions::{SystemTransactionKey, SystemTransactionReconstructor};
 
 #[cfg(test)]

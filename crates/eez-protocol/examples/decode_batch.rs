@@ -1,4 +1,4 @@
-//! Temporary decoder for the block-1251 postBatch divergence probe.
+//! Decode `postAndVerifyBatch` calldata for settlement diagnostics.
 use alloy_primitives::{B256, hex};
 use alloy_sol_types::{SolCall, SolValue};
 use eez_protocol::abi::{ExecutionEntrySol, postAndVerifyBatchCall};
@@ -7,11 +7,11 @@ fn dump_entry(label: &str, e: &ExecutionEntrySol) {
     println!("== {label} ==");
     println!("  proxyEntryHash = {}", e.proxyEntryHash);
     println!("  destinationRollupId = {}", e.destinationRollupId);
-    println!("  stateUpdates.len() = {}", e.stateUpdates.len());
-    for (j, d) in e.stateUpdates.iter().enumerate() {
+    println!("  rootUpdates.len() = {}", e.rootUpdates.len());
+    for (j, d) in e.rootUpdates.iter().enumerate() {
         println!(
-            "    update[{j}] rollupId={} currentState={} newState={} etherDelta={}",
-            d.rollupId, d.currentState, d.newState, d.etherDelta
+            "    update[{j}] rollupId={} currentRoot={} newRoot={} etherDelta={}",
+            d.rollupId, d.currentRoot, d.newRoot, d.etherDelta
         );
     }
     println!("  l2ToL1Calls.len() = {}", e.l2ToL1Calls.len());
@@ -49,7 +49,16 @@ fn dump_entry(label: &str, e: &ExecutionEntrySol) {
 }
 
 fn main() {
-    let raw = std::fs::read_to_string("/tmp/batch_calldata_raw.hex").unwrap();
+    let input = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/tmp/batch_calldata_raw.hex".into());
+    let raw = if input.starts_with("0x") {
+        input
+    } else {
+        std::fs::read_to_string(&input).unwrap_or_else(|error| {
+            panic!("failed to read postBatch calldata from {input}: {error}")
+        })
+    };
     let raw = raw.trim();
     let bytes = hex::decode(raw).unwrap();
     let decoded = postAndVerifyBatchCall::abi_decode(&bytes).unwrap();
@@ -135,8 +144,8 @@ fn main() {
     println!();
     println!("######## CLAIMED CHAIN (on-chain entries[] deltas, in order) ########");
     for (i, e) in b.entries.iter().enumerate() {
-        for d in &e.stateUpdates {
-            println!("entry[{i}]: {} -> {}", d.currentState, d.newState);
+        for d in &e.rootUpdates {
+            println!("entry[{i}]: {} -> {}", d.currentRoot, d.newRoot);
         }
     }
 

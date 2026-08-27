@@ -40,9 +40,9 @@ pub struct NestedPairVerification {
 /// group that realizes it.
 ///
 /// Inbound (L1-origin) effects have exactly one L2 delivery entry. Outbound
-/// (L2-origin) effects have one seed-only L2 source entry per root call, one
-/// shared L1 host for the whole source transaction, and zero or more separate
-/// L1→L2 callback deliveries after the source-entry prefix.
+/// (L2-origin) effects have one seed-only L2 source entry per live cursor slot,
+/// one L1 host for a flat root run or callback-bearing root, and zero or more
+/// separate L1→L2 callback deliveries after the source-entry prefix.
 pub fn verify_nested_group(
     l1_entry: &ExecutionEntrySol,
     l2_entries: &[ExecutionEntrySol],
@@ -84,24 +84,24 @@ pub fn verify_nested_pair(
     }
     validate_entry_shape(l1_entry, "L1")?;
     validate_entry_shape(l2_entry, "L2")?;
-    if l1_entry.stateUpdates.is_empty() {
+    if l1_entry.rootUpdates.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
-            "nested pair L1 entry has no state updates".into(),
+            "nested pair L1 entry has no root updates".into(),
         )
         .into());
     }
-    if !l2_entry.stateUpdates.is_empty() {
+    if !l2_entry.rootUpdates.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
-            "nested pair L2 sidecar carries state updates".into(),
+            "nested pair L2 sidecar carries root updates".into(),
         )
         .into());
     }
 
     let l1_seed = EntryRollingHash::seed_for_l1(
         l1_entry
-            .stateUpdates
+            .rootUpdates
             .iter()
-            .map(|update| (update.rollupId, update.currentState)),
+            .map(|update| (update.rollupId, update.currentRoot)),
         l1_entry.proxyEntryHash,
     );
     let l2_seed = EntryRollingHash::seed_for_l2(l2_entry.proxyEntryHash);
@@ -183,9 +183,15 @@ pub fn verify_nested_pair(
                 &mut facts,
                 0,
             )?;
-            if l2_entry.success != l1_entry.success || l2_entry.returnData != l1_entry.returnData {
+            let delivery_matches = l2_entry.success
+                && if l1_entry.success {
+                    l2_entry.returnData == l1_entry.returnData
+                } else {
+                    l2_entry.returnData.is_empty()
+                };
+            if !delivery_matches {
                 return Err(ProtocolErrorKind::InvalidEncoding(
-                    "inbound L1 and L2 root outcomes differ".into(),
+                    "inbound L2 delivery outcome does not match the L1 root outcome".into(),
                 )
                 .into());
             }
@@ -243,16 +249,16 @@ fn verify_outbound_group(
     validate_entry_shape(l1_entry, "L1")?;
     for (index, entry) in l2_entries.iter().enumerate() {
         validate_entry_shape(entry, &format!("L2 group entry {index}"))?;
-        if !entry.stateUpdates.is_empty() {
+        if !entry.rootUpdates.is_empty() {
             return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "L2 group entry {index} carries state updates"
+                "L2 group entry {index} carries root updates"
             ))
             .into());
         }
     }
-    if l1_entry.stateUpdates.is_empty() {
+    if l1_entry.rootUpdates.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
-            "outbound nested L1 entry has no state updates".into(),
+            "outbound nested L1 entry has no root updates".into(),
         )
         .into());
     }
@@ -268,7 +274,10 @@ fn verify_outbound_group(
         )
         .into());
     }
-    let source_count = l1_entry.l2ToL1Calls.len();
+    let source_count = crate::system_tx::outbound_settlement_root_counts(std::slice::from_ref(
+        l1_entry,
+    ))
+    .map_err(|reason| crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(reason)))?[0];
     if l2_entries.len() < source_count {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
             "outbound L1 host carries {source_count} roots but has only {} L2 entries",
@@ -280,40 +289,42 @@ fn verify_outbound_group(
 
     let l1_seed = EntryRollingHash::seed_for_l1(
         l1_entry
-            .stateUpdates
+            .rootUpdates
             .iter()
-            .map(|update| (update.rollupId, update.currentState)),
+            .map(|update| (update.rollupId, update.currentRoot)),
         l1_entry.proxyEntryHash,
     );
     let mut l1 = ChainState::new(l1_entry, RollupId::MAINNET, l1_seed);
     let mut facts = AccumulatedFacts::default();
     let mut callback_cursor = 0usize;
-    let mut callback_counts = Vec::with_capacity(source_count);
-    let mut index = 0usize;
-    while index < source_entries.len() {
+    let mut callback_counts = vec![0usize; source_count];
+    let mut call_index = 0usize;
+    let mut source_cursor = 0usize;
+    while call_index < l1_entry.l2ToL1Calls.len() {
         let marker = l1.peek_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
-                "outbound L1 host has no root call at index {index}",
+                "outbound L1 host has no root call at index {call_index}",
             )))
         })?;
         let revert_span = usize::from(marker.revertNextNCalls);
         let group_len = revert_span.max(1);
-        let group_end = index
+        let group_end = call_index
             .checked_add(group_len)
-            .filter(|end| *end <= source_entries.len())
+            .filter(|end| *end <= l1_entry.l2ToL1Calls.len())
             .ok_or_else(|| {
                 crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
-                    "outbound root {index} revert span {revert_span} exceeds the root group"
+                    "outbound root {call_index} revert span {revert_span} exceeds the root group"
                 )))
             })?;
         let saved_facts = (revert_span != 0).then(|| facts.clone());
+        let saved_source_cursor = source_cursor;
 
-        for (root_index, source_entry) in source_entries
-            .iter()
-            .enumerate()
-            .take(group_end)
-            .skip(index)
-        {
+        for root_index in call_index..group_end {
+            let source_entry = source_entries.get(source_cursor).ok_or_else(|| {
+                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
+                    "outbound root {root_index} advances beyond {source_count} source cursor slots"
+                )))
+            })?;
             if source_entry.destinationRollupId != RollupId::MAINNET.0 {
                 return Err(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound L2 source entry {root_index} has inconsistent routing metadata",
@@ -332,7 +343,7 @@ fn verify_outbound_group(
                     "outbound L1 host has no root call at index {root_index}",
                 )))
             })?;
-            if root_index != index && root.revertNextNCalls != 0 {
+            if root_index != call_index && root.revertNextNCalls != 0 {
                 return Err(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound root {root_index} starts a nested revert span",
                 ))
@@ -368,14 +379,16 @@ fn verify_outbound_group(
                 verify_outbound_callback(&mut l1, callback, l2_rollup_id, &mut facts)?;
                 callback_cursor += 1;
             }
-            callback_counts.push(callback_cursor - callback_start);
+            callback_counts[source_cursor] += callback_cursor - callback_start;
             l1.rolling
                 .call_end(source_entry.success, &source_entry.returnData);
+            source_cursor += 1;
         }
         if let Some(saved) = saved_facts {
             facts = saved;
+            source_cursor = saved_source_cursor;
         }
-        index = group_end;
+        call_index = group_end;
     }
     if callback_cursor != callback_entries.len() {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
@@ -439,9 +452,15 @@ fn verify_outbound_callback(
             "outbound callback has no matching L1 nested row".into(),
         ))
     })?;
-    if row.success != callback.success || row.returnData != callback.returnData {
+    let delivery_matches = callback.success
+        && if row.success {
+            callback.returnData == row.returnData
+        } else {
+            callback.returnData.is_empty()
+        };
+    if !delivery_matches {
         return Err(ProtocolErrorKind::InvalidEncoding(
-            "outbound callback outcome differs from its L1 nested row".into(),
+            "outbound callback delivery outcome differs from its L1 nested row".into(),
         )
         .into());
     }
@@ -501,7 +520,13 @@ fn execute_call(
             ))
             .into());
         }
-        let saved_region_hash = (revert_span != 0).then(|| destination.rolling.clone());
+        let saved_region_state = (revert_span != 0).then(|| {
+            (
+                destination.rolling.clone(),
+                destination.next_row,
+                destination.call_cursors.clone(),
+            )
+        });
         let saved_region_facts = (revert_span != 0).then(|| facts.clone());
         let mut matched_all = true;
         for offset in 0..group_len {
@@ -527,8 +552,10 @@ fn execute_call(
                 break;
             }
         }
-        if let Some(saved_hash) = saved_region_hash {
+        if let Some((saved_hash, saved_row_cursor, saved_call_cursors)) = saved_region_state {
             destination.rolling = saved_hash;
+            destination.next_row = saved_row_cursor;
+            destination.call_cursors = saved_call_cursors;
             *facts = saved_region_facts.expect("saved with region hash");
         } else if !matched_all {
             // The unmarked call did not match the next row. Preserve the old

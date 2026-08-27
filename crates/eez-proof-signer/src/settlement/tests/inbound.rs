@@ -58,7 +58,7 @@ fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
     let root_hash = common_hash(&calls[0], RollupId(1));
 
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
-    let update = batch.entries[1].stateUpdates.clone();
+    let update = batch.entries[1].rootUpdates.clone();
     let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], root_hash);
     l1_rolling.call_begin(common_hash(&calls[1], RollupId::MAINNET));
     let l1_row_key = nested_position_key(common_hash(&calls[2], RollupId(1)), l1_rolling.current());
@@ -68,7 +68,7 @@ fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
     l1_rolling.nested_end();
     l1_rolling.call_end(true, &returns[1]);
     batch.entries[1] = ExecutionEntrySol {
-        stateUpdates: update,
+        rootUpdates: update,
         proxyEntryHash: root_hash,
         l2ToL1Calls: vec![calls[1].clone()],
         expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
@@ -120,14 +120,8 @@ fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
         returnData: returns[0].clone(),
         ..Default::default()
     };
-    let calldata = encode_execute_incoming(
-        calls[0].targetAddress,
-        calls[0].value,
-        calls[0].data.clone(),
-        calls[0].sourceAddress,
-        RollupId::MAINNET,
-        eez_protocol::system_tx::lower_entry_to_l2(&target_entry),
-    );
+    let calldata =
+        encode_execute_incoming(eez_protocol::system_tx::lower_entry_to_l2(&target_entry));
     (batch, calldata)
 }
 
@@ -194,7 +188,7 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
     let [sidecar_call] = sidecar.l2ToL1Calls.as_slice() else {
         panic!("derived inbound sidecar must contain one call");
     };
-    assert!(sidecar.stateUpdates.is_empty());
+    assert!(sidecar.rootUpdates.is_empty());
     assert_eq!(sidecar.destinationRollupId, 1);
     assert!(sidecar.success);
     assert_eq!(sidecar_call.sourceRollupId, 0);
@@ -226,8 +220,7 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
         Some(InboundObservationError::StaticEntryCount { actual: 1 })
     );
 
-    let shape_mutations: [(fn(&mut executeIncomingCrossChainCallCall), &str); 3] = [
-        (|call| call._entries[0].success = false, "success"),
+    let shape_mutations: [(fn(&mut executeIncomingCrossChainCallCall), &str); 2] = [
         (
             |call| call._entries[0].incomingCalls[0].isStatic = true,
             "isStatic",
@@ -242,6 +235,14 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
             Some(InboundObservationError::InvalidEntryShape { field })
         );
     }
+
+    let mut failed = call.clone();
+    failed._entries[0].success = false;
+    assert_eq!(
+        inspect(&failed),
+        None,
+        "terminal destination reverts are valid"
+    );
 
     let mut reverted = call.clone();
     reverted._entries[0].incomingCalls[0].revertNextNCalls = 1;
@@ -277,7 +278,7 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
     );
 
     let mut wrong_source_rollup = call;
-    wrong_source_rollup.sourceRollup = 2;
+    wrong_source_rollup._entries[0].incomingCalls[0].sourceRollupId = 2;
     assert_eq!(
         inspect(&wrong_source_rollup),
         Some(InboundObservationError::SourceRollup { actual: 2 })
@@ -293,7 +294,10 @@ fn inbound_effect_prefix_rejects_unsupported_target_shapes() {
     );
     let valid = bindable_inbound_batch(&settling);
     let checkpoints = [checkpoint(0, B256::ZERO)];
-    let shape_mutations: [fn(&mut ExecutionEntrySol); 1] = [|entry| entry.success = false];
+    let shape_mutations: [fn(&mut ExecutionEntrySol); 1] = [|entry| {
+        entry.success = false;
+        entry.expectedL1ToL2Calls.push(expected_call());
+    }];
 
     for mutate in shape_mutations {
         let mut batch = valid.clone();
@@ -364,11 +368,11 @@ fn inbound_effect_entries_handle_mixed_effect_positions_without_authorizing_outb
     let inbound = &mut batch.entries[2];
     inbound.proxyEntryHash = observation.recomputed_call_hash;
     inbound.returnData = observation.return_data.clone();
-    inbound.stateUpdates[0].etherDelta = I256::try_from(observation.value).unwrap();
+    inbound.rootUpdates[0].etherDelta = I256::try_from(observation.value).unwrap();
     inbound.rollingHash = eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
         [(
-            inbound.stateUpdates[0].rollupId,
-            inbound.stateUpdates[0].currentState,
+            inbound.rootUpdates[0].rollupId,
+            inbound.rootUpdates[0].currentRoot,
         )],
         inbound.proxyEntryHash,
     )
@@ -439,14 +443,16 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
         Vec::new(),
     );
     let failed_plan = effect_plan(&inbound_batch, &failed);
-    assert!(matches!(
-        verify_inbound_effect_entries(&failed_plan),
-        Err(InboundEffectError::InvalidObservation {
-            entry_index: 1,
-            transaction_index: 0,
-            source: InboundObservationError::InvalidEntryShape { field: "success" },
-        })
-    ));
+    let failed_error = verify_inbound_effect_entries(&failed_plan)
+        .err()
+        .expect("an uncommitted destination failure must be rejected");
+    assert!(
+        matches!(
+            failed_error,
+            InboundEffectError::CallHashMismatch { entry_index: 1, .. }
+        ),
+        "unexpected error: {failed_error:?}"
+    );
 }
 
 #[test]
@@ -467,15 +473,15 @@ fn inbound_effect_entries_require_the_canonical_deferred_shape() {
     ));
 
     let entry = &valid.entries[1];
-    let update = &entry.stateUpdates[0];
+    let update = &entry.rootUpdates[0];
     assert_eq!(
         entry.rollingHash,
         eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
-            [(update.rollupId, update.currentState)],
+            [(update.rollupId, update.currentRoot)],
             entry.proxyEntryHash,
         )
         .current(),
-        "deferred L1 entries use the exact state-update plus proxy seed",
+        "deferred L1 entries use the exact root-update plus proxy seed",
     );
 
     let mut wrong_rollup = valid.clone();
@@ -507,7 +513,7 @@ fn inbound_effect_entries_require_the_canonical_deferred_shape() {
     );
 
     let mut wrong_delta = valid;
-    wrong_delta.entries[1].stateUpdates[0].etherDelta = I256::ZERO;
+    wrong_delta.entries[1].rootUpdates[0].etherDelta = I256::ZERO;
     let plan = effect_plan(&wrong_delta, &settling);
     assert_eq!(
         verify_inbound_effect_entries(&plan).err(),
@@ -530,7 +536,7 @@ fn inbound_effect_entries_accept_the_int256_maximum_and_reject_the_next_value() 
     let max_batch = bindable_inbound_batch(&max_settling);
     let max_plan = effect_plan(&max_batch, &max_settling);
     assert!(verify_inbound_effect_entries(&max_plan).is_ok());
-    assert_eq!(max_batch.entries[1].stateUpdates[0].etherDelta, I256::MAX);
+    assert_eq!(max_batch.entries[1].rootUpdates[0].etherDelta, I256::MAX);
 
     let value = U256::from(1) << 255;
     let candidate = observed_inbound_candidate(0, value, true);
@@ -541,8 +547,8 @@ fn inbound_effect_entries_accept_the_int256_maximum_and_reject_the_next_value() 
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
     batch.entries[1].proxyEntryHash = call_hash;
     batch.entries[1].returnData = return_data;
-    let update = &batch.entries[1].stateUpdates[0];
-    let rolling_seed = (update.rollupId, update.currentState);
+    let update = &batch.entries[1].rootUpdates[0];
+    let rolling_seed = (update.rollupId, update.currentRoot);
     let proxy_entry_hash = batch.entries[1].proxyEntryHash;
     batch.entries[1].rollingHash =
         eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1([rolling_seed], proxy_entry_hash)

@@ -49,7 +49,7 @@ flowchart LR
    one-proof-system, timeless shape to the expected/configured deployment
    values. It retains the typed capability needed for later hash computation;
    it never accepts the wire hash as authoritative.
-3. `state_chain` requires exactly one expected-rollup state update per entry and a
+3. `state_chain` requires exactly one expected-rollup root update per entry and a
    continuous chain from `ValidatedWindow.window_pre_state_root` to
    `window_post_state_root`.
 4. `blocks` consumes the validated system-sender flags, receipt outcomes,
@@ -96,13 +96,14 @@ that binding.
 ## Active profile
 
 The accepted sequence is one anchor, followed by supported outbound effects,
-then supported successful inbound effects. Effects may contain an alternating
+then supported inbound effects. Effects may contain an alternating
 L1/L2 nested or reentrant call tree; flat outbound effects may group multiple
 roots from one L2 user transaction. A terminal nested row may fail with a
 committed reverted rolling hash and no descendants. Canonical, non-overlapping
 `revertNextNCalls` windows may roll back one or more consecutive calls.
-Unsuccessful top-level or nonterminal nested calls, static calls, explicit
-call gas, malformed rollback windows, outbound-after-inbound ordering, other
+Terminal top-level calls may fail with committed revert data. Failed calls with
+descendants, static calls, explicit call gas, malformed rollback windows,
+outbound-after-inbound ordering, other
 L2 targets, and ambiguous evidence reject before signing. Refer to `SPEC.md`
 for the exact shapes and equations.
 

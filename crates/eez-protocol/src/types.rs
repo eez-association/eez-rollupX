@@ -20,7 +20,7 @@
 //! calldata. Finalization converts each recorded call into entries for the entry
 //! rollup and the destination rollup. Downstream code consumes those entries to
 //! build system transactions and, for settlement, may merge batches and attach
-//! state updates and proof data before encoding submission calldata.
+//! root updates and proof data before encoding submission calldata.
 
 use alloy_primitives::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};

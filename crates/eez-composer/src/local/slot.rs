@@ -452,9 +452,8 @@ impl TargetExecutionSession for L1TargetSession {
 /// inspector would intercept the top-level frame and re-dispatch the very
 /// call this session is executing. Nested frames still forward, so proxy
 /// calls made *inside* the target are recorded as usual. A revert of the top
-/// frame itself is represented by the outer call's unsuccessful outcome, so
-/// the supported-success profile rejects the complete composition even though
-/// that wrapper frame is not span-annotated.
+/// frame itself is represented by the outer call's unsuccessful outcome; the
+/// terminal failure is materialized without a separate revert-span marker.
 struct SkipTopFrame<I> {
     inner: I,
     /// Open CALL frames; the top frame is the one entered at depth 0.

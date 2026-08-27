@@ -579,7 +579,7 @@ impl Inner {
         // our tx. A wall-clock-only budget here gave false FAILED
         // verdicts for bundles that later landed: recovery reorged + re-
         // emitted, the original settled anyway, and the two timelines
-        // fought forever (StateRootMismatch, phantom L2 effects).
+        // fought forever (RootMismatch, phantom L2 effects).
         // Receipt, head, and settlement logs all read from the SAME
         // tip provider — mixing the lagging embedded L1 for receipts
         // would re-open the false-death window. If the tip later reorgs
@@ -675,11 +675,11 @@ impl Inner {
         }
     }
 
-    /// Did L1's stored stateRoot for our rollup reach the claimed state
+    /// Did L1's stored root for our rollup reach the claimed state
     /// in `l1_block`?
     ///
     /// - `Some(root)`: true iff some `L2ExecutionPerformed(rollupId,
-    ///   newState)` in the block has `newState == root`. The leading
+    ///   newRoot)` in the block has `newRoot == root`. The leading
     ///   immediate entry always emits this event, so matching "any
     ///   event" would report settled even with every deferred entry
     ///   unconsumed; requiring the FINAL root means L1 reached exactly

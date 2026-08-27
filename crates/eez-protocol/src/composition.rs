@@ -1271,7 +1271,7 @@ mod tests {
         assert_ne!(target_entry.proxyEntryHash, mainnet_hash);
     }
 
-    // ── Unsuccessful top-level-call rejection ────────────────────
+    // ── Unsuccessful terminal top-level calls ────────────────────
 
     struct NoCcmClient;
 
@@ -1298,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_rejects_unsuccessful_calls() {
+    fn finalize_materializes_unsuccessful_terminal_calls() {
         let mut rollups = HashMap::new();
         rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
         rollups.insert(RollupId(1), rollup_with_reverted_session());
@@ -1312,19 +1312,19 @@ mod tests {
             "test setup: recorded call must be reverted"
         );
 
-        let error = builder
+        let composition = builder
             .finalize()
-            .expect_err("unsuccessful calls are outside the supported profile");
-        assert!(matches!(
-            error.kind(),
-            crate::error::CompositionErrorKind::Protocol(protocol)
-                if matches!(
-                    protocol.kind(),
-                    crate::ProtocolErrorKind::Unsupported(
-                        "unsuccessful top-level cross-chain calls are not supported"
-                    )
-                )
-        ));
+            .expect("terminal destination reverts are representable");
+        let source = &composition.source.batch.entries[0];
+        assert!(!source.success);
+        assert_eq!(source.returnData.as_ref(), b"revert");
+        assert!(source.l2ToL1Calls.is_empty());
+
+        let target = &composition.targets[0].batch.entries[0];
+        assert!(target.success, "the L2 delivery itself must commit");
+        assert!(target.returnData.is_empty());
+        assert_eq!(target.l2ToL1Calls.len(), 1);
+        assert!(target.expectedL1ToL2Calls.is_empty());
     }
 
     #[test]

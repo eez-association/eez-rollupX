@@ -8,18 +8,18 @@ use alloy_sol_types::sol;
 sol! {
     /// One rollup state transition carried by an L1 entry.
     #[derive(Debug)]
-    struct StateUpdateSol {
+    struct RootUpdateSol {
         uint64 rollupId;
-        bytes32 currentState;
-        bytes32 newState;
+        bytes32 currentRoot;
+        bytes32 newRoot;
         int256 etherDelta;
     }
 
     /// A composer assertion about a rollup's live state root.
     #[derive(Debug)]
-    struct ExpectedStateRootPerRollupSol {
+    struct ExpectedRootPerRollupSol {
         uint64 rollupId;
-        bytes32 stateRoot;
+        bytes32 root;
     }
 
     /// One cross-chain call executed on L1.
@@ -48,7 +48,7 @@ sol! {
     /// One mutable top-level L1 execution entry.
     #[derive(Debug, Default)]
     struct ExecutionEntrySol {
-        StateUpdateSol[] stateUpdates;
+        RootUpdateSol[] rootUpdates;
         bytes32 proxyEntryHash;
         L2ToL1CallSol[] l2ToL1Calls;
         ExpectedL1ToL2CallSol[] expectedL1ToL2Calls;
@@ -61,7 +61,7 @@ sol! {
     /// One read-only top-level L1 execution entry.
     #[derive(Debug, Default)]
     struct StaticExecutionEntrySol {
-        ExpectedStateRootPerRollupSol[] expectedStateRoots;
+        ExpectedRootPerRollupSol[] expectedRoots;
         bytes32 proxyEntryHash;
         L2ToL1CallSol[] l2ToL1Calls;
         bytes32 rollingHash;
@@ -80,7 +80,7 @@ sol! {
     /// The single argument to `EEZ.postAndVerifyBatch`.
     #[derive(Debug, Default)]
     struct ProofSystemBatchPerVerificationEntriesSol {
-        ExpectedStateRootPerRollupSol[] expectedStateRootPerRollup;
+        ExpectedRootPerRollupSol[] expectedRootPerRollup;
         ExecutionEntrySol[] entries;
         StaticExecutionEntrySol[] staticEntries;
         uint256 immediateEntryCount;
@@ -104,7 +104,9 @@ sol! {
 
     event BatchPosted(uint256 indexed rollupCount);
 
-    event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newState);
+    event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot);
+
+    event L2TxSkipped(uint256 indexed transientIdx, bytes revertData);
 
     event ExecutionConsumed(
         bytes32 indexed crossChainCallHash, uint64 indexed rollupId, uint256 indexed entryQueueIndex
@@ -122,7 +124,7 @@ sol! {
 /// Alias for the batch accepted by the protocol's `postAndVerifyBatch` ABI.
 ///
 /// Composition builds partial batches containing source-side or target-side
-/// entries. Downstream settlement may merge them and attach state updates,
+/// entries. Downstream settlement may merge them and attach root updates,
 /// proof-system metadata, and proofs.
 pub type EvmBatch = ProofSystemBatchPerVerificationEntriesSol;
 
@@ -147,7 +149,7 @@ pub mod eez_l2_events {
 }
 
 // The L2 ABI is a separate, leaner family: one rollup means entries do not
-// carry L1 state updates or destination routing.
+// carry L1 root updates or destination routing.
 sol! {
     /// One cross-chain call executed on this L2.
     #[derive(Debug)]
@@ -196,14 +198,9 @@ sol! {
     function loadExecutionTable(
         L2ExecutionEntrySol[] _entries,
         L2StaticExecutionEntrySol[] _staticEntries
-    ) external;
+    ) external payable;
 
     function executeIncomingCrossChainCall(
-        address destination,
-        uint256 value,
-        bytes data,
-        address sourceAddress,
-        uint64 sourceRollup,
         L2ExecutionEntrySol[] _entries,
         L2StaticExecutionEntrySol[] _staticEntries
     ) external payable returns (bytes);
@@ -239,7 +236,7 @@ sol! {
 
 #[cfg(test)]
 mod selector_locks {
-    //! ABI pins from `eez-core-protocol` commit 6fcc90b.
+    //! ABI pins from `eez-core-protocol` commit e84c2b6.
     use super::*;
     use alloy_sol_types::SolCall;
 
@@ -276,7 +273,7 @@ mod selector_locks {
         );
         assert_eq!(
             executeIncomingCrossChainCallCall::SELECTOR,
-            [0x8d, 0x84, 0x61, 0xd9],
+            [0x9e, 0x2d, 0x73, 0x58],
             "executeIncomingCrossChainCall selector drifted from pinned protocol"
         );
     }

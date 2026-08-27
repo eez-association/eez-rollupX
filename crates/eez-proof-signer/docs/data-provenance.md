@@ -80,12 +80,12 @@ receipt outcomes and selected transaction checkpoints. It contains no execution
 witnesses; validation consumed them.
 
 Its `window_pre_state_root` is not yet a batch anchor. It becomes an anchor only
-when settlement matches the leading submitted state update against it.
+when settlement matches the leading submitted root update against it.
 
 ### `CanonicalPostBatch`
 
 Canonical decoding proves only that the submitted calldata is a complete,
-round-trippable ABI representation. The decoded state updates, effects, DA,
+round-trippable ABI representation. The decoded root updates, effects, DA,
 rollup assignments, and public-input fields remain untrusted claims.
 
 ### Bound and authorized settlement data

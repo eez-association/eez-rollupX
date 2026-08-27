@@ -556,7 +556,7 @@ impl SyncBlockFork {
 /// Per-effect intermediate L2 state roots — the root after each cross-chain
 /// effect's tx group (its pair-end), in tx order, one per effect.
 ///
-/// The prover requires each settlement entry's `newState` to equal its effect's
+/// The prover requires each settlement entry's `newRoot` to equal its effect's
 /// root (not the final Sync-block root), so the composer fills them with these.
 /// Computed by rebuilding the Sync block on each pair-end prefix of `sync_txs`;
 /// since our L2 blocks are state no-ops past the effects, a prefix block's root

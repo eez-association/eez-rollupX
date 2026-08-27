@@ -1,7 +1,7 @@
 //! Settlement transaction-framing helpers shared by the composer and proof
 //! signer.
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 
 /// A sync-block transaction is a system transaction iff its recovered signer
 /// matches the deployment's system address and it targets `EEZL2`.
@@ -21,7 +21,7 @@ pub fn is_system_tx(
 /// in tx order. A position ends a pair iff it is a USER tx (the `user` half of
 /// an outbound `[load | user]` pair) OR a SYSTEM tx followed by a system tx / the
 /// block end (a standalone inbound system tx). Single source of truth shared by
-/// the composer (per-effect `StateUpdate.newState` stitch) and proof signer
+/// the composer (per-effect `RootUpdate.newRoot` stitch) and proof signer
 /// (effect/checkpoint binding), so the settled roots line up entry-for-entry.
 #[must_use]
 pub fn pair_end_positions(is_system: &[bool]) -> Vec<usize> {
@@ -30,11 +30,62 @@ pub fn pair_end_positions(is_system: &[bool]) -> Vec<usize> {
         .collect()
 }
 
+/// Assign execution checkpoints to settlement entries without relying on a
+/// failed L1 entry to persist its root update.
+///
+/// `effects` contains each settlement entry's L2 checkpoint and claimed L1
+/// execution outcome in entry order. A leading run of failed entries is
+/// carried by the successful anchor. Every later successful entry carries its
+/// own checkpoint and those of the immediately following failed entries.
+/// Failed entries receive a no-op root (`currentRoot == newRoot` after chain
+/// stitching), because `EEZ.sol` rolls their root updates back together with
+/// the intentionally reverted call.
+///
+/// The returned tuple is `(anchor_new_root, effect_new_roots)`.
+#[must_use]
+pub fn settlement_root_carriers(
+    pre_settling_root: B256,
+    effects: impl IntoIterator<Item = (B256, bool)>,
+) -> (B256, Vec<B256>) {
+    let effects = effects.into_iter().collect::<Vec<_>>();
+    let mut anchor_new_root = pre_settling_root;
+    let mut effect_new_roots = vec![pre_settling_root; effects.len()];
+    let mut active_success = None;
+
+    // Assign every checkpoint to the most recent successful entry, or to the
+    // anchor while the sequence still consists only of failed entries.
+    for (effect_index, (checkpoint, success)) in effects.iter().copied().enumerate() {
+        if success {
+            active_success = Some(effect_index);
+        }
+        if let Some(carrier_index) = active_success {
+            effect_new_roots[carrier_index] = checkpoint;
+        } else {
+            anchor_new_root = checkpoint;
+        }
+    }
+
+    // Failed entries must claim the root already persisted by their carrier.
+    // This also makes their root update a no-op when the chain is stitched.
+    let mut persisted_root = anchor_new_root;
+    for (effect_index, (_, success)) in effects.iter().copied().enumerate() {
+        if success {
+            persisted_root = effect_new_roots[effect_index];
+        } else {
+            effect_new_roots[effect_index] = persisted_root;
+        }
+    }
+
+    (anchor_new_root, effect_new_roots)
+}
+
 #[cfg(test)]
 mod tests {
     use alloy_primitives::address;
 
-    use super::{is_system_tx, pair_end_positions};
+    use alloy_primitives::B256;
+
+    use super::{is_system_tx, pair_end_positions, settlement_root_carriers};
 
     #[test]
     fn system_transaction_identity_uses_deployment_addresses() {
@@ -80,5 +131,31 @@ mod tests {
         assert_eq!(pair_end_positions(&[true, false, true, false]), vec![1, 3]);
         // a lone system tx (also the last) → pair end
         assert_eq!(pair_end_positions(&[true]), vec![0]);
+    }
+
+    #[test]
+    fn root_carriers_absorb_failed_effect_checkpoints() {
+        let pre = B256::repeat_byte(0x10);
+        let roots = (1..=5).map(B256::with_last_byte).collect::<Vec<_>>();
+
+        let (anchor, entries) = settlement_root_carriers(
+            pre,
+            roots.iter().copied().zip([false, false, true, false, true]),
+        );
+
+        assert_eq!(anchor, roots[1]);
+        assert_eq!(entries, [roots[1], roots[1], roots[3], roots[3], roots[4]]);
+    }
+
+    #[test]
+    fn root_carriers_preserve_the_direct_success_path() {
+        let pre = B256::repeat_byte(0x10);
+        let first = B256::repeat_byte(0x11);
+        let second = B256::repeat_byte(0x12);
+
+        let (anchor, entries) = settlement_root_carriers(pre, [(first, true), (second, true)]);
+
+        assert_eq!(anchor, pre);
+        assert_eq!(entries, [first, second]);
     }
 }

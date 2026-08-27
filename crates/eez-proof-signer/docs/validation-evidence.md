@@ -101,7 +101,7 @@ and `ValidatedWindow` is the only production handoff after shared checks. It:
 - drops witnesses that execution has already consumed.
 
 The window pre-state root is not automatically a batch anchor. Settlement must
-still bind the leading submitted state update to it. `ValidatedWindow` is an
+still bind the leading submitted root update to it. `ValidatedWindow` is an
 architectural boundary, not another proof: construction is safe because the
 backend-output contract and admitted input were consumed and checked
 immediately beforehand.

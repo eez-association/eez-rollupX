@@ -63,7 +63,7 @@ fn nested_outbound_fixture() -> (
     let l2_outbound_hashes = vec![l2_hash(&calls[0]), l2_hash(&calls[2])];
 
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
-    let update = batch.entries[1].stateUpdates.clone();
+    let update = batch.entries[1].rootUpdates.clone();
     let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
     l1_rolling.call_begin(common_hash(&calls[0], RollupId::MAINNET));
     let row0_key = nested_position_key(common_hash(&calls[1], RollupId(1)), l1_rolling.current());
@@ -76,7 +76,7 @@ fn nested_outbound_fixture() -> (
     l1_rolling.nested_end();
     l1_rolling.call_end(true, &returns[0]);
     batch.entries[1] = ExecutionEntrySol {
-        stateUpdates: update,
+        rootUpdates: update,
         proxyEntryHash: B256::ZERO,
         l2ToL1Calls: vec![calls[0].clone()],
         expectedL1ToL2Calls: vec![
@@ -142,14 +142,8 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
     let (batch, source_entry, callback_entry, event_hashes) = nested_outbound_fixture();
     let make_settling = |source_entry: ExecutionEntrySol, callback_entry: ExecutionEntrySol| {
         let callback_call = &callback_entry.l2ToL1Calls[0];
-        let callback_calldata = encode_execute_incoming(
-            callback_call.targetAddress,
-            callback_call.value,
-            callback_call.data.clone(),
-            callback_call.sourceAddress,
-            RollupId::MAINNET,
-            eez_protocol::system_tx::lower_entry_to_l2(&callback_entry),
-        );
+        let callback_calldata =
+            encode_execute_incoming(eez_protocol::system_tx::lower_entry_to_l2(&callback_entry));
         let mut settling = SettlingBlockObservations::for_test(
             vec![true, false, true],
             vec![InboundCandidate {
@@ -215,11 +209,11 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
 }
 
 fn refresh_outbound_rolling_hash(entry: &mut ExecutionEntrySol) {
-    let [update] = entry.stateUpdates.as_slice() else {
-        panic!("outbound fixture must contain one state update");
+    let [update] = entry.rootUpdates.as_slice() else {
+        panic!("outbound fixture must contain one root update");
     };
     let mut rolling_hash = eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
-        [(update.rollupId, update.currentState)],
+        [(update.rollupId, update.currentRoot)],
         entry.proxyEntryHash,
     );
     for call in &entry.l2ToL1Calls {
@@ -258,8 +252,8 @@ fn outbound_event_and_l1_rolling_hash_share_the_zero_gas_identity() {
     assert_eq!(event_hash, l1_call_hash);
     let mut expected_rolling = eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
         [(
-            entry.stateUpdates[0].rollupId,
-            entry.stateUpdates[0].currentState,
+            entry.rootUpdates[0].rollupId,
+            entry.rootUpdates[0].currentRoot,
         )],
         entry.proxyEntryHash,
     );
@@ -286,7 +280,7 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
     let plan = effect_plan(&batch, &settling);
     let authorized = authorize_outbound_effects(&plan).unwrap();
     for binding in authorized.iter() {
-        assert!(binding.derived_da_entry().stateUpdates.is_empty());
+        assert!(binding.derived_da_entry().rootUpdates.is_empty());
         assert_ne!(binding.derived_da_entry().proxyEntryHash, B256::ZERO);
         assert_eq!(
             binding.derived_da_entry().rollingHash,
@@ -376,7 +370,7 @@ fn one_settlement_host_authorizes_two_flat_source_roots() {
         .l2ToL1Calls
         .iter()
         .fold(U256::ZERO, |total, call| total + call.value);
-    batch.entries[1].stateUpdates[0].etherDelta = -I256::try_from(total_value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(total_value).unwrap();
     refresh_outbound_rolling_hash(&mut batch.entries[1]);
 
     let sources = batch.entries[1]
@@ -405,6 +399,37 @@ fn one_settlement_host_authorizes_two_flat_source_roots() {
     let authorized = authorize_outbound_effects(&plan).expect("authorize grouped flat host");
     assert_eq!(authorized.len(), 2);
     assert_eq!(authorized.groups().map(<[_]>::len).collect::<Vec<_>>(), [2]);
+}
+
+#[test]
+fn root_revert_retry_reuses_one_loaded_source_and_one_surviving_event() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let mut retry = batch.entries[1].l2ToL1Calls[0].clone();
+    batch.entries[1].l2ToL1Calls[0].revertNextNCalls = 1;
+    retry.revertNextNCalls = 0;
+    batch.entries[1].l2ToL1Calls.push(retry);
+    refresh_outbound_rolling_hash(&mut batch.entries[1]);
+
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_for_test(
+            0,
+            flat_outbound_sidecar(&batch.entries[1]),
+        ));
+    settling
+        .outbound_event_candidates_mut_for_test()
+        .push(observed_outbound_call(
+            1,
+            0,
+            &batch.entries[1].l2ToL1Calls[1],
+        ));
+
+    let plan = effect_plan(&batch, &settling);
+    let authorized = authorize_outbound_effects(&plan)
+        .expect("the retry reuses its restored source cursor slot");
+    assert_eq!(authorized.len(), 1);
+    assert_eq!(authorized.groups().map(<[_]>::len).collect::<Vec<_>>(), [1]);
 }
 
 #[test]
@@ -551,6 +576,9 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
 fn fully_reverted_outbound_root_is_authorized_without_an_impossible_event() {
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     batch.entries[1].l2ToL1Calls[0].revertNextNCalls = 1;
+    // A root-level force-revert suppresses the receipt event and destination
+    // state, but EEZ preserves the call fold in the host entry's rolling hash.
+    refresh_outbound_rolling_hash(&mut batch.entries[1]);
     let settling = settling_with_outbound_pairs(&batch);
     let plan = effect_plan(&batch, &settling);
 
@@ -713,7 +741,7 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
     ));
 
     let mut wrong_delta = valid.clone();
-    wrong_delta.entries[1].stateUpdates[0].etherDelta = I256::ONE;
+    wrong_delta.entries[1].rootUpdates[0].etherDelta = I256::ONE;
     assert_eq!(
         verify(&wrong_delta),
         Some(OutboundEffectError::EtherDeltaMismatch {
@@ -726,11 +754,11 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
     for value in [U256::from(1), (U256::from(1) << 255) - U256::from(1)] {
         let mut value_bearing = valid.clone();
         value_bearing.entries[1].l2ToL1Calls[0].value = value;
-        value_bearing.entries[1].stateUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+        value_bearing.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
         refresh_outbound_rolling_hash(&mut value_bearing.entries[1]);
         assert_eq!(verify(&value_bearing), None);
 
-        value_bearing.entries[1].stateUpdates[0].etherDelta += I256::ONE;
+        value_bearing.entries[1].rootUpdates[0].etherDelta += I256::ONE;
         assert_eq!(
             verify(&value_bearing),
             Some(OutboundEffectError::EtherDeltaMismatch {

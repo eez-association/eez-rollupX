@@ -23,10 +23,11 @@ SUPPORTED_TARGETS=(
     deepNested                 # multi-level alternating callback chain
     flash-loan                 # stateful L1 -> L2 -> L1 callback flow
     nestedCallRevert           # failed L2 -> L1 callback caught by its L2 caller
-    revertContinue             # reverted callback attempt, then commit (L1 -> L2 -> L1)
     revertCounter              # single reverted callback (L1 -> L2 -> L1)
-    revertContinueL2           # reverted callback attempt, then commit (L2 -> L1 -> L2)
+    revertFromOtherChain       # remote-frame revert followed by a committed retry
     revertCounterL2            # single reverted callback (L2 -> L1 -> L2)
+    revertFromOtherChainL2     # remote L1 frame reverts an L2-origin call
+    revertFromOtherChainAndCallAgainL2 # remote revert followed by a committed retry
     reentrant                  # four-boundary L1 -> L2 -> L1 -> L2 -> L1 chain
 )
 
@@ -62,6 +63,7 @@ set +a
 
 ROLLUPS="${ROLLUPS:-$EEZ_REGISTRY_ADDRESS}"
 MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4200000000000000000000000000000000000007}}"
+ROLLUP_ID="${EEZ_ROLLUP_ID:-1}"
 
 # Hardhat account #2, shared with the earlier cross-chain wave.
 PK="${PK:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}"
@@ -73,16 +75,50 @@ echo "    L1 RPC/front: $L1_RPC / $L1_FRONT"
 echo "    L2 RPC/front: $L2_RPC / $L2_FRONT"
 echo "    registry:     $ROLLUPS"
 
+wait_for_protocol_ready() {
+    local timeout="${EEZ_PROTOCOL_READY_TIMEOUT:-300}"
+    local deadline=$((SECONDS + timeout))
+    local safe_json safe_number_hex safe_number safe_root rollup_data registry_root
+
+    echo "==> waiting for the first L2 safe root to settle on L1"
+    while (( SECONDS < deadline )); do
+        if safe_json="$(cast block safe --json --rpc-url "$L2_RPC" 2>/dev/null)" &&
+            safe_number_hex="$(jq -er '.number' <<<"$safe_json" 2>/dev/null)" &&
+            safe_number="$(cast to-dec "$safe_number_hex" 2>/dev/null)" &&
+            safe_root="$(jq -er '.stateRoot' <<<"$safe_json" 2>/dev/null)" &&
+            rollup_data="$(cast call "$ROLLUPS" \
+                'rollups(uint64)(address,bytes32,uint256)' "$ROLLUP_ID" \
+                --rpc-url "$L1_RPC" 2>/dev/null)"; then
+            registry_root="$(sed -n '2p' <<<"$rollup_data" | tr -d '[:space:]')"
+            if [[ "$safe_number" =~ ^[0-9]+$ ]] &&
+                (( 10#$safe_number > 0 )) &&
+                [[ "${registry_root,,}" == "${safe_root,,}" ]]; then
+                echo "    ready: safe L2 block $safe_number, root $safe_root"
+                return 0
+            fi
+        fi
+        sleep 3
+    done
+
+    echo "protocol network did not become settlement-ready within ${timeout}s" >&2
+    echo "last safe block/root: ${safe_number:-unavailable} / ${safe_root:-unavailable}" >&2
+    echo "last registry root: ${registry_root:-unavailable}" >&2
+    return 1
+}
+
+wait_for_protocol_ready
+
 (
     cd "$PROTOCOL"
     bash script/e2e/run/prepare-network.sh \
         --l1-rpc "$L1_RPC" \
+        --l1-front "$L1_FRONT" \
         --l2-rpc "$L2_RPC" \
         --pk "$PK" \
         --rollups "$ROLLUPS"
 )
 
-# prepare-network.sh only warns if its L2 funding bridge fails.
+# Independently enforce the balance required by the scenario deployments.
 min_l2_balance=10000000000000000
 l2_balance="$(cast balance "$SENDER" --rpc-url "$L2_RPC")"
 if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then

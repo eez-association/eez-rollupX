@@ -7,14 +7,26 @@ import {EEZ, ProofSystemBatchPerVerificationEntries, RollupIdWithProofSystems} f
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 import {
     ExecutionEntry,
-    ExpectedStateRootPerRollup,
+    ExpectedRootPerRollup,
     ExpectedL1ToL2Call,
     L2ToL1Call,
-    StateUpdate,
+    RootUpdate,
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
 import {MockProofSystem} from "eez-core-protocol/test/mocks/MockProofSystem.sol";
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
+
+/// Receiver used to exercise poster-controlled immediate scheduling. The
+/// defensive protocol requires a contract receiver whenever the immediate
+/// prefix contains meta entries; intentionally leaving the hook empty proves
+/// that scheduling still remains outside the public input.
+contract NoopMetaReceiver {
+    function post(EEZ eez, ProofSystemBatchPerVerificationEntries calldata batch) external {
+        eez.postAndVerifyBatch(batch);
+    }
+
+    function executeMetaCrossChainTransactions() external {}
+}
 
 /// Solidity oracle for the two-stage public-input construction at the pinned
 /// protocol revision. Each vector is also submitted to the real EEZ contract,
@@ -145,8 +157,8 @@ contract PublicInputsHashVectorsTest is Test {
             _registerRollup(eez, _singleton(proofSystem), _singleton(bytes32(uint256(0x42))), initialState);
 
         StaticExecutionEntry memory staticEntry;
-        staticEntry.expectedStateRoots = new ExpectedStateRootPerRollup[](1);
-        staticEntry.expectedStateRoots[0] = ExpectedStateRootPerRollup({rollupId: rollupId, stateRoot: initialState});
+        staticEntry.expectedRoots = new ExpectedRootPerRollup[](1);
+        staticEntry.expectedRoots[0] = ExpectedRootPerRollup({rollupId: rollupId, root: initialState});
         staticEntry.proxyEntryHash = bytes32(uint256(0x5555));
         staticEntry.l2ToL1Calls = new L2ToL1Call[](0);
         staticEntry.rollingHash = bytes32(uint256(0x6666));
@@ -227,14 +239,12 @@ contract PublicInputsHashVectorsTest is Test {
         bytes32 anchorState = bytes32(uint256(0x2222));
 
         EEZ canonicalEez = new EEZ(address(0xDEAD));
-        uint64 canonicalRollup =
-            _registerRollup(canonicalEez, _singleton(proofSystem), _singleton(vkey), initialState);
+        uint64 canonicalRollup = _registerRollup(canonicalEez, _singleton(proofSystem), _singleton(vkey), initialState);
         ProofSystemBatchPerVerificationEntries memory canonical =
             _schedulerBatch(proofSystem, canonicalRollup, initialState, anchorState, 1);
 
         EEZ mutatedEez = new EEZ(address(0xDEAD));
-        uint64 mutatedRollup =
-            _registerRollup(mutatedEez, _singleton(proofSystem), _singleton(vkey), initialState);
+        uint64 mutatedRollup = _registerRollup(mutatedEez, _singleton(proofSystem), _singleton(vkey), initialState);
         ProofSystemBatchPerVerificationEntries memory mutated =
             _schedulerBatch(proofSystem, mutatedRollup, initialState, anchorState, 2);
 
@@ -243,23 +253,18 @@ contract PublicInputsHashVectorsTest is Test {
 
         bytes32 canonicalShared = _shared(canonical, _emptyCustomData(1), address(0));
         bytes32 mutatedShared = _shared(mutated, _emptyCustomData(1), address(0));
-        bytes32 canonicalPublicInput = _publicInput(
-            canonicalShared, _singleton(canonicalRollup), _singleton(vkey)
-        );
-        bytes32 mutatedPublicInput =
-            _publicInput(mutatedShared, _singleton(mutatedRollup), _singleton(vkey));
+        bytes32 canonicalPublicInput = _publicInput(canonicalShared, _singleton(canonicalRollup), _singleton(vkey));
+        bytes32 mutatedPublicInput = _publicInput(mutatedShared, _singleton(mutatedRollup), _singleton(vkey));
         assertEq(canonicalShared, mutatedShared);
         assertEq(canonicalPublicInput, mutatedPublicInput);
 
         proofSystem.setExpectedPublicInputsHash(canonicalPublicInput);
 
-        address poster = address(0xBEEF);
-        vm.prank(poster);
-        canonicalEez.postAndVerifyBatch(canonical);
+        NoopMetaReceiver poster = new NoopMetaReceiver();
+        poster.post(canonicalEez, canonical);
         assertEq(canonicalEez.queueLength(canonicalRollup), 1);
 
-        vm.prank(poster);
-        mutatedEez.postAndVerifyBatch(mutated);
+        poster.post(mutatedEez, mutated);
         assertEq(mutatedEez.queueLength(mutatedRollup), 0);
 
         (, bytes32 canonicalState,) = canonicalEez.rollups(canonicalRollup);
@@ -331,7 +336,7 @@ contract PublicInputsHashVectorsTest is Test {
     }
 
     function _emptyBatch() private pure returns (ProofSystemBatchPerVerificationEntries memory batch) {
-        batch.expectedStateRootPerRollup = new ExpectedStateRootPerRollup[](0);
+        batch.expectedRootPerRollup = new ExpectedRootPerRollup[](0);
         batch.entries = new ExecutionEntry[](0);
         batch.staticEntries = new StaticExecutionEntry[](0);
         batch.blobIndices = new uint256[](0);
@@ -339,10 +344,10 @@ contract PublicInputsHashVectorsTest is Test {
         batch.bindMsgSenderInPublicInput = false;
     }
 
-    function _entry(uint64 rollupId, bytes32 currentState) private pure returns (ExecutionEntry memory entry) {
-        entry.stateUpdates = new StateUpdate[](1);
-        entry.stateUpdates[0] = StateUpdate({
-            rollupId: rollupId, currentState: currentState, newState: bytes32(uint256(0x2222)), etherDelta: 0
+    function _entry(uint64 rollupId, bytes32 currentRoot) private pure returns (ExecutionEntry memory entry) {
+        entry.rootUpdates = new RootUpdate[](1);
+        entry.rootUpdates[0] = RootUpdate({
+            rollupId: rollupId, currentRoot: currentRoot, newRoot: bytes32(uint256(0x2222)), etherDelta: 0
         });
         entry.proxyEntryHash = bytes32(uint256(0x3333));
         entry.l2ToL1Calls = new L2ToL1Call[](0);
@@ -367,9 +372,7 @@ contract PublicInputsHashVectorsTest is Test {
         batch = _emptyBatch();
         batch.entries = new ExecutionEntry[](2);
         batch.entries[0] = _schedulerEntry(rollupId, initialState, anchorState, bytes32(0));
-        batch.entries[1] = _schedulerEntry(
-            rollupId, anchorState, bytes32(uint256(0x3333)), bytes32(uint256(0x4444))
-        );
+        batch.entries[1] = _schedulerEntry(rollupId, anchorState, bytes32(uint256(0x3333)), bytes32(uint256(0x4444)));
         batch.immediateEntryCount = immediateEntryCount;
         batch.proofSystems = _addresses(_singleton(proofSystem));
         batch.proofs = _proofs(1);
@@ -378,25 +381,21 @@ contract PublicInputsHashVectorsTest is Test {
 
     function _schedulerEntry(
         uint64 rollupId,
-        bytes32 currentState,
-        bytes32 newState,
+        bytes32 currentRoot,
+        bytes32 newRoot,
         bytes32 proxyEntryHash
     )
         private
         pure
         returns (ExecutionEntry memory entry)
     {
-        entry.stateUpdates = new StateUpdate[](1);
-        entry.stateUpdates[0] = StateUpdate({
-            rollupId: rollupId,
-            currentState: currentState,
-            newState: newState,
-            etherDelta: 0
-        });
+        entry.rootUpdates = new RootUpdate[](1);
+        entry.rootUpdates[0] =
+            RootUpdate({rollupId: rollupId, currentRoot: currentRoot, newRoot: newRoot, etherDelta: 0});
         entry.proxyEntryHash = proxyEntryHash;
         entry.l2ToL1Calls = new L2ToL1Call[](0);
         entry.expectedL1ToL2Calls = new ExpectedL1ToL2Call[](0);
-        bytes32 statesHash = keccak256(abi.encodePacked(bytes32(0), rollupId, currentState));
+        bytes32 statesHash = keccak256(abi.encodePacked(bytes32(0), rollupId, currentRoot));
         entry.rollingHash = keccak256(abi.encodePacked(statesHash, proxyEntryHash));
         entry.destinationRollupId = rollupId;
         entry.success = true;

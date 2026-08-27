@@ -1,11 +1,10 @@
 //! Entry construction and ABI encoding for the pinned protocol.
 //!
-//! The materializer accepts mutable call trees with successful top-level
+//! The materializer accepts mutable call trees, including terminal failed
 //! calls. Source-chain rollback regions are retained and lowered to canonical
 //! `revertNextNCalls` windows, and a terminal failed nested row is represented
-//! by its reverted rolling hash. Static calls, explicit call gas,
-//! unsuccessful top-level calls, and failed nested rows with descendants
-//! remain fail-closed.
+//! by its reverted rolling hash. Static calls, explicit call gas, and failed
+//! calls with descendants remain fail-closed.
 
 mod materialize;
 mod verify;
@@ -41,7 +40,7 @@ const SELF_CALL: &str = "same-chain cross-chain calls are not supported";
 /// dispatch exempts the entry rollup, so an injected entry-chain self-call
 /// (misconfigured self-proxy) would otherwise materialize.
 pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolResult<()> {
-    for call in calls {
+    for (index, call) in calls.iter().enumerate() {
         if call.source_rollup_id == call.target_rollup_id {
             return Err(crate::ProtocolErrorKind::Unsupported(SELF_CALL).into());
         }
@@ -54,9 +53,13 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
         if call.call_mode == CallMode::Static {
             return Err(crate::ProtocolErrorKind::Unsupported(STATIC_CALL).into());
         }
-        if !call.outcome.is_success() && call.parent_index.is_none() {
+        if !call.outcome.is_success()
+            && calls
+                .iter()
+                .any(|candidate| candidate.parent_index == Some(index))
+        {
             return Err(crate::ProtocolErrorKind::Unsupported(
-                "unsuccessful top-level cross-chain calls are not supported",
+                "unsuccessful cross-chain calls with descendants are not supported",
             )
             .into());
         }
@@ -69,13 +72,13 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
 ///
 /// L2 source entries are seed-only: the user transaction performs the outer
 /// call, so the table stores its precomputed result without re-executing it.
-/// L1 entries remain unfinalized until their `StateUpdate`s are attached and
+/// L1 entries remain unfinalized until their `RootUpdate`s are attached and
 /// [`finalize_l1_rolling_hashes`] is called.
 ///
 /// # Errors
 ///
-/// Returns an error for pending, static, unsuccessful top-level, unnormalized
-/// reverted-span, or structurally invalid calls.
+/// Returns an error for pending, static, failed calls with descendants,
+/// unnormalized reverted spans, or structurally invalid calls.
 #[tracing::instrument(level = "debug", name = "build_batch", skip_all, fields(source = %source_rollup_id), err)]
 pub fn build_batch(
     recorded: &[ExecutedAction],
@@ -103,7 +106,7 @@ pub fn build_batch(
 ///
 /// The entries intentionally carry an unfinished zero `rollingHash`: their L1
 /// seed cannot be computed until the Composer attaches the final ordered
-/// `StateUpdate`s and calls [`finalize_l1_rolling_hashes`].
+/// `RootUpdate`s and calls [`finalize_l1_rolling_hashes`].
 #[cfg(test)]
 pub(crate) fn build_l1_postbatch(
     calls: &[ExecutedAction],
@@ -120,11 +123,11 @@ pub(crate) fn build_l1_postbatch(
         }
 
         entries.push(ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: B256::ZERO,
             l2ToL1Calls: vec![l1_call_from_action(call)],
             expectedL1ToL2Calls: Vec::new(),
-            // Finalized only after StateUpdates are stitched by the Composer.
+            // Finalized only after RootUpdates are stitched by the Composer.
             rollingHash: B256::ZERO,
             destinationRollupId: source_rollup_id.0,
             success: true,
@@ -143,9 +146,9 @@ pub(crate) fn build_l1_postbatch(
 }
 
 /// Finalize every mutable L1 entry after the Composer has attached its ordered
-/// state updates.
+/// root updates.
 ///
-/// Every entry must be successful, have at least one `StateUpdate`, contain no
+/// Every entry must be successful, have at least one `RootUpdate`, contain no
 /// reentrant expected calls, and contain at most one flat mutable call with no
 /// gas limit or revert span.
 ///
@@ -158,9 +161,9 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
     }
 
     for (entry_index, entry) in batch.entries.iter_mut().enumerate() {
-        if entry.stateUpdates.is_empty() {
+        if entry.rootUpdates.is_empty() {
             return Err(crate::ProtocolErrorKind::InvalidEncoding(format!(
-                "L1 entry {entry_index} has no StateUpdates"
+                "L1 entry {entry_index} has no RootUpdates"
             ))
             .into());
         }
@@ -179,9 +182,9 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
 
         let mut rolling_hash = EntryRollingHash::seed_for_l1(
             entry
-                .stateUpdates
+                .rootUpdates
                 .iter()
-                .map(|update| (update.rollupId, update.currentState)),
+                .map(|update| (update.rollupId, update.currentRoot)),
             entry.proxyEntryHash,
         );
 
@@ -211,10 +214,11 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
 ///
 /// A supported failed nested row has an empty sub-array and rolls its frame
 /// back, so it contributes no value. Returns `None` on arithmetic overflow,
-/// for an unsuccessful top-level entry, or for a malformed/unsupported row.
+/// for an unsuccessful entry with nested rows, or for a malformed/unsupported
+/// row.
 #[must_use]
 pub fn entry_flat_value_sum(entry: &ExecutionEntrySol) -> Option<U256> {
-    if !entry.success {
+    if !entry.success && (entry.l2ToL1Calls.len() > 1 || !entry.expectedL1ToL2Calls.is_empty()) {
         return None;
     }
     let mut sum = committed_call_array_value(&entry.l2ToL1Calls)?;
@@ -400,7 +404,7 @@ pub fn build_l2_outbound_entry(entry: OutboundEntry) -> ProtocolResult<L2Executi
 /// Build one deferred L1 entry representing a successful L1-to-L2 call.
 ///
 /// Its rolling hash remains unfinished until settlement attaches at least one
-/// state update and calls [`finalize_l1_rolling_hashes`].
+/// root update and calls [`finalize_l1_rolling_hashes`].
 #[must_use]
 pub fn build_l1_inbound_entry(
     target: Address,
@@ -422,7 +426,7 @@ pub fn build_l1_inbound_entry(
 
     batch_with_entries(
         vec![ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: proxy_entry_hash,
             l2ToL1Calls: Vec::new(),
             expectedL1ToL2Calls: Vec::new(),
@@ -437,13 +441,13 @@ pub fn build_l1_inbound_entry(
 
 /// Build one immediate, call-free L1 settlement entry.
 ///
-/// Its rolling hash is finalized after the settlement state update is
+/// Its rolling hash is finalized after the settlement root update is
 /// attached.
 #[must_use]
 pub fn build_l1_settlement_only(rollup_id: RollupId) -> EvmBatch {
     batch_with_entries(
         vec![ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: B256::ZERO,
             l2ToL1Calls: Vec::new(),
             expectedL1ToL2Calls: Vec::new(),
@@ -458,20 +462,8 @@ pub fn build_l1_settlement_only(rollup_id: RollupId) -> EvmBatch {
 
 /// Encode one L2 incoming execution call.
 #[must_use]
-pub fn encode_execute_incoming(
-    destination: Address,
-    value: U256,
-    data: Bytes,
-    source: Address,
-    source_rollup_id: RollupId,
-    entry: L2ExecutionEntrySol,
-) -> Vec<u8> {
+pub fn encode_execute_incoming(entry: L2ExecutionEntrySol) -> Vec<u8> {
     crate::abi::executeIncomingCrossChainCallCall {
-        destination,
-        value,
-        data,
-        sourceAddress: source,
-        sourceRollup: source_rollup_id.0,
         _entries: vec![entry],
         _staticEntries: Vec::new(),
     }
@@ -501,13 +493,12 @@ pub struct DecodedInbound {
     pub source: Address,
     /// Precomputed return data committed by the entry.
     pub return_data: Bytes,
-    /// Validated entry outcome. Decoding rejects unsuccessful entries, so this
-    /// is always `true`.
+    /// Validated entry outcome, including a terminal destination revert.
     pub success: bool,
 }
 
-/// Decode the outer incoming call and validate the supported mutable table
-/// shape.
+/// Decode the inbound call identity from the first committed incoming call and
+/// validate the supported mutable table shape.
 ///
 /// A nested L2 rolling hash cannot be validated from this calldata alone: its
 /// row positions select calls in the complementary L1 table. Security-sensitive
@@ -525,22 +516,15 @@ pub fn decode_inbound(calldata: &[u8]) -> Option<DecodedInbound> {
     let lifted = crate::system_tx::lift_entry_from_l2(entry, RollupId(1));
     crate::system_tx::check_entry_shape(&lifted, "inbound").ok()?;
     let incoming = entry.incomingCalls.first()?;
-    if incoming.isStatic
-        || incoming.gas != 0
-        || incoming.sourceAddress != call.sourceAddress
-        || incoming.sourceRollupId != call.sourceRollup
-        || incoming.targetAddress != call.destination
-        || incoming.value != call.value
-        || incoming.data != call.data
-    {
+    if incoming.isStatic || incoming.gas != 0 {
         return None;
     }
 
     Some(DecodedInbound {
-        target: call.destination,
-        value: call.value,
-        data: call.data,
-        source: call.sourceAddress,
+        target: incoming.targetAddress,
+        value: incoming.value,
+        data: incoming.data.clone(),
+        source: incoming.sourceAddress,
         return_data: entry.returnData.clone(),
         success: entry.success,
     })
@@ -645,7 +629,7 @@ mod tests {
 
     use super::*;
     use crate::ExecutionOutcome;
-    use crate::abi::{ExpectedL1ToL2CallSol, StateUpdateSol};
+    use crate::abi::{ExpectedL1ToL2CallSol, RootUpdateSol};
 
     fn record(target: RollupId, source: RollupId) -> ExecutedAction {
         ExecutedAction {
@@ -666,11 +650,11 @@ mod tests {
         }
     }
 
-    fn state_update(rollup_id: u64, current_state: B256) -> StateUpdateSol {
-        StateUpdateSol {
+    fn root_update(rollup_id: u64, current_root: B256) -> RootUpdateSol {
+        RootUpdateSol {
             rollupId: rollup_id,
-            currentState: current_state,
-            newState: B256::with_last_byte(0xff),
+            currentRoot: current_root,
+            newRoot: B256::with_last_byte(0xff),
             etherDelta: I256::ZERO,
         }
     }
@@ -685,12 +669,22 @@ mod tests {
         static_call.call_mode = CallMode::Static;
         assert!(ensure_materializable_calls(&[static_call]).is_err());
 
-        let mut failed = record(RollupId(1), RollupId::MAINNET);
-        let ExecutionOutcome::Resolved { success, .. } = &mut failed.outcome else {
+        let mut failed_parent = record(RollupId(1), RollupId::MAINNET);
+        let ExecutionOutcome::Resolved { success, .. } = &mut failed_parent.outcome else {
             unreachable!()
         };
         *success = false;
-        assert!(ensure_materializable_calls(&[failed]).is_err());
+        let mut child = record(RollupId::MAINNET, RollupId(1));
+        child.parent_index = Some(0);
+        assert!(ensure_materializable_calls(&[failed_parent, child]).is_err());
+
+        let mut terminal_failure = record(RollupId(1), RollupId::MAINNET);
+        let ExecutionOutcome::Resolved { success, .. } = &mut terminal_failure.outcome else {
+            unreachable!()
+        };
+        *success = false;
+        ensure_materializable_calls(&[terminal_failure])
+            .expect("terminal top-level failures are representable");
 
         let mut reverted_span = record(RollupId(1), RollupId::MAINNET);
         reverted_span.revert_span = Some(0);
@@ -735,13 +729,13 @@ mod tests {
     }
 
     #[test]
-    fn l1_postbatch_is_unfinished_until_state_updates_are_attached() {
+    fn l1_postbatch_is_unfinished_until_root_updates_are_attached() {
         let action = record(RollupId::MAINNET, RollupId(7));
         let batch = build_l1_postbatch(&[action], RollupId(7)).unwrap();
         let entry = &batch.entries[0];
 
         assert_eq!(batch.immediateEntryCount, U256::from(1));
-        assert!(entry.stateUpdates.is_empty());
+        assert!(entry.rootUpdates.is_empty());
         assert_eq!(entry.rollingHash, B256::ZERO);
         assert_eq!(entry.destinationRollupId, 7);
         assert!(entry.success);
@@ -757,8 +751,8 @@ mod tests {
         let action = record(RollupId::MAINNET, RollupId(7));
         let mut batch = build_l1_postbatch(&[action], RollupId(7)).unwrap();
         batch.entries[0]
-            .stateUpdates
-            .push(state_update(7, B256::with_last_byte(0x11)));
+            .rootUpdates
+            .push(root_update(7, B256::with_last_byte(0x11)));
 
         finalize_l1_rolling_hashes(&mut batch).unwrap();
 
@@ -789,8 +783,8 @@ mod tests {
 
         let mut multi_call = build_l1_postbatch(&[action], RollupId(7)).unwrap();
         multi_call.entries[0]
-            .stateUpdates
-            .push(state_update(7, B256::ZERO));
+            .rootUpdates
+            .push(root_update(7, B256::ZERO));
         let extra_call = multi_call.entries[0].l2ToL1Calls[0].clone();
         multi_call.entries[0].l2ToL1Calls.push(extra_call);
         assert!(finalize_l1_rolling_hashes(&mut multi_call).is_err());
@@ -816,7 +810,7 @@ mod tests {
         assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
 
         entry.success = false;
-        assert_eq!(outbound_ether_out(&entry), None);
+        assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
 
         entry.l2ToL1Calls.push(call);
         assert_eq!(outbound_ether_out(&entry), None);
@@ -939,14 +933,7 @@ mod tests {
             success: true,
         })
         .unwrap();
-        let calldata = encode_execute_incoming(
-            target,
-            U256::ZERO,
-            data.clone(),
-            source,
-            RollupId::MAINNET,
-            entry.clone(),
-        );
+        let calldata = encode_execute_incoming(entry.clone());
 
         assert_eq!(
             decode_inbound(&calldata),
@@ -962,15 +949,18 @@ mod tests {
 
         let mut failed = entry;
         failed.success = false;
-        let failed_calldata = encode_execute_incoming(
-            target,
-            U256::ZERO,
-            Bytes::from_static(&[1, 2]),
-            source,
-            RollupId::MAINNET,
-            failed,
+        let failed_calldata = encode_execute_incoming(failed);
+        assert_eq!(
+            decode_inbound(&failed_calldata),
+            Some(DecodedInbound {
+                target,
+                value: U256::ZERO,
+                data: Bytes::from_static(&[1, 2]),
+                source,
+                return_data: Bytes::from_static(&[3]),
+                success: false,
+            })
         );
-        assert_eq!(decode_inbound(&failed_calldata), None);
     }
 
     #[test]

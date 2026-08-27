@@ -35,7 +35,7 @@ fn target_batch_round_trips_through_the_canonical_abi() {
     let decoded = decode_canonical_post_batch(encode_postbatch(&expected)).unwrap();
 
     assert_eq!(decoded.entries.len(), 1);
-    assert_eq!(decoded.entries[0].stateUpdates.len(), 1);
+    assert_eq!(decoded.entries[0].rootUpdates.len(), 1);
     assert_eq!(
         decoded.entries[0].abi_encode(),
         expected.entries[0].abi_encode()
@@ -43,11 +43,11 @@ fn target_batch_round_trips_through_the_canonical_abi() {
 }
 
 #[test]
-fn target_batch_has_a_valid_state_update_chain() {
+fn target_batch_has_a_valid_root_update_chain() {
     let root = B256::repeat_byte(0x42);
 
     assert_eq!(
-        verify_state_update_chain(&target_anchor_batch(), expected_rollup_id(), root, root)
+        verify_root_update_chain(&target_anchor_batch(), expected_rollup_id(), root, root)
             .map(|_| ()),
         Ok(())
     );
@@ -104,7 +104,7 @@ fn signer_hash_matches_the_two_argument_protocol_api() {
 }
 
 #[test]
-fn state_update_endpoints_are_committed_and_bound_to_reexecution() {
+fn root_update_endpoints_are_committed_and_bound_to_reexecution() {
     let parent = B256::repeat_byte(0x11);
     let final_root = B256::repeat_byte(0x22);
     let wrong = B256::repeat_byte(0xee);
@@ -113,7 +113,7 @@ fn state_update_endpoints_are_committed_and_bound_to_reexecution() {
     batch.immediateEntryCount = U256::from(1);
 
     assert_eq!(
-        verify_state_update_chain(&batch, expected_rollup_id(), parent, final_root).map(|_| ()),
+        verify_root_update_chain(&batch, expected_rollup_id(), parent, final_root).map(|_| ()),
         Ok(())
     );
     let committed = recompute_public_input_hash(
@@ -125,7 +125,7 @@ fn state_update_endpoints_are_committed_and_bound_to_reexecution() {
     .unwrap();
 
     let mut wrong_parent = batch.clone();
-    wrong_parent.entries[0].stateUpdates[0].currentState = wrong;
+    wrong_parent.entries[0].rootUpdates[0].currentRoot = wrong;
     assert_ne!(
         recompute_public_input_hash(
             &wrong_parent,
@@ -137,16 +137,16 @@ fn state_update_endpoints_are_committed_and_bound_to_reexecution() {
         committed
     );
     assert_eq!(
-        verify_state_update_chain(&wrong_parent, expected_rollup_id(), parent, final_root)
+        verify_root_update_chain(&wrong_parent, expected_rollup_id(), parent, final_root)
             .map(|_| ()),
-        Err(StateUpdateChainError::InitialRootMismatch {
+        Err(RootUpdateChainError::InitialRootMismatch {
             validated: parent,
             claimed: wrong,
         })
     );
 
     let mut wrong_final = batch;
-    wrong_final.entries[0].stateUpdates[0].newState = wrong;
+    wrong_final.entries[0].rootUpdates[0].newRoot = wrong;
     assert_ne!(
         recompute_public_input_hash(
             &wrong_final,
@@ -158,9 +158,9 @@ fn state_update_endpoints_are_committed_and_bound_to_reexecution() {
         committed
     );
     assert_eq!(
-        verify_state_update_chain(&wrong_final, expected_rollup_id(), parent, final_root)
+        verify_root_update_chain(&wrong_final, expected_rollup_id(), parent, final_root)
             .map(|_| ()),
-        Err(StateUpdateChainError::FinalMismatch {
+        Err(RootUpdateChainError::FinalMismatch {
             validated: final_root,
             claimed: wrong,
         })
@@ -262,9 +262,9 @@ fn rejects_every_public_input_structural_violation() {
     }
 
     let mut batch = valid.clone();
-    batch.expectedStateRootPerRollup = vec![ExpectedStateRootPerRollupSol {
+    batch.expectedRootPerRollup = vec![ExpectedRootPerRollupSol {
         rollupId: 1,
-        stateRoot: B256::ZERO,
+        root: B256::ZERO,
     }];
     cases.push(("expected state-root pin", batch));
 

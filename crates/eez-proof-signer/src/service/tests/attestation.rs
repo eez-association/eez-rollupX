@@ -158,7 +158,7 @@ async fn mismatched_immediate_entry_count_is_rejected() {
 }
 
 #[tokio::test]
-async fn an_empty_batch_is_rejected_by_the_state_update_chain_gate() {
+async fn an_empty_batch_is_rejected_by_the_root_update_chain_gate() {
     let server = TestServer::new(one_accepting_validator()).await;
     let mut window = happy_window();
     replace_post_batch(
@@ -190,7 +190,7 @@ async fn a_noncanonical_anchor_is_rejected_by_the_effect_prefix_gate() {
 async fn a_nonzero_anchor_ether_delta_is_rejected() {
     let server = TestServer::new(one_accepting_validator()).await;
     let mut batch = anchor_batch();
-    batch.entries[0].stateUpdates[0].etherDelta = I256::ONE;
+    batch.entries[0].rootUpdates[0].etherDelta = I256::ONE;
     let mut window = happy_window();
     replace_post_batch(&mut window, public_input_post_batch_for(batch));
 
@@ -291,7 +291,7 @@ async fn a_multi_block_effect_uses_the_penultimate_block_root() {
 }
 
 #[tokio::test]
-async fn a_state_update_final_root_mismatch_is_rejected() {
+async fn a_root_update_final_root_mismatch_is_rejected() {
     let window = happy_block_inputs();
     let mut backend_output = backend_output_for(&window);
     backend_output.blocks.last_mut().unwrap().post_state_root = B256::repeat_byte(0xee);
@@ -304,11 +304,11 @@ async fn a_state_update_final_root_mismatch_is_rejected() {
 }
 
 #[tokio::test]
-async fn a_state_update_rollup_mismatch_is_rejected() {
+async fn a_root_update_rollup_mismatch_is_rejected() {
     let inner = one_accepting_validator();
     let server = TestServer::new(Arc::clone(&inner)).await;
     let mut batch = anchor_batch();
-    batch.entries[0].stateUpdates[0].rollupId = 2;
+    batch.entries[0].rootUpdates[0].rollupId = 2;
     let mut window = happy_window();
     replace_post_batch(&mut window, public_input_post_batch_for(batch));
 
@@ -343,8 +343,8 @@ async fn distinct_reexecuted_roots_are_attested_when_the_anchor_matches() {
     backend_output.blocks.last_mut().unwrap().post_state_root = final_root;
     let server = TestServer::new(inner(Validator::stub(vec![Ok(backend_output)]))).await;
     let mut batch = anchor_batch();
-    batch.entries[0].stateUpdates[0].currentState = parent;
-    batch.entries[0].stateUpdates[0].newState = final_root;
+    batch.entries[0].rootUpdates[0].currentRoot = parent;
+    batch.entries[0].rootUpdates[0].newRoot = final_root;
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     let mut window = happy_window();
     replace_post_batch(

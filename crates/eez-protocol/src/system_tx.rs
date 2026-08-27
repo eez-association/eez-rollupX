@@ -40,6 +40,31 @@ use crate::entries::encode_execute_incoming;
 /// Selector for `EEZL2.loadExecutionTable`.
 pub const LOAD_EXECUTION_TABLE_SELECTOR: [u8; 4] = loadExecutionTableCall::SELECTOR;
 
+/// Native value that must fund a system-loaded L2 execution table.
+///
+/// The defensive-checks protocol removes the redundant outer inbound-call
+/// fields. `msg.value` now funds every call committed to execute on this L2:
+/// the entry's flat incoming calls plus the incoming sub-calls carried by its
+/// reentrant outgoing rows. The contract deliberately leaves equality to the
+/// prover because table consumption can be partial, so builders and validators
+/// must agree on this sum.
+pub fn committed_l2_table_value(entries: &[L2ExecutionEntrySol]) -> Result<U256, String> {
+    let mut total = U256::ZERO;
+    for call in entries.iter().flat_map(|entry| {
+        entry.incomingCalls.iter().chain(
+            entry
+                .expectedOutgoingCalls
+                .iter()
+                .flat_map(|row| row.incomingCalls.iter()),
+        )
+    }) {
+        total = total
+            .checked_add(call.value)
+            .ok_or_else(|| "committed L2 incoming value overflows uint256".to_string())?;
+    }
+    Ok(total)
+}
+
 /// Per-follower configuration the system-tx builder needs. The
 /// composer and deriver each build one from their own startup config.
 #[derive(Clone, Debug)]
@@ -68,8 +93,8 @@ pub struct SystemTxContext {
 /// Build signed L2 inbound system txs from a postBatch's entries.
 ///
 /// For each entry whose `destinationRollupId == cfg.this_rollup_id`,
-/// reconstructs the outer cross-chain call from
-/// `entry.L2ToL1Calls[0]` and produces one signed legacy tx invoking
+/// lowers the entry into its canonical L2 execution table and produces one
+/// signed legacy tx invoking
 /// `EEZL2.executeIncomingCrossChainCall(...)`. Entries for other
 /// rollups are skipped.
 ///
@@ -93,28 +118,21 @@ pub fn build_inbound_system_txs(
             continue;
         }
         check_entry_shape(entry, "inbound")?;
-        let [outer] = entry.l2ToL1Calls.as_slice() else {
+        let [_outer] = entry.l2ToL1Calls.as_slice() else {
             return Err(format!(
                 "inbound entry must contain exactly one top-level incoming call; found {}",
                 entry.l2ToL1Calls.len(),
             ));
         };
-        let source_rollup = outer.sourceRollupId;
         let l2_entry = lower_entry_to_l2(entry);
-        let calldata = encode_execute_incoming(
-            outer.targetAddress,
-            outer.value,
-            outer.data.clone(),
-            outer.sourceAddress,
-            RollupId(source_rollup),
-            l2_entry,
-        );
+        let committed_value = committed_l2_table_value(std::slice::from_ref(&l2_entry))?;
+        let calldata = encode_execute_incoming(l2_entry);
         let raw = sign_legacy_system_tx(
             &cfg.system_signer,
             nonce,
             cfg.eezl2_address,
             calldata,
-            outer.value,
+            committed_value,
             cfg.l2_chain_id,
             cfg.l2_gas_price,
             cfg.l2_gas_limit,
@@ -165,12 +183,13 @@ pub fn build_outbound_load_table_txs(
             _staticEntries: Vec::new(),
         }
         .abi_encode();
+        let committed_value = committed_l2_table_value(std::slice::from_ref(entry))?;
         let raw = sign_legacy_system_tx(
             &cfg.system_signer,
             nonce,
             cfg.eezl2_address,
             calldata,
-            U256::ZERO, // loadExecutionTable carries no value
+            committed_value,
             cfg.l2_chain_id,
             cfg.l2_gas_price,
             cfg.l2_gas_limit,
@@ -233,10 +252,10 @@ pub struct OutboundSyncGroup {
 
 /// Number of source-L2 roots represented by each outbound L1 settlement host.
 ///
-/// A canonical L2-origin transaction executes all top-level calls in one
-/// zero-hash L1 host. Each top-level `l2ToL1Calls` item is backed by one
-/// seed-only source execution-table entry. Separate nested callback deliveries
-/// are partitioned and verified with those roots downstream.
+/// Each live source cursor slot is backed by one seed-only execution-table
+/// entry. Calls inside a marked revert span advance the cursor temporarily and
+/// then restore it, so a later retry can consume the same source entry again.
+/// Separate nested callback deliveries are partitioned downstream.
 ///
 /// # Errors
 ///
@@ -253,7 +272,11 @@ pub fn outbound_settlement_root_counts(
                     "outbound settlement entry {index} has a non-zero proxy hash"
                 ));
             }
-            let roots = entry.l2ToL1Calls.len();
+            check_call_array_shape(
+                &entry.l2ToL1Calls,
+                &format!("outbound settlement entry {index} flat calls"),
+            )?;
+            let roots = call_array_cursor_slots(&entry.l2ToL1Calls);
             if roots == 0 {
                 return Err(format!(
                     "outbound settlement entry {index} has no top-level L2-to-L1 root"
@@ -262,6 +285,24 @@ pub fn outbound_settlement_root_counts(
             Ok(roots)
         })
         .collect()
+}
+
+fn call_array_cursor_slots(calls: &[crate::abi::L2ToL1CallSol]) -> usize {
+    let mut call_index = 0usize;
+    let mut cursor = 0usize;
+    let mut slots = 0usize;
+    while call_index < calls.len() {
+        let span = usize::from(calls[call_index].revertNextNCalls);
+        let group_len = span.max(1);
+        let saved_cursor = cursor;
+        cursor += group_len;
+        slots = slots.max(cursor);
+        call_index += group_len;
+        if span != 0 {
+            cursor = saved_cursor;
+        }
+    }
+    slots
 }
 
 /// The canonical Sync-block tx order: each pair's system tx immediately
@@ -338,8 +379,10 @@ pub fn sync_pair_end_positions(pairs: &[SyncPair]) -> Vec<usize> {
 /// # Errors
 /// Returns a `String` error naming the offending shape.
 pub fn check_entry_shape(entry: &ExecutionEntrySol, dir: &str) -> Result<(), String> {
-    if !entry.success {
-        return Err(format!("unsuccessful {dir} entry is not supported"));
+    if !entry.success && (entry.l2ToL1Calls.len() > 1 || !entry.expectedL1ToL2Calls.is_empty()) {
+        return Err(format!(
+            "unsuccessful {dir} entry is nonterminal; failed top-level calls with descendants are not supported"
+        ));
     }
     check_call_array_shape(&entry.l2ToL1Calls, &format!("{dir} entry flat calls"))?;
     for (row_index, row) in entry.expectedL1ToL2Calls.iter().enumerate() {
@@ -463,7 +506,7 @@ pub fn lift_entry_from_l2(
         data: call.data.clone(),
     };
     ExecutionEntrySol {
-        stateUpdates: Vec::new(),
+        rootUpdates: Vec::new(),
         proxyEntryHash: entry.proxyEntryHash,
         l2ToL1Calls: entry.incomingCalls.iter().map(lift_call).collect(),
         expectedL1ToL2Calls: entry
@@ -555,6 +598,7 @@ pub fn build_outbound_group(
         effect_followup_counts.push(effect.callback_entries.len());
         callbacks.extend(effect.callback_entries.iter().cloned());
     }
+    let committed_value = committed_l2_table_value(&lowered)?;
     let calldata = loadExecutionTableCall {
         _entries: lowered,
         _staticEntries: Vec::new(),
@@ -565,7 +609,7 @@ pub fn build_outbound_group(
         starting_nonce,
         cfg.eezl2_address,
         calldata,
-        U256::ZERO,
+        committed_value,
         cfg.l2_chain_id,
         cfg.l2_gas_price,
         cfg.l2_gas_limit,
@@ -686,9 +730,10 @@ pub fn build_cross_chain_sync_groups(
 /// Sign a single legacy L2 tx from SYSTEM_ADDRESS with an explicit
 /// `value`.
 ///
-/// `EEZL2.executeIncomingCrossChainCall` enforces strict
-/// `msg.value == value` equality in `executeIncomingCrossChainCall` — pass the
-/// same value here as is embedded in the calldata.
+/// For payable execution-table entry points, builders pass the sum of every
+/// committed incoming value. The defensive-checks contract intentionally
+/// leaves that equality as a prover constraint because table consumption may
+/// be partial.
 ///
 /// # Errors
 ///
@@ -730,7 +775,7 @@ fn sign_legacy_system_tx(
 mod tests {
     use super::*;
     use crate::EvmBatch;
-    use crate::abi::{RollupIdWithProofSystemsSol, StateUpdateSol};
+    use crate::abi::{RollupIdWithProofSystemsSol, RootUpdateSol};
     use crate::entries::{decode_postbatch, encode_postbatch};
     use alloy_primitives::{B256, I256, address};
     use alloy_sol_types::SolValue as _;
@@ -751,10 +796,10 @@ mod tests {
     /// lowers to an `executeIncomingCrossChainCall` system tx.
     fn inbound_entry() -> ExecutionEntrySol {
         ExecutionEntrySol {
-            stateUpdates: vec![StateUpdateSol {
+            rootUpdates: vec![RootUpdateSol {
                 rollupId: 1,
-                currentState: B256::ZERO,
-                newState: B256::repeat_byte(0x11),
+                currentRoot: B256::ZERO,
+                newRoot: B256::repeat_byte(0x11),
                 etherDelta: I256::ZERO,
             }],
             proxyEntryHash: B256::repeat_byte(0xab),
@@ -795,7 +840,7 @@ mod tests {
     /// callbacks populate its flat and expected-row arrays.
     fn outbound_entry() -> ExecutionEntrySol {
         ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: B256::repeat_byte(0xcd),
             l2ToL1Calls: Vec::new(),
             expectedL1ToL2Calls: Vec::new(),
@@ -814,6 +859,50 @@ mod tests {
         TransactionSigned::decode_2718(&mut s)
             .expect("decode system tx")
             .nonce()
+    }
+
+    fn value_of(raw: &Bytes) -> U256 {
+        use alloy_consensus::Transaction as _;
+        use alloy_eips::eip2718::Decodable2718 as _;
+        let mut s: &[u8] = raw.as_ref();
+        TransactionSigned::decode_2718(&mut s)
+            .expect("decode system tx")
+            .value()
+    }
+
+    #[test]
+    fn payable_l2_table_calls_fund_outer_and_nested_incoming_values() {
+        use alloy_consensus::Transaction as _;
+        use alloy_eips::eip2718::Decodable2718 as _;
+
+        let mut entry = inbound_entry();
+        entry.l2ToL1Calls[0].value = U256::from(3);
+        let mut nested = entry.l2ToL1Calls[0].clone();
+        nested.value = U256::from(5);
+        entry.expectedL1ToL2Calls = vec![crate::abi::ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::repeat_byte(0x31),
+            l2ToL1Calls: vec![nested],
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: Bytes::new(),
+        }];
+
+        let inbound = build_inbound_system_txs(&[entry.clone()], &ctx(), 0).unwrap();
+        assert_eq!(value_of(&inbound[0]), U256::from(8));
+        let mut encoded = inbound[0].as_ref();
+        let signed = TransactionSigned::decode_2718(&mut encoded).unwrap();
+        let call = crate::abi::executeIncomingCrossChainCallCall::abi_decode(signed.input())
+            .expect("new two-argument inbound ABI decodes");
+        assert_eq!(call._entries.len(), 1);
+        assert!(call._staticEntries.is_empty());
+
+        let lowered = lower_entry_to_l2(&entry);
+        assert_eq!(
+            committed_l2_table_value(std::slice::from_ref(&lowered)).unwrap(),
+            U256::from(8),
+        );
+        let loads = build_outbound_load_table_txs(&[lowered], &ctx(), 0).unwrap();
+        assert_eq!(value_of(&loads[0]), U256::from(8));
     }
 
     /// THE A2b property: the canonical builder lays a MIXED slot out in
@@ -905,6 +994,19 @@ mod tests {
         assert_eq!(outbound_settlement_root_counts(&[host]).unwrap(), [2]);
     }
 
+    #[test]
+    fn reverted_root_retry_reuses_one_source_cursor_slot() {
+        let mut host = inbound_entry();
+        host.proxyEntryHash = B256::ZERO;
+        host.destinationRollupId = 0;
+        host.l2ToL1Calls[0].revertNextNCalls = 1;
+        let mut retry = host.l2ToL1Calls[0].clone();
+        retry.revertNextNCalls = 0;
+        host.l2ToL1Calls.push(retry);
+
+        assert_eq!(outbound_settlement_root_counts(&[host]).unwrap(), [1]);
+    }
+
     /// Rich flat arrays and unified nested rows survive the sidecar-to-L2 ABI
     /// lowering exactly. A naturally failed empty nested frame is supported,
     /// while malformed failure commitments and failed frames with sub-calls
@@ -970,21 +1072,21 @@ mod tests {
     }
 
     #[test]
-    fn cross_chain_sync_pairs_rejects_unsuccessful_entries() {
+    fn cross_chain_sync_pairs_accepts_terminal_unsuccessful_entries() {
         let cfg = ctx();
 
         let mut outbound = outbound_entry();
         outbound.success = false;
-        let err =
+        let outbound_pairs =
             build_cross_chain_sync_pairs(&[(outbound, Bytes::from_static(&[0x01]))], &[], &cfg, 0)
-                .expect_err("unsuccessful outbound entries are outside the supported profile");
-        assert!(err.contains("unsuccessful outbound"), "err: {err}");
+                .expect("terminal unsuccessful outbound entries are representable");
+        assert_eq!(outbound_pairs.len(), 1);
 
         let mut inbound = inbound_entry();
         inbound.success = false;
-        let err = build_cross_chain_sync_pairs(&[], &[inbound], &cfg, 0)
-            .expect_err("unsuccessful inbound entries are outside the supported profile");
-        assert!(err.contains("unsuccessful inbound"), "err: {err}");
+        let inbound_pairs = build_cross_chain_sync_pairs(&[], &[inbound], &cfg, 0)
+            .expect("terminal unsuccessful inbound entries are representable");
+        assert_eq!(inbound_pairs.len(), 1);
     }
 
     /// Single-direction degenerates EXACTLY to the per-direction builds, so

@@ -59,10 +59,10 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
             "block_inspection",
         ),
         (
-            SettlementPipelineError::StateUpdateChain(
-                crate::settlement::StateUpdateChainError::NoEntries,
+            SettlementPipelineError::RootUpdateChain(
+                crate::settlement::RootUpdateChainError::NoEntries,
             ),
-            "state_update_chain",
+            "root_update_chain",
         ),
         (
             SettlementPipelineError::EffectPrefix(
@@ -296,10 +296,10 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
 
     let mut batch = anchor_batch();
     batch.entries.push(ExecutionEntrySol {
-        stateUpdates: vec![StateUpdateSol {
+        rootUpdates: vec![RootUpdateSol {
             rollupId: 1,
-            currentState: B256::ZERO,
-            newState: B256::ZERO,
+            currentRoot: B256::ZERO,
+            newRoot: B256::ZERO,
             etherDelta: I256::try_from(value).unwrap(),
         }],
         proxyEntryHash: call_hash,

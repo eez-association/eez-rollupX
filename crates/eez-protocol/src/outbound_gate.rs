@@ -190,7 +190,7 @@ pub fn verify_outbound_authorized(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abi::L2ToL1CallSol;
+    use crate::abi::{ExpectedL1ToL2CallSol, L2ToL1CallSol};
     use alloy_primitives::{Address, Bytes, U256, address};
 
     /// A real `CrossChainCallExecuted` log as EEZL2 emits it.
@@ -244,7 +244,7 @@ mod tests {
 
     fn entry(calls: Vec<L2ToL1CallSol>) -> ExecutionEntrySol {
         ExecutionEntrySol {
-            stateUpdates: Vec::new(),
+            rootUpdates: Vec::new(),
             proxyEntryHash: B256::ZERO, // outbound immediate
             l2ToL1Calls: calls,
             expectedL1ToL2Calls: Vec::new(),
@@ -462,6 +462,14 @@ mod tests {
 
         let mut failed = entry(vec![c.clone()]);
         failed.success = false;
+        assert!(verify_outbound_authorized(&[failed.clone()], &[observed(&c, 1)], 1).is_ok());
+        failed.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::with_last_byte(1),
+            l2ToL1Calls: Vec::new(),
+            revertedOrStaticRollingHash: B256::with_last_byte(2),
+            success: false,
+            returnData: Bytes::new(),
+        });
         assert!(verify_outbound_authorized(&[failed], &[observed(&c, 1)], 1).is_err());
 
         for unsupported in [

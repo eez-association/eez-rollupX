@@ -1,38 +1,38 @@
 use super::*;
 
 #[test]
-fn accepts_a_single_or_multi_entry_state_update_chain() {
+fn accepts_a_single_or_multi_entry_root_update_chain() {
     let a = B256::repeat_byte(0x0a);
     let b = B256::repeat_byte(0x0b);
     let c = B256::repeat_byte(0x0c);
 
     assert_eq!(
-        verify_state_update_chain(&state_chain(&[a, a]), expected_rollup_id(), a, a).map(|_| ()),
+        verify_root_update_chain(&state_chain(&[a, a]), expected_rollup_id(), a, a).map(|_| ()),
         Ok(())
     );
     assert_eq!(
-        verify_state_update_chain(&state_chain(&[a, b, c]), expected_rollup_id(), a, c).map(|_| ()),
+        verify_root_update_chain(&state_chain(&[a, b, c]), expected_rollup_id(), a, c).map(|_| ()),
         Ok(())
     );
 }
 
 #[test]
-fn rejects_missing_or_non_singular_state_updates() {
+fn rejects_missing_or_non_singular_root_updates() {
     let root = B256::ZERO;
     let empty = CanonicalPostBatch::from_decoded_for_test(EvmBatch::default());
     assert_eq!(
-        verify_state_update_chain(&empty, expected_rollup_id(), root, root).map(|_| ()),
-        Err(StateUpdateChainError::NoEntries)
+        verify_root_update_chain(&empty, expected_rollup_id(), root, root).map(|_| ()),
+        Err(RootUpdateChainError::NoEntries)
     );
 
     for entry_index in [0, 1] {
         for actual in [0, 2] {
             let mut batch = state_chain(&[root, root, root]);
-            let update = batch.entries[entry_index].stateUpdates[0].clone();
-            batch.entries[entry_index].stateUpdates = vec![update; actual];
+            let update = batch.entries[entry_index].rootUpdates[0].clone();
+            batch.entries[entry_index].rootUpdates = vec![update; actual];
             assert_eq!(
-                verify_state_update_chain(&batch, expected_rollup_id(), root, root).map(|_| ()),
-                Err(StateUpdateChainError::UpdateCount {
+                verify_root_update_chain(&batch, expected_rollup_id(), root, root).map(|_| ()),
+                Err(RootUpdateChainError::UpdateCount {
                     entry_index,
                     actual,
                 })
@@ -42,35 +42,35 @@ fn rejects_missing_or_non_singular_state_updates() {
 }
 
 #[test]
-fn rejects_invalid_or_inconsistent_state_update_rollup_ids() {
+fn rejects_invalid_or_inconsistent_root_update_rollup_ids() {
     let root = B256::ZERO;
 
     let mut zero = state_chain(&[root, root]);
-    zero.entries[0].stateUpdates[0].rollupId = 0;
+    zero.entries[0].rootUpdates[0].rollupId = 0;
     assert_eq!(
-        verify_state_update_chain(&zero, expected_rollup_id(), root, root).map(|_| ()),
-        Err(StateUpdateChainError::ExpectedRollupMismatch {
+        verify_root_update_chain(&zero, expected_rollup_id(), root, root).map(|_| ()),
+        Err(RootUpdateChainError::ExpectedRollupMismatch {
             expected: 1,
             claimed: 0,
         })
     );
 
     let mut wrong_expected_rollup = state_chain(&[root, root]);
-    wrong_expected_rollup.entries[0].stateUpdates[0].rollupId = 2;
+    wrong_expected_rollup.entries[0].rootUpdates[0].rollupId = 2;
     assert_eq!(
-        verify_state_update_chain(&wrong_expected_rollup, expected_rollup_id(), root, root)
+        verify_root_update_chain(&wrong_expected_rollup, expected_rollup_id(), root, root)
             .map(|_| ()),
-        Err(StateUpdateChainError::ExpectedRollupMismatch {
+        Err(RootUpdateChainError::ExpectedRollupMismatch {
             expected: 1,
             claimed: 2,
         })
     );
 
     let mut mixed = state_chain(&[root, root, root]);
-    mixed.entries[1].stateUpdates[0].rollupId = 2;
+    mixed.entries[1].rootUpdates[0].rollupId = 2;
     assert_eq!(
-        verify_state_update_chain(&mixed, expected_rollup_id(), root, root).map(|_| ()),
-        Err(StateUpdateChainError::RollupMismatch {
+        verify_root_update_chain(&mixed, expected_rollup_id(), root, root).map(|_| ()),
+        Err(RootUpdateChainError::RollupMismatch {
             entry_index: 1,
             expected: 1,
             claimed: 2,
@@ -79,7 +79,7 @@ fn rejects_invalid_or_inconsistent_state_update_rollup_ids() {
 }
 
 #[test]
-fn rejects_wrong_state_update_endpoints_or_a_chain_break() {
+fn rejects_wrong_root_update_endpoints_or_a_chain_break() {
     let a = B256::repeat_byte(0x0a);
     let b = B256::repeat_byte(0x0b);
     let c = B256::repeat_byte(0x0c);
@@ -87,25 +87,25 @@ fn rejects_wrong_state_update_endpoints_or_a_chain_break() {
     let batch = state_chain(&[a, b, c]);
 
     assert_eq!(
-        verify_state_update_chain(&batch, expected_rollup_id(), wrong, c).map(|_| ()),
-        Err(StateUpdateChainError::InitialRootMismatch {
+        verify_root_update_chain(&batch, expected_rollup_id(), wrong, c).map(|_| ()),
+        Err(RootUpdateChainError::InitialRootMismatch {
             validated: wrong,
             claimed: a,
         })
     );
     assert_eq!(
-        verify_state_update_chain(&batch, expected_rollup_id(), a, wrong).map(|_| ()),
-        Err(StateUpdateChainError::FinalMismatch {
+        verify_root_update_chain(&batch, expected_rollup_id(), a, wrong).map(|_| ()),
+        Err(RootUpdateChainError::FinalMismatch {
             validated: wrong,
             claimed: c,
         })
     );
 
     let mut broken = batch;
-    broken.entries[1].stateUpdates[0].currentState = wrong;
+    broken.entries[1].rootUpdates[0].currentRoot = wrong;
     assert_eq!(
-        verify_state_update_chain(&broken, expected_rollup_id(), a, c).map(|_| ()),
-        Err(StateUpdateChainError::ChainBreak {
+        verify_root_update_chain(&broken, expected_rollup_id(), a, c).map(|_| ()),
+        Err(RootUpdateChainError::ChainBreak {
             entry_index: 1,
             previous_claimed_post_state: b,
             next_claimed_pre_state: wrong,
@@ -136,7 +136,7 @@ fn canonical_anchor_requires_a_zero_ether_delta() {
     let settling = settling_with_effect_candidates(Vec::new());
     for claimed in [I256::ONE, -I256::ONE] {
         let mut batch = state_chain(&[root, root]);
-        batch.entries[0].stateUpdates[0].etherDelta = claimed;
+        batch.entries[0].rootUpdates[0].etherDelta = claimed;
         assert_eq!(
             verify_effect_prefix(&batch, root, &[], &settling).err(),
             Some(EffectPrefixError::NonZeroAnchorEtherDelta { claimed })
@@ -268,6 +268,60 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
 }
 
 #[test]
+fn leading_failed_effect_checkpoint_is_carried_by_the_anchor() {
+    let window_pre = B256::repeat_byte(0x0a);
+    let pre_settling = B256::repeat_byte(0x0b);
+    let failed_checkpoint = B256::repeat_byte(0x0c);
+    let mut batch = effect_batch(
+        &[window_pre, failed_checkpoint, failed_checkpoint],
+        &[ClaimedEntryShape::Inbound],
+    );
+    batch.entries[1].success = false;
+    batch.entries[1].returnData = Bytes::from_static(b"expected revert");
+    let settling = settling_with_system_flags(vec![true]);
+    let checkpoints = [checkpoint(0, failed_checkpoint)];
+
+    let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
+
+    assert_eq!((facts.inbound_count(), facts.outbound_count()), (1, 0));
+}
+
+#[test]
+fn successful_effect_carries_the_immediately_following_failed_checkpoint() {
+    let window_pre = B256::repeat_byte(0x0a);
+    let pre_settling = B256::repeat_byte(0x0b);
+    let first_checkpoint = B256::repeat_byte(0x0c);
+    let failed_checkpoint = B256::repeat_byte(0x0d);
+    let final_checkpoint = B256::repeat_byte(0x0e);
+    let mut batch = effect_batch(
+        &[
+            window_pre,
+            pre_settling,
+            failed_checkpoint,
+            failed_checkpoint,
+            final_checkpoint,
+        ],
+        &[
+            ClaimedEntryShape::Inbound,
+            ClaimedEntryShape::Inbound,
+            ClaimedEntryShape::Inbound,
+        ],
+    );
+    batch.entries[2].success = false;
+    batch.entries[2].returnData = Bytes::from_static(b"expected revert");
+    let settling = settling_with_system_flags(vec![true, true, true]);
+    let checkpoints = [
+        checkpoint(0, first_checkpoint),
+        checkpoint(1, failed_checkpoint),
+        checkpoint(2, final_checkpoint),
+    ];
+
+    let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
+
+    assert_eq!((facts.inbound_count(), facts.outbound_count()), (3, 0));
+}
+
+#[test]
 fn duplicate_roots_cannot_hide_reordered_effect_kinds() {
     let anchor = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
@@ -375,14 +429,14 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
         &[ClaimedEntryShape::Outbound],
     );
     assert_eq!(
-        verify_state_update_chain(
+        verify_root_update_chain(
             &transaction_endpoint,
             expected_rollup_id(),
             anchor,
             final_root,
         )
         .map(|_| ()),
-        Err(StateUpdateChainError::FinalMismatch {
+        Err(RootUpdateChainError::FinalMismatch {
             validated: final_root,
             claimed: transaction_root,
         })
@@ -393,8 +447,7 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
         &[ClaimedEntryShape::Outbound],
     );
     assert!(
-        verify_state_update_chain(&final_endpoint, expected_rollup_id(), anchor, final_root)
-            .is_ok()
+        verify_root_update_chain(&final_endpoint, expected_rollup_id(), anchor, final_root).is_ok()
     );
     assert_eq!(
         verify_effect_prefix(&final_endpoint, pre_settling, &checkpoints, &settling,).err(),

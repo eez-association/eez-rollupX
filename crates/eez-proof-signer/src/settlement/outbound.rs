@@ -627,7 +627,7 @@ fn authorize_outbound_effect(
         }
     }
 
-    let update = effect.claimed_state_update();
+    let update = effect.claimed_root_update();
     let expected_delta = verification.ether_delta;
     if update.etherDelta != expected_delta {
         return Err(OutboundEffectError::EtherDeltaMismatch {

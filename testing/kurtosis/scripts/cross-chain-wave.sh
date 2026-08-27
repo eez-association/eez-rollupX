@@ -621,9 +621,9 @@ run_waves() {
             sleep 1
         done
         if (( root_matched )); then
-            echo "    ✓ L1 rollups($EEZ_ROLLUP_ID).stateRoot == L2 safe root at height $L2_SAFE"
+            echo "    ✓ L1 rollups($EEZ_ROLLUP_ID).root == L2 safe root at height $L2_SAFE"
         else
-            echo "    ✗ L1 stateRoot $L1_RECHECK != L2 safe root $L2_ROOT at height $L2_SAFE"; ok_all=0
+            echo "    ✗ L1 root $L1_RECHECK != L2 safe root $L2_ROOT at height $L2_SAFE"; ok_all=0
         fi
         if (( L2_SAFE >= LAST_SETTLED )); then
             echo "    ✓ L2 safe head reached settled height: $L2_SAFE"

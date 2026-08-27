@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`9735f53abbb6b9f5e863f405ad4555b4701b7fda`. Stateless execution uses
+`d0fe87534782f373504628ff994fb62dcc57465a`. Stateless execution uses
 `eez-association/stateless` at commit
 `4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
 
@@ -35,19 +35,23 @@ where:
 
 - the anchor commits the validated L2 state transition before settlement
   effects;
-- each outbound effect represents one mutable L2-origin settlement host (a
-  flat host may cover multiple root calls from one user transaction);
+- each outbound effect represents one mutable L2-origin settlement host; flat
+  sibling roots may share a host, callback-bearing roots use separate hosts,
+  and calls rolled back by a source frame plus a subsequent retry reuse their
+  original host;
   and
-- each inbound effect represents one successful mutable L1-origin call tree.
+- each inbound effect represents one mutable L1-origin call tree, including a
+  terminal top-level destination revert.
 
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
 reentrant calls alternating between L1 and that L2, flat multi-root outbound
-transactions, and terminal failed nested rows with no descendants. Calls
+transactions, terminal failed top-level calls, and terminal failed nested rows
+with no descendants. Calls
 rolled back inside a recovered source-chain frame are represented by canonical,
 non-overlapping `revertNextNCalls` windows. It does not support static entries,
-unsuccessful top-level calls, failed nested rows with descendants, explicit
-call gas, overlapping or out-of-bounds rollback windows, blobs, L1 block
+failed calls with descendants, explicit call gas, overlapping or out-of-bounds
+rollback windows, blobs, L1 block
 binding, sender binding, other L2 targets, or multiple proof systems.
 
 No failed stage may produce a signature. A successful signature authorizes the
@@ -59,7 +63,7 @@ The signature does **not** establish:
 
 - canonical L2 ancestry, fork choice, finality, or sequencer authorization;
 - that the witness-backed pre-state is an operator-trusted chain checkpoint;
-- current L1 registry state or future on-chain applicability of a state update;
+- current L1 registry state or future on-chain applicability of a root update;
 - successful future execution of an L1 target call;
 - proof-system registration, threshold configuration, or verification-key
   equality in the deployed rollup manager;
@@ -369,7 +373,7 @@ The decoded batch MUST satisfy all of these profile rules:
 1. `proofSystems` contains exactly the configured proof-system address.
 2. `rollupIdsWithProofSystems` contains exactly one item with the expected
    rollup ID and `proofSystemIndexes == [0]`.
-3. `expectedStateRootPerRollup` is empty.
+3. `expectedRootPerRollup` is empty.
 4. Every mutable entry has `destinationRollupId == expected_rollup_id`.
 5. `staticEntries` is empty.
 6. `immediateStaticEntryCount == 0`.
@@ -394,20 +398,20 @@ signer does not query L1 to confirm them.
 ### 8.1 State-update chain
 
 The batch MUST contain at least one mutable entry. Every entry MUST contain
-exactly one `StateUpdate` and that update's `rollupId` MUST equal the expected
+exactly one `RootUpdate` and that update's `rollupId` MUST equal the expected
 rollup ID.
 
 For entries `E[0..n)` with updates `U[0..n)`, the signer MUST require:
 
 ```text
-U[0].currentState == window_pre_state_root
-U[i].currentState == U[i - 1].newState       for every i > 0
-U[n - 1].newState == window_post_state_root
+U[0].currentRoot == window_pre_state_root
+U[i].currentRoot == U[i - 1].newRoot       for every i > 0
+U[n - 1].newRoot == window_post_state_root
 ```
 
 These checks bind the continuous Composer claim to validated endpoints. The
-interior `newState` values are additionally bound to execution checkpoints
-below.
+interior `newRoot` values are additionally bound to execution checkpoints and
+their persistent root carriers below.
 
 ### 8.2 Terminal-block framing
 
@@ -421,7 +425,7 @@ In the terminal block:
 
 - a transaction recovered from `SYSTEM_ADDRESS` MUST target `EEZL2_ADDRESS`;
 - every such transaction MUST have a successful receipt; and
-- a system-to-EEZL2 transaction beginning with selector `0x8d8461d9` is an
+- a system-to-EEZL2 transaction beginning with selector `0x9e2d7358` is an
   inbound candidate even when the remainder of its calldata is malformed.
 
 The number of entries after the anchor MUST equal the number of locally derived
@@ -439,8 +443,9 @@ The claimed entry at the same position MUST have the same direction.
 
 ### 8.3 Entry classification
 
-Every supported entry MUST be successful and mutable. A nested row MAY fail
-only when its call sub-array is empty and its
+Every supported entry MUST be mutable. An outbound entry MUST be successful.
+An inbound entry MAY fail only as a terminal top-level call without nested
+rows. A nested row MAY fail only when its call sub-array is empty and its
 `revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
 reverted hash. Every flat call, including calls in row sub-arrays, MUST have
 `isStatic == false` and `gas == 0`. A call MAY start a rollback window by
@@ -454,7 +459,7 @@ The leading entry is a canonical anchor only if:
 - `l2ToL1Calls` is empty;
 - `destinationRollupId` is the expected rollup;
 - `returnData` is empty; and
-- `rollingHash` equals the L1 entry seed over its sole state update and a zero
+- `rollingHash` equals the L1 entry seed over its sole root update and a zero
   proxy hash.
 
 Every later entry MUST be one of:
@@ -469,13 +474,25 @@ complementary L2 execution table and reject extra roots, rows, or flat calls.
 
 A second anchor or any other shape MUST be rejected.
 
-The anchor's `etherDelta` MUST be zero. If at least one effect exists, the
-anchor's `newState` MUST equal `settling_pre_state_root`. If no effects exist,
-the anchor alone covers the complete window transition.
+The anchor's `etherDelta` MUST be zero. If no effects exist, the anchor alone
+covers the complete window transition.
 
 For every effect at candidate position `C[i]`, the backend checkpoint MUST
-target `C[i]`, and the effect's `StateUpdate.newState` MUST equal that computed
-post-transaction state root.
+target `C[i]`. Root updates MUST then use the following persistent-carrier
+rule, because a failed L1 entry rolls back its root update together with the
+intentionally reverted call:
+
+- a leading run of failed effects is carried by the successful anchor, whose
+  `newRoot` equals the last checkpoint in that run;
+- every successful effect carries its checkpoint and every immediately
+  following failed effect checkpoint, so its `newRoot` equals the last such
+  checkpoint; and
+- every failed effect uses the root already persisted by that carrier, making
+  its own stitched update a no-op (`currentRoot == newRoot`).
+
+With no leading failures, the anchor's `newRoot` equals
+`settling_pre_state_root`. With no failures, every effect directly carries its
+own computed post-transaction state root.
 
 ## 9. Inbound authorization
 
@@ -485,21 +502,21 @@ An inbound candidate is authorized only if all rules in this section pass.
 
 The system transaction MUST have succeeded and its calldata MUST be the exact
 canonical encoding of current `executeIncomingCrossChainCall`, selector
-`0x8d8461d9`.
+`0x9e2d7358`.
 
 The decoded call MUST satisfy:
 
-- native transaction value equals the outer `value` argument;
-- `sourceRollup == 0`;
 - `_entries` contains exactly one L2 mutable entry;
 - `_staticEntries` is empty;
 - that entry contains exactly one `incomingCall`;
 - entry `success == true`;
+- native transaction value equals the checked sum of every flat incoming call
+  and every incoming sub-call in that entry's expected-outgoing rows;
 - every `expectedOutgoingCall` and every call in its `incomingCalls` sub-array
   has the supported mutable shape from section 8.3;
-- outer `destination`, `value`, `data`, `sourceAddress`, and `sourceRollup`
-  equal the corresponding inner call fields; and
-- the inner call has `isStatic == false` and `gas == 0`; because the entry has
+- the first inner call has `sourceRollupId == 0`, and its target, value, data,
+  source address, and source rollup are the canonical inbound identity; and
+- that inner call has `isStatic == false` and `gas == 0`; because the entry has
   one root call, its `revertNextNCalls` MUST be either zero or one.
 
 The signer MUST recompute the common mutable call hash with source rollup `0`
@@ -521,7 +538,7 @@ The corresponding batch entry MUST:
 - pair with the executed L2 target table under the recursive verification
   below.
 
-Starting from the L1 state-update seed and the L2 proxy seed, the signer MUST
+Starting from the L1 root-update seed and the L2 proxy seed, the signer MUST
 inverse-execute both tables. It MUST consume unified rows in forward order,
 require each row key to equal
 `keccak256(sourceCallHash || currentDestinationRollingHash)`, apply the exact
@@ -701,7 +718,7 @@ not participate.
 The full mutable entries and `callData` are bound as above. The following batch
 carriers are not directly included in the digest:
 
-- `expectedStateRootPerRollup`;
+- `expectedRootPerRollup`;
 - `immediateEntryCount` and `immediateStaticEntryCount`;
 - proof-system contract addresses;
 - proof bytes; and
@@ -803,16 +820,16 @@ Updating either pinned external revision MUST include:
 Field order and integer widths are part of the ABI.
 
 ```solidity
-struct StateUpdate {
+struct RootUpdate {
     uint64 rollupId;
-    bytes32 currentState;
-    bytes32 newState;
+    bytes32 currentRoot;
+    bytes32 newRoot;
     int256 etherDelta;
 }
 
-struct ExpectedStateRootPerRollup {
+struct ExpectedRootPerRollup {
     uint64 rollupId;
-    bytes32 stateRoot;
+    bytes32 root;
 }
 
 struct L2ToL1Call {
@@ -835,7 +852,7 @@ struct ExpectedL1ToL2Call {
 }
 
 struct ExecutionEntry {
-    StateUpdate[] stateUpdates;
+    RootUpdate[] rootUpdates;
     bytes32 proxyEntryHash;
     L2ToL1Call[] l2ToL1Calls;
     ExpectedL1ToL2Call[] expectedL1ToL2Calls;
@@ -846,7 +863,7 @@ struct ExecutionEntry {
 }
 
 struct StaticExecutionEntry {
-    ExpectedStateRootPerRollup[] expectedStateRoots;
+    ExpectedRootPerRollup[] expectedRoots;
     bytes32 proxyEntryHash;
     L2ToL1Call[] l2ToL1Calls;
     bytes32 rollingHash;
@@ -861,7 +878,7 @@ struct RollupIdWithProofSystems {
 }
 
 struct ProofSystemBatchPerVerificationEntries {
-    ExpectedStateRootPerRollup[] expectedStateRootPerRollup;
+    ExpectedRootPerRollup[] expectedRootPerRollup;
     ExecutionEntry[] entries;
     StaticExecutionEntry[] staticEntries;
     uint256 immediateEntryCount;
@@ -918,14 +935,9 @@ struct L2StaticExecutionEntry {
 function loadExecutionTable(
     L2ExecutionEntry[] _entries,
     L2StaticExecutionEntry[] _staticEntries
-);
+) payable;
 
 function executeIncomingCrossChainCall(
-    address destination,
-    uint256 value,
-    bytes data,
-    address sourceAddress,
-    uint64 sourceRollup,
     L2ExecutionEntry[] _entries,
     L2StaticExecutionEntry[] _staticEntries
 ) payable returns (bytes);
@@ -948,7 +960,7 @@ Current selector locks are:
 | `executeL2Txs` | `0xdc6d11fa` |
 | `staticCrossChainCall` | `0x31344ade` |
 | `loadExecutionTable` | `0xb301bc80` |
-| `executeIncomingCrossChainCall` | `0x8d8461d9` |
+| `executeIncomingCrossChainCall` | `0x9e2d7358` |
 
 ## Annex B. Hash formulas used by the supported profile
 
@@ -998,7 +1010,7 @@ For L1:
 ```text
 states[0]   = bytes32(0)
 states[i+1] = H(states[i] || uint64_be(update[i].rollupId)
-                          || update[i].currentState)
+                          || update[i].currentRoot)
 l1_seed     = H(states[n] || proxyEntryHash)
 ```
 
