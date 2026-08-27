@@ -7,11 +7,13 @@
 //!   Composition
 //!   ├── source:  SourceComposition
 //!   │             ├── rollup_id          : RollupId
-//!   │             └── batch              : EvmBatch
+//!   │             ├── batch              : EvmBatch
+//!   │             └── entry_traces       : Vec<EntryTrace>
 //!   │
 //!   └── targets: Vec<TargetComposition>              non-empty targets, sorted by rollup ID
 //!                 ├── rollup_id            : RollupId
-//!                 └── batch                : EvmBatch
+//!                 ├── batch                : EvmBatch
+//!                 └── entry_traces         : Vec<EntryTrace>
 //! ```
 //!
 //! `Composition` contains structured `EvmBatch` values, not encoded transaction
@@ -43,6 +45,14 @@ use crate::rollup_id::RollupId;
 /// materialization.
 #[derive(Debug, Clone)]
 pub struct ExecutedAction {
+    /// Index of the cross-chain call whose destination execution emitted this
+    /// call. `None` identifies a root call made directly by the source
+    /// transaction.
+    ///
+    /// The explicit edge is load-bearing for entry materialization: preorder
+    /// alone cannot distinguish a root sibling from a callback after an
+    /// earlier frame has returned when both originate on the entry rollup.
+    pub parent_index: Option<usize>,
     /// Call mode observed at interception and committed to the call hash.
     /// Current composition materialization accepts only mutable calls.
     pub call_mode: CallMode,
@@ -68,9 +78,9 @@ pub struct ExecutedAction {
     /// starting with this call. Only the first call in a span carries this
     /// value; `None` means no enclosing revert was observed.
     ///
-    /// The materializer rejects calls with a revert span, preventing
-    /// reverted calls from being emitted as successful entries. The inspector
-    /// normally populates it after execution through
+    /// The materializer lowers a valid span to the destination arrays'
+    /// `revertNextNCalls` markers while retaining the calls and their rolling
+    /// hash folds. The inspector normally populates it after execution through
     /// [`CompositionBuilder::annotate_revert_span`](crate::CompositionBuilder::annotate_revert_span)
     /// when it observes a reverted frame.
     pub revert_span: Option<u32>,
@@ -137,6 +147,18 @@ pub struct SourceComposition {
     pub rollup_id: RollupId,
     /// Source-side entries derived from calls observed during simulation.
     pub batch: EvmBatch,
+    /// Execution traces parallel to `batch.entries`.
+    ///
+    /// L1 traces are finalized after settlement attaches the ordered state
+    /// updates, because those updates seed every nested position key. L2
+    /// traces are retained for auditability even though their hashes can be
+    /// finalized immediately.
+    pub entry_traces: Vec<crate::entries::EntryTrace>,
+    /// Number of separate callback-delivery entries produced by each source
+    /// entry. This is empty only for malformed construction; normal L1
+    /// sources contain zeroes, while an L2 source records the callbacks that
+    /// must execute after its consuming user transaction.
+    pub callback_entry_counts: Vec<usize>,
 }
 
 /// Target-side batch for one non-entry rollup reached by recorded calls.
@@ -149,6 +171,8 @@ pub struct TargetComposition {
     pub rollup_id: RollupId,
     /// Target-side entries derived from calls addressed to `rollup_id`.
     pub batch: EvmBatch,
+    /// Execution traces parallel to `batch.entries`.
+    pub entry_traces: Vec<crate::entries::EntryTrace>,
 }
 
 /// Source and target batches derived from one simulated entry transaction by

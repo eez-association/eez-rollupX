@@ -9,30 +9,23 @@ fn refresh_l1_rolling_hash(entry: &mut ExecutionEntrySol) {
             .map(|update| (update.rollupId, update.currentState)),
         entry.proxyEntryHash,
     );
-    match entry.l2ToL1Calls.as_slice() {
-        [] => {}
-        [call] => {
-            let mode = if call.isStatic {
-                CallMode::Static
-            } else {
-                CallMode::Mutable
-            };
-            let call_hash = common_cross_chain_call_hash(CallHashInput {
-                call_mode: mode,
-                source_address: call.sourceAddress,
-                source_rollup_id: RollupId(call.sourceRollupId),
-                target_address: call.targetAddress,
-                target_rollup_id: RollupId::MAINNET,
-                value: call.value,
-                data: &call.data,
-            });
-            rolling_hash.call_begin(call_hash);
-            rolling_hash.call_end(entry.success, &entry.returnData);
-        }
-        calls => panic!(
-            "DA fixture supports at most one L2-to-L1 call, got {}",
-            calls.len()
-        ),
+    for call in &entry.l2ToL1Calls {
+        let mode = if call.isStatic {
+            CallMode::Static
+        } else {
+            CallMode::Mutable
+        };
+        let call_hash = common_cross_chain_call_hash(CallHashInput {
+            call_mode: mode,
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(call.sourceRollupId),
+            target_address: call.targetAddress,
+            target_rollup_id: RollupId::MAINNET,
+            value: call.value,
+            data: &call.data,
+        });
+        rolling_hash.call_begin(call_hash);
+        rolling_hash.call_end(entry.success, &entry.returnData);
     }
     entry.rollingHash = rolling_hash.current();
 }
@@ -413,7 +406,7 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
     batch.entries[1].l2ToL1Calls[0].value = value;
     batch.entries[1].stateUpdates[0].etherDelta = -I256::try_from(value).unwrap();
     refresh_l1_rolling_hash(&mut batch.entries[1]);
-    let mut settling = settling_with_outbound_pairs(1);
+    let mut settling = settling_with_outbound_pairs(&batch);
     settling
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call(
@@ -423,9 +416,7 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
         ));
     let plan = effect_plan(&batch, &settling);
     let outbound = authorize_outbound_effects(&plan).unwrap();
-    let mut sidecar = batch.entries[1].clone();
-    sidecar.stateUpdates.clear();
-    sidecar.rollingHash = B256::ZERO;
+    let sidecar = outbound.iter().next().unwrap().derived_da_entry().clone();
 
     let (_, mut user_payload) = block_and_payload_transactions(vec![user_transaction(7)]);
     let user = user_payload.pop().unwrap();
@@ -542,29 +533,21 @@ fn da_payload_binds_multiple_outbound_pairs_and_system_nonce_progression() {
         &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Outbound],
     );
     batch.entries[2].l2ToL1Calls[0].data = Bytes::from_static(&[0x02]);
-    batch.entries[2].returnData = Bytes::from_static(&[0xca, 0xfe]);
     refresh_l1_rolling_hash(&mut batch.entries[2]);
     assert_eq!(
         batch.entries[2].rollingHash,
-        b256!("78f69e61b6a717b35a9ded7bd8eb7b8782e70680d1335623833272cfa66f5921")
+        b256!("408ea7ecec3dcd31191a40d774c3eaa13b49ae9ca8d82f4862151519fdfa37eb")
     );
-    let mut settling = settling_with_outbound_pairs(2);
+    let mut settling = settling_with_outbound_pairs(&batch);
     *settling.outbound_event_candidates_mut_for_test() = vec![
         observed_outbound_call(1, 0, &batch.entries[1].l2ToL1Calls[0]),
         observed_outbound_call(3, 0, &batch.entries[2].l2ToL1Calls[0]),
     ];
     let plan = effect_plan(&batch, &settling);
     let outbound = authorize_outbound_effects(&plan).unwrap();
-    let sidecars = batch
-        .entries
+    let sidecars = outbound
         .iter()
-        .skip(1)
-        .cloned()
-        .map(|mut entry| {
-            entry.stateUpdates.clear();
-            entry.rollingHash = B256::ZERO;
-            entry
-        })
+        .map(|binding| binding.derived_da_entry().clone())
         .collect::<Vec<_>>();
     let (_, users) = block_and_payload_transactions(vec![user_transaction(7), user_transaction(8)]);
     let outbound_inputs = sidecars
@@ -650,6 +633,94 @@ fn da_payload_binds_multiple_outbound_pairs_and_system_nonce_progression() {
 }
 
 #[test]
+fn da_payload_binds_grouped_roots_and_rejects_group_metadata_tampering() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    batch.entries[1].l2ToL1Calls[0].data = Bytes::from_static(&[0x11]);
+    let mut second = batch.entries[1].l2ToL1Calls[0].clone();
+    second.data = Bytes::from_static(&[0x22]);
+    batch.entries[1].l2ToL1Calls.push(second);
+    refresh_l1_rolling_hash(&mut batch.entries[1]);
+
+    let source_entries = batch.entries[1]
+        .l2ToL1Calls
+        .iter()
+        .map(|call| {
+            flat_outbound_sidecar_for_call(
+                call,
+                batch.entries[1].success,
+                batch.entries[1].returnData.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling.outbound_load_candidates_mut_for_test().push(
+        OutboundLoadCandidate::decoded_many_for_test(0, source_entries.clone()),
+    );
+    *settling.outbound_event_candidates_mut_for_test() = batch.entries[1]
+        .l2ToL1Calls
+        .iter()
+        .enumerate()
+        .map(|(receipt_log_index, call)| observed_outbound_call(1, receipt_log_index, call))
+        .collect();
+
+    let plan = effect_plan(&batch, &settling);
+    let outbound = authorize_outbound_effects(&plan).unwrap();
+    assert_eq!(outbound.groups().map(<[_]>::len).collect::<Vec<_>>(), [2]);
+
+    let (_, mut user_payload) = block_and_payload_transactions(vec![user_transaction(7)]);
+    let user = user_payload.pop().unwrap();
+    let group = eez_protocol::system_tx::OutboundSyncGroup {
+        effects: source_entries
+            .iter()
+            .cloned()
+            .map(|source_entry| eez_protocol::system_tx::OutboundSyncEffect {
+                source_entry,
+                callback_entries: Vec::new(),
+            })
+            .collect(),
+        user_tx: Bytes::from(user.clone()),
+    };
+    let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
+        &[group],
+        &[],
+        &system_transaction_context(),
+        11,
+    )
+    .unwrap();
+    let raw_transactions = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
+    let settling_rlp = block_rlp(
+        raw_transactions
+            .iter()
+            .map(|raw| alloy_rlp::decode_exact(raw.as_ref()).unwrap())
+            .collect(),
+    );
+    let sidecars = source_entries
+        .iter()
+        .map(alloy_sol_types::SolValue::abi_encode)
+        .collect::<Vec<_>>();
+    let verify = |payload: &[u8]| {
+        verify_da_payload(
+            payload,
+            std::iter::empty(),
+            (41, settling_rlp.as_slice()),
+            &outbound,
+            &AuthorizedInboundEffects::default(),
+            &system_transactions(),
+        )
+    };
+
+    let canonical = encode_grouped_da_payload(&[vec![user.clone()]], &sidecars, &[2]);
+    assert_eq!(verify(&canonical), Ok(()));
+
+    for sizes in [&[][..], &[0][..], &[1, 1][..], &[2, 1][..]] {
+        let tampered = encode_grouped_da_payload(&[vec![user.clone()]], &sidecars, sizes);
+        assert_eq!(verify(&tampered), Err(DaPayloadError::OutboundGroupSizes));
+    }
+    let legacy = encode_da_payload(&[vec![user]], &sidecars);
+    assert_eq!(verify(&legacy), Err(DaPayloadError::OutboundGroupSizes));
+}
+
+#[test]
 fn da_payload_binds_the_complete_mixed_sync_sequence_and_sidecar_order() {
     let mut settling = SettlingBlockObservations::for_test(
         vec![true, false, true],
@@ -676,13 +747,17 @@ fn da_payload_binds_the_complete_mixed_sync_sequence_and_sidecar_order() {
             0,
             &batch.entries[1].l2ToL1Calls[0],
         ));
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_for_test(
+            0,
+            flat_outbound_sidecar(&batch.entries[1]),
+        ));
 
     let plan = effect_plan(&batch, &settling);
     let outbound = authorize_outbound_effects(&plan).unwrap();
     let inbound = verify_inbound_effect_entries(&plan).unwrap();
-    let mut outbound_sidecar = batch.entries[1].clone();
-    outbound_sidecar.stateUpdates.clear();
-    outbound_sidecar.rollingHash = B256::ZERO;
+    let outbound_sidecar = outbound.iter().next().unwrap().derived_da_entry().clone();
     let inbound_sidecar = settling.inbound_candidates()[0]
         .inspection
         .as_ref()

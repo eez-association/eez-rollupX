@@ -128,6 +128,44 @@ impl LocalChainClient {
         })
     }
 
+    /// Build an entry-role view that shares its re-entry overlay with another
+    /// client for the same chain.
+    ///
+    /// Slot composition keeps separate entry/follower roles over one L2
+    /// provider. They must share this channel so a target session can return to
+    /// the suspended source simulation without reopening from stale chain
+    /// state.
+    pub fn new_entry_sharing_overlay<P>(
+        provider: P,
+        evm_config: EthEvmConfig,
+        rollup_id: RollupId,
+        dispatch_address: Address,
+        dialect: eez_protocol::ChainDialect,
+        shared_with: &Self,
+    ) -> Arc<Self>
+    where
+        P: StateProviderFactory
+            + HeaderProvider<Header = alloy_consensus::Header>
+            + BlockNumReader
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
+        assert_eq!(
+            rollup_id, shared_with.rollup_id,
+            "overlay channels may only be shared by views of the same rollup"
+        );
+        let cp = Self::build_chain_provider(&provider, evm_config);
+        Arc::new(Self {
+            provider: cp,
+            rollup_id,
+            role: Role::Entry { dispatch_address },
+            dialect,
+            overlay_channel: Arc::clone(&shared_with.overlay_channel),
+        })
+    }
+
     /// Build a follower-role client.
     pub fn new_follower<P>(
         provider: P,

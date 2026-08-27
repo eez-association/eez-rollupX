@@ -414,7 +414,7 @@ impl Inner {
             .map(|t| hex::encode_prefixed(t.as_ref()))
             .collect();
         let hex_refs: Vec<&str> = hexes.iter().map(String::as_str).collect();
-        match post_bundle(
+        let result = match post_bundle(
             &self.http,
             self.config.builder_rpc_url.as_str(),
             &hex_refs,
@@ -474,6 +474,86 @@ impl Inner {
                     .await
             }
             Err(other) => Err(other),
+        };
+        match &result {
+            Ok(SendOutcome::Dropped { .. }) => self.capture_bundle_attempt(
+                &hex_refs,
+                post_batch_hash,
+                target_block,
+                pin_timestamp,
+                expected_final_state,
+                "dropped",
+                None,
+            ),
+            Err(error) => self.capture_bundle_attempt(
+                &hex_refs,
+                post_batch_hash,
+                target_block,
+                pin_timestamp,
+                expected_final_state,
+                "submission_error",
+                Some(&error.to_string()),
+            ),
+            Ok(SendOutcome::Included { .. }) => {}
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn capture_bundle_attempt(
+        &self,
+        raw_tx_hexes: &[&str],
+        post_batch_hash: TxHash,
+        target_block: u64,
+        pin_timestamp: Option<u64>,
+        expected_final_state: Option<alloy_primitives::B256>,
+        outcome: &str,
+        error: Option<&str>,
+    ) {
+        let Some(root) = self.config.bundle_capture_dir.as_ref() else {
+            return;
+        };
+        let attempt = root.join(format!("bundle-{target_block}-{post_batch_hash}"));
+        let request = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
+        let metadata = serde_json::json!({
+            "version": 1,
+            "builderRpcUrl": self.config.builder_rpc_url.as_str(),
+            "postBatchHash": post_batch_hash.to_string(),
+            "targetBlock": target_block,
+            "pinnedTimestamp": pin_timestamp,
+            "expectedFinalState": expected_final_state.map(|hash| hash.to_string()),
+            "outcome": outcome,
+            "error": error,
+            "requestFile": "request.json",
+        });
+        let write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(&attempt)?;
+            std::fs::write(
+                attempt.join("request.json"),
+                serde_json::to_vec_pretty(&request).map_err(std::io::Error::other)?,
+            )?;
+            std::fs::write(
+                attempt.join("metadata.json"),
+                serde_json::to_vec_pretty(&metadata).map_err(std::io::Error::other)?,
+            )?;
+            Ok(())
+        };
+        match write() {
+            Ok(()) => event!(
+                name: "eez.submitter.bundle.capture",
+                Level::WARN,
+                path = %attempt.display(),
+                target_block,
+                tx_hash = %post_batch_hash,
+                "captured exact rejected bundle request for deterministic replay",
+            ),
+            Err(capture_error) => event!(
+                name: "eez.submitter.bundle.capture_failed",
+                Level::WARN,
+                path = %attempt.display(),
+                error = %capture_error,
+                "failed to persist rejected bundle replay capture",
+            ),
         }
     }
 
@@ -661,22 +741,7 @@ async fn post_bundle(
     // mid-chain prefix root and desyncing the composer. Sim is in-order
     // too, so user_txs simulate after the postBatch — no whitelist
     // needed for a "pre-postBatch state" sim.
-    let mut bundle_params = serde_json::json!({
-        "txs": raw_tx_hexes,
-        "blockNumber": format!("0x{target_block:x}"),
-    });
-    if let Some(ts) = pin_timestamp {
-        // Pin inclusion to the exact L1 slot the L2 Sync block anchored
-        // to. The builder enforces min/maxTimestamp against block.timestamp
-        // (verified on chiado), so a skipped slot won't match and the
-        // bundle drops rather than settling with a drifted L2 timestamp.
-        bundle_params["minTimestamp"] = serde_json::json!(ts);
-        bundle_params["maxTimestamp"] = serde_json::json!(ts);
-    }
-    let body = serde_json::json!({
-        "jsonrpc": "2.0", "id": 1, "method": "eth_sendBundle",
-        "params": [bundle_params],
-    });
+    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
     let resp: serde_json::Value = http
         .post(builder_rpc_url)
         .json(&body)
@@ -706,6 +771,29 @@ async fn post_bundle(
         return Err(L1Error::Submission(format!("eth_sendBundle: {err}")));
     }
     Ok(())
+}
+
+fn bundle_request(
+    raw_tx_hexes: &[&str],
+    target_block: u64,
+    pin_timestamp: Option<u64>,
+) -> serde_json::Value {
+    let mut bundle_params = serde_json::json!({
+        "txs": raw_tx_hexes,
+        "blockNumber": format!("0x{target_block:x}"),
+    });
+    if let Some(ts) = pin_timestamp {
+        // Pin inclusion to the exact L1 slot the L2 Sync block anchored
+        // to. The builder enforces min/maxTimestamp against block.timestamp
+        // (verified on chiado), so a skipped slot won't match and the
+        // bundle drops rather than settling with a drifted L2 timestamp.
+        bundle_params["minTimestamp"] = serde_json::json!(ts);
+        bundle_params["maxTimestamp"] = serde_json::json!(ts);
+    }
+    serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "eth_sendBundle",
+        "params": [bundle_params],
+    })
 }
 
 /// Verdict for a relay-submitted, timestamp-pinned bundle, read off the
@@ -787,9 +875,20 @@ fn dropped(tx_hash: TxHash, target_block: u64, reason: &'static str) -> SendOutc
 
 #[cfg(test)]
 mod tests {
-    use super::{PinnedVerdict, pinned_verdict};
+    use super::{PinnedVerdict, bundle_request, pinned_verdict};
 
     const PIN: u64 = 1_700_000_012;
+
+    #[test]
+    fn replay_request_preserves_exact_transactions_target_and_timestamp_pin() {
+        let request = bundle_request(&["0x0102", "0x0304"], 42, Some(PIN));
+        assert_eq!(request["method"], "eth_sendBundle");
+        assert_eq!(request["params"][0]["txs"][0], "0x0102");
+        assert_eq!(request["params"][0]["txs"][1], "0x0304");
+        assert_eq!(request["params"][0]["blockNumber"], "0x2a");
+        assert_eq!(request["params"][0]["minTimestamp"], PIN);
+        assert_eq!(request["params"][0]["maxTimestamp"], PIN);
+    }
 
     #[test]
     fn pinned_verdict_covers_every_arm() {

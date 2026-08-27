@@ -185,6 +185,30 @@ fn l2_to_l1_call() -> L2ToL1CallSol {
     }
 }
 
+fn flat_outbound_sidecar(entry: &ExecutionEntrySol) -> ExecutionEntrySol {
+    let root = &entry.l2ToL1Calls[0];
+    let proxy_entry_hash = eez_protocol::l2_outbound_call_hash(
+        eez_protocol::CallHashInput {
+            call_mode: eez_protocol::CallMode::Mutable,
+            source_address: root.sourceAddress,
+            source_rollup_id: eez_protocol::RollupId(root.sourceRollupId),
+            target_address: root.targetAddress,
+            target_rollup_id: eez_protocol::RollupId::MAINNET,
+            value: root.value,
+            data: &root.data,
+        },
+        0,
+    );
+    ExecutionEntrySol {
+        proxyEntryHash: proxy_entry_hash,
+        rollingHash: eez_protocol::EntryRollingHash::seed_for_l2(proxy_entry_hash).current(),
+        destinationRollupId: eez_protocol::RollupId::MAINNET.0,
+        success: entry.success,
+        returnData: entry.returnData.clone(),
+        ..Default::default()
+    }
+}
+
 /// Canonical one-pair Sync block and the batch that commits to it.
 fn canonical_outbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
     outbound_case(U256::ZERO)
@@ -213,9 +237,7 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
         ..Default::default()
     };
     let user = user_body.encoded_2718_transactions_iter().next().unwrap();
-    let mut sidecar = batch.entries[1].clone();
-    sidecar.stateUpdates.clear();
-    sidecar.rollingHash = B256::ZERO;
+    let sidecar = flat_outbound_sidecar(&batch.entries[1]);
     let pairs = eez_protocol::system_tx::build_cross_chain_sync_pairs(
         &[(sidecar.clone(), Bytes::from(user.clone()))],
         &[],
@@ -270,9 +292,7 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
     batch.entries.push(inbound_entry);
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
 
-    let mut outbound_sidecar = batch.entries[1].clone();
-    outbound_sidecar.stateUpdates.clear();
-    outbound_sidecar.rollingHash = B256::ZERO;
+    let outbound_sidecar = flat_outbound_sidecar(&batch.entries[1]);
     let pairs = eez_protocol::system_tx::build_cross_chain_sync_pairs(
         &[(outbound_sidecar.clone(), Bytes::from(user.clone()))],
         std::slice::from_ref(&inbound_sidecar),

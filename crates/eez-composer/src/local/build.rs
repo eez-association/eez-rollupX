@@ -56,6 +56,9 @@ pub enum BuildError {
     /// Revm rejected the tx at execution time (gas, balance, …).
     #[error("execute tx #{idx}: {msg}")]
     ExecuteTx { idx: usize, msg: String },
+    /// A requested state-root checkpoint did not identify a transaction.
+    #[error("checkpoint tx position {position} is outside a {tx_count}-transaction Sync block")]
+    InvalidCheckpointPosition { position: usize, tx_count: usize },
     /// `reth-evm` block-builder primitive surfaced an error during
     /// setup, pre-execution changes, or `finish`.
     #[error("block builder: {0}")]
@@ -438,11 +441,28 @@ impl std::fmt::Debug for SyncBlockFork {
 }
 
 impl SyncBlockFork {
+    /// Chain id carried by the block environment backing this fork.
+    #[must_use]
+    pub fn chain_id(&self) -> u64 {
+        self.evm_env.cfg_env.chain_id
+    }
+
+    /// Environment for synthetic composition frames. These frames are not
+    /// transactions in the block, so fee-market, sender, nonce, and block-gas
+    /// validation do not apply; the canonical system transaction is executed
+    /// separately before the effect is accepted.
+    fn simulation_env(&self) -> EvmEnvFor<EthEvmConfig> {
+        let mut env = self.evm_env.clone();
+        super::session::disable_checks(&mut env);
+        env
+    }
+
     /// Execute one raw EIP-2718 tx on the fork and commit it there.
     ///
     /// # Errors
     ///
     /// See [`BuildError`].
+    #[cfg(test)]
     pub fn execute_tx(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
         let outcome = execute_and_commit_inspected(
             &self.evm_config,
@@ -456,30 +476,60 @@ impl SyncBlockFork {
         Ok(outcome)
     }
 
-    /// [`Self::execute_tx`] under an inspector — the probe path, where the
-    /// inspector captures the inner frame's outcome as the claim.
+    /// Execute a synthetic target-call frame on this fork under an inspector.
     ///
-    /// # Errors
-    ///
-    /// See [`BuildError`].
-    pub fn execute_tx_inspected<I>(
+    /// This is composition simulation, not a block transaction: it commits the
+    /// target effects to the fork but does not advance the block transaction
+    /// index. The eventual canonical system transaction replays the same effect
+    /// on the real draft after materialization.
+    pub fn execute_call_inspected<I>(
         &mut self,
-        raw: &Bytes,
+        tx_env: revm::context::TxEnv,
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
         I: for<'db> InspectorFor<EthEvmConfig, &'db mut DraftDb>,
     {
-        let outcome = execute_and_commit_inspected(
-            &self.evm_config,
-            &mut self.state,
-            &self.evm_env,
-            raw,
-            self.applied,
-            inspector,
-        )?;
-        self.applied += 1;
+        let caller = tx_env.caller;
+        let env = self.simulation_env();
+        let mut evm = self
+            .evm_config
+            .evm_with_env_and_inspector(&mut self.state, env, inspector);
+        let mut result = evm.transact(tx_env).map_err(|error| match error {
+            EVMError::Database(error) => {
+                BuildError::Provider(format!("execute synthetic target call: {error}"))
+            }
+            other => BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: format!("synthetic target call: {other}"),
+            },
+        })?;
+        let outcome = exec_outcome(&result.result);
+        super::reset_frame_caller_nonce(&mut result.state, caller);
+        evm.db_mut().commit(result.state);
         Ok(outcome)
+    }
+
+    /// Execute a read-only synthetic manager frame and return its output.
+    pub fn view_call(&mut self, tx_env: revm::context::TxEnv) -> Result<Bytes, BuildError> {
+        let env = self.simulation_env();
+        let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
+        let result = evm.transact(tx_env).map_err(|error| match error {
+            EVMError::Database(error) => {
+                BuildError::Provider(format!("execute synthetic view call: {error}"))
+            }
+            other => BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: format!("synthetic view call: {other}"),
+            },
+        })?;
+        if !result.result.is_success() {
+            return Err(BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: format!("synthetic view call reverted: {:?}", result.result.output()),
+            });
+        }
+        Ok(result.result.output().cloned().unwrap_or_default())
     }
 
     /// Restore point for composition rollback.
@@ -544,9 +594,47 @@ where
         })
         .collect();
 
-    eez_protocol::settlement::pair_end_positions(&flags)
-        .into_iter()
-        .map(|p| {
+    let positions = eez_protocol::settlement::pair_end_positions(&flags);
+    sync_block_roots_at_positions(
+        l2_provider,
+        evm_config,
+        parent,
+        timestamp,
+        suggested_fee_recipient,
+        sync_txs,
+        &positions,
+    )
+}
+
+/// State roots after explicit inclusive transaction positions in a Sync block.
+///
+/// Grouped outbound effects can contain callback system transactions after the
+/// user transaction, so boolean system/user framing alone cannot identify the
+/// logical effect endpoint.
+pub fn sync_block_roots_at_positions<P>(
+    l2_provider: &P,
+    evm_config: &EthEvmConfig,
+    parent: &SealedHeader<Header>,
+    timestamp: u64,
+    suggested_fee_recipient: Address,
+    sync_txs: &[Bytes],
+    positions: &[usize],
+) -> Result<Vec<B256>, BuildError>
+where
+    P: StateProviderFactory,
+{
+    if let Some(&position) = positions
+        .iter()
+        .find(|&&position| position >= sync_txs.len())
+    {
+        return Err(BuildError::InvalidCheckpointPosition {
+            position,
+            tx_count: sync_txs.len(),
+        });
+    }
+    positions
+        .iter()
+        .map(|&p| {
             build_sync_block(
                 l2_provider,
                 evm_config,
@@ -659,6 +747,18 @@ mod tests {
         }
     }
 
+    fn parent_with_base_fee(base_fee_per_gas: u64) -> SealedHeader<Header> {
+        SealedHeader::seal_slow(Header {
+            number: 1,
+            timestamp: 1_000,
+            gas_limit: BUILDER_GAS_LIMIT,
+            base_fee_per_gas: Some(base_fee_per_gas),
+            excess_blob_gas: Some(0),
+            blob_gas_used: Some(0),
+            ..Default::default()
+        })
+    }
+
     impl Fixture {
         fn build(&self, txs: &[Bytes]) -> BuiltSyncBlock {
             build_sync_block(
@@ -692,6 +792,31 @@ mod tests {
                 .collect();
             cumulative.windows(2).map(|w| w[1] - w[0]).collect()
         }
+    }
+
+    #[test]
+    fn synthetic_fork_frames_ignore_transaction_fee_validation() {
+        let mut f = fixture();
+        f.parent = parent_with_base_fee(1_000);
+        let mut block = f.open(&[]);
+        let mut fork = block.fork().expect("fork block prefix");
+        let tx_env = revm::context::TxEnv {
+            caller: Address::ZERO,
+            gas_limit: 100_000,
+            kind: TxKind::Call(STORE),
+            ..Default::default()
+        };
+
+        let output = fork
+            .view_call(tx_env.clone())
+            .expect("synthetic view is not a fee-paying transaction");
+        assert_eq!(U256::from_be_slice(&output), U256::from(42));
+
+        let outcome = fork
+            .execute_call_inspected(tx_env, NoOpInspector)
+            .expect("synthetic target call is not a fee-paying transaction");
+        assert!(outcome.success);
+        assert_eq!(U256::from_be_slice(&outcome.output), U256::from(42));
     }
 
     /// THE equivalence guard: appending txs to a live [`SyncBlockState`]
@@ -796,5 +921,27 @@ mod tests {
             "a spent nonce must be rejected — the restore above is what makes \
              the replay legal",
         );
+    }
+
+    #[test]
+    fn explicit_root_positions_reject_out_of_bounds_without_panicking() {
+        let f = fixture();
+        let error = sync_block_roots_at_positions(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            FEE_RECIPIENT,
+            &f.txs[..1],
+            &[1],
+        )
+        .expect_err("position one is outside a one-transaction block");
+        assert!(matches!(
+            error,
+            BuildError::InvalidCheckpointPosition {
+                position: 1,
+                tx_count: 1,
+            }
+        ));
     }
 }

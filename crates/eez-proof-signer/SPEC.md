@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`6fcc90b65063831cb7797e9fa361004064d28f9f`. Stateless execution uses
+`9735f53abbb6b9f5e863f405ad4555b4701b7fda`. Stateless execution uses
 `eez-association/stateless` at commit
 `4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
 
@@ -35,14 +35,20 @@ where:
 
 - the anchor commits the validated L2 state transition before settlement
   effects;
-- each outbound effect represents one successful mutable L2-to-L1 call; and
-- each inbound effect represents one successful mutable L1-to-L2 delivery.
+- each outbound effect represents one mutable L2-origin settlement host (a
+  flat host may cover multiple root calls from one user transaction);
+  and
+- each inbound effect represents one successful mutable L1-origin call tree.
 
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
-address, and one nonzero proof-system verification key. It does not support
-static entries, nested calls, multiple calls per effect, explicit call gas,
-force-revert spans, blobs, L1 block binding, sender binding, or multiple proof
-systems.
+address, and one nonzero proof-system verification key. It supports nested and
+reentrant calls alternating between L1 and that L2, flat multi-root outbound
+transactions, and terminal failed nested rows with no descendants. Calls
+rolled back inside a recovered source-chain frame are represented by canonical,
+non-overlapping `revertNextNCalls` windows. It does not support static entries,
+unsuccessful top-level calls, failed nested rows with descendants, explicit
+call gas, overlapping or out-of-bounds rollback windows, blobs, L1 block
+binding, sender binding, other L2 targets, or multiple proof systems.
 
 No failed stage may produce a signature. A successful signature authorizes the
 locally recomputed public-input hash only under all rules in this document.
@@ -433,8 +439,14 @@ The claimed entry at the same position MUST have the same direction.
 
 ### 8.3 Entry classification
 
-Every supported entry MUST have `success == true` and an empty
-`expectedL1ToL2Calls` array.
+Every supported entry MUST be successful and mutable. A nested row MAY fail
+only when its call sub-array is empty and its
+`revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
+reverted hash. Every flat call, including calls in row sub-arrays, MUST have
+`isStatic == false` and `gas == 0`. A call MAY start a rollback window by
+setting `revertNextNCalls` to the number of consecutive calls in that window,
+including itself. The window MUST fit in its current call array and no later
+call inside it may start another window.
 
 The leading entry is a canonical anchor only if:
 
@@ -447,9 +459,13 @@ The leading entry is a canonical anchor only if:
 
 Every later entry MUST be one of:
 
-- **outbound:** `proxyEntryHash == 0`, exactly one `l2ToL1Call`,
-  `revertNextNCalls == 0`, `isStatic == false`, and `gas == 0`; or
-- **inbound:** `proxyEntryHash != 0` and `l2ToL1Calls` is empty.
+- **outbound:** `proxyEntryHash == 0` and a nonempty top-level
+  `l2ToL1Calls` array; or
+- **inbound:** `proxyEntryHash != 0`.
+
+Classification deliberately does not infer the nested execution from one
+entry alone. Sections 9 and 10 bind each claimed L1 entry to its exact,
+complementary L2 execution table and reject extra roots, rows, or flat calls.
 
 A second anchor or any other shape MUST be rejected.
 
@@ -479,37 +495,47 @@ The decoded call MUST satisfy:
 - `_staticEntries` is empty;
 - that entry contains exactly one `incomingCall`;
 - entry `success == true`;
-- `expectedOutgoingCalls` is empty;
+- every `expectedOutgoingCall` and every call in its `incomingCalls` sub-array
+  has the supported mutable shape from section 8.3;
 - outer `destination`, `value`, `data`, `sourceAddress`, and `sourceRollup`
   equal the corresponding inner call fields; and
-- the inner call has `revertNextNCalls == 0`, `isStatic == false`, and
-  `gas == 0`.
+- the inner call has `isStatic == false` and `gas == 0`; because the entry has
+  one root call, its `revertNextNCalls` MUST be either zero or one.
 
 The signer MUST recompute the common mutable call hash with source rollup `0`
 and target rollup `expected_rollup_id`. The hash MUST be nonzero and equal the
 L2 entry's `proxyEntryHash`.
 
-The L2 entry rolling hash MUST be:
-
-```text
-L2 seed(proxyEntryHash)
-  -> CALL_BEGIN(proxyEntryHash)
-  -> CALL_END(true, returnData)
-```
+The complete L2 entry is retained as the target-side table. Its rolling hash,
+rows, position keys, outcomes, and calls are verified recursively with the L1
+source entry in section 9.2.
 
 ### 9.2 Claimed L1 entry
 
 The corresponding batch entry MUST:
 
 - target the expected rollup;
-- contain no `l2ToL1Calls` and no `expectedL1ToL2Calls`;
 - have `success == true`;
 - carry the recomputed nonzero call hash as `proxyEntryHash`;
-- carry exactly the L2-observed `returnData`;
-- use the L1 seed over its sole update and `proxyEntryHash` as its complete
-  `rollingHash`; and
-- have `etherDelta == +value`, with `value` representable as a nonnegative
-  `int256`.
+- carry exactly the L2-observed root outcome; and
+- pair with the executed L2 target table under the recursive verification
+  below.
+
+Starting from the L1 state-update seed and the L2 proxy seed, the signer MUST
+inverse-execute both tables. It MUST consume unified rows in forward order,
+require each row key to equal
+`keccak256(sourceCallHash || currentDestinationRollingHash)`, apply the exact
+`CALL_BEGIN`, `NESTED_BEGIN`, `CALL_END`, and `NESTED_END` transitions, and
+consume every flat call and row exactly once. Both final rolling hashes and
+every nested outcome MUST match. The update's `etherDelta` MUST equal the sum
+of values on all L1-to-L2 calls minus the sum on all L2-to-L1 calls, within the
+`int256` range.
+
+Every L2-origin call recomputed from an inbound nested pair MUST have one
+matching current six-field `EEZL2.CrossChainCallExecuted` event in the inbound
+system transaction, in execution and receipt-log order. The event's `callGas`
+MUST be zero, no matching event may remain unclaimed, and no L2-origin call may
+use `SYSTEM_ADDRESS` as its source.
 
 There MUST be exactly one canonical inbound candidate for every claimed inbound
 effect and no unclaimed inbound candidate.
@@ -518,36 +544,35 @@ effect and no unclaimed inbound candidate.
 
 All outbound effects MUST precede all inbound effects.
 
-An outbound candidate transaction MUST be immediately preceded by a
-`SYSTEM_ADDRESS` transaction. The candidate MUST have exactly one matching
-current six-field `EEZL2.CrossChainCallExecuted` event. Every matching EEZL2
-event in the terminal receipts MUST be claimed exactly once; malformed,
-duplicate, missing, or extra observations MUST fail.
+An outbound candidate transaction MUST be immediately preceded by a canonical,
+successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
+one or more mutable L2 source entries and no static entries. The claimed
+outbound hosts MUST partition those source entries exactly: each host consumes
+as many consecutive source roots as it carries top-level `l2ToL1Calls`, and no
+source root may be skipped or reused. Every L2-to-L1 call
+recomputed from the nested pair MUST have one matching current six-field
+`EEZL2.CrossChainCallExecuted` event at the candidate transaction, in execution
+and receipt-log order. Every matching EEZL2 event in the terminal receipts
+MUST be claimed exactly once; malformed, missing, reordered, or extra
+observations MUST fail.
 
 The event's `callGas` MUST be zero. The batch entry MUST:
 
 - target the expected rollup;
-- contain exactly one `l2ToL1Call`;
+- contain one or more root `l2ToL1Calls`; a multi-root host MUST be flat, while
+  a one-root host MAY contain valid nested rows;
 - use `proxyEntryHash == 0`;
-- contain no `expectedL1ToL2Calls`;
 - have `success == true`; and
-- carry a call with the expected source rollup,
-  `revertNextNCalls == 0`, `isStatic == false`, and `gas == 0`.
+- carry only calls and rows in the supported mutable shape from section 8.3.
 
-The call source address MUST NOT be `SYSTEM_ADDRESS`.
+Every L2-origin call source address MUST NOT be `SYSTEM_ADDRESS`.
 
-The signer MUST recompute the mutable cross-chain call hash with target rollup
-`0` and the event's zero `callGas`; it MUST equal the event hash. The same
-zero-`callGas` identity is committed by the entry's L1 rolling hash:
-
-```text
-L1 seed(sole update, proxyEntryHash = 0)
-  -> CALL_BEGIN(common zero-callGas call hash)
-  -> CALL_END(true, entry.returnData)
-```
-
-The update MUST have `etherDelta == -value`, with `value` representable as a
-nonnegative `int256`.
+The signer MUST verify each L1 host and its exact consecutive slice of the
+loaded L2 source table with the same recursive inverse execution defined in
+section 9.2. Each L2-origin source hash uses target rollup `0` and zero
+`callGas`; these hashes MUST equal the ordered event hashes. The update's
+`etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
+all roots covered by that host, within the `int256` range.
 
 ## 11. Data-availability and Sync-block verification
 
@@ -576,12 +601,10 @@ match this projection exactly.
 
 There MUST be one `l2Entries` sidecar per effect, in effect order:
 
-- an outbound sidecar is the authorized batch entry with `stateUpdates`
-  cleared and `rollingHash` set to zero, with every other field unchanged;
-- an inbound sidecar is derived from the executed inbound calldata with empty
-  `stateUpdates`, the recomputed proxy hash, one L1-shaped call copied from the
-  L2 `incomingCall`, empty `expectedL1ToL2Calls`, the validated L2 rolling hash,
-  the expected destination rollup, success flag, and return data.
+- an outbound sidecar is the exact L2 source table decoded from the preceding
+  `loadExecutionTable`, lifted field-for-field into the shared transport shape;
+- an inbound sidecar is the exact L2 target table decoded from the executed
+  inbound calldata and lifted field-for-field into the shared transport shape.
 
 No missing, extra, reordered, or byte-different sidecar is accepted.
 
@@ -746,8 +769,8 @@ A compatible implementation MUST test at least:
 - checkpoint selection, quota, returned positions, and roots;
 - canonical PostBatch decoding and every profile pin;
 - state-chain endpoints, continuity, effect count/order/kind, and checkpoints;
-- inbound outer/inner equality, call hash, rolling hash, value, and canonical
-  calldata;
+- inbound outer/inner equality, call hash, rolling hash, nested outbound
+  events, value, and canonical calldata;
 - outbound event provenance, canonical encoding, zero-`callGas` hash, L1
   rolling hash, ordering, source, and value;
 - exact DA projection, sidecars, and mixed Sync-block reconstruction;
@@ -947,7 +970,7 @@ H(abi.encode(
 ))
 ```
 
-All supported L1, inbound, and static paths use `callGas == 0`.
+All supported call paths use `callGas == 0`.
 
 ### B.2 Mutable L2 outbound event hash
 

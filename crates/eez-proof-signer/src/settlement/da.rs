@@ -70,9 +70,12 @@ pub(crate) enum DaPayloadError {
     SyncBlockTransactionCount { expected: usize, actual: usize },
     #[error("validated effect positions are inconsistent with the settling block transactions")]
     InvalidEffectTransactionLayout,
+    #[error("batch callData outbound group sizes do not match the authorized Sync layout")]
+    OutboundGroupSizes,
 }
 
 const CALL_DATA_TAG: u8 = 0;
+const GROUPED_CALL_DATA_TAG: u8 = 1;
 
 /// Borrowed RLP-list bodies that advance as their items are verified.
 ///
@@ -82,6 +85,7 @@ struct DaPayloadCursor<'a> {
     block_tx_counts: &'a [u8],
     transactions: &'a [u8],
     l2_entries: &'a [u8],
+    outbound_group_sizes: Option<&'a [u8]>,
 }
 
 impl<'a> DaPayloadCursor<'a> {
@@ -89,9 +93,9 @@ impl<'a> DaPayloadCursor<'a> {
         let Some((&tag, encoded_body)) = encoded_payload.split_first() else {
             return Err(invalid_da_payload("payload is empty"));
         };
-        if tag != CALL_DATA_TAG {
+        if tag != CALL_DATA_TAG && tag != GROUPED_CALL_DATA_TAG {
             return Err(invalid_da_payload(format!(
-                "unsupported tag byte 0x{tag:02x}; expected 0x{CALL_DATA_TAG:02x}"
+                "unsupported tag byte 0x{tag:02x}; expected 0x{CALL_DATA_TAG:02x} or 0x{GROUPED_CALL_DATA_TAG:02x}"
             )));
         }
 
@@ -106,6 +110,11 @@ impl<'a> DaPayloadCursor<'a> {
         let block_tx_counts = decode_list(&mut body)?;
         let transactions = decode_list(&mut body)?;
         let l2_entries = decode_list(&mut body)?;
+        let outbound_group_sizes = if tag == GROUPED_CALL_DATA_TAG {
+            Some(decode_list(&mut body)?)
+        } else {
+            None
+        };
         if !body.is_empty() {
             return Err(invalid_da_payload("payload body has unexpected fields"));
         }
@@ -113,6 +122,7 @@ impl<'a> DaPayloadCursor<'a> {
             block_tx_counts,
             transactions,
             l2_entries,
+            outbound_group_sizes,
         })
     }
 }
@@ -193,8 +203,15 @@ where
     let mut payload_cursor = DaPayloadCursor::decode(encoded_payload)?;
     let expected_blocks = intermediate_blocks.len() + 1;
     let omitted_terminal_count = outbound_effects
-        .len()
-        .checked_add(inbound_effects.len())
+        .groups()
+        .try_fold(0usize, |count, group| {
+            let callbacks = group
+                .iter()
+                .map(|effect| effect.callback_transaction_indices().len())
+                .sum::<usize>();
+            count.checked_add(1 + callbacks)
+        })
+        .and_then(|count| count.checked_add(inbound_effects.len()))
         .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?;
     let preceding_transaction_count = verify_preceding_block_transactions(
         &mut payload_cursor,
@@ -227,12 +244,8 @@ where
         });
     }
 
-    verify_effect_sidecars(
-        &mut payload_cursor,
-        outbound_effects,
-        inbound_effects,
-        omitted_terminal_count,
-    )?;
+    verify_outbound_group_sizes(&mut payload_cursor, outbound_effects)?;
+    verify_effect_sidecars(&mut payload_cursor, outbound_effects, inbound_effects)?;
     if settling.requires_sync_reconstruction {
         verify_reconstructed_sync_block(
             &settling.block,
@@ -323,8 +336,14 @@ fn verify_settling_block_transactions(
     // Outbound-before-inbound ordering was established by authorization, so
     // chaining the two position lists preserves block order.
     let mut omitted_positions = outbound_effects
-        .iter()
-        .map(AuthorizedOutboundEffect::load_transaction_index)
+        .groups()
+        .flat_map(|group| {
+            std::iter::once(group[0].load_transaction_index()).chain(
+                group
+                    .iter()
+                    .flat_map(|effect| effect.callback_transaction_indices().iter().copied()),
+            )
+        })
         .chain(
             inbound_effects
                 .iter()
@@ -371,14 +390,26 @@ fn verify_effect_sidecars(
     payload_cursor: &mut DaPayloadCursor<'_>,
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
-    expected_sidecar_count: usize,
 ) -> Result<(), DaPayloadError> {
+    let expected_sidecar_count = outbound_effects
+        .iter()
+        .map(|effect| 1 + effect.callback_transaction_indices().len())
+        .sum::<usize>()
+        + inbound_effects.len();
     let expected_sidecars = outbound_effects
         .iter()
-        .map(|outbound| {
-            (
+        .flat_map(|outbound| {
+            std::iter::once((
                 outbound.transaction_index(),
                 outbound.derived_da_entry().abi_encode(),
+            ))
+            .chain(
+                outbound
+                    .callback_transaction_indices()
+                    .iter()
+                    .copied()
+                    .zip(outbound.derived_callback_entries())
+                    .map(|(transaction_index, entry)| (transaction_index, entry.abi_encode())),
             )
         })
         .chain(inbound_effects.iter().map(|inbound| {
@@ -400,6 +431,37 @@ fn verify_effect_sidecars(
             field: "l2Entries",
             expected: expected_sidecar_count,
         });
+    }
+    Ok(())
+}
+
+fn verify_outbound_group_sizes(
+    payload_cursor: &mut DaPayloadCursor<'_>,
+    outbound_effects: &AuthorizedOutboundEffects,
+) -> Result<(), DaPayloadError> {
+    let expected = outbound_effects
+        .groups()
+        .map(<[AuthorizedOutboundEffect]>::len)
+        .collect::<Vec<_>>();
+    let Some(mut encoded) = payload_cursor.outbound_group_sizes.take() else {
+        return if expected.iter().all(|&size| size == 1) {
+            Ok(())
+        } else {
+            Err(DaPayloadError::OutboundGroupSizes)
+        };
+    };
+    for expected_size in expected {
+        if encoded.is_empty() {
+            return Err(DaPayloadError::OutboundGroupSizes);
+        }
+        let actual =
+            u16::decode(&mut encoded).map_err(|error| invalid_da_payload(error.to_string()))?;
+        if usize::from(actual) != expected_size {
+            return Err(DaPayloadError::OutboundGroupSizes);
+        }
+    }
+    if !encoded.is_empty() {
+        return Err(DaPayloadError::OutboundGroupSizes);
     }
     Ok(())
 }
@@ -499,12 +561,22 @@ fn verify_reconstructed_sync_block(
         .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?
         .nonce();
     let outbound_reconstruction_inputs = outbound_effects
-        .iter()
-        .map(|binding| {
+        .groups()
+        .map(|bindings| {
+            let first = &bindings[0];
             let user_transaction = validated_transactions
-                .get(binding.transaction_index())
+                .get(first.transaction_index())
                 .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?;
-            Ok((binding.derived_da_entry().clone(), user_transaction.clone()))
+            Ok(eez_protocol::system_tx::OutboundSyncGroup {
+                effects: bindings
+                    .iter()
+                    .map(|binding| eez_protocol::system_tx::OutboundSyncEffect {
+                        source_entry: binding.derived_da_entry().clone(),
+                        callback_entries: binding.derived_callback_entries().to_vec(),
+                    })
+                    .collect(),
+                user_tx: user_transaction.clone(),
+            })
         })
         .collect::<Result<Vec<_>, DaPayloadError>>()?;
     let inbound_reconstruction_entries = inbound_effects
@@ -579,6 +651,37 @@ pub(crate) fn encode_da_payload(blocks: &[Vec<Vec<u8>>], l2_entries: &[Vec<u8>])
     };
     let mut encoded = Vec::with_capacity(1 + body.length());
     encoded.push(CALL_DATA_TAG);
+    body.encode(&mut encoded);
+    encoded
+}
+
+#[cfg(test)]
+pub(crate) fn encode_grouped_da_payload(
+    blocks: &[Vec<Vec<u8>>],
+    l2_entries: &[Vec<u8>],
+    outbound_group_sizes: &[u16],
+) -> Vec<u8> {
+    use alloy_rlp::Encodable as _;
+
+    #[derive(alloy_rlp::RlpEncodable)]
+    struct Body {
+        block_tx_counts: Vec<u16>,
+        transactions: Vec<Vec<u8>>,
+        l2_entries: Vec<Vec<u8>>,
+        outbound_group_sizes: Vec<u16>,
+    }
+
+    let body = Body {
+        block_tx_counts: blocks
+            .iter()
+            .map(|block| u16::try_from(block.len()).expect("test block exceeds u16::MAX txs"))
+            .collect(),
+        transactions: blocks.iter().flatten().cloned().collect(),
+        l2_entries: l2_entries.to_vec(),
+        outbound_group_sizes: outbound_group_sizes.to_vec(),
+    };
+    let mut encoded = Vec::with_capacity(1 + body.length());
+    encoded.push(GROUPED_CALL_DATA_TAG);
     body.encode(&mut encoded);
     encoded
 }

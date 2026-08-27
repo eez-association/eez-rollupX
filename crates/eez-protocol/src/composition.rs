@@ -144,8 +144,8 @@ impl std::fmt::Debug for Rollup {
 /// at frame end, and on revert the inspector calls
 /// [`annotate_revert_span`](Self::annotate_revert_span) with the
 /// resulting `(start, end - start)` so the bracketed calls' revert scope is
-/// retained. The materializer rejects every recorded revert span rather than
-/// lowering it to `revertNextNCalls`.
+/// retained. The materializer lowers that scope to canonical per-array
+/// `revertNextNCalls` windows.
 ///
 /// `annotate_revert_span` is separate from `close_call` because
 /// `Inspector::call_end` runs after dispatch has resolved the slot. Rewriting
@@ -160,10 +160,9 @@ pub struct CompositionBuilder {
     /// queue their indices for rollback. Unused checkpoints are dropped with
     /// the builder.
     pub(crate) pending_snapshots: HashMap<usize, crate::executor::SessionSnapshot>,
-    /// Rollups whose sessions are temporarily removed while `execute` runs.
-    /// Recursive dispatch to a checked-out rollup is rejected to avoid opening
-    /// a second session whose writes would be lost when the first is restored.
-    pub(crate) checked_out: std::collections::HashSet<RollupId>,
+    /// Open cross-chain frames, in call-stack order. The top becomes the
+    /// parent of the next recursively dispatched call.
+    pub(crate) active_calls: Vec<usize>,
     /// Recorded-call indices queued whenever a revert span is recorded. They
     /// are consumed at the start of the next dispatch.
     pub(crate) pending_rollbacks: Vec<usize>,
@@ -198,7 +197,7 @@ impl CompositionBuilder {
             rollups,
             recorded: Vec::new(),
             pending_snapshots: HashMap::new(),
-            checked_out: std::collections::HashSet::new(),
+            active_calls: Vec::new(),
             pending_rollbacks: Vec::new(),
         }
     }
@@ -267,26 +266,17 @@ impl CompositionBuilder {
         Ok(())
     }
 
-    /// Filtering the preorder action log preserves dispatch order for each
-    /// target.
-    fn group_calls_for_target_rollup_id(&self, rollup_id: RollupId) -> Vec<ExecutedAction> {
-        self.recorded
-            .iter()
-            .filter(|c| c.target_rollup_id == rollup_id)
-            .cloned()
-            .collect()
-    }
-
     /// Consume the builder and produce the final [`Composition`].
     ///
     /// Steps, in order:
     ///
     /// 1. Require recorded calls and a non-empty target plan, and verify that
     ///    every call targets a registered rollup.
-    /// 2. Require every call to be resolved, mutable, successful, free of a
-    ///    revert span, and sourced from the entry rollup.
-    /// 3. Build one `EvmBatch` for each non-empty, non-entry target.
-    /// 4. Build the entry-rollup batch.
+    /// 2. Apply any final queued target-session rollback, require every call
+    ///    to be resolved, mutable, and supported, then validate its explicit
+    ///    parent links and rollback spans as preorder.
+    /// 3. Materialize one active-entry stream per participating chain.
+    /// 4. Package the entry rollup and sorted non-entry outputs.
     /// 5. Package the source and sorted target batches as [`Composition`].
     ///
     /// # Errors
@@ -299,12 +289,17 @@ impl CompositionBuilder {
     // Keep the structured public error type rather than boxing it.
     #[allow(clippy::result_large_err)]
     #[tracing::instrument(level = "debug", name = "finalize", skip_all, err)]
-    pub fn finalize(self) -> CompositionResult<Composition> {
+    pub fn finalize(mut self) -> CompositionResult<Composition> {
         tracing::debug!(name: "composer.finalize.start", "composition finalize started");
 
         if self.recorded.is_empty() || self.rollups.is_empty() {
             return Err(ProtocolErrorKind::EmptyCalls.into());
         }
+
+        // A reverted frame at the end of the source transaction has no later
+        // dispatch boundary to drain its queued checkpoints. Restore those
+        // target sessions before their final state roots are consumed.
+        self.process_pending_rollbacks()?;
 
         for call in &self.recorded {
             if !self.rollups.contains_key(&call.target_rollup_id) {
@@ -315,55 +310,75 @@ impl CompositionBuilder {
             }
         }
         entries::ensure_materializable_calls(&self.recorded)?;
-        entries::ensure_source_side_calls(self.recorded.iter(), self.entry_rollup_id)?;
+        let mut materialized = entries::materialize_batches(&self.recorded, self.entry_rollup_id)?;
 
         // Sort by rollup ID so identical inputs produce identical target order.
-        let mut plan: Vec<(&RollupId, &Rollup)> = self.rollups.iter().collect();
-        plan.sort_by_key(|(id, _)| **id);
+        let mut plan: Vec<RollupId> = materialized.keys().copied().collect();
+        plan.sort_unstable();
 
-        // Build per-rollup target batches (non-entry rollups only).
+        // Package per-chain target batches. An L2 origin's seed-only source
+        // entries remain in the prefix; callbacks back into that origin are
+        // split below into separate delivery entries.
         let mut target_compositions = Vec::new();
-        for (rollup_id, rollup) in plan {
-            if *rollup_id == self.entry_rollup_id {
+        for rollup_id in plan {
+            if rollup_id == self.entry_rollup_id {
                 continue;
             }
-
-            let group_calls = self.group_calls_for_target_rollup_id(*rollup_id);
-            if group_calls.is_empty() {
-                continue;
-            }
-
-            // `ensure_source_side_calls` guarantees that every recorded source
-            // is the entry rollup. Because this loop excludes that rollup,
-            // every call in the target group is incoming; only the target
-            // dialect determines its materialized form.
-            let batch = if rollup.config.dialect.is_evm_l1_style() {
-                let batch = entries::build_l1_postbatch(&group_calls, self.entry_rollup_id)?;
-                tracing::debug!(
-                    name: "composer.evm_l1_postbatch",
-                    %rollup_id,
-                    entries = group_calls.len(),
-                    "EVM L1-style target: built immediate L1 postBatch; settlement applied at submission",
-                );
-                batch
-            } else {
-                let batch = entries::build_inbound_target_entries(&group_calls, *rollup_id)?;
-                tracing::debug!(
-                    name: "composer.inbound_sidecar",
-                    %rollup_id,
-                    entries = group_calls.len(),
-                    "inbound target sidecar built",
-                );
-                batch
-            };
+            let output = materialized
+                .remove(&rollup_id)
+                .expect("rollup id came from materialized outputs");
             target_compositions.push(TargetComposition {
-                rollup_id: *rollup_id,
-                batch,
+                rollup_id,
+                batch: output.batch,
+                entry_traces: output.entry_traces,
             });
         }
 
-        // Build the entry-rollup batch across the full preorder slice.
-        let entry_batch = entries::build_batch(&self.recorded, self.entry_rollup_id)?;
+        let mut source = materialized.remove(&self.entry_rollup_id).ok_or_else(|| {
+            ProtocolErrorKind::InvalidEncoding(
+                "materialization did not produce the entry-rollup table".into(),
+            )
+        })?;
+        if source.source_entry_count > source.batch.entries.len()
+            || source.source_entry_count > source.entry_traces.len()
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                "materialized source prefix {} exceeds entries/traces ({}/{})",
+                source.source_entry_count,
+                source.batch.entries.len(),
+                source.entry_traces.len(),
+            ))
+            .into());
+        }
+        if source.source_callback_counts.len() != source.source_entry_count {
+            return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                "materialized source callback counts {} do not match source entries {}",
+                source.source_callback_counts.len(),
+                source.source_entry_count,
+            ))
+            .into());
+        }
+        let callback_entries = source.batch.entries.split_off(source.source_entry_count);
+        let callback_traces = source.entry_traces.split_off(source.source_entry_count);
+        let callback_count = source.source_callback_counts.iter().sum::<usize>();
+        if callback_count != callback_entries.len() {
+            return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                "materialized source callback counts total {callback_count}, found {} entries",
+                callback_entries.len(),
+            ))
+            .into());
+        }
+        if !callback_entries.is_empty() {
+            target_compositions.push(TargetComposition {
+                rollup_id: self.entry_rollup_id,
+                batch: crate::EvmBatch {
+                    entries: callback_entries,
+                    ..Default::default()
+                },
+                entry_traces: callback_traces,
+            });
+            target_compositions.sort_unstable_by_key(|target| target.rollup_id);
+        }
 
         tracing::debug!(
             name: "composer.finalize.complete",
@@ -374,7 +389,9 @@ impl CompositionBuilder {
         Ok(Composition {
             source: SourceComposition {
                 rollup_id: self.entry_rollup_id,
-                batch: entry_batch,
+                batch: source.batch,
+                entry_traces: source.entry_traces,
+                callback_entry_counts: source.source_callback_counts,
             },
             targets: target_compositions,
         })
@@ -384,8 +401,9 @@ impl CompositionBuilder {
     /// → close. Inspectors call this from their EVM-frame `call`
     /// handler.
     ///
-    /// Enforces a same-chain re-entry guard when `target_rollup_id` matches
-    /// `req.source_rollup_id` outside the entry rollup.
+    /// Enforces the protocol's same-chain-call prohibition when
+    /// `target_rollup_id` matches `req.source_rollup_id` outside the entry
+    /// rollup. Returning to a previously suspended chain is allowed.
     /// `req.source_rollup_id` is forwarded unchanged to target execution and
     /// becomes the recorded call's source identity for batch materialization.
     ///
@@ -428,19 +446,24 @@ impl CompositionBuilder {
         // A target-session inspector may dispatch recursively during
         // `session.execute`, appending child actions after `idx`. Recording the
         // parent before execution therefore preserves preorder.
-        self.checked_out.insert(target_rollup_id);
         let response_res = session.execute(req, self);
 
         // Restore the checked-out session before propagating the execution
         // result. Controlled EVM reverts arrive as `ExecutionOutcome`, not
         // `Err`.
-        self.checked_out.remove(&target_rollup_id);
         self.rollups
             .get_mut(&target_rollup_id)
             .expect("rollup not removable")
             .session = Some(session);
 
-        let response = response_res?;
+        let response = match response_res {
+            Ok(response) => response,
+            Err(error) => {
+                let popped = self.active_calls.pop();
+                debug_assert_eq!(popped, Some(idx));
+                return Err(error);
+            }
+        };
 
         // Phase 3 — close: resolve the slot with the real outcome.
         self.close_call(idx, response.clone(), None);
@@ -477,15 +500,6 @@ impl CompositionBuilder {
                 target: target_rollup_id,
             }));
         }
-        // Nested materialization is rejected later, but simulation must still
-        // refuse cycles such as entry→A→B→A to prevent silent session-state
-        // loss while A's session is checked out.
-        if self.checked_out.contains(&target_rollup_id) {
-            return Err(ExecutorError::from(ExecutorErrorKind::InvalidReentry {
-                caller: source_rollup_id,
-                target: target_rollup_id,
-            }));
-        }
         if !self.rollups.contains_key(&target_rollup_id) {
             return Err(ExecutorError::from(ExecutorErrorKind::Unavailable(
                 format!("no rollup registered for {target_rollup_id}"),
@@ -511,6 +525,7 @@ impl CompositionBuilder {
 
         let idx = self.recorded.len();
         self.recorded.push(ExecutedAction {
+            parent_index: self.active_calls.last().copied(),
             call_mode: req.call_mode,
             target_address: req.target_address,
             target_rollup_id,
@@ -522,13 +537,14 @@ impl CompositionBuilder {
             revert_span: None,
         });
         self.pending_snapshots.insert(idx, snap);
+        self.active_calls.push(idx);
         Ok(idx)
     }
 
     /// Resolve the call opened by [`open_call`](Self::open_call) at `idx`.
     ///
-    /// The materializer rejects a non-`None` `revert_span`. Callers normally
-    /// pass `None`; [`annotate_revert_span`](Self::annotate_revert_span)
+    /// Callers normally pass `None`; a non-`None` value is lowered to a
+    /// protocol rollback window. [`annotate_revert_span`](Self::annotate_revert_span)
     /// records a reverted enclosing frame after execution.
     pub fn close_call(
         &mut self,
@@ -551,6 +567,12 @@ impl CompositionBuilder {
         // When `revert_span` is `None`, the checkpoint remains available for
         // an enclosing frame that may still revert. Unused checkpoints are
         // dropped with the builder.
+        let popped = self.active_calls.pop();
+        debug_assert_eq!(
+            popped,
+            Some(idx),
+            "cross-chain calls must close in stack order"
+        );
     }
 
     /// Number of [`ExecutedAction`]s captured so far in this composition.
@@ -599,6 +621,7 @@ mod tests {
     use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash};
     use alloy_primitives::{Address, Bytes, U256, b256, keccak256};
     use alloy_sol_types::SolValue as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // ── Mock ChainClient (spawns a canned session) ──────────────────
 
@@ -616,14 +639,30 @@ mod tests {
         }
     }
 
-    // ── Reentrant fakes ──────────────────────────────────────────
+    // ── Reentrant fakes ────────────────────────────────────────────
 
-    /// Session whose `execute` immediately attempts to reopen its own rollup,
-    /// modeling the open phase of an entry→A→…→A cycle. The checked-out guard
-    /// must refuse the inner `open_call`; otherwise a duplicate session could
-    /// lose writes when the outer session is restored.
+    struct ReentrantClient {
+        own_rollup: RollupId,
+        dispatch_from: RollupId,
+        dispatch_to: RollupId,
+    }
+
+    impl ChainClient for ReentrantClient {
+        fn begin_execution_session(
+            &self,
+        ) -> ExecutorResult<Box<dyn TargetExecutionSession + Send>> {
+            Ok(Box::new(ReentrantSession {
+                own_rollup: self.own_rollup,
+                dispatch_from: self.dispatch_from,
+                dispatch_to: self.dispatch_to,
+            }))
+        }
+    }
+
     struct ReentrantSession {
         own_rollup: RollupId,
+        dispatch_from: RollupId,
+        dispatch_to: RollupId,
     }
 
     impl TargetExecutionSession for ReentrantSession {
@@ -632,30 +671,25 @@ mod tests {
             req: ExecutionRequest,
             dispatcher: &mut CompositionBuilder,
         ) -> ExecutorResult<ExecutionOutcome> {
-            // The target session is already checked out, so reopening its
-            // rollup must fail before a duplicate session is created.
-            dispatcher.open_call(self.own_rollup, &req)?;
-            unreachable!("the checked-out guard must refuse the cyclic open_call");
+            if req.source_rollup_id == self.dispatch_from {
+                dispatcher.dispatch_call(
+                    self.dispatch_to,
+                    make_request_from(self.dispatch_to.0, self.own_rollup),
+                )?;
+            }
+            Ok(ExecutionOutcome::Resolved {
+                return_data: self.own_rollup.0.to_be_bytes().to_vec(),
+                gas_used: 21_000,
+                success: true,
+            })
         }
+
         fn checkpoint(&mut self) -> ExecutorResult<crate::executor::SessionSnapshot> {
             Ok(Box::new(()) as crate::executor::SessionSnapshot)
         }
+
         fn rollback(&mut self, _snapshot: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
-        }
-    }
-
-    struct ReentrantClient {
-        rollup: RollupId,
-    }
-
-    impl ChainClient for ReentrantClient {
-        fn begin_execution_session(
-            &self,
-        ) -> ExecutorResult<Box<dyn TargetExecutionSession + Send>> {
-            Ok(Box::new(ReentrantSession {
-                own_rollup: self.rollup,
-            }))
         }
     }
 
@@ -679,6 +713,43 @@ mod tests {
         }
 
         fn rollback(&mut self, _snap: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+            Ok(())
+        }
+    }
+
+    struct RollbackCountingClient {
+        rollbacks: Arc<AtomicUsize>,
+    }
+
+    impl ChainClient for RollbackCountingClient {
+        fn begin_execution_session(
+            &self,
+        ) -> ExecutorResult<Box<dyn TargetExecutionSession + Send>> {
+            Ok(Box::new(RollbackCountingSession {
+                rollbacks: Arc::clone(&self.rollbacks),
+            }))
+        }
+    }
+
+    struct RollbackCountingSession {
+        rollbacks: Arc<AtomicUsize>,
+    }
+
+    impl TargetExecutionSession for RollbackCountingSession {
+        fn execute(
+            &mut self,
+            _req: ExecutionRequest,
+            _dispatcher: &mut CompositionBuilder,
+        ) -> ExecutorResult<ExecutionOutcome> {
+            Ok(sample_outcome([0x55; 32]))
+        }
+
+        fn checkpoint(&mut self) -> ExecutorResult<crate::executor::SessionSnapshot> {
+            Ok(Box::new(()) as crate::executor::SessionSnapshot)
+        }
+
+        fn rollback(&mut self, _snapshot: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+            self.rollbacks.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -856,32 +927,50 @@ mod tests {
     }
 
     #[test]
-    fn cyclic_nested_dispatch_is_refused() {
-        // While A's session is checked out, attempting to reopen A must return
-        // `InvalidReentry` instead of creating a duplicate session whose writes
-        // would be lost when the outer session is restored.
+    fn nested_dispatch_can_return_to_a_suspended_chain() {
+        // entry → A → B → A is the minimal ping-pong shape. The second A
+        // execution opens from A's overlay snapshot while its outer session is
+        // suspended, and the recorder retains exact parent edges.
         let mut rollups = HashMap::new();
         rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
         rollups.insert(
             RollupId(1),
             Rollup {
                 client: Arc::new(ReentrantClient {
-                    rollup: RollupId(1),
+                    own_rollup: RollupId(1),
+                    dispatch_from: RollupId(0),
+                    dispatch_to: RollupId(2),
+                }),
+                session: None,
+                config: target_config(),
+            },
+        );
+        rollups.insert(
+            RollupId(2),
+            Rollup {
+                client: Arc::new(ReentrantClient {
+                    own_rollup: RollupId(2),
+                    dispatch_from: RollupId(1),
+                    dispatch_to: RollupId(1),
                 }),
                 session: None,
                 config: target_config(),
             },
         );
         let mut builder = CompositionBuilder::new(RollupId(0), rollups);
-        let err = builder
+        builder
             .dispatch_call(RollupId(1), make_request(1))
-            .expect_err("cycle must be refused");
-        assert!(
-            matches!(err.kind(), ExecutorErrorKind::InvalidReentry { .. }),
-            "got: {err}"
+            .expect("ping-pong dispatch");
+        assert_eq!(builder.recorded.len(), 3);
+        assert_eq!(
+            builder
+                .recorded
+                .iter()
+                .map(|call| call.parent_index)
+                .collect::<Vec<_>>(),
+            vec![None, Some(0), Some(1)]
         );
-        // The outer session was put back despite the inner error.
-        assert_eq!(builder.take_sessions().len(), 1, "outer session survives");
+        assert!(builder.active_calls.is_empty());
     }
 
     #[test]
@@ -960,6 +1049,7 @@ mod tests {
         rollups.insert(RollupId(1), rollup_with_session([0x11; 32]));
         let mut builder = CompositionBuilder::new(RollupId(0), rollups);
         builder.recorded.push(ExecutedAction {
+            parent_index: None,
             call_mode: crate::CallMode::Mutable,
             target_address: Address::ZERO,
             target_rollup_id: RollupId(99),
@@ -1076,6 +1166,7 @@ mod tests {
         let mut builder = CompositionBuilder::new(entry_rollup_id, rollups);
         builder.recorded = vec![
             ExecutedAction {
+                parent_index: None,
                 call_mode: CallMode::Mutable,
                 target_address: Address::repeat_byte(0xa1),
                 target_rollup_id: RollupId::MAINNET,
@@ -1091,6 +1182,7 @@ mod tests {
                 revert_span: None,
             },
             ExecutedAction {
+                parent_index: None,
                 call_mode: CallMode::Mutable,
                 target_address: Address::repeat_byte(0xa2),
                 target_rollup_id: RollupId(2),
@@ -1123,11 +1215,11 @@ mod tests {
             vec![
                 (
                     RollupId::MAINNET,
-                    b256!("f7e0edc00ed7cb620f1251581e6251ec9c459497b151bc80fe3bf6d99103bd71"),
+                    b256!("e95d54a3cf3492d25a25cc3e77cb2c4ce30500977aed02c6fc1a44f5ac3854ca"),
                 ),
                 (
                     RollupId(2),
-                    b256!("486f05e9bf5d8294de7a7f2295e0a0d630b3bef4abea866ced107f0faba42dae"),
+                    b256!("2654f44b271d094b00b828738700ce394509c62b0349bbf7ffae3045641e88ed"),
                 ),
             ]
         );
@@ -1163,15 +1255,23 @@ mod tests {
         assert_eq!(builder.recorded[0].source_rollup_id, RollupId(7));
 
         let composition = builder.finalize().expect("finalize");
-        assert_eq!(composition.targets.len(), 1);
-        assert_eq!(composition.targets[0].rollup_id, RollupId(1));
-        let target_entry = &composition.targets[0].batch.entries[0];
+        assert_eq!(
+            composition.targets.len(),
+            2,
+            "L2 origins also emit one L1 host"
+        );
+        let target = composition
+            .targets
+            .iter()
+            .find(|target| target.rollup_id == RollupId(1))
+            .expect("rollup-1 target");
+        let target_entry = &target.batch.entries[0];
         assert_eq!(target_entry.l2ToL1Calls[0].sourceRollupId, 7);
         assert_eq!(target_entry.proxyEntryHash, expected_hash);
         assert_ne!(target_entry.proxyEntryHash, mainnet_hash);
     }
 
-    // ── Unsuccessful-call rejection ──────────────────────────────
+    // ── Unsuccessful top-level-call rejection ────────────────────
 
     struct NoCcmClient;
 
@@ -1221,14 +1321,14 @@ mod tests {
                 if matches!(
                     protocol.kind(),
                     crate::ProtocolErrorKind::Unsupported(
-                        "unsuccessful cross-chain calls are not supported"
+                        "unsuccessful top-level cross-chain calls are not supported"
                     )
                 )
         ));
     }
 
     #[test]
-    fn finalize_rejects_nested_calls_across_distinct_targets() {
+    fn finalize_materializes_nested_calls_across_distinct_targets() {
         let mut rollups = HashMap::new();
         rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
         rollups.insert(RollupId(1), rollup_with_session([0x11; 32]));
@@ -1241,25 +1341,27 @@ mod tests {
         builder
             .dispatch_call(RollupId(2), make_request_from(2, RollupId(1)))
             .expect("nested dispatch records before materialization");
+        builder.recorded[1].parent_index = Some(0);
 
-        let error = builder
-            .finalize()
-            .expect_err("nested calls are outside the supported profile");
-        assert!(matches!(
-            error.kind(),
-            crate::error::CompositionErrorKind::Protocol(protocol)
-                if matches!(
-                    protocol.kind(),
-                    crate::ProtocolErrorKind::Unsupported(
-                        "nested cross-chain calls are not supported"
-                    )
-                )
-        ));
+        let composition = builder.finalize().expect("nested materialization");
+        let first = composition
+            .targets
+            .iter()
+            .find(|target| target.rollup_id == RollupId(1))
+            .expect("first target");
+        let second = composition
+            .targets
+            .iter()
+            .find(|target| target.rollup_id == RollupId(2))
+            .expect("second target");
+        assert_eq!(first.batch.entries.len(), 1);
+        assert_eq!(first.batch.entries[0].expectedL1ToL2Calls.len(), 1);
+        assert_eq!(second.batch.entries.len(), 1);
+        assert_eq!(second.batch.entries[0].l2ToL1Calls.len(), 1);
     }
 
     /// An entry-chain self-call (source == target == entry) slips past the
-    /// dispatch re-entry guard (which exempts the entry rollup) and past
-    /// `ensure_source_side_calls` (source *is* the entry) — finalize must
+    /// dispatch re-entry guard (which exempts the entry rollup); finalize must
     /// still reject it as outside the pinned profile.
     #[test]
     fn finalize_rejects_injected_same_chain_call() {
@@ -1514,5 +1616,36 @@ mod tests {
         // The completed call's checkpoint remains available in case an
         // enclosing frame later reverts.
         assert!(builder.pending_snapshots.contains_key(&1));
+    }
+
+    #[test]
+    fn finalize_drains_a_terminal_revert_and_emits_the_protocol_marker() {
+        let rollbacks = Arc::new(AtomicUsize::new(0));
+        let mut rollups = HashMap::new();
+        rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
+        rollups.insert(
+            RollupId(1),
+            Rollup {
+                client: Arc::new(RollbackCountingClient {
+                    rollbacks: Arc::clone(&rollbacks),
+                }),
+                session: None,
+                config: target_config(),
+            },
+        );
+        let mut builder = CompositionBuilder::new(RollupId(0), rollups);
+        builder
+            .dispatch_call(RollupId(1), make_request(1))
+            .expect("dispatch");
+        builder.annotate_revert_span(0, 1);
+
+        let composition = builder.finalize().expect("finalize reverted root");
+        assert_eq!(rollbacks.load(Ordering::SeqCst), 1);
+        let target = composition
+            .targets
+            .iter()
+            .find(|target| target.rollup_id == RollupId(1))
+            .expect("L2 target");
+        assert_eq!(target.batch.entries[0].l2ToL1Calls[0].revertNextNCalls, 1);
     }
 }

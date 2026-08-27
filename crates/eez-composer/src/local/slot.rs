@@ -7,10 +7,10 @@
 //!   (`EEZ.sol:1149-1178`) over an [`L1SlotState`] pinned at drain start,
 //!   committing every surviving effect so later simulations in the same slot
 //!   observe it.
-//! - [`InboundL2TargetSession`] executes the canonical delivery system tx on
-//!   a fork of the Sync block under construction and reads the claim off the
-//!   real `EEZL2 → proxy` frame (`EEZL2.sol:547-552`) captured by
-//!   [`ProbeInspector`].
+//! - [`InboundL2TargetSession`] executes the destination frame on a fork of the
+//!   Sync block under construction, with the regular session inspector active
+//!   so nested calls recurse through the same composition tree. The canonical
+//!   delivery transaction is replayed and checked at accept time.
 
 use std::sync::Arc;
 
@@ -24,17 +24,14 @@ use reth_revm::{database::StateProviderDatabase, db::State, db::bal::EvmDatabase
 use reth_storage_api::StateProviderBox;
 use reth_storage_api::errors::provider::ProviderError;
 use revm::context::result::EVMError;
-use revm::context_interface::ContextTr;
 use revm::database::CacheState;
-use revm::interpreter::{CallInputs, CallOutcome, CallScheme};
+use revm::interpreter::{CallInputs, CallOutcome};
 use revm::{DatabaseCommit, Inspector};
 
 use eez_protocol::abi::{
-    ExecutionEntrySol, L2ToL1CallSol, authorizedProxiesCall, computeCrossChainProxyAddressCall,
-    createCrossChainProxyCall, executeOnBehalfCall,
+    authorizedProxiesCall, computeCrossChainProxyAddressCall, createCrossChainProxyCall,
+    executeOnBehalfCall,
 };
-use eez_protocol::entries::{IncomingEntry, build_l2_incoming_entry};
-use eez_protocol::system_tx::{SystemTxContext, build_inbound_system_txs};
 use eez_protocol::{
     CallMode, CompositionBuilder, ExecutionOutcome, ExecutionRequest, ExecutorError,
     ExecutorErrorKind, ExecutorResult, RollupId, SessionSnapshot, TargetExecutionSession,
@@ -53,12 +50,9 @@ use super::session::{DIRECT_CALL_GAS_LIMIT, evm_err, provider_err};
 /// ([`L1SlotState`], [`LocalChainClient::simulate_source_tx_on`]) the drain
 /// drives.
 ///
-/// L2's two instances have SEPARATE overlay channels, so during an outbound
-/// composition a nested call from the L1 target back into L2 re-enters through
-/// the rollups-map FOLLOWER client and opens its session unseeded — it cannot
-/// peek the snapshot `l2_entry`'s source sim pushed. Harmless today because
-/// nested compositions are shape-gated to eviction; supporting them requires
-/// unifying the two L2 clients' channels first.
+/// L2's two role views share one overlay channel, so a nested call from L1 can
+/// return through the follower client into the suspended entry simulation's
+/// exact in-flight state.
 #[derive(Debug, Clone)]
 pub struct LocalComposeClients {
     /// L1 entry client — the state the outbound manager frames run on.
@@ -386,11 +380,10 @@ impl TargetExecutionSession for L1TargetSession {
             ..Default::default()
         };
 
-        // Inspected so a nested proxy call inside the target is recorded; the
-        // accept-time shape gate turns it into a precise eviction. The
-        // outermost frame is skipped: it targets an authorized proxy itself,
-        // and intercepting it would re-dispatch the very frame that IS the
-        // dispatch.
+        // Inspected so nested proxy calls inside the target are recorded in
+        // the same composition tree. The outermost frame is skipped: it
+        // targets an authorized proxy itself, and intercepting it would
+        // re-dispatch the very frame that IS the dispatch.
         let inspector = SkipTopFrame::new(self.client.inspector_factory().build(dispatcher));
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let mut evm = self.evm_config.evm_with_env_and_inspector(
@@ -458,9 +451,10 @@ impl TargetExecutionSession for L1TargetSession {
 /// The manager frame's own target is an authorized proxy, so the session
 /// inspector would intercept the top-level frame and re-dispatch the very
 /// call this session is executing. Nested frames still forward, so proxy
-/// calls made *inside* the target are recorded as usual. Consequence: a
-/// revert of the top frame itself is not span-annotated — compositions with
-/// nested dispatches are shape-gated to eviction regardless.
+/// calls made *inside* the target are recorded as usual. A revert of the top
+/// frame itself is represented by the outer call's unsuccessful outcome, so
+/// the supported-success profile rejects the complete composition even though
+/// that wrapper frame is not span-annotated.
 struct SkipTopFrame<I> {
     inner: I,
     /// Open CALL frames; the top frame is the one entered at depth 0.
@@ -491,108 +485,47 @@ impl<CTX, I: Inspector<CTX>> Inspector<CTX> for SkipTopFrame<I> {
     }
 }
 
-// ── L2 block probe execution ─────────────────────────────────────
-
-/// Snapshot payload for [`InboundL2TargetSession`]: the fork's restore point
-/// plus the delivery nonce cursor, which advances per accepted delivery and
-/// must rewind with it.
-struct ProbeSnapshot {
-    fork: ForkSnapshot,
-    delivery_nonce: u64,
-}
+// ── L2 block-fork execution ──────────────────────────────────────
 
 /// Target-chain session that resolves an inbound call by running the canonical
-/// delivery system tx on a fork of the Sync block under construction.
-///
-/// Two runs per call: a PROBE with a placeholder rolling hash, whose only
-/// purpose is to capture the real `EEZL2 → proxy` frame outcome, and the REAL
-/// run with that outcome folded in, which must succeed — the same on-chain
-/// compare (`EEZL2.sol:466`) the proof signer enforces; running it here turns a
-/// claim mismatch into a one-tx eviction instead of a rejected window.
+/// destination frame on a fork of the Sync block under construction.
 pub struct InboundL2TargetSession {
     fork: SyncBlockFork,
-    cfg: SystemTxContext,
-    /// SYSTEM_ADDRESS nonce for the next delivery this composition appends.
-    delivery_nonce: u64,
-    this_rollup_id: u64,
+    client: Arc<LocalChainClient>,
 }
 
 impl std::fmt::Debug for InboundL2TargetSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InboundL2TargetSession")
-            .field("delivery_nonce", &self.delivery_nonce)
-            .field("this_rollup_id", &self.this_rollup_id)
+            .field("manager", &self.client.manager_address())
             .finish_non_exhaustive()
     }
 }
 
 impl InboundL2TargetSession {
-    /// Open over `fork` (a fork of the block prefix) with the phase-2 nonce
-    /// cursor for the first delivery this composition would append.
+    /// Open over a fork of the current Sync-block prefix.
     #[must_use]
-    pub fn new(fork: SyncBlockFork, cfg: SystemTxContext, delivery_nonce: u64) -> Self {
-        let this_rollup_id = cfg.this_rollup_id;
-        Self {
-            fork,
-            cfg,
-            delivery_nonce,
-            this_rollup_id,
+    pub fn new(fork: SyncBlockFork, client: Arc<LocalChainClient>) -> Self {
+        Self { fork, client }
+    }
+
+    fn proxy_address(&mut self, req: &ExecutionRequest) -> ExecutorResult<Address> {
+        let calldata = computeCrossChainProxyAddressCall {
+            originalAddress: req.source_address,
+            originalRollupId: req.source_rollup_id.0,
         }
-    }
-
-    /// Build the L1-shape entry for one inbound call. `return_data` is the
-    /// placeholder on the probe pass and the captured output on the real pass;
-    /// the lean L2 entry (the canonical builder) supplies both hashes.
-    fn l1_entry_for_call(
-        &self,
-        req: &ExecutionRequest,
-        return_data: Bytes,
-    ) -> ExecutorResult<ExecutionEntrySol> {
-        let lean = build_l2_incoming_entry(IncomingEntry {
-            target: req.target_address,
-            source: req.source_address,
-            value: req.value,
-            data: req.data.clone(),
-            source_rollup_id: req.source_rollup_id,
-            l2_rollup_id: RollupId(self.this_rollup_id),
-            return_data: return_data.clone(),
-            success: true,
-        })
-        .map_err(|e| encoding_err(format!("build_l2_incoming_entry: {e}")))?;
-
-        Ok(ExecutionEntrySol {
-            stateUpdates: Vec::new(),
-            proxyEntryHash: lean.proxyEntryHash,
-            l2ToL1Calls: vec![L2ToL1CallSol {
-                revertNextNCalls: 0,
-                isStatic: false,
-                gas: 0,
-                sourceAddress: req.source_address,
-                sourceRollupId: req.source_rollup_id.0,
-                targetAddress: req.target_address,
-                value: req.value,
-                data: req.data.clone(),
-            }],
-            expectedL1ToL2Calls: Vec::new(),
-            rollingHash: lean.rollingHash,
-            destinationRollupId: self.this_rollup_id,
-            success: true,
-            returnData: return_data,
-        })
-    }
-
-    /// Lower one entry to its single delivery system tx at the current cursor.
-    fn delivery_tx(&self, entry: &ExecutionEntrySol) -> ExecutorResult<Bytes> {
-        let txs =
-            build_inbound_system_txs(std::slice::from_ref(entry), &self.cfg, self.delivery_nonce)
-                .map_err(|e| encoding_err(format!("build_inbound_system_txs: {e}")))?;
-        let [tx] = <[Bytes; 1]>::try_from(txs).map_err(|txs| {
-            encoding_err(format!(
-                "one inbound entry must lower to exactly one delivery tx; got {}",
-                txs.len()
-            ))
-        })?;
-        Ok(tx)
+        .abi_encode();
+        let tx_env = revm::context::TxEnv {
+            caller: Address::ZERO,
+            gas_limit: VIEW_CALL_GAS_LIMIT,
+            kind: TxKind::Call(self.client.manager_address()),
+            data: calldata.into(),
+            chain_id: Some(self.fork.chain_id()),
+            ..Default::default()
+        };
+        let output = self.fork.view_call(tx_env).map_err(fork_err)?;
+        computeCrossChainProxyAddressCall::abi_decode_returns(&output)
+            .map_err(|error| encoding_err(format!("decode computeCrossChainProxyAddress: {error}")))
     }
 }
 
@@ -600,7 +533,7 @@ impl TargetExecutionSession for InboundL2TargetSession {
     fn execute(
         &mut self,
         req: ExecutionRequest,
-        _dispatcher: &mut CompositionBuilder,
+        dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
         if req.call_mode == CallMode::Static {
             return Err(ExecutorErrorKind::Encoding(
@@ -609,165 +542,50 @@ impl TargetExecutionSession for InboundL2TargetSession {
             .into());
         }
 
-        // ── PROBE ────────────────────────────────────────────────
-        // Placeholder return data: the entry hash is exact (it is computable a
-        // priori) so the delivery reaches the proxy call; only the rolling-hash
-        // compare afterwards can fail, and by then the frame has run.
-        let probe_entry = self.l1_entry_for_call(&req, Bytes::new())?;
-        let probe_tx = self.delivery_tx(&probe_entry)?;
-
-        let snapshot = self.fork.snapshot();
-        let mut inspector = ProbeInspector::new(self.cfg.eezl2_address);
-        let probe = self
-            .fork
-            .execute_tx_inspected(&probe_tx, &mut inspector)
-            .map_err(fork_err)?;
-        // The probe leaves no trace: its state effects are re-applied by the
-        // real run below.
-        self.fork.restore(snapshot);
-
-        let captured = match inspector.captures.as_slice() {
-            [one] => one.clone(),
-            [] => {
-                return Err(encoding_err(format!(
-                    "inbound probe never reached the EEZL2→proxy frame for {} \
-                     (entry hash or table mismatch); probe success={} output={}",
-                    req.target_address, probe.success, probe.output
-                )));
-            }
-            many => {
-                return Err(encoding_err(format!(
-                    "inbound probe captured {} EEZL2→proxy frames for {}; \
-                     nested / multi-call delivery shapes are unsupported",
-                    many.len(),
-                    req.target_address
-                )));
-            }
+        let proxy = self.proxy_address(&req)?;
+        let tx_env = revm::context::TxEnv {
+            caller: proxy,
+            gas_limit: DIRECT_CALL_GAS_LIMIT,
+            kind: TxKind::Call(req.target_address),
+            data: req.data.clone(),
+            value: req.value,
+            chain_id: Some(self.fork.chain_id()),
+            ..Default::default()
         };
-
-        if !captured.success {
-            return Err(encoding_err(format!(
-                "inbound target {} reverted during delivery; reverting targets \
-                 are poison. revert data: {}",
-                req.target_address, captured.output
-            )));
+        let factory = self.client.inspector_factory();
+        let mut inspector = factory.build(dispatcher);
+        let outcome = self
+            .fork
+            .execute_call_inspected(tx_env, &mut inspector)
+            .map_err(fork_err)?;
+        if let Some(error) = inspector.take_error() {
+            return Err(error);
         }
-
-        // ── REAL RUN ─────────────────────────────────────────────
-        // Same state, same path, now with the observed outcome folded into the
-        // rolling hash — the on-chain claim verifier. A failure here is claim
-        // or state drift and the transaction must be evicted.
-        let final_entry = self.l1_entry_for_call(&req, captured.output.clone())?;
-        let final_tx = self.delivery_tx(&final_entry)?;
-        let real = self.fork.execute_tx(&final_tx).map_err(fork_err)?;
-        if !real.success {
-            return Err(encoding_err(format!(
-                "canonical delivery for {} reverted on the block prefix at \
-                 SYSTEM nonce {}: {}",
-                req.target_address, self.delivery_nonce, real.output
-            )));
-        }
-
-        self.delivery_nonce = self.delivery_nonce.checked_add(1).ok_or_else(|| {
-            encoding_err("SYSTEM_ADDRESS delivery nonce overflow in InboundL2TargetSession")
-        })?;
 
         tracing::debug!(
             target = %req.target_address,
             value = %req.value,
-            return_len = captured.output.len(),
-            "inbound delivery appended to the block fork"
+            success = outcome.success,
+            return_len = outcome.output.len(),
+            "inbound target frame simulated on the Sync-block fork"
         );
 
         Ok(ExecutionOutcome::Resolved {
-            return_data: captured.output.to_vec(),
-            gas_used: real.gas_used,
-            success: true,
+            return_data: outcome.output.to_vec(),
+            gas_used: outcome.gas_used,
+            success: outcome.success,
         })
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
-        Ok(Box::new(ProbeSnapshot {
-            fork: self.fork.snapshot(),
-            delivery_nonce: self.delivery_nonce,
-        }))
+        Ok(Box::new(self.fork.snapshot()))
     }
 
     fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
-        let snap = snapshot.downcast::<ProbeSnapshot>().map_err(|_e| {
+        let snap = snapshot.downcast::<ForkSnapshot>().map_err(|_e| {
             encoding_err("InboundL2TargetSession::rollback: snapshot type mismatch")
         })?;
-        self.fork.restore(snap.fork);
-        self.delivery_nonce = snap.delivery_nonce;
+        self.fork.restore(*snap);
         Ok(())
-    }
-}
-
-// ── Probe inspector ──────────────────────────────────────────────
-
-/// One captured `EEZL2 → proxy` `executeOnBehalf` frame.
-#[derive(Clone, Debug)]
-pub struct ProbeCapture {
-    /// Frame outcome as `_processNCalls` sees it (`EEZL2.sol:547-550`).
-    pub success: bool,
-    /// Raw frame output — return data on success, revert data on failure.
-    pub output: Bytes,
-}
-
-/// Captures, in order, every non-static `executeOnBehalf` CALL the L2 manager
-/// makes — the exact `(success, retData)` pair `_processNCalls` folds into
-/// CALL_END (`EEZL2.sol:551`).
-///
-/// Pass it to the EVM by `&mut` and read `captures` after the run.
-pub struct ProbeInspector {
-    eezl2_address: Address,
-    /// Frames captured so far, in call order.
-    pub captures: Vec<ProbeCapture>,
-    /// One entry per open CALL frame: whether it matched.
-    frames: Vec<bool>,
-}
-
-impl std::fmt::Debug for ProbeInspector {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProbeInspector")
-            .field("eezl2_address", &self.eezl2_address)
-            .field("depth", &self.frames.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl ProbeInspector {
-    /// Watch calls made by `eezl2_address`.
-    #[must_use]
-    pub fn new(eezl2_address: Address) -> Self {
-        Self {
-            eezl2_address,
-            captures: Vec::new(),
-            frames: Vec::new(),
-        }
-    }
-}
-
-impl<CTX: ContextTr> Inspector<CTX> for ProbeInspector {
-    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        let matched = !inputs.is_static
-            && matches!(inputs.scheme, CallScheme::Call)
-            && inputs.caller == self.eezl2_address
-            && inputs
-                .input
-                .as_bytes(context)
-                .starts_with(&executeOnBehalfCall::SELECTOR);
-        self.frames.push(matched);
-        None
-    }
-
-    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
-        if self.frames.pop() != Some(true) {
-            return;
-        }
-        self.captures.push(ProbeCapture {
-            success: outcome.result.is_ok(),
-            output: outcome.result.output.clone(),
-        });
     }
 }

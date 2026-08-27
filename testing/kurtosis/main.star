@@ -140,6 +140,7 @@ def run(plan, args):
         "EEZ_L1_RPC_URL": "http://127.0.0.1:{}".format(EMBEDDED_L1_RPC_PORT),
         "EEZ_L1_TARGET_RPC_URL": l1_el.rpc_http_url,
         "EEZ_L1_BUILDER_RPC_URL": builder_rpc,
+        "EEZ_BUNDLE_CAPTURE_DIR": "/tmp/eez-bundle-captures",
         "EEZ_L1_TRUSTED_PEERS": l1_el.enode,
         "EEZ_L1_BLOCK_TIME_MS": str(eez.get("l1_block_time_ms", 12000)),
         "EEZ_L2_BLOCK_TIME_MS": str(eez.get("l2_block_time_ms", 2000)),

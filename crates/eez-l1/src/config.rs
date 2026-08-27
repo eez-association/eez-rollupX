@@ -6,7 +6,7 @@
 //! `eez-composer::RollupConfig` per the S4.2 umbrella extraction. See
 //! `docs/plans/IMPLEMENTATION.md` §5.4.8.
 
-use std::{env, str::FromStr};
+use std::{env, path::PathBuf, str::FromStr};
 
 use alloy_primitives::{Address, B256};
 use alloy_signer_local::PrivateKeySigner;
@@ -20,6 +20,7 @@ const ENV_TARGET_RPC_URL: &str = "EEZ_L1_TARGET_RPC_URL";
 const ENV_POSTER_KEY: &str = "EEZ_L1_POSTER_KEY";
 const ENV_EEZ_ADDRESS: &str = "EEZ_REGISTRY_ADDRESS";
 const ENV_ROLLUP_ID: &str = "EEZ_ROLLUP_ID";
+const ENV_BUNDLE_CAPTURE_DIR: &str = "EEZ_BUNDLE_CAPTURE_DIR";
 
 /// L1 connectivity for the [`Submitter`](crate::Submitter) — what's
 /// needed to send and read transactions against the EEZ registry.
@@ -44,6 +45,9 @@ pub struct SubmitterConfig {
     /// `L2ExecutionPerformed(rollupId indexed, ...)` event topic so
     /// each historical batch is tagged winner / loser.
     pub rollup_id: u64,
+    /// Optional directory for exact `eth_sendBundle` request captures when an
+    /// attempt is dropped or rejected. Unset keeps production writes off.
+    pub bundle_capture_dir: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for SubmitterConfig {
@@ -58,6 +62,7 @@ impl std::fmt::Debug for SubmitterConfig {
             .field("poster", &self.poster.address())
             .field("eez", &self.eez)
             .field("rollup_id", &self.rollup_id)
+            .field("bundle_capture_dir", &self.bundle_capture_dir)
             .finish()
     }
 }
@@ -90,6 +95,7 @@ impl SubmitterConfig {
             poster: parse_key(ENV_POSTER_KEY)?,
             eez: parse_address(ENV_EEZ_ADDRESS)?,
             rollup_id: parse_u64(ENV_ROLLUP_ID)?,
+            bundle_capture_dir: optional_path(ENV_BUNDLE_CAPTURE_DIR)?,
         })
     }
 
@@ -112,7 +118,19 @@ impl SubmitterConfig {
             poster: parse_key_or_dummy(ENV_POSTER_KEY)?,
             eez: parse_address(ENV_EEZ_ADDRESS)?,
             rollup_id: parse_u64(ENV_ROLLUP_ID)?,
+            bundle_capture_dir: None,
         })
+    }
+}
+
+fn optional_path(name: &str) -> L1Result<Option<PathBuf>> {
+    match env::var(name) {
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => Ok(Some(PathBuf::from(raw))),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))
+        }
     }
 }
 

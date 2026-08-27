@@ -14,14 +14,14 @@
 //!                       # (executeIncomingCrossChainCall) consumes.
 //!                       # Empty for arbitrary-call batches; populated
 //!                       # for value-bearing (deposit/withdrawal) ones.
+//!     outboundGroupSizes, # tag 0x01 only: number of source entries
+//!                         # consumed by each outbound user transaction
 //!   ])
 //!
 //!   tagByte:
-//!     0x00  the current (and only) format
+//!     0x00  legacy three-field body
+//!     0x01  grouped four-field body
 //! ```
-//!
-//! Single format on the wire today; the one-byte tag prefix leaves
-//! room to add another later without breaking the decoder.
 //!
 //! `fromBlock` and `toBlock` are **not** in this encoding. Callers supply the
 //! absolute block range from their surrounding protocol context; this codec
@@ -41,10 +41,10 @@ use alloy_rlp::{Decodable, Encodable};
 /// A raw EIP-2718 signed transaction. Opaque to this crate.
 pub type RawTx = Vec<u8>;
 
-/// Tag byte for the current (and only) calldata format. The one-byte
-/// prefix lets a future format swap add a new tag without ambiguity;
-/// [`decode`] dispatches on it.
+/// Tag byte for the legacy three-field calldata format.
 pub const TAG_CALLDATA: u8 = 0x00;
+/// Calldata format carrying explicit outbound-root counts per signed user tx.
+pub const TAG_GROUPED_CALLDATA: u8 = 0x01;
 
 /// Convenience [`Result`] alias.
 pub type CodecResult<T> = Result<T, CodecError>;
@@ -56,11 +56,16 @@ pub enum CodecError {
     #[error("payload too short ({0} bytes)")]
     TooShort(usize),
     /// Tag byte didn't match the current format.
-    #[error("unsupported tag byte 0x{0:02x}; expected 0x{TAG_CALLDATA:02x}")]
+    #[error(
+        "unsupported tag byte 0x{0:02x}; expected 0x{TAG_CALLDATA:02x} or 0x{TAG_GROUPED_CALLDATA:02x}"
+    )]
     UnsupportedTag(u8),
     /// RLP decoding failed.
     #[error("rlp decode failed: {0}")]
     Rlp(#[from] alloy_rlp::Error),
+    /// Bytes remained after the single tagged RLP body.
+    #[error("payload has {0} trailing bytes")]
+    TrailingBytes(usize),
     /// A `blockTxCounts[i]` didn't fit in `u16`.
     #[error("block tx count {0} at index {1} exceeds u16::MAX")]
     BlockTxCountOverflow(u64, usize),
@@ -81,6 +86,9 @@ pub struct DecodedBatch {
     /// (deposits/withdrawals), where the L1 settlement entry does not
     /// contain the exact L2 execution-table shape followers must rebuild.
     pub l2_entries: Vec<Vec<u8>>,
+    /// Number of outbound source roots consumed by each terminal-block user
+    /// transaction. Empty for legacy tag-0 payloads.
+    pub outbound_group_sizes: Vec<u16>,
 }
 
 impl DecodedBatch {
@@ -121,32 +129,80 @@ pub fn encode(blocks: &[Vec<RawTx>], l2_entries: &[Vec<u8>]) -> CodecResult<Vec<
     Ok(buf)
 }
 
+/// Encode the grouped calldata format used when one signed outbound user
+/// transaction consumes one or more source roots.
+pub fn encode_grouped(
+    blocks: &[Vec<RawTx>],
+    l2_entries: &[Vec<u8>],
+    outbound_group_sizes: &[u16],
+) -> CodecResult<Vec<u8>> {
+    let mut block_tx_counts: Vec<u16> = Vec::with_capacity(blocks.len());
+    for (i, b) in blocks.iter().enumerate() {
+        let n = u64::try_from(b.len()).unwrap_or(u64::MAX);
+        block_tx_counts
+            .push(u16::try_from(b.len()).map_err(|_| CodecError::BlockTxCountOverflow(n, i))?);
+    }
+    let body = GroupedBody {
+        block_tx_counts,
+        transactions: blocks.iter().flatten().cloned().collect(),
+        l2_entries: l2_entries.to_vec(),
+        outbound_group_sizes: outbound_group_sizes.to_vec(),
+    };
+    let mut buf = Vec::with_capacity(1 + body.length());
+    buf.push(TAG_GROUPED_CALLDATA);
+    body.encode(&mut buf);
+    Ok(buf)
+}
+
 /// Decode a calldata payload.
 ///
 /// # Errors
 ///
 /// - [`CodecError::TooShort`] if `payload` is empty.
-/// - [`CodecError::UnsupportedTag`] if the leading byte isn't
-///   [`TAG_CALLDATA`].
+/// - [`CodecError::UnsupportedTag`] if the leading byte is neither
+///   [`TAG_CALLDATA`] nor [`TAG_GROUPED_CALLDATA`].
 /// - [`CodecError::Rlp`] if the RLP body is malformed.
+/// - [`CodecError::TrailingBytes`] if bytes remain after the RLP body.
 /// - [`CodecError::TxCountMismatch`] if `sum(blockTxCounts) != transactions.len()`.
 pub fn decode(payload: &[u8]) -> CodecResult<DecodedBatch> {
     let Some((&tag, rest)) = payload.split_first() else {
         return Err(CodecError::TooShort(0));
     };
-    if tag != TAG_CALLDATA {
-        return Err(CodecError::UnsupportedTag(tag));
+    let mut encoded_body = rest;
+    let (block_tx_counts, transactions, l2_entries, outbound_group_sizes) = match tag {
+        TAG_CALLDATA => {
+            let body = Body::decode(&mut encoded_body)?;
+            (
+                body.block_tx_counts,
+                body.transactions,
+                body.l2_entries,
+                Vec::new(),
+            )
+        }
+        TAG_GROUPED_CALLDATA => {
+            let body = GroupedBody::decode(&mut encoded_body)?;
+            (
+                body.block_tx_counts,
+                body.transactions,
+                body.l2_entries,
+                body.outbound_group_sizes,
+            )
+        }
+        _ => return Err(CodecError::UnsupportedTag(tag)),
+    };
+    if !encoded_body.is_empty() {
+        return Err(CodecError::TrailingBytes(encoded_body.len()));
     }
-    let body = Body::decode(&mut &rest[..])?;
-    let expected: u64 = body.block_tx_counts.iter().map(|n| u64::from(*n)).sum();
-    let got = body.transactions.len() as u64;
+    let expected: u64 = block_tx_counts.iter().map(|n| u64::from(*n)).sum();
+    let got = transactions.len() as u64;
     if expected != got {
         return Err(CodecError::TxCountMismatch { expected, got });
     }
     Ok(DecodedBatch {
-        block_tx_counts: body.block_tx_counts,
-        transactions: body.transactions,
-        l2_entries: body.l2_entries,
+        block_tx_counts,
+        transactions,
+        l2_entries,
+        outbound_group_sizes,
     })
 }
 
@@ -155,6 +211,14 @@ struct Body {
     block_tx_counts: Vec<u16>,
     transactions: Vec<RawTx>,
     l2_entries: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, alloy_rlp::RlpEncodable, alloy_rlp::RlpDecodable)]
+struct GroupedBody {
+    block_tx_counts: Vec<u16>,
+    transactions: Vec<RawTx>,
+    l2_entries: Vec<Vec<u8>>,
+    outbound_group_sizes: Vec<u16>,
 }
 
 #[cfg(test)]
@@ -226,6 +290,20 @@ mod tests {
     }
 
     #[test]
+    fn trailing_bytes_rejected_on_decode() {
+        for mut bytes in [
+            encode(&[vec![]], &[]).unwrap(),
+            encode_grouped(&[vec![]], &[], &[]).unwrap(),
+        ] {
+            bytes.extend_from_slice(&[0xde, 0xad]);
+            assert!(matches!(
+                decode(&bytes).unwrap_err(),
+                CodecError::TrailingBytes(2)
+            ));
+        }
+    }
+
+    #[test]
     fn roundtrip_with_l2_entries() {
         // Value-bearing batch: L2 entries survive the round-trip
         // alongside per-block tx data.
@@ -240,5 +318,16 @@ mod tests {
         assert_eq!(decoded.block_tx_counts, vec![0u16, 1u16, 0u16]);
         assert_eq!(decoded.transactions.len(), 1);
         assert_eq!(decoded.l2_entries, l2_entries);
+    }
+
+    #[test]
+    fn grouped_roundtrip_preserves_outbound_root_counts() {
+        let blocks = vec![vec![tx(0xa1, 32), tx(0xa2, 32)]];
+        let bytes =
+            encode_grouped(&blocks, &[vec![0x01], vec![0x02], vec![0x03]], &[2, 1]).unwrap();
+        assert_eq!(bytes[0], TAG_GROUPED_CALLDATA);
+        let decoded = decode(&bytes).unwrap();
+        assert_eq!(decoded.outbound_group_sizes, [2, 1]);
+        assert_eq!(decoded.l2_entries.len(), 3);
     }
 }

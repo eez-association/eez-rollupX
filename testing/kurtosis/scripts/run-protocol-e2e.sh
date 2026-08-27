@@ -10,16 +10,27 @@ ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}/protocol-e2e"
 
 SUPPORTED_TARGETS=(
-    one_way                           # bridge, counter, and counterL2
+    one_way                    # bridge, counter, and counterL2
+    multi-call-twice           # one L1 user tx -> the same L2 target twice
+    multi-call-two-diff        # one L1 user tx -> two L2 targets
+    multi-call-twiceL2         # one L2 user tx -> the same L1 target twice
+    multi-call-two-diffL2      # one L2 user tx -> two L1 targets
+    counter-multi-tx           # three source transactions in one settlement
+    nestedCounter              # L1 -> L2 -> L1
+    nestedCounterL2            # L2 -> L1 -> L2
+    multi-call-nested          # three nested L1 -> L2 -> L1 flows
+    multi-call-nestedL2        # one L2 user tx -> two L1 roots -> two L2 callbacks
+    deepNested                 # multi-level alternating callback chain
+    flash-loan                 # stateful L1 -> L2 -> L1 callback flow
+    nestedCallRevert           # failed L2 -> L1 callback caught by its L2 caller
+    revertContinue             # reverted callback attempt, then commit (L1 -> L2 -> L1)
+    revertCounter              # single reverted callback (L1 -> L2 -> L1)
+    revertContinueL2           # reverted callback attempt, then commit (L2 -> L1 -> L2)
+    revertCounterL2            # single reverted callback (L2 -> L1 -> L2)
+    reentrant                  # four-boundary L1 -> L2 -> L1 -> L2 -> L1 chain
 )
 
-UNSUPPORTED_TARGETS=(
-    multi_call   # nested replay
-    multi_tx     # chained state
-    nested       # nested replay
-    reentrant    # reentrancy
-    revert       # forced revert
-)
+UNSUPPORTED_TARGETS=()
 
 for tool in bash bc cast forge git jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }

@@ -77,23 +77,23 @@ impl OutboundCallObservation {
     }
 }
 
-/// Verify every OUTBOUND settlement entry was actually originated on L2, by
+/// Verify every L2-origin call in the supplied L1 settlement entries by
 /// matching its recomputed cross-chain call hash against the
 /// `CrossChainCallExecuted` events the re-executed Sync block emitted.
 ///
-/// `outbound_entries` MUST be the outbound immediates only (`proxyEntryHash ==
-/// 0`, non-empty `l2ToL1Calls`) that L1 settled, in DA order.
+/// `settlement_entries` may contain outbound hosts (`proxyEntryHash == 0`) or
+/// inbound roots (`proxyEntryHash != 0`) with callbacks to L1. Every flat call
+/// in either shape executes on L1 and therefore must originate on this L2.
 /// `observed_calls` contains the canonically decoded
 /// `CrossChainCallExecuted` logs from the Sync block. `l2_rollup_id` is this
 /// L2's own id, which each entry's `sourceRollupId` must equal.
 ///
 /// # Errors
-/// The first outbound entry that is malformed (non-zero `proxyEntryHash`, empty
-/// `l2ToL1Calls`, or `sourceRollupId != l2_rollup_id`) or whose recomputed call
-/// hash has no matching emitted event — a phantom / tampered / redirected /
-/// non-mainnet-target withdrawal.
+/// The first outbound entry/call that is malformed or whose recomputed call
+/// hash has no matching emitted event — or any event left without a settlement
+/// call. Nested row sub-arrays are checked in the same unified table.
 pub fn verify_outbound_authorized(
-    outbound_entries: &[ExecutionEntrySol],
+    settlement_entries: &[ExecutionEntrySol],
     observed_calls: &[OutboundCallObservation],
     l2_rollup_id: u64,
 ) -> Result<(), String> {
@@ -110,65 +110,79 @@ pub fn verify_outbound_authorized(
         *available.entry(observation.call_hash()).or_insert(0) += 1;
     }
 
-    for (i, entry) in outbound_entries.iter().enumerate() {
-        // Defensive: callers pass outbound immediates only. A non-outbound entry
-        // here is a pairing bug, not a phantom — surface it loudly.
-        if entry.proxyEntryHash != B256::ZERO {
+    for (i, entry) in settlement_entries.iter().enumerate() {
+        crate::system_tx::check_entry_shape(entry, &format!("outbound entry {i}"))?;
+        if entry.proxyEntryHash == B256::ZERO
+            && entry.l2ToL1Calls.is_empty()
+            && entry
+                .expectedL1ToL2Calls
+                .iter()
+                .all(|row| row.l2ToL1Calls.is_empty())
+        {
             return Err(format!(
-                "outbound gate misused: entry {i} has non-zero proxyEntryHash (not an outbound immediate)"
+                "outbound host entry {i} contains no L2-to-L1 calls"
             ));
         }
-        let [call] = entry.l2ToL1Calls.as_slice() else {
-            return Err(format!(
-                "outbound entry {i} must contain exactly one L2-to-L1 call"
-            ));
-        };
-        if !entry.success || !entry.expectedL1ToL2Calls.is_empty() {
-            return Err(format!(
-                "outbound entry {i} uses an unsuccessful or nested execution shape"
-            ));
-        }
-        if call.isStatic || call.revertNextNCalls != 0 || call.gas != 0 {
-            return Err(format!(
-                "outbound entry {i} uses unsupported static, revert-span, or explicit-gas semantics"
-            ));
-        }
-
-        // source rollup id == this L2 — the L1 delivery builds the source proxy
-        // from (sourceAddress, sourceRollupId), so a wrong id
-        // would settle against a different source identity.
-        if call.sourceRollupId != l2_rollup_id {
-            return Err(format!(
-                "outbound entry {i}: sourceRollupId {} != this L2 {l2_rollup_id}",
-                call.sourceRollupId,
-            ));
-        }
-
-        // Recompute the key EEZL2 uses to find the loaded entry. MAINNET binds
-        // the destination to L1; the configured rollup binds the L2 source.
-        let expected = l2_outbound_call_hash(
-            CallHashInput {
-                call_mode: CallMode::from_is_static(call.isStatic),
-                source_address: call.sourceAddress,
-                source_rollup_id: RollupId(l2_rollup_id),
-                target_address: call.targetAddress,
-                target_rollup_id: MAINNET_ROLLUP_ID,
-                value: call.value,
-                data: &call.data,
-            },
-            SUPPORTED_CALL_GAS,
+        let arrays = std::iter::once(entry.l2ToL1Calls.as_slice()).chain(
+            entry
+                .expectedL1ToL2Calls
+                .iter()
+                .map(|row| row.l2ToL1Calls.as_slice()),
         );
-        match available.get_mut(&expected) {
-            Some(n) if *n > 0 => *n -= 1,
-            _ => {
-                return Err(format!(
-                    "outbound entry {i} (target {:#x}, value {}, source {:#x}) has NO matching \
-                     CrossChainCallExecuted event in the re-executed Sync block (hash {expected:#x}) \
-                     — phantom / tampered / redirected / non-mainnet-target withdrawal",
-                    call.targetAddress, call.value, call.sourceAddress,
-                ));
+        let mut call_index = 0usize;
+        for calls in arrays {
+            let mut array_index = 0usize;
+            while array_index < calls.len() {
+                let span = usize::from(calls[array_index].revertNextNCalls);
+                let end = array_index + span.max(1);
+                for call in &calls[array_index..end] {
+                    if call.sourceRollupId != l2_rollup_id {
+                        return Err(format!(
+                            "outbound entry {i} call {call_index}: sourceRollupId {} != this L2 {l2_rollup_id}",
+                            call.sourceRollupId,
+                        ));
+                    }
+
+                    let expected = l2_outbound_call_hash(
+                        CallHashInput {
+                            call_mode: CallMode::from_is_static(call.isStatic),
+                            source_address: call.sourceAddress,
+                            source_rollup_id: RollupId(l2_rollup_id),
+                            target_address: call.targetAddress,
+                            target_rollup_id: MAINNET_ROLLUP_ID,
+                            value: call.value,
+                            data: &call.data,
+                        },
+                        SUPPORTED_CALL_GAS,
+                    );
+                    // Events emitted by the source L2 inside its reverted EVM
+                    // frame are rolled back. Their destination calls remain in
+                    // the settlement table and are authorized by the marker,
+                    // not by a receipt log that cannot exist.
+                    if span == 0 {
+                        match available.get_mut(&expected) {
+                            Some(n) if *n > 0 => *n -= 1,
+                            _ => {
+                                return Err(format!(
+                                    "outbound entry {i} call {call_index} (target {:#x}, value {}, source {:#x}) has NO matching \
+                                     CrossChainCallExecuted event in the re-executed Sync block (hash {expected:#x}) \
+                                     — phantom / tampered / redirected / non-mainnet-target withdrawal",
+                                    call.targetAddress, call.value, call.sourceAddress,
+                                ));
+                            }
+                        }
+                    }
+                    call_index += 1;
+                }
+                array_index = end;
             }
         }
+    }
+    let unmatched = available.values().copied().sum::<usize>();
+    if unmatched != 0 {
+        return Err(format!(
+            "re-executed Sync block emitted {unmatched} outbound call(s) with no L1 settlement call"
+        ));
     }
     Ok(())
 }
@@ -287,6 +301,29 @@ mod tests {
 
         // Phantom — the settlement entry has no matching observed event.
         assert!(verify_outbound_authorized(&entries, &[], 1).is_err());
+    }
+
+    #[test]
+    fn gate_accounts_for_l2_calls_nested_under_an_inbound_root() {
+        let c = call(
+            Address::with_last_byte(0x31),
+            Address::with_last_byte(0x32),
+            3,
+            &[0x33],
+        );
+        let mut inbound = entry(vec![c.clone()]);
+        inbound.proxyEntryHash = B256::with_last_byte(0x34);
+        assert!(
+            verify_outbound_authorized(&[inbound], &[observed(&c, 1)], 1).is_ok(),
+            "an inbound root can emit nested L2-to-L1 events"
+        );
+
+        let mut inbound_without_callback = entry(Vec::new());
+        inbound_without_callback.proxyEntryHash = B256::with_last_byte(0x35);
+        assert!(
+            verify_outbound_authorized(&[inbound_without_callback], &[], 1).is_ok(),
+            "a simple inbound root has no L2-origin event to authorize"
+        );
     }
 
     /// THE outbound-via-wrapper property: the `sourceAddress` is a CONTRACT
@@ -420,11 +457,6 @@ mod tests {
         let target = address!("dc64a140aa3e981100a9beca4e685f962f0cf6c9");
         let c = call(source, target, 7, &[0x12, 0x34]);
 
-        // Non-zero proxyEntryHash = not an outbound immediate.
-        let mut bad = entry(vec![c.clone()]);
-        bad.proxyEntryHash = B256::repeat_byte(0x11);
-        assert!(verify_outbound_authorized(&[bad], &[observed(&c, 1)], 1).is_err());
-
         // Empty l2ToL1Calls = not an outbound immediate.
         assert!(verify_outbound_authorized(&[entry(vec![])], &[], 1).is_err());
 
@@ -438,12 +470,40 @@ mod tests {
                 ..c.clone()
             },
             L2ToL1CallSol {
-                revertNextNCalls: 1,
+                gas: 1,
                 ..c.clone()
             },
-            L2ToL1CallSol { gas: 1, ..c },
         ] {
             assert!(verify_outbound_authorized(&[entry(vec![unsupported])], &[], 1).is_err());
         }
+
+        let mut reverted = c.clone();
+        reverted.revertNextNCalls = 1;
+        assert!(verify_outbound_authorized(&[entry(vec![reverted])], &[], 1).is_ok());
+
+        let mut out_of_bounds = c;
+        out_of_bounds.revertNextNCalls = 2;
+        assert!(verify_outbound_authorized(&[entry(vec![out_of_bounds])], &[], 1).is_err());
+    }
+
+    #[test]
+    fn gate_accepts_committed_empty_failed_nested_row() {
+        let c = call(
+            address!("00000000000000000000000000000000000000aa"),
+            address!("dc64a140aa3e981100a9beca4e685f962f0cf6c9"),
+            7,
+            &[0x12, 0x34],
+        );
+        let mut settlement = entry(vec![c.clone()]);
+        settlement.expectedL1ToL2Calls = vec![crate::abi::ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::repeat_byte(0x41),
+            l2ToL1Calls: Vec::new(),
+            revertedOrStaticRollingHash: B256::repeat_byte(0x42),
+            success: false,
+            returnData: Bytes::from_static(&[0xde, 0xad]),
+        }];
+
+        verify_outbound_authorized(&[settlement], &[observed(&c, 1)], 1)
+            .expect("a failed empty nested row emits no extra outbound event");
     }
 }

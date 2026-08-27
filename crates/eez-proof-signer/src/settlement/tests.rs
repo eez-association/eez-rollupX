@@ -7,9 +7,8 @@ use alloy_primitives::{Address, B256, Bytes, I256, Signature, U256, address, b25
 use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::EvmBatch;
 use eez_protocol::abi::{
-    ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedOutgoingCrossChainCallSol,
-    ExpectedStateRootPerRollupSol, L2ToL1CallSol, RollupIdWithProofSystemsSol, StateUpdateSol,
-    StaticExecutionEntrySol,
+    ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedStateRootPerRollupSol, L2ToL1CallSol,
+    RollupIdWithProofSystemsSol, StateUpdateSol, StaticExecutionEntrySol,
 };
 use eez_protocol::entries::{
     EXECUTE_INCOMING_SELECTOR, IncomingEntry, build_l2_incoming_entry, encode_execute_incoming,
@@ -33,14 +32,15 @@ use super::{
     AuthorizedInboundEffects, AuthorizedOutboundEffects, BlockInspectionError, BoundEffectSequence,
     CanonicalPostBatch, ClaimedEntryShape, DaPayloadError, EffectPrefixError, EthereumBlock,
     InboundCandidate, InboundEffectError, InboundObservationError, ObservedEffectKind,
-    OutboundEffectError, PostBatchDecodeError, PublicInputError, SettlingBlockObservations,
-    StateUpdateChainError, SystemTransactionKey,
+    OutboundEffectError, OutboundLoadCandidate, PostBatchDecodeError, PublicInputError,
+    SettlingBlockObservations, StateUpdateChainError, SystemTransactionKey,
     authorize_inbound_effects as authorize_inbound_effects_for_rollup,
     authorize_outbound_effects as authorize_outbound_effects_for_rollup, bind_effects_to_execution,
-    decode_canonical_post_batch, encode_da_payload, inspect_inbound_candidate,
-    inspect_settling_block, inspect_validated_settling_block, recompute_public_input_hash,
-    verify_da_payload_for_test as verify_da_payload, verify_no_intermediate_system_transactions,
-    verify_state_update_chain, verify_validated_intermediate_blocks,
+    decode_canonical_post_batch, encode_da_payload, encode_grouped_da_payload,
+    inspect_inbound_candidate, inspect_settling_block, inspect_validated_settling_block,
+    recompute_public_input_hash, verify_da_payload_for_test as verify_da_payload,
+    verify_no_intermediate_system_transactions, verify_state_update_chain,
+    verify_validated_intermediate_blocks,
 };
 
 const EXPECTED_PROOF_SYSTEM: Address = address!("00000000000000000000000000000000000000aa");
@@ -201,12 +201,58 @@ fn settling_with_system_flags(system_sender_flags: Vec<bool>) -> SettlingBlockOb
     SettlingBlockObservations::for_test(system_sender_flags, Vec::new(), Vec::new())
 }
 
-fn settling_with_outbound_pairs(count: usize) -> SettlingBlockObservations {
-    settling_with_system_flags(
-        std::iter::repeat_n([true, false], count)
+fn settling_with_outbound_pairs(batch: &CanonicalPostBatch) -> SettlingBlockObservations {
+    let outbound_entries = batch
+        .entries
+        .iter()
+        .skip(1)
+        .filter(|entry| entry.proxyEntryHash == B256::ZERO && !entry.l2ToL1Calls.is_empty())
+        .collect::<Vec<_>>();
+    let mut settling = settling_with_system_flags(
+        std::iter::repeat_n([true, false], outbound_entries.len())
             .flatten()
             .collect(),
-    )
+    );
+    *settling.outbound_load_candidates_mut_for_test() = outbound_entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            OutboundLoadCandidate::decoded_for_test(index * 2, flat_outbound_sidecar(entry))
+        })
+        .collect();
+    settling
+}
+
+fn flat_outbound_sidecar(entry: &ExecutionEntrySol) -> ExecutionEntrySol {
+    let root = &entry.l2ToL1Calls[0];
+    flat_outbound_sidecar_for_call(root, entry.success, entry.returnData.clone())
+}
+
+fn flat_outbound_sidecar_for_call(
+    root: &L2ToL1CallSol,
+    success: bool,
+    return_data: Bytes,
+) -> ExecutionEntrySol {
+    let proxy_entry_hash = l2_outbound_call_hash(
+        CallHashInput {
+            call_mode: CallMode::Mutable,
+            source_address: root.sourceAddress,
+            source_rollup_id: RollupId(root.sourceRollupId),
+            target_address: root.targetAddress,
+            target_rollup_id: RollupId::MAINNET,
+            value: root.value,
+            data: &root.data,
+        },
+        0,
+    );
+    ExecutionEntrySol {
+        proxyEntryHash: proxy_entry_hash,
+        rollingHash: EntryRollingHash::seed_for_l2(proxy_entry_hash).current(),
+        destinationRollupId: RollupId::MAINNET.0,
+        success,
+        returnData: return_data,
+        ..Default::default()
+    }
 }
 
 fn invalid_inbound_candidate(transaction_index: usize) -> InboundCandidate {
@@ -322,7 +368,7 @@ fn verified_state_chain_for_test(
 fn verify_inbound_effect_entries<'settling>(
     bound_effects: &BoundEffectSequence<'_, 'settling>,
 ) -> Result<AuthorizedInboundEffects<'settling>, InboundEffectError> {
-    authorize_inbound_effects_for_rollup(bound_effects, expected_rollup_id())
+    authorize_inbound_effects_for_rollup(bound_effects, expected_rollup_id(), TEST_SYSTEM_ADDRESS)
 }
 
 /// Test shorthand for the fixture's fixed rollup identity.
@@ -388,30 +434,16 @@ fn expected_call() -> ExpectedL1ToL2CallSol {
     }
 }
 
-fn l2_expected_outgoing_call() -> ExpectedOutgoingCrossChainCallSol {
-    ExpectedOutgoingCrossChainCallSol {
-        expectedOutgoingHash: B256::ZERO,
-        incomingCalls: Vec::new(),
-        revertedOrStaticRollingHash: B256::ZERO,
-        success: true,
-        returnData: Bytes::new(),
-    }
-}
-
 fn transaction(encoded: &str) -> TransactionSigned {
     alloy_rlp::decode_exact(hex::decode(encoded).unwrap()).unwrap()
 }
 
 /// Build a canonically signed system transaction carrying the current inbound ABI.
 fn target_system_inbound_transaction() -> TransactionSigned {
-    let mut call = l2_to_l1_call();
-    call.sourceRollupId = RollupId::MAINNET.0;
-    let entry = ExecutionEntrySol {
-        destinationRollupId: expected_rollup_id().get(),
-        l2ToL1Calls: vec![call],
-        success: true,
-        ..Default::default()
-    };
+    let calldata = strict_inbound_calldata(U256::ZERO, true);
+    let observation =
+        inspect_inbound_candidate(U256::ZERO, &calldata, true, expected_rollup_id()).unwrap();
+    let entry = observation.derived_da_entry.as_entry().clone();
 
     build_inbound_transactions(&[entry], &system_transaction_context(), 0)
         .into_iter()

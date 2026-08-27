@@ -45,7 +45,7 @@ use crate::held_pool::HeldTx;
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
-    build_sync_block, sync_block_pair_roots,
+    build_sync_block, sync_block_roots_at_positions,
 };
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::prove_with_retry;
@@ -1733,9 +1733,10 @@ where
         // entry with its user tx; `pending_in` holds inbound target-side
         // derivation entries; and `outbound_entries` holds settlement entries
         // spliced into `postBatch`.
-        let mut pending_out: Vec<(eez_protocol::abi::ExecutionEntrySol, Bytes)> = Vec::new();
+        let mut pending_out: Vec<eez_protocol::system_tx::OutboundSyncGroup> = Vec::new();
         let mut pending_in: Vec<eez_protocol::abi::ExecutionEntrySol> = Vec::new();
         let mut outbound_entries: Vec<eez_protocol::abi::ExecutionEntrySol> = Vec::new();
+        let mut outbound_entry_traces: Vec<eez_protocol::entries::EntryTrace> = Vec::new();
         // Escrow drawn down per outbound withdrawal (read once, lazily) so several
         // in one slot can't collectively over-drain. `None` = not yet read.
         let mut escrow_remaining: Option<U256> = None;
@@ -1817,11 +1818,31 @@ where
             );
             match sim {
                 Ok((composition, mut sessions)) => {
-                    let l1_entries: Vec<eez_protocol::abi::ExecutionEntrySol> = composition
+                    if composition.targets.iter().any(|target| {
+                        target.rollup_id != eez_protocol::RollupId::MAINNET
+                            && target.rollup_id != eez_protocol::RollupId(rollup_id)
+                    }) {
+                        event!(
+                            name: "eez.composer.cc_compose.outbound_foreign_target",
+                            Level::WARN,
+                            rollup_id,
+                            tx_idx = idx,
+                            tx_hash = %held.hash,
+                            "outbound composition reached an L2 other than its source rollup; this node cannot settle another rollup's Sync block",
+                        );
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    }
+                    let Some(l1_target) = composition
                         .targets
                         .iter()
-                        .flat_map(|t| t.batch.entries.iter().cloned())
-                        .collect();
+                        .find(|target| target.rollup_id == eez_protocol::RollupId::MAINNET)
+                    else {
+                        event!(name: "eez.composer.cc_compose.outbound_no_entries", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx produced no L1 host entry; evicting");
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    };
+                    let l1_entries = l1_target.batch.entries.clone();
                     if l1_entries.is_empty() {
                         event!(
                             name: "eez.composer.cc_compose.outbound_no_entries",
@@ -1834,31 +1855,94 @@ where
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
-                    // `check_entry_shape` covers multiple calls within one entry;
-                    // this guard covers one transaction producing multiple
-                    // entries. Each entry would pair with the same nonce-bearing
-                    // raw transaction, causing the Sync block to include it more
-                    // than once and fail replay.
-                    if l1_entries.len() > 1 {
+                    let source_entries = &composition.source.batch.entries;
+                    let settlement_root_counts =
+                        match eez_protocol::system_tx::outbound_settlement_root_counts(&l1_entries)
+                        {
+                            Ok(counts) => counts,
+                            Err(error) => {
+                                event!(
+                                    name: "eez.composer.cc_compose.outbound_root_shape",
+                                    Level::WARN,
+                                    rollup_id,
+                                    tx_idx = idx,
+                                    tx_hash = %held.hash,
+                                    error = %error,
+                                    "outbound settlement root partition is unsupported; evicting",
+                                );
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+                        };
+                    let settlement_source_count = settlement_root_counts.iter().sum::<usize>();
+                    if source_entries.len() != settlement_source_count {
                         event!(
-                            name: "eez.composer.cc_compose.outbound_multicall_unsupported",
+                            name: "eez.composer.cc_compose.outbound_root_mismatch",
                             Level::WARN,
                             rollup_id,
                             tx_idx = idx,
                             tx_hash = %held.hash,
-                            entries = l1_entries.len(),
-                            "outbound tx made multiple cross-chain calls; evicting because one source transaction cannot back multiple entries",
+                            source_entries = source_entries.len(),
+                            settlement_entries = l1_entries.len(),
+                            settlement_source_count,
+                            "outbound source roots are not fully covered by the L1 settlement hosts; evicting",
                         );
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
+                    let separate_callback_entries = composition
+                        .targets
+                        .iter()
+                        .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
+                        .flat_map(|target| target.batch.entries.iter().cloned())
+                        .collect::<Vec<_>>();
+                    let callback_counts = &composition.source.callback_entry_counts;
+                    if callback_counts.len() != source_entries.len()
+                        || callback_counts.iter().sum::<usize>() != separate_callback_entries.len()
+                    {
+                        event!(
+                            name: "eez.composer.cc_compose.outbound_callback_mismatch",
+                            Level::WARN,
+                            rollup_id,
+                            tx_idx = idx,
+                            tx_hash = %held.hash,
+                            callback_entries = separate_callback_entries.len(),
+                            callback_counts = ?callback_counts,
+                            source_entries = source_entries.len(),
+                            "outbound callback-delivery partition does not match its source roots; evicting",
+                        );
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    }
+                    let mut callback_cursor = 0usize;
+                    let effects = source_entries
+                        .iter()
+                        .cloned()
+                        .zip(callback_counts.iter().copied())
+                        .map(|(source_entry, callback_count)| {
+                            let callback_end = callback_cursor + callback_count;
+                            let callback_entries =
+                                separate_callback_entries[callback_cursor..callback_end].to_vec();
+                            callback_cursor = callback_end;
+                            eez_protocol::system_tx::OutboundSyncEffect {
+                                source_entry,
+                                callback_entries,
+                            }
+                        })
+                        .collect();
+                    let outbound_group = eez_protocol::system_tx::OutboundSyncGroup {
+                        effects,
+                        user_tx: held.raw_tx.clone(),
+                    };
                     // Evict a withdrawal that would exceed the rollup's L1 escrow —
                     // it would revert on-chain and drop the whole bundle.
                     // "ether out" is the amount of Ether being withdrawn in this outbound settlement entry.
                     // If missing, the entry is malformed and must be evicted.
                     // Review once reentrancy is available
-                    let Some(need) = eez_protocol::entries::outbound_ether_out(&l1_entries[0])
-                    else {
+                    let Some(need) = l1_entries.iter().try_fold(U256::ZERO, |total, entry| {
+                        eez_protocol::entries::outbound_ether_out(entry)
+                            .and_then(|value| total.checked_add(value))
+                    }) else {
                         event!(name: "eez.composer.cc_compose.outbound_ether_out_missing", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx is missing ether out entry, likely malformed; evicting");
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
@@ -1892,9 +1976,9 @@ where
                     // leave the L1 state untouched. `build_outbound_pair` runs
                     // the shape gate itself, so an entry the Sync-block lowering
                     // cannot represent comes back as its `Err`.
-                    let pairs_k = match eez_protocol::system_tx::build_outbound_pair(
-                        &l1_entries[0],
-                        &held.raw_tx,
+                    let pairs_k = match eez_protocol::system_tx::build_cross_chain_sync_groups(
+                        std::slice::from_ref(&outbound_group),
+                        &[],
                         &stf_cfg,
                         nonce + system_txs_appended,
                     ) {
@@ -1995,7 +2079,8 @@ where
                         continue;
                     }
                     sync_txs.extend(pair_txs);
-                    system_txs_appended += pairs_k.len() as u64;
+                    system_txs_appended +=
+                        eez_protocol::system_tx::sync_pair_system_tx_count(&pairs_k) as u64;
                     // Debit at accept, not at the check above: a tx evicted in
                     // between never draws the escrow down on L1, and a budget
                     // reduced for it would evict later legitimate withdrawals.
@@ -2028,8 +2113,9 @@ where
                         }
                     }
 
-                    pending_out.push((l1_entries[0].clone(), held.raw_tx.clone()));
+                    pending_out.push(outbound_group);
                     outbound_entries.extend(l1_entries);
+                    outbound_entry_traces.extend(l1_target.entry_traces.iter().cloned());
                     // NOT pushed to `survivor_comps`: its `source.batch` is OUR
                     // L2's entries (a dest=MAINNET call that must not settle on
                     // L1). The L1 settlement is `outbound_entries`, spliced
@@ -2094,9 +2180,7 @@ where
             let contexts = draft
                 .fork()
                 .map_err(|e| format!("SyncBlockState::fork: {e}"))
-                .map(|fork| {
-                    InboundL2TargetSession::new(fork, stf_cfg.clone(), nonce + system_txs_appended)
-                })
+                .map(|fork| InboundL2TargetSession::new(fork, Arc::clone(&local.l2_entry)))
                 .and_then(|probe| {
                     l1_state
                         .fork_state(&local.l1_entry)
@@ -2125,34 +2209,26 @@ where
             );
             match sim {
                 Ok((composition, _sessions)) => {
+                    if composition
+                        .targets
+                        .iter()
+                        .any(|target| target.rollup_id != eez_protocol::RollupId(rollup_id))
+                    {
+                        event!(name: "eez.composer.cc_compose.inbound_foreign_target", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "inbound composition reached another L2; this node cannot build that rollup's Sync block");
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    }
                     let target_entries: Vec<eez_protocol::abi::ExecutionEntrySol> = composition
                         .targets
                         .iter()
-                        .flat_map(|t| t.batch.entries.iter().cloned())
+                        .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
+                        .flat_map(|target| target.batch.entries.iter().cloned())
                         .collect();
-                    // Shape gate at accept, both halves: an entry the delivery
-                    // lowering cannot represent, or a nested recording on the
-                    // source side, is this tx's problem, not the slot's.
-                    let shape = target_entries
-                        .iter()
-                        .try_for_each(|entry| {
-                            eez_protocol::system_tx::check_entry_shape(entry, "inbound")
-                        })
-                        .and_then(|()| {
-                            match composition
-                                .source
-                                .batch
-                                .entries
-                                .iter()
-                                .find(|entry| !entry.expectedL1ToL2Calls.is_empty())
-                            {
-                                Some(nested) => Err(format!(
-                                    "inbound source entry records {} nested L1→L2 call(s); nested composition is parked",
-                                    nested.expectedL1ToL2Calls.len(),
-                                )),
-                                None => Ok(()),
-                            }
-                        });
+                    // The whole supported mutable nested table lowers directly
+                    // to EEZL2's field-identical ABI.
+                    let shape = target_entries.iter().try_for_each(|entry| {
+                        eez_protocol::system_tx::check_entry_shape(entry, "inbound")
+                    });
                     if let Err(e) = shape {
                         event!(
                             name: "eez.composer.cc_compose.shape_evicted",
@@ -2384,7 +2460,7 @@ where
         // [load,user,…,deliveries]. Handles inbound / outbound / mixed
         // uniformly. A failure is systemic (signing / nonce overflow) →
         // re-queue survivors, degrade to minimal.
-        let pairs = match eez_protocol::system_tx::build_cross_chain_sync_pairs(
+        let pairs = match eez_protocol::system_tx::build_cross_chain_sync_groups(
             &pending_out,
             &pending_in,
             &stf_cfg,
@@ -2520,15 +2596,15 @@ where
         // Per-effect intermediate L2 roots: the prover requires each entry's
         // `newState` to be its own effect's root, not the final Sync-block root.
         // Failure here is systemic (like build/prepare) → degrade.
-        let pair_roots = match sync_block_pair_roots(
+        let effect_end_positions = eez_protocol::system_tx::sync_pair_end_positions(&pairs);
+        let pair_roots = match sync_block_roots_at_positions(
             rollup.l2_provider.as_ref(),
             &self.inner.evm_config,
             parent_header,
             timestamp,
             suggested_fee_recipient,
             &sync_txs,
-            ctx.system_signer.address(),
-            ctx.eezl2_address,
+            &effect_end_positions,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -2573,6 +2649,8 @@ where
                 Some(&built.block),
                 &pair_roots,
                 &outbound_entries,
+                &outbound_entry_traces,
+                &pending_out,
                 &outbound_user_txs,
                 bundle_target,
             )
@@ -2710,6 +2788,8 @@ where
                 Some(&empty_built.block),
                 &[], // no cross-chain effects → no per-effect roots
                 &[], // no outbound entries
+                &[], // no outbound entry traces
+                &[], // no outbound L2 sidecars
                 &[], // no outbound user txs
                 bundle_target,
             )
@@ -2872,6 +2952,8 @@ where
                     &[],
                     &[],
                     &[],
+                    &[],
+                    &[],
                     BundleTarget::NextBlock,
                 )
                 .await?
@@ -3008,10 +3090,10 @@ where
     /// stitches the merged entries so `entries[k].currentState ==
     /// entries[k-1].newState` per rollup; EEZ.sol's `_applyStateUpdates`
     /// enforces the chain on L1 (`StateRootMismatch` revert) regardless of
-    /// proof system. Each effect entry's `newState` is its per-effect root from
-    /// `pair_roots` (verified by the proof signer's effect-prefix checks); the
-    /// last is the final Sync-block root. `sync_block_state_root` is the
-    /// required settlement-chain endpoint.
+    /// proof system. Each settlement entry's `newState` is the root after its
+    /// final covered source effect from `pair_roots` (verified by the proof
+    /// signer's effect-prefix checks); the last is the final Sync-block root.
+    /// `sync_block_state_root` is the required settlement-chain endpoint.
     ///
     /// `sync_block` is the terminal, `Some` only while freshly built; `None`
     /// (historical chunk) takes its witness from the store like the rest.
@@ -3033,6 +3115,8 @@ where
         >,
         pair_roots: &[B256],
         outbound_entries: &[eez_protocol::abi::ExecutionEntrySol],
+        outbound_entry_traces: &[eez_protocol::entries::EntryTrace],
+        outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
         outbound_user_txs: &[Bytes],
         bundle_target: BundleTarget,
     ) -> Result<Option<Bytes>, String> {
@@ -3042,16 +3126,18 @@ where
         // Merge inbound compositions' L1 source batches, or start empty so an
         // idle Sync slot can carry only the leading immediate entry that
         // advances L1's stored root.
-        let mut batch = if compositions.is_empty() {
-            eez_protocol::EvmBatch::default()
+        let (mut batch, mut entry_traces) = if compositions.is_empty() {
+            (eez_protocol::EvmBatch::default(), Vec::new())
         } else {
             let mut b = compositions[0].source.batch.clone();
+            let mut traces = compositions[0].source.entry_traces.clone();
             for c in &compositions[1..] {
                 b.entries.extend(c.source.batch.entries.iter().cloned());
                 b.staticEntries
                     .extend(c.source.batch.staticEntries.iter().cloned());
+                traces.extend(c.source.entry_traces.iter().cloned());
             }
-            b
+            (b, traces)
         };
 
         // Prepend one leading immediate entry (`proxyEntryHash == 0`)
@@ -3100,6 +3186,7 @@ where
             returnData: Bytes::new(),
         };
         batch.entries.insert(0, immediate_entry);
+        entry_traces.insert(0, eez_protocol::entries::EntryTrace::default());
 
         // Splice OUTBOUND settlement entries after the leading anchor; its state
         // update is attached below. The contract drains the contiguous
@@ -3111,35 +3198,115 @@ where
             entry.destinationRollupId = rollup_id;
             batch.entries.insert(1 + k, entry);
         }
+        for (k, trace) in outbound_entry_traces.iter().cloned().enumerate() {
+            entry_traces.insert(1 + k, trace);
+        }
 
-        // Deposit value for inbound deferred entries: the lean on-chain entry binds
-        // V only in its `proxyEntryHash` preimage, so read V from the DA sidecar
-        // (`targets[].batch`, same `proxyEntryHash`). Value-free → absent → 0.
-        let inbound_ether: HashMap<B256, alloy_primitives::I256> = compositions
+        // Each effect's settlement delta is the net value crossing this
+        // rollup's boundary over the whole nested entry. L1 host flat arrays
+        // are L2→L1 outflow; the paired L2 sidecar flat arrays are L1→L2
+        // inflow. This mirrors TableGenerator's recursive prescan.
+        let net_ether_delta =
+            |inflow: U256, outflow: U256| -> Result<alloy_primitives::I256, String> {
+                let inflow = alloy_primitives::I256::try_from(inflow)
+                    .map_err(|error| format!("entry ether inflow overflows I256: {error}"))?;
+                let outflow = alloy_primitives::I256::try_from(outflow)
+                    .map_err(|error| format!("entry ether outflow overflows I256: {error}"))?;
+                inflow
+                    .checked_sub(outflow)
+                    .ok_or_else(|| "entry net ether delta overflows I256".to_string())
+            };
+        let outbound_effect_count = outbound_l2_groups
             .iter()
-            .flat_map(|c| c.targets.iter())
-            .flat_map(|t| t.batch.entries.iter())
-            .filter_map(|e| {
-                let v = e.l2ToL1Calls.first()?.value;
-                if v.is_zero() {
-                    return None;
+            .map(|group| group.effects.len())
+            .sum::<usize>();
+        let outbound_settlement_root_counts =
+            eez_protocol::system_tx::outbound_settlement_root_counts(outbound_entries)?;
+        let covered_outbound_roots = outbound_settlement_root_counts.iter().sum::<usize>();
+        if covered_outbound_roots != outbound_effect_count {
+            return Err(format!(
+                "outbound settlement hosts cover {covered_outbound_roots} roots, but Sync groups carry {outbound_effect_count}",
+            ));
+        }
+        let outbound_effects = outbound_l2_groups
+            .iter()
+            .flat_map(|group| group.effects.iter())
+            .collect::<Vec<_>>();
+        let inbound_effect_count = compositions
+            .iter()
+            .map(|composition| composition.source.batch.entries.len())
+            .sum::<usize>();
+        if pair_roots.len() != outbound_effect_count + inbound_effect_count {
+            return Err(format!(
+                "pair roots cover {} effects, expected {outbound_effect_count} outbound + {inbound_effect_count} inbound",
+                pair_roots.len(),
+            ));
+        }
+        let mut effect_ether_deltas =
+            Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
+        let mut effect_state_roots =
+            Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
+        let mut outbound_effect_cursor = 0usize;
+        for (settlement, root_count) in outbound_entries.iter().zip(outbound_settlement_root_counts)
+        {
+            let outflow = eez_protocol::entries::entry_flat_value_sum(settlement)
+                .ok_or_else(|| "invalid outbound settlement value shape".to_string())?;
+            let effect_end = outbound_effect_cursor + root_count;
+            let inflow = outbound_effects[outbound_effect_cursor..effect_end]
+                .iter()
+                .flat_map(|effect| {
+                    std::iter::once(&effect.source_entry).chain(&effect.callback_entries)
+                })
+                .try_fold(U256::ZERO, |total, sidecar| {
+                    let value = eez_protocol::entries::entry_flat_value_sum(sidecar)
+                        .ok_or_else(|| "invalid outbound L2 sidecar value shape".to_string())?;
+                    total
+                        .checked_add(value)
+                        .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
+                })?;
+            effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
+            effect_state_roots.push(pair_roots[effect_end - 1]);
+            outbound_effect_cursor = effect_end;
+        }
+        let mut inbound_effect_cursor = outbound_effect_count;
+        for composition in compositions {
+            let sidecars = composition
+                .targets
+                .iter()
+                .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
+                .flat_map(|target| target.batch.entries.iter())
+                .collect::<Vec<_>>();
+            if composition.source.batch.entries.len() != sidecars.len() {
+                return Err(format!(
+                    "inbound settlement/sidecar count mismatch: {} != {}",
+                    composition.source.batch.entries.len(),
+                    sidecars.len(),
+                ));
+            }
+            for (source_entry, sidecar) in composition.source.batch.entries.iter().zip(sidecars) {
+                if source_entry.proxyEntryHash != sidecar.proxyEntryHash {
+                    return Err(format!(
+                        "inbound settlement/sidecar proxy hash mismatch: {} != {}",
+                        source_entry.proxyEntryHash, sidecar.proxyEntryHash,
+                    ));
                 }
-                alloy_primitives::I256::try_from(v)
-                    .ok()
-                    .map(|d| (e.proxyEntryHash, d))
-            })
-            .collect();
+                let outflow = eez_protocol::entries::entry_flat_value_sum(source_entry)
+                    .ok_or_else(|| "invalid inbound L1 entry value shape".to_string())?;
+                let inflow = eez_protocol::entries::entry_flat_value_sum(sidecar)
+                    .ok_or_else(|| "invalid inbound L2 sidecar value shape".to_string())?;
+                effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
+                effect_state_roots.push(pair_roots[inbound_effect_cursor]);
+                inbound_effect_cursor += 1;
+            }
+        }
 
         // Cross-chain entries arrive with EMPTY `stateUpdates`; attach one chained
         // settlement state update to each (the anchor already has its own) — else
-        // `_applyStateUpdates` no-ops and the L2 root never settles. Direction by
-        // `proxyEntryHash`: outbound (== 0) → `-V` (via `outbound_ether_out`; None =
-        // multi-call-with-value, unsupported → reject); inbound (!= 0) → `+V` deposit.
-        // Value-free → 0.
-        // `newState` = effect `k`'s per-effect root `pair_roots[k]`; entries are
-        // ordered `[outbound… | inbound…]`, matching the Sync block's pair-ends.
-        // The prover requires this exact per-entry value. `currentState` is fixed
-        // by the stitch below.
+        // `_applyStateUpdates` no-ops and the L2 root never settles. The net
+        // nested value delta above is attached in settlement-entry order.
+        // `newState` is the root after that entry's last covered source effect;
+        // flat multi-root outbound hosts therefore select their final root.
+        // `currentState` is fixed by the stitch below.
         let mut effect_k = 0usize;
         for entry in &mut batch.entries {
             // Preserve the anchor's existing state update and fill only the
@@ -3147,31 +3314,14 @@ where
             if !entry.stateUpdates.is_empty() {
                 continue;
             }
-            let ether_delta = if entry.proxyEntryHash == B256::ZERO {
-                let v = eez_protocol::entries::outbound_ether_out(entry).ok_or_else(|| {
-                    format!(
-                        "outbound entry: multi-call value not supported \
-                         (l2ToL1Calls={})",
-                        entry.l2ToL1Calls.len(),
-                    )
-                })?;
-                if v.is_zero() {
-                    alloy_primitives::I256::ZERO
-                } else {
-                    -alloy_primitives::I256::try_from(v)
-                        .map_err(|e| format!("outbound etherOut {v} overflows I256: {e}"))?
-                }
-            } else {
-                inbound_ether
-                    .get(&entry.proxyEntryHash)
-                    .copied()
-                    .unwrap_or(alloy_primitives::I256::ZERO)
-            };
-            let new_state = *pair_roots.get(effect_k).ok_or_else(|| {
+            let ether_delta = *effect_ether_deltas.get(effect_k).ok_or_else(|| {
+                format!("settlement stitch: effect entry {effect_k} has no ether delta")
+            })?;
+            let new_state = *effect_state_roots.get(effect_k).ok_or_else(|| {
                 format!(
-                    "settlement stitch: effect entry {effect_k} has no per-effect root \
-                     (only {} pair-end roots — pair-end/entry misalignment)",
-                    pair_roots.len(),
+                    "settlement stitch: entry {effect_k} has no selected state root \
+                     (only {} selected roots)",
+                    effect_state_roots.len(),
                 )
             })?;
             entry.stateUpdates = vec![eez_protocol::abi::StateUpdateSol {
@@ -3182,11 +3332,10 @@ where
             }];
             effect_k += 1;
         }
-        if effect_k != pair_roots.len() {
+        if effect_k != effect_state_roots.len() {
             return Err(format!(
-                "settlement stitch: {effect_k} effect entries but {} per-effect roots \
-                 (pair-end/entry misalignment)",
-                pair_roots.len(),
+                "settlement stitch: {effect_k} entries but {} selected roots",
+                effect_state_roots.len(),
             ));
         }
 
@@ -3237,7 +3386,7 @@ where
         // The L1 rolling seed commits the finalized ordered state updates, so
         // it can only be computed after the stitch above has set every
         // `currentState` and the anchor-only path has set its final root.
-        eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch)
+        eez_protocol::entries::finalize_l1_entry_traces(&mut batch, &entry_traces)
             .map_err(|error| format!("finalize L1 rolling hashes: {error}"))?;
 
         // The contract drains the leading contiguous `proxyEntryHash == 0` run
@@ -3372,8 +3521,12 @@ where
         // The DA sidecar stores the full derivation entry set in canonical
         // order: outbound settlement entries first, then inbound deferred
         // entries. This matches the deriver's prefix split.
-        let l2_entries_bytes: Vec<Vec<u8>> = outbound_entries
+        let l2_entries_bytes: Vec<Vec<u8>> = outbound_l2_groups
             .iter()
+            .flat_map(|group| group.effects.iter())
+            .flat_map(|effect| {
+                std::iter::once(&effect.source_entry).chain(&effect.callback_entries)
+            })
             .map(eez_protocol::abi::ExecutionEntrySol::abi_encode)
             .chain(
                 compositions
@@ -3383,8 +3536,16 @@ where
                     .map(eez_protocol::abi::ExecutionEntrySol::abi_encode),
             )
             .collect();
-        let payload = eez_payload_codec::encode(&blocks, &l2_entries_bytes)
-            .map_err(|e| format!("eez_payload_codec::encode: {e}"))?;
+        let outbound_group_sizes = outbound_l2_groups
+            .iter()
+            .map(|group| {
+                u16::try_from(group.effects.len())
+                    .map_err(|_| "outbound root count exceeds u16::MAX".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let payload =
+            eez_payload_codec::encode_grouped(&blocks, &l2_entries_bytes, &outbound_group_sizes)
+                .map_err(|e| format!("eez_payload_codec::encode: {e}"))?;
         batch.callData = alloy_primitives::Bytes::from(payload);
 
         // Priced on the encoded candidate before witnesses and proving; `Ok(None)`

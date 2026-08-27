@@ -347,20 +347,22 @@ impl TargetExecutionSession for LocalExecutionSession {
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<eez_protocol::SessionSnapshot> {
-        // The snapshot restores no session state: the revm cache and bundle
-        // are not captured (full-snapshot rollback is planned separately).
-        // Annulled-call safety rests on batch materialization rejecting
-        // revert spans, so a composition with rolled-back calls never emits
-        // entries.
-        Ok(Box::new(()) as Box<dyn std::any::Any + Send>)
+        // Synthetic target execution reads and writes through the cache. Keep
+        // the exact pre-call cache so a source-frame revert can rewind this
+        // chain before a later sibling dispatch observes it. Transition and
+        // bundle bookkeeping are not consumed from these throwaway sessions;
+        // accepted effects are propagated through `overlay_channel` and are
+        // replayed canonically by the eventual system transaction.
+        Ok(Box::new(self.state.cache.clone()) as Box<dyn std::any::Any + Send>)
     }
 
     fn rollback(&mut self, snapshot: eez_protocol::SessionSnapshot) -> ExecutorResult<()> {
-        snapshot.downcast::<()>().map_err(|_e| {
+        let cache = snapshot.downcast::<CacheState>().map_err(|_e| {
             ExecutorError::from(ExecutorErrorKind::Encoding(
                 "LocalExecutionSession::rollback: snapshot type mismatch".into(),
             ))
         })?;
+        self.state.cache = *cache;
         Ok(())
     }
 }

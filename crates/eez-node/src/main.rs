@@ -575,17 +575,18 @@ fn main() -> eyre::Result<()> {
                         dyn eez_protocol::executor::ChainClient
                             + Send
                             + Sync,
-                    > = l2_follower;
+                    > = l2_follower.clone();
 
                     // L2 ENTRY client (follower's provider/dialect, but
                     // Role::Entry) — the follower client errors `Unavailable` for
                     // the outbound source simulation.
-                    let l2_entry_client = LocalChainClient::new_entry(
+                    let l2_entry_client = LocalChainClient::new_entry_sharing_overlay(
                         provider.clone(),
                         evm_config.clone(),
                         l2_rollup_id_typed,
                         eezl2_address,
                         eez_protocol::ChainDialect::EvmL2Style,
+                        l2_follower.as_ref(),
                     );
 
                     let entry_cfg = TargetConfig {

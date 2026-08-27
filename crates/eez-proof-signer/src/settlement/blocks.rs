@@ -5,9 +5,11 @@ use std::num::NonZeroU64;
 use alloy_consensus::{Transaction as _, Typed2718 as _};
 use eez_protocol::entries::EXECUTE_INCOMING_SELECTOR;
 use eez_protocol::settlement::pair_end_positions as framed_effect_candidate_positions;
+use eez_protocol::system_tx::LOAD_EXECUTION_TABLE_SELECTOR;
 use thiserror::Error;
 
 use super::inbound::{InboundCandidate, inspect_inbound_candidate};
+use super::outbound::{OutboundLoadCandidate, inspect_outbound_load_candidate};
 use crate::EEZL2_ADDRESS;
 use crate::validate::{OutboundEventObservation, SettlementBlockEvidence, ValidatedBlock};
 
@@ -28,6 +30,8 @@ pub(crate) struct SettlingBlockObservations {
     /// block order. Invalid observations remain candidates through positional
     /// binding and fail during inbound authorization rather than disappearing.
     inbound_candidates: Vec<InboundCandidate>,
+    /// Every system-to-EEZL2 source-table load at its exact block position.
+    outbound_load_candidates: Vec<OutboundLoadCandidate>,
     /// EEZL2-emitter/signature-matched outbound-event candidates from validated
     /// receipts, in transaction and receipt-log order. Malformed candidates
     /// retain their position without decoded event fields.
@@ -43,6 +47,11 @@ impl SettlingBlockObservations {
     /// Selector-matched inbound candidates retained in transaction order.
     pub(crate) fn inbound_candidates(&self) -> &[InboundCandidate] {
         &self.inbound_candidates
+    }
+
+    /// Source-table load candidates retained in transaction order.
+    pub(crate) fn outbound_load_candidates(&self) -> &[OutboundLoadCandidate] {
+        &self.outbound_load_candidates
     }
 
     /// Outbound event candidates retained in transaction and log order.
@@ -66,6 +75,7 @@ impl SettlingBlockObservations {
         Self {
             system_sender_flags,
             inbound_candidates,
+            outbound_load_candidates: Vec::new(),
             outbound_event_candidates,
         }
     }
@@ -74,6 +84,14 @@ impl SettlingBlockObservations {
     #[cfg(test)]
     pub(crate) fn inbound_candidates_mut_for_test(&mut self) -> &mut Vec<InboundCandidate> {
         &mut self.inbound_candidates
+    }
+
+    /// Mutate source-table loads only in focused settlement tests.
+    #[cfg(test)]
+    pub(crate) fn outbound_load_candidates_mut_for_test(
+        &mut self,
+    ) -> &mut Vec<OutboundLoadCandidate> {
+        &mut self.outbound_load_candidates
     }
 
     /// Mutate outbound candidates only in focused rejection-path tests.
@@ -175,6 +193,7 @@ fn inspect_decoded_settling_block(
     }
 
     let mut inbound_candidates = Vec::new();
+    let mut outbound_load_candidates = Vec::new();
     for (transaction_index, ((transaction, &is_system_sender), &succeeded)) in transactions
         .iter()
         .zip(settlement_evidence.system_sender_flags())
@@ -204,6 +223,20 @@ fn inspect_decoded_settling_block(
                 ),
             });
         }
+        if is_system_sender
+            && transaction
+                .input()
+                .starts_with(LOAD_EXECUTION_TABLE_SELECTOR.as_slice())
+        {
+            outbound_load_candidates.push(OutboundLoadCandidate {
+                transaction_index,
+                inspection: inspect_outbound_load_candidate(
+                    transaction.value(),
+                    transaction.input(),
+                    succeeded,
+                ),
+            });
+        }
         if is_system_sender && !succeeded {
             return Err(BlockInspectionError::RevertedSystemTransaction {
                 index: transaction_index,
@@ -216,6 +249,7 @@ fn inspect_decoded_settling_block(
     Ok(SettlingBlockObservations {
         system_sender_flags: settlement_evidence.system_sender_flags().to_vec(),
         inbound_candidates,
+        outbound_load_candidates,
         outbound_event_candidates: settlement_evidence.observed_outbound_events().to_vec(),
     })
 }

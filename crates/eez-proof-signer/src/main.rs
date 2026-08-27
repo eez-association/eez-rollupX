@@ -5,8 +5,8 @@
 //! re-executes every block, validates the posted batch against the derived
 //! execution facts, and signs the fully authorized, locally recomputed
 //! public-input hash. Settlement entries consist of one anchor, then zero or
-//! more success-expected single-call outbound effects, then zero or more fully
-//! reconstructed successful inbound effects.
+//! more successful mutable outbound call trees, then zero or more fully
+//! reconstructed successful mutable inbound call trees.
 //!
 //! This binary is wiring only: configuration, tracing, and serving
 //! [`service::ProveSvc`]. The window discipline lives in [`window`], the
@@ -67,7 +67,7 @@ async fn main() -> eyre::Result<()> {
         proof_system_vkey = %config.attester.proof_system_vkey(),
         l2_chain_id = validator.chain_id(),
         expected_l2_system_address = %expected_l2_system_address,
-        profile = "anchor_single_call_outbound_then_inbound",
+        profile = "anchor_mutable_nested_outbound_then_inbound",
         "serving Prove — waiting for composer windows",
     );
     let svc = service::ProveSvc::new(

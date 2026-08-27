@@ -86,6 +86,7 @@ mod tests {
 
     fn rec(target: RollupId, caller: RollupId) -> ExecutedAction {
         ExecutedAction {
+            parent_index: None,
             call_mode: crate::CallMode::Mutable,
             target_address: Address::ZERO,
             target_rollup_id: target,

@@ -1,27 +1,240 @@
 use super::*;
 
+fn nested_position_key(call_hash: B256, rolling_hash: B256) -> B256 {
+    let mut input = [0u8; 64];
+    input[..32].copy_from_slice(call_hash.as_slice());
+    input[32..].copy_from_slice(rolling_hash.as_slice());
+    alloy_primitives::keccak256(input)
+}
+
+fn nested_outbound_fixture() -> (
+    CanonicalPostBatch,
+    ExecutionEntrySol,
+    ExecutionEntrySol,
+    Vec<B256>,
+) {
+    let make_call = |index: u8, source_rollup_id: u64| L2ToL1CallSol {
+        revertNextNCalls: 0,
+        isStatic: false,
+        gas: 0,
+        sourceAddress: Address::with_last_byte(0x10 + index),
+        sourceRollupId: source_rollup_id,
+        targetAddress: Address::with_last_byte(0x20 + index),
+        value: U256::ZERO,
+        data: Bytes::from(vec![0x30 + index]),
+    };
+    let calls = [
+        make_call(0, 1),
+        make_call(1, 0),
+        make_call(2, 1),
+        make_call(3, 0),
+    ];
+    let returns = [
+        Bytes::from_static(&[0x40]),
+        Bytes::from_static(&[0x41]),
+        Bytes::from_static(&[0x42]),
+        Bytes::from_static(&[0x43]),
+    ];
+    let common_hash = |call: &L2ToL1CallSol, target: RollupId| {
+        common_cross_chain_call_hash(CallHashInput {
+            call_mode: CallMode::Mutable,
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(call.sourceRollupId),
+            target_address: call.targetAddress,
+            target_rollup_id: target,
+            value: call.value,
+            data: &call.data,
+        })
+    };
+    let l2_hash = |call: &L2ToL1CallSol| {
+        l2_outbound_call_hash(
+            CallHashInput {
+                call_mode: CallMode::Mutable,
+                source_address: call.sourceAddress,
+                source_rollup_id: RollupId(1),
+                target_address: call.targetAddress,
+                target_rollup_id: RollupId::MAINNET,
+                value: call.value,
+                data: &call.data,
+            },
+            0,
+        )
+    };
+    let l2_outbound_hashes = vec![l2_hash(&calls[0]), l2_hash(&calls[2])];
+
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let update = batch.entries[1].stateUpdates.clone();
+    let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+    l1_rolling.call_begin(common_hash(&calls[0], RollupId::MAINNET));
+    let row0_key = nested_position_key(common_hash(&calls[1], RollupId(1)), l1_rolling.current());
+    l1_rolling.nested_begin(common_hash(&calls[1], RollupId(1)));
+    l1_rolling.call_begin(common_hash(&calls[2], RollupId::MAINNET));
+    let row1_key = nested_position_key(common_hash(&calls[3], RollupId(1)), l1_rolling.current());
+    l1_rolling.nested_begin(common_hash(&calls[3], RollupId(1)));
+    l1_rolling.nested_end();
+    l1_rolling.call_end(true, &returns[2]);
+    l1_rolling.nested_end();
+    l1_rolling.call_end(true, &returns[0]);
+    batch.entries[1] = ExecutionEntrySol {
+        stateUpdates: update,
+        proxyEntryHash: B256::ZERO,
+        l2ToL1Calls: vec![calls[0].clone()],
+        expectedL1ToL2Calls: vec![
+            ExpectedL1ToL2CallSol {
+                expectedL1toL2Hash: row0_key,
+                l2ToL1Calls: vec![calls[2].clone()],
+                revertedOrStaticRollingHash: B256::ZERO,
+                success: true,
+                returnData: returns[1].clone(),
+            },
+            ExpectedL1ToL2CallSol {
+                expectedL1toL2Hash: row1_key,
+                l2ToL1Calls: Vec::new(),
+                revertedOrStaticRollingHash: B256::ZERO,
+                success: true,
+                returnData: returns[3].clone(),
+            },
+        ],
+        rollingHash: l1_rolling.current(),
+        destinationRollupId: 1,
+        success: true,
+        returnData: Bytes::new(),
+    };
+
+    let callback_hash = common_hash(&calls[1], RollupId(1));
+    let mut l2_rolling = EntryRollingHash::seed_for_l2(callback_hash);
+    l2_rolling.call_begin(common_hash(&calls[1], RollupId(1)));
+    let l2_row_key = nested_position_key(l2_outbound_hashes[1], l2_rolling.current());
+    l2_rolling.nested_begin(l2_outbound_hashes[1]);
+    l2_rolling.call_begin(common_hash(&calls[3], RollupId(1)));
+    l2_rolling.call_end(true, &returns[3]);
+    l2_rolling.nested_end();
+    l2_rolling.call_end(true, &returns[1]);
+    let source_entry = ExecutionEntrySol {
+        proxyEntryHash: l2_outbound_hashes[0],
+        rollingHash: EntryRollingHash::seed_for_l2(l2_outbound_hashes[0]).current(),
+        destinationRollupId: RollupId::MAINNET.0,
+        success: true,
+        returnData: returns[0].clone(),
+        ..Default::default()
+    };
+    let callback_entry = ExecutionEntrySol {
+        proxyEntryHash: callback_hash,
+        l2ToL1Calls: vec![calls[1].clone()],
+        expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: l2_row_key,
+            l2ToL1Calls: vec![calls[3].clone()],
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: returns[2].clone(),
+        }],
+        rollingHash: l2_rolling.current(),
+        destinationRollupId: 1,
+        success: true,
+        returnData: returns[1].clone(),
+        ..Default::default()
+    };
+    (batch, source_entry, callback_entry, l2_outbound_hashes)
+}
+
+#[test]
+fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering() {
+    let (batch, source_entry, callback_entry, event_hashes) = nested_outbound_fixture();
+    let make_settling = |source_entry: ExecutionEntrySol, callback_entry: ExecutionEntrySol| {
+        let callback_call = &callback_entry.l2ToL1Calls[0];
+        let callback_calldata = encode_execute_incoming(
+            callback_call.targetAddress,
+            callback_call.value,
+            callback_call.data.clone(),
+            callback_call.sourceAddress,
+            RollupId::MAINNET,
+            eez_protocol::system_tx::lower_entry_to_l2(&callback_entry),
+        );
+        let mut settling = SettlingBlockObservations::for_test(
+            vec![true, false, true],
+            vec![InboundCandidate {
+                transaction_index: 2,
+                inspection: inspect_inbound_candidate(
+                    callback_call.value,
+                    &callback_calldata,
+                    true,
+                    expected_rollup_id(),
+                ),
+            }],
+            event_hashes
+                .iter()
+                .enumerate()
+                .map(|(log_index, hash)| {
+                    OutboundEventObservation::decoded_for_test(
+                        if log_index == 0 { 1 } else { 2 },
+                        0,
+                        *hash,
+                        0,
+                    )
+                })
+                .collect(),
+        );
+        settling
+            .outbound_load_candidates_mut_for_test()
+            .push(OutboundLoadCandidate::decoded_for_test(0, source_entry));
+        settling
+    };
+
+    let settling = make_settling(source_entry.clone(), callback_entry.clone());
+    let plan = effect_plan(&batch, &settling);
+    let authorized = authorize_outbound_effects(&plan).expect("authorize nested pair");
+    assert_eq!(authorized.len(), 1);
+    assert_eq!(
+        authorized
+            .iter()
+            .next()
+            .unwrap()
+            .derived_da_entry()
+            .expectedL1ToL2Calls
+            .len(),
+        0
+    );
+    assert_eq!(
+        authorized
+            .iter()
+            .next()
+            .unwrap()
+            .derived_callback_entries()
+            .len(),
+        1
+    );
+
+    let mut tampered_callback = callback_entry;
+    tampered_callback.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(0xee);
+    let settling = make_settling(source_entry, tampered_callback);
+    let plan = effect_plan(&batch, &settling);
+    assert!(matches!(
+        authorize_outbound_effects(&plan),
+        Err(OutboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
+    ));
+}
+
 fn refresh_outbound_rolling_hash(entry: &mut ExecutionEntrySol) {
     let [update] = entry.stateUpdates.as_slice() else {
         panic!("outbound fixture must contain one state update");
     };
-    let [call] = entry.l2ToL1Calls.as_slice() else {
-        panic!("outbound fixture must contain one call");
-    };
-    let call_hash = eez_protocol::common_cross_chain_call_hash(CallHashInput {
-        call_mode: eez_protocol::CallMode::Mutable,
-        source_address: call.sourceAddress,
-        source_rollup_id: RollupId(call.sourceRollupId),
-        target_address: call.targetAddress,
-        target_rollup_id: RollupId::MAINNET,
-        value: call.value,
-        data: &call.data,
-    });
     let mut rolling_hash = eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
         [(update.rollupId, update.currentState)],
         entry.proxyEntryHash,
     );
-    rolling_hash.call_begin(call_hash);
-    rolling_hash.call_end(entry.success, &entry.returnData);
+    for call in &entry.l2ToL1Calls {
+        let call_hash = eez_protocol::common_cross_chain_call_hash(CallHashInput {
+            call_mode: eez_protocol::CallMode::Mutable,
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(call.sourceRollupId),
+            target_address: call.targetAddress,
+            target_rollup_id: RollupId::MAINNET,
+            value: call.value,
+            data: &call.data,
+        });
+        rolling_hash.call_begin(call_hash);
+        rolling_hash.call_end(entry.success, &entry.returnData);
+    }
     entry.rollingHash = rolling_hash.current();
 }
 
@@ -65,7 +278,7 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
     batch.entries[2].l2ToL1Calls[0].data = Bytes::from_static(&[0x02]);
     refresh_outbound_rolling_hash(&mut batch.entries[1]);
     refresh_outbound_rolling_hash(&mut batch.entries[2]);
-    let mut settling = settling_with_outbound_pairs(2);
+    let mut settling = settling_with_outbound_pairs(&batch);
     *settling.outbound_event_candidates_mut_for_test() = vec![
         observed_outbound_call(1, 0, &batch.entries[1].l2ToL1Calls[0]),
         observed_outbound_call(3, 0, &batch.entries[2].l2ToL1Calls[0]),
@@ -74,7 +287,11 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
     let authorized = authorize_outbound_effects(&plan).unwrap();
     for binding in authorized.iter() {
         assert!(binding.derived_da_entry().stateUpdates.is_empty());
-        assert_eq!(binding.derived_da_entry().rollingHash, B256::ZERO);
+        assert_ne!(binding.derived_da_entry().proxyEntryHash, B256::ZERO);
+        assert_eq!(
+            binding.derived_da_entry().rollingHash,
+            EntryRollingHash::seed_for_l2(binding.derived_da_entry().proxyEntryHash).current()
+        );
     }
 
     let duplicate_batch = effect_batch(
@@ -82,7 +299,7 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
         &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Outbound],
     );
     let call = &duplicate_batch.entries[1].l2ToL1Calls[0];
-    let mut duplicates = settling_with_outbound_pairs(2);
+    let mut duplicates = settling_with_outbound_pairs(&duplicate_batch);
     *duplicates.outbound_event_candidates_mut_for_test() = vec![
         observed_outbound_call(1, 0, call),
         observed_outbound_call(3, 0, call),
@@ -90,7 +307,7 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
     let duplicate_plan = effect_plan(&duplicate_batch, &duplicates);
     assert!(authorize_outbound_effects(&duplicate_plan).is_ok());
 
-    let mut reordered = settling_with_outbound_pairs(2);
+    let mut reordered = settling_with_outbound_pairs(&batch);
     *reordered.outbound_event_candidates_mut_for_test() = vec![
         observed_outbound_call(1, 0, &batch.entries[2].l2ToL1Calls[0]),
         observed_outbound_call(3, 0, &batch.entries[1].l2ToL1Calls[0]),
@@ -98,12 +315,96 @@ fn outbound_events_bind_by_transaction_and_preserve_duplicate_hashes() {
     let reordered_plan = effect_plan(&batch, &reordered);
     assert!(matches!(
         authorize_outbound_effects(&reordered_plan),
-        Err(OutboundEffectError::CallHashMismatch {
+        Err(OutboundEffectError::NestedCallHashMismatch {
             entry_index: 1,
             transaction_index: 1,
             ..
         })
     ));
+}
+
+#[test]
+fn two_outbound_roots_bind_to_one_load_and_one_user_transaction() {
+    let mut batch = effect_batch(
+        &[B256::ZERO; 4],
+        &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Outbound],
+    );
+    batch.entries[1].l2ToL1Calls[0].data = Bytes::from_static(&[0x11]);
+    batch.entries[2].l2ToL1Calls[0].data = Bytes::from_static(&[0x22]);
+    refresh_outbound_rolling_hash(&mut batch.entries[1]);
+    refresh_outbound_rolling_hash(&mut batch.entries[2]);
+
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling.outbound_load_candidates_mut_for_test().push(
+        OutboundLoadCandidate::decoded_many_for_test(
+            0,
+            vec![
+                flat_outbound_sidecar(&batch.entries[1]),
+                flat_outbound_sidecar(&batch.entries[2]),
+            ],
+        ),
+    );
+    *settling.outbound_event_candidates_mut_for_test() = vec![
+        observed_outbound_call(1, 0, &batch.entries[1].l2ToL1Calls[0]),
+        observed_outbound_call(1, 1, &batch.entries[2].l2ToL1Calls[0]),
+    ];
+
+    let plan = effect_plan(&batch, &settling);
+    let authorized = authorize_outbound_effects(&plan).unwrap();
+    assert_eq!(authorized.len(), 2);
+    assert_eq!(authorized.groups().map(<[_]>::len).collect::<Vec<_>>(), [2]);
+    assert!(
+        authorized
+            .iter()
+            .all(|binding| binding.load_transaction_index() == 0)
+    );
+    assert!(
+        authorized
+            .iter()
+            .all(|binding| binding.transaction_index() == 1)
+    );
+}
+
+#[test]
+fn one_settlement_host_authorizes_two_flat_source_roots() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let mut second = batch.entries[1].l2ToL1Calls[0].clone();
+    second.data = Bytes::from_static(&[0x22]);
+    batch.entries[1].l2ToL1Calls[0].data = Bytes::from_static(&[0x11]);
+    batch.entries[1].l2ToL1Calls.push(second);
+    let total_value = batch.entries[1]
+        .l2ToL1Calls
+        .iter()
+        .fold(U256::ZERO, |total, call| total + call.value);
+    batch.entries[1].stateUpdates[0].etherDelta = -I256::try_from(total_value).unwrap();
+    refresh_outbound_rolling_hash(&mut batch.entries[1]);
+
+    let sources = batch.entries[1]
+        .l2ToL1Calls
+        .iter()
+        .map(|call| {
+            flat_outbound_sidecar_for_call(
+                call,
+                batch.entries[1].success,
+                batch.entries[1].returnData.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_many_for_test(0, sources));
+    *settling.outbound_event_candidates_mut_for_test() = batch.entries[1]
+        .l2ToL1Calls
+        .iter()
+        .enumerate()
+        .map(|(log_index, call)| observed_outbound_call(1, log_index, call))
+        .collect();
+
+    let plan = effect_plan(&batch, &settling);
+    let authorized = authorize_outbound_effects(&plan).expect("authorize grouped flat host");
+    assert_eq!(authorized.len(), 2);
+    assert_eq!(authorized.groups().map(<[_]>::len).collect::<Vec<_>>(), [2]);
 }
 
 #[test]
@@ -153,7 +454,7 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
     let outbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let call = &outbound_batch.entries[1].l2ToL1Calls[0];
 
-    let missing = settling_with_outbound_pairs(1);
+    let missing = settling_with_outbound_pairs(&outbound_batch);
     let missing_plan = effect_plan(&outbound_batch, &missing);
     assert_eq!(
         authorize_outbound_effects(&missing_plan).err(),
@@ -163,7 +464,7 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
         })
     );
 
-    let mut malformed = settling_with_outbound_pairs(1);
+    let mut malformed = settling_with_outbound_pairs(&outbound_batch);
     malformed
         .outbound_event_candidates_mut_for_test()
         .push(OutboundEventObservation::malformed_for_test(1, 3));
@@ -178,7 +479,7 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
 
     let observation = observed_outbound_call(1, 0, call);
     let decoded_event = observation.decoded_event().unwrap();
-    let mut multiple = settling_with_outbound_pairs(1);
+    let mut multiple = settling_with_outbound_pairs(&outbound_batch);
     *multiple.outbound_event_candidates_mut_for_test() = vec![
         observation,
         OutboundEventObservation::decoded_for_test(
@@ -191,13 +492,15 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
     let multiple_plan = effect_plan(&outbound_batch, &multiple);
     assert_eq!(
         authorize_outbound_effects(&multiple_plan).err(),
-        Some(OutboundEffectError::UnexpectedObservation {
+        Some(OutboundEffectError::ObservationCountMismatch {
+            entry_index: 1,
             transaction_index: 1,
-            receipt_log_index: 1,
+            expected: 1,
+            actual: 2,
         })
     );
 
-    let mut extra = settling_with_outbound_pairs(1);
+    let mut extra = settling_with_outbound_pairs(&outbound_batch);
     *extra.outbound_event_candidates_mut_for_test() = vec![
         observation,
         OutboundEventObservation::decoded_for_test(
@@ -236,15 +539,24 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
     let mut inbound = settling_with_system_flags(vec![true]);
     inbound
         .outbound_event_candidates_mut_for_test()
-        .push(observation);
+        .push(observed_outbound_call(0, 0, call));
     let inbound_plan = effect_plan(&inbound_batch, &inbound);
-    assert_eq!(
-        authorize_outbound_effects(&inbound_plan).err(),
-        Some(OutboundEffectError::UnexpectedObservation {
-            transaction_index: 1,
-            receipt_log_index: 0,
-        })
+    assert!(
+        authorize_outbound_effects(&inbound_plan).is_ok(),
+        "events emitted by inbound nested calls belong to the inbound authorizer"
     );
+}
+
+#[test]
+fn fully_reverted_outbound_root_is_authorized_without_an_impossible_event() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    batch.entries[1].l2ToL1Calls[0].revertNextNCalls = 1;
+    let settling = settling_with_outbound_pairs(&batch);
+    let plan = effect_plan(&batch, &settling);
+
+    let authorized = authorize_outbound_effects(&plan)
+        .expect("the rollback marker authorizes a call whose receipt event reverted");
+    assert_eq!(authorized.len(), 1);
 }
 
 #[test]
@@ -252,7 +564,7 @@ fn outbound_events_reject_nonzero_manager_entry_gas() {
     let batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let call = &batch.entries[1].l2ToL1Calls[0];
     let call_gas = 1;
-    let mut settling = settling_with_outbound_pairs(1);
+    let mut settling = settling_with_outbound_pairs(&batch);
     settling
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call_with_gas(1, 2, call, call_gas));
@@ -273,7 +585,7 @@ fn outbound_events_bind_the_single_call_and_expected_rollup() {
     let observation = observed_outbound_call(1, 0, &valid.entries[1].l2ToL1Calls[0]);
 
     let verify = |batch: &CanonicalPostBatch| {
-        let mut settling = settling_with_outbound_pairs(1);
+        let mut settling = settling_with_outbound_pairs(batch);
         settling
             .outbound_event_candidates_mut_for_test()
             .push(observation);
@@ -314,11 +626,7 @@ fn outbound_events_bind_the_single_call_and_expected_rollup() {
         mutate(&mut wrong_call.entries[1].l2ToL1Calls[0]);
         assert!(matches!(
             verify(&wrong_call),
-            Some(OutboundEffectError::CallHashMismatch {
-                entry_index: 1,
-                transaction_index: 1,
-                ..
-            })
+            Some(OutboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
         ));
     }
 }
@@ -326,15 +634,10 @@ fn outbound_events_bind_the_single_call_and_expected_rollup() {
 #[test]
 fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
     let valid = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
-    let settling = settling_with_outbound_pairs(1);
+    let settling = settling_with_outbound_pairs(&valid);
     let checkpoints = [checkpoint(1, B256::ZERO)];
-    let shape_mutations: [fn(&mut ExecutionEntrySol); 6] = [
+    let shape_mutations: [fn(&mut ExecutionEntrySol); 3] = [
         |entry| entry.success = false,
-        (|entry| {
-            entry.expectedL1ToL2Calls.push(expected_call());
-        }),
-        |entry| entry.l2ToL1Calls.push(l2_to_l1_call()),
-        |entry| entry.l2ToL1Calls[0].revertNextNCalls = 1,
         |entry| entry.l2ToL1Calls[0].isStatic = true,
         |entry| entry.l2ToL1Calls[0].gas = 1,
     ];
@@ -346,13 +649,26 @@ fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
             Some(EffectPrefixError::InvalidEntry { entry_index: 1 })
         );
     }
+
+    let mut reverted = valid.clone();
+    reverted.entries[1].l2ToL1Calls[0].revertNextNCalls = 1;
+    assert!(verify_effect_prefix(&reverted, B256::ZERO, &checkpoints, &settling).is_ok());
+
+    for enrich in [
+        |entry: &mut ExecutionEntrySol| entry.expectedL1ToL2Calls.push(expected_call()),
+        |entry: &mut ExecutionEntrySol| entry.l2ToL1Calls.push(l2_to_l1_call()),
+    ] {
+        let mut batch = valid.clone();
+        enrich(&mut batch.entries[1]);
+        assert!(verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).is_ok());
+    }
 }
 
 #[test]
 fn outbound_authorizer_rejects_wrong_l1_rolling_hash() {
     let valid = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let verify = |batch: &CanonicalPostBatch| {
-        let mut settling = settling_with_outbound_pairs(1);
+        let mut settling = settling_with_outbound_pairs(batch);
         settling
             .outbound_event_candidates_mut_for_test()
             .push(observed_outbound_call(
@@ -368,7 +684,7 @@ fn outbound_authorizer_rejects_wrong_l1_rolling_hash() {
     wrong_rolling_hash.entries[1].rollingHash = B256::repeat_byte(2);
     assert!(matches!(
         verify(&wrong_rolling_hash),
-        Some(OutboundEffectError::RollingHashMismatch { entry_index: 1, .. })
+        Some(OutboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
     ));
 }
 
@@ -376,7 +692,7 @@ fn outbound_authorizer_rejects_wrong_l1_rolling_hash() {
 fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
     let valid = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let verify = |batch: &CanonicalPostBatch| {
-        let mut settling = settling_with_outbound_pairs(1);
+        let mut settling = settling_with_outbound_pairs(batch);
         settling
             .outbound_event_candidates_mut_for_test()
             .push(observed_outbound_call(
@@ -388,16 +704,12 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
         authorize_outbound_effects(&plan).err()
     };
 
-    let mut nonempty_return_data = valid.clone();
-    nonempty_return_data.entries[1].returnData = Bytes::from_static(&[0xca, 0xfe]);
-    refresh_outbound_rolling_hash(&mut nonempty_return_data.entries[1]);
-    assert_eq!(verify(&nonempty_return_data), None);
-
-    let mut wrong_return_data = valid.clone();
-    wrong_return_data.entries[1].returnData = Bytes::from_static(&[0xca, 0xfe]);
+    let mut noncanonical_host_return_data = valid.clone();
+    noncanonical_host_return_data.entries[1].returnData = Bytes::from_static(&[0xca, 0xfe]);
+    refresh_outbound_rolling_hash(&mut noncanonical_host_return_data.entries[1]);
     assert!(matches!(
-        verify(&wrong_return_data),
-        Some(OutboundEffectError::RollingHashMismatch { entry_index: 1, .. })
+        verify(&noncanonical_host_return_data),
+        Some(OutboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
     ));
 
     let mut wrong_delta = valid.clone();
@@ -450,7 +762,7 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
         Some(OutboundEffectError::ReservedSourceAddress { entry_index: 1 })
     );
 
-    let mut settling = settling_with_outbound_pairs(1);
+    let mut settling = settling_with_outbound_pairs(&reserved_source);
     settling
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call(

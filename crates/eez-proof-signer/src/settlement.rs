@@ -34,13 +34,15 @@ pub(crate) use blocks::{
 };
 pub(crate) use da::{DaPayloadError, verify_da_payload};
 #[cfg(test)]
-pub(crate) use da::{encode_da_payload, verify_da_payload_for_test};
+pub(crate) use da::{encode_da_payload, encode_grouped_da_payload, verify_da_payload_for_test};
 #[cfg(test)]
 pub(crate) use effect_binding::{BoundEffectSequence, ClaimedEntryShape, ObservedEffectKind};
 pub(crate) use effect_binding::{EffectPrefixError, bind_effects_to_execution};
 pub(crate) use inbound::{AuthorizedInboundEffects, InboundEffectError, authorize_inbound_effects};
 #[cfg(test)]
 pub(crate) use inbound::{InboundCandidate, InboundObservationError};
+#[cfg(test)]
+pub(crate) use outbound::OutboundLoadCandidate;
 pub(crate) use outbound::{
     AuthorizedOutboundEffects, OutboundEffectError, authorize_outbound_effects,
 };

@@ -219,7 +219,8 @@ impl SettlementPipelineError {
                 | settlement::EffectPrefixError::AnchorRootMismatch { .. }
                 | settlement::EffectPrefixError::EffectKindMismatch { .. }
                 | settlement::EffectPrefixError::EffectStateRootMismatch { .. }
-                | settlement::EffectPrefixError::NonZeroAnchorEtherDelta { .. } => (
+                | settlement::EffectPrefixError::NonZeroAnchorEtherDelta { .. }
+                | settlement::EffectPrefixError::InvalidEffectTransactionLayout { .. } => (
                     tonic::Code::FailedPrecondition,
                     "settlement validation rejected",
                 ),
@@ -248,6 +249,7 @@ impl SettlementPipelineError {
                 | settlement::DaPayloadError::TransactionMismatch { .. }
                 | settlement::DaPayloadError::MissingL2Entry { .. }
                 | settlement::DaPayloadError::L2EntryMismatch { .. }
+                | settlement::DaPayloadError::OutboundGroupSizes
                 | settlement::DaPayloadError::SyncBlockTransactionCount { .. }
                 | settlement::DaPayloadError::SyncBlockTransactionMismatch { .. } => (
                     tonic::Code::FailedPrecondition,
@@ -309,8 +311,11 @@ pub(super) fn run_settlement(
 
     // Direction-specific gates turn the ordered bindings into the only effect
     // capabilities accepted by exact DA reconstruction.
-    let authorized_inbound_effects =
-        settlement::authorize_inbound_effects(&bound_effects, expected_rollup_id)?;
+    let authorized_inbound_effects = settlement::authorize_inbound_effects(
+        &bound_effects,
+        expected_rollup_id,
+        expected_l2_system_address,
+    )?;
     let authorized_outbound_effects = settlement::authorize_outbound_effects(
         &bound_effects,
         expected_rollup_id,

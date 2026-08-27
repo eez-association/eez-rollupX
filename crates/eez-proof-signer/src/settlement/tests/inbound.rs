@@ -1,5 +1,185 @@
 use super::*;
 
+fn nested_position_key(call_hash: B256, rolling_hash: B256) -> B256 {
+    let mut input = [0u8; 64];
+    input[..32].copy_from_slice(call_hash.as_slice());
+    input[32..].copy_from_slice(rolling_hash.as_slice());
+    alloy_primitives::keccak256(input)
+}
+
+fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
+    let make_call = |index: u8, source_rollup_id: u64| L2ToL1CallSol {
+        revertNextNCalls: 0,
+        isStatic: false,
+        gas: 0,
+        sourceAddress: Address::with_last_byte(0x10 + index),
+        sourceRollupId: source_rollup_id,
+        targetAddress: Address::with_last_byte(0x20 + index),
+        value: U256::ZERO,
+        data: Bytes::from(vec![0x30 + index]),
+    };
+    let calls = [
+        make_call(0, 0),
+        make_call(1, 1),
+        make_call(2, 0),
+        make_call(3, 1),
+    ];
+    let returns = [
+        Bytes::from_static(&[0x40]),
+        Bytes::from_static(&[0x41]),
+        Bytes::from_static(&[0x42]),
+        Bytes::from_static(&[0x43]),
+    ];
+    let common_hash = |call: &L2ToL1CallSol, target: RollupId| {
+        common_cross_chain_call_hash(CallHashInput {
+            call_mode: CallMode::Mutable,
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(call.sourceRollupId),
+            target_address: call.targetAddress,
+            target_rollup_id: target,
+            value: call.value,
+            data: &call.data,
+        })
+    };
+    let l2_hash = |call: &L2ToL1CallSol| {
+        l2_outbound_call_hash(
+            CallHashInput {
+                call_mode: CallMode::Mutable,
+                source_address: call.sourceAddress,
+                source_rollup_id: RollupId(1),
+                target_address: call.targetAddress,
+                target_rollup_id: RollupId::MAINNET,
+                value: call.value,
+                data: &call.data,
+            },
+            0,
+        )
+    };
+    let root_hash = common_hash(&calls[0], RollupId(1));
+
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    let update = batch.entries[1].stateUpdates.clone();
+    let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], root_hash);
+    l1_rolling.call_begin(common_hash(&calls[1], RollupId::MAINNET));
+    let l1_row_key = nested_position_key(common_hash(&calls[2], RollupId(1)), l1_rolling.current());
+    l1_rolling.nested_begin(common_hash(&calls[2], RollupId(1)));
+    l1_rolling.call_begin(common_hash(&calls[3], RollupId::MAINNET));
+    l1_rolling.call_end(true, &returns[3]);
+    l1_rolling.nested_end();
+    l1_rolling.call_end(true, &returns[1]);
+    batch.entries[1] = ExecutionEntrySol {
+        stateUpdates: update,
+        proxyEntryHash: root_hash,
+        l2ToL1Calls: vec![calls[1].clone()],
+        expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: l1_row_key,
+            l2ToL1Calls: vec![calls[3].clone()],
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: returns[2].clone(),
+        }],
+        rollingHash: l1_rolling.current(),
+        destinationRollupId: 1,
+        success: true,
+        returnData: returns[0].clone(),
+    };
+
+    let mut l2_rolling = EntryRollingHash::seed_for_l2(root_hash);
+    l2_rolling.call_begin(root_hash);
+    let row0_key = nested_position_key(l2_hash(&calls[1]), l2_rolling.current());
+    l2_rolling.nested_begin(l2_hash(&calls[1]));
+    l2_rolling.call_begin(common_hash(&calls[2], RollupId(1)));
+    let row1_key = nested_position_key(l2_hash(&calls[3]), l2_rolling.current());
+    l2_rolling.nested_begin(l2_hash(&calls[3]));
+    l2_rolling.nested_end();
+    l2_rolling.call_end(true, &returns[2]);
+    l2_rolling.nested_end();
+    l2_rolling.call_end(true, &returns[0]);
+    let target_entry = ExecutionEntrySol {
+        proxyEntryHash: root_hash,
+        l2ToL1Calls: vec![calls[0].clone()],
+        expectedL1ToL2Calls: vec![
+            ExpectedL1ToL2CallSol {
+                expectedL1toL2Hash: row0_key,
+                l2ToL1Calls: vec![calls[2].clone()],
+                revertedOrStaticRollingHash: B256::ZERO,
+                success: true,
+                returnData: returns[1].clone(),
+            },
+            ExpectedL1ToL2CallSol {
+                expectedL1toL2Hash: row1_key,
+                l2ToL1Calls: Vec::new(),
+                revertedOrStaticRollingHash: B256::ZERO,
+                success: true,
+                returnData: returns[3].clone(),
+            },
+        ],
+        rollingHash: l2_rolling.current(),
+        destinationRollupId: 1,
+        success: true,
+        returnData: returns[0].clone(),
+        ..Default::default()
+    };
+    let calldata = encode_execute_incoming(
+        calls[0].targetAddress,
+        calls[0].value,
+        calls[0].data.clone(),
+        calls[0].sourceAddress,
+        RollupId::MAINNET,
+        eez_protocol::system_tx::lower_entry_to_l2(&target_entry),
+    );
+    (batch, calldata)
+}
+
+#[test]
+fn inbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering() {
+    let (batch, calldata) = nested_inbound_fixture();
+    let observation = inspect_inbound_candidate(U256::ZERO, &calldata, true, expected_rollup_id());
+    let settling = SettlingBlockObservations::for_test(
+        vec![true],
+        vec![InboundCandidate {
+            transaction_index: 0,
+            inspection: observation,
+        }],
+        vec![
+            observed_outbound_call(0, 0, &batch.entries[1].l2ToL1Calls[0]),
+            observed_outbound_call(
+                0,
+                1,
+                &batch.entries[1].expectedL1ToL2Calls[0].l2ToL1Calls[0],
+            ),
+        ],
+    );
+    let plan = effect_plan(&batch, &settling);
+    assert_eq!(
+        verify_inbound_effect_entries(&plan)
+            .expect("authorize nested inbound pair")
+            .len(),
+        1
+    );
+
+    let mut tampered = batch.clone();
+    tampered.entries[1].expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(0xee);
+    let plan = effect_plan(&tampered, &settling);
+    assert!(matches!(
+        verify_inbound_effect_entries(&plan),
+        Err(InboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
+    ));
+
+    let mut wrong_event_settling = settling;
+    wrong_event_settling.outbound_event_candidates_mut_for_test()[1] =
+        observed_outbound_call(0, 1, &batch.entries[1].l2ToL1Calls[0]);
+    let plan = effect_plan(&batch, &wrong_event_settling);
+    assert!(matches!(
+        verify_inbound_effect_entries(&plan),
+        Err(InboundEffectError::NestedCallHashMismatch {
+            entry_index: 1,
+            event_index: 1,
+            ..
+        })
+    ));
+}
+
 #[test]
 fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
     use eez_protocol::abi::{
@@ -46,35 +226,13 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
         Some(InboundObservationError::StaticEntryCount { actual: 1 })
     );
 
-    let shape_mutations: [(fn(&mut executeIncomingCrossChainCallCall), &str); 6] = [
+    let shape_mutations: [(fn(&mut executeIncomingCrossChainCallCall), &str); 3] = [
         (|call| call._entries[0].success = false, "success"),
-        (
-            |call| {
-                call._entries[0]
-                    .expectedOutgoingCalls
-                    .push(ExpectedOutgoingCrossChainCallSol {
-                        expectedOutgoingHash: B256::ZERO,
-                        incomingCalls: Vec::new(),
-                        revertedOrStaticRollingHash: B256::ZERO,
-                        success: true,
-                        returnData: Bytes::new(),
-                    });
-            },
-            "expectedOutgoingCalls",
-        ),
-        (
-            |call| call._entries[0].incomingCalls[0].revertNextNCalls = 1,
-            "revertNextNCalls",
-        ),
         (
             |call| call._entries[0].incomingCalls[0].isStatic = true,
             "isStatic",
         ),
         (|call| call._entries[0].incomingCalls[0].gas = 1, "gas"),
-        (
-            |call| call._entries[0].rollingHash = B256::repeat_byte(0xaa),
-            "rollingHash",
-        ),
     ];
     for (mutate, field) in shape_mutations {
         let mut malformed = call.clone();
@@ -84,6 +242,39 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
             Some(InboundObservationError::InvalidEntryShape { field })
         );
     }
+
+    let mut reverted = call.clone();
+    reverted._entries[0].incomingCalls[0].revertNextNCalls = 1;
+    assert_eq!(inspect(&reverted), None);
+
+    // Nested rows and the final rolling hash require the complementary L1
+    // table for validation, so candidate inspection retains them for the
+    // pair authorizer instead of rejecting them at the calldata boundary.
+    let mut nested = call.clone();
+    nested._entries[0]
+        .expectedOutgoingCalls
+        .push(ExpectedOutgoingCrossChainCallSol {
+            expectedOutgoingHash: B256::ZERO,
+            incomingCalls: Vec::new(),
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: Bytes::new(),
+        });
+    assert!(
+        inspect_inbound_candidate(value, &nested.abi_encode(), true, expected_rollup_id()).is_ok()
+    );
+
+    let mut deferred_rolling_check = call.clone();
+    deferred_rolling_check._entries[0].rollingHash = B256::repeat_byte(0xaa);
+    assert!(
+        inspect_inbound_candidate(
+            value,
+            &deferred_rolling_check.abi_encode(),
+            true,
+            expected_rollup_id()
+        )
+        .is_ok()
+    );
 
     let mut wrong_source_rollup = call;
     wrong_source_rollup.sourceRollup = 2;
@@ -102,11 +293,7 @@ fn inbound_effect_prefix_rejects_unsupported_target_shapes() {
     );
     let valid = bindable_inbound_batch(&settling);
     let checkpoints = [checkpoint(0, B256::ZERO)];
-    let shape_mutations: [fn(&mut ExecutionEntrySol); 3] = [
-        |entry| entry.success = false,
-        |entry| entry.expectedL1ToL2Calls.push(expected_call()),
-        |entry| entry.l2ToL1Calls.push(l2_to_l1_call()),
-    ];
+    let shape_mutations: [fn(&mut ExecutionEntrySol); 1] = [|entry| entry.success = false];
 
     for mutate in shape_mutations {
         let mut batch = valid.clone();
@@ -115,6 +302,15 @@ fn inbound_effect_prefix_rejects_unsupported_target_shapes() {
             verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).err(),
             Some(EffectPrefixError::InvalidEntry { entry_index: 1 })
         );
+    }
+
+    for enrich in [
+        |entry: &mut ExecutionEntrySol| entry.expectedL1ToL2Calls.push(expected_call()),
+        |entry: &mut ExecutionEntrySol| entry.l2ToL1Calls.push(l2_to_l1_call()),
+    ] {
+        let mut batch = valid.clone();
+        enrich(&mut batch.entries[1]);
+        assert!(verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).is_ok());
     }
 }
 
@@ -143,22 +339,11 @@ fn inbound_effect_entries_bind_observations_positionally_and_preserve_duplicates
     }
 
     let first = observed_inbound_candidate(0, U256::from(3), true);
-    let mut second = observed_inbound_candidate(1, U256::from(3), true);
-    second.inspection.as_mut().unwrap().return_data = Bytes::from_static(&[0x03]);
+    let second = observed_inbound_candidate(1, U256::from(3), true);
     *settling.inbound_candidates_mut_for_test() = vec![first, second];
     let duplicates = bindable_inbound_batch(&settling);
     let duplicate_plan = effect_plan(&duplicates, &settling);
     assert!(verify_inbound_effect_entries(&duplicate_plan).is_ok());
-
-    let mut swapped_return_data = duplicates.clone();
-    let first_return = swapped_return_data.entries[1].returnData.clone();
-    swapped_return_data.entries[1].returnData = swapped_return_data.entries[2].returnData.clone();
-    swapped_return_data.entries[2].returnData = first_return;
-    let swapped_plan = effect_plan(&swapped_return_data, &settling);
-    assert_eq!(
-        verify_inbound_effect_entries(&swapped_plan).err(),
-        Some(InboundEffectError::ReturnDataMismatch { entry_index: 1 })
-    );
 }
 
 #[test]
@@ -276,13 +461,10 @@ fn inbound_effect_entries_require_the_canonical_deferred_shape() {
     let mut wrong_rolling_hash = valid.clone();
     wrong_rolling_hash.entries[1].rollingHash = B256::repeat_byte(0xaa);
     let plan = effect_plan(&wrong_rolling_hash, &settling);
-    assert_eq!(
-        verify_inbound_effect_entries(&plan).err(),
-        Some(InboundEffectError::InvalidEntryShape {
-            entry_index: 1,
-            field: "rollingHash",
-        })
-    );
+    assert!(matches!(
+        verify_inbound_effect_entries(&plan),
+        Err(InboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
+    ));
 
     let entry = &valid.entries[1];
     let update = &entry.stateUpdates[0];

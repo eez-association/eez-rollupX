@@ -225,7 +225,7 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
     );
 
     type Mutation = fn(&mut executeIncomingCrossChainCallCall);
-    let mutations: [(Mutation, InboundObservationError); 12] = [
+    let mutations: [(Mutation, InboundObservationError); 11] = [
         (
             |call| call._entries.clear(),
             InboundObservationError::EntryCount { actual: 0 },
@@ -256,16 +256,6 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
         (
             |call| call._entries[0].success = false,
             InboundObservationError::InvalidEntryShape { field: "success" },
-        ),
-        (
-            |call| {
-                call._entries[0]
-                    .expectedOutgoingCalls
-                    .push(l2_expected_outgoing_call());
-            },
-            InboundObservationError::InvalidEntryShape {
-                field: "expectedOutgoingCalls",
-            },
         ),
         (
             |call| call._entries[0].incomingCalls[0].targetAddress = Address::ZERO,
@@ -308,12 +298,6 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
     for (mutate, field) in [
         (
             (|call: &mut executeIncomingCrossChainCallCall| {
-                call._entries[0].incomingCalls[0].revertNextNCalls = 1;
-            }) as Mutation,
-            "revertNextNCalls",
-        ),
-        (
-            (|call: &mut executeIncomingCrossChainCallCall| {
                 call._entries[0].incomingCalls[0].isStatic = true;
             }) as Mutation,
             "isStatic",
@@ -333,6 +317,14 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
         );
     }
 
+    let mut reverted = call.clone();
+    reverted._entries[0].incomingCalls[0].revertNextNCalls = 1;
+    assert!(
+        inspect_inbound_candidate(value, &reverted.abi_encode(), true, expected_rollup_id())
+            .is_ok(),
+        "a one-call protocol rollback window is a canonical inbound shape",
+    );
+
     let mut forged_hash = call.clone();
     forged_hash._entries[0].proxyEntryHash = B256::repeat_byte(0xee);
     assert!(matches!(
@@ -342,16 +334,14 @@ fn strict_inbound_observation_rejects_composer_controlled_shape_changes() {
 
     let mut forged_outcome = call;
     forged_outcome._entries[0].rollingHash = B256::repeat_byte(0xdd);
-    assert_eq!(
+    assert!(
         inspect_inbound_candidate(
             value,
             &forged_outcome.abi_encode(),
             true,
             expected_rollup_id(),
-        ),
-        Err(InboundObservationError::InvalidEntryShape {
-            field: "rollingHash",
-        })
+        )
+        .is_ok()
     );
 }
 

@@ -52,8 +52,8 @@ flowchart LR
 3. `state_chain` requires exactly one expected-rollup state update per entry and a
    continuous chain from `ValidatedWindow.window_pre_state_root` to
    `window_post_state_root`.
-4. `blocks` consumes the validated system-sender flags, receipt outcomes, and
-   outbound observations in exact transaction order. It rejects
+4. `blocks` consumes the validated system-sender flags, receipt outcomes,
+   source-table loads, and outbound observations in exact transaction order. It rejects
    privileged/effect evidence in `preceding_blocks` and derives the
    `settling_block` effect-candidate framing once.
 5. `effect_binding` enforces the leading-anchor and later-effect shapes,
@@ -61,11 +61,12 @@ flowchart LR
    submitted effect, candidate transaction, and locally recomputed checkpoint by ordinal.
    It returns one ordered `BoundEffectSequence`.
 6. `inbound` returns `AuthorizedInboundEffects` only after canonical delivery
-   transactions match their bound entries, call hashes, outcomes, values, and
-   ether deltas.
-7. `outbound` returns `AuthorizedOutboundEffects` only after submitted effects
-   match validated EEZL2 receipt-event observations and the supported
-   success-expected single-call shape, call hash, and value accounting. Exact
+   transactions expose an exact L2 target table that recursively matches every
+   row, call, outcome, rolling hash, and net value in its bound L1 entry, and
+   every nested L2-origin call matches the ordered EEZL2 receipt events.
+7. `outbound` returns `AuthorizedOutboundEffects` only after the exact loaded
+   L2 source table recursively matches the L1 host entry and all recomputed
+   L2-origin call hashes match the ordered EEZL2 receipt events. Exact
    `[load, user]` transaction-byte equality remains the DA gate in step 8.
 8. `da` parses the tagged RLP payload without attacker-sized list allocations,
    compares every retained transaction and authorized sidecar, uses
@@ -95,11 +96,15 @@ that binding.
 ## Active profile
 
 The accepted sequence is one anchor, followed by supported outbound effects,
-then supported successful inbound effects. The current outbound subset is one
-success-expected call with the required accounting and event evidence. Failed
-or nested/reentrant inbound effects, outbound-after-inbound ordering, richer
-outbound shapes, and ambiguous evidence reject before signing. Refer to
-`SPEC.md` for the exact shapes and equations.
+then supported successful inbound effects. Effects may contain an alternating
+L1/L2 nested or reentrant call tree; flat outbound effects may group multiple
+roots from one L2 user transaction. A terminal nested row may fail with a
+committed reverted rolling hash and no descendants. Canonical, non-overlapping
+`revertNextNCalls` windows may roll back one or more consecutive calls.
+Unsuccessful top-level or nonterminal nested calls, static calls, explicit
+call gas, malformed rollback windows, outbound-after-inbound ordering, other
+L2 targets, and ambiguous evidence reject before signing. Refer to `SPEC.md`
+for the exact shapes and equations.
 
 ## Module ownership
 

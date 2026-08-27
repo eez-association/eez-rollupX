@@ -7,7 +7,7 @@
 use std::fmt;
 use std::num::NonZeroU64;
 
-use alloy_primitives::{Address, B256, Bytes};
+use alloy_primitives::{Address, B256};
 use alloy_signer_local::PrivateKeySigner;
 use eez_protocol::abi::ExecutionEntrySol;
 use thiserror::Error;
@@ -102,11 +102,11 @@ impl SystemTransactionReconstructor {
     /// Rebuild the canonical signed Sync pairs from authorized effect projections.
     pub(super) fn reconstruct_sync_pairs(
         &self,
-        outbound: &[(ExecutionEntrySol, Bytes)],
+        outbound: &[eez_protocol::system_tx::OutboundSyncGroup],
         inbound: &[ExecutionEntrySol],
         starting_nonce: u64,
     ) -> Result<Vec<eez_protocol::system_tx::SyncPair>, String> {
-        eez_protocol::system_tx::build_cross_chain_sync_pairs(
+        eez_protocol::system_tx::build_cross_chain_sync_groups(
             outbound,
             inbound,
             &self.context,

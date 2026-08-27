@@ -1201,34 +1201,44 @@ where
         // off the settled roots — the anchor cannot be assumed to have run, since
         // a competing same-block batch can supply its hop.
         //
-        // `gate_outbound`: outbound entries L1 paid, stashed for the post-replay
-        // gate (empty in the pure-user-tx path → no-op).
-        let mut gate_outbound: Vec<eez_protocol::abi::ExecutionEntrySol> = Vec::new();
+        // L1 entries whose L2-origin calls must match post-replay EEZL2 events.
+        // This includes outbound roots and callbacks to L1 inside inbound roots.
+        let mut gate_l2_origin_calls: Vec<eez_protocol::abi::ExecutionEntrySol> = Vec::new();
         let sync_block_txs: Option<Vec<Vec<u8>>> = match self.inner.system_tx_cfg.as_ref() {
             Some(cfg) => {
-                let mut entries = if decoded.l2_entries.is_empty() {
-                    // decode the on-chain `batch.entries[]`
-                    // from the postBatch tx input captured during the scan
-                    // (tx fetched by (block, index), pruning-robust). No
-                    // re-fetch by tx hash here — that lookup fails on a pruned
-                    // or still-resyncing embedded L1 and crashed boot catch_up
-                    // on restart-after-post.
-                    use alloy_sol_types::SolCall as _;
-                    let call =
-                        eez_protocol::abi::postAndVerifyBatchCall::abi_decode(&post_batch_input)
-                            .map_err(|e| {
-                                DeriverError::l2_provider(format!(
-                                    "decode postBatch({tx_hash}): {e}"
-                                ))
-                            })?;
-                    event!(
-                        name: "eez.deriver.reconcile.fallback_entries",
-                        Level::INFO,
-                        tx_hash = %tx_hash,
-                        entries = call.batch.entries.len(),
-                        "decoding scanned on-chain postBatch entries (codec v1 fallback)",
-                    );
-                    call.batch.entries
+                // Decode settlement entries independently from DA. They decide
+                // which effects L1 applied and remain the authorization source
+                // for outbound value. DA sidecars decide the exact L2 table
+                // loaded/executed; nested source tables cannot be reconstructed
+                // from settlement entries.
+                use alloy_sol_types::SolCall as _;
+                let posted =
+                    eez_protocol::abi::postAndVerifyBatchCall::abi_decode(&post_batch_input)
+                        .map_err(|e| {
+                            DeriverError::l2_provider(format!("decode postBatch({tx_hash}): {e}"))
+                        })?;
+                let immediate_count =
+                    usize::try_from(posted.batch.immediateEntryCount).map_err(|_| {
+                        DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) immediateEntryCount does not fit usize"
+                        ))
+                    })?;
+                if immediate_count == 0 || immediate_count > posted.batch.entries.len() {
+                    return Err(DeriverError::l2_provider(format!(
+                        "postBatch({tx_hash}) has invalid immediateEntryCount {immediate_count} for {} entries",
+                        posted.batch.entries.len(),
+                    )));
+                }
+                let mut settlement_outbound = posted.batch.entries[1..immediate_count].to_vec();
+                let mut settlement_inbound = posted.batch.entries[immediate_count..].to_vec();
+
+                let (outbound_effects, mut inbound) = if decoded.l2_entries.is_empty() {
+                    if !settlement_outbound.is_empty() || !settlement_inbound.is_empty() {
+                        return Err(DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) carries cross-chain effects without L2 derivation sidecars"
+                        )));
+                    }
+                    (Vec::new(), Vec::new())
                 } else {
                     use alloy_sol_types::SolValue as _;
                     let mut out = Vec::with_capacity(decoded.l2_entries.len());
@@ -1241,47 +1251,87 @@ where
                             })?;
                         out.push(entry);
                     }
-                    out
+                    if out.len() < settlement_inbound.len() {
+                        return Err(DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) has fewer sidecars ({}) than inbound effects ({})",
+                            out.len(),
+                            settlement_inbound.len(),
+                        )));
+                    }
+                    let inbound_start = out.len() - settlement_inbound.len();
+                    let inbound = out[inbound_start..].to_vec();
+                    if inbound
+                        .iter()
+                        .any(|entry| entry.destinationRollupId != cfg.this_rollup_id)
+                    {
+                        return Err(DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) sidecar targets a foreign rollup"
+                        )));
+                    }
+                    let mut outbound = Vec::new();
+                    for entry in &out[..inbound_start] {
+                        if entry.destinationRollupId == 0 {
+                            outbound.push(eez_protocol::system_tx::OutboundSyncEffect {
+                                source_entry: entry.clone(),
+                                callback_entries: Vec::new(),
+                            });
+                        } else if entry.destinationRollupId == cfg.this_rollup_id {
+                            let Some(group) = outbound.last_mut() else {
+                                return Err(DeriverError::l2_provider(format!(
+                                    "postBatch({tx_hash}) callback sidecar precedes its outbound source"
+                                )));
+                            };
+                            group.callback_entries.push(entry.clone());
+                        } else {
+                            return Err(DeriverError::l2_provider(format!(
+                                "postBatch({tx_hash}) sidecar targets foreign rollup {}",
+                                entry.destinationRollupId,
+                            )));
+                        }
+                    }
+                    let settlement_root_counts =
+                        eez_protocol::system_tx::outbound_settlement_root_counts(
+                            &settlement_outbound,
+                        )
+                        .map_err(|error| {
+                            DeriverError::l2_provider(format!(
+                                "postBatch({tx_hash}) has invalid outbound root partition: {error}"
+                            ))
+                        })?;
+                    let covered_roots = settlement_root_counts.iter().sum::<usize>();
+                    if outbound.len() != covered_roots {
+                        return Err(DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) settlement hosts cover {} outbound roots, sidecars carry {}; inbound settlement/sidecars ({}, {})",
+                            covered_roots,
+                            outbound.len(),
+                            settlement_inbound.len(),
+                            inbound.len(),
+                        )));
+                    }
+                    (outbound, inbound)
                 };
-                // Drop non-producing entries (the anchor immediate signs no system
-                // tx), then split by direction: `proxyEntryHash == 0` = outbound
-                // settlement, `!= 0` = inbound delivery. `partition` keeps each
-                // side's order, preserving `[outbound…, inbound…]`.
-                entries.retain(|e| !e.l2ToL1Calls.is_empty());
-                let (mut outbound, mut inbound): (Vec<_>, Vec<_>) = entries
-                    .into_iter()
-                    .partition(|e| e.proxyEntryHash == alloy_primitives::B256::ZERO);
-                // Captured before drain/truncate: all originally-claimed entries,
-                // settled or not, were paired 1:1 with Sync-block user txs.
-                let original_outbound_len = outbound.len();
-
-                // Rebuild exactly the steps L1 ran; `skip > 0` = it resumed
-                // mid-chain (see `ProducingSlice`).
-                let slice = ProducingSlice::split(settlement, outbound.len(), inbound.len());
-                let outbound_skip = slice.outbound_skip;
-                if slice.leaves_entries_unconsumed(outbound.len(), inbound.len()) {
-                    event!(
-                        name: "eez.deriver.reconcile.partial_consumption",
-                        Level::WARN,
-                        tx_hash = %tx_hash,
-                        outbound = outbound.len(),
-                        inbound = inbound.len(),
-                        outbound_skip = slice.outbound_skip,
-                        outbound_take = slice.outbound_take,
-                        inbound_skip = slice.inbound_skip,
-                        inbound_take = slice.inbound_take,
-                        anchor_applied = settlement.start == 0,
-                        "L1 ran only part of this batch; reconstructing exactly that slice",
-                    );
+                let original_outbound_effect_count = outbound_effects.len();
+                let outbound_group_sizes = if decoded.outbound_group_sizes.is_empty() {
+                    vec![1usize; original_outbound_effect_count]
+                } else {
+                    decoded
+                        .outbound_group_sizes
+                        .iter()
+                        .map(|size| usize::from(*size))
+                        .collect::<Vec<_>>()
+                };
+                if outbound_group_sizes.contains(&0)
+                    || outbound_group_sizes.iter().sum::<usize>() != original_outbound_effect_count
+                {
+                    return Err(DeriverError::l2_provider(format!(
+                        "postBatch({tx_hash}) outbound group sizes {outbound_group_sizes:?} do not cover {original_outbound_effect_count} source roots",
+                    )));
                 }
-                outbound.drain(..slice.outbound_skip);
-                outbound.truncate(slice.outbound_take);
-                inbound.drain(..slice.inbound_skip);
-                inbound.truncate(slice.inbound_take);
 
-                // The Sync block is the LAST block of the range; its user txs are
-                // the tail of `decoded.transactions`. Pair the i-th outbound entry
-                // with the i-th of those (composer drain == splice == DA order).
+                // The Sync block is the LAST block of the range. Its retained
+                // terminal transactions contain each signed outbound user tx
+                // exactly once; the grouped payload says how many source roots
+                // its preceding system load stages.
                 let last_count = decoded
                     .block_tx_counts
                     .last()
@@ -1293,43 +1343,112 @@ where
                     .iter()
                     .map(|t| Bytes::from(t.clone()))
                     .collect();
-                // Outbound entries pair POSITIONALLY with the Sync block's user
-                // txs, so a skipped OR unconsumed outbound entry must drop its user
-                // tx too, else every pair shifts by one. Neither ever lands on this
-                // chain as a bare tx: a skipped entry's tx already landed under the
-                // competing batch that consumed it; an unconsumed one is rolled back
-                // by the composer's own recovery (rich Sync blocks reorg out on
-                // partial settlement) and retried later. Checked against the
-                // pre-truncation count so the unconsumed tail is covered too.
-                if sync_user_txs.len() < original_outbound_len {
+                if sync_user_txs.len() < outbound_group_sizes.len() {
                     return Err(DeriverError::local_diverged_with_msg(
                         from_block,
                         &format!(
-                            "outbound entries ({original_outbound_len}) exceed Sync-block user txs ({})",
+                            "outbound groups ({}) exceed Sync-block user txs ({})",
+                            outbound_group_sizes.len(),
                             sync_user_txs.len(),
                         ),
                     ));
                 }
-                let outbound_paired: Vec<(eez_protocol::abi::ExecutionEntrySol, Bytes)> = outbound
-                    .iter()
-                    .cloned()
-                    .zip(sync_user_txs[outbound_skip..].iter().cloned())
-                    .collect();
+                let mut effect_cursor = 0usize;
+                let mut all_outbound = Vec::with_capacity(outbound_group_sizes.len());
+                for (group_index, &size) in outbound_group_sizes.iter().enumerate() {
+                    let end = effect_cursor + size;
+                    all_outbound.push(eez_protocol::system_tx::OutboundSyncGroup {
+                        effects: outbound_effects[effect_cursor..end].to_vec(),
+                        user_tx: sync_user_txs[group_index].clone(),
+                    });
+                    effect_cursor = end;
+                }
 
-                // Stash for the post-replay gate — it needs the
-                // `CrossChainCallExecuted` events, observable only after replay.
-                gate_outbound.clone_from(&outbound);
+                // Rebuild exactly the steps L1 ran; `skip > 0` = it resumed
+                // mid-chain (see `ProducingSlice`).
+                let outbound_settlement_root_counts =
+                    eez_protocol::system_tx::outbound_settlement_root_counts(&settlement_outbound)
+                        .map_err(|error| {
+                            DeriverError::l2_provider(format!(
+                                "postBatch({tx_hash}) has invalid outbound root partition: {error}"
+                            ))
+                        })?;
+                let original_outbound_settlement_count = settlement_outbound.len();
+                let slice = ProducingSlice::split(
+                    settlement,
+                    original_outbound_settlement_count,
+                    inbound.len(),
+                );
+                if slice
+                    .leaves_entries_unconsumed(original_outbound_settlement_count, inbound.len())
+                {
+                    event!(
+                        name: "eez.deriver.reconcile.partial_consumption",
+                        Level::WARN,
+                        tx_hash = %tx_hash,
+                        outbound = original_outbound_settlement_count,
+                        inbound = inbound.len(),
+                        outbound_skip = slice.outbound_skip,
+                        outbound_take = slice.outbound_take,
+                        inbound_skip = slice.inbound_skip,
+                        inbound_take = slice.inbound_take,
+                        anchor_applied = settlement.start == 0,
+                        "L1 ran only part of this batch; reconstructing exactly that slice",
+                    );
+                }
+                let selected_start = outbound_settlement_root_counts[..slice.outbound_skip]
+                    .iter()
+                    .sum::<usize>();
+                let selected_end = outbound_settlement_root_counts
+                    [..slice.outbound_skip + slice.outbound_take]
+                    .iter()
+                    .sum::<usize>();
+                let mut root_cursor = 0usize;
+                let mut group_start = None;
+                let mut group_end = None;
+                for (index, &size) in outbound_group_sizes.iter().enumerate() {
+                    if root_cursor == selected_start {
+                        group_start = Some(index);
+                    }
+                    root_cursor += size;
+                    if root_cursor == selected_end {
+                        group_end = Some(index + 1);
+                    }
+                }
+                if selected_start == selected_end {
+                    group_start = Some(0);
+                    group_end = Some(0);
+                }
+                let (Some(group_start), Some(group_end)) = (group_start, group_end) else {
+                    return Err(DeriverError::local_diverged_with_msg(
+                        from_block,
+                        "partial L1 settlement splits one multi-root outbound user transaction",
+                    ));
+                };
+                let outbound = all_outbound[group_start..group_end].to_vec();
+                inbound.drain(..slice.inbound_skip);
+                inbound.truncate(slice.inbound_take);
+                settlement_outbound.drain(..slice.outbound_skip);
+                settlement_outbound.truncate(slice.outbound_take);
+                settlement_inbound.drain(..slice.inbound_skip);
+                settlement_inbound.truncate(slice.inbound_take);
+
+                // Stash every producing L1 table for the post-replay gate. An
+                // inbound table may contain nested L2→L1 calls and therefore
+                // emit the same EEZL2 event family as an outbound root.
+                gate_l2_origin_calls = settlement_outbound;
+                gate_l2_origin_calls.extend(settlement_inbound);
 
                 let starting_nonce = self.system_address_nonce_at(from_block - 1)?;
-                let pairs = eez_protocol::system_tx::build_cross_chain_sync_pairs(
-                    &outbound_paired,
+                let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
+                    &outbound,
                     &inbound,
                     cfg,
                     starting_nonce,
                 )
                 .map_err(|e| {
                     DeriverError::l2_provider(format!(
-                        "build_cross_chain_sync_pairs(tx={tx_hash}): {e}"
+                        "build_cross_chain_sync_groups(tx={tx_hash}): {e}"
                     ))
                 })?;
                 // The interleaved list IS the Sync block's system + outbound-user
@@ -1339,14 +1458,14 @@ where
                         .into_iter()
                         .map(|b| b.to_vec())
                         .collect();
-                for t in &decoded.transactions[sync_user_start + original_outbound_len..] {
+                for t in &decoded.transactions[sync_user_start + outbound_group_sizes.len()..] {
                     full.push(t.clone());
                 }
                 event!(
                     name: "eez.deriver.reconcile.sync_block_built",
                     Level::INFO,
                     tx_hash = %tx_hash,
-                    outbound = outbound_paired.len(),
+                    outbound = outbound.len(),
                     inbound = inbound.len(),
                     sync_block_txs = full.len(),
                     starting_nonce,
@@ -1449,18 +1568,18 @@ where
             }
         }
 
-        // Outbound authorization gate (trace binding): every OUTBOUND settlement
-        // entry L1 paid must match a real `CrossChainCallExecuted` event this Sync
-        // block emitted on re-execution — proof a signed DA tx actually made that
-        // L2->L1 call at ANY depth (EOA or wrapper). A phantom has no match. Runs
-        // post-replay (events exist only after commit); no-op with no outbound.
+        // L2-origin authorization gate (trace binding): every call to L1 in a
+        // producing settlement table must match a real `CrossChainCallExecuted`
+        // event this Sync block emitted on re-execution, including calls nested
+        // under inbound roots. A phantom has no match. Runs post-replay because
+        // the receipt events exist only after commit.
         // See `eez_protocol::outbound_gate` + docs/OUTBOUND-VIA-WRAPPER-GATE.md.
-        if !gate_outbound.is_empty() {
+        if !gate_l2_origin_calls.is_empty() {
             let cfg = self
                 .inner
                 .system_tx_cfg
                 .as_ref()
-                .expect("gate_outbound only populated under system_tx_cfg = Some");
+                .expect("L2-origin gate only populated under system_tx_cfg = Some");
             let to_block = if resumed {
                 from_block
             } else {
@@ -1468,7 +1587,7 @@ where
             };
             let observed = self.observed_outbound_calls(to_block, cfg.eezl2_address)?;
             eez_protocol::outbound_gate::verify_outbound_authorized(
-                &gate_outbound,
+                &gate_l2_origin_calls,
                 &observed,
                 cfg.this_rollup_id,
             )
