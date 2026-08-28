@@ -1203,7 +1203,8 @@ where
         //
         // L1 entries whose L2-origin calls must match post-replay EEZL2 events.
         // This includes outbound roots and callbacks to L1 inside inbound roots.
-        let mut gate_l2_origin_calls: Vec<eez_protocol::abi::ExecutionEntrySol> = Vec::new();
+        let mut gate_expected_hashes = Vec::new();
+        let mut gate_should_verify = false;
         let sync_block_txs: Option<Vec<Vec<u8>>> = match self.inner.system_tx_cfg.as_ref() {
             Some(cfg) => {
                 // Decode settlement entries independently from DA. They decide
@@ -1433,11 +1434,78 @@ where
                 settlement_inbound.drain(..slice.inbound_skip);
                 settlement_inbound.truncate(slice.inbound_take);
 
-                // Stash every producing L1 table for the post-replay gate. An
-                // inbound table may contain nested L2→L1 calls and therefore
-                // emit the same EEZL2 event family as an outbound root.
-                gate_l2_origin_calls = settlement_outbound;
-                gate_l2_origin_calls.extend(settlement_inbound);
+                // Independently verify each producing L1 table against the L2
+                // sidecar that re-execution will consume, then retain exactly
+                // the committed L2-origin hashes for the post-replay event
+                // gate. A naturally reverted proxy frame has no receipt log
+                // and is intentionally omitted by `verify_nested_group`.
+                gate_should_verify =
+                    !settlement_outbound.is_empty() || !settlement_inbound.is_empty();
+                let selected_root_counts =
+                    eez_protocol::system_tx::outbound_settlement_root_counts(
+                        &settlement_outbound,
+                    )
+                    .map_err(|error| {
+                        DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) has invalid selected outbound partition: {error}"
+                        ))
+                    })?;
+                let selected_sources = outbound
+                    .iter()
+                    .flat_map(|group| group.effects.iter())
+                    .map(|effect| effect.source_entry.clone())
+                    .collect::<Vec<_>>();
+                if selected_root_counts.iter().sum::<usize>() != selected_sources.len() {
+                    return Err(DeriverError::l2_provider(format!(
+                        "postBatch({tx_hash}) selected outbound hosts cover {} roots, but reconstruction selected {} source entries",
+                        selected_root_counts.iter().sum::<usize>(),
+                        selected_sources.len(),
+                    )));
+                }
+                let mut source_cursor = 0usize;
+                for (host, &count) in settlement_outbound.iter().zip(&selected_root_counts) {
+                    let source_end = source_cursor + count;
+                    let verification = eez_protocol::entries::verify_nested_group(
+                        host,
+                        &selected_sources[source_cursor..source_end],
+                        eez_protocol::entries::NestedPairDirection::Outbound,
+                        eez_protocol::RollupId(cfg.this_rollup_id),
+                    )
+                    .map_err(|error| {
+                        DeriverError::local_diverged_with_msg(
+                            from_block,
+                            &format!(
+                                "outbound settlement/source tables are inconsistent (tx={tx_hash}): {error}"
+                            ),
+                        )
+                    })?;
+                    gate_expected_hashes.extend(verification.l2_outbound_hashes);
+                    source_cursor = source_end;
+                }
+                if settlement_inbound.len() != inbound.len() {
+                    return Err(DeriverError::l2_provider(format!(
+                        "postBatch({tx_hash}) selected inbound settlement/sidecars differ ({}, {})",
+                        settlement_inbound.len(),
+                        inbound.len(),
+                    )));
+                }
+                for (host, sidecar) in settlement_inbound.iter().zip(&inbound) {
+                    let verification = eez_protocol::entries::verify_nested_group(
+                        host,
+                        std::slice::from_ref(sidecar),
+                        eez_protocol::entries::NestedPairDirection::Inbound,
+                        eez_protocol::RollupId(cfg.this_rollup_id),
+                    )
+                    .map_err(|error| {
+                        DeriverError::local_diverged_with_msg(
+                            from_block,
+                            &format!(
+                                "inbound settlement/sidecar tables are inconsistent (tx={tx_hash}): {error}"
+                            ),
+                        )
+                    })?;
+                    gate_expected_hashes.extend(verification.l2_outbound_hashes);
+                }
 
                 let starting_nonce = self.system_address_nonce_at(from_block - 1)?;
                 let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
@@ -1574,7 +1642,7 @@ where
         // under inbound roots. A phantom has no match. Runs post-replay because
         // the receipt events exist only after commit.
         // See `eez_protocol::outbound_gate` + docs/OUTBOUND-VIA-WRAPPER-GATE.md.
-        if !gate_l2_origin_calls.is_empty() {
+        if gate_should_verify {
             let cfg = self
                 .inner
                 .system_tx_cfg
@@ -1586,10 +1654,9 @@ where
                 from_block + last_index as u64
             };
             let observed = self.observed_outbound_calls(to_block, cfg.eezl2_address)?;
-            eez_protocol::outbound_gate::verify_outbound_authorized(
-                &gate_l2_origin_calls,
+            eez_protocol::outbound_gate::verify_expected_outbound_hashes(
+                &gate_expected_hashes,
                 &observed,
-                cfg.this_rollup_id,
             )
             .map_err(|e| {
                 DeriverError::local_diverged_with_msg(

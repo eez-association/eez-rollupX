@@ -97,18 +97,7 @@ pub fn verify_outbound_authorized(
     observed_calls: &[OutboundCallObservation],
     l2_rollup_id: u64,
 ) -> Result<(), String> {
-    // Multiset of hashes actually consumed on L2 this Sync block. Each entry
-    // claims one — two identical calls need two events.
-    let mut available: HashMap<B256, usize> = HashMap::new();
-    for observation in observed_calls {
-        if observation.call_gas() != SUPPORTED_CALL_GAS {
-            return Err(format!(
-                "outbound event uses callGas {}; this deployment requires callGas 0",
-                observation.call_gas(),
-            ));
-        }
-        *available.entry(observation.call_hash()).or_insert(0) += 1;
-    }
+    let mut expected_hashes = Vec::new();
 
     for (i, entry) in settlement_entries.iter().enumerate() {
         crate::system_tx::check_entry_shape(entry, &format!("outbound entry {i}"))?;
@@ -160,17 +149,7 @@ pub fn verify_outbound_authorized(
                     // the settlement table and are authorized by the marker,
                     // not by a receipt log that cannot exist.
                     if span == 0 {
-                        match available.get_mut(&expected) {
-                            Some(n) if *n > 0 => *n -= 1,
-                            _ => {
-                                return Err(format!(
-                                    "outbound entry {i} call {call_index} (target {:#x}, value {}, source {:#x}) has NO matching \
-                                     CrossChainCallExecuted event in the re-executed Sync block (hash {expected:#x}) \
-                                     — phantom / tampered / redirected / non-mainnet-target withdrawal",
-                                    call.targetAddress, call.value, call.sourceAddress,
-                                ));
-                            }
-                        }
+                        expected_hashes.push(expected);
                     }
                     call_index += 1;
                 }
@@ -178,6 +157,45 @@ pub fn verify_outbound_authorized(
             }
         }
     }
+    verify_expected_outbound_hashes(&expected_hashes, observed_calls)
+}
+
+/// Match a verified ordered set of committed L2-origin call hashes against the
+/// `CrossChainCallExecuted` logs emitted by re-execution.
+///
+/// Callers that have both the L1 settlement table and its L2 sidecars should
+/// derive `expected_hashes` with [`crate::entries::verify_nested_group`]. That
+/// verifier omits calls whose proxy frame naturally reverted, as well as calls
+/// rolled back by `revertNextNCalls`; neither can retain an L2 receipt log.
+/// Duplicate hashes retain multiset semantics.
+pub fn verify_expected_outbound_hashes(
+    expected_hashes: &[B256],
+    observed_calls: &[OutboundCallObservation],
+) -> Result<(), String> {
+    let mut available: HashMap<B256, usize> = HashMap::new();
+    for observation in observed_calls {
+        if observation.call_gas() != SUPPORTED_CALL_GAS {
+            return Err(format!(
+                "outbound event uses callGas {}; this deployment requires callGas 0",
+                observation.call_gas(),
+            ));
+        }
+        *available.entry(observation.call_hash()).or_insert(0) += 1;
+    }
+
+    for (index, expected) in expected_hashes.iter().enumerate() {
+        match available.get_mut(expected) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => {
+                return Err(format!(
+                    "verified outbound call {index} has NO matching CrossChainCallExecuted event \
+                     in the re-executed Sync block (hash {expected:#x}) — phantom / tampered / \
+                     redirected / non-mainnet-target withdrawal",
+                ));
+            }
+        }
+    }
+
     let unmatched = available.values().copied().sum::<usize>();
     if unmatched != 0 {
         return Err(format!(

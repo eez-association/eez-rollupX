@@ -7,10 +7,11 @@
 
 use std::{fs, path::PathBuf};
 
-use alloy_primitives::{Address, B256, Bytes, I256, U256, hex, keccak256};
+use alloy_primitives::{Address, B256, Bytes, U256, hex, keccak256};
 use alloy_sol_types::{SolValue, sol};
 use eez_protocol::abi::{
-    ExecutionEntrySol, ExpectedRootPerRollupSol, RootUpdateSol, StaticExecutionEntrySol,
+    EtherDeltaSol, ExecutionEntrySol, ExpectedRootPerRollupSol, RootUpdateSol,
+    StaticExecutionEntrySol,
 };
 use eez_protocol::public_inputs::{
     all_per_ps_hashes, entry_hash, shared_public_input, static_entry_hash,
@@ -18,7 +19,7 @@ use eez_protocol::public_inputs::{
 use eez_protocol::{ProofPlan, RollupId, RollupProofAssignment};
 use serde::Deserialize;
 
-const EXPECTED_PROTOCOL_COMMIT: &str = "6fcc90b65063831cb7797e9fa361004064d28f9f";
+const EXPECTED_PROTOCOL_COMMIT: &str = "8f1c4f327d9a657aaf7d89c95c9a52ca31983095";
 const EXPECTED_SOLIDITY_ORACLE: &str = "contracts/test/PublicInputsHashVectors.t.sol";
 
 sol! {
@@ -146,7 +147,7 @@ fn execution_entry_encoding_matches_pinned_solidity() {
             rollupId: 1,
             currentRoot: B256::from(U256::from(0x1111)),
             newRoot: B256::from(U256::from(0x2222)),
-            etherDelta: I256::ZERO,
+            etherDelta: EtherDeltaSol::ZERO,
         }],
         proxyEntryHash: B256::from(U256::from(0x3333)),
         l2ToL1Calls: Vec::new(),
@@ -159,7 +160,7 @@ fn execution_entry_encoding_matches_pinned_solidity() {
 
     assert_eq!(
         entry_hash(&entry),
-        parse_b256("0x2c4c8cbc9b39743790f04a13406c6c0e3ab6ca0bf5acb3b923f5549d3aabb759")
+        parse_b256("0x752aa6c5ddc53a6bfdfec261248ee29246f6e831c59d3567d2c22d80dbf93dc1")
     );
 }
 

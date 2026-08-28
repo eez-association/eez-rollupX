@@ -190,7 +190,7 @@ async fn a_noncanonical_anchor_is_rejected_by_the_effect_prefix_gate() {
 async fn a_nonzero_anchor_ether_delta_is_rejected() {
     let server = TestServer::new(one_accepting_validator()).await;
     let mut batch = anchor_batch();
-    batch.entries[0].rootUpdates[0].etherDelta = I256::ONE;
+    batch.entries[0].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     let mut window = happy_window();
     replace_post_batch(&mut window, public_input_post_batch_for(batch));
 

@@ -268,7 +268,7 @@ pub(crate) enum InboundEffectError {
     #[error("inbound entry {entry_index} uses the reserved system account as a nested L2 source")]
     ReservedSourceAddress { entry_index: usize },
     #[error(
-        "inbound transaction {transaction_index} for entry {entry_index} has value {value}, which exceeds the int256 range"
+        "inbound transaction {transaction_index} for entry {entry_index} has value {value}, which exceeds the positive int192 range"
     )]
     ValueOutOfRange {
         entry_index: usize,
@@ -452,11 +452,14 @@ fn authorize_inbound_effect(
     if observation.return_data.as_ref() != expected_delivery_return {
         return Err(InboundEffectError::ReturnDataMismatch { entry_index });
     }
-    I256::try_from(observation.value).map_err(|_| InboundEffectError::ValueOutOfRange {
-        entry_index,
-        transaction_index: effect.transaction_index(),
-        value: observation.value,
-    })?;
+    let max_inbound_value = (U256::from(1) << 191) - U256::from(1);
+    if observation.value > max_inbound_value {
+        return Err(InboundEffectError::ValueOutOfRange {
+            entry_index,
+            transaction_index: effect.transaction_index(),
+            value: observation.value,
+        });
+    }
     let verification = verify_nested_pair(
         entry,
         observation.derived_da_entry.as_entry(),
@@ -520,11 +523,12 @@ fn authorize_inbound_effect(
     }
     let update = effect.claimed_root_update();
     let expected = verification.ether_delta;
-    if update.etherDelta != expected {
+    let actual = I256::from(update.etherDelta);
+    if actual != expected {
         return Err(InboundEffectError::EtherDeltaMismatch {
             entry_index,
             expected,
-            actual: update.etherDelta,
+            actual,
         });
     }
     Ok(())

@@ -446,11 +446,13 @@ async fn mixed_direction_state_chain_in_one_slot() {
 /// rather than reserving it a slot (claims 1 and 3) — and composition must
 /// keep running instead of freezing the window.
 ///
-/// Poison here is the harness's established form (`scripts/xchain-test.sh`): a
-/// cross-chain submission whose `to` is not a proxy, so the source simulation
-/// records no cross-chain call and the tx can never compose. Its sender is
-/// distinct from the survivors' because eviction cascades along a sender's
-/// nonce chain.
+/// Poison is a direct, unauthorized call to `EEZ.executeCrossChainCall`. The
+/// ingress trace correctly recognizes the manager entrypoint and holds it, but
+/// source simulation records no proxy dispatch, so the tx can never compose.
+/// A plain-address call is not poison here: the transparent ingress front
+/// correctly forwards ordinary transactions to the source-chain mempool. The
+/// poison sender is distinct from the survivors' because eviction cascades
+/// along a sender's nonce chain.
 ///
 /// Without the redesign the poison degrades the whole slot and the survivors'
 /// claims come from isolated sims (both `1`), so nothing settles at all.
@@ -492,9 +494,13 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
         ANVIL_KEY_6,
         DEV_CHAIN_ID,
         pending_nonce(&l1_rpc, ANVIL_KEY_6).await.unwrap(),
-        Some(w.recipient), // plain address: never a cross-chain proxy on L1
+        Some(w.cfg.eez_address),
         U256::ZERO,
-        ICounter::incrementCall {}.abi_encode(),
+        IEEZ::executeCrossChainCallCall {
+            sourceAddress: w.recipient,
+            callData: Bytes::new(),
+        }
+        .abi_encode(),
         600_000,
     )
     .await

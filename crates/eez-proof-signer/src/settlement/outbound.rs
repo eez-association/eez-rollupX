@@ -231,7 +231,7 @@ pub(crate) enum OutboundEffectError {
     },
     #[error("outbound entry {entry_index} uses the reserved system account as its source")]
     ReservedSourceAddress { entry_index: usize },
-    #[error("outbound entry {entry_index} value {value} exceeds the non-negative int256 range")]
+    #[error("outbound entry {entry_index} value {value} exceeds the int192 outflow range")]
     ValueOutOfRange { entry_index: usize, value: U256 },
     #[error(
         "outbound entry {entry_index} has ether delta {actual}; expected released value delta {expected}"
@@ -547,7 +547,8 @@ fn authorize_outbound_effect(
             .iter()
             .flat_map(|row| row.l2ToL1Calls.iter()),
     ) {
-        if call.sourceRollupId == expected_rollup_id.get() && I256::try_from(call.value).is_err() {
+        let max_outbound_value = U256::from(1) << 191;
+        if call.sourceRollupId == expected_rollup_id.get() && call.value > max_outbound_value {
             return Err(OutboundEffectError::ValueOutOfRange {
                 entry_index,
                 value: call.value,
@@ -629,11 +630,12 @@ fn authorize_outbound_effect(
 
     let update = effect.claimed_root_update();
     let expected_delta = verification.ether_delta;
-    if update.etherDelta != expected_delta {
+    let actual = I256::from(update.etherDelta);
+    if actual != expected_delta {
         return Err(OutboundEffectError::EtherDeltaMismatch {
             entry_index,
             expected: expected_delta,
-            actual: update.etherDelta,
+            actual,
         });
     }
     Ok(verification)

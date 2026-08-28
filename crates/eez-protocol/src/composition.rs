@@ -392,6 +392,7 @@ impl CompositionBuilder {
                 batch: source.batch,
                 entry_traces: source.entry_traces,
                 callback_entry_counts: source.source_callback_counts,
+                outbound_event_hashes: source.source_outbound_hashes,
             },
             targets: target_compositions,
         })

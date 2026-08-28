@@ -134,12 +134,14 @@ fn accepts_only_a_canonical_anchor_for_an_empty_settling_block() {
 fn canonical_anchor_requires_a_zero_ether_delta() {
     let root = B256::ZERO;
     let settling = settling_with_effect_candidates(Vec::new());
-    for claimed in [I256::ONE, -I256::ONE] {
+    for claimed in [EtherDeltaSol::ONE, -EtherDeltaSol::ONE] {
         let mut batch = state_chain(&[root, root]);
         batch.entries[0].rootUpdates[0].etherDelta = claimed;
         assert_eq!(
             verify_effect_prefix(&batch, root, &[], &settling).err(),
-            Some(EffectPrefixError::NonZeroAnchorEtherDelta { claimed })
+            Some(EffectPrefixError::NonZeroAnchorEtherDelta {
+                claimed: I256::from(claimed),
+            })
         );
     }
 }

@@ -775,9 +775,9 @@ fn sign_legacy_system_tx(
 mod tests {
     use super::*;
     use crate::EvmBatch;
-    use crate::abi::{RollupIdWithProofSystemsSol, RootUpdateSol};
+    use crate::abi::{EtherDeltaSol, RollupIdWithProofSystemsSol, RootUpdateSol};
     use crate::entries::{decode_postbatch, encode_postbatch};
-    use alloy_primitives::{B256, I256, address};
+    use alloy_primitives::{B256, address};
     use alloy_sol_types::SolValue as _;
 
     fn ctx() -> SystemTxContext {
@@ -800,7 +800,7 @@ mod tests {
                 rollupId: 1,
                 currentRoot: B256::ZERO,
                 newRoot: B256::repeat_byte(0x11),
-                etherDelta: I256::ZERO,
+                etherDelta: EtherDeltaSol::ZERO,
             }],
             proxyEntryHash: B256::repeat_byte(0xab),
             l2ToL1Calls: vec![L2ToL1CallSol {

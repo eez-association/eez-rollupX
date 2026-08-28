@@ -404,7 +404,7 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let value = U256::from(7);
     batch.entries[1].l2ToL1Calls[0].value = value;
-    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -EtherDeltaSol::from(value);
     refresh_l1_rolling_hash(&mut batch.entries[1]);
     let mut settling = settling_with_outbound_pairs(&batch);
     settling
@@ -737,7 +737,7 @@ fn da_payload_binds_the_complete_mixed_sync_sequence_and_sidecar_order() {
         .unwrap();
     batch.entries[2].proxyEntryHash = inbound_observation.recomputed_call_hash;
     batch.entries[2].returnData = inbound_observation.return_data.clone();
-    batch.entries[2].rootUpdates[0].etherDelta = I256::try_from(inbound_observation.value).unwrap();
+    batch.entries[2].rootUpdates[0].etherDelta = EtherDeltaSol::from(inbound_observation.value);
     refresh_l1_rolling_hash(&mut batch.entries[2]);
     settling
         .outbound_event_candidates_mut_for_test()

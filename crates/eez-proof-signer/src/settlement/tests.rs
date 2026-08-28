@@ -7,8 +7,8 @@ use alloy_primitives::{Address, B256, Bytes, I256, Signature, U256, address, b25
 use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::EvmBatch;
 use eez_protocol::abi::{
-    ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedRootPerRollupSol, L2ToL1CallSol,
-    RollupIdWithProofSystemsSol, RootUpdateSol, StaticExecutionEntrySol,
+    EtherDeltaSol, ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedRootPerRollupSol,
+    L2ToL1CallSol, RollupIdWithProofSystemsSol, RootUpdateSol, StaticExecutionEntrySol,
 };
 use eez_protocol::entries::{
     EXECUTE_INCOMING_SELECTOR, IncomingEntry, build_l2_incoming_entry, encode_execute_incoming,
@@ -114,7 +114,7 @@ fn state_entry(rollup_id: u64, current: B256, new: B256) -> ExecutionEntrySol {
             rollupId: rollup_id,
             currentRoot: current,
             newRoot: new,
-            etherDelta: I256::ZERO,
+            etherDelta: EtherDeltaSol::ZERO,
         }],
         proxyEntryHash: B256::ZERO,
         destinationRollupId: rollup_id,
@@ -144,7 +144,7 @@ fn effect_batch(roots: &[B256], kinds: &[ClaimedEntryShape]) -> CanonicalPostBat
         match kind {
             ClaimedEntryShape::Outbound => {
                 let call = l2_to_l1_call();
-                entry.rootUpdates[0].etherDelta = -I256::try_from(call.value).unwrap();
+                entry.rootUpdates[0].etherDelta = -EtherDeltaSol::from(call.value);
                 let call_hash = common_cross_chain_call_hash(CallHashInput {
                     call_mode: CallMode::Mutable,
                     source_address: call.sourceAddress,
@@ -305,7 +305,7 @@ fn bindable_inbound_batch(settling: &SettlingBlockObservations) -> CanonicalPost
     for (entry, observation) in batch.entries.iter_mut().skip(1).zip(observations) {
         entry.proxyEntryHash = observation.recomputed_call_hash;
         entry.returnData = observation.return_data.clone();
-        entry.rootUpdates[0].etherDelta = I256::try_from(observation.value).unwrap();
+        entry.rootUpdates[0].etherDelta = EtherDeltaSol::from(observation.value);
         let update = &entry.rootUpdates[0];
         entry.rollingHash = EntryRollingHash::seed_for_l1(
             [(update.rollupId, update.currentRoot)],

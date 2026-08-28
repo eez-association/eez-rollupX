@@ -368,7 +368,7 @@ fn inbound_effect_entries_handle_mixed_effect_positions_without_authorizing_outb
     let inbound = &mut batch.entries[2];
     inbound.proxyEntryHash = observation.recomputed_call_hash;
     inbound.returnData = observation.return_data.clone();
-    inbound.rootUpdates[0].etherDelta = I256::try_from(observation.value).unwrap();
+    inbound.rootUpdates[0].etherDelta = EtherDeltaSol::from(observation.value);
     inbound.rollingHash = eez_protocol::rolling_hash::EntryRollingHash::seed_for_l1(
         [(
             inbound.rootUpdates[0].rollupId,
@@ -513,7 +513,7 @@ fn inbound_effect_entries_require_the_canonical_deferred_shape() {
     );
 
     let mut wrong_delta = valid;
-    wrong_delta.entries[1].rootUpdates[0].etherDelta = I256::ZERO;
+    wrong_delta.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
     let plan = effect_plan(&wrong_delta, &settling);
     assert_eq!(
         verify_inbound_effect_entries(&plan).err(),
@@ -526,8 +526,8 @@ fn inbound_effect_entries_require_the_canonical_deferred_shape() {
 }
 
 #[test]
-fn inbound_effect_entries_accept_the_int256_maximum_and_reject_the_next_value() {
-    let max_value = (U256::from(1) << 255) - U256::from(1);
+fn inbound_effect_entries_accept_the_int192_maximum_and_reject_the_next_value() {
+    let max_value = (U256::from(1) << 191) - U256::from(1);
     let max_settling = SettlingBlockObservations::for_test(
         vec![true],
         vec![observed_inbound_candidate(0, max_value, true)],
@@ -536,9 +536,12 @@ fn inbound_effect_entries_accept_the_int256_maximum_and_reject_the_next_value() 
     let max_batch = bindable_inbound_batch(&max_settling);
     let max_plan = effect_plan(&max_batch, &max_settling);
     assert!(verify_inbound_effect_entries(&max_plan).is_ok());
-    assert_eq!(max_batch.entries[1].rootUpdates[0].etherDelta, I256::MAX);
+    assert_eq!(
+        max_batch.entries[1].rootUpdates[0].etherDelta,
+        EtherDeltaSol::MAX
+    );
 
-    let value = U256::from(1) << 255;
+    let value = U256::from(1) << 191;
     let candidate = observed_inbound_candidate(0, value, true);
     let observation = candidate.inspection.as_ref().unwrap();
     let call_hash = observation.recomputed_call_hash;

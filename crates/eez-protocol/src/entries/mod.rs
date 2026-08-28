@@ -212,10 +212,13 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
 /// Sum the value of every committed flat call in an entry, including each
 /// successful reentrant row's own sub-array.
 ///
-/// A supported failed nested row has an empty sub-array and rolls its frame
-/// back, so it contributes no value. Returns `None` on arithmetic overflow,
-/// for an unsuccessful entry with nested rows, or for a malformed/unsupported
-/// row.
+/// A failed nested row rolls its complete frame back, so none of its recorded
+/// sub-calls contribute value even when the reverted-frame witness contains
+/// them. The reverted rolling hash is deliberately not validated here: L1
+/// entries use this projection before their root-dependent symbolic traces are
+/// finalized. Pair verification validates the completed commitment later.
+/// Returns `None` on arithmetic overflow, for an unsuccessful entry with
+/// nested rows, or for a malformed/unsupported call array.
 #[must_use]
 pub fn entry_flat_value_sum(entry: &ExecutionEntrySol) -> Option<U256> {
     if !entry.success && (entry.l2ToL1Calls.len() > 1 || !entry.expectedL1ToL2Calls.is_empty()) {
@@ -228,8 +231,6 @@ pub fn entry_flat_value_sum(entry: &ExecutionEntrySol) -> Option<U256> {
                 return None;
             }
             sum = sum.checked_add(committed_call_array_value(&row.l2ToL1Calls)?)?;
-        } else if row.revertedOrStaticRollingHash == B256::ZERO || !row.l2ToL1Calls.is_empty() {
-            return None;
         }
     }
     Some(sum)
@@ -625,11 +626,11 @@ fn batch_with_entries(entries: Vec<ExecutionEntrySol>, immediate_count: usize) -
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{I256, address};
+    use alloy_primitives::address;
 
     use super::*;
     use crate::ExecutionOutcome;
-    use crate::abi::{ExpectedL1ToL2CallSol, RootUpdateSol};
+    use crate::abi::{EtherDeltaSol, ExpectedL1ToL2CallSol, RootUpdateSol};
 
     fn record(target: RollupId, source: RollupId) -> ExecutedAction {
         ExecutedAction {
@@ -655,7 +656,7 @@ mod tests {
             rollupId: rollup_id,
             currentRoot: current_root,
             newRoot: B256::with_last_byte(0xff),
-            etherDelta: I256::ZERO,
+            etherDelta: EtherDeltaSol::ZERO,
         }
     }
 
@@ -831,11 +832,18 @@ mod tests {
             "an empty failed frame is rolled back and contributes no value"
         );
 
+        entry.expectedL1ToL2Calls[0].revertedOrStaticRollingHash = B256::ZERO;
+        assert_eq!(
+            outbound_ether_out(&entry),
+            Some(U256::from(18)),
+            "value projection works before the root-dependent failed-frame hash is finalized"
+        );
+
         entry.expectedL1ToL2Calls[0].l2ToL1Calls = vec![entry.l2ToL1Calls[0].clone()];
         assert_eq!(
             outbound_ether_out(&entry),
-            None,
-            "failed frames with sub-calls remain outside the safe profile"
+            Some(U256::from(18)),
+            "a failed frame rolls back every value-bearing sub-call"
         );
     }
 

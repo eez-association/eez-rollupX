@@ -7,13 +7,13 @@ mod pipeline;
 mod runtime;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
-use alloy_primitives::{B256, Bytes, I256, Signature, U256, address, b256};
+use alloy_primitives::{B256, Bytes, Signature, U256, address, b256};
 use alloy_sol_types::SolValue as _;
 use eez_control_rpc::v1::prover_client::ProverClient;
 use eez_control_rpc::v1::{
     BlockWitness, ExecutionWitness, PostBatch, ProveChunk, ProveHeader, ProveResponse, prove_chunk,
 };
-use eez_protocol::abi::{ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
+use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
 use reth_primitives_traits::BlockBody as _;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
@@ -132,7 +132,7 @@ fn anchor_batch_for(rollup_id: u64) -> eez_protocol::EvmBatch {
             rollupId: rollup_id,
             currentRoot: B256::ZERO,
             newRoot: B256::ZERO,
-            etherDelta: I256::ZERO,
+            etherDelta: EtherDeltaSol::ZERO,
         }],
         proxyEntryHash: B256::ZERO,
         destinationRollupId: rollup_id,
@@ -217,7 +217,7 @@ fn canonical_outbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256)
 fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
     let mut batch = outbound_batch(B256::ZERO, B256::ZERO, B256::ZERO);
     batch.entries[1].l2ToL1Calls[0].value = value;
-    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -EtherDeltaSol::from(value);
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     let call = &batch.entries[1].l2ToL1Calls[0];
     let call_hash = eez_protocol::l2_outbound_call_hash(
@@ -286,7 +286,7 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
         strict_inbound_transaction(value);
 
     let mut inbound_entry = batch.entries[0].clone();
-    inbound_entry.rootUpdates[0].etherDelta = I256::try_from(value).unwrap();
+    inbound_entry.rootUpdates[0].etherDelta = EtherDeltaSol::from(value);
     inbound_entry.proxyEntryHash = inbound_call_hash;
     inbound_entry.returnData = return_data;
     batch.entries.push(inbound_entry);

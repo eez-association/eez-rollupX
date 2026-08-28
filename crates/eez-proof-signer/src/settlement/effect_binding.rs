@@ -511,9 +511,10 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     )?;
     // A canonical anchor carries no cross-chain value. Check this only after
     // the leading Composer entry has actually been classified as an anchor.
-    if anchor_update.etherDelta != I256::ZERO {
+    let anchor_ether_delta = I256::from(anchor_update.etherDelta);
+    if anchor_ether_delta != I256::ZERO {
         return Err(EffectPrefixError::NonZeroAnchorEtherDelta {
-            claimed: anchor_update.etherDelta,
+            claimed: anchor_ether_delta,
         });
     }
     // With no effects the batch never represents the pre-settling root; the

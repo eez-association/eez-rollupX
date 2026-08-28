@@ -23,11 +23,13 @@ SUPPORTED_TARGETS=(
     deepNested                 # multi-level alternating callback chain
     flash-loan                 # stateful L1 -> L2 -> L1 callback flow
     nestedCallRevert           # failed L2 -> L1 callback caught by its L2 caller
+    nestedCallRevertL2         # failed L1 -> L2 callback caught by its L1 caller
     revertCounter              # single reverted callback (L1 -> L2 -> L1)
     revertFromOtherChain       # remote-frame revert followed by a committed retry
     revertCounterL2            # single reverted callback (L2 -> L1 -> L2)
     revertFromOtherChainL2     # remote L1 frame reverts an L2-origin call
     revertFromOtherChainAndCallAgainL2 # remote revert followed by a committed retry
+    revertFromOtherChainNested # nested remote revert followed by a committed call
     reentrant                  # four-boundary L1 -> L2 -> L1 -> L2 -> L1 chain
 )
 

@@ -117,7 +117,13 @@ cleanup() {
     local status=$?
     trap - EXIT
     kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >"$RESULT_DIR/enclave.txt" 2>&1 || true
-    for service in eez-node eez-proof-signer "$KURTOSIS_BUILDER_SERVICE" mev-relay-api; do
+    for service in \
+        eez-node \
+        eez-proof-signer \
+        "$KURTOSIS_BUILDER_SERVICE" \
+        mev-relay-api \
+        mev-relay-housekeeper
+    do
         capture_service_log "$service" || true
     done
     refresh_proof_counts
@@ -174,6 +180,42 @@ done
 }
 
 L2="$l2" bash "$HERE/scripts/verify-eezl2-deployment.sh"
+
+# The relay housekeeper can take its first validator snapshot before the
+# beacon clients submit their registrations. In that race it keeps serving an
+# empty proposer-duty set and the builder silently drops otherwise-valid
+# bundles. Wait for the relay API to persist registrations, then refresh the
+# stateless housekeeper so it rebuilds proposer duties from that database state.
+relay_deadline=$((SECONDS + ${EEZ_CI_RELAY_TIMEOUT_SECS:-180}))
+while (( SECONDS < relay_deadline )); do
+    relay_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" mev-relay-api 2>/dev/null || true)"
+    if grep -qE 'validator registrations call processed.*numRegistrations(New)?=[1-9][0-9]*' <<<"$relay_logs"; then
+        break
+    fi
+    sleep 5
+done
+(( SECONDS < relay_deadline )) || {
+    echo "relay API did not receive validator registrations before timeout" >&2
+    exit 1
+}
+
+echo "==> refreshing relay housekeeper after validator registration"
+kurtosis service stop "$KURTOSIS_ENCLAVE" mev-relay-housekeeper
+kurtosis service start "$KURTOSIS_ENCLAVE" mev-relay-housekeeper
+
+builder_deadline=$((SECONDS + ${EEZ_CI_BUILDER_TIMEOUT_SECS:-90}))
+while (( SECONDS < builder_deadline )); do
+    builder_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" "$KURTOSIS_BUILDER_SERVICE" 2>/dev/null || true)"
+    builder_logs="$(sed 's/\x1b\[[0-9;]*m//g' <<<"$builder_logs")"
+    if grep -qE 'Updated validator registrations.*len=[1-9][0-9]*' <<<"$builder_logs"; then
+        break
+    fi
+    sleep 5
+done
+(( SECONDS < builder_deadline )) || {
+    echo "builder did not load validator registrations before timeout" >&2
+    exit 1
+}
 
 while (( SECONDS < deadline )); do
     node_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" eez-node 2>/dev/null || true)"

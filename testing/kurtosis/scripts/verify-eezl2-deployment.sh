@@ -5,6 +5,9 @@ set -euo pipefail
 
 K="$(cd "$(dirname "$0")/.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
+PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
+PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
+EXPECTED_PROXY_ADDRESS="0xeeccd7ec2745c8e8743be2fc399a610b21613f03"
 
 for tool in cast jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not in PATH" >&2; exit 1; }
@@ -48,6 +51,12 @@ actual_use_gas_left="$(cast call "$EEZL2_ADDRESS" 'USE_GAS_LEFT()(bool)' --rpc-u
 runtime="$(cast code "$EEZL2_ADDRESS" --rpc-url "$L2")"
 actual_runtime_hash="$(cast keccak "$runtime")"
 actual_state_root="$(cast block 0 --rpc-url "$L2" --json | jq -er '.stateRoot')"
+actual_proxy_address="$(cast call \
+    "$EEZL2_ADDRESS" \
+    'computeCrossChainProxyAddress(address,uint64)(address)' \
+    "$PROXY_VECTOR_ORIGINAL_ADDRESS" \
+    "$PROXY_VECTOR_ORIGINAL_ROLLUP_ID" \
+    --rpc-url "$L2")"
 
 [[ "${actual_system,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]] || {
     echo "live EEZL2 SYSTEM_ADDRESS mismatch: $actual_system != $EEZ_L2_SYSTEM_ADDRESS" >&2
@@ -69,5 +78,9 @@ actual_state_root="$(cast block 0 --rpc-url "$L2" --json | jq -er '.stateRoot')"
     echo "live L2 genesis state root mismatch: $actual_state_root != $EEZ_INITIAL_STATE_ROOT" >&2
     exit 1
 }
+[[ "${actual_proxy_address,,}" == "${EXPECTED_PROXY_ADDRESS,,}" ]] || {
+    echo "live EEZL2 proxy derivation mismatch: $actual_proxy_address != $EXPECTED_PROXY_ADDRESS" >&2
+    exit 1
+}
 
-echo "EEZL2 deployment bindings verified (rollupId=$EEZ_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
+echo "EEZL2 deployment bindings and proxy derivation verified (rollupId=$EEZ_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"

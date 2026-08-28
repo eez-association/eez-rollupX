@@ -300,7 +300,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
             rollupId: 1,
             currentRoot: B256::ZERO,
             newRoot: B256::ZERO,
-            etherDelta: I256::try_from(value).unwrap(),
+            etherDelta: EtherDeltaSol::from(value),
         }],
         proxyEntryHash: call_hash,
         l2ToL1Calls: Vec::new(),

@@ -2051,10 +2051,9 @@ where
                         &pair_logs,
                         stf_cfg.eezl2_address,
                     );
-                    if let Err(e) = eez_protocol::outbound_gate::verify_outbound_authorized(
-                        &l1_entries,
+                    if let Err(e) = eez_protocol::outbound_gate::verify_expected_outbound_hashes(
+                        &composition.source.outbound_event_hashes,
                         &observed,
-                        rollup_id,
                     ) {
                         event!(
                             name: "eez.composer.cc_compose.outbound_unobserved",
@@ -3178,7 +3177,7 @@ where
                 rollupId: rollup_id,
                 currentRoot: pre_state_root,
                 newRoot: pre_sync_state_root,
-                etherDelta: alloy_primitives::I256::ZERO,
+                etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
             }],
             proxyEntryHash: B256::ZERO,
             l2ToL1Calls: Vec::new(),
@@ -3210,14 +3209,20 @@ where
         // are L2→L1 outflow; the paired L2 sidecar flat arrays are L1→L2
         // inflow. This mirrors TableGenerator's recursive prescan.
         let net_ether_delta =
-            |inflow: U256, outflow: U256| -> Result<alloy_primitives::I256, String> {
+            |inflow: U256, outflow: U256| -> Result<eez_protocol::abi::EtherDeltaSol, String> {
                 let inflow = alloy_primitives::I256::try_from(inflow)
                     .map_err(|error| format!("entry ether inflow overflows I256: {error}"))?;
                 let outflow = alloy_primitives::I256::try_from(outflow)
                     .map_err(|error| format!("entry ether outflow overflows I256: {error}"))?;
-                inflow
+                let delta = inflow
                     .checked_sub(outflow)
-                    .ok_or_else(|| "entry net ether delta overflows I256".to_string())
+                    .ok_or_else(|| "entry net ether delta overflows I256".to_string())?;
+                if delta < alloy_primitives::I256::from(eez_protocol::abi::EtherDeltaSol::MIN)
+                    || delta > alloy_primitives::I256::from(eez_protocol::abi::EtherDeltaSol::MAX)
+                {
+                    return Err("entry net ether delta overflows protocol int192".to_string());
+                }
+                Ok(eez_protocol::abi::EtherDeltaSol::from(delta))
             };
         let outbound_effect_count = outbound_l2_groups
             .iter()

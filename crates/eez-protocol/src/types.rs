@@ -155,10 +155,16 @@ pub struct SourceComposition {
     /// finalized immediately.
     pub entry_traces: Vec<crate::entries::EntryTrace>,
     /// Number of separate callback-delivery entries produced by each source
-    /// entry. This is empty only for malformed construction; normal L1
-    /// sources contain zeroes, while an L2 source records the callbacks that
-    /// must execute after its consuming user transaction.
+    /// entry. Canonical mutable compositions contain one zero per source entry:
+    /// callbacks stay inline in that entry's incoming-call array.
     pub callback_entry_counts: Vec<usize>,
+    /// Ordered L2-origin call hashes whose proxy frames committed during the
+    /// simulation and therefore must emit `CrossChainCallExecuted` when the
+    /// source transaction is executed in the Sync block.
+    ///
+    /// Naturally reverted calls and calls inside a reverted source frame are
+    /// omitted because their receipt logs roll back with the frame.
+    pub outbound_event_hashes: Vec<alloy_primitives::B256>,
 }
 
 /// Target-side batch for one non-entry rollup reached by recorded calls.

@@ -15,8 +15,8 @@ DEFAULT_SYSTEM_BALANCE="0xd3c21bcecceda1000000"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
 EXPECTED_PROXY_SALT="0x7c432a8c413604983b9f189bb5b6650220b6b9b038267802fef07276a796e168"
-EXPECTED_PROXY_INIT_CODE_HASH="0xfb5dfe9e2897651b2546f11bf15530ed772f8879eb756c7a1fdfde45274fbd92"
-EXPECTED_PROXY_ADDRESS="0x0a8a9fd61b5dd3d0d88fbb5f9bab75b14a4cae27"
+EXPECTED_PROXY_INIT_CODE_HASH="0xc93c92703d4b478a5f23ac91f8a23e249b65c23a9f13876d0b56aaf5a1fa04f9"
+EXPECTED_PROXY_ADDRESS="0xeeccd7ec2745c8e8743be2fc399a610b21613f03"
 
 usage() {
     cat >&2 <<'EOF'
@@ -184,7 +184,6 @@ then
     echo "EEZL2 was not compiled under the canonical protocol source path" >&2
     exit 1
 fi
-runtime_hash="$(cast keccak "$runtime")"
 
 # Bind the canonical proxy creation bytecode, constructor encoding, and CREATE2
 # formula to an independent fixed vector.
@@ -216,6 +215,86 @@ do
         exit 1
     fi
 done
+
+# EEZBase caches the CrossChainProxy init-code hash in a constructor immutable.
+# The generator deploys EEZL2 at a temporary address, but the resulting runtime
+# is installed at the canonical genesis predeploy. Patch that one immutable to
+# the hash whose constructor manager is the canonical address. The other three
+# immutable sets are identified by their known public values; fail closed if a
+# compiler or protocol change makes the layout ambiguous.
+rollup_word="$(cast abi-encode 'f(uint64)' "$rollup_id")"
+system_word="$(cast abi-encode 'f(address)' "$system_address")"
+use_gas_left_word="$(cast abi-encode 'f(bool)' "$USE_GAS_LEFT")"
+mapfile -t immutable_ids < <(jq -er '.deployedBytecode.immutableReferences | keys[]' "$artifact")
+if (( ${#immutable_ids[@]} != 4 )); then
+    echo "expected exactly four EEZL2 immutable reference sets; found ${#immutable_ids[@]}" >&2
+    exit 1
+fi
+
+runtime_body="${runtime#0x}"
+proxy_immutable_id=""
+declare -A matched_public_immutables=()
+for immutable_id in "${immutable_ids[@]}"; do
+    mapfile -t references < <(jq -er \
+        --arg id "$immutable_id" \
+        '.deployedBytecode.immutableReferences[$id][] | "\(.start) \(.length)"' \
+        "$artifact")
+    (( ${#references[@]} > 0 )) || {
+        echo "EEZL2 immutable $immutable_id has no runtime references" >&2
+        exit 1
+    }
+
+    reference_value=""
+    for reference in "${references[@]}"; do
+        read -r start length <<<"$reference"
+        [[ "$length" == "32" ]] || {
+            echo "EEZL2 immutable $immutable_id has unexpected length $length" >&2
+            exit 1
+        }
+        value="0x${runtime_body:$((start * 2)):$((length * 2))}"
+        if [[ -n "$reference_value" && "$value" != "$reference_value" ]]; then
+            echo "EEZL2 immutable $immutable_id has inconsistent runtime values" >&2
+            exit 1
+        fi
+        reference_value="$value"
+    done
+
+    case "${reference_value,,}" in
+        "${rollup_word,,}") matched_public_immutables[rollup]=1 ;;
+        "${system_word,,}") matched_public_immutables[system]=1 ;;
+        "${use_gas_left_word,,}") matched_public_immutables[use_gas_left]=1 ;;
+        *)
+            [[ -z "$proxy_immutable_id" ]] || {
+                echo "more than one unknown EEZL2 immutable reference set" >&2
+                exit 1
+            }
+            proxy_immutable_id="$immutable_id"
+            ;;
+    esac
+done
+
+for public_immutable in rollup system use_gas_left; do
+    [[ "${matched_public_immutables[$public_immutable]:-}" == "1" ]] || {
+        echo "could not identify EEZL2 $public_immutable immutable references" >&2
+        exit 1
+    }
+done
+[[ -n "$proxy_immutable_id" ]] || {
+    echo "could not identify EEZL2 PROXY_INIT_CODE_HASH immutable references" >&2
+    exit 1
+}
+
+proxy_hash_body="${proxy_init_code_hash#0x}"
+while read -r start length; do
+    replacement_start=$((start * 2))
+    replacement_end=$((replacement_start + length * 2))
+    runtime_body="${runtime_body:0:replacement_start}${proxy_hash_body}${runtime_body:replacement_end}"
+done < <(jq -er \
+    --arg id "$proxy_immutable_id" \
+    '.deployedBytecode.immutableReferences[$id][] | "\(.start) \(.length)"' \
+    "$artifact")
+runtime="0x$runtime_body"
+runtime_hash="$(cast keccak "$runtime")"
 
 genesis_state_root() {
     local genesis="$1"

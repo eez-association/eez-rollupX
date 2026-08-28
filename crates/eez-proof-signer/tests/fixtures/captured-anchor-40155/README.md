@@ -1,6 +1,6 @@
 # Captured Chiado anchor window ending at L2 block 40155
 
-This fixture is the complete successful signer input for L2 window
+This fixture is a historical successful signer input for L2 window
 `[40146..40155]` from the Chiado deployment using protocol commit
 `6fcc90b65063831cb7797e9fa361004064d28f9f`.
 
@@ -18,8 +18,8 @@ the proof retained in that calldata recovers the Chiado attester, then runs the
 service with the public Anvil account #1 test signer. Its expected response
 signature was independently generated with `cast wallet sign --no-hash`.
 
-Replaying the fixture checks stateless execution and the complete
-settlement-to-signing path against captured data. The window contains no
-transactions, so the deterministic test system identity is not involved in DA
-reconstruction. It is an anchor-only case; inbound, outbound, and mixed effects
-remain covered by their dedicated behavioral and E2E tests.
+The target protocol now packs `RollupUpdate.etherDelta` as `int192`, changing
+the `postAndVerifyBatch` selector from `0xcafef125` to `0xe4a480e4`. The fixture
+is retained as real-chain evidence that the pre-change calldata is rejected by
+the current ABI. Current settlement-to-signing behavior remains covered by the
+service tests and live Kurtosis E2Es.

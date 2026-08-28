@@ -393,36 +393,33 @@ fn proof_signer_binary() -> Result<PathBuf> {
         .and_then(std::path::Path::parent)
         .ok_or_else(|| anyhow!("test executable has no target profile directory"))?;
     let path = target_profile.join(format!("eez-proof-signer{}", std::env::consts::EXE_SUFFIX));
-    if path.is_file() {
-        return Ok(path);
-    }
 
-    // Keeps concurrent test fns in this binary from each spawning their own
-    // build.
+    // Keep concurrent test fns from racing the build. Do not treat an existing
+    // binary as current: `cargo test` builds the signer's test harness, not the
+    // un-hashed executable launched below, so an ABI change can otherwise
+    // leave these integration tests running a stale signer indefinitely.
     let _build_guard = WORKSPACE_BUILD_LOCK
         .lock()
         .map_err(|_| anyhow!("workspace build lock poisoned"))?;
-    if !path.is_file() {
-        let profile = target_profile
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow!("target profile directory is not valid UTF-8"))?;
-        let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
-        command.current_dir(repo_root()).args([
-            "build",
-            "--locked",
-            "-p",
-            "eez-proof-signer",
-            "--bin",
-            "eez-proof-signer",
-        ]);
-        if profile != "debug" {
-            command.args(["--profile", profile]);
-        }
-        let status = command.status().context("build eez-proof-signer")?;
-        if !status.success() {
-            bail!("building eez-proof-signer failed with {status}");
-        }
+    let profile = target_profile
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("target profile directory is not valid UTF-8"))?;
+    let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
+    command.current_dir(repo_root()).args([
+        "build",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "--bin",
+        "eez-proof-signer",
+    ]);
+    if profile != "debug" {
+        command.args(["--profile", profile]);
+    }
+    let status = command.status().context("build eez-proof-signer")?;
+    if !status.success() {
+        bail!("building eez-proof-signer failed with {status}");
     }
     path.is_file()
         .then_some(path)
@@ -986,6 +983,7 @@ sol! {
         function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 root, uint256 etherBalance);
         function rollupCounter() external view returns (uint256);
         function registerRollup(address rollupContract, bytes32 initialRoot) external returns (uint64 rollupId);
+        function executeCrossChainCall(address sourceAddress, bytes calldata callData) external payable returns (bytes memory result);
     }
 }
 

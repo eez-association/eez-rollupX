@@ -26,13 +26,16 @@ pub enum NestedPairDirection {
 /// Facts recomputed while verifying a nested pair.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NestedPairVerification {
-    /// Every call that left L2, in execution order. These hashes must match the
-    /// L2 manager's emitted events for the corresponding user transaction.
+    /// Every committed call that left L2, in execution order. These hashes
+    /// must match the L2 manager's emitted events for the corresponding user
+    /// transaction. Calls inside a reverted proxy frame are deliberately
+    /// omitted because their receipt events and value transfers roll back.
     pub l2_outbound_hashes: Vec<B256>,
     /// Net L1→L2 value minus L2→L1 value for this rollup.
     pub ether_delta: I256,
     /// Number of separate L1→L2 callback deliveries belonging to each
-    /// source-L2 root. Empty for inbound verification.
+    /// source-L2 root. Canonical mutable outbound entries contain callbacks
+    /// directly, so each count is zero. Empty for inbound verification.
     pub outbound_callback_counts: Vec<usize>,
 }
 
@@ -40,9 +43,10 @@ pub struct NestedPairVerification {
 /// group that realizes it.
 ///
 /// Inbound (L1-origin) effects have exactly one L2 delivery entry. Outbound
-/// (L2-origin) effects have one seed-only L2 source entry per live cursor slot,
-/// one L1 host for a flat root run or callback-bearing root, and zero or more
-/// separate L1→L2 callback deliveries after the source-entry prefix.
+/// (L2-origin) effects have one L2 source entry per live cursor slot and one L1
+/// host for the whole L2 user transaction. Calls returning to L2 are contained
+/// by the corresponding source entry rather than represented as later
+/// callback-delivery transactions.
 pub fn verify_nested_group(
     l1_entry: &ExecutionEntrySol,
     l2_entries: &[ExecutionEntrySol],
@@ -138,6 +142,7 @@ pub fn verify_nested_pair(
                 )
                 .into());
             }
+            let reverted_facts = (!l2_entry.success).then(|| facts.clone());
             facts.record_value(l2_rollup_id, root.value)?;
             facts.l2_outbound_hashes.push(root_hash);
             execute_call(
@@ -149,6 +154,9 @@ pub fn verify_nested_pair(
                 &mut facts,
                 0,
             )?;
+            if let Some(saved) = reverted_facts {
+                facts = saved;
+            }
         }
         NestedPairDirection::Inbound => {
             if l1_entry.proxyEntryHash == B256::ZERO
@@ -278,14 +286,14 @@ fn verify_outbound_group(
         l1_entry,
     ))
     .map_err(|reason| crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(reason)))?[0];
-    if l2_entries.len() < source_count {
+    if l2_entries.len() != source_count {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "outbound L1 host carries {source_count} roots but has only {} L2 entries",
+            "outbound L1 host carries {source_count} source roots but the L2 table has {} entries",
             l2_entries.len(),
         ))
         .into());
     }
-    let (source_entries, callback_entries) = l2_entries.split_at(source_count);
+    let source_entries = l2_entries;
 
     let l1_seed = EntryRollingHash::seed_for_l1(
         l1_entry
@@ -296,10 +304,9 @@ fn verify_outbound_group(
     );
     let mut l1 = ChainState::new(l1_entry, RollupId::MAINNET, l1_seed);
     let mut facts = AccumulatedFacts::default();
-    let mut callback_cursor = 0usize;
-    let mut callback_counts = vec![0usize; source_count];
     let mut call_index = 0usize;
     let mut source_cursor = 0usize;
+    let mut seen_sources = vec![false; source_count];
     while call_index < l1_entry.l2ToL1Calls.len() {
         let marker = l1.peek_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
@@ -325,16 +332,10 @@ fn verify_outbound_group(
                     "outbound root {root_index} advances beyond {source_count} source cursor slots"
                 )))
             })?;
+            seen_sources[source_cursor] = true;
             if source_entry.destinationRollupId != RollupId::MAINNET.0 {
                 return Err(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound L2 source entry {root_index} has inconsistent routing metadata",
-                ))
-                .into());
-            }
-            if !source_entry.l2ToL1Calls.is_empty() || !source_entry.expectedL1ToL2Calls.is_empty()
-            {
-                return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                    "outbound L2 source entry {root_index} is not seed-only; callbacks must be separate deliveries",
                 ))
                 .into());
             }
@@ -357,31 +358,27 @@ fn verify_outbound_group(
                 .into());
             }
 
+            let reverted_facts = (!source_entry.success).then(|| facts.clone());
             facts.record_value(l2_rollup_id, root.value)?;
             facts.l2_outbound_hashes.push(root_hash);
-            let source_state = ChainState::new(
+            let mut source_state = ChainState::new(
                 source_entry,
                 l2_rollup_id,
                 EntryRollingHash::seed_for_l2(source_entry.proxyEntryHash),
             );
+            execute_call(
+                &mut l1,
+                &mut source_state,
+                root,
+                source_entry.success,
+                &source_entry.returnData,
+                &mut facts,
+                0,
+            )?;
             source_state.finish()?;
-
-            l1.rolling.call_begin(destination_call_hash(
-                &root,
-                l2_rollup_id,
-                RollupId::MAINNET,
-            )?);
-            let callback_start = callback_cursor;
-            while let Some(callback) = callback_entries.get(callback_cursor) {
-                if !callback_matches_current_position(&l1, callback, l2_rollup_id)? {
-                    break;
-                }
-                verify_outbound_callback(&mut l1, callback, l2_rollup_id, &mut facts)?;
-                callback_cursor += 1;
+            if let Some(saved) = reverted_facts {
+                facts = saved;
             }
-            callback_counts[source_cursor] += callback_cursor - callback_start;
-            l1.rolling
-                .call_end(source_entry.success, &source_entry.returnData);
             source_cursor += 1;
         }
         if let Some(saved) = saved_facts {
@@ -390,104 +387,14 @@ fn verify_outbound_group(
         }
         call_index = group_end;
     }
-    if callback_cursor != callback_entries.len() {
+    if seen_sources.iter().any(|seen| !seen) {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "outbound group left {} callback deliveries unconsumed",
-            callback_entries.len() - callback_cursor,
+            "outbound group did not exercise every source entry: {seen_sources:?}",
         ))
         .into());
     }
     l1.finish()?;
-    finish_facts(facts, callback_counts)
-}
-
-fn callback_matches_current_position(
-    l1: &ChainState<'_>,
-    callback: &ExecutionEntrySol,
-    l2_rollup_id: RollupId,
-) -> ProtocolResult<bool> {
-    if callback.destinationRollupId != l2_rollup_id.0 {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "outbound callback targets rollup {}, expected {l2_rollup_id}",
-            callback.destinationRollupId,
-        ))
-        .into());
-    }
-    let [call] = callback.l2ToL1Calls.as_slice() else {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "outbound callback requires exactly one top-level incoming call; found {}",
-            callback.l2ToL1Calls.len(),
-        ))
-        .into());
-    };
-    if call.revertNextNCalls > 1 {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "a one-call callback delivery has a revert span larger than one".into(),
-        )
-        .into());
-    }
-    let call_hash = source_call_hash(call, RollupId::MAINNET, l2_rollup_id)?;
-    if callback.proxyEntryHash != call_hash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "outbound callback proxy hash does not match its incoming call".into(),
-        )
-        .into());
-    }
-    Ok(l1
-        .next_row()
-        .is_some_and(|row| row.expectedL1toL2Hash == position_key(call_hash, l1.rolling.current())))
-}
-
-fn verify_outbound_callback(
-    l1: &mut ChainState<'_>,
-    callback: &ExecutionEntrySol,
-    l2_rollup_id: RollupId,
-    facts: &mut AccumulatedFacts,
-) -> ProtocolResult<()> {
-    let [outer] = callback.l2ToL1Calls.as_slice() else {
-        unreachable!("callback shape checked before verification")
-    };
-    let row = l1.next_row().cloned().ok_or_else(|| {
-        crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-            "outbound callback has no matching L1 nested row".into(),
-        ))
-    })?;
-    let delivery_matches = callback.success
-        && if row.success {
-            callback.returnData == row.returnData
-        } else {
-            callback.returnData.is_empty()
-        };
-    if !delivery_matches {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "outbound callback delivery outcome differs from its L1 nested row".into(),
-        )
-        .into());
-    }
-
-    let call_hash = source_call_hash(outer, RollupId::MAINNET, l2_rollup_id)?;
-    let saved_region_hash = (outer.revertNextNCalls == 1).then(|| l1.rolling.clone());
-    let saved_region_facts = (outer.revertNextNCalls == 1).then(|| facts.clone());
-    let saved_row_facts = facts.clone();
-    let row_index = l1.open_next_row(call_hash);
-    let mut l2 = ChainState::new(
-        callback,
-        l2_rollup_id,
-        EntryRollingHash::seed_for_l2(callback.proxyEntryHash),
-    );
-    let root = l2.take_current_call().expect("callback has one root call");
-    facts.record_value(RollupId::MAINNET, root.value)?;
-    execute_call(&mut l2, l1, root, row.success, &row.returnData, facts, 0)?;
-    l2.finish()?;
-    l1.close_row(row_index, row.success)?;
-    if !row.success {
-        *facts = saved_row_facts;
-    }
-    if let Some(saved_hash) = saved_region_hash {
-        l1.rolling = saved_hash;
-        *facts = saved_region_facts.expect("saved with callback region hash");
-    }
-    Ok(())
+    finish_facts(facts, vec![0; source_count])
 }
 
 fn execute_call(

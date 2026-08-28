@@ -7,12 +7,7 @@ fn nested_position_key(call_hash: B256, rolling_hash: B256) -> B256 {
     alloy_primitives::keccak256(input)
 }
 
-fn nested_outbound_fixture() -> (
-    CanonicalPostBatch,
-    ExecutionEntrySol,
-    ExecutionEntrySol,
-    Vec<B256>,
-) {
+fn nested_outbound_fixture() -> (CanonicalPostBatch, ExecutionEntrySol, Vec<B256>) {
     let make_call = |index: u8, source_rollup_id: u64| L2ToL1CallSol {
         revertNextNCalls: 0,
         isStatic: false,
@@ -101,8 +96,7 @@ fn nested_outbound_fixture() -> (
         returnData: Bytes::new(),
     };
 
-    let callback_hash = common_hash(&calls[1], RollupId(1));
-    let mut l2_rolling = EntryRollingHash::seed_for_l2(callback_hash);
+    let mut l2_rolling = EntryRollingHash::seed_for_l2(l2_outbound_hashes[0]);
     l2_rolling.call_begin(common_hash(&calls[1], RollupId(1)));
     let l2_row_key = nested_position_key(l2_outbound_hashes[1], l2_rolling.current());
     l2_rolling.nested_begin(l2_outbound_hashes[1]);
@@ -112,14 +106,6 @@ fn nested_outbound_fixture() -> (
     l2_rolling.call_end(true, &returns[1]);
     let source_entry = ExecutionEntrySol {
         proxyEntryHash: l2_outbound_hashes[0],
-        rollingHash: EntryRollingHash::seed_for_l2(l2_outbound_hashes[0]).current(),
-        destinationRollupId: RollupId::MAINNET.0,
-        success: true,
-        returnData: returns[0].clone(),
-        ..Default::default()
-    };
-    let callback_entry = ExecutionEntrySol {
-        proxyEntryHash: callback_hash,
         l2ToL1Calls: vec![calls[1].clone()],
         expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
             expectedL1toL2Hash: l2_row_key,
@@ -129,42 +115,26 @@ fn nested_outbound_fixture() -> (
             returnData: returns[2].clone(),
         }],
         rollingHash: l2_rolling.current(),
-        destinationRollupId: 1,
+        destinationRollupId: RollupId::MAINNET.0,
         success: true,
-        returnData: returns[1].clone(),
+        returnData: returns[0].clone(),
         ..Default::default()
     };
-    (batch, source_entry, callback_entry, l2_outbound_hashes)
+    (batch, source_entry, l2_outbound_hashes)
 }
 
 #[test]
 fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering() {
-    let (batch, source_entry, callback_entry, event_hashes) = nested_outbound_fixture();
-    let make_settling = |source_entry: ExecutionEntrySol, callback_entry: ExecutionEntrySol| {
-        let callback_call = &callback_entry.l2ToL1Calls[0];
-        let callback_calldata =
-            encode_execute_incoming(eez_protocol::system_tx::lower_entry_to_l2(&callback_entry));
+    let (batch, source_entry, event_hashes) = nested_outbound_fixture();
+    let make_settling = |source_entry: ExecutionEntrySol| {
         let mut settling = SettlingBlockObservations::for_test(
-            vec![true, false, true],
-            vec![InboundCandidate {
-                transaction_index: 2,
-                inspection: inspect_inbound_candidate(
-                    callback_call.value,
-                    &callback_calldata,
-                    true,
-                    expected_rollup_id(),
-                ),
-            }],
+            vec![true, false],
+            Vec::new(),
             event_hashes
                 .iter()
                 .enumerate()
                 .map(|(log_index, hash)| {
-                    OutboundEventObservation::decoded_for_test(
-                        if log_index == 0 { 1 } else { 2 },
-                        0,
-                        *hash,
-                        0,
-                    )
+                    OutboundEventObservation::decoded_for_test(1, log_index, *hash, 0)
                 })
                 .collect(),
         );
@@ -174,7 +144,7 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
         settling
     };
 
-    let settling = make_settling(source_entry.clone(), callback_entry.clone());
+    let settling = make_settling(source_entry.clone());
     let plan = effect_plan(&batch, &settling);
     let authorized = authorize_outbound_effects(&plan).expect("authorize nested pair");
     assert_eq!(authorized.len(), 1);
@@ -186,7 +156,7 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
             .derived_da_entry()
             .expectedL1ToL2Calls
             .len(),
-        0
+        1
     );
     assert_eq!(
         authorized
@@ -195,12 +165,12 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
             .unwrap()
             .derived_callback_entries()
             .len(),
-        1
+        0
     );
 
-    let mut tampered_callback = callback_entry;
-    tampered_callback.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(0xee);
-    let settling = make_settling(source_entry, tampered_callback);
+    let mut tampered_source = source_entry;
+    tampered_source.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(0xee);
+    let settling = make_settling(tampered_source);
     let plan = effect_plan(&batch, &settling);
     assert!(matches!(
         authorize_outbound_effects(&plan),
@@ -370,7 +340,7 @@ fn one_settlement_host_authorizes_two_flat_source_roots() {
         .l2ToL1Calls
         .iter()
         .fold(U256::ZERO, |total, call| total + call.value);
-    batch.entries[1].rootUpdates[0].etherDelta = -I256::try_from(total_value).unwrap();
+    batch.entries[1].rootUpdates[0].etherDelta = -EtherDeltaSol::from(total_value);
     refresh_outbound_rolling_hash(&mut batch.entries[1]);
 
     let sources = batch.entries[1]
@@ -588,6 +558,43 @@ fn fully_reverted_outbound_root_is_authorized_without_an_impossible_event() {
 }
 
 #[test]
+fn naturally_reverted_outbound_root_is_authorized_without_an_impossible_event() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let failed_return = Bytes::from_static(b"L1 target reverted");
+    let root = batch.entries[1].l2ToL1Calls[0].clone();
+    let update = &batch.entries[1].rootUpdates[0];
+    let mut rolling = EntryRollingHash::seed_for_l1(
+        [(update.rollupId, update.currentRoot)],
+        batch.entries[1].proxyEntryHash,
+    );
+    rolling.call_begin(common_cross_chain_call_hash(CallHashInput {
+        call_mode: CallMode::Mutable,
+        source_address: root.sourceAddress,
+        source_rollup_id: RollupId(root.sourceRollupId),
+        target_address: root.targetAddress,
+        target_rollup_id: RollupId::MAINNET,
+        value: root.value,
+        data: &root.data,
+    }));
+    rolling.call_end(false, &failed_return);
+    batch.entries[1].rollingHash = rolling.current();
+    batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_for_test(
+            0,
+            flat_outbound_sidecar_for_call(&root, false, failed_return),
+        ));
+    let plan = effect_plan(&batch, &settling);
+
+    let authorized = authorize_outbound_effects(&plan)
+        .expect("a naturally reverting proxy frame cannot retain its receipt event");
+    assert_eq!(authorized.len(), 1);
+}
+
+#[test]
 fn outbound_events_reject_nonzero_manager_entry_gas() {
     let batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let call = &batch.entries[1].l2ToL1Calls[0];
@@ -741,7 +748,7 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
     ));
 
     let mut wrong_delta = valid.clone();
-    wrong_delta.entries[1].rootUpdates[0].etherDelta = I256::ONE;
+    wrong_delta.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     assert_eq!(
         verify(&wrong_delta),
         Some(OutboundEffectError::EtherDeltaMismatch {
@@ -751,14 +758,18 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
         })
     );
 
-    for value in [U256::from(1), (U256::from(1) << 255) - U256::from(1)] {
+    for value in [U256::from(1), U256::from(1) << 191] {
         let mut value_bearing = valid.clone();
         value_bearing.entries[1].l2ToL1Calls[0].value = value;
-        value_bearing.entries[1].rootUpdates[0].etherDelta = -I256::try_from(value).unwrap();
+        value_bearing.entries[1].rootUpdates[0].etherDelta = if value == U256::from(1) << 191 {
+            EtherDeltaSol::MIN
+        } else {
+            -EtherDeltaSol::from(value)
+        };
         refresh_outbound_rolling_hash(&mut value_bearing.entries[1]);
         assert_eq!(verify(&value_bearing), None);
 
-        value_bearing.entries[1].rootUpdates[0].etherDelta += I256::ONE;
+        value_bearing.entries[1].rootUpdates[0].etherDelta += EtherDeltaSol::ONE;
         assert_eq!(
             verify(&value_bearing),
             Some(OutboundEffectError::EtherDeltaMismatch {
@@ -769,7 +780,7 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
         );
     }
 
-    for value in [U256::from(1) << 255, U256::MAX] {
+    for value in [(U256::from(1) << 191) + U256::from(1), U256::MAX] {
         let mut out_of_range = valid.clone();
         out_of_range.entries[1].l2ToL1Calls[0].value = value;
         refresh_outbound_rolling_hash(&mut out_of_range.entries[1]);

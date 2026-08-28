@@ -718,12 +718,12 @@ mod tests {
     };
     use crate::error::L1Error;
     use alloy_consensus::transaction::TxHashRef;
-    use alloy_primitives::{Address, B256, Bytes, I256, U256};
+    use alloy_primitives::{Address, B256, Bytes, U256};
     use alloy_provider::ProviderBuilder;
     use alloy_sol_types::{SolCall, SolEvent};
     use alloy_transport::mock::Asserter;
     use eez_protocol::abi::{
-        BatchPosted, ExecutionEntrySol, L2ExecutionPerformed,
+        BatchPosted, EtherDeltaSol, ExecutionEntrySol, L2ExecutionPerformed,
         ProofSystemBatchPerVerificationEntriesSol, RollupIdWithProofSystemsSol, RootUpdateSol,
         postAndVerifyBatchCall,
     };
@@ -1071,7 +1071,7 @@ mod tests {
             rollupId: rollup_id,
             currentRoot: current_root,
             newRoot: new_root,
-            etherDelta: I256::ZERO,
+            etherDelta: EtherDeltaSol::ZERO,
         };
         let batch = ProofSystemBatchPerVerificationEntriesSol {
             entries: vec![
@@ -1177,7 +1177,7 @@ mod tests {
                             rollupId: rollup_id,
                             currentRoot: current,
                             newRoot: new,
-                            etherDelta: I256::ZERO,
+                            etherDelta: EtherDeltaSol::ZERO,
                         }],
                         ..Default::default()
                     }]

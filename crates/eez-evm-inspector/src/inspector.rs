@@ -131,7 +131,8 @@ where
 /// [`CompositionBuilder::annotate_revert_span`](eez_protocol::CompositionBuilder::annotate_revert_span).
 /// Calls are recorded in preorder because each slot is opened before its
 /// session executes. Therefore, `span = end - start` covers the reverted
-/// frame's recorded calls. Batch materialization rejects such spans.
+/// frame's recorded calls. Batch materialization lowers such spans to the
+/// protocol's `revertNextNCalls` rollback marker.
 pub struct SessionInspector<'a> {
     /// Combined proxy-lookup configuration: the contract address to
     /// read and which slot to read from.
@@ -146,15 +147,39 @@ pub struct SessionInspector<'a> {
     error: Option<ExecutorError>,
     /// Per-rollup cache channel for nested re-entry.
     overlay_channel: OverlayChannelHandle,
-    /// Per-EVM-frame snapshot of the dispatcher's recorded-call count
-    /// at the entry of `Inspector::call`. On `Inspector::call_end`,
-    /// the popped value pairs with the current count to bracket the
-    /// range of [`eez_protocol::ExecutedAction`]s dispatched
-    /// inside this frame. If the frame's outcome is
-    /// `InstructionResult::Revert` AND the range is non-empty, the
-    /// inspector forwards `(start, span)` to
-    /// [`CompositionBuilder::annotate_revert_span`](eez_protocol::CompositionBuilder::annotate_revert_span).
-    frame_starts: Vec<usize>,
+    /// Per-EVM-frame snapshot of the dispatcher's recorded-call count and
+    /// whether this frame itself was an intercepted cross-chain proxy call.
+    ///
+    /// A reverting ordinary frame brackets remote calls whose effects must be
+    /// lowered to `revertNextNCalls`. A cross-chain proxy frame that naturally
+    /// returns the destination's revert data does not: that failure is already
+    /// represented by the entry/call outcome. Only an enclosing source frame
+    /// that subsequently reverts creates a rollback window.
+    frame_boundaries: Vec<FrameBoundary>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FrameBoundary {
+    start: usize,
+    intercepted_cross_chain: bool,
+}
+
+fn reverted_dispatch_span(
+    boundary: FrameBoundary,
+    end: usize,
+    result: InstructionResult,
+    has_error: bool,
+) -> Option<(usize, u32)> {
+    if has_error
+        || boundary.intercepted_cross_chain
+        || boundary.start >= end
+        || result != InstructionResult::Revert
+    {
+        return None;
+    }
+
+    let span = u32::try_from(end - boundary.start).unwrap_or(u32::MAX);
+    Some((boundary.start, span))
 }
 
 impl std::fmt::Debug for SessionInspector<'_> {
@@ -212,7 +237,7 @@ impl SessionInspectorFactory {
             caller_rollup_id: self.caller_rollup_id,
             error: None,
             overlay_channel: self.overlay_channel.clone(),
-            frame_starts: Vec::new(),
+            frame_boundaries: Vec::new(),
         }
     }
 }
@@ -244,7 +269,10 @@ where
         // `call_end` can detect "frame reverted AFTER dispatching one
         // or more cross-chain calls" (revert-continue patterns —
         // see field doc).
-        self.frame_starts.push(self.dispatcher.recorded_count());
+        self.frame_boundaries.push(FrameBoundary {
+            start: self.dispatcher.recorded_count(),
+            intercepted_cross_chain: false,
+        });
 
         if self.has_error() {
             return None;
@@ -275,6 +303,10 @@ where
             tracing::trace!(addr = %inputs.target_address, "inspector: not a proxy");
             return None;
         };
+        self.frame_boundaries
+            .last_mut()
+            .expect("the current CALL frame has a boundary")
+            .intercepted_cross_chain = true;
 
         let call_value = inputs.value.get();
 
@@ -367,10 +399,14 @@ where
         // Skip when an executor error already aborts composition, no calls
         // were dispatched in the frame, or the outcome is not an explicit
         // revert.
-        let start = self.frame_starts.pop().unwrap_or(0);
+        let boundary = self.frame_boundaries.pop().unwrap_or(FrameBoundary {
+            start: 0,
+            intercepted_cross_chain: false,
+        });
         let end = self.dispatcher.recorded_count();
-        if !self.has_error() && start < end && outcome.result.result == InstructionResult::Revert {
-            let span = u32::try_from(end - start).unwrap_or(u32::MAX);
+        if let Some((start, span)) =
+            reverted_dispatch_span(boundary, end, outcome.result.result, self.has_error())
+        {
             self.dispatcher.annotate_revert_span(start, span);
         }
     }
@@ -576,5 +612,50 @@ mod tests {
             .expect("EEZL2 config path must find proxy");
         assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
         assert_eq!(info.original_address, DESTINATION_ADDR);
+    }
+
+    #[test]
+    fn natural_cross_chain_revert_does_not_create_rollback_span() {
+        let span = reverted_dispatch_span(
+            FrameBoundary {
+                start: 3,
+                intercepted_cross_chain: true,
+            },
+            4,
+            InstructionResult::Revert,
+            false,
+        );
+
+        assert_eq!(span, None);
+    }
+
+    #[test]
+    fn enclosing_source_revert_creates_rollback_span() {
+        let span = reverted_dispatch_span(
+            FrameBoundary {
+                start: 3,
+                intercepted_cross_chain: false,
+            },
+            5,
+            InstructionResult::Revert,
+            false,
+        );
+
+        assert_eq!(span, Some((3, 2)));
+    }
+
+    #[test]
+    fn successful_source_frame_does_not_create_rollback_span() {
+        let span = reverted_dispatch_span(
+            FrameBoundary {
+                start: 3,
+                intercepted_cross_chain: false,
+            },
+            5,
+            InstructionResult::Return,
+            false,
+        );
+
+        assert_eq!(span, None);
     }
 }

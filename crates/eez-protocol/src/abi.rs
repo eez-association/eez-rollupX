@@ -5,14 +5,20 @@
 
 use alloy_sol_types::sol;
 
+/// Signed value width used by the protocol's packed `RollupUpdate` ABI.
+pub type EtherDeltaSol = alloy_primitives::Signed<192, 3>;
+
 sol! {
     /// One rollup state transition carried by an L1 entry.
+    ///
+    /// Solidity names this `RollupUpdate`; the field order and `int192` width
+    /// intentionally mirror the pinned protocol ABI.
     #[derive(Debug)]
     struct RootUpdateSol {
         uint64 rollupId;
+        int192 etherDelta;
         bytes32 currentRoot;
         bytes32 newRoot;
-        int256 etherDelta;
     }
 
     /// A composer assertion about a rollup's live state root.
@@ -282,7 +288,7 @@ mod selector_locks {
     fn l1_selectors_match_upstream() {
         assert_eq!(
             postAndVerifyBatchCall::SELECTOR,
-            [0xca, 0xfe, 0xf1, 0x25],
+            [0xe4, 0xa4, 0x80, 0xe4],
             "postAndVerifyBatch selector drifted from pinned protocol"
         );
         assert_eq!(
