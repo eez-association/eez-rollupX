@@ -7,11 +7,12 @@ mod pipeline;
 mod runtime;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
-use alloy_primitives::{B256, Bytes, Signature, U256, address, b256};
+use alloy_primitives::{B256, Bytes, Signature, U256, address, b256, keccak256};
 use alloy_sol_types::SolValue as _;
 use eez_control_rpc::v1::prover_client::ProverClient;
 use eez_control_rpc::v1::{
     BlockWitness, ExecutionWitness, PostBatch, ProveChunk, ProveHeader, ProveResponse, prove_chunk,
+    prove_failure,
 };
 use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
 use reth_primitives_traits::BlockBody as _;
