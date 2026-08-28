@@ -40,6 +40,7 @@ yv() { grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
 NODE_IMAGE="$(yv eez_node_image)";                NODE_IMAGE="${NODE_IMAGE:-eez-node:dev}"
 PROOF_SIGNER_IMAGE="$(yv proof_signer_image)";    PROOF_SIGNER_IMAGE="${PROOF_SIGNER_IMAGE:-eez-proof-signer:dev}"
 DEPLOY_IMAGE="$(yv deploy_image)";                DEPLOY_IMAGE="${DEPLOY_IMAGE:-eez-deploy:dev}"
+UI_IMAGE="$(yv ui_image)";                        UI_IMAGE="${UI_IMAGE:-eez-ui:dev}"
 
 export DOCKER_BUILDKIT=1
 
@@ -73,6 +74,17 @@ if [[ "${EEZ_SKIP_DEPLOY_BUILD:-0}" != "1" ]]; then
         "$REPO"
 else
     echo "==> reusing $DEPLOY_IMAGE (EEZ_SKIP_DEPLOY_BUILD=1)"
+fi
+
+if [[ "${EEZ_SKIP_UI_BUILD:-0}" != "1" ]]; then
+    echo "==> building $UI_IMAGE (protocol playground)"
+    docker build \
+        --build-arg "EEZ_UI_PROTOCOL_COMMIT=$(git -C "$PROTOCOL_DIR" rev-parse --short HEAD)" \
+        -f "$REPO/ui/Dockerfile" \
+        -t "$UI_IMAGE" \
+        "$REPO"
+else
+    echo "==> reusing $UI_IMAGE (EEZ_SKIP_UI_BUILD=1)"
 fi
 
 if [[ "${EEZ_PRUNE_BUILD_CACHE:-0}" == "1" ]]; then

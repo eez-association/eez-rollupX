@@ -30,13 +30,14 @@ eez_devnet_ports_main() {
         esac
     }
 
-    local l1_rpc l2_rpc l1_front l2_front proof_signer_grpc
+    local l1_rpc l2_rpc l1_front l2_front proof_signer_grpc dashboard
     local l1_explorer l2_explorer l1_explorer_api l2_explorer_api
     l1_rpc="$(eez_devnet_port el-1-reth-lighthouse rpc)" || return 1
     l2_rpc="$(eez_devnet_port eez-node l2-rpc)" || return 1
     l1_front="$(eez_devnet_port eez-node l1-xchain)" || return 1
     l2_front="$(eez_devnet_port eez-node l2-xchain)" || return 1
     proof_signer_grpc="$(eez_devnet_port eez-proof-signer grpc)" || return 1
+    dashboard="$(eez_devnet_port eez-ui http 2>/dev/null || true)"
     l1_explorer="$(eez_devnet_port l1-blockscout-frontend http 2>/dev/null || true)"
     l2_explorer="$(eez_devnet_port l2-blockscout-frontend http 2>/dev/null || true)"
     l1_explorer_api="$(eez_devnet_port l1-blockscout http 2>/dev/null || true)"
@@ -47,6 +48,10 @@ eez_devnet_ports_main() {
     export EEZ_DEVNET_L1_FRONT="$(eez_devnet_http_url "$l1_front")"
     export EEZ_DEVNET_L2_FRONT="$(eez_devnet_http_url "$l2_front")"
     export EEZ_DEVNET_PROOF_SIGNER_GRPC="$proof_signer_grpc"
+    unset EEZ_DEVNET_DASHBOARD
+    if [[ -n "$dashboard" ]]; then
+        export EEZ_DEVNET_DASHBOARD="$(eez_devnet_http_url "$dashboard")"
+    fi
     unset EEZ_DEVNET_L1_EXPLORER EEZ_DEVNET_L2_EXPLORER
     unset EEZ_DEVNET_L1_EXPLORER_API EEZ_DEVNET_L2_EXPLORER_API
     if [[ -n "$l1_explorer" ]]; then
@@ -68,6 +73,9 @@ eez_devnet_ports_main() {
     printf '  %-22s %s\n' 'L1 cross-chain front:' "$EEZ_DEVNET_L1_FRONT"
     printf '  %-22s %s\n' 'L2 cross-chain front:' "$EEZ_DEVNET_L2_FRONT"
     printf '  %-22s %s\n' 'Proof signer gRPC:' "$EEZ_DEVNET_PROOF_SIGNER_GRPC"
+    if [[ -n "${EEZ_DEVNET_DASHBOARD:-}" ]]; then
+        printf '  %-22s %s\n' 'Protocol playground:' "$EEZ_DEVNET_DASHBOARD"
+    fi
     if [[ -n "${EEZ_DEVNET_L1_EXPLORER:-}" ]]; then
         printf '  %-22s %s\n' 'L1 explorer:' "$EEZ_DEVNET_L1_EXPLORER"
     fi

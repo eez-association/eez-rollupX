@@ -32,6 +32,29 @@ its settlement effects before signing the recomputed public-input hash.
 a succinct validity proof, but the deployed verifier no longer accepts an
 unbound mock signature.
 
+## Run the local protocol network
+
+The Kurtosis package starts the private L1, L2, protocol contracts, proof
+signer, explorers, and a copy of the earlier `sync-rollups-poc` UI with a thin
+compatibility layer for this network:
+
+```bash
+git submodule update --init --recursive eez-core-protocol
+export KURTOSIS_ENCLAVE=eez-dev
+bash testing/kurtosis/start.sh testing/kurtosis/ci-args.yaml
+source testing/kurtosis/ports.sh
+```
+
+Open `$EEZ_DEVNET_DASHBOARD` to use the original Dashboard, Counter Demo,
+Bridge, Flash Loan, Aggregator, Faucet, and Visualizer screens. Counter calls,
+bidirectional bridging, and the L1 -> L2 -> L1 flash loan are adapted to the
+current network. The Aggregator and reverse-flash screens are retained but this
+protocol branch does not deploy their contracts, and the legacy visualizer's
+batch decoder is still pending a `postAndVerifyBatch` port. The UI signs with a
+known local-only development key; never use it on a public network. See
+[`testing/kurtosis/README.md`](testing/kurtosis/README.md) for prerequisites,
+test workloads, and lifecycle commands.
+
 ## Run a chiado L2 (Docker)
 
 Runs three containers: `eez-node` (which embeds a Chiado L1 node alongside the

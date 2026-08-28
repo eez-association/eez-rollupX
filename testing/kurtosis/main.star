@@ -15,6 +15,7 @@ L1_XCHAIN_PORT = 18999
 L2_XCHAIN_PORT = 18998
 BUILDER_FLASHBOTS_RPC_PORT = 8645
 PROOF_SIGNER_GRPC_PORT = 50061
+UI_HTTP_PORT = 8080
 L2_CHAIN_ID = "6290"
 
 
@@ -22,6 +23,8 @@ def run(plan, args):
     eth_args = args["ethereum_package"]
     eez = args.get("eez", {})
     enable_explorers = eez.get("enable_explorers", False)
+    enable_ui = eez.get("enable_ui", True)
+    enable_demo_apps = eez.get("enable_demo_apps", enable_ui)
 
     poster_key = eez.get("poster_key", "")
     proof_signer_key = eez.get("proof_signer_key", "")
@@ -261,6 +264,68 @@ def run(plan, args):
             ],
         ),
     )
+
+    demo = None
+    if enable_demo_apps:
+        demo_key = eez.get(
+            "demo_private_key",
+            "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+        )
+        demo = plan.run_sh(
+            description="deploy interactive bridge + flash-loan demo contracts",
+            image=eez.get("deploy_image", "eez-deploy:dev"),
+            files={
+                "/out": deploy.files_artifacts[0],
+            },
+            env_vars={
+                "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
+                "EEZ_L2_RPC_URL": "http://eez-node:{}".format(L2_RPC_PORT),
+                "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
+                "EEZ_UI_DEMO_PRIVATE_KEY": demo_key,
+                "EEZ_UI_DEMO_OUT": "/demo/demo.env",
+            },
+            run="mkdir -p /demo && bash /repo/scripts/deploy-ui-demo.sh",
+            store=[StoreSpec(src="/demo", name="eez-ui-demo")],
+            wait="900s",
+        )
+
+    if enable_ui:
+        ui_files = {
+            "/out": deploy.files_artifacts[0],
+        }
+        if demo != None:
+            ui_files["/demo"] = demo.files_artifacts[0]
+
+        plan.add_service(
+            name="eez-ui",
+            config=ServiceConfig(
+                image=eez.get("ui_image", "eez-ui:dev"),
+                ports={
+                    "http": PortSpec(
+                        number=UI_HTTP_PORT,
+                        transport_protocol="TCP",
+                        application_protocol="http",
+                        wait="2m",
+                    ),
+                },
+                files=ui_files,
+                env_vars={
+                    "EEZ_UI_ENCLAVE": "kurtosis",
+                    "EEZ_UI_DEMO_PRIVATE_KEY": eez.get(
+                        "demo_private_key",
+                        "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+                    ),
+                    "EEZ_UI_L1_RPC_UPSTREAM": l1_el.rpc_http_url,
+                    "EEZ_UI_L2_RPC_UPSTREAM": "http://eez-node:{}".format(L2_RPC_PORT),
+                    "EEZ_UI_L1_FRONT_UPSTREAM": "http://eez-node:{}".format(
+                        L1_XCHAIN_PORT
+                    ),
+                    "EEZ_UI_L2_FRONT_UPSTREAM": "http://eez-node:{}".format(
+                        L2_XCHAIN_PORT
+                    ),
+                },
+            ),
+        )
 
     if enable_explorers:
         explorer_params = {

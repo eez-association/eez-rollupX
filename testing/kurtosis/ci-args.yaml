@@ -30,10 +30,13 @@ eez:
   # Blockscout adds eight services (frontend, backend, verifier, and database
   # for each chain). Disable it for a lighter network.
   enable_explorers: true
+  enable_ui: true
+  enable_demo_apps: true
 
   eez_node_image: eez-node:ci
   proof_signer_image: eez-proof-signer:ci
   deploy_image: eez-deploy:ci
+  ui_image: eez-ui:ci
   follower_image: sigp/lighthouse:v8.1.2
   blockscout_postgres_image: postgres:alpine
   blockscout_image: ghcr.io/blockscout/blockscout:latest

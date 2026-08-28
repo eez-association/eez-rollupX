@@ -16,7 +16,7 @@ Run every command from the repository root.
 The local network requires:
 
 - A Linux host with [Docker](https://docs.docker.com/engine/install/) running and
-  enough free space to build three images.
+  enough free space to build four images.
 - The [Kurtosis CLI](https://docs.kurtosis.com/install/).
 - [Foundry](https://getfoundry.sh/introduction/installation/) v1.7.1 (`cast` and
   `forge`).
@@ -60,8 +60,8 @@ especially before running the destructive `stop.sh` command.
 `start.sh` does not request privileged package execution by default. Set
 `KURTOSIS_PRIVILEGED=1` only when using a custom topology that requires it.
 
-The first start builds the node, proof-signer, and deployment images and pulls
-the Ethereum client images. It can take several minutes. The command returns
+The first start builds the node, proof-signer, deployment, and UI images and
+pulls the Ethereum client images. It can take several minutes. The command returns
 after Kurtosis has deployed the contracts and started the network services. It
 leaves the enclave running.
 
@@ -94,6 +94,7 @@ EEZ Kurtosis devnet endpoints (enclave: eez-dev)
   L1 cross-chain front:  http://127.0.0.1:<port>
   L2 cross-chain front:  http://127.0.0.1:<port>
   Proof signer gRPC:     127.0.0.1:<port>
+  Protocol playground:   http://127.0.0.1:<port>
   L1 explorer:           http://127.0.0.1:<port>
   L2 explorer:           http://127.0.0.1:<port>
   L1 explorer API:       http://127.0.0.1:<port>
@@ -108,6 +109,7 @@ EEZ_DEVNET_L2_RPC
 EEZ_DEVNET_L1_FRONT
 EEZ_DEVNET_L2_FRONT
 EEZ_DEVNET_PROOF_SIGNER_GRPC
+EEZ_DEVNET_DASHBOARD
 EEZ_DEVNET_L1_EXPLORER
 EEZ_DEVNET_L2_EXPLORER
 EEZ_DEVNET_L1_EXPLORER_API
@@ -154,6 +156,13 @@ The local topology contains:
   drives the embedded execution client through the Engine API.
 - An `eez-proof-signer` that validates L2 windows and returns attestations to
   the node.
+- A copy of the earlier sync-rollups POC UI with a current-network compatibility
+  layer. Its original Dashboard, Counter Demo, Bridge, Flash Loan, Aggregator,
+  Faucet, and Visualizer screens remain intact. Counter/proxy calls,
+  bidirectional bridge transfers, and the nested L1 -> L2 -> L1 flash loan use
+  real transactions. The current protocol branch does not deploy the old
+  Aggregator or reverse-flash contracts, and the legacy Visualizer batch decoder
+  still needs to be ported to `postAndVerifyBatch`.
 - Optional L1 and L2 Blockscout instances, each with its own backend, contract
   verifier, and ephemeral PostgreSQL database. They are enabled in the included
   local profile.
@@ -161,6 +170,11 @@ The local topology contains:
 The topology deliberately omits dedicated load-generation, reorg, metrics, and
 distributed-tracing services. The included shell workloads generate their own
 test traffic.
+
+The playground exposes a known prefunded development private key in its runtime
+configuration so browser actions require no wallet extension. This is suitable
+only for the disposable private network. Never reuse the key or this UI
+configuration on a public network.
 
 ## Operate the network
 

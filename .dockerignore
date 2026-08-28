@@ -3,6 +3,9 @@
 # of the build context or `docker build` ships it to the daemon.
 .git/
 **/target/
+**/node_modules/
+ui/dist/
+ui/.runtime/
 chiado-db/
 data/
 datadir/
