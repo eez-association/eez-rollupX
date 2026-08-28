@@ -2,18 +2,17 @@
 //!
 //! A cross-chain tx is signed and tracked against its source chain, so wallets
 //! need a real RPC for that chain. Each front is a transparent proxy: it
-//! forwards every `eth_*` to the source chain's node and intercepts only
-//! `eth_sendRawTransaction`, holding the tx in the per-rollup
-//! [`HeldPool`] with the front's fixed [`Direction`]
-//! (L1 front → `Inbound`, L2 front → `Outbound`) and returning its hash at once.
+//! forwards every `eth_*` to the source chain's node and classifies
+//! `eth_sendRawTransaction` with a read-only execution trace. Transactions that
+//! reach the chain's EEZ dispatcher are held in the per-rollup [`HeldPool`] with
+//! the front's fixed [`Direction`] (L1 front → `Inbound`, L2 front → `Outbound`);
+//! ordinary transactions are forwarded to the source-chain mempool unchanged.
 //! The receipt resolves when the held tx lands — an outbound in the L2 Sync
 //! block, an inbound in the L1 postBatch bundle.
 //!
-//! No classification: the endpoint fixes the direction. Pure txs use the node's
-//! normal mempool RPC; one misdirected here is held then poison-evicted at
-//! compose time (the composer's chained simulation finds no cross-chain
-//! effect). One front
-//! per source chain (invariant 8).
+//! Classification fails closed: if tracing is temporarily unavailable, the tx
+//! is held rather than risking a cross-chain transaction bypassing composition.
+//! One front per source chain (invariant 8).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ use std::time::Duration;
 use alloy_consensus::transaction::SignerRecoverable as _;
 use alloy_consensus::{Transaction as _, TxEnvelope};
 use alloy_eips::eip2718::Decodable2718 as _;
-use alloy_primitives::{B256, Bytes, U256, keccak256};
+use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{Provider as _, RootProvider};
 use eez_composer::{AdmissionError, Direction, HeldPool, HeldTx};
 use http_body_util::{BodyExt as _, Full};
@@ -197,6 +196,9 @@ struct Ctx {
     held_pool: Arc<HeldPool>,
     validation_provider: RootProvider,
     expected_source_chain_id: u64,
+    /// EEZ on L1 or EEZL2 on L2. A trace that calls one of its cross-chain
+    /// entrypoints must be composed instead of entering the ordinary mempool.
+    dispatch_address: Address,
 }
 
 /// Verify that a configured cross-chain front points at its expected source chain.
@@ -232,6 +234,7 @@ pub async fn run_cross_chain_front(
     held_pool: Arc<HeldPool>,
     validation_provider: RootProvider,
     expected_source_chain_id: u64,
+    dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -246,7 +249,8 @@ pub async fn run_cross_chain_front(
         %upstream_rpc_url,
         direction = ?direction,
         expected_source_chain_id,
-        "cross-chain front listening (forward eth_* to source chain; intercept sendRawTransaction)",
+        %dispatch_address,
+        "cross-chain front listening (classify sendRawTransaction; hold cross-chain, forward ordinary)",
     );
     let ctx = Ctx {
         ready,
@@ -256,6 +260,7 @@ pub async fn run_cross_chain_front(
         held_pool,
         validation_provider,
         expected_source_chain_id,
+        dispatch_address,
     };
     loop {
         let (stream, _peer) = match listener.accept().await {
@@ -421,16 +426,7 @@ async fn handle(
         ));
     }
 
-    // Accepting these before the node is live would strand them in a pool
-    // nothing drains. Reads still pass through.
     let method = json.get("method").and_then(Value::as_str).unwrap_or("");
-    if is_submission_method(method) && !ctx.ready.load(std::sync::atomic::Ordering::Relaxed) {
-        return Ok(rpc_error(
-            json.get("id").cloned().unwrap_or(Value::Null),
-            -32000,
-            STARTING_UP_MSG,
-        ));
-    }
 
     // An unrouted variant would be forwarded to the source chain, skipping the
     // held pool entirely.
@@ -465,8 +461,92 @@ async fn handle(
     Ok(forward(&ctx, body_bytes.to_vec()).await)
 }
 
-/// `Some(response)` when held here; `None` to forward (undecodable tx → let the
-/// node produce the standard JSON-RPC error).
+const EXECUTE_CROSS_CHAIN_CALL_SELECTOR: &str = "9af53259";
+const STATIC_CROSS_CHAIN_CALL_SELECTOR: &str = "31344ade";
+
+fn trace_contains_cross_chain_call(trace: &Value, dispatch_address: Address) -> bool {
+    let targets_dispatch = trace
+        .get("to")
+        .and_then(Value::as_str)
+        .is_some_and(|to| to.eq_ignore_ascii_case(&dispatch_address.to_string()));
+    let calls_cross_chain_entrypoint = trace
+        .get("input")
+        .and_then(Value::as_str)
+        .and_then(|input| input.strip_prefix("0x"))
+        .is_some_and(|input| {
+            input.get(..8).is_some_and(|selector| {
+                selector.eq_ignore_ascii_case(EXECUTE_CROSS_CHAIN_CALL_SELECTOR)
+                    || selector.eq_ignore_ascii_case(STATIC_CROSS_CHAIN_CALL_SELECTOR)
+            })
+        });
+    if targets_dispatch && calls_cross_chain_entrypoint {
+        return true;
+    }
+    trace
+        .get("calls")
+        .and_then(Value::as_array)
+        .is_some_and(|calls| {
+            calls
+                .iter()
+                .any(|call| trace_contains_cross_chain_call(call, dispatch_address))
+        })
+}
+
+async fn transaction_is_cross_chain(ctx: &Ctx, envelope: &TxEnvelope) -> Result<bool, String> {
+    let sender = envelope
+        .recover_signer()
+        .map_err(|e| format!("signature recovery failed before trace: {e}"))?;
+    let mut call = serde_json::Map::new();
+    call.insert("from".into(), Value::String(sender.to_string()));
+    call.insert(
+        "gas".into(),
+        Value::String(format!("0x{:x}", envelope.gas_limit())),
+    );
+    call.insert(
+        "value".into(),
+        Value::String(format!("{:#x}", envelope.value())),
+    );
+    call.insert(
+        "data".into(),
+        Value::String(format!("{:#x}", envelope.input())),
+    );
+    if let Some(to) = envelope.to() {
+        call.insert("to".into(), Value::String(to.to_string()));
+    }
+
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "debug_traceCall",
+        "params": [
+            Value::Object(call),
+            "pending",
+            { "tracer": "callTracer" }
+        ],
+    });
+    let response = ctx
+        .client
+        .post(&ctx.upstream_rpc_url)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| format!("debug_traceCall transport failed: {e}"))?;
+    let response: Value = response
+        .json()
+        .await
+        .map_err(|e| format!("debug_traceCall response decode failed: {e}"))?;
+    let trace = response.get("result").ok_or_else(|| {
+        let detail = response
+            .get("error")
+            .cloned()
+            .unwrap_or_else(|| Value::String("missing result".into()));
+        format!("debug_traceCall failed: {detail}")
+    })?;
+    Ok(trace_contains_cross_chain_call(trace, ctx.dispatch_address))
+}
+
+/// `Some(response)` when held or rejected here; `None` to forward an ordinary
+/// transaction (or an undecodable tx, so the node returns its standard error).
 async fn intercept_send_raw(
     ctx: &Ctx,
     raw_hex: &str,
@@ -475,6 +555,36 @@ async fn intercept_send_raw(
     let raw: Bytes = raw_hex.parse().ok()?;
     let envelope = TxEnvelope::decode_2718(&mut raw.as_ref()).ok()?;
     let id = json.get("id").cloned().unwrap_or(Value::Null);
+    let hash: B256 = keccak256(raw.as_ref());
+    match transaction_is_cross_chain(ctx, &envelope).await {
+        Ok(false) => {
+            event!(
+                name: "eez.xchain_front.ordinary_forwarded",
+                Level::INFO,
+                tx_hash = %hash,
+                direction = ?ctx.direction,
+                "ordinary transaction forwarded to source-chain mempool",
+            );
+            return None;
+        }
+        Ok(true) => {}
+        Err(error) => {
+            event!(
+                name: "eez.xchain_front.classification_failed_closed",
+                Level::WARN,
+                tx_hash = %hash,
+                direction = ?ctx.direction,
+                %error,
+                "transaction trace classification failed; holding as cross-chain",
+            );
+        }
+    }
+
+    // Holding before the node is live would strand the transaction in a pool
+    // nothing drains. Ordinary transactions took the forwarding branch above.
+    if !ctx.ready.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(rpc_error(id, -32000, STARTING_UP_MSG));
+    }
     let resp_body = match gate_and_hold(
         &envelope,
         &raw,
@@ -534,7 +644,7 @@ async fn forward(ctx: &Ctx, body: Vec<u8>) -> Response<Full<HyperBytes>> {
 mod tests {
     use alloy_consensus::{SignableTransaction, TxEip1559, TxEip4844, TxLegacy};
     use alloy_network::{TxSignerSync, eip2718::Encodable2718};
-    use alloy_primitives::{Address, TxKind};
+    use alloy_primitives::TxKind;
     use alloy_provider::ProviderBuilder;
     use alloy_provider::mock::Asserter;
     use alloy_rpc_types_eth::AccessList;
@@ -824,6 +934,35 @@ mod tests {
         ])));
     }
 
+    #[test]
+    fn call_trace_classifier_finds_nested_cross_chain_entrypoint() {
+        let dispatch = Address::repeat_byte(0x42);
+        let trace = json!({
+            "to": Address::repeat_byte(0x11),
+            "input": "0x12345678",
+            "calls": [{
+                "to": dispatch,
+                "input": "0x9af5325900000000",
+                "error": "execution reverted"
+            }]
+        });
+        assert!(trace_contains_cross_chain_call(&trace, dispatch));
+    }
+
+    #[test]
+    fn call_trace_classifier_ignores_ordinary_dispatch_reads() {
+        let dispatch = Address::repeat_byte(0x42);
+        let trace = json!({
+            "to": dispatch,
+            "input": "0xeb20c0aa00000000",
+            "calls": [{
+                "to": Address::repeat_byte(0x11),
+                "input": "0x9af5325900000000"
+            }]
+        });
+        assert!(!trace_contains_cross_chain_call(&trace, dispatch));
+    }
+
     fn free_port() -> u16 {
         std::net::TcpListener::bind(("127.0.0.1", 0))
             .unwrap()
@@ -1085,6 +1224,7 @@ mod tests {
             Arc::clone(&pool),
             inbound_provider,
             1,
+            Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
         ));
         let outbound_task = tokio::spawn(run_cross_chain_front(
@@ -1094,6 +1234,7 @@ mod tests {
             Arc::clone(&pool),
             outbound_provider,
             1,
+            Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
         ));
         wait_for_front(inbound_port).await;
@@ -1146,6 +1287,7 @@ mod tests {
             Arc::clone(&pool),
             provider,
             1,
+            Address::ZERO,
             Arc::clone(&ready),
         ));
         wait_for_front(port).await;

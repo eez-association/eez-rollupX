@@ -58,25 +58,25 @@ export const config = {
 /** Mutable — set after loading env files */
 export function setConfig(updates: Partial<typeof config>) {
   Object.assign(config, updates);
-  if (updates.l1Rpc) L1_CHAIN.rpcUrls = [updates.l1Rpc];
-  if (updates.l2Rpc) L2_CHAIN.rpcUrls = [updates.l2Rpc];
+  if (updates.l1ProxyRpc) L1_CHAIN.rpcUrls = [updates.l1ProxyRpc];
+  if (updates.l2ProxyRpc) L2_CHAIN.rpcUrls = [updates.l2ProxyRpc];
 }
 
 /** L1 chain definition for wallet_addEthereumChain — populated at runtime */
 export const L1_CHAIN = {
   chainId: "0x539", // default 1337, auto-detected on init
   chainName: "Based Rollup L1",
-  rpcUrls: [config.l1Rpc],
+  rpcUrls: [config.l1ProxyRpc],
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
 };
 
 /** L2 chain definition for wallet_addEthereumChain — populated at runtime.
- * Ordinary wallet transactions use the builder RPC. The local demo signer in
- * useWallet routes only L2→L1 transactions through the composer. */
+ * The composer classifies signed transactions, forwarding ordinary work to the
+ * mempool and holding only L2→L1 cross-chain calls. */
 export const L2_CHAIN = {
   chainId: "0xa455", // default 42069, auto-detected on init
   chainName: "Based Rollup L2",
-  rpcUrls: [config.l2Rpc],
+  rpcUrls: [config.l2ProxyRpc],
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
 };
 

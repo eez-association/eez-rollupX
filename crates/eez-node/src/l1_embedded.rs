@@ -162,7 +162,7 @@ fn build_network_rpc_args(cfg: &EmbeddedL1Config) -> Result<(NetworkArgs, RpcSer
     network_args.discovery.port = cfg.p2p_port;
     network_args.discovery.discv5_port = Some(cfg.discv5_port);
     network_args.trusted_peers = cfg.trusted_peers.clone();
-    let rpc_args = RpcServerArgs {
+    let mut rpc_args = RpcServerArgs {
         http: true,
         ws: true,
         http_port: cfg.http_port,
@@ -171,5 +171,39 @@ fn build_network_rpc_args(cfg: &EmbeddedL1Config) -> Result<(NetworkArgs, RpcSer
         ipcdisable: true,
         ..RpcServerArgs::default()
     };
+    // The L1 wallet front classifies signed transactions with a read-only
+    // `debug_traceCall`. Reth's default HTTP selection is eth/net/web3, so the
+    // embedded L1 must opt into debug explicitly. Keep trace as well to match
+    // the public L2 RPC configured by the node CLI.
+    rpc_args.http_api = Some(
+        "eth,net,web3,debug,trace"
+            .parse()
+            .expect("static embedded L1 RPC module selection is valid"),
+    );
     Ok((network_args, rpc_args))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_l1_http_rpc_exposes_classifier_trace_method() {
+        let cfg = EmbeddedL1Config {
+            dev_chain_spec: Arc::new(ChainSpec::default()),
+            kind: L1ChainKind::Devnet,
+            datadir: PathBuf::from("/tmp/unused-eez-l1-test"),
+            http_port: 18_545,
+            auth_port: 18_551,
+            p2p_port: 30_303,
+            discv5_port: 30_304,
+            jwtsecret: None,
+            trusted_peers: Vec::new(),
+        };
+
+        let (_, rpc_args) = build_network_rpc_args(&cfg).unwrap();
+        let modules = rpc_args.http_api.unwrap().to_string();
+        assert!(modules.contains("debug"), "HTTP modules: {modules}");
+        assert!(modules.contains("eth"), "HTTP modules: {modules}");
+    }
 }

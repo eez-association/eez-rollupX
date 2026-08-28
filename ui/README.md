@@ -75,10 +75,14 @@ bash ui/scripts/configure-kurtosis.sh
 The fallback deployment is written to `ui/.runtime/demo.env`, which is ignored
 by Git and picked up by `configure-kurtosis.sh`.
 
-## Local-only signer
+## Wallet and local fallback signer
 
-The runtime uses a deterministic, prefunded development account so that the POC
-can choose the direct RPC for ordinary transactions and the composer only for
-cross-chain transactions. The private key is intentionally delivered in the
-local runtime configuration. Never use this configuration, account, or key on a
-public network or with real funds.
+Rabby or MetaMask is the primary signer when an injected wallet is present. The
+UI registers the L1 and L2 cross-chain fronts as their chain RPC URLs; each front
+forwards ordinary transactions and holds cross-chain transactions for
+composition, so the wallet needs only one URL for each chain.
+
+Browsers without an injected wallet fall back to a deterministic, prefunded
+development account. Its private key is intentionally delivered in the local
+runtime configuration. Never use this configuration, account, or key on a public
+network or with real funds.

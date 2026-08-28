@@ -827,7 +827,16 @@ fn main() -> eyre::Result<()> {
                 let (port, url, parsed) =
                     read_xchain_front_config(spec.port_env, spec.url_env)?;
                 let validation_provider = alloy_provider::RootProvider::new_http(parsed);
-                xchain_fronts.push((spec, port, url, validation_provider));
+                let dispatch_address = Address::from_str(
+                    &env::var(spec.dispatch_address_env).map_err(|_| {
+                        eyre::eyre!(
+                            "{} required for transaction classification on the cross-chain front",
+                            spec.dispatch_address_env
+                        )
+                    })?,
+                )
+                .map_err(|e| eyre::eyre!("{} malformed: {e}", spec.dispatch_address_env))?;
+                xchain_fronts.push((spec, port, url, validation_provider, dispatch_address));
             }
         }
 
@@ -851,9 +860,9 @@ fn main() -> eyre::Result<()> {
         let xchain_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let xchain_checks: Vec<_> = xchain_fronts
             .iter()
-            .map(|(spec, _, _, provider)| (spec.expected_source_chain_id, provider.clone()))
+            .map(|(spec, _, _, provider, _)| (spec.expected_source_chain_id, provider.clone()))
             .collect();
-        for (spec, port, url, validation_provider) in xchain_fronts {
+        for (spec, port, url, validation_provider, dispatch_address) in xchain_fronts {
             let pool = Arc::clone(&held_pool);
             let ready = Arc::clone(&xchain_ready);
             task_executor.spawn_critical_task(spec.task, async move {
@@ -864,6 +873,7 @@ fn main() -> eyre::Result<()> {
                     pool,
                     validation_provider,
                     spec.expected_source_chain_id,
+                    dispatch_address,
                     ready,
                 )
                 .await
@@ -1175,6 +1185,7 @@ struct XchainFrontSpec {
     direction: eez_composer::Direction,
     task: &'static str,
     expected_source_chain_id: u64,
+    dispatch_address_env: &'static str,
 }
 
 fn xchain_front_specs(l1_chain_id: u64, l2_chain_id: u64) -> [XchainFrontSpec; 2] {
@@ -1185,6 +1196,7 @@ fn xchain_front_specs(l1_chain_id: u64, l2_chain_id: u64) -> [XchainFrontSpec; 2
             direction: eez_composer::Direction::Inbound,
             task: "eez-l1-xchain-front",
             expected_source_chain_id: l1_chain_id,
+            dispatch_address_env: "EEZ_REGISTRY_ADDRESS",
         },
         XchainFrontSpec {
             port_env: "EEZ_L2_XCHAIN_PORT",
@@ -1192,6 +1204,7 @@ fn xchain_front_specs(l1_chain_id: u64, l2_chain_id: u64) -> [XchainFrontSpec; 2
             direction: eez_composer::Direction::Outbound,
             task: "eez-l2-xchain-front",
             expected_source_chain_id: l2_chain_id,
+            dispatch_address_env: "EEZL2_ADDRESS",
         },
     ]
 }
@@ -1410,9 +1423,11 @@ mod tests {
         assert_eq!(specs[0].port_env, "EEZ_L1_XCHAIN_PORT");
         assert_eq!(specs[0].direction, eez_composer::Direction::Inbound);
         assert_eq!(specs[0].expected_source_chain_id, 31_337);
+        assert_eq!(specs[0].dispatch_address_env, "EEZ_REGISTRY_ADDRESS");
 
         assert_eq!(specs[1].port_env, "EEZ_L2_XCHAIN_PORT");
         assert_eq!(specs[1].direction, eez_composer::Direction::Outbound);
         assert_eq!(specs[1].expected_source_chain_id, 90_210);
+        assert_eq!(specs[1].dispatch_address_env, "EEZL2_ADDRESS");
     }
 }

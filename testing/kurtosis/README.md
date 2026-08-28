@@ -124,9 +124,12 @@ cast chain-id --rpc-url "$EEZ_DEVNET_L1_RPC"
 cast block-number --rpc-url "$EEZ_DEVNET_L2_RPC"
 ```
 
-`EEZ_DEVNET_L1_FRONT` accepts inbound L1-to-L2 raw transactions, and
-`EEZ_DEVNET_L2_FRONT` accepts outbound L2-to-L1 raw transactions. Ordinary L2
-transactions go to `EEZ_DEVNET_L2_RPC`.
+`EEZ_DEVNET_L1_FRONT` is the wallet endpoint for L1 and
+`EEZ_DEVNET_L2_FRONT` is the wallet endpoint for L2. Each front traces signed
+transactions before submission: L1-to-L2 or L2-to-L1 transactions are held for
+composition, while ordinary transactions are forwarded to that chain's normal
+mempool. The direct `EEZ_DEVNET_L1_RPC` and `EEZ_DEVNET_L2_RPC` endpoints remain
+available for protocol tooling.
 
 The explorer variables are exported only when `enable_explorers` is enabled in
 the selected arguments file.

@@ -31,10 +31,9 @@ export function useWallet(log: Logger, configLoaded = false) {
   const hasProvider = typeof window.ethereum !== "undefined";
 
   /**
-   * The current composer deliberately holds raw transactions until it finds a
-   * cross-chain call, so it cannot be the RPC for ordinary L2 deployments.
-   * In the local Kurtosis runtime we sign with its disposable dev key and can
-   * choose the direct RPC or composer per transaction without changing the POC UI.
+   * The disposable local signer remains a fallback for browsers without an
+   * injected wallet. Rabby/MetaMask use the composer-backed chain definitions;
+   * the composer now forwards ordinary transactions automatically.
    */
   const sendLocalTx = useCallback(
     async (
@@ -101,26 +100,26 @@ export function useWallet(log: Logger, configLoaded = false) {
   }, []);
 
   const connect = useCallback(async () => {
-    if (config.demoPrivateKey) {
-      try {
-        const account = privateKeyToAccount(config.demoPrivateKey as Hex);
-        localAccountRef.current = account;
-        setState({
-          address: account.address,
-          chainId: L1_CHAIN.chainId,
-          l1Balance: null,
-          l2Balance: null,
-          isConnected: true,
-        });
-        refreshBalance(account.address);
-        log(`Local demo signer connected: ${account.address.slice(0, 8)}...${account.address.slice(-6)}`, "info");
-        return;
-      } catch (e) {
-        log(`Local demo signer failed: ${(e as Error).message}`, "err");
-        return;
-      }
-    }
     if (!hasProvider) {
+      if (config.demoPrivateKey) {
+        try {
+          const account = privateKeyToAccount(config.demoPrivateKey as Hex);
+          localAccountRef.current = account;
+          setState({
+            address: account.address,
+            chainId: L1_CHAIN.chainId,
+            l1Balance: null,
+            l2Balance: null,
+            isConnected: true,
+          });
+          refreshBalance(account.address);
+          log(`Local demo signer connected: ${account.address.slice(0, 8)}...${account.address.slice(-6)}`, "info");
+          return;
+        } catch (e) {
+          log(`Local demo signer failed: ${(e as Error).message}`, "err");
+          return;
+        }
+      }
       log("No wallet detected — install Rabby or MetaMask to connect", "err");
       return;
     }
@@ -277,8 +276,8 @@ export function useWallet(log: Logger, configLoaded = false) {
   /**
    * Send a tx to L1.
    *
-   * Requires a connected wallet — auto-switches to L1 chain and routes ordinary
-   * transactions through the direct L1 RPC.
+   * Requires a connected wallet — auto-switches to L1. Injected wallets use
+   * the classifying front; the fallback signer sends ordinary work directly.
    */
   const sendL1Tx = useCallback(
     async (txParams: Record<string, string>): Promise<string> => {
@@ -305,7 +304,8 @@ export function useWallet(log: Logger, configLoaded = false) {
    * then forwards to L1. Without the proxy, the execution table is
    * empty and the tx reverts with ExecutionNotFound.
    *
-   * The local signer chooses the composer endpoint for this transaction only.
+   * Injected wallets already use the classifying front for this chain. The
+   * fallback signer chooses the composer endpoint for this transaction only.
    */
   const sendL1ProxyTx = useCallback(
     async (txParams: Record<string, string>): Promise<string> => {
@@ -339,8 +339,6 @@ export function useWallet(log: Logger, configLoaded = false) {
       if (localAccountRef.current) {
         return sendLocalTx(config.l2ProxyRpc, L2_CHAIN, txParams);
       }
-      // An injected wallet cannot select a second RPC for the same chain ID;
-      // local Kurtosis uses the per-transaction signer branch above.
       await ensureChain(L2_CHAIN);
       return (await window.ethereum!.request({
         method: "eth_sendTransaction",
@@ -350,11 +348,12 @@ export function useWallet(log: Logger, configLoaded = false) {
     [ensureChain, sendLocalTx],
   );
 
-  // The generated Kurtosis config contains a disposable Anvil dev key. It is
-  // the compatible local mode because each transaction needs its own endpoint.
+  // Browsers without Rabby/MetaMask fall back to the disposable Kurtosis key.
+  // An injected wallet always remains the primary signer.
   useEffect(() => {
     if (
       !configLoaded ||
+      hasProvider ||
       !config.demoPrivateKey ||
       localAccountRef.current
     ) {
@@ -378,7 +377,7 @@ export function useWallet(log: Logger, configLoaded = false) {
     } catch (e) {
       log(`Invalid local demo signer: ${(e as Error).message}`, "err");
     }
-  }, [configLoaded, log, refreshBalance]);
+  }, [configLoaded, hasProvider, log, refreshBalance]);
 
   // Auto-reconnect on mount
   useEffect(() => {

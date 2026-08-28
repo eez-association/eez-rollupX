@@ -145,12 +145,17 @@ cast block-number --rpc-url http://localhost:18688   # L2 producing
 | **L1→L2 front** (Inbound) | `http://localhost:18999` | send L1-origin cross-chain txs here |
 | **L2→L1 front** (Outbound) | `http://localhost:18998` | send L2-origin cross-chain txs here |
 
-The two **cross-chain ingress fronts** are transparent proxies:
-`eth_sendRawTransaction` sent to a front is held and composed into the next Sync
-block; every other `eth_*` is forwarded to that front's source-chain RPC. They
-use the compose env `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`; both ports are
-required in composer mode. Follower and standalone modes do not start cross-chain
-ingress fronts. Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
+The two **cross-chain ingress fronts** are transparent, wallet-compatible
+proxies. Each signed transaction is classified with a read-only call trace:
+transactions that enter the source chain's EEZ cross-chain dispatcher are held
+and composed into the next Sync block, while ordinary transactions are forwarded
+unchanged to the source-chain mempool. Every other `eth_*` method is forwarded as
+well, so a wallet can use one front URL per chain. Classification fails closed:
+if tracing is unavailable, the transaction is held rather than allowing a
+cross-chain call to bypass composition. The fronts use the compose env
+`EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`; both ports are required in composer
+mode. Follower and standalone modes do not start them. Upstreams are
+`EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
 
 `EEZ_MAX_USER_TXS_PER_BUNDLE` (compose, default `3`) caps how many user
 cross-chain txs ride in one `postBatch` bundle. Raise it only against a builder

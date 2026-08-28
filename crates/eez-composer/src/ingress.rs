@@ -2,9 +2,9 @@
 //!
 //! Cross-chain txs arrive on dedicated per-source-chain RPC fronts (`eez-node`'s
 //! `run_cross_chain_front`): the L1 front holds L1→L2 (`Inbound`), the L2 front
-//! holds L2→L1 (`Outbound`). Direction is fixed by endpoint, not by `to`/chain-id;
-//! a misdirected pure tx poison-evicts at compose time. Pure txs use the node's
-//! normal mempool RPC.
+//! holds L2→L1 (`Outbound`). Direction is fixed by endpoint, not by `to`/chain-id.
+//! The node classifies signed transactions with a call trace and forwards pure
+//! transactions to the source chain's normal mempool before they reach this pool.
 //!
 //! `Direction` drives nonce isolation in the [`HeldPool`](crate::HeldPool): an
 //! inbound tx carries the originating chain's nonce, an outbound tx carries this

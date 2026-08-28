@@ -52,8 +52,9 @@ alloy-signer-local.workspace = true
 reqwest.workspace            = true
 
 # Cross-chain RPC fronts (transparent hyper proxy: forward every eth_* to the
-# source chain's node so cast/wallets read chainId/nonce/gas/receipt, intercept
-# eth_sendRawTransaction → HeldPool).
+# source chain's node so cast/wallets read chainId/nonce/gas/receipt; classify
+# eth_sendRawTransaction by trace, forwarding ordinary txs and holding cross-chain
+# txs in HeldPool).
 hyper          = { version = "1.9", features = ["server", "http1"] }
 hyper-util     = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
