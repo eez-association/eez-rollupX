@@ -264,6 +264,38 @@ pub(crate) enum OutboundEffectError {
     },
 }
 
+impl OutboundEffectError {
+    /// Return the user transaction responsible for an execution observation
+    /// failure. Structural and claim-only mismatches are not eviction hints.
+    pub(crate) const fn poisoned_transaction_index(&self) -> Option<usize> {
+        match self {
+            Self::MissingObservation {
+                transaction_index, ..
+            }
+            | Self::MalformedObservation {
+                transaction_index, ..
+            }
+            | Self::UnsupportedCallGas {
+                transaction_index, ..
+            } => Some(*transaction_index),
+            Self::MissingPrecedingSystemTransaction { .. }
+            | Self::MissingLoadCandidate { .. }
+            | Self::UnexpectedLoadCandidate { .. }
+            | Self::InvalidLoadCandidate { .. }
+            | Self::NonCanonicalEffectOrder { .. }
+            | Self::UnexpectedObservation { .. }
+            | Self::ExecutionTableMismatch { .. }
+            | Self::ObservationCountMismatch { .. }
+            | Self::NestedCallHashMismatch { .. }
+            | Self::DestinationRollupMismatch { .. }
+            | Self::SourceRollupMismatch { .. }
+            | Self::ReservedSourceAddress { .. }
+            | Self::ValueOutOfRange { .. }
+            | Self::EtherDeltaMismatch { .. } => None,
+        }
+    }
+}
+
 /// Outbound effects bound to positioned EEZL2 events and exact loaded L2
 /// source-table sidecars.
 ///
