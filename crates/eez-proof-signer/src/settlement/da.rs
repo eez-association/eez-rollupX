@@ -399,11 +399,11 @@ fn verify_effect_sidecars(
     let expected_sidecars = outbound_effects
         .iter()
         .flat_map(|outbound| {
-            std::iter::once((
-                outbound.transaction_index(),
-                outbound.derived_da_entry().abi_encode(),
-            ))
-            .chain(
+            let source_encoding = match outbound.derived_source_entry() {
+                eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => entry.abi_encode(),
+                eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => entry.abi_encode(),
+            };
+            std::iter::once((outbound.transaction_index(), source_encoding)).chain(
                 outbound
                     .callback_transaction_indices()
                     .iter()
@@ -571,7 +571,7 @@ fn verify_reconstructed_sync_block(
                 effects: bindings
                     .iter()
                     .map(|binding| eez_protocol::system_tx::OutboundSyncEffect {
-                        source_entry: binding.derived_da_entry().clone(),
+                        source_entry: binding.derived_source_entry().clone(),
                         callback_entries: binding.derived_callback_entries().to_vec(),
                     })
                     .collect(),

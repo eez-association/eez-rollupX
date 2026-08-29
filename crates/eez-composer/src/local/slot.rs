@@ -25,7 +25,7 @@ use reth_storage_api::StateProviderBox;
 use reth_storage_api::errors::provider::ProviderError;
 use revm::context::result::EVMError;
 use revm::database::CacheState;
-use revm::interpreter::{CallInputs, CallOutcome};
+use revm::interpreter::{CallInputs, CallOutcome, Interpreter};
 use revm::{DatabaseCommit, Inspector};
 
 use eez_protocol::abi::{
@@ -348,17 +348,12 @@ impl TargetExecutionSession for L1TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
-        // `Encoding` because `sim_error_is_poison` classifies it POISON: a call
-        // mode is fixed by the tx, so retrying it re-fails forever.
-        if req.call_mode == CallMode::Static {
-            return Err(ExecutorErrorKind::Encoding(
-                "static target execution is not supported".into(),
-            )
-            .into());
-        }
-
         let proxy = self.proxy_address(req.source_address, req.source_rollup_id)?;
         if !self.is_authorized_proxy(proxy)? {
+            // `_processNCalls` creates and registers a missing source proxy in
+            // its mutable postBatch frame before dispatching the requested
+            // call. `Static` constrains that dispatch frame, not this protocol
+            // preparation, so the proxy creation must survive either mode.
             self.create_proxy(req.source_address, req.source_rollup_id)?;
         }
 
@@ -384,7 +379,11 @@ impl TargetExecutionSession for L1TargetSession {
         // the same composition tree. The outermost frame is skipped: it
         // targets an authorized proxy itself, and intercepting it would
         // re-dispatch the very frame that IS the dispatch.
-        let inspector = SkipTopFrame::new(self.client.inspector_factory().build(dispatcher));
+        let inspector = SkipTopFrame::new(if req.call_mode == CallMode::Static {
+            self.client.inspector_factory().build_static(dispatcher)
+        } else {
+            self.client.inspector_factory().build(dispatcher)
+        });
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
@@ -408,7 +407,7 @@ impl TargetExecutionSession for L1TargetSession {
         // A reverted frame's only state today is the caller's nonce bump, but
         // committing it would tie the slot-shared state to whatever a future
         // revm decides to return in `result.state` for a revert.
-        if success {
+        if success && req.call_mode == CallMode::Mutable {
             reset_frame_caller_nonce(&mut changes, self.manager);
             self.state.commit(changes);
         }
@@ -467,6 +466,10 @@ impl<I> SkipTopFrame<I> {
 }
 
 impl<CTX, I: Inspector<CTX>> Inspector<CTX> for SkipTopFrame<I> {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        self.inner.initialize_interp(interp, context);
+    }
+
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let top = self.depth == 0;
         self.depth += 1;
@@ -534,13 +537,6 @@ impl TargetExecutionSession for InboundL2TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
-        if req.call_mode == CallMode::Static {
-            return Err(ExecutorErrorKind::Encoding(
-                "static target execution is not supported".into(),
-            )
-            .into());
-        }
-
         let proxy = self.proxy_address(&req)?;
         let tx_env = revm::context::TxEnv {
             caller: proxy,
@@ -552,11 +548,18 @@ impl TargetExecutionSession for InboundL2TargetSession {
             ..Default::default()
         };
         let factory = self.client.inspector_factory();
-        let mut inspector = factory.build(dispatcher);
-        let outcome = self
-            .fork
-            .execute_call_inspected(tx_env, &mut inspector)
-            .map_err(fork_err)?;
+        let mut inspector = if req.call_mode == CallMode::Static {
+            factory.build_static(dispatcher)
+        } else {
+            factory.build(dispatcher)
+        };
+        let outcome = if req.call_mode == CallMode::Static {
+            self.fork
+                .execute_static_call_inspected(tx_env, &mut inspector)
+        } else {
+            self.fork.execute_call_inspected(tx_env, &mut inspector)
+        }
+        .map_err(fork_err)?;
         if let Some(error) = inspector.take_error() {
             return Err(error);
         }

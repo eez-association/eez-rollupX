@@ -7,7 +7,7 @@
 
 use alloy_primitives::{B256, I256, U256, keccak256};
 
-use crate::abi::{ExecutionEntrySol, L2ToL1CallSol};
+use crate::abi::{ExecutionEntrySol, L2ToL1CallSol, StaticExecutionEntrySol};
 use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::EntryRollingHash;
 use crate::{ProtocolErrorKind, ProtocolResult, RollupId};
@@ -209,6 +209,88 @@ pub fn verify_nested_pair(
     l1.finish()?;
     l2.finish()?;
     finish_facts(facts, Vec::new())
+}
+
+/// Verify a top-level L2 static source entry against the immediate L1 host
+/// that executes the read against live L1 state.
+pub fn verify_static_outbound_pair(
+    l1_entry: &ExecutionEntrySol,
+    l2_entry: &StaticExecutionEntrySol,
+    l2_rollup_id: RollupId,
+) -> ProtocolResult<NestedPairVerification> {
+    if l2_rollup_id.is_mainnet() {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound L2 rollup id must be non-zero".into(),
+        )
+        .into());
+    }
+    validate_entry_shape(l1_entry, "L1 static outbound host")?;
+    crate::system_tx::check_static_entry_shape(l2_entry, "L2 static outbound source")
+        .map_err(|reason| ProtocolErrorKind::InvalidEncoding(reason))?;
+    if l1_entry.rootUpdates.is_empty()
+        || l1_entry.proxyEntryHash != B256::ZERO
+        || l1_entry.destinationRollupId != l2_rollup_id.0
+        || !l1_entry.success
+        || !l1_entry.returnData.is_empty()
+        || !l1_entry.expectedL1ToL2Calls.is_empty()
+    {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound host has inconsistent routing or outcome metadata".into(),
+        )
+        .into());
+    }
+    let [call] = l1_entry.l2ToL1Calls.as_slice() else {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound host must contain exactly one L2-to-L1 call".into(),
+        )
+        .into());
+    };
+    if !call.isStatic
+        || call.sourceRollupId != l2_rollup_id.0
+        || !call.value.is_zero()
+        || call.revertNextNCalls != 0
+        || call.gas != 0
+        || !l2_entry.expectedRoots.is_empty()
+        || l2_entry.destinationRollupId != RollupId::MAINNET.0
+        || !l2_entry.l2ToL1Calls.is_empty()
+        || l2_entry.rollingHash != B256::ZERO
+    {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound source/host uses an unsupported table shape".into(),
+        )
+        .into());
+    }
+    let call_hash = source_call_hash(call, l2_rollup_id, RollupId::MAINNET)?;
+    if call_hash != l2_entry.proxyEntryHash {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound source hash does not match the L1 call".into(),
+        )
+        .into());
+    }
+    let mut rolling = EntryRollingHash::seed_for_l1(
+        l1_entry
+            .rootUpdates
+            .iter()
+            .map(|update| (update.rollupId, update.currentRoot)),
+        B256::ZERO,
+    );
+    rolling.call_begin(destination_call_hash(
+        call,
+        l2_rollup_id,
+        RollupId::MAINNET,
+    )?);
+    rolling.call_end(l2_entry.success, &l2_entry.returnData);
+    if rolling.current() != l1_entry.rollingHash {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "static outbound host rolling hash does not bind the cached result".into(),
+        )
+        .into());
+    }
+    Ok(NestedPairVerification {
+        l2_outbound_hashes: Vec::new(),
+        ether_delta: I256::ZERO,
+        outbound_callback_counts: vec![0],
+    })
 }
 
 fn finish_facts(
@@ -495,6 +577,34 @@ fn execute_next_nested_call(
         return Ok(false);
     }
 
+    if next_call.isStatic {
+        if !next_call.value.is_zero()
+            || next_call.revertNextNCalls != 0
+            || next_call.gas != 0
+            || !row.l2ToL1Calls.is_empty()
+            || row.revertedOrStaticRollingHash != B256::ZERO
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "nested static row uses an unsupported table shape".into(),
+            )
+            .into());
+        }
+        let row_index = destination.mark_static_row();
+        let next_call = source.take_current_call().ok_or_else(|| {
+            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                "nested pair call cursor changed while resolving a static row".into(),
+            ))
+        })?;
+        source.rolling.call_begin(destination_call_hash(
+            &next_call,
+            destination.chain,
+            source.chain,
+        )?);
+        source.rolling.call_end(row.success, &row.returnData);
+        debug_assert_eq!(row_index + 1, destination.next_row);
+        return Ok(true);
+    }
+
     let row_index = destination.open_next_row(source_hash);
     let next_call = source.take_current_call().ok_or_else(|| {
         crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
@@ -594,6 +704,13 @@ impl<'a> ChainState<'a> {
         self.frame_hashes.push(self.rolling.clone());
         self.rolling.nested_begin(call_hash);
         self.frame_rows.push(row_index);
+        row_index
+    }
+
+    fn mark_static_row(&mut self) -> usize {
+        let row_index = self.next_row;
+        self.next_row += 1;
+        self.seen_rows[row_index] = true;
         row_index
     }
 

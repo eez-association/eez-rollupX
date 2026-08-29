@@ -14,8 +14,9 @@ use reth_evm::{ConfigureEvm, Evm as _};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::{BlockNumReader, StateProviderFactory};
-use revm::DatabaseCommit;
 use revm::database::CacheState;
+use revm::interpreter::Interpreter;
+use revm::{DatabaseCommit, Inspector};
 
 use eez_protocol::{
     CallMode, CompositionBuilder, ExecutionOutcome, ExecutionRequest, ExecutorError,
@@ -28,6 +29,15 @@ use super::reset_frame_caller_nonce;
 /// Gas cap for simulated direct target calls; exhaustion is returned as an
 /// unsuccessful execution outcome.
 pub(super) const DIRECT_CALL_GAS_LIMIT: u64 = 30_000_000;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ForceStaticInspector;
+
+impl<CTX> Inspector<CTX> for ForceStaticInspector {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+        interp.runtime_flag.is_static = true;
+    }
+}
 
 /// Stateful target-chain execution session.
 ///
@@ -243,6 +253,63 @@ impl LocalExecutionSession {
         Ok(self.commit_and_finish(return_data, gas_used, success, changes))
     }
 
+    fn execute_static(
+        &mut self,
+        req: &ExecutionRequest,
+        dispatcher: &mut CompositionBuilder,
+    ) -> ExecutorResult<ExecutionOutcome> {
+        if !req.value.is_zero() {
+            return Err(ExecutorErrorKind::Encoding(
+                "static target execution carries non-zero value".into(),
+            )
+            .into());
+        }
+        let tx_env = self.build_tx_env(
+            &req.target_address,
+            &req.data,
+            &req.value,
+            &req.source_address,
+            req.source_rollup_id,
+        );
+        let (return_data, gas_used, success, inspector_error) =
+            if let Some(factory) = self.inspector_factory.clone() {
+                let inspector = factory.build_static(dispatcher);
+                let mut evm = self.evm_config.evm_with_env_and_inspector(
+                    &mut self.state,
+                    self.evm_env.clone(),
+                    inspector,
+                );
+                let result = evm.transact(tx_env).map_err(evm_err)?;
+                (
+                    result.result.output().cloned().unwrap_or_default(),
+                    result.result.tx_gas_used(),
+                    result.result.is_success(),
+                    evm.inspector_mut().take_error(),
+                )
+            } else {
+                let mut evm = self.evm_config.evm_with_env_and_inspector(
+                    &mut self.state,
+                    self.evm_env.clone(),
+                    ForceStaticInspector,
+                );
+                let result = evm.transact(tx_env).map_err(evm_err)?;
+                (
+                    result.result.output().cloned().unwrap_or_default(),
+                    result.result.tx_gas_used(),
+                    result.result.is_success(),
+                    None,
+                )
+            };
+        if let Some(error) = inspector_error {
+            return Err(error);
+        }
+        Ok(ExecutionOutcome::Resolved {
+            return_data: return_data.to_vec(),
+            gas_used,
+            success,
+        })
+    }
+
     /// Commit the revm bundle, publish the overlay cache, and return the
     /// execution outcome.
     fn commit_and_finish(
@@ -317,10 +384,7 @@ impl TargetExecutionSession for LocalExecutionSession {
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
         if req.call_mode == CallMode::Static {
-            return Err(ExecutorErrorKind::Unavailable(
-                "static target execution is not implemented".to_owned(),
-            )
-            .into());
+            return self.execute_static(&req, dispatcher);
         }
         let outcome = if let Some(factory) = self.inspector_factory.clone() {
             let inspector = factory.build(dispatcher);

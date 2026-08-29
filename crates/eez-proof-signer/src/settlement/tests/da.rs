@@ -674,7 +674,7 @@ fn da_payload_binds_grouped_roots_and_rejects_group_metadata_tampering() {
             .iter()
             .cloned()
             .map(|source_entry| eez_protocol::system_tx::OutboundSyncEffect {
-                source_entry,
+                source_entry: eez_protocol::system_tx::OutboundSourceEntry::Mutable(source_entry),
                 callback_entries: Vec::new(),
             })
             .collect(),

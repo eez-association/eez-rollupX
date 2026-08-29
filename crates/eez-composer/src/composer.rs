@@ -1856,6 +1856,7 @@ where
                         continue;
                     }
                     let source_entries = &composition.source.batch.entries;
+                    let source_static_entries = &composition.source.batch.staticEntries;
                     let settlement_root_counts =
                         match eez_protocol::system_tx::outbound_settlement_root_counts(&l1_entries)
                         {
@@ -1875,7 +1876,8 @@ where
                             }
                         };
                     let settlement_source_count = settlement_root_counts.iter().sum::<usize>();
-                    if source_entries.len() != settlement_source_count {
+                    if source_entries.len() + source_static_entries.len() != settlement_source_count
+                    {
                         event!(
                             name: "eez.composer.cc_compose.outbound_root_mismatch",
                             Level::WARN,
@@ -1883,6 +1885,7 @@ where
                             tx_idx = idx,
                             tx_hash = %held.hash,
                             source_entries = source_entries.len(),
+                            source_static_entries = source_static_entries.len(),
                             settlement_entries = l1_entries.len(),
                             settlement_source_count,
                             "outbound source roots are not fully covered by the L1 settlement hosts; evicting",
@@ -1915,7 +1918,7 @@ where
                         continue;
                     }
                     let mut callback_cursor = 0usize;
-                    let effects = source_entries
+                    let mut effects = source_entries
                         .iter()
                         .cloned()
                         .zip(callback_counts.iter().copied())
@@ -1925,11 +1928,21 @@ where
                                 separate_callback_entries[callback_cursor..callback_end].to_vec();
                             callback_cursor = callback_end;
                             eez_protocol::system_tx::OutboundSyncEffect {
-                                source_entry,
+                                source_entry: eez_protocol::system_tx::OutboundSourceEntry::Mutable(
+                                    source_entry,
+                                ),
                                 callback_entries,
                             }
                         })
-                        .collect();
+                        .collect::<Vec<_>>();
+                    effects.extend(source_static_entries.iter().cloned().map(|source_entry| {
+                        eez_protocol::system_tx::OutboundSyncEffect {
+                            source_entry: eez_protocol::system_tx::OutboundSourceEntry::Static(
+                                source_entry,
+                            ),
+                            callback_entries: Vec::new(),
+                        }
+                    }));
                     let outbound_group = eez_protocol::system_tx::OutboundSyncGroup {
                         effects,
                         user_tx: held.raw_tx.clone(),
@@ -3264,15 +3277,29 @@ where
             let effect_end = outbound_effect_cursor + root_count;
             let inflow = outbound_effects[outbound_effect_cursor..effect_end]
                 .iter()
-                .flat_map(|effect| {
-                    std::iter::once(&effect.source_entry).chain(&effect.callback_entries)
-                })
-                .try_fold(U256::ZERO, |total, sidecar| {
-                    let value = eez_protocol::entries::entry_flat_value_sum(sidecar)
-                        .ok_or_else(|| "invalid outbound L2 sidecar value shape".to_string())?;
-                    total
-                        .checked_add(value)
-                        .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
+                .try_fold(U256::ZERO, |total, effect| {
+                    let source_value = match &effect.source_entry {
+                        eez_protocol::system_tx::OutboundSourceEntry::Mutable(sidecar) => {
+                            eez_protocol::entries::entry_flat_value_sum(sidecar).ok_or_else(
+                                || "invalid outbound L2 sidecar value shape".to_string(),
+                            )?
+                        }
+                        eez_protocol::system_tx::OutboundSourceEntry::Static(_) => U256::ZERO,
+                    };
+                    effect.callback_entries.iter().try_fold(
+                        total
+                            .checked_add(source_value)
+                            .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())?,
+                        |subtotal, sidecar| {
+                            let value = eez_protocol::entries::entry_flat_value_sum(sidecar)
+                                .ok_or_else(|| {
+                                    "invalid outbound callback sidecar value shape".to_string()
+                                })?;
+                            subtotal
+                                .checked_add(value)
+                                .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
+                        },
+                    )
                 })?;
             effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
             effect_state_roots.push(pair_roots[effect_end - 1]);
@@ -3407,6 +3434,27 @@ where
             Some(sync_block_state_root),
             "settlement chain must end at the Sync-block state root",
         );
+
+        // L1 top-level static entries are persistent, read-only claims. The
+        // destination rollup must be pinned to the exact root installed by
+        // this batch; L2's corresponding static pool omits pins entirely.
+        for entry in &mut batch.staticEntries {
+            if entry.destinationRollupId != rollup_id {
+                return Err(format!(
+                    "static entry destination {} does not match settled rollup {rollup_id}",
+                    entry.destinationRollupId,
+                ));
+            }
+            if !entry.expectedRoots.is_empty() {
+                return Err(
+                    "materialized static entry unexpectedly carries pre-filled roots".into(),
+                );
+            }
+            entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+                rollupId: rollup_id,
+                root: sync_block_state_root,
+            }];
+        }
 
         // The L1 rolling seed commits the finalized ordered root updates, so
         // it can only be computed after the stitch above has set every
@@ -3546,13 +3594,30 @@ where
         // The DA sidecar stores the full derivation entry set in canonical
         // order: outbound settlement entries first, then inbound deferred
         // entries. This matches the deriver's prefix split.
-        let l2_entries_bytes: Vec<Vec<u8>> = outbound_l2_groups
+        let outbound_sidecars = outbound_l2_groups
             .iter()
             .flat_map(|group| group.effects.iter())
             .flat_map(|effect| {
-                std::iter::once(&effect.source_entry).chain(&effect.callback_entries)
+                let mut encoded = Vec::with_capacity(1 + effect.callback_entries.len());
+                encoded.push(match &effect.source_entry {
+                    eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
+                        entry.abi_encode()
+                    }
+                    eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => {
+                        entry.abi_encode()
+                    }
+                });
+                encoded.extend(
+                    effect
+                        .callback_entries
+                        .iter()
+                        .map(eez_protocol::abi::ExecutionEntrySol::abi_encode),
+                );
+                encoded
             })
-            .map(eez_protocol::abi::ExecutionEntrySol::abi_encode)
+            .collect::<Vec<_>>();
+        let l2_entries_bytes: Vec<Vec<u8>> = outbound_sidecars
+            .into_iter()
             .chain(
                 compositions
                     .iter()
@@ -3738,6 +3803,22 @@ fn ensure_batch_registry_native(
             if call.sourceRollupId != expected_rollup_id {
                 return Err(format!(
                     "entry[{i}].l2ToL1Calls[{j}].sourceRollupId = {} is not the configured registry id {expected_rollup_id}",
+                    call.sourceRollupId,
+                ));
+            }
+        }
+    }
+    for (i, entry) in batch.staticEntries.iter().enumerate() {
+        if entry.destinationRollupId != expected_rollup_id {
+            return Err(format!(
+                "staticEntries[{i}].destinationRollupId = {} is not the configured registry id {expected_rollup_id}",
+                entry.destinationRollupId,
+            ));
+        }
+        for (j, call) in entry.l2ToL1Calls.iter().enumerate() {
+            if call.sourceRollupId != expected_rollup_id {
+                return Err(format!(
+                    "staticEntries[{i}].l2ToL1Calls[{j}].sourceRollupId = {} is not the configured registry id {expected_rollup_id}",
                     call.sourceRollupId,
                 ));
             }

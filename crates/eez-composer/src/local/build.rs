@@ -510,6 +510,33 @@ impl SyncBlockFork {
         Ok(outcome)
     }
 
+    /// Execute a synthetic read-only target frame without committing its
+    /// transaction state. The inspector forces the first frame static, so
+    /// state-changing opcodes fail exactly as they do under STATICCALL.
+    pub fn execute_static_call_inspected<I>(
+        &mut self,
+        tx_env: revm::context::TxEnv,
+        inspector: I,
+    ) -> Result<TxOutcome, BuildError>
+    where
+        I: for<'db> InspectorFor<EthEvmConfig, &'db mut DraftDb>,
+    {
+        let env = self.simulation_env();
+        let mut evm = self
+            .evm_config
+            .evm_with_env_and_inspector(&mut self.state, env, inspector);
+        let result = evm.transact(tx_env).map_err(|error| match error {
+            EVMError::Database(error) => {
+                BuildError::Provider(format!("execute synthetic static target call: {error}"))
+            }
+            other => BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: format!("synthetic static target call: {other}"),
+            },
+        })?;
+        Ok(exec_outcome(&result.result))
+    }
+
     /// Execute a read-only synthetic manager frame and return its output.
     pub fn view_call(&mut self, tx_env: revm::context::TxEnv) -> Result<Bytes, BuildError> {
         let env = self.simulation_env();

@@ -206,11 +206,26 @@ fn validate_public_input_structure(
         }
     }
 
-    if !batch.staticEntries.is_empty() {
-        return Err(invalid_structure(format!(
-            "staticEntries must be empty in the supported profile, got {}",
-            batch.staticEntries.len()
-        )));
+    for (entry_index, entry) in batch.staticEntries.iter().enumerate() {
+        if entry.destinationRollupId != expected_rollup {
+            return Err(invalid_structure(format!(
+                "static entry {entry_index} destination rollup {} does not match expected rollup id {expected_rollup_id}",
+                entry.destinationRollupId,
+            )));
+        }
+        eez_protocol::system_tx::check_static_entry_shape(entry, "settlement")
+            .map_err(invalid_structure)?;
+        let [pin] = entry.expectedRoots.as_slice() else {
+            return Err(invalid_structure(format!(
+                "static entry {entry_index} must carry exactly one destination-root pin"
+            )));
+        };
+        if pin.rollupId != expected_rollup {
+            return Err(invalid_structure(format!(
+                "static entry {entry_index} pins rollup {}, expected {expected_rollup}",
+                pin.rollupId,
+            )));
+        }
     }
     if !batch.immediateStaticEntryCount.is_zero() {
         return Err(invalid_structure(format!(

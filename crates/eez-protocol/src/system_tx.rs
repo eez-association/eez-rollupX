@@ -33,7 +33,8 @@ use reth_ethereum_primitives::{Transaction, TransactionSigned};
 use crate::RollupId;
 use crate::abi::{
     CrossChainCallSol, ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedOutgoingCrossChainCallSol,
-    L2ExecutionEntrySol, L2ToL1CallSol, loadExecutionTableCall,
+    L2ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol, StaticExecutionEntrySol,
+    loadExecutionTableCall,
 };
 use crate::entries::encode_execute_incoming;
 
@@ -235,10 +236,39 @@ pub struct SyncPair {
 /// host entry for the complete alternating call tree.
 #[derive(Clone, Debug)]
 pub struct OutboundSyncEffect {
-    /// Seed-only execution-table entry consumed by `user_tx`.
-    pub source_entry: ExecutionEntrySol,
+    /// Seed-only mutable or static source-table entry consumed by `user_tx`.
+    pub source_entry: OutboundSourceEntry,
     /// Ordered top-level L1→L2 callback deliveries belonging to this effect.
     pub callback_entries: Vec<ExecutionEntrySol>,
+}
+
+/// Source-table kind loaded before an L2-origin user transaction.
+#[derive(Clone, Debug)]
+pub enum OutboundSourceEntry {
+    /// A state-changing proxy call consumed from the mutable entry table.
+    Mutable(ExecutionEntrySol),
+    /// A top-level read consumed from the same-block static entry pool.
+    Static(StaticExecutionEntrySol),
+}
+
+impl OutboundSourceEntry {
+    /// Borrow the mutable entry, if this effect consumes one.
+    #[must_use]
+    pub const fn as_mutable(&self) -> Option<&ExecutionEntrySol> {
+        match self {
+            Self::Mutable(entry) => Some(entry),
+            Self::Static(_) => None,
+        }
+    }
+
+    /// Borrow the static entry, if this effect consumes one.
+    #[must_use]
+    pub const fn as_static(&self) -> Option<&StaticExecutionEntrySol> {
+        match self {
+            Self::Mutable(_) => None,
+            Self::Static(entry) => Some(entry),
+        }
+    }
 }
 
 /// All settlement effects consumed by one signed L2 user transaction.
@@ -415,10 +445,20 @@ fn check_call_array_shape(calls: &[crate::abi::L2ToL1CallSol], label: &str) -> R
     let mut index = 0usize;
     while index < calls.len() {
         let call = &calls[index];
-        if call.isStatic || call.gas != 0 {
-            return Err(format!(
-                "{label} call {index} uses unsupported static or explicit-gas semantics"
-            ));
+        if call.gas != 0 {
+            return Err(format!("{label} call {index} uses explicit-gas semantics"));
+        }
+        if call.isStatic {
+            if !call.value.is_zero() {
+                return Err(format!(
+                    "{label} static call {index} carries non-zero value"
+                ));
+            }
+            if call.revertNextNCalls != 0 {
+                return Err(format!("{label} static call {index} carries a revert span"));
+            }
+            index += 1;
+            continue;
         }
         let span = usize::from(call.revertNextNCalls);
         if span == 0 {
@@ -444,6 +484,34 @@ fn check_call_array_shape(calls: &[crate::abi::L2ToL1CallSol], label: &str) -> R
             ));
         }
         index = end;
+    }
+    Ok(())
+}
+
+/// Reject malformed top-level static-entry semantics at transport boundaries.
+pub fn check_static_entry_shape(
+    entry: &StaticExecutionEntrySol,
+    label: &str,
+) -> Result<(), String> {
+    if entry.proxyEntryHash == alloy_primitives::B256::ZERO {
+        return Err(format!("{label} static entry has a zero proxy hash"));
+    }
+    for (index, call) in entry.l2ToL1Calls.iter().enumerate() {
+        if !call.isStatic {
+            return Err(format!(
+                "{label} static sub-call {index} is not marked static"
+            ));
+        }
+        if !call.value.is_zero() {
+            return Err(format!(
+                "{label} static sub-call {index} carries non-zero value"
+            ));
+        }
+        if call.revertNextNCalls != 0 {
+            return Err(format!(
+                "{label} static sub-call {index} carries a revert span"
+            ));
+        }
     }
     Ok(())
 }
@@ -527,6 +595,61 @@ pub fn lift_entry_from_l2(
     }
 }
 
+/// Lower the shared L1-shaped static sidecar into EEZL2's lean static ABI.
+#[must_use]
+pub fn lower_static_entry_to_l2(entry: &StaticExecutionEntrySol) -> L2StaticExecutionEntrySol {
+    L2StaticExecutionEntrySol {
+        proxyEntryHash: entry.proxyEntryHash,
+        incomingCalls: entry
+            .l2ToL1Calls
+            .iter()
+            .map(|call| CrossChainCallSol {
+                revertNextNCalls: call.revertNextNCalls,
+                isStatic: call.isStatic,
+                gas: call.gas,
+                sourceAddress: call.sourceAddress,
+                sourceRollupId: call.sourceRollupId,
+                targetAddress: call.targetAddress,
+                value: call.value,
+                data: call.data.clone(),
+            })
+            .collect(),
+        rollingHash: entry.rollingHash,
+        success: entry.success,
+        returnData: entry.returnData.clone(),
+    }
+}
+
+/// Lift EEZL2's lean static ABI into the shared DA sidecar shape.
+#[must_use]
+pub fn lift_static_entry_from_l2(
+    entry: &L2StaticExecutionEntrySol,
+    destination_rollup_id: RollupId,
+) -> StaticExecutionEntrySol {
+    StaticExecutionEntrySol {
+        expectedRoots: Vec::new(),
+        proxyEntryHash: entry.proxyEntryHash,
+        l2ToL1Calls: entry
+            .incomingCalls
+            .iter()
+            .map(|call| L2ToL1CallSol {
+                revertNextNCalls: call.revertNextNCalls,
+                isStatic: call.isStatic,
+                gas: call.gas,
+                sourceAddress: call.sourceAddress,
+                sourceRollupId: call.sourceRollupId,
+                targetAddress: call.targetAddress,
+                value: call.value,
+                data: call.data.clone(),
+            })
+            .collect(),
+        rollingHash: entry.rollingHash,
+        destinationRollupId: destination_rollup_id.0,
+        success: entry.success,
+        returnData: entry.returnData.clone(),
+    }
+}
+
 /// Lower ONE outbound L2→L1 entry to its `[load | user]` Sync pairs, starting
 /// at `starting_nonce`.
 ///
@@ -578,14 +701,28 @@ pub fn build_outbound_group(
         return Err("outbound user transaction has no source effects".to_string());
     }
     let mut lowered = Vec::with_capacity(group.effects.len());
+    let mut lowered_static = Vec::with_capacity(group.effects.len());
     let mut callbacks = Vec::new();
     let mut effect_followup_counts = Vec::with_capacity(group.effects.len());
     for effect in &group.effects {
-        check_entry_shape(&effect.source_entry, "outbound")?;
-        if effect.source_entry.proxyEntryHash == alloy_primitives::B256::ZERO {
-            return Err("outbound source-L2 entry has a zero proxyEntryHash".to_string());
+        match &effect.source_entry {
+            OutboundSourceEntry::Mutable(entry) => {
+                check_entry_shape(entry, "outbound")?;
+                if entry.proxyEntryHash == alloy_primitives::B256::ZERO {
+                    return Err("outbound source-L2 entry has a zero proxyEntryHash".to_string());
+                }
+                lowered.push(lower_entry_to_l2(entry));
+            }
+            OutboundSourceEntry::Static(entry) => {
+                check_static_entry_shape(entry, "outbound")?;
+                if !effect.callback_entries.is_empty() {
+                    return Err(
+                        "outbound static source entry cannot carry callback deliveries".into(),
+                    );
+                }
+                lowered_static.push(lower_static_entry_to_l2(entry));
+            }
         }
-        lowered.push(lower_entry_to_l2(&effect.source_entry));
         for entry in &effect.callback_entries {
             check_entry_shape(entry, "outbound callback")?;
             if entry.destinationRollupId != cfg.this_rollup_id {
@@ -601,7 +738,7 @@ pub fn build_outbound_group(
     let committed_value = committed_l2_table_value(&lowered)?;
     let calldata = loadExecutionTableCall {
         _entries: lowered,
-        _staticEntries: Vec::new(),
+        _staticEntries: lowered_static,
     }
     .abi_encode();
     let system_tx = sign_legacy_system_tx(
@@ -671,7 +808,7 @@ pub fn build_cross_chain_sync_pairs(
         .iter()
         .map(|(source_entry, user_tx)| OutboundSyncGroup {
             effects: vec![OutboundSyncEffect {
-                source_entry: source_entry.clone(),
+                source_entry: OutboundSourceEntry::Mutable(source_entry.clone()),
                 callback_entries: Vec::new(),
             }],
             user_tx: user_tx.clone(),
@@ -953,11 +1090,11 @@ mod tests {
         let group = OutboundSyncGroup {
             effects: vec![
                 OutboundSyncEffect {
-                    source_entry: outbound_entry(),
+                    source_entry: OutboundSourceEntry::Mutable(outbound_entry()),
                     callback_entries: Vec::new(),
                 },
                 OutboundSyncEffect {
-                    source_entry: second,
+                    source_entry: OutboundSourceEntry::Mutable(second),
                     callback_entries: Vec::new(),
                 },
             ],
@@ -975,6 +1112,41 @@ mod tests {
         assert_eq!(load._entries.len(), 2);
         assert_eq!(nonce_of(&pairs[0].system_tx), 7);
         assert!(pairs[0].followup_system_txs.is_empty());
+    }
+
+    #[test]
+    fn static_outbound_uses_the_static_table_and_round_trips() {
+        use alloy_consensus::Transaction as _;
+        use alloy_eips::eip2718::Decodable2718 as _;
+
+        let source = StaticExecutionEntrySol {
+            expectedRoots: Vec::new(),
+            proxyEntryHash: B256::repeat_byte(0x5a),
+            l2ToL1Calls: Vec::new(),
+            rollingHash: B256::ZERO,
+            destinationRollupId: 0,
+            success: true,
+            returnData: Bytes::from_static(&[0x42]),
+        };
+        let group = OutboundSyncGroup {
+            effects: vec![OutboundSyncEffect {
+                source_entry: OutboundSourceEntry::Static(source.clone()),
+                callback_entries: Vec::new(),
+            }],
+            user_tx: Bytes::from_static(&[0xaa]),
+        };
+
+        let built = build_outbound_group(&group, &ctx(), 9).expect("build static group");
+        assert_eq!(built.effect_followup_counts, [0]);
+        assert!(built.followup_system_txs.is_empty());
+
+        let mut raw = built.system_tx.as_ref();
+        let signed = TransactionSigned::decode_2718(&mut raw).expect("decode static load tx");
+        let load = loadExecutionTableCall::abi_decode(signed.input()).expect("decode static load");
+        assert!(load._entries.is_empty());
+        assert_eq!(load._staticEntries.len(), 1);
+        let lifted = lift_static_entry_from_l2(&load._staticEntries[0], RollupId::MAINNET);
+        assert_eq!(lifted.abi_encode(), source.abi_encode());
     }
 
     #[test]

@@ -3,8 +3,11 @@
 use alloy_primitives::{B256, I256};
 use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, RootUpdateSol};
-use eez_protocol::entries::{NestedPairDirection, verify_nested_group};
+use eez_protocol::entries::{
+    NestedPairDirection, verify_nested_group, verify_static_outbound_pair,
+};
 use eez_protocol::rolling_hash::EntryRollingHash;
+use eez_protocol::system_tx::OutboundSourceEntry;
 use eez_protocol::system_tx::outbound_settlement_root_counts;
 use thiserror::Error;
 
@@ -356,19 +359,35 @@ fn derive_effect_positions(
                         let Some(callback_entries) = callback_entries else {
                             return false;
                         };
-                        let l2_entries = entries
-                            [source_entry_start..source_entry_start + source_entry_count]
-                            .iter()
-                            .cloned()
-                            .chain(callback_entries)
-                            .collect::<Vec<_>>();
-                        verify_nested_group(
-                            claimed,
-                            &l2_entries,
-                            NestedPairDirection::Outbound,
-                            RollupId(settled_rollup),
-                        )
-                        .is_ok()
+                        let source_entries = &entries
+                            [source_entry_start..source_entry_start + source_entry_count];
+                        match source_entries {
+                            [OutboundSourceEntry::Static(entry)]
+                                if callback_entries.is_empty() =>
+                            {
+                                verify_static_outbound_pair(
+                                    claimed,
+                                    entry,
+                                    RollupId(settled_rollup),
+                                )
+                                .is_ok()
+                            }
+                            _ => source_entries
+                                .iter()
+                                .map(|entry| entry.as_mutable().cloned())
+                                .collect::<Option<Vec<_>>>()
+                                .map(|mut entries| {
+                                    entries.extend(callback_entries);
+                                    verify_nested_group(
+                                        claimed,
+                                        &entries,
+                                        NestedPairDirection::Outbound,
+                                        RollupId(settled_rollup),
+                                    )
+                                    .is_ok()
+                                })
+                                .unwrap_or(false),
+                        }
                     })
                     .ok_or_else(|| EffectPrefixError::InvalidEffectTransactionLayout {
                         reason: format!(

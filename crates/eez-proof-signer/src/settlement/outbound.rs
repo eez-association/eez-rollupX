@@ -7,8 +7,13 @@ use alloy_primitives::{Address, B256, I256, U256};
 use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, loadExecutionTableCall};
-use eez_protocol::entries::{NestedPairDirection, NestedPairVerification, verify_nested_group};
-use eez_protocol::system_tx::{check_entry_shape, lift_entry_from_l2};
+use eez_protocol::entries::{
+    NestedPairDirection, NestedPairVerification, verify_nested_group, verify_static_outbound_pair,
+};
+use eez_protocol::system_tx::{
+    OutboundSourceEntry, check_entry_shape, check_static_entry_shape, lift_entry_from_l2,
+    lift_static_entry_from_l2,
+};
 use thiserror::Error;
 
 use super::effect_binding::{BoundEffect, BoundEffectSequence, EffectKind};
@@ -26,7 +31,9 @@ impl OutboundLoadCandidate {
     pub(crate) fn decoded_for_test(transaction_index: usize, entry: ExecutionEntrySol) -> Self {
         Self {
             transaction_index,
-            inspection: Ok(LoadedOutboundEntries(vec![entry])),
+            inspection: Ok(LoadedOutboundEntries(vec![OutboundSourceEntry::Mutable(
+                entry,
+            )])),
         }
     }
 
@@ -36,17 +43,32 @@ impl OutboundLoadCandidate {
     ) -> Self {
         Self {
             transaction_index,
-            inspection: Ok(LoadedOutboundEntries(entries)),
+            inspection: Ok(LoadedOutboundEntries(
+                entries
+                    .into_iter()
+                    .map(OutboundSourceEntry::Mutable)
+                    .collect(),
+            )),
         }
     }
 }
 
 /// Canonically comparable wrapper for an ABI-generated entry type.
-pub(crate) struct LoadedOutboundEntries(Vec<ExecutionEntrySol>);
+pub(crate) struct LoadedOutboundEntries(Vec<OutboundSourceEntry>);
 
 impl LoadedOutboundEntries {
-    pub(super) fn as_entries(&self) -> &[ExecutionEntrySol] {
+    pub(super) fn as_entries(&self) -> &[OutboundSourceEntry] {
         &self.0
+    }
+
+    fn encoded(&self) -> Vec<Vec<u8>> {
+        self.0
+            .iter()
+            .map(|entry| match entry {
+                OutboundSourceEntry::Mutable(entry) => entry.abi_encode(),
+                OutboundSourceEntry::Static(entry) => entry.abi_encode(),
+            })
+            .collect()
     }
 }
 
@@ -54,14 +76,14 @@ impl fmt::Debug for LoadedOutboundEntries {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_tuple("LoadedOutboundEntry")
-            .field(&self.0.abi_encode())
+            .field(&self.encoded())
             .finish()
     }
 }
 
 impl PartialEq for LoadedOutboundEntries {
     fn eq(&self, other: &Self) -> bool {
-        self.0.abi_encode() == other.0.abi_encode()
+        self.encoded() == other.encoded()
     }
 }
 
@@ -79,8 +101,6 @@ pub(crate) enum OutboundLoadObservationError {
     NonCanonicalAbi,
     #[error("load calldata carries no execution entries")]
     EntryCount { actual: usize },
-    #[error("load calldata carries {actual} static entries; expected none")]
-    StaticEntryCount { actual: usize },
     #[error("load execution entry is invalid: {reason}")]
     InvalidEntry { reason: String },
 }
@@ -107,15 +127,10 @@ pub(super) fn inspect_outbound_load_candidate(
     if call.abi_encode().as_slice() != calldata {
         return Err(OutboundLoadObservationError::NonCanonicalAbi);
     }
-    if call._entries.is_empty() {
+    if call._entries.is_empty() && call._staticEntries.is_empty() {
         return Err(OutboundLoadObservationError::EntryCount { actual: 0 });
     }
-    if !call._staticEntries.is_empty() {
-        return Err(OutboundLoadObservationError::StaticEntryCount {
-            actual: call._staticEntries.len(),
-        });
-    }
-    let mut sidecars = Vec::with_capacity(call._entries.len());
+    let mut sidecars = Vec::with_capacity(call._entries.len() + call._staticEntries.len());
     for entry in &call._entries {
         let sidecar = lift_entry_from_l2(entry, RollupId::MAINNET);
         check_entry_shape(&sidecar, "outbound load")
@@ -125,7 +140,13 @@ pub(super) fn inspect_outbound_load_candidate(
                 reason: "source entry proxy hash is zero".into(),
             });
         }
-        sidecars.push(sidecar);
+        sidecars.push(OutboundSourceEntry::Mutable(sidecar));
+    }
+    for entry in &call._staticEntries {
+        let sidecar = lift_static_entry_from_l2(entry, RollupId::MAINNET);
+        check_static_entry_shape(&sidecar, "outbound static load")
+            .map_err(|reason| OutboundLoadObservationError::InvalidEntry { reason })?;
+        sidecars.push(OutboundSourceEntry::Static(sidecar));
     }
     Ok(LoadedOutboundEntries(sidecars))
 }
@@ -260,7 +281,7 @@ pub(super) struct AuthorizedOutboundEffect {
     load_transaction_index: usize,
     user_transaction_index: usize,
     callback_transaction_indices: Vec<usize>,
-    derived_da_entry: ExecutionEntrySol,
+    derived_da_entry: OutboundSourceEntry,
     derived_callback_entries: Vec<ExecutionEntrySol>,
 }
 
@@ -295,7 +316,14 @@ impl AuthorizedOutboundEffect {
         &self.callback_transaction_indices
     }
 
-    pub(super) const fn derived_da_entry(&self) -> &ExecutionEntrySol {
+    #[cfg(test)]
+    pub(super) fn derived_da_entry(&self) -> &ExecutionEntrySol {
+        self.derived_da_entry
+            .as_mutable()
+            .expect("mutable outbound effect has a mutable DA entry")
+    }
+
+    pub(super) const fn derived_source_entry(&self) -> &OutboundSourceEntry {
         &self.derived_da_entry
     }
 
@@ -517,7 +545,7 @@ fn unexpected_outbound_observation(observation: &OutboundEventObservation) -> Ou
 
 fn authorize_outbound_effect(
     effect: &BoundEffect<'_>,
-    source_entries: &[ExecutionEntrySol],
+    source_entries: &[OutboundSourceEntry],
     callback_entries: &[ExecutionEntrySol],
     observations: &[&OutboundEventObservation],
     expected_rollup_id: NonZeroU64,
@@ -555,17 +583,31 @@ fn authorize_outbound_effect(
             });
         }
     }
-    let l2_entries = source_entries
-        .iter()
-        .chain(callback_entries)
-        .cloned()
-        .collect::<Vec<_>>();
-    let verification = verify_nested_group(
-        entry,
-        &l2_entries,
-        NestedPairDirection::Outbound,
-        RollupId(expected_rollup_id.get()),
-    )
+    let verification = match source_entries {
+        [OutboundSourceEntry::Static(source)] if callback_entries.is_empty() => {
+            verify_static_outbound_pair(entry, source, RollupId(expected_rollup_id.get()))
+        }
+        _ => {
+            let mutable = source_entries
+                .iter()
+                .map(|source| source.as_mutable().cloned())
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| OutboundEffectError::ExecutionTableMismatch {
+                    entry_index,
+                    reason: "mutable outbound group mixes static source entries".into(),
+                })?;
+            let l2_entries = mutable
+                .into_iter()
+                .chain(callback_entries.iter().cloned())
+                .collect::<Vec<_>>();
+            verify_nested_group(
+                entry,
+                &l2_entries,
+                NestedPairDirection::Outbound,
+                RollupId(expected_rollup_id.get()),
+            )
+        }
+    }
     .map_err(|error| OutboundEffectError::ExecutionTableMismatch {
         entry_index,
         reason: error.to_string(),

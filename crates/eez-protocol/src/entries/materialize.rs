@@ -10,10 +10,10 @@ use std::collections::HashMap;
 
 use alloy_primitives::{B256, Bytes, U256, keccak256};
 
-use crate::abi::{ExecutionEntrySol, ExpectedL1ToL2CallSol};
+use crate::abi::{ExecutionEntrySol, ExpectedL1ToL2CallSol, StaticExecutionEntrySol};
 use crate::action::{CallHashInput, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::EntryRollingHash;
-use crate::{EvmBatch, ExecutedAction, ProtocolErrorKind, ProtocolResult, RollupId};
+use crate::{CallMode, EvmBatch, ExecutedAction, ProtocolErrorKind, ProtocolResult, RollupId};
 
 use super::l1_call_from_action;
 
@@ -34,6 +34,7 @@ enum TraceEvent {
     NestedBegin { row_index: usize, call_hash: B256 },
     NestedEnd,
     NestedRevert { row_index: usize },
+    StaticLookup { row_index: usize, call_hash: B256 },
     RegionBegin,
     RegionRestore,
 }
@@ -70,8 +71,10 @@ pub(crate) struct MaterializedBatch {
 /// `revertNextNCalls` markers. The executing source chain restores its own
 /// rolling-hash branch, while every other chain preserves its execution folds
 /// and rolls back state through the protocol marker.
-/// Static calls, explicit call gas, and failed nested rows with descendants
-/// remain fail-closed at the existing recording boundary.
+/// Terminal static roots and nested reads are materialized without mutating
+/// the source entry's tagged rolling hash. Static calls with descendants,
+/// explicit call gas, and failed nested rows with descendants remain
+/// fail-closed at the recording boundary.
 pub(crate) fn materialize_batches(
     recorded: &[ExecutedAction],
     entry_rollup_id: RollupId,
@@ -89,8 +92,16 @@ pub(crate) fn materialize_batches(
 
     let source_entry_count;
     if entry_rollup_id.is_mainnet() {
-        source_entry_count = forest.roots.len();
+        source_entry_count = forest
+            .roots
+            .iter()
+            .filter(|&&root| recorded[root].call_mode == CallMode::Mutable)
+            .count();
         for root in forest.roots {
+            if recorded[root].call_mode == CallMode::Static {
+                materializer.push_static_entry(entry_rollup_id, &recorded[root]);
+                continue;
+            }
             materializer.begin_region(root)?;
             let call = recorded[root].clone();
             let entry_index = materializer.open_entry(
@@ -122,13 +133,22 @@ pub(crate) fn materialize_batches(
                 &call,
             );
         }
+        for assignment in &plan.assignments {
+            if assignment.source_slot.is_none() {
+                materializer.push_static_entry(entry_rollup_id, &recorded[assignment.root]);
+            }
+        }
 
         let host_index = materializer.open_host_entry(RollupId::MAINNET, entry_rollup_id);
         for assignment in plan.assignments {
             materializer.begin_region(assignment.root)?;
-            materializer.install_context(entry_rollup_id, assignment.source_slot);
+            if let Some(source_slot) = assignment.source_slot {
+                materializer.install_context(entry_rollup_id, source_slot);
+            }
             materializer.execute_call(assignment.root)?;
-            materializer.close_entry(entry_rollup_id, assignment.source_slot);
+            if let Some(source_slot) = assignment.source_slot {
+                materializer.close_entry(entry_rollup_id, source_slot);
+            }
             materializer.close_region_at_subtree(assignment.root)?;
         }
         materializer.close_entry(RollupId::MAINNET, host_index);
@@ -149,12 +169,6 @@ pub fn finalize_l1_entry_traces(batch: &mut EvmBatch, traces: &[EntryTrace]) -> 
         ))
         .into());
     }
-    if !batch.staticEntries.is_empty() {
-        return Err(
-            ProtocolErrorKind::Unsupported("static cross-chain calls are not supported").into(),
-        );
-    }
-
     for (entry_index, (entry, trace)) in batch.entries.iter_mut().zip(traces).enumerate() {
         if entry.rootUpdates.is_empty() {
             return Err(ProtocolErrorKind::InvalidEncoding(format!(
@@ -261,6 +275,35 @@ fn finalize_trace(
                 row.revertedOrStaticRollingHash = rolling_hash.current();
                 rolling_hash = saved_hash;
             }
+            TraceEvent::StaticLookup {
+                row_index,
+                call_hash,
+            } => {
+                if *row_index != next_row {
+                    return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                        "static trace row {row_index} is not forward ordered at {next_row}"
+                    ))
+                    .into());
+                }
+                let row = entry
+                    .expectedL1ToL2Calls
+                    .get_mut(*row_index)
+                    .ok_or_else(|| {
+                        crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
+                            "static trace references missing row {row_index}"
+                        )))
+                    })?;
+                seen_rows[*row_index] = true;
+                let position_key = nested_position_key(*call_hash, rolling_hash.current());
+                if row.expectedL1toL2Hash != B256::ZERO && row.expectedL1toL2Hash != position_key {
+                    return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                        "reused static row {row_index} has inconsistent position keys"
+                    ))
+                    .into());
+                }
+                row.expectedL1toL2Hash = position_key;
+                next_row += 1;
+            }
             TraceEvent::RegionBegin => {
                 if region_state
                     .replace((rolling_hash.clone(), next_row))
@@ -329,7 +372,7 @@ struct RevertRegion {
 #[derive(Clone, Copy, Debug)]
 struct L2RootAssignment {
     root: usize,
-    source_slot: usize,
+    source_slot: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -346,6 +389,13 @@ impl L2RootPlan {
         let mut active_region: Option<(usize, usize)> = None;
 
         for &root in &forest.roots {
+            if recorded[root].call_mode == CallMode::Static {
+                assignments.push(L2RootAssignment {
+                    root,
+                    source_slot: None,
+                });
+                continue;
+            }
             if let Some(region) = forest.regions.get(&root).filter(|region| region.root_level) {
                 if active_region.is_some() {
                     return Err(ProtocolErrorKind::Unsupported(
@@ -376,7 +426,10 @@ impl L2RootPlan {
                 slot_roots.push(root);
             }
 
-            assignments.push(L2RootAssignment { root, source_slot });
+            assignments.push(L2RootAssignment {
+                root,
+                source_slot: Some(source_slot),
+            });
 
             if let Some((end, saved_cursor)) = active_region
                 && forest.subtree_ends[root] == end
@@ -544,6 +597,7 @@ struct ActiveContext {
 #[derive(Default)]
 struct ChainOutput {
     entries: Vec<ExecutionEntrySol>,
+    static_entries: Vec<StaticExecutionEntrySol>,
     traces: Vec<EntryTrace>,
     immediate_count: usize,
 }
@@ -745,6 +799,26 @@ impl<'a> Materializer<'a> {
         entry_index
     }
 
+    fn push_static_entry(&mut self, chain: RollupId, call: &ExecutedAction) {
+        self.outputs
+            .entry(chain)
+            .or_default()
+            .static_entries
+            .push(StaticExecutionEntrySol {
+                expectedRoots: Vec::new(),
+                proxyEntryHash: source_call_hash(call),
+                l2ToL1Calls: Vec::new(),
+                rollingHash: B256::ZERO,
+                destinationRollupId: call.target_rollup_id.0,
+                success: call.outcome.is_success(),
+                returnData: Bytes::copy_from_slice(
+                    call.outcome
+                        .return_data()
+                        .expect("materializable outcome is resolved"),
+                ),
+            });
+    }
+
     fn install_context(&mut self, chain: RollupId, entry_index: usize) {
         let previous = self.active.insert(
             chain,
@@ -766,7 +840,8 @@ impl<'a> Materializer<'a> {
     fn execute_call(&mut self, node_index: usize) -> ProtocolResult<()> {
         let call = self.recorded[node_index].clone();
         let destination = call.target_rollup_id;
-        if !call.source_rollup_id.is_mainnet()
+        if call.call_mode == CallMode::Mutable
+            && !call.source_rollup_id.is_mainnet()
             && destination.is_mainnet()
             && call.outcome.is_success()
         {
@@ -838,13 +913,23 @@ impl<'a> Materializer<'a> {
             )
             .into());
         }
-        self.push_event(
-            source_chain,
-            TraceEvent::NestedBegin {
-                row_index,
-                call_hash: source_call_hash(&call),
-            },
-        );
+        if call.call_mode == CallMode::Static {
+            self.push_event(
+                source_chain,
+                TraceEvent::StaticLookup {
+                    row_index,
+                    call_hash: source_call_hash(&call),
+                },
+            );
+        } else {
+            self.push_event(
+                source_chain,
+                TraceEvent::NestedBegin {
+                    row_index,
+                    call_hash: source_call_hash(&call),
+                },
+            );
+        }
         self.active
             .get_mut(&source_chain)
             .expect("source chain active")
@@ -860,7 +945,10 @@ impl<'a> Materializer<'a> {
             .frame_rows
             .pop();
         debug_assert_eq!(popped, Some(row_index));
-        if call.outcome.is_success() {
+        if call.call_mode == CallMode::Static {
+            // A static lookup is position-pinned but does not mutate the host
+            // entry's tagged rolling hash or consume its runtime row cursor.
+        } else if call.outcome.is_success() {
             self.push_event(source_chain, TraceEvent::NestedEnd);
         } else {
             self.push_event(source_chain, TraceEvent::NestedRevert { row_index });
@@ -1021,6 +1109,7 @@ impl<'a> Materializer<'a> {
                 MaterializedBatch {
                     batch: EvmBatch {
                         entries: output.entries,
+                        staticEntries: output.static_entries,
                         immediateEntryCount: U256::from(
                             if chain == entry_rollup_id && !chain.is_mainnet() {
                                 0
@@ -1093,7 +1182,6 @@ mod tests {
     use alloy_primitives::{Address, I256};
 
     use super::*;
-    use crate::CallMode;
     use crate::abi::{EtherDeltaSol, RootUpdateSol};
 
     fn action(
@@ -1781,6 +1869,100 @@ mod tests {
             l2,
         )
         .expect("verify naturally failed outbound callback");
+        assert!(verified.l2_outbound_hashes.is_empty());
+    }
+
+    #[test]
+    fn terminal_l1_static_root_stays_in_the_l1_static_pool() {
+        let l2 = RollupId(1);
+        let mut call = action(0, None, RollupId::MAINNET, l2);
+        call.call_mode = CallMode::Static;
+        call.value = U256::ZERO;
+
+        let mut batches = materialize_batches(std::slice::from_ref(&call), RollupId::MAINNET)
+            .expect("materialize L1 static root");
+        let l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        assert!(batches.is_empty(), "a static root has no L2 delivery entry");
+        assert!(l1.batch.entries.is_empty());
+        assert_eq!(l1.batch.staticEntries.len(), 1);
+
+        let entry = &l1.batch.staticEntries[0];
+        assert_eq!(entry.proxyEntryHash, source_call_hash(&call));
+        assert_eq!(entry.destinationRollupId, l2.0);
+        assert!(entry.l2ToL1Calls.is_empty());
+        assert_eq!(entry.rollingHash, B256::ZERO);
+        assert_eq!(entry.returnData.as_ref(), [0x40]);
+    }
+
+    #[test]
+    fn terminal_l2_static_root_is_bound_to_its_l1_host() {
+        let l2 = RollupId(1);
+        let mut call = action(0, None, l2, RollupId::MAINNET);
+        call.call_mode = CallMode::Static;
+        call.value = U256::ZERO;
+
+        let mut batches = materialize_batches(std::slice::from_ref(&call), l2)
+            .expect("materialize L2 static root");
+        let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 host");
+        let l2_output = batches.remove(&l2).expect("L2 static source");
+        assert!(batches.is_empty());
+        assert!(l2_output.batch.entries.is_empty());
+        assert_eq!(l2_output.batch.staticEntries.len(), 1);
+
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0xd1),
+            newRoot: B256::with_last_byte(0xd2),
+            etherDelta: EtherDeltaSol::ZERO,
+        });
+        finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
+            .expect("finalize L2 static root host");
+
+        let verified = crate::entries::verify_static_outbound_pair(
+            &l1.batch.entries[0],
+            &l2_output.batch.staticEntries[0],
+            l2,
+        )
+        .expect("verify L2 static root");
+        assert!(verified.l2_outbound_hashes.is_empty());
+        assert_eq!(verified.ether_delta, I256::ZERO);
+    }
+
+    #[test]
+    fn nested_static_callback_is_position_bound_without_mutating_the_source_hash() {
+        let l2 = RollupId(1);
+        let mut calls = vec![
+            action(0, None, RollupId::MAINNET, l2),
+            action(1, Some(0), l2, RollupId::MAINNET),
+        ];
+        calls[1].call_mode = CallMode::Static;
+        calls[1].value = U256::ZERO;
+
+        let mut batches = materialize_batches(&calls, RollupId::MAINNET)
+            .expect("materialize nested static callback");
+        let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        let l2_output = batches.remove(&l2).expect("L2 delivery");
+        l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0xe1),
+            newRoot: B256::with_last_byte(0xe2),
+            etherDelta: EtherDeltaSol::ZERO,
+        });
+        finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
+            .expect("finalize nested static callback");
+
+        let row = &l2_output.batch.entries[0].expectedL1ToL2Calls[0];
+        assert_eq!(row.revertedOrStaticRollingHash, B256::ZERO);
+        assert!(row.l2ToL1Calls.is_empty());
+        assert!(l1.batch.entries[0].l2ToL1Calls[0].isStatic);
+
+        let verified = crate::entries::verify_nested_pair(
+            &l1.batch.entries[0],
+            &l2_output.batch.entries[0],
+            crate::entries::NestedPairDirection::Inbound,
+            l2,
+        )
+        .expect("verify nested static callback");
         assert!(verified.l2_outbound_hashes.is_empty());
     }
 

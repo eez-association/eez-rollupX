@@ -1074,7 +1074,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_rejects_static_calls_before_building_any_dialect() {
+    fn finalize_materializes_a_terminal_static_call() {
         let mut rollups = HashMap::new();
         rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
         rollups.insert(RollupId(1), rollup_with_session([0x11; 32]));
@@ -1085,20 +1085,12 @@ mod tests {
             .dispatch_call(RollupId(1), request)
             .expect("dispatch");
 
-        let error = builder
-            .finalize()
-            .expect_err("static entry materialization is not implemented");
+        let composition = builder.finalize().expect("static call is materializable");
 
-        assert!(matches!(
-            error.kind(),
-            crate::error::CompositionErrorKind::Protocol(protocol)
-                if matches!(
-                    protocol.kind(),
-                    crate::ProtocolErrorKind::Unsupported(
-                        "static cross-chain calls are not supported"
-                    )
-                )
-        ));
+        assert!(composition.source.batch.entries.is_empty());
+        assert_eq!(composition.source.batch.staticEntries.len(), 1);
+        assert!(composition.source.batch.staticEntries[0].success);
+        assert!(composition.targets.is_empty());
     }
 
     #[test]

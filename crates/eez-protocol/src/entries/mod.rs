@@ -3,8 +3,10 @@
 //! The materializer accepts mutable call trees, including terminal failed
 //! calls. Source-chain rollback regions are retained and lowered to canonical
 //! `revertNextNCalls` windows, and a terminal failed nested row is represented
-//! by its reverted rolling hash. Static calls, explicit call gas, and failed
-//! calls with descendants remain fail-closed.
+//! by its reverted rolling hash. Read-only roots and terminal read-only nested
+//! calls are represented by the protocol's static-entry pool / unified rows.
+//! Explicit call gas, static calls with descendants, and failed mutable calls
+//! with descendants remain fail-closed.
 
 mod materialize;
 mod verify;
@@ -13,6 +15,7 @@ pub(crate) use materialize::materialize_batches;
 pub use materialize::{EntryTrace, finalize_l1_entry_traces};
 pub use verify::{
     NestedPairDirection, NestedPairVerification, verify_nested_group, verify_nested_pair,
+    verify_static_outbound_pair,
 };
 
 use alloy_primitives::{Address, B256, Bytes, U256};
@@ -29,6 +32,7 @@ use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_ou
 use crate::{ExecutedAction, ProtocolResult, RollupId, rolling_hash::EntryRollingHash};
 
 const UNSUCCESSFUL_CALL: &str = "unsuccessful cross-chain calls are not supported";
+#[cfg(test)]
 const STATIC_CALL: &str = "static cross-chain calls are not supported";
 const REVERT_SPAN: &str = "cross-chain call revert spans are not supported";
 const NESTED_TRACE_REQUIRED: &str = "nested L1 entries require symbolic trace finalization";
@@ -51,7 +55,27 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
             .into());
         }
         if call.call_mode == CallMode::Static {
-            return Err(crate::ProtocolErrorKind::Unsupported(STATIC_CALL).into());
+            if !call.value.is_zero() {
+                return Err(crate::ProtocolErrorKind::InvalidEncoding(
+                    "static cross-chain calls must carry zero value".into(),
+                )
+                .into());
+            }
+            if call.revert_span.is_some() {
+                return Err(crate::ProtocolErrorKind::Unsupported(
+                    "static cross-chain calls cannot carry revert spans",
+                )
+                .into());
+            }
+            if calls
+                .iter()
+                .any(|candidate| candidate.parent_index == Some(index))
+            {
+                return Err(crate::ProtocolErrorKind::Unsupported(
+                    "static cross-chain calls with descendants are not supported",
+                )
+                .into());
+            }
         }
         if !call.outcome.is_success()
             && calls
@@ -156,10 +180,6 @@ pub(crate) fn build_l1_postbatch(
 ///
 /// Returns an error when any entry is incomplete or outside that profile.
 pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
-    if !batch.staticEntries.is_empty() {
-        return Err(crate::ProtocolErrorKind::Unsupported(STATIC_CALL).into());
-    }
-
     for (entry_index, entry) in batch.entries.iter_mut().enumerate() {
         if entry.rootUpdates.is_empty() {
             return Err(crate::ProtocolErrorKind::InvalidEncoding(format!(
@@ -191,7 +211,7 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
         if let Some(call) = entry.l2ToL1Calls.first() {
             ensure_supported_flat_call(call)?;
             let call_hash = common_cross_chain_call_hash(CallHashInput {
-                call_mode: CallMode::Mutable,
+                call_mode: CallMode::from_is_static(call.isStatic),
                 source_address: call.sourceAddress,
                 source_rollup_id: RollupId(call.sourceRollupId),
                 target_address: call.targetAddress,
@@ -591,8 +611,11 @@ fn ensure_supported_flat_call(call: &L2ToL1CallSol) -> ProtocolResult<()> {
     if call.revertNextNCalls != 0 {
         return Err(crate::ProtocolErrorKind::Unsupported(REVERT_SPAN).into());
     }
-    if call.isStatic {
-        return Err(crate::ProtocolErrorKind::Unsupported(STATIC_CALL).into());
+    if call.isStatic && !call.value.is_zero() {
+        return Err(crate::ProtocolErrorKind::InvalidEncoding(
+            "static cross-chain calls must carry zero value".into(),
+        )
+        .into());
     }
     if call.gas != 0 {
         return Err(crate::ProtocolErrorKind::Unsupported(
@@ -606,7 +629,7 @@ fn ensure_supported_flat_call(call: &L2ToL1CallSol) -> ProtocolResult<()> {
 fn l1_call_from_action(call: &ExecutedAction) -> L2ToL1CallSol {
     L2ToL1CallSol {
         revertNextNCalls: 0,
-        isStatic: false,
+        isStatic: call.call_mode == CallMode::Static,
         gas: 0,
         sourceAddress: call.source_address,
         sourceRollupId: call.source_rollup_id.0,
@@ -668,7 +691,16 @@ mod tests {
 
         let mut static_call = record(RollupId(1), RollupId::MAINNET);
         static_call.call_mode = CallMode::Static;
-        assert!(ensure_materializable_calls(&[static_call]).is_err());
+        ensure_materializable_calls(&[static_call.clone()])
+            .expect("terminal zero-value static calls are representable");
+
+        let mut value_static = static_call.clone();
+        value_static.value = U256::from(1);
+        assert!(ensure_materializable_calls(&[value_static]).is_err());
+
+        let mut static_child = record(RollupId::MAINNET, RollupId(1));
+        static_child.parent_index = Some(0);
+        assert!(ensure_materializable_calls(&[static_call, static_child]).is_err());
 
         let mut failed_parent = record(RollupId(1), RollupId::MAINNET);
         let ExecutionOutcome::Resolved { success, .. } = &mut failed_parent.outcome else {

@@ -671,9 +671,8 @@ fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
     let valid = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
     let settling = settling_with_outbound_pairs(&valid);
     let checkpoints = [checkpoint(1, B256::ZERO)];
-    let shape_mutations: [fn(&mut ExecutionEntrySol); 3] = [
+    let shape_mutations: [fn(&mut ExecutionEntrySol); 2] = [
         |entry| entry.success = false,
-        |entry| entry.l2ToL1Calls[0].isStatic = true,
         |entry| entry.l2ToL1Calls[0].gas = 1,
     ];
     for mutate in shape_mutations {
@@ -684,6 +683,10 @@ fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
             Some(EffectPrefixError::InvalidEntry { entry_index: 1 })
         );
     }
+
+    let mut static_call = valid.clone();
+    static_call.entries[1].l2ToL1Calls[0].isStatic = true;
+    assert!(verify_effect_prefix(&static_call, B256::ZERO, &checkpoints, &settling).is_ok());
 
     let mut reverted = valid.clone();
     reverted.entries[1].l2ToL1Calls[0].revertNextNCalls = 1;

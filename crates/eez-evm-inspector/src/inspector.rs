@@ -28,7 +28,7 @@ use revm::Inspector;
 use revm::context_interface::{ContextTr, Host, JournalTr};
 use revm::database::{CacheState, State};
 use revm::interpreter::{
-    CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, InterpreterResult,
+    CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, Interpreter, InterpreterResult,
 };
 
 use crate::overlay::OverlayChannelHandle;
@@ -156,6 +156,9 @@ pub struct SessionInspector<'a> {
     /// represented by the entry/call outcome. Only an enclosing source frame
     /// that subsequently reverts creates a rollback window.
     frame_boundaries: Vec<FrameBoundary>,
+    /// Force the first synthetic target frame into EVM static context.
+    force_first_frame_static: bool,
+    first_frame_initialized: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -238,7 +241,17 @@ impl SessionInspectorFactory {
             error: None,
             overlay_channel: self.overlay_channel.clone(),
             frame_boundaries: Vec::new(),
+            force_first_frame_static: false,
+            first_frame_initialized: false,
         }
+    }
+
+    /// Build an inspector whose first synthetic target frame executes with
+    /// the EVM static flag set. Descendant calls inherit that flag normally.
+    pub fn build_static<'a>(&self, dispatcher: &'a mut CompositionBuilder) -> SessionInspector<'a> {
+        let mut inspector = self.build(dispatcher);
+        inspector.force_first_frame_static = true;
+        inspector
     }
 }
 
@@ -264,6 +277,15 @@ where
     CTX: ContextTr<Db = &'db mut State<DB>> + Host,
     DB: 'db,
 {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+        if !self.first_frame_initialized {
+            if self.force_first_frame_static {
+                interp.runtime_flag.is_static = true;
+            }
+            self.first_frame_initialized = true;
+        }
+    }
+
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // Bracket every CALL frame with a recorded-count snapshot so
         // `call_end` can detect "frame reverted AFTER dispatching one
@@ -278,9 +300,9 @@ where
             return None;
         }
 
-        // Only mutable CALLs can represent cross-chain proxy calls.
-        // Leave all other call shapes to the EVM.
-        if inputs.is_static || !matches!(inputs.scheme, CallScheme::Call) {
+        // Only CALL / STATICCALL can represent cross-chain proxy calls. Leave
+        // delegate/callcode shapes to the EVM.
+        if !matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall) {
             return None;
         }
 
@@ -308,10 +330,21 @@ where
             .expect("the current CALL frame has a boundary")
             .intercepted_cross_chain = true;
 
+        let call_mode = if inputs.is_static || matches!(inputs.scheme, CallScheme::StaticCall) {
+            CallMode::Static
+        } else {
+            CallMode::Mutable
+        };
         let call_value = inputs.value.get();
+        if call_mode == CallMode::Static && !call_value.is_zero() {
+            self.record_error(ExecutorError::evm(
+                "static cross-chain proxy call carries non-zero value",
+            ));
+            return None;
+        }
 
         let req = eez_protocol::ExecutionRequest {
-            call_mode: CallMode::Mutable,
+            call_mode,
             target_address: info.original_address,
             data: calldata,
             value: call_value,

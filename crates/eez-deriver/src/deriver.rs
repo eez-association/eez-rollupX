@@ -1244,12 +1244,31 @@ where
                     use alloy_sol_types::SolValue as _;
                     let mut out = Vec::with_capacity(decoded.l2_entries.len());
                     for (i, raw) in decoded.l2_entries.iter().enumerate() {
-                        let entry =
-                            eez_protocol::abi::ExecutionEntrySol::abi_decode(raw).map_err(|e| {
-                                DeriverError::l2_provider(format!(
-                                    "decode l2_entries[{i}] for tx {tx_hash}: {e}"
-                                ))
-                            })?;
+                        let mutable = eez_protocol::abi::ExecutionEntrySol::abi_decode(raw)
+                            .ok()
+                            .filter(|entry| entry.abi_encode() == *raw);
+                        let static_entry =
+                            eez_protocol::abi::StaticExecutionEntrySol::abi_decode(raw)
+                                .ok()
+                                .filter(|entry| entry.abi_encode() == *raw);
+                        let entry = match (mutable, static_entry) {
+                            (Some(entry), None) => {
+                                eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry)
+                            }
+                            (None, Some(entry)) => {
+                                eez_protocol::system_tx::OutboundSourceEntry::Static(entry)
+                            }
+                            (None, None) => {
+                                return Err(DeriverError::l2_provider(format!(
+                                    "decode l2_entries[{i}] for tx {tx_hash}: neither mutable nor static canonical ABI"
+                                )));
+                            }
+                            (Some(_), Some(_)) => {
+                                return Err(DeriverError::l2_provider(format!(
+                                    "decode l2_entries[{i}] for tx {tx_hash}: ambiguous mutable/static ABI"
+                                )));
+                            }
+                        };
                         out.push(entry);
                     }
                     if out.len() < settlement_inbound.len() {
@@ -1260,7 +1279,19 @@ where
                         )));
                     }
                     let inbound_start = out.len() - settlement_inbound.len();
-                    let inbound = out[inbound_start..].to_vec();
+                    let inbound = out[inbound_start..]
+                        .iter()
+                        .map(|entry| match entry {
+                            eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
+                                Ok(entry.clone())
+                            }
+                            eez_protocol::system_tx::OutboundSourceEntry::Static(_) => {
+                                Err(DeriverError::l2_provider(format!(
+                                    "postBatch({tx_hash}) uses a static sidecar as an inbound delivery"
+                                )))
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                     if inbound
                         .iter()
                         .any(|entry| entry.destinationRollupId != cfg.this_rollup_id)
@@ -1271,23 +1302,51 @@ where
                     }
                     let mut outbound = Vec::new();
                     for entry in &out[..inbound_start] {
-                        if entry.destinationRollupId == 0 {
-                            outbound.push(eez_protocol::system_tx::OutboundSyncEffect {
-                                source_entry: entry.clone(),
-                                callback_entries: Vec::new(),
-                            });
-                        } else if entry.destinationRollupId == cfg.this_rollup_id {
-                            let Some(group) = outbound.last_mut() else {
+                        match entry {
+                            eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry)
+                                if entry.destinationRollupId == 0 =>
+                            {
+                                outbound.push(eez_protocol::system_tx::OutboundSyncEffect {
+                                    source_entry:
+                                        eez_protocol::system_tx::OutboundSourceEntry::Mutable(
+                                            entry.clone(),
+                                        ),
+                                    callback_entries: Vec::new(),
+                                });
+                            }
+                            eez_protocol::system_tx::OutboundSourceEntry::Static(entry)
+                                if entry.destinationRollupId == 0 =>
+                            {
+                                outbound.push(eez_protocol::system_tx::OutboundSyncEffect {
+                                    source_entry:
+                                        eez_protocol::system_tx::OutboundSourceEntry::Static(
+                                            entry.clone(),
+                                        ),
+                                    callback_entries: Vec::new(),
+                                });
+                            }
+                            eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry)
+                                if entry.destinationRollupId == cfg.this_rollup_id =>
+                            {
+                                let Some(group) = outbound.last_mut() else {
+                                    return Err(DeriverError::l2_provider(format!(
+                                        "postBatch({tx_hash}) callback sidecar precedes its outbound source"
+                                    )));
+                                };
+                                group.callback_entries.push(entry.clone());
+                            }
+                            eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => {
                                 return Err(DeriverError::l2_provider(format!(
-                                    "postBatch({tx_hash}) callback sidecar precedes its outbound source"
+                                    "postBatch({tx_hash}) static sidecar targets rollup {}, expected mainnet",
+                                    entry.destinationRollupId,
                                 )));
-                            };
-                            group.callback_entries.push(entry.clone());
-                        } else {
-                            return Err(DeriverError::l2_provider(format!(
-                                "postBatch({tx_hash}) sidecar targets foreign rollup {}",
-                                entry.destinationRollupId,
-                            )));
+                            }
+                            eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
+                                return Err(DeriverError::l2_provider(format!(
+                                    "postBatch({tx_hash}) sidecar targets foreign rollup {}",
+                                    entry.destinationRollupId,
+                                )));
+                            }
                         }
                     }
                     let settlement_root_counts =
@@ -1465,12 +1524,44 @@ where
                 let mut source_cursor = 0usize;
                 for (host, &count) in settlement_outbound.iter().zip(&selected_root_counts) {
                     let source_end = source_cursor + count;
-                    let verification = eez_protocol::entries::verify_nested_group(
-                        host,
-                        &selected_sources[source_cursor..source_end],
-                        eez_protocol::entries::NestedPairDirection::Outbound,
-                        eez_protocol::RollupId(cfg.this_rollup_id),
-                    )
+                    let selected = &selected_sources[source_cursor..source_end];
+                    let verification = match selected {
+                        [eez_protocol::system_tx::OutboundSourceEntry::Static(source)] => {
+                            eez_protocol::entries::verify_static_outbound_pair(
+                                host,
+                                source,
+                                eez_protocol::RollupId(cfg.this_rollup_id),
+                            )
+                        }
+                        _ if selected.iter().all(|source| {
+                            matches!(
+                                source,
+                                eez_protocol::system_tx::OutboundSourceEntry::Mutable(_)
+                            )
+                        }) => {
+                            let mutable = selected
+                                .iter()
+                                .map(|source| match source {
+                                    eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
+                                        entry.clone()
+                                    }
+                                    eez_protocol::system_tx::OutboundSourceEntry::Static(_) => {
+                                        unreachable!("guarded mutable source slice")
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            eez_protocol::entries::verify_nested_group(
+                                host,
+                                &mutable,
+                                eez_protocol::entries::NestedPairDirection::Outbound,
+                                eez_protocol::RollupId(cfg.this_rollup_id),
+                            )
+                        }
+                        _ => Err(eez_protocol::ProtocolErrorKind::Unsupported(
+                            "mixed mutable/static roots in one outbound settlement host",
+                        )
+                        .into()),
+                    }
                     .map_err(|error| {
                         DeriverError::local_diverged_with_msg(
                             from_block,
