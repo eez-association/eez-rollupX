@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Run supported eez-core-protocol scenarios against the CI enclave.
-# The full scenario suite runs separately against Anvil in the normal CI.
+# Run eez-core-protocol scenarios against the CI enclave and produce a strict,
+# machine-readable evidence bundle. The default discovers and runs every
+# upstream E2E script at the pinned submodule commit.
 set -euo pipefail
 
 KURTOSIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,33 +10,9 @@ PROTOCOL="$REPO/eez-core-protocol"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}/protocol-e2e"
 
-SUPPORTED_TARGETS=(
-    one_way                    # bridge, counter, and counterL2
-    multi-call-twice           # one L1 user tx -> the same L2 target twice
-    multi-call-two-diff        # one L1 user tx -> two L2 targets
-    multi-call-twiceL2         # one L2 user tx -> the same L1 target twice
-    multi-call-two-diffL2      # one L2 user tx -> two L1 targets
-    counter-multi-tx           # three source transactions in one settlement
-    nestedCounter              # L1 -> L2 -> L1
-    nestedCounterL2            # L2 -> L1 -> L2
-    multi-call-nested          # three nested L1 -> L2 -> L1 flows
-    multi-call-nestedL2        # one L2 user tx -> two L1 roots -> two L2 callbacks
-    deepNested                 # multi-level alternating callback chain
-    flash-loan                 # stateful L1 -> L2 -> L1 callback flow
-    nestedCallRevert           # failed L2 -> L1 callback caught by its L2 caller
-    nestedCallRevertL2         # failed L1 -> L2 callback caught by its L1 caller
-    revertCounter              # single reverted callback (L1 -> L2 -> L1)
-    revertFromOtherChain       # remote-frame revert followed by a committed retry
-    revertCounterL2            # single reverted callback (L2 -> L1 -> L2)
-    revertFromOtherChainL2     # remote L1 frame reverts an L2-origin call
-    revertFromOtherChainAndCallAgainL2 # remote revert followed by a committed retry
-    revertFromOtherChainNested # nested remote revert followed by a committed call
-    reentrant                  # four-boundary L1 -> L2 -> L1 -> L2 -> L1 chain
-)
-
 UNSUPPORTED_TARGETS=()
 
-for tool in bash bc cast forge git jq kurtosis; do
+for tool in bash bc cargo cast find forge git jq kurtosis sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
@@ -47,6 +24,16 @@ if [[ -z "$expected_protocol" || "$actual_protocol" != "$expected_protocol" ]]; 
     echo "Run: git submodule update --init --recursive eez-core-protocol" >&2
     exit 1
 fi
+
+causal_target_dir="${CARGO_TARGET_DIR:-$REPO/target}"
+[[ "$causal_target_dir" == /* ]] || causal_target_dir="$REPO/$causal_target_dir"
+env CARGO_TARGET_DIR="$causal_target_dir" \
+    cargo build --manifest-path "$REPO/Cargo.toml" -p eez-protocol --example e2e-causal-verify
+CAUSAL_VERIFIER="$causal_target_dir/debug/examples/e2e-causal-verify"
+[[ -x "$CAUSAL_VERIFIER" ]] || {
+    echo "causal verifier was not built at $CAUSAL_VERIFIER" >&2
+    exit 1
+}
 
 source "$KURTOSIS_DIR/ports.sh" >/dev/null
 L1_RPC="${L1_RPC:-$EEZ_DEVNET_L1_RPC}"
@@ -139,11 +126,93 @@ MANAGER_L2=$MANAGER_L2
 PK=$PK
 ENV
 
+# Discover the upstream suite from the pinned submodule. Scenario basenames are
+# the network runner's result keys, so require them to be globally unique.
+mapfile -t all_scenario_paths < <(
+    find "$PROTOCOL/script/e2e" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+        | sed "s#^$PROTOCOL/##" \
+        | sort
+)
+(( ${#all_scenario_paths[@]} > 0 )) || { echo "no upstream protocol E2Es discovered" >&2; exit 1; }
+
+declare -A all_path_by_name=()
+all_scenario_names=()
+for path in "${all_scenario_paths[@]}"; do
+    name="$(basename "$(dirname "$path")")"
+    if [[ -n "${all_path_by_name[$name]+x}" ]]; then
+        echo "duplicate upstream scenario name '$name': ${all_path_by_name[$name]} and $path" >&2
+        exit 1
+    fi
+    all_path_by_name["$name"]="$path"
+    all_scenario_names+=("$name")
+done
+
 if [[ -n "${EEZ_PROTOCOL_SCENARIOS:-}" ]]; then
     read -r -a targets <<<"$EEZ_PROTOCOL_SCENARIOS"
 else
-    targets=("${SUPPORTED_TARGETS[@]}")
+    targets=(all)
 fi
+
+selected_paths=()
+for target in "${targets[@]}"; do
+    matches=()
+    if [[ "$target" == "all" ]]; then
+        matches=("${all_scenario_paths[@]}")
+    elif [[ -d "$PROTOCOL/script/e2e/$target" ]]; then
+        mapfile -t matches < <(
+            find "$PROTOCOL/script/e2e/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+                | sed "s#^$PROTOCOL/##" \
+                | sort
+        )
+    else
+        for path in "${all_scenario_paths[@]}"; do
+            [[ "$(basename "$(dirname "$path")")" == "$target" ]] && matches+=("$path")
+        done
+    fi
+    (( ${#matches[@]} > 0 )) || { echo "no upstream scenario matches '$target'" >&2; exit 1; }
+    selected_paths+=("${matches[@]}")
+done
+
+declare -A selected_path_by_name=()
+selected_names=()
+for path in "${selected_paths[@]}"; do
+    name="$(basename "$(dirname "$path")")"
+    if [[ -n "${selected_path_by_name[$name]+x}" ]]; then
+        echo "scenario '$name' was selected more than once; each scenario must run exactly once" >&2
+        exit 1
+    fi
+    selected_path_by_name["$name"]="$path"
+    selected_names+=("$name")
+done
+
+suite_complete=false
+(( ${#selected_names[@]} == ${#all_scenario_names[@]} )) && suite_complete=true
+echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; selected ${#selected_names[@]} (complete=$suite_complete)"
+
+json_array() {
+    jq -cn --args '$ARGS.positional' "$@"
+}
+
+manifest_json="$({
+    for name in "${all_scenario_names[@]}"; do
+        path="${all_path_by_name[$name]}"
+        has_network_driver=false
+        grep -qE 'contract ExecuteNetwork(L2)? ' "$PROTOCOL/$path" && has_network_driver=true
+        direction=L1_to_L2
+        grep -qE 'contract ExecuteNetworkL2 ' "$PROTOCOL/$path" && direction=L2_to_L1
+        jq -cn --arg name "$name" --arg path "$path" --arg direction "$direction" \
+            --argjson has_network_driver "$has_network_driver" \
+            '{name: $name, path: $path, direction: $direction,
+              has_network_driver: $has_network_driver}'
+    done
+} | jq -s .)"
+
+evidence_dir="$RESULT_DIR/evidence"
+mkdir -p "$evidence_dir"
+find "$evidence_dir" -maxdepth 1 -type f \( -name '*.json' -o -name '*.log' \) -delete
+rm -f "$RESULT_DIR/summary.json" "$RESULT_DIR/manifest.json"
+jq -n --arg protocol_commit "$actual_protocol" --argjson scenarios "$manifest_json" \
+    '{protocol_commit: $protocol_commit, scenarios: $scenarios}' >"$RESULT_DIR/manifest.json"
 
 run_log="$RESULT_DIR/network-sequential.log"
 rm -rf "$PROTOCOL/tmp/e2e-network"
@@ -158,47 +227,248 @@ if [[ -d "$PROTOCOL/tmp/e2e-network" ]]; then
     cp -R "$PROTOCOL/tmp/e2e-network/." "$RESULT_DIR/"
 fi
 
+# Parse the raw upstream result stream once. Later compatibility verification
+# updates an in-memory verdict; it never appends a second RESULT line.
+declare -A result_count=()
+declare -A raw_verdict=()
+declare -A final_verdict=()
+declare -A verification_mode=()
+unexpected_results=()
+while read -r name verdict; do
+    result_count["$name"]=$(( ${result_count[$name]:-0} + 1 ))
+    raw_verdict["$name"]="$verdict"
+    if [[ -z "${selected_path_by_name[$name]+x}" ]]; then
+        unexpected_results+=("$name")
+    fi
+done < <(sed -n 's/^RESULT \([^:]*\): \([A-Z]*\).*/\1 \2/p' "$run_log")
+
+accounting_ok=true
+raw_failure_count=0
+for name in "${selected_names[@]}"; do
+    [[ "${raw_verdict[$name]:-}" == FAIL ]] && raw_failure_count=$((raw_failure_count + 1))
+done
+if (( status == 0 && raw_failure_count > 0 )); then
+    echo "upstream runner exited successfully while reporting $raw_failure_count failed scenario(s)" >&2
+    accounting_ok=false
+elif (( status != 0 && raw_failure_count == 0 )); then
+    echo "upstream runner exited $status without reporting a failed scenario" >&2
+    accounting_ok=false
+fi
+missing_results=()
+duplicate_results=()
+for name in "${selected_names[@]}"; do
+    count="${result_count[$name]:-0}"
+    if (( count == 0 )); then
+        missing_results+=("$name")
+        final_verdict["$name"]=FAIL
+        verification_mode["$name"]=missing-result
+        accounting_ok=false
+    elif (( count > 1 )); then
+        duplicate_results+=("$name")
+        final_verdict["$name"]=FAIL
+        verification_mode["$name"]=duplicate-result
+        accounting_ok=false
+    else
+        final_verdict["$name"]="${raw_verdict[$name]}"
+        case "${raw_verdict[$name]}" in
+            PASS) verification_mode["$name"]=upstream-direct ;;
+            FAIL) verification_mode["$name"]=upstream-failed ;;
+            SKIP) verification_mode["$name"]=upstream-skipped ;;
+            *)
+                final_verdict["$name"]=FAIL
+                verification_mode["$name"]=invalid-result
+                accounting_ok=false
+                ;;
+        esac
+    fi
+done
+if (( ${#unexpected_results[@]} > 0 )); then
+    accounting_ok=false
+fi
+
+compat_overrides=0
+accept_static_counter_l2_static_pool() {
+    local name=staticCounterL2
+    local log="$RESULT_DIR/$name.log"
+    local compat_log="$RESULT_DIR/$name.compat.log"
+    local evidence="$evidence_dir/$name.json"
+
+    [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
+    if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
+        ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
+        bash "$KURTOSIS_DIR/scripts/verify-static-counter-l2.sh" "$log" "$evidence" \
+        >"$compat_log" 2>&1; then
+        cat "$compat_log" >&2
+        return 1
+    fi
+    cat "$compat_log" | tee -a "$run_log"
+    echo "COMPAT $name: PASS — strict static-only pool evidence written to $evidence" | tee -a "$run_log"
+    final_verdict["$name"]=PASS
+    verification_mode["$name"]=external-static-pool
+    compat_overrides=$((compat_overrides + 1))
+}
+
+accept_top_level_static_counter() {
+    local name=topLevelStaticCounter
+    local log="$RESULT_DIR/$name.log"
+    local compat_log="$RESULT_DIR/$name.compat.log"
+    local evidence="$evidence_dir/$name.json"
+
+    [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
+    if ! L1_RPC="$L1_RPC" L1_FRONT="$L1_FRONT" L2_RPC="$L2_RPC" \
+        ROLLUPS="$ROLLUPS" PK="$PK" PROTOCOL_COMMIT="$actual_protocol" \
+        bash "$KURTOSIS_DIR/scripts/verify-top-level-static-counter.sh" "$log" "$evidence" \
+        >"$compat_log" 2>&1; then
+        cat "$compat_log" >&2
+        return 1
+    fi
+    cat "$compat_log" | tee -a "$run_log"
+    echo "COMPAT $name: PASS — strict view-only static evidence written to $evidence" | tee -a "$run_log"
+    final_verdict["$name"]=PASS
+    verification_mode["$name"]=external-view-only-static
+    compat_overrides=$((compat_overrides + 1))
+}
+
+if [[ -n "${selected_path_by_name[staticCounterL2]+x}" ]]; then
+    accept_static_counter_l2_static_pool || true
+fi
+if [[ -n "${selected_path_by_name[topLevelStaticCounter]+x}" ]]; then
+    accept_top_level_static_counter || true
+fi
+
+write_non_pass_evidence() {
+    local name="$1" result="$2" mode="$3" message="$4"
+    local path="${selected_path_by_name[$name]}" log="$RESULT_DIR/$name.log"
+    local log_sha256=""
+    [[ -f "$log" ]] && log_sha256="$(sha256sum "$log" | awk '{print $1}')"
+    jq -n --argjson schema_version 1 --arg scenario "$name" --arg scenario_path "$path" \
+        --arg protocol_commit "$actual_protocol" --arg result "$result" \
+        --arg verification_mode "$mode" --arg error "$message" \
+        --arg log "$log" --arg log_sha256 "$log_sha256" \
+        '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
+          protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
+          error: $error, source_log: {path: $log, sha256: $log_sha256}}' \
+        >"$evidence_dir/$name.json"
+}
+
+# A direct upstream PASS is necessary but not sufficient: independently query
+# all user, settlement, and table-load receipts and bind them to the source log.
+for name in "${selected_names[@]}"; do
+    if [[ "${final_verdict[$name]}" == PASS && "${verification_mode[$name]}" == upstream-direct ]]; then
+        evidence_log="$evidence_dir/$name.collect.log"
+        if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
+            ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
+            bash "$KURTOSIS_DIR/scripts/collect-protocol-e2e-evidence.sh" \
+                "$name" "$PROTOCOL/${selected_path_by_name[$name]}" "$RESULT_DIR/$name.log" \
+                "$evidence_dir/$name.json" >"$evidence_log" 2>&1; then
+            cat "$evidence_log" >&2
+            final_verdict["$name"]=FAIL
+            verification_mode["$name"]=evidence-invalid
+            write_non_pass_evidence "$name" FAIL evidence-invalid \
+                "upstream passed, but independent receipt/table evidence collection failed"
+        else
+            rm -f "$evidence_log"
+        fi
+    elif [[ "${final_verdict[$name]}" != PASS ]]; then
+        write_non_pass_evidence "$name" "${final_verdict[$name]}" "${verification_mode[$name]}" \
+            "scenario did not produce a complete passing evidence bundle"
+    fi
+done
+
 passed=()
 failed=()
 skipped=()
-while read -r name verdict; do
-    case "$verdict" in
+for name in "${selected_names[@]}"; do
+    case "${final_verdict[$name]}" in
         PASS) passed+=("$name") ;;
         FAIL) failed+=("$name") ;;
         SKIP) skipped+=("$name") ;;
     esac
-done < <(sed -n 's/^RESULT \([^:]*\): \([A-Z]*\).*/\1 \2/p' "$run_log")
+done
 
-json_array() {
-    jq -cn --args '$ARGS.positional' "$@"
-}
+evidence_index="$evidence_dir/index.json"
+{
+    for name in "${selected_names[@]}"; do
+        jq -c . "$evidence_dir/$name.json"
+    done
+} | jq -s . >"$evidence_index"
+all_evidence_complete=false
+if [[ "$(jq '[.[] | select(.result == "PASS")] | length' "$evidence_index")" \
+    == "${#selected_names[@]}" ]]; then
+    all_evidence_complete=true
+fi
+causally_paired="$(jq '[.[] | select(
+    .result == "PASS" and .causal_graph.verified == true and
+    ((.claims.no_destination_delivery_required // false) == false)
+) | .scenario]' "$evidence_index")"
+causal_no_destination="$(jq '[.[] | select(
+    .result == "PASS" and .causal_graph.verified == true and
+    (.claims.no_destination_delivery_required == true)
+) | .scenario]' "$evidence_index")"
+causal_missing="$(jq '[.[] | select(
+    .result != "PASS" or .causal_graph.verified != true
+) | .scenario]' "$evidence_index")"
+causal_coverage_complete=false
+[[ "$(jq 'length' <<<"$causal_missing")" == 0 ]] && causal_coverage_complete=true
 
 jq -n \
+    --argjson schema_version 3 \
     --arg protocol_commit "$actual_protocol" \
+    --argjson discovered_count "${#all_scenario_names[@]}" \
+    --argjson selected_count "${#selected_names[@]}" \
+    --argjson suite_complete "$suite_complete" \
+    --argjson accounting_ok "$accounting_ok" \
+    --argjson all_evidence_complete "$all_evidence_complete" \
+    --argjson causal_coverage_complete "$causal_coverage_complete" \
+    --argjson causally_paired "$causally_paired" \
+    --argjson causal_no_destination "$causal_no_destination" \
+    --argjson causal_missing "$causal_missing" \
+    --argjson upstream_exit_status "$status" \
+    --argjson compat_overrides "$compat_overrides" \
     --argjson passed "$(json_array ${passed[@]+"${passed[@]}"})" \
     --argjson failed "$(json_array ${failed[@]+"${failed[@]}"})" \
     --argjson skipped "$(json_array ${skipped[@]+"${skipped[@]}"})" \
     --argjson targets "$(json_array ${targets[@]+"${targets[@]}"})" \
-    --argjson unsupported "$(json_array "${UNSUPPORTED_TARGETS[@]}")" \
-    '{protocol_commit: $protocol_commit, targets: $targets, passed: $passed,
-      failed: $failed, skipped: $skipped, unsupported: $unsupported}' \
-    >"$RESULT_DIR/summary.json"
+    --argjson missing_results "$(json_array ${missing_results[@]+"${missing_results[@]}"})" \
+    --argjson duplicate_results "$(json_array ${duplicate_results[@]+"${duplicate_results[@]}"})" \
+    --argjson unexpected_results "$(json_array ${unexpected_results[@]+"${unexpected_results[@]}"})" \
+    --argjson unsupported "$(json_array ${UNSUPPORTED_TARGETS[@]+"${UNSUPPORTED_TARGETS[@]}"})" \
+    --slurpfile scenarios "$evidence_index" \
+    '{schema_version: $schema_version, protocol_commit: $protocol_commit,
+      targets: $targets,
+      suite: {discovered: $discovered_count, selected: $selected_count, complete: $suite_complete},
+      accounting: {valid: $accounting_ok, missing: $missing_results,
+                   duplicates: $duplicate_results, unexpected: $unexpected_results},
+      upstream_exit_status: $upstream_exit_status, compatibility_overrides: $compat_overrides,
+      evidence_complete: $all_evidence_complete,
+      causal_coverage: {complete: $causal_coverage_complete, paired: $causally_paired,
+                        no_destination_required: $causal_no_destination,
+                        missing: $causal_missing},
+      passed: $passed, failed: $failed, skipped: $skipped, unsupported: $unsupported,
+      scenarios: $scenarios[0]}' >"$RESULT_DIR/summary.json"
 
 echo "==> protocol E2E result: ${#passed[@]} passed, ${#failed[@]} failed, ${#skipped[@]} skipped"
+echo "    suite accounting: complete=$suite_complete valid=$accounting_ok evidence=$all_evidence_complete"
+echo "    causal coverage: complete=$causal_coverage_complete paired=$(jq 'length' <<<"$causally_paired") no-destination=$(jq 'length' <<<"$causal_no_destination")"
+echo "    summary: $RESULT_DIR/summary.json"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
         echo "### Protocol network E2E"
         echo
-        echo "- Targets run: ${targets[*]}"
+        echo "- Upstream scenarios: ${#all_scenario_names[@]} discovered / ${#selected_names[@]} selected"
+        echo "- Complete suite: $suite_complete"
+        echo "- Result accounting valid: $accounting_ok"
+        echo "- Complete evidence bundles: $all_evidence_complete"
+        echo "- Complete causal coverage: $causal_coverage_complete"
+        echo "- Causally paired scenarios: $(jq 'length' <<<"$causally_paired")"
+        echo "- View-only/no-destination scenarios: $(jq 'length' <<<"$causal_no_destination")"
         echo "- Passed: ${#passed[@]}"
         echo "- Failed: ${#failed[@]}"
-        echo "- Skipped (local-only): ${#skipped[@]}"
-        echo "- Unsupported on this node: ${UNSUPPORTED_TARGETS[*]}"
+        echo "- Skipped: ${#skipped[@]}"
     } >>"$GITHUB_STEP_SUMMARY"
 fi
 
-if (( status != 0 && ${#failed[@]} == 0 )); then
-    echo "network-sequential.sh exited $status without reporting a failed scenario" >&2
-    exit "$status"
-fi
-(( ${#failed[@]} == 0 ))
+[[ "$accounting_ok" == true ]]
+[[ "$all_evidence_complete" == true ]]
+[[ "$causal_coverage_complete" == true ]]
+(( ${#failed[@]} == 0 && ${#skipped[@]} == 0 ))
