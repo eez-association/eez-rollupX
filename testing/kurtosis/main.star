@@ -299,7 +299,7 @@ def run(plan, args):
         plan.add_service(
             name="eez-ui",
             config=ServiceConfig(
-                image=eez.get("ui_image", "eez-ui:dev"),
+                image=eez.get("ui_image", "eez-rollup-ui:dev"),
                 ports={
                     "http": PortSpec(
                         number=UI_HTTP_PORT,

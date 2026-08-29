@@ -7,7 +7,7 @@ PROTOCOL="$REPO/eez-core-protocol"
 L1_RPC="${EEZ_L1_RPC_URL:?set EEZ_L1_RPC_URL}"
 L2_RPC="${EEZ_L2_RPC_URL:?set EEZ_L2_RPC_URL}"
 DEMO_KEY="${EEZ_UI_DEMO_PRIVATE_KEY:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}"
-OUTPUT="${EEZ_UI_DEMO_OUT:-$REPO/ui/.runtime/demo.env}"
+OUTPUT="${EEZ_UI_DEMO_OUT:-$REPO/.runtime/ui-demo.env}"
 
 test -f "${EEZ_DEPLOYMENTS_FILE:-}" && {
     set -a

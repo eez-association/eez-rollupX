@@ -22,6 +22,8 @@ The local network requires:
   `forge`).
 - Bash, Git, GNU `timeout`, `jq`, `curl`, and `openssl`.
 - The `eez-core-protocol` submodule at the commit pinned by this checkout.
+- The standalone `eez-rollup-ui` repository cloned beside this repository, or
+  its path exported as `EEZ_UI_REPO`. A prebuilt image can be used instead.
 - Network access to pull container images and the pinned Ethereum package.
 
 Initialize the submodule and start the Kurtosis engine:
@@ -60,7 +62,7 @@ especially before running the destructive `stop.sh` command.
 `start.sh` does not request privileged package execution by default. Set
 `KURTOSIS_PRIVILEGED=1` only when using a custom topology that requires it.
 
-The first start builds the node, proof-signer, deployment, and UI images and
+The first start builds the node, proof-signer, deployment, and standalone UI images and
 pulls the Ethereum client images. It can take several minutes. The command returns
 after Kurtosis has deployed the contracts and started the network services. It
 leaves the enclave running.
@@ -159,8 +161,9 @@ The local topology contains:
   drives the embedded execution client through the Engine API.
 - An `eez-proof-signer` that validates L2 windows and returns attestations to
   the node.
-- A copy of the earlier sync-rollups POC UI with a current-network compatibility
-  layer. Its original Dashboard, Counter Demo, Bridge, Flash Loan, Aggregator,
+- The standalone `eez-rollup-ui` image, based on the earlier sync-rollups POC UI
+  with a current-network compatibility layer. Its original Dashboard, Counter
+  Demo, Bridge, Flash Loan, Aggregator,
   Faucet, and Visualizer screens remain intact. Counter/proxy calls,
   bidirectional bridge transfers, and the nested L1 -> L2 -> L1 flash loan use
   real transactions. The current protocol branch does not deploy the old
@@ -462,9 +465,10 @@ disposable local environment.
 
 ### Build or reuse images
 
-`start.sh` reads the three service image tags from the selected arguments
-file and builds them by default. The default release profile is optimized for a
-faster development build.
+`start.sh` reads the service image tags from the selected arguments file and
+builds them by default. The UI build context defaults to the sibling
+`../eez-rollup-ui` repository; set `EEZ_UI_REPO` when it lives elsewhere. The
+default release profile is optimized for a faster development build.
 
 Set `EEZ_OPTIMIZED_BUILD=1` to build the production `maxperf` binaries:
 
@@ -480,6 +484,7 @@ file and skip the corresponding builds:
 EEZ_SKIP_NODE_BUILD=1 \
 EEZ_SKIP_PROOF_SIGNER_BUILD=1 \
 EEZ_SKIP_DEPLOY_BUILD=1 \
+EEZ_SKIP_UI_BUILD=1 \
   bash testing/kurtosis/start.sh "$KURTOSIS_ARGS_FILE"
 ```
 

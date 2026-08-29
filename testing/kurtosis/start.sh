@@ -11,6 +11,7 @@ command -v kurtosis >/dev/null || { echo "kurtosis not found in PATH" >&2; exit 
 command -v docker   >/dev/null || { echo "docker not found in PATH" >&2; exit 1; }
 
 PROTOCOL_DIR="$REPO/eez-core-protocol"
+UI_REPO="${EEZ_UI_REPO:-$REPO/../eez-rollup-ui}"
 
 # Fail before building images if the protocol submodule is missing or stale.
 if [[ ! -d "$PROTOCOL_DIR/.git" && ! -f "$PROTOCOL_DIR/.git" ]]; then
@@ -40,7 +41,7 @@ yv() { grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
 NODE_IMAGE="$(yv eez_node_image)";                NODE_IMAGE="${NODE_IMAGE:-eez-node:dev}"
 PROOF_SIGNER_IMAGE="$(yv proof_signer_image)";    PROOF_SIGNER_IMAGE="${PROOF_SIGNER_IMAGE:-eez-proof-signer:dev}"
 DEPLOY_IMAGE="$(yv deploy_image)";                DEPLOY_IMAGE="${DEPLOY_IMAGE:-eez-deploy:dev}"
-UI_IMAGE="$(yv ui_image)";                        UI_IMAGE="${UI_IMAGE:-eez-ui:dev}"
+UI_IMAGE="$(yv ui_image)";                        UI_IMAGE="${UI_IMAGE:-eez-rollup-ui:dev}"
 
 export DOCKER_BUILDKIT=1
 
@@ -77,12 +78,17 @@ else
 fi
 
 if [[ "${EEZ_SKIP_UI_BUILD:-0}" != "1" ]]; then
+    if [[ ! -f "$UI_REPO/Dockerfile" ]]; then
+        echo "EEZ UI repository not found at $UI_REPO." >&2
+        echo "Clone it beside this repository or set EEZ_UI_REPO=/path/to/eez-rollup-ui." >&2
+        echo "Alternatively, provide $UI_IMAGE and set EEZ_SKIP_UI_BUILD=1." >&2
+        exit 1
+    fi
     echo "==> building $UI_IMAGE (protocol playground)"
     docker build \
         --build-arg "EEZ_UI_PROTOCOL_COMMIT=$(git -C "$PROTOCOL_DIR" rev-parse --short HEAD)" \
-        -f "$REPO/ui/Dockerfile" \
         -t "$UI_IMAGE" \
-        "$REPO"
+        "$UI_REPO"
 else
     echo "==> reusing $UI_IMAGE (EEZ_SKIP_UI_BUILD=1)"
 fi
