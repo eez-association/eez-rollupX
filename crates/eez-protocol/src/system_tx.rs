@@ -1330,7 +1330,9 @@ mod tests {
         let (u0, u1) = (Bytes::from(vec![0xa0]), Bytes::from(vec![0xa1]));
         let o0 = outbound_entry();
         let mut o1 = outbound_entry();
-        o1.l2ToL1Calls[0].data = Bytes::from(vec![0x99, 0x88]);
+        // The grouped protocol's root outbound fixture is intentionally
+        // seed-only, so distinguish the second root through its commitment.
+        o1.rollingHash = B256::repeat_byte(0x99);
         // An inbound entry for ANOTHER rollup: passes the shape gate, emits no
         // system tx on this L2.
         let mut foreign = inbound_entry();

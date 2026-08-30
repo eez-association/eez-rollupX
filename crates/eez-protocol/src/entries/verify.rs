@@ -226,7 +226,7 @@ pub fn verify_static_outbound_pair(
     }
     validate_entry_shape(l1_entry, "L1 static outbound host")?;
     crate::system_tx::check_static_entry_shape(l2_entry, "L2 static outbound source")
-        .map_err(|reason| ProtocolErrorKind::InvalidEncoding(reason))?;
+        .map_err(ProtocolErrorKind::InvalidEncoding)?;
     if l1_entry.rootUpdates.is_empty()
         || l1_entry.proxyEntryHash != B256::ZERO
         || l1_entry.destinationRollupId != l2_rollup_id.0
