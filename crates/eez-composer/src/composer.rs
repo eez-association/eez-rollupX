@@ -587,19 +587,22 @@ alloy_sol_types::sol! {
 }
 
 /// L1-confirmed escrow (`rollups(rid).etherBalance`) an outbound withdrawal draws
-/// down. `None` on any read failure, so the caller skips this early rejection;
-/// the on-chain escrow check remains authoritative.
-async fn read_rollup_escrow(provider: &alloy_provider::RootProvider, rid: u64) -> Option<U256> {
+/// down. A value-bearing composition cannot safely bypass this check: its
+/// synthetic manager frame intentionally ignores transaction-balance validation.
+async fn read_rollup_escrow(
+    provider: &alloy_provider::RootProvider,
+    rid: u64,
+) -> Result<U256, String> {
     let eez = std::env::var("EEZ_REGISTRY_ADDRESS")
-        .ok()?
+        .map_err(|error| format!("EEZ_REGISTRY_ADDRESS: {error}"))?
         .parse::<Address>()
-        .ok()?;
+        .map_err(|error| format!("parse EEZ_REGISTRY_ADDRESS: {error}"))?;
     IEEZReader::new(eez, provider)
         .rollups(rid)
         .call()
         .await
-        .ok()
-        .map(|r| r.etherBalance)
+        .map(|rollup| rollup.etherBalance)
+        .map_err(|error| format!("read rollup {rid} escrow: {error}"))
 }
 
 /// Read canonical L1 nonces for inbound senders.
@@ -1921,6 +1924,11 @@ where
         // Set by a budget cut: the tx that did not fit plus everything after it,
         // owed back to the pool unpenalized.
         let mut deferred: Vec<(usize, HeldTx)> = Vec::new();
+        // An outbound withdrawal can be valid but not yet funded at the L1
+        // anchor. When this drain also contains inbound work, keep the outbound
+        // suffix held while the inbound phase lands the possible funding.
+        let mut escrow_deferred: Vec<(usize, HeldTx)> = Vec::new();
+        let mut escrow_cut: Option<(U256, U256)> = None;
         // Cost of the tx that tripped the budget, for the cut event.
         let mut rejected_cost: Option<u64> = None;
         // Set instead when it was the L2 block's gas, not the postBatch's, that
@@ -2127,7 +2135,7 @@ where
                         effects,
                         user_tx: held.raw_tx.clone(),
                     };
-                    // Evict a withdrawal that would exceed the rollup's L1 escrow —
+                    // Gate a withdrawal that exceeds the rollup's L1 escrow —
                     // it would revert on-chain and drop the whole bundle.
                     // "ether out" is the amount of Ether being withdrawn in this outbound settlement entry.
                     // If missing, the entry is malformed and must be evicted.
@@ -2144,24 +2152,48 @@ where
                     // the debit happens at accept below.
                     if need > U256::ZERO {
                         if escrow_remaining.is_none() {
-                            escrow_remaining =
-                                read_rollup_escrow(&ctx.l1_provider, rollup_id).await;
+                            match read_rollup_escrow(&ctx.l1_provider, rollup_id).await {
+                                Ok(escrow) => escrow_remaining = Some(escrow),
+                                Err(error) => {
+                                    transient = Some((
+                                        format!("outbound escrow read tx#{idx}: {error}"),
+                                        abort_rest(
+                                            Some((idx, held)),
+                                            &mut out_iter,
+                                            std::mem::take(&mut inbounds),
+                                        ),
+                                    ));
+                                    break;
+                                }
+                            }
                         }
                         if let Some(avail) = escrow_remaining
                             && need > avail
                         {
-                            event!(
-                                name: "eez.composer.cc_compose.outbound_over_escrow",
-                                Level::WARN,
-                                rollup_id,
-                                tx_idx = idx,
-                                tx_hash = %held.hash,
-                                need = %need,
-                                escrow = %avail,
-                                "outbound withdrawal exceeds L1 rollup escrow; evicting at compose time (would revert InsufficientRollupBalance on L1 — resubmit required)",
-                            );
-                            push_poison_root(&mut poison, &mut poison_gaps, held);
-                            continue;
+                            if inbounds.is_empty() {
+                                event!(
+                                    name: "eez.composer.cc_compose.outbound_over_escrow",
+                                    Level::WARN,
+                                    rollup_id,
+                                    tx_idx = idx,
+                                    tx_hash = %held.hash,
+                                    need = %need,
+                                    escrow = %avail,
+                                    "outbound withdrawal exceeds L1 rollup escrow with no inbound funding in this drain; evicting at compose time (would revert InsufficientRollupBalance on L1 — resubmit required)",
+                                );
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+
+                            // Outbound immediates execute before the bundled L1
+                            // user txs, so this withdrawal cannot consume a
+                            // same-bundle deposit. Let the inbound phase settle
+                            // first, then retry this nonce-ordered suffix from
+                            // the newly funded anchor on the next Sync slot.
+                            escrow_cut = Some((need, avail));
+                            escrow_deferred =
+                                abort_rest(Some((idx, held)), &mut out_iter, Vec::new());
+                            break;
                         }
                     }
                     // `[load, user]` must fit the Sync block or `build_sync_block`
@@ -2650,10 +2682,21 @@ where
             }
         }
 
-        // ── Budget cut: settle what fits, keep the rest held. ─────────
+        // ── Deferred work: settle what fits, keep the rest held. ──────
         // Normal under load. Before the poison sweep, so an eviction here rides
         // the same nonce cascade.
         let deferred_was_empty = deferred.is_empty();
+        if let Some((need, avail)) = escrow_cut {
+            event!(
+                name: "eez.composer.cc_compose.outbound_awaiting_escrow",
+                Level::INFO,
+                rollup_id,
+                need = %need,
+                escrow = %avail,
+                deferred_count = escrow_deferred.len(),
+                "outbound withdrawal cannot use same-bundle inbound funding; keeping the outbound suffix queued for the next Sync slot",
+            );
+        }
         if !deferred.is_empty() {
             let deferred_count = deferred.len();
             let accepted_count = survivors.len();
@@ -2725,8 +2768,11 @@ where
             }
         }
 
-        if !deferred.is_empty() {
-            requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
+        if transient.is_none() {
+            deferred.extend(std::mem::take(&mut escrow_deferred));
+            if !deferred.is_empty() {
+                requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
+            }
         }
 
         // ── Transient abort: re-queue survivors + remainder, minimal. ──
@@ -2747,6 +2793,7 @@ where
             );
             let mut requeue = survivors;
             requeue.extend(rest);
+            requeue.extend(escrow_deferred);
             // Both phases contribute; the pool is owed its own FIFO order.
             requeue_unprocessed(pool, rollup_id, &poison_gaps, requeue);
             return self
