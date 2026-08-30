@@ -110,6 +110,91 @@ pub struct ScannedBatch {
     pub claimed_new_root: Option<B256>,
 }
 
+/// Scan-only metadata used to remove an L2-range ambiguity that the root-only
+/// L1 registry cannot resolve by itself. Two composers can submit from the
+/// same cursor in one L1 block. If an anchor-only `A -> A` batch lands before
+/// an `A -> B` batch, both root updates execute, but both payloads describe the
+/// same L2 range. Advancing the range for the idle batch makes the richer batch
+/// replay at the wrong block numbers. Duplicate `A -> A` batches have the same
+/// ambiguity even without a richer peer.
+#[derive(Debug)]
+struct AttributedBatch {
+    scanned: ScannedBatch,
+    tx_index: u64,
+    anchor_only_root_noop: bool,
+}
+
+/// Canonicalize competing batches that started at the same root in the same
+/// L1 block. Prefer any settled non-trivial batch over anchor-only root no-ops;
+/// when every settled candidate is a no-op, keep only the earliest one. This
+/// preserves idle-chain cursor progress while ensuring a root-no-op can never
+/// consume the range of a richer competing payload.
+fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
+    type CompetitionKey = (u64, B256, B256);
+
+    let mut settled_non_noop: HashSet<CompetitionKey> = HashSet::new();
+    let mut first_settled_noop: HashMap<CompetitionKey, (u64, usize)> = HashMap::new();
+
+    for (index, batch) in batches.iter().enumerate() {
+        if batch.scanned.settlement.is_empty() {
+            continue;
+        }
+        let Some(current_root) = batch.scanned.claimed_current_root else {
+            continue;
+        };
+        let key = (
+            batch.scanned.l1_block_number,
+            batch.scanned.l1_block_hash,
+            current_root,
+        );
+        if batch.anchor_only_root_noop {
+            first_settled_noop
+                .entry(key)
+                .and_modify(|first| {
+                    if batch.tx_index < first.0 {
+                        *first = (batch.tx_index, index);
+                    }
+                })
+                .or_insert((batch.tx_index, index));
+        } else {
+            settled_non_noop.insert(key);
+        }
+    }
+
+    batches
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, batch)| {
+            if !batch.anchor_only_root_noop || batch.scanned.settlement.is_empty() {
+                return Some(batch.scanned);
+            }
+            let current_root = batch.scanned.claimed_current_root?;
+            let key = (
+                batch.scanned.l1_block_number,
+                batch.scanned.l1_block_hash,
+                current_root,
+            );
+            let superseded = settled_non_noop.contains(&key)
+                || first_settled_noop
+                    .get(&key)
+                    .is_some_and(|(_, first_index)| *first_index != index);
+            if superseded {
+                event!(
+                    name: "eez.l1_scan.root_noop_superseded",
+                    Level::INFO,
+                    l1_block_number = batch.scanned.l1_block_number,
+                    tx_hash = %batch.scanned.tx_hash,
+                    current_root = %current_root,
+                    "ignoring an ambiguous anchor-only root-noop batch in favor of the canonical same-block payload",
+                );
+                None
+            } else {
+                Some(batch.scanned)
+            }
+        })
+        .collect()
+}
+
 /// Which of a batch's claimed L2 steps an observed L1 carrier committed. A
 /// successful entry moves the stored root and emits `L2ExecutionPerformed`;
 /// failed entries emit nothing because their frames revert, so their L2
@@ -462,7 +547,7 @@ pub(crate) async fn scan_batch_logs_range(
     }
 
     // Pass 2: attribute each batch its own window, then match steps.
-    let mut out: Vec<ScannedBatch> = Vec::with_capacity(decoded_batches.len());
+    let mut out: Vec<AttributedBatch> = Vec::with_capacity(decoded_batches.len());
     for b in decoded_batches {
         let window_end = boundaries
             .get(&(b.l1_block_number, b.l1_block_hash))
@@ -487,20 +572,28 @@ pub(crate) async fn scan_batch_logs_range(
             &b.claimed_successes,
             &observed,
         );
-        out.push(ScannedBatch {
-            l1_block_number: b.l1_block_number,
-            l1_block_hash: b.l1_block_hash,
-            tx_hash: b.tx_hash,
-            submitter: b.submitter,
-            call_data: b.call_data,
-            post_batch_input: b.post_batch_input,
-            state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
-            settlement,
-            claimed_current_root: b.claimed_current_root,
-            claimed_new_root: b.claimed_chain.last().copied(),
+        let claimed_new_root = b.claimed_chain.last().copied();
+        let anchor_only_root_noop = b.claimed_chain.len() == 1
+            && b.claimed_current_root.is_some()
+            && b.claimed_current_root == claimed_new_root;
+        out.push(AttributedBatch {
+            scanned: ScannedBatch {
+                l1_block_number: b.l1_block_number,
+                l1_block_hash: b.l1_block_hash,
+                tx_hash: b.tx_hash,
+                submitter: b.submitter,
+                call_data: b.call_data,
+                post_batch_input: b.post_batch_input,
+                state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
+                settlement,
+                claimed_current_root: b.claimed_current_root,
+                claimed_new_root,
+            },
+            tx_index: b.tx_index,
+            anchor_only_root_noop,
         });
     }
-    Ok(out)
+    Ok(canonicalize_root_noops(out))
 }
 
 /// Our rollup's root-update chain in a batch: the first update's
@@ -712,9 +805,10 @@ async fn fetch_log_transaction(
 #[cfg(test)]
 mod tests {
     use super::{
-        BatchLogChunks, LOG_SCAN_CHUNK_BLOCKS, SettledRoot, Settlement, attribute_settlement,
-        attribute_settlement_with_successes, fetch_log_transaction, initial_log_scan_ranges,
-        our_state_chain, scan_batch_logs_range, scan_next_batch_log_chunk, window_roots,
+        AttributedBatch, BatchLogChunks, LOG_SCAN_CHUNK_BLOCKS, ScannedBatch, SettledRoot,
+        Settlement, attribute_settlement, attribute_settlement_with_successes,
+        canonicalize_root_noops, fetch_log_transaction, initial_log_scan_ranges, our_state_chain,
+        scan_batch_logs_range, scan_next_batch_log_chunk, window_roots,
     };
     use crate::error::L1Error;
     use alloy_consensus::transaction::TxHashRef;
@@ -829,6 +923,115 @@ mod tests {
                 entry_state: None
             },
         );
+    }
+
+    fn attributed_batch(
+        tx_byte: u8,
+        tx_index: u64,
+        current_root: B256,
+        new_root: B256,
+        settled: bool,
+        anchor_only_root_noop: bool,
+    ) -> AttributedBatch {
+        AttributedBatch {
+            scanned: ScannedBatch {
+                l1_block_number: 42,
+                l1_block_hash: B256::repeat_byte(0x42),
+                tx_hash: B256::repeat_byte(tx_byte),
+                submitter: Address::ZERO,
+                call_data: Bytes::new(),
+                post_batch_input: Bytes::new(),
+                state_applied: settled,
+                settlement: if settled {
+                    Settlement {
+                        start: 0,
+                        len: 1,
+                        final_state: Some(new_root),
+                        entry_state: Some(current_root),
+                    }
+                } else {
+                    Settlement::NONE
+                },
+                claimed_current_root: Some(current_root),
+                claimed_new_root: Some(new_root),
+            },
+            tx_index,
+            anchor_only_root_noop,
+        }
+    }
+
+    /// Both updates execute on L1 because the first leaves the root at A, but
+    /// their DA payloads cover the same L2 range. The richer A→B payload is the
+    /// only canonical range; retaining A→A would replay A→B at later heights.
+    #[test]
+    fn same_block_rich_batch_supersedes_anchor_only_root_noop() {
+        let (a, b) = (B256::repeat_byte(0xAA), B256::repeat_byte(0xBB));
+        let canonical = canonicalize_root_noops(vec![
+            attributed_batch(1, 3, a, a, true, true),
+            attributed_batch(2, 7, a, b, true, false),
+        ]);
+        assert_eq!(canonical.len(), 1);
+        assert_eq!(canonical[0].tx_hash, B256::repeat_byte(2));
+    }
+
+    /// Exercise the complete RPC decode, per-window attribution, no-op
+    /// classification, and canonicalization path for the exact race observed
+    /// in the two-composer reorg E2E.
+    #[tokio::test]
+    async fn scan_prefers_same_block_rich_payload_over_settled_root_noop() {
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+        let block_hash = B256::repeat_byte(0x42);
+        let (a, b) = (B256::repeat_byte(0xAA), B256::repeat_byte(0xBB));
+        let noop = batch_tx(1, Some((a, a)), 1);
+        let rich = batch_tx(1, Some((a, b)), 2);
+        let noop_hash = *noop.inner.tx_hash();
+        let rich_hash = *rich.inner.tx_hash();
+
+        asserter.push_success(&vec![
+            batch_posted_log(42, block_hash, noop_hash, 3),
+            batch_posted_log(42, block_hash, rich_hash, 7),
+        ]);
+        asserter.push_success(&vec![
+            settled_root_log(1, a, 42, block_hash, noop_hash, 3, 0),
+            settled_root_log(1, b, 42, block_hash, rich_hash, 7, 0),
+        ]);
+        asserter.push_success(&noop);
+        asserter.push_success(&rich);
+
+        let scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42)
+            .await
+            .expect("scan succeeds");
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].tx_hash, rich_hash);
+        assert_eq!(scanned[0].claimed_current_root, Some(a));
+        assert_eq!(scanned[0].claimed_new_root, Some(b));
+    }
+
+    /// An idle chain still needs one no-op batch to advance its derived cursor,
+    /// but competing duplicates must not advance the same range twice.
+    #[test]
+    fn duplicate_same_block_root_noops_keep_earliest_settled_payload() {
+        let a = B256::repeat_byte(0xAA);
+        let canonical = canonicalize_root_noops(vec![
+            attributed_batch(2, 7, a, a, true, true),
+            attributed_batch(1, 3, a, a, true, true),
+        ]);
+        assert_eq!(canonical.len(), 1);
+        assert_eq!(canonical[0].tx_hash, B256::repeat_byte(1));
+    }
+
+    /// A reverted/unsettled competitor consumes no L2 range and therefore
+    /// cannot supersede the one settled idle payload.
+    #[test]
+    fn unsettled_rich_competitor_does_not_suppress_settled_root_noop() {
+        let (a, b) = (B256::repeat_byte(0xAA), B256::repeat_byte(0xBB));
+        let canonical = canonicalize_root_noops(vec![
+            attributed_batch(1, 3, a, a, true, true),
+            attributed_batch(2, 7, a, b, false, false),
+        ]);
+        assert_eq!(canonical.len(), 2);
+        assert_eq!(canonical[0].tx_hash, B256::repeat_byte(1));
     }
 
     /// A loser gets an EMPTY window (its rival's events belong to the rival's
