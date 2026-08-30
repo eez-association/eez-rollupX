@@ -199,7 +199,7 @@ where
             crate::checkpoint::ReconcileCheckpoint::load(self.inner.checkpoint_dir.as_deref()?)?;
         let canonical = self
             .inner
-            .submitter
+            .l1_reader
             .canonical_l1_hash(checkpoint.l1_block)
             .await
             .ok()

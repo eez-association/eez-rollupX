@@ -21,14 +21,7 @@ mod l1_embedded;
 mod pool;
 mod witness_source;
 
-use std::{
-    collections::HashMap,
-    env,
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, env, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use alloy_primitives::{Address, B256};
 use alloy_provider::{Provider as _, RootProvider};

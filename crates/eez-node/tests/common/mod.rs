@@ -1410,6 +1410,10 @@ impl NodeHandle {
             }
             cmd.env(*k, v);
         }
+        // Keep the checkpoint path aligned with the explicit reth datadir.
+        // Test environments historically carried a placeholder value because
+        // only the CLI flag mattered before persistent reconciliation existed.
+        cmd.env("EEZ_L2_DATADIR", datadir);
         let child = cmd.spawn().context("spawn eez node role")?;
         Ok(Self {
             child: std::sync::Mutex::new(child),
