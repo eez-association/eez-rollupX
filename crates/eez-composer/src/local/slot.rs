@@ -219,8 +219,11 @@ impl L1TargetSession {
     /// Fork the L1 state: open the anchor's post-state seeded with the state's
     /// accumulated cache, under the manager-frame EVM env.
     ///
-    /// The balance check stays ON — escrowed value must really be payable from
-    /// the manager's balance, exactly as on-chain.
+    /// Transaction balance validation is disabled for these synthetic frames.
+    /// The manager is a contract, not a fee-paying EOA, and revm otherwise
+    /// treats `msg.value` as transaction cost before the composer can apply the
+    /// authoritative per-rollup escrow check. The caller validates and debits
+    /// `rollups[rollupId].etherBalance` before accepting the composition.
     ///
     /// # Errors
     ///
@@ -229,9 +232,11 @@ impl L1TargetSession {
     pub fn new(state: &L1SlotState, client: Arc<LocalChainClient>) -> ExecutorResult<Self> {
         let (state, mut evm_env) = state.open_state(&client, state.cache.clone())?;
         let chain_id = evm_env.cfg_env.chain_id;
-        // Synthetic frames carry no fee market and no EOA sender; the balance
-        // check is deliberately left on so escrow value is real.
+        // Synthetic frames carry no fee market and no EOA sender. In
+        // particular, the manager's `msg.value` is contract execution funded
+        // from rollup escrow, not a transaction fee paid by `caller`.
         evm_env.cfg_env.disable_base_fee = true;
+        evm_env.cfg_env.disable_balance_check = true;
         evm_env.cfg_env.disable_eip3607 = true;
         evm_env.cfg_env.disable_nonce_check = true;
         evm_env.cfg_env.tx_gas_limit_cap = Some(u64::MAX);

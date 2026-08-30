@@ -18,6 +18,7 @@ mod bundle_rpc;
 mod follower;
 mod ingress;
 mod l1_embedded;
+mod pool;
 mod witness_source;
 
 use std::{collections::HashMap, env, str::FromStr, sync::Arc, time::Duration};
@@ -49,6 +50,7 @@ use follower::UnsafeHeadFollower;
 
 mod payload;
 use payload::EezPayloadBuilder;
+use pool::EezPoolBuilder;
 
 /// Per M-MIMALLOC-APPS — meaningful win on allocation-heavy workloads.
 #[global_allocator]
@@ -76,6 +78,13 @@ enum WitnessCapture {
 struct ComposerProving {
     prover: Arc<dyn eez_prover::Prover>,
     witness_capture: WitnessCapture,
+}
+
+#[derive(Clone, Copy)]
+enum PoolRole {
+    Standalone,
+    Follower,
+    Composer,
 }
 
 impl WitnessCapture {
@@ -213,11 +222,14 @@ async fn launch_dev_node(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         "launching eez development node",
     );
     warn_on_deprecated_env();
+    let l2_system_address = read_l2_system_address(PoolRole::Standalone)?;
 
     let handle = builder
         .with_types::<EthereumNode>()
         .with_components(
-            EthereumNode::components().payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
+            EthereumNode::components()
+                .pool(EezPoolBuilder::new(l2_system_address))
+                .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .launch_with_debug_capabilities()
@@ -277,11 +289,14 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
         "launching eez follower",
     );
     warn_on_deprecated_env();
+    let l2_system_address = read_l2_system_address(PoolRole::Follower)?;
 
     let handle = builder
         .with_types::<EthereumNode>()
         .with_components(
-            EthereumNode::components().payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
+            EthereumNode::components()
+                .pool(EezPoolBuilder::new(l2_system_address))
+                .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .launch_with_debug_capabilities()
@@ -438,6 +453,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         prover,
         witness_capture,
     } = composer_proving_from_env()?;
+    let l2_system_address = read_l2_system_address(PoolRole::Composer)?;
     // Launch the embedded L1 reth first in composer mode — its
     // `StateProviderFactory` backs `LocalChainClient::new_entry` for
     // L1 source-tx simulation. Inline (not in `l1_embedded.rs`)
@@ -561,7 +577,9 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let handle = builder
         .with_types::<EthereumNode>()
         .with_components(
-            EthereumNode::components().payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
+            EthereumNode::components()
+                .pool(EezPoolBuilder::new(l2_system_address))
+                .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .launch_with_debug_capabilities()
@@ -1155,6 +1173,52 @@ async fn wait_for_l1_ready(
             ));
         }
         tokio::time::sleep(POLL).await;
+    }
+}
+
+/// The SYSTEM_ADDRESS the pool refuses: `EEZ_L2_SYSTEM_ADDRESS`, else derived
+/// from `EEZ_L2_SYSTEM_KEY`. The role is selected by the executable and only
+/// controls how a missing value is handled.
+fn read_l2_system_address(role: PoolRole) -> eyre::Result<Option<Address>> {
+    let configured = match env::var("EEZ_L2_SYSTEM_ADDRESS") {
+        Ok(raw) => Some(
+            Address::from_str(raw.trim())
+                .map_err(|e| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {e}"))?,
+        ),
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err(eyre::eyre!(
+                "EEZ_L2_SYSTEM_ADDRESS contains non-UTF-8 bytes"
+            ));
+        }
+        Err(env::VarError::NotPresent) => match env::var("EEZ_L2_SYSTEM_KEY") {
+            Ok(raw) => Some(
+                PrivateKeySigner::from_bytes(&B256::from_str(
+                    raw.trim().trim_start_matches("0x"),
+                )?)?
+                .address(),
+            ),
+            Err(env::VarError::NotUnicode(_)) => {
+                return Err(eyre::eyre!("EEZ_L2_SYSTEM_KEY contains non-UTF-8 bytes"));
+            }
+            Err(env::VarError::NotPresent) => None,
+        },
+    };
+
+    match (role, configured) {
+        (PoolRole::Composer, None) => Err(eyre::eyre!(
+            "EEZ_L2_SYSTEM_ADDRESS (or EEZ_L2_SYSTEM_KEY) is required for the composer: the \
+             L2 pool must refuse SYSTEM_ADDRESS transactions"
+        )),
+        (PoolRole::Follower, None) => {
+            event!(
+                name: "eez.node.pool.system_gate_disabled",
+                Level::WARN,
+                "no EEZ_L2_SYSTEM_ADDRESS / EEZ_L2_SYSTEM_KEY — the L2 pool accepts any \
+                 sender; only safe for a pure-user-tx follower",
+            );
+            Ok(None)
+        }
+        _ => Ok(configured),
     }
 }
 
