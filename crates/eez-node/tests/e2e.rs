@@ -132,8 +132,8 @@ async fn multi_sequencer_intra_batch_suffix_replay_converges() {
 ///   - `latest_event.newRoot == rollups[rid].root` (event-state
 ///     consistency);
 ///   - state advances forward (≠ `B256::ZERO`, monotonic);
-///   - across restart: counts keep lockstep (no replay), state keeps
-///     advancing (`posted_through` re-seeded from on-chain logs).
+///   - across restart: the validated checkpoint seeds the L1 scan, counts
+///     keep lockstep (no replay), and state keeps advancing.
 ///
 /// Would have caught `immediateEntryCount = 0` (state never
 /// advances) AND any future replay bug across the restart boundary.
@@ -142,7 +142,11 @@ async fn happy_case_composer_sustained() {
     let harness = Harness::fresh().await.unwrap();
     let chain = harness.chain();
     let datadir = tempfile::tempdir().unwrap();
-    let env = harness.env().await.unwrap();
+    let mut env = harness.env().await.unwrap();
+    env.iter_mut()
+        .find(|(key, _)| *key == "RUST_LOG")
+        .expect("test environment must configure RUST_LOG")
+        .1 = "warn,eez_deriver=info".to_string();
 
     let n_before;
     let pre_restart_latest;
@@ -195,6 +199,11 @@ async fn happy_case_composer_sustained() {
         );
     }
 
+    assert!(
+        eez_deriver::ReconcileCheckpoint::load(datadir.path()).is_some(),
+        "composer did not persist a reconciliation checkpoint before restart",
+    );
+
     chain
         .wait_for_l1_blocks(2, Duration::from_secs(15))
         .await
@@ -207,6 +216,12 @@ async fn happy_case_composer_sustained() {
     )
     .await
     .unwrap();
+    assert_eq!(
+        node.log_count_matching(&["boot seeded from checkpoint"])
+            .unwrap(),
+        1,
+        "restarted composer did not seed its L1 scan from the persisted checkpoint",
+    );
 
     let n_after = chain
         .wait_for_batches(n_before + 1, DEFAULT_TIMEOUT)
