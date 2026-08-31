@@ -10,7 +10,8 @@ SCENARIO_LOG="${1:?usage: verify-static-counter-l2.sh <upstream-log> <output-jso
 OUTPUT_JSON="${2:?missing evidence output path}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER; do
+for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER \
+    BEACON_URL BLOB_VERIFIER ROLLUP_ID; do
     [[ -n "${!var:-}" ]] || { echo "missing $var" >&2; exit 1; }
 done
 for tool in cast jq sed sha256sum; do
@@ -163,10 +164,20 @@ if ! "$CAUSAL_VERIFIER" "$causal_tmp/input.json" "$causal_tmp/output.json"; then
 fi
 causal_graph="$(jq -c . "$causal_tmp/output.json")"
 
+blob_evidence_file="$causal_tmp/blob-evidence.json"
+sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
+if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
+    BLOB_VERIFIER="$BLOB_VERIFIER" ROLLUP_ID="$ROLLUP_ID" \
+    bash "$(dirname "$0")/verify-semantic-settlement-blob.sh" \
+        "$settlement_hash" L2 "$blob_evidence_file" "$sidecars_file" "$tx_hash"; then
+    die "settlement blob semantic verification failed"
+fi
+blob_da="$(jq -c . "$blob_evidence_file")"
+
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"
 jq -n \
-    --argjson schema_version 1 --arg scenario staticCounterL2 \
+    --argjson schema_version 2 --arg scenario staticCounterL2 \
     --arg scenario_path script/e2e/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol \
     --arg protocol_commit "$PROTOCOL_COMMIT" --arg result PASS \
     --arg verification_mode external-static-pool \
@@ -175,6 +186,7 @@ jq -n \
     --argjson trigger "$trigger_object" --argjson load "$load_object" \
     --argjson settlement "$settlement_object" --argjson proof_statements "$proofs_json" \
     --argjson causal_graph "$causal_graph" \
+    --argjson blob_da "$blob_da" \
     --arg log "$SCENARIO_LOG" --arg log_sha256 "$log_sha256" \
     '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
@@ -184,11 +196,14 @@ jq -n \
                      rolling_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
                      success: true, return_data: $cached_return},
       causal_graph: $causal_graph,
+      blob_da: $blob_da,
       observations: {predicted_value: $predicted_value, reader_last_read: $predicted_value,
                      reader_counter: 1, producer_counter: $predicted_value,
                      no_tx_staticcall_result: $predicted_value},
       claims: {known_upstream_mismatch_only: true, receipts_revalidated: true,
                causal_graph_bijection: true,
+               blob_kzg_authenticated: true, native_semantics_decoded: true,
+               semantic_trigger_bytes_bound: true,
                exact_same_block_static_table_decoded: true, table_load_preceded_trigger: true,
                l1_settlement_verified: true, posted_table_field_match: true,
                rolling_hashes_replayed: true, producer_remained_read_only: true},

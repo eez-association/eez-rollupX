@@ -7,6 +7,10 @@ ethereum_package:
       el_image: ghcr.io/paradigmxyz/reth:latest
       cl_type: lighthouse
       cl_image: sigp/lighthouse:v8.1.2
+      # Required by the current full-blob Beacon sidecars reader under
+      # Fulu/PeerDAS; remove only after the blob retrieval abstraction supports
+      # data-column reconstruction or the fork-native blobs endpoint.
+      supernode: true
       count: 1
 
   network_params:

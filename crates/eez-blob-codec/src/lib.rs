@@ -355,6 +355,107 @@ pub fn decode_compatibility_payload(
     Ok(operations.clone())
 }
 
+/// One native EEZ blob payload: chain-local synchronization data plus the
+/// standardized cross-chain semantic messages that authorize its effects.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativePayload {
+    /// Opaque, chain-defined data needed to synchronize `chain_id`.
+    pub operations: Bytes,
+    /// Complete semantic transaction brackets, without carrier markers.
+    pub semantic_messages: Vec<Message>,
+}
+
+/// Encode the native deployment profile entirely into EIP-4844 blobs.
+///
+/// The profile is deliberately narrow and deterministic: exactly one leading
+/// [`Message::ChainOperation`], zero or more complete cross-chain transaction
+/// brackets, then [`Message::CloseBlobStream`]. `semantic_messages` must not
+/// contain either carrier marker.
+pub fn encode_native_payload(
+    chain_id: u64,
+    operations: Bytes,
+    semantic_messages: Vec<Message>,
+) -> Result<Vec<Blob>, NativeProfileError> {
+    if semantic_messages.iter().any(|message| {
+        matches!(
+            message,
+            Message::ChainOperation { .. } | Message::CloseBlobStream
+        )
+    }) {
+        return Err(NativeProfileError::UnexpectedMessages);
+    }
+    let mut messages = Vec::with_capacity(semantic_messages.len() + 2);
+    messages.push(Message::ChainOperation {
+        chain_id,
+        operations,
+    });
+    messages.extend(semantic_messages);
+    messages.push(Message::CloseBlobStream);
+    let encoded = encode(&messages)?;
+    debug_assert!(encoded.call_data_tail.is_empty());
+    Ok(pack(&encoded.blob_portion)?)
+}
+
+/// Decode and validate the native deployment profile.
+///
+/// The underlying codec validates all transaction, call, return, snapshot,
+/// and revert brackets before this function returns the semantic messages.
+pub fn decode_native_payload(
+    blobs: &[Blob],
+    expected_chain_id: u64,
+) -> Result<NativePayload, NativeProfileError> {
+    let messages = decode_blobs(blobs, &[])?;
+    let Some((first, remainder)) = messages.split_first() else {
+        return Err(NativeProfileError::UnexpectedMessages);
+    };
+    let Some((last, semantic_messages)) = remainder.split_last() else {
+        return Err(NativeProfileError::UnexpectedMessages);
+    };
+    let Message::ChainOperation {
+        chain_id,
+        operations,
+    } = first
+    else {
+        return Err(NativeProfileError::UnexpectedMessages);
+    };
+    if !matches!(last, Message::CloseBlobStream)
+        || semantic_messages.iter().any(|message| {
+            matches!(
+                message,
+                Message::ChainOperation { .. } | Message::CloseBlobStream
+            )
+        })
+    {
+        return Err(NativeProfileError::UnexpectedMessages);
+    }
+    if *chain_id != expected_chain_id {
+        return Err(NativeProfileError::ChainIdMismatch {
+            expected: expected_chain_id,
+            actual: *chain_id,
+        });
+    }
+    Ok(NativePayload {
+        operations: operations.clone(),
+        semantic_messages: semantic_messages.to_vec(),
+    })
+}
+
+/// Native-profile encoding or decoding failure.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum NativeProfileError {
+    /// The underlying blob stream is malformed.
+    #[error(transparent)]
+    Codec(#[from] Error),
+    /// The stream is valid version `00`, but is outside the native profile.
+    #[error(
+        "blob stream must contain one leading ChainOperation, complete semantic transactions, and a trailing CloseBlobStream"
+    )]
+    UnexpectedMessages,
+    /// The opaque synchronization payload belongs to another rollup.
+    #[error("ChainOperation chain id {actual} does not match expected rollup {expected}")]
+    ChainIdMismatch { expected: u64, actual: u64 },
+}
+
 /// Compatibility-profile decoding failure.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CompatibilityProfileError {
@@ -824,6 +925,28 @@ mod tests {
         let blobs = pack(&encoded.blob_portion).unwrap();
         assert_eq!(blobs.len(), 2);
         assert_eq!(decode_blobs(&blobs, &[]).unwrap(), messages);
+    }
+
+    #[test]
+    fn native_profile_round_trips_semantic_transactions() {
+        let semantic_messages = complete_flow()[1..11].to_vec();
+        let blobs = encode_native_payload(7, bytes!("deadbeef"), semantic_messages.clone())
+            .expect("encode native profile");
+        assert_eq!(
+            decode_native_payload(&blobs, 7).expect("decode native profile"),
+            NativePayload {
+                operations: bytes!("deadbeef"),
+                semantic_messages,
+            }
+        );
+    }
+
+    #[test]
+    fn native_profile_rejects_carrier_markers_in_semantics() {
+        assert_eq!(
+            encode_native_payload(7, Bytes::new(), vec![Message::CloseBlobStream]),
+            Err(NativeProfileError::UnexpectedMessages)
+        );
     }
 
     #[test]

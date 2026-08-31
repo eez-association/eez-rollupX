@@ -1,15 +1,17 @@
-//! Independent admission of legacy calldata or compatibility-profile blob DA.
+//! Independent admission of legacy calldata or native semantic blob DA.
 
 use alloy_primitives::{B256, Bytes, U256};
 use eez_blob_codec::{
-    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_compatibility_payload,
+    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
 };
+use eez_protocol::blob_semantics::{SemanticTransaction, decode_semantic_transactions};
 
 use super::CanonicalPostBatch;
 
 /// Data availability bound to physical blobs and the configured rollup profile.
 pub(crate) struct VerifiedDa {
     payload: Bytes,
+    semantic_transactions: Option<Vec<SemanticTransaction>>,
     transaction_blob_hashes: Vec<B256>,
 }
 
@@ -20,6 +22,12 @@ impl VerifiedDa {
 
     pub(crate) fn transaction_blob_hashes(&self) -> &[B256] {
         &self.transaction_blob_hashes
+    }
+
+    /// Native semantic transactions for blob DA, or `None` for the explicitly
+    /// supported legacy calldata carrier.
+    pub(crate) fn semantic_transactions(&self) -> Option<&[SemanticTransaction]> {
+        self.semantic_transactions.as_deref()
     }
 }
 
@@ -37,15 +45,16 @@ pub(crate) enum BlobDaError {
     NonCanonicalBlobIndices,
     #[error("physical blob {index} is invalid: {reason}")]
     InvalidBlob { index: usize, reason: String },
-    #[error("compatibility blob profile is invalid: {0}")]
+    #[error("native blob profile is invalid: {0}")]
     InvalidProfile(String),
     #[error("KZG commitment derivation failed: {0}")]
     Kzg(String),
 }
 
 /// Validate the DA carrier and recover the existing `eez-payload-codec`
-/// payload. Blob batches are deliberately restricted to the canonical
-/// compatibility profile and `[0, 1, ...]` blob indices.
+/// payload. Blob batches are deliberately restricted to the canonical native
+/// profile and `[0, 1, ...]` blob indices. Legacy calldata has no standardized
+/// semantic stream and is marked explicitly as such.
 pub(crate) fn verify_da_carrier(
     batch: &CanonicalPostBatch,
     submitted_blobs: &[Vec<u8>],
@@ -58,6 +67,7 @@ pub(crate) fn verify_da_carrier(
         }
         return Ok(VerifiedDa {
             payload: batch.callData.clone(),
+            semantic_transactions: None,
             transaction_blob_hashes: Vec::new(),
         });
     }
@@ -88,12 +98,15 @@ pub(crate) fn verify_da_carrier(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let payload = decode_compatibility_payload(&blobs, expected_rollup_id)
+    let native = decode_native_payload(&blobs, expected_rollup_id)
+        .map_err(|error| BlobDaError::InvalidProfile(error.to_string()))?;
+    let semantic_transactions = decode_semantic_transactions(&native.semantic_messages)
         .map_err(|error| BlobDaError::InvalidProfile(error.to_string()))?;
     let transaction_blob_hashes =
         blob_versioned_hashes(&blobs).map_err(|error| BlobDaError::Kzg(error.to_string()))?;
     Ok(VerifiedDa {
-        payload,
+        payload: native.operations,
+        semantic_transactions: Some(semantic_transactions),
         transaction_blob_hashes,
     })
 }

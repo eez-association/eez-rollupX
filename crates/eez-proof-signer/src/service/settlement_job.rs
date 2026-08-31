@@ -159,6 +159,8 @@ pub(super) enum SettlementPipelineError {
     DaPayload(#[from] settlement::DaPayloadError),
     #[error(transparent)]
     BlobDa(#[from] settlement::BlobDaError),
+    #[error(transparent)]
+    BlobSemantics(#[from] settlement::SemanticBindingError),
     #[error("request cancelled")]
     Cancelled,
 }
@@ -176,6 +178,7 @@ impl SettlementPipelineError {
             Self::OutboundEffects(_) => "outbound_effects",
             Self::DaPayload(_) => "da_payload",
             Self::BlobDa(_) => "blob_da",
+            Self::BlobSemantics(_) => "blob_semantics",
             Self::Cancelled => "cancellation",
         }
     }
@@ -245,7 +248,8 @@ impl SettlementPipelineError {
             Self::PublicInputs(settlement::PublicInputError::InvalidStructure(_))
             | Self::RootUpdateChain(_)
             | Self::InboundEffects(_)
-            | Self::OutboundEffects(_) => (
+            | Self::OutboundEffects(_)
+            | Self::BlobSemantics(_) => (
                 tonic::Code::FailedPrecondition,
                 "settlement validation rejected",
             ),
@@ -382,6 +386,16 @@ pub(super) fn run_settlement(
         &authorized_inbound_effects,
         system_transaction_reconstructor,
     )?;
+    if let Some(semantic_transactions) = verified_da.semantic_transactions() {
+        settlement::verify_native_semantics(
+            semantic_transactions,
+            validated_window,
+            &authorized_outbound_effects,
+            &authorized_inbound_effects,
+            canonical_batch.static_entries(),
+            expected_rollup_id,
+        )?;
+    }
 
     let recomputed_public_inputs_hash = checked_public_input_profile
         .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;

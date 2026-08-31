@@ -324,6 +324,7 @@ pub(crate) struct AuthorizedInboundEffects<'settling> {
 }
 
 pub(super) struct AuthorizedInboundEffect<'settling> {
+    claimed_entry: ExecutionEntrySol,
     transaction_index: usize,
     observation: &'settling InboundObservation,
 }
@@ -339,6 +340,10 @@ impl<'settling> AuthorizedInboundEffects<'settling> {
 }
 
 impl AuthorizedInboundEffect<'_> {
+    pub(super) const fn claimed_entry(&self) -> &ExecutionEntrySol {
+        &self.claimed_entry
+    }
+
     pub(super) const fn transaction_index(&self) -> usize {
         self.transaction_index
     }
@@ -431,6 +436,7 @@ pub(crate) fn authorize_inbound_effects<'settling>(
                     expected_l2_system_address,
                 )?;
                 authorized_bindings.push(AuthorizedInboundEffect {
+                    claimed_entry: effect.claimed_entry().clone(),
                     transaction_index: effect.transaction_index(),
                     observation,
                 });

@@ -82,7 +82,7 @@ pub(crate) struct AdmittedHeader {
     pub(crate) declared_to_block: u64,
     /// Composer-submitted calldata retained for canonical decoding and settlement checks.
     pub(crate) submitted_post_batch_calldata: Vec<u8>,
-    /// Untrusted physical blobs retained for KZG and compatibility-profile
+    /// Untrusted physical blobs retained for KZG and native semantic-profile
     /// validation inside the settlement worker.
     pub(crate) submitted_blobs: Vec<Vec<u8>>,
 }

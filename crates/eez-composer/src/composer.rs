@@ -1908,6 +1908,12 @@ where
         // compositions feed batch assembly and actionable entry resolution.
         let mut survivor_comps: Vec<(eez_protocol::Composition, B256)> =
             Vec::with_capacity(drained.len());
+        // Native blob semantics preserve every accepted transaction boundary
+        // and its resolved call forest. Phase order is canonical on the wire:
+        // all L2-originating outbound transactions, then all L1-originating
+        // inbound transactions.
+        let mut semantic_transactions: Vec<eez_protocol::blob_semantics::SemanticTransaction> =
+            Vec::with_capacity(drained.len());
         // Staged for the post-drain canonical rebuild, which must reproduce
         // `sync_txs` byte-for-byte. `pending_out` pairs an outbound settlement
         // entry with its user tx; `pending_in` holds inbound target-side
@@ -2407,6 +2413,11 @@ where
                     // L2's entries (a dest=MAINNET call that must not settle on
                     // L1). The L1 settlement is `outbound_entries`, spliced
                     // separately with dest=rid.
+                    semantic_transactions.push(eez_protocol::blob_semantics::SemanticTransaction {
+                        origin_chain: eez_protocol::RollupId(rollup_id),
+                        tx_data: held.raw_tx.clone(),
+                        actions: composition.actions.clone(),
+                    });
                     survivors.push((idx, held));
                 }
                 Err(e) if sim_error_is_poison(&e) => {
@@ -2664,6 +2675,11 @@ where
                         target_count,
                         "composition produced {{target_count}} target(s) for held tx #{{tx_idx}}",
                     );
+                    semantic_transactions.push(eez_protocol::blob_semantics::SemanticTransaction {
+                        origin_chain: eez_protocol::RollupId::MAINNET,
+                        tx_data: held.raw_tx.clone(),
+                        actions: composition.actions.clone(),
+                    });
                     survivor_comps.push((composition, held.hash));
                     survivors.push((idx, held));
                 }
@@ -3032,6 +3048,7 @@ where
                 &outbound_entries,
                 &outbound_entry_traces,
                 &pending_out,
+                &semantic_transactions,
                 outbound_target_gas,
                 bundle_target,
             )
@@ -3291,6 +3308,7 @@ where
                 &[], // no outbound entries
                 &[], // no outbound entry traces
                 &[], // no outbound L2 sidecars
+                &[], // no cross-chain semantic transactions
                 0,   // no inline outbound target calls
                 bundle_target,
             )
@@ -3447,6 +3465,7 @@ where
                     &boundary_parent,
                     boundary_header.hash(),
                     None, // terminal is committed → witnesses come from the store
+                    &[],
                     &[],
                     &[],
                     &[],
@@ -3621,6 +3640,7 @@ where
         outbound_entries: &[eez_protocol::abi::ExecutionEntrySol],
         outbound_entry_traces: &[eez_protocol::entries::EntryTrace],
         outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
+        semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
         outbound_target_gas: u64,
         bundle_target: BundleTarget,
     ) -> Result<Option<Bytes>, PreparePostBatchError> {
@@ -4156,11 +4176,20 @@ where
                 None
             }
             DataAvailabilityMode::Blob(sidecar_encoding) => {
-                transaction_blobs = eez_blob_codec::encode_compatibility_payload(
+                let semantic_messages = semantic_transactions
+                    .iter()
+                    .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| format!("encode native cross-chain semantics: {error}"))?
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                transaction_blobs = eez_blob_codec::encode_native_payload(
                     rollup_id,
                     alloy_primitives::Bytes::from(payload),
+                    semantic_messages,
                 )
-                .map_err(|error| format!("encode compatibility blob payload: {error}"))?;
+                .map_err(|error| format!("encode native blob payload: {error}"))?;
                 if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
                     event!(
                         name: "eez.composer.emission.candidate_over_blob_limit",
@@ -4787,6 +4816,7 @@ mod tests {
             entries: Vec<eez_protocol::abi::ExecutionEntrySol>,
         ) -> eez_protocol::Composition {
             eez_protocol::Composition {
+                actions: Vec::new(),
                 source: eez_protocol::SourceComposition {
                     rollup_id: eez_protocol::RollupId(1),
                     batch: eez_protocol::EvmBatch {

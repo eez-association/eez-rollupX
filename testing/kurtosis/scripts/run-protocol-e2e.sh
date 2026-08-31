@@ -12,7 +12,7 @@ RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}/protocol-e2e"
 
 UNSUPPORTED_TARGETS=()
 
-for tool in bash bc cargo cast find forge git jq kurtosis sha256sum; do
+for tool in bash bc cargo cast curl find forge git jq kurtosis sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
@@ -34,12 +34,28 @@ CAUSAL_VERIFIER="$causal_target_dir/debug/examples/e2e-causal-verify"
     echo "causal verifier was not built at $CAUSAL_VERIFIER" >&2
     exit 1
 }
+env CARGO_TARGET_DIR="$causal_target_dir" \
+    cargo build --manifest-path "$REPO/Cargo.toml" -p eez-l1 --example verify_blob_evidence
+BLOB_VERIFIER="$causal_target_dir/debug/examples/verify_blob_evidence"
+[[ -x "$BLOB_VERIFIER" ]] || {
+    echo "blob verifier was not built at $BLOB_VERIFIER" >&2
+    exit 1
+}
 
 source "$KURTOSIS_DIR/ports.sh" >/dev/null
 L1_RPC="${L1_RPC:-$EEZ_DEVNET_L1_RPC}"
 L2_RPC="${L2_RPC:-$EEZ_DEVNET_L2_RPC}"
 L1_FRONT="${L1_FRONT:-$EEZ_DEVNET_L1_FRONT}"
 L2_FRONT="${L2_FRONT:-$EEZ_DEVNET_L2_FRONT}"
+
+http_url() {
+    case "$1" in
+        http://*|https://*) printf '%s\n' "$1" ;;
+        *) printf 'http://%s\n' "$1" ;;
+    esac
+}
+
+BEACON_URL="${EEZ_L1_BEACON_URL:-$(http_url "$(kurtosis port print "$ENCLAVE" cl-1-lighthouse-reth http)")}"
 
 mkdir -p "$RESULT_DIR"
 deploy_dir="$(mktemp -d /tmp/eez-protocol-deployments.XXXXXX)"
@@ -296,6 +312,7 @@ accept_static_counter_l2_static_pool() {
     [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
     if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
         ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
+        BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
         bash "$KURTOSIS_DIR/scripts/verify-static-counter-l2.sh" "$log" "$evidence" \
         >"$compat_log" 2>&1; then
         cat "$compat_log" >&2
@@ -317,6 +334,7 @@ accept_top_level_static_counter() {
     [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
     if ! L1_RPC="$L1_RPC" L1_FRONT="$L1_FRONT" L2_RPC="$L2_RPC" \
         ROLLUPS="$ROLLUPS" PK="$PK" PROTOCOL_COMMIT="$actual_protocol" \
+        ROLLUP_ID="$ROLLUP_ID" BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
         bash "$KURTOSIS_DIR/scripts/verify-top-level-static-counter.sh" "$log" "$evidence" \
         >"$compat_log" 2>&1; then
         cat "$compat_log" >&2
@@ -358,6 +376,7 @@ for name in "${selected_names[@]}"; do
         evidence_log="$evidence_dir/$name.collect.log"
         if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
             ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
+            BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
             bash "$KURTOSIS_DIR/scripts/collect-protocol-e2e-evidence.sh" \
                 "$name" "$PROTOCOL/${selected_path_by_name[$name]}" "$RESULT_DIR/$name.log" \
                 "$evidence_dir/$name.json" >"$evidence_log" 2>&1; then
@@ -410,9 +429,23 @@ causal_missing="$(jq '[.[] | select(
 ) | .scenario]' "$evidence_index")"
 causal_coverage_complete=false
 [[ "$(jq 'length' <<<"$causal_missing")" == 0 ]] && causal_coverage_complete=true
+semantic_authenticated="$(jq '[.[] | select(
+    .result == "PASS" and .blob_da.verified == true and
+    .claims.blob_kzg_authenticated == true and
+    .claims.native_semantics_decoded == true and
+    .claims.semantic_trigger_bytes_bound == true
+) | .scenario]' "$evidence_index")"
+semantic_missing="$(jq '[.[] | select(
+    .result != "PASS" or .blob_da.verified != true or
+    .claims.blob_kzg_authenticated != true or
+    .claims.native_semantics_decoded != true or
+    .claims.semantic_trigger_bytes_bound != true
+) | .scenario]' "$evidence_index")"
+semantic_coverage_complete=false
+[[ "$(jq 'length' <<<"$semantic_missing")" == 0 ]] && semantic_coverage_complete=true
 
 jq -n \
-    --argjson schema_version 3 \
+    --argjson schema_version 4 \
     --arg protocol_commit "$actual_protocol" \
     --argjson discovered_count "${#all_scenario_names[@]}" \
     --argjson selected_count "${#selected_names[@]}" \
@@ -423,6 +456,9 @@ jq -n \
     --argjson causally_paired "$causally_paired" \
     --argjson causal_no_destination "$causal_no_destination" \
     --argjson causal_missing "$causal_missing" \
+    --argjson semantic_coverage_complete "$semantic_coverage_complete" \
+    --argjson semantic_authenticated "$semantic_authenticated" \
+    --argjson semantic_missing "$semantic_missing" \
     --argjson upstream_exit_status "$status" \
     --argjson compat_overrides "$compat_overrides" \
     --argjson passed "$(json_array ${passed[@]+"${passed[@]}"})" \
@@ -444,12 +480,16 @@ jq -n \
       causal_coverage: {complete: $causal_coverage_complete, paired: $causally_paired,
                         no_destination_required: $causal_no_destination,
                         missing: $causal_missing},
+      semantic_blob_coverage: {complete: $semantic_coverage_complete,
+                               authenticated: $semantic_authenticated,
+                               missing: $semantic_missing},
       passed: $passed, failed: $failed, skipped: $skipped, unsupported: $unsupported,
       scenarios: $scenarios[0]}' >"$RESULT_DIR/summary.json"
 
 echo "==> protocol E2E result: ${#passed[@]} passed, ${#failed[@]} failed, ${#skipped[@]} skipped"
 echo "    suite accounting: complete=$suite_complete valid=$accounting_ok evidence=$all_evidence_complete"
 echo "    causal coverage: complete=$causal_coverage_complete paired=$(jq 'length' <<<"$causally_paired") no-destination=$(jq 'length' <<<"$causal_no_destination")"
+echo "    semantic blobs:  complete=$semantic_coverage_complete authenticated=$(jq 'length' <<<"$semantic_authenticated")"
 echo "    summary: $RESULT_DIR/summary.json"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
@@ -460,6 +500,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo "- Result accounting valid: $accounting_ok"
         echo "- Complete evidence bundles: $all_evidence_complete"
         echo "- Complete causal coverage: $causal_coverage_complete"
+        echo "- Complete authenticated semantic-blob coverage: $semantic_coverage_complete"
         echo "- Causally paired scenarios: $(jq 'length' <<<"$causally_paired")"
         echo "- View-only/no-destination scenarios: $(jq 'length' <<<"$causal_no_destination")"
         echo "- Passed: ${#passed[@]}"
@@ -471,4 +512,5 @@ fi
 [[ "$accounting_ok" == true ]]
 [[ "$all_evidence_complete" == true ]]
 [[ "$causal_coverage_complete" == true ]]
+[[ "$semantic_coverage_complete" == true ]]
 (( ${#failed[@]} == 0 && ${#skipped[@]} == 0 ))

@@ -706,11 +706,47 @@ The payload is transported in exactly one of two modes:
   `[0, 1, ...]`.
 
 Blob mode MUST decode as the EEZ version-`00` message stream containing exactly
-one `ChainOperation(expected_rollup_id, payload)` followed by exactly one
-`CloseBlobStream`, with canonical field-element packing and zero padding.
-The signer recomputes every KZG versioned hash from the physical blobs. Mixed,
-missing, surplus, reordered, malformed, wrong-rollup, or oversized carriers
-MUST be rejected.
+one leading `ChainOperation(expected_rollup_id, payload)`, zero or more complete
+`InitiateCrossChainTransaction` … `FinishCrossChainTransaction` brackets, then
+exactly one `CloseBlobStream`, with canonical field-element packing and zero
+padding. The transaction brackets use the protocol-native `Call`, `StaticCall`,
+`ReturnSuccess`, `ReturnFail`, `Snapshot`, and `Revert` messages. Carrier markers
+cannot appear inside the semantic section. Calls with nonzero `gas` are rejected
+because this deployment pins manager `useGasLeft = false` and supports only the
+zero-gas table identity.
+
+The signer decodes each semantic transaction back into the production call
+forest and materializes it with the same table builder used by the Composer.
+For every L2-origin transaction it requires:
+
+- origin chain equal to `expected_rollup_id`;
+- `tx_data` byte-for-byte equal to the positioned signed user transaction in
+  the validated Sync block;
+- the exact authorized L2 source and callback sidecars; and
+- the exact authorized L1 settlement host entries. The signer copies only the
+  independently authorized `rootUpdates` into the materialized table, runs the
+  production symbolic trace finalizer, and then requires byte-for-byte equality
+  of every root-dependent rolling hash, nested position key, destination, and
+  remaining entry field.
+
+All remaining semantic transactions MUST originate on L1. Their aggregate L1
+source entries are finalized from independently authorized `rootUpdates` and
+MUST byte-for-byte reproduce every authorized inbound entry; their L2 target
+sidecars MUST likewise reproduce every authorized inbound delivery, with no
+extra or foreign-chain target. Top-level L1 static transactions have no mutable
+L2 delivery; their materialized L1 static-pool entries receive only the
+independently validated destination-root pins and MUST byte-for-byte reproduce
+`postBatch.staticEntries`. L1 `tx_data` remains an opaque chain-defined sidecar:
+this signer validates the `postBatch` transaction and L2 window but does not
+execute the later L1 user transactions in the atomic bundle. Consequently, the
+aggregate effects are exact, but L1 semantic transaction boundaries and the
+relative ordering of transactions that land in different mutable/static pools
+are descriptive rather than independently authenticated by this signer.
+
+Legacy calldata remains supported without a native semantic stream. The signer
+recomputes every KZG versioned hash from physical blobs. Mixed, missing, surplus,
+reordered, malformed, wrong-rollup, semantically unbound, or oversized blob
+carriers MUST be rejected.
 
 ## 12. Public-input recomputation
 
@@ -819,7 +855,7 @@ messages SHOULD remain stable and must not expose secrets.
 | gRPC code | Principal cases |
 | --- | --- |
 | `InvalidArgument` | Malformed stream structure; invalid widths or bounds; noncanonical/invalid PostBatch calldata; malformed or trailing DA payload. |
-| `FailedPrecondition` | Rollup identity mismatch; Stateless input rejection; unsupported batch profile; state/effect/inbound/outbound/DA semantic rejection. |
+| `FailedPrecondition` | Rollup identity mismatch; Stateless input rejection; unsupported batch profile; state/effect/inbound/outbound/DA/native-blob-semantic rejection. |
 | `Unavailable` | Another request is active. The same complete request may succeed after the active request releases the slot. |
 | `ResourceExhausted` | A decoding, block, byte, or witness-item limit was exceeded; or block-vector storage could not be reserved. |
 | `DeadlineExceeded` | Stream idle timeout or absolute request deadline. |

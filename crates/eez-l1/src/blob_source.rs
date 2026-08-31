@@ -12,7 +12,7 @@ use alloy_primitives::{B256, Bytes, U256, hex};
 use alloy_provider::Provider;
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
-    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_compatibility_payload,
+    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
 };
 use eez_protocol::abi::postAndVerifyBatchCall;
 use serde_json::Value;
@@ -148,14 +148,20 @@ impl BeaconBlobSource {
                 transaction_blobs.push(found.blob.clone());
             }
 
-            let payload =
-                decode_compatibility_payload(&transaction_blobs, rollup_id).map_err(|error| {
-                    L1Error::Decode(format!(
-                        "decode authenticated blob payload for {}: {error}",
-                        scanned.tx_hash
-                    ))
-                })?;
-            scanned.call_data = payload;
+            let native = decode_native_payload(&transaction_blobs, rollup_id).map_err(|error| {
+                L1Error::Decode(format!(
+                    "decode authenticated native blob payload for {}: {error}",
+                    scanned.tx_hash
+                ))
+            })?;
+            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
+                .map_err(|error| {
+                L1Error::Decode(format!(
+                    "decode authenticated blob semantics for {}: {error}",
+                    scanned.tx_hash
+                ))
+            })?;
+            scanned.call_data = native.operations;
         }
 
         Ok(())

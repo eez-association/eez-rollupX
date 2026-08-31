@@ -39,6 +39,7 @@ pub mod abi;
 pub mod action;
 pub mod addresses;
 pub mod authorized_proxies;
+pub mod blob_semantics;
 pub mod composition;
 pub mod dialect;
 pub mod entries;
@@ -68,7 +69,7 @@ pub use authorized_proxies::{
     decode_proxy_value, proxy_mapping_key,
 };
 #[doc(inline)]
-pub use composition::{CompositionBuilder, Rollup, TargetConfig};
+pub use composition::{CompositionBuilder, Rollup, TargetConfig, materialize_actions};
 #[doc(inline)]
 pub use dialect::ChainDialect;
 #[doc(inline)]

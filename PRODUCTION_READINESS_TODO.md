@@ -35,6 +35,19 @@ below.
 
 ## P0 — missing correctness evidence
 
+- [ ] Run native semantic blobs through the complete live matrix: L1→L2,
+  L2→L1, L1→L2→L1, L2→L1→L2, sibling calls, static calls, call failure,
+  Snapshot/Revert rollback, multi-root transactions, and mixed-direction slots.
+  Preserve blob bytes, decoded messages, signer decisions, receipts, and final
+  state as evidence.
+- [ ] Add live adversarial semantic-blob cases that mutate transaction origin,
+  L2 `tx_data`, call fields, return/revert data, nesting, rollback spans, message
+  order, and transaction boundaries; prove the signer rejects every mutation.
+- [ ] Bind L1-origin semantic `tx_data`, transaction boundaries, and their
+  relative ordering to independently observed L1 bundle transactions. The
+  current signer proves their aggregate mutable/static tables and L2 deliveries
+  exactly, but its settlement request does not include the later L1 user
+  transactions needed to authenticate those three descriptive fields.
 - [ ] Exercise partial settlement and deferred effect consumption with prefix
   block-hash commitments on a live network, then prove the materialized block
   is canonical and retrievable by `eth_getBlockByHash`.

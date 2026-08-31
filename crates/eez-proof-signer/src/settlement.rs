@@ -15,6 +15,7 @@ mod effect_binding;
 mod inbound;
 mod outbound;
 mod post_batch;
+mod semantics;
 mod state_chain;
 mod system_transactions;
 
@@ -55,6 +56,7 @@ pub(crate) use post_batch::{
     CanonicalPostBatch, CheckedPublicInputProfile, PostBatchDecodeError, PublicInputError,
     RecomputedPublicInputsHash, decode_canonical_post_batch,
 };
+pub(crate) use semantics::{SemanticBindingError, verify_native_semantics};
 pub(crate) use state_chain::{RootUpdateChainError, verify_root_update_chain};
 pub(crate) use system_transactions::{SystemTransactionKey, SystemTransactionReconstructor};
 

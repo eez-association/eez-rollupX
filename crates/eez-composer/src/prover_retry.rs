@@ -285,6 +285,7 @@ mod tests {
     fn actionable_failures_resolve_direction_specific_held_identities() {
         fn composition(entry_count: usize) -> eez_protocol::Composition {
             eez_protocol::Composition {
+                actions: Vec::new(),
                 source: eez_protocol::SourceComposition {
                     rollup_id: eez_protocol::RollupId(1),
                     batch: eez_protocol::EvmBatch {

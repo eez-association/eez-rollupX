@@ -3440,6 +3440,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
  "alloy-sol-types",
+ "eez-blob-codec",
  "eez-payload-codec",
  "hex",
  "k256",

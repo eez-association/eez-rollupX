@@ -8,6 +8,17 @@ fn physical_blobs(payload: Bytes) -> Vec<Vec<u8>> {
         .collect()
 }
 
+fn physical_native_blobs(
+    payload: Bytes,
+    semantic_messages: Vec<eez_blob_codec::Message>,
+) -> Vec<Vec<u8>> {
+    eez_blob_codec::encode_native_payload(expected_rollup_id().get(), payload, semantic_messages)
+        .unwrap()
+        .into_iter()
+        .map(|blob| blob.into_bytes().into_vec())
+        .collect()
+}
+
 #[test]
 fn legacy_calldata_remains_byte_for_byte_and_rejects_blob_claims() {
     let payload = Bytes::from_static(b"legacy payload");
@@ -40,6 +51,78 @@ fn canonical_blob_profile_recovers_payload_and_kzg_hashes() {
     let verified = verify_da_carrier(&batch, &submitted, expected_rollup_id().get()).unwrap();
     assert_eq!(verified.payload(), payload.as_ref());
     assert_eq!(verified.transaction_blob_hashes(), expected_hashes);
+}
+
+#[test]
+fn native_blob_profile_recovers_cross_chain_semantics() {
+    use eez_blob_codec::Message;
+
+    let payload = Bytes::from_static(b"native semantic payload");
+    let submitted = physical_native_blobs(
+        payload.clone(),
+        vec![
+            Message::InitiateCrossChainTransaction {
+                chain_id: 1,
+                tx_data: Bytes::from_static(b"signed L2 tx"),
+            },
+            Message::Call {
+                to_chain: 0,
+                from_address: Address::repeat_byte(0x11),
+                to_address: Address::repeat_byte(0x22),
+                value: U256::from(7),
+                gas: 0,
+                data: Bytes::from_static(b"call"),
+            },
+            Message::ReturnSuccess {
+                return_data: Bytes::from_static(b"result"),
+            },
+            Message::FinishCrossChainTransaction,
+        ],
+    );
+    let mut batch = carrier_batch();
+    batch.blobIndices = (0..submitted.len()).map(U256::from).collect();
+    let verified = verify_da_carrier(&batch, &submitted, expected_rollup_id().get()).unwrap();
+    assert_eq!(verified.payload(), payload.as_ref());
+    let [transaction] = verified.semantic_transactions().unwrap() else {
+        panic!("expected one semantic transaction");
+    };
+    assert_eq!(transaction.origin_chain, RollupId(1));
+    assert_eq!(transaction.tx_data, Bytes::from_static(b"signed L2 tx"));
+    assert_eq!(transaction.actions.len(), 1);
+    assert_eq!(transaction.actions[0].target_rollup_id, RollupId::MAINNET);
+}
+
+#[test]
+fn native_blob_profile_rejects_semantics_outside_deployment_gas_profile() {
+    use eez_blob_codec::Message;
+
+    let submitted = physical_native_blobs(
+        Bytes::from_static(b"payload"),
+        vec![
+            Message::InitiateCrossChainTransaction {
+                chain_id: 1,
+                tx_data: Bytes::new(),
+            },
+            Message::Call {
+                to_chain: 0,
+                from_address: Address::ZERO,
+                to_address: Address::ZERO,
+                value: U256::ZERO,
+                gas: 1,
+                data: Bytes::new(),
+            },
+            Message::ReturnSuccess {
+                return_data: Bytes::new(),
+            },
+            Message::FinishCrossChainTransaction,
+        ],
+    );
+    let mut batch = carrier_batch();
+    batch.blobIndices = (0..submitted.len()).map(U256::from).collect();
+    assert!(matches!(
+        verify_da_carrier(&batch, &submitted, expected_rollup_id().get()),
+        Err(BlobDaError::InvalidProfile(reason)) if reason.contains("expected zero")
+    ));
 }
 
 #[test]

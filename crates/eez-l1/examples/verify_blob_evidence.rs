@@ -2,8 +2,8 @@
 //!
 //! The surrounding Kurtosis smoke test captures unmodified JSON-RPC and
 //! beacon REST responses. This program independently authenticates the blob
-//! bodies, decodes the strict EEZ compatibility profile, and reports the L2
-//! transaction hashes carried by the original payload codec.
+//! bodies, decodes the strict native EEZ profile, and reports both the L2
+//! synchronization payload and standardized cross-chain semantics.
 
 use std::{error::Error, fs, str::FromStr as _};
 
@@ -11,9 +11,10 @@ use alloy_primitives::{B256, Bytes, U256, hex, keccak256};
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
     BLOB_BYTES, Blob, MAX_BLOBS_PER_TRANSACTION, blob_kzg_commitments, blob_versioned_hashes,
-    decode_compatibility_payload,
+    decode_native_payload,
 };
 use eez_protocol::abi::postAndVerifyBatchCall;
+use eez_protocol::{CallMode, ExecutionOutcome};
 use serde_json::{Value, json};
 
 const BLOB_GAS_PER_BLOB: u64 = 1 << 17;
@@ -169,8 +170,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         selected_commitments.push(format!("0x{}", hex::encode(commitment)));
     }
 
-    let payload = decode_compatibility_payload(&selected_blobs, rollup_id)?;
-    let decoded = eez_payload_codec::decode(&payload)?;
+    let native = decode_native_payload(&selected_blobs, rollup_id)?;
+    let semantic_transactions =
+        eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
+    let decoded = eez_payload_codec::decode(&native.operations)?;
     if decoded.block_rlps.is_empty() {
         return Err("blob payload is not the self-contained block profile".into());
     }
@@ -203,6 +206,42 @@ fn run() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
+    let semantic_details = semantic_transactions
+        .iter()
+        .map(|transaction| {
+            json!({
+                "origin_chain": transaction.origin_chain.0,
+                "tx_data": format!("0x{}", hex::encode(&transaction.tx_data)),
+                "tx_data_bytes": transaction.tx_data.len(),
+                "actions": transaction.actions.iter().enumerate().map(|(index, action)| {
+                    let (success, return_data) = match &action.outcome {
+                        ExecutionOutcome::Resolved { success, return_data, .. } => {
+                            (*success, return_data.as_slice())
+                        }
+                        ExecutionOutcome::Pending => (false, &[][..]),
+                    };
+                    json!({
+                        "index": index,
+                        "parent_index": action.parent_index,
+                        "kind": match action.call_mode {
+                            CallMode::Mutable => "Call",
+                            CallMode::Static => "StaticCall",
+                        },
+                        "source_chain": action.source_rollup_id.0,
+                        "target_chain": action.target_rollup_id.0,
+                        "from_address": action.source_address,
+                        "to_address": action.target_address,
+                        "value": action.value.to_string(),
+                        "data": format!("0x{}", hex::encode(&action.data)),
+                        "success": success,
+                        "result_kind": if success { "ReturnSuccess" } else { "ReturnFail" },
+                        "return_data": format!("0x{}", hex::encode(return_data)),
+                        "revert_span": action.revert_span,
+                    })
+                }).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
 
     println!(
         "{}",
@@ -221,7 +260,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             "kzg_commitments": selected_commitments,
             "abi_call_data_bytes": posted.batch.callData.len(),
             "payload": {
-                "bytes": payload.len(),
+                "bytes": native.operations.len(),
+                "semantic_transaction_count": semantic_transactions.len(),
+                "semantic_action_count": semantic_transactions
+                    .iter()
+                    .map(|transaction| transaction.actions.len())
+                    .sum::<usize>(),
+                "semantic_origins": semantic_transactions
+                    .iter()
+                    .map(|transaction| transaction.origin_chain.0)
+                    .collect::<Vec<_>>(),
+                "semantic_transactions": semantic_details,
                 "block_count": decoded.block_count(),
                 "block_tx_counts": decoded.block_tx_counts,
                 "blocks": payload_blocks,

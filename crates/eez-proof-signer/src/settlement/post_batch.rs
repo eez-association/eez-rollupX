@@ -5,7 +5,7 @@ use std::num::NonZeroU64;
 use alloy_primitives::{Address, B256, keccak256};
 use alloy_sol_types::SolValue as _;
 use eez_protocol::EvmBatch;
-use eez_protocol::abi::ProofSystemBatchPerVerificationEntriesSol;
+use eez_protocol::abi::{ProofSystemBatchPerVerificationEntriesSol, StaticExecutionEntrySol};
 use eez_protocol::entries::decode_postbatch;
 use eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes;
 use thiserror::Error;
@@ -31,6 +31,13 @@ pub(crate) struct CanonicalPostBatch(EvmBatch);
 impl CanonicalPostBatch {
     pub(super) const fn as_batch(&self) -> &EvmBatch {
         &self.0
+    }
+
+    /// Independently profile-checked static entries used by native semantic
+    /// binding without exposing the rest of the canonical batch outside the
+    /// settlement module.
+    pub(crate) fn static_entries(&self) -> &[StaticExecutionEntrySol] {
+        &self.0.staticEntries
     }
 
     /// Hash one canonical entry for request-local Composer correlation.
