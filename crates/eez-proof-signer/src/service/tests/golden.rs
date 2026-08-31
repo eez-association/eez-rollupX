@@ -122,6 +122,7 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
                 abi_calldata: calldata,
                 public_inputs_hash: fixture_hex(fixture_str(&oracle, "public_inputs_hash")),
                 l1_block_hash: fixture_hex(fixture_str(&post_batch_json, "l1_block_hash")),
+                blobs: Vec::new(),
             }),
         })),
     }];
@@ -180,18 +181,12 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
     let validated = validator
         .validate_window(admitted_blocks, &CancellationToken::default())
         .unwrap();
-    assert_eq!(
-        validated.window_pre_state_root(),
-        fixture_str(&oracle, "batch_anchor_root")
-            .parse::<B256>()
-            .unwrap()
-    );
-    assert_eq!(
-        validated.window_post_state_root(),
-        fixture_str(&oracle, "final_state_root")
-            .parse::<B256>()
-            .unwrap()
-    );
+    let first_parent_hash = match &chunks[1].kind {
+        Some(prove_chunk::Kind::Block(block)) => B256::from_slice(&block.parent_hash),
+        _ => unreachable!(),
+    };
+    assert_eq!(validated.window_pre_block_hash(), first_parent_hash,);
+    assert_eq!(validated.window_post_block_hash(), settling_hash);
     let settling_evidence = validated.settling_block().block().settlement_evidence();
     assert!(
         settling_evidence.observed_outbound_events().is_empty(),

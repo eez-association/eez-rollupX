@@ -182,7 +182,7 @@ impl OptimisticallyIncluded {
     }
 
     /// Observer verdict: the bundle failed (dropped, or landed without
-    /// reaching the claimed final state root). Marks the entry Failed;
+    /// reaching the claimed final block hash). Marks the entry Failed;
     /// the actual recovery (L2 reorg + re-push) happens in slot
     /// context via [`Self::take_failed_for_recovery`] — the observer
     /// task never mutates chain state. No-op if the entry is already

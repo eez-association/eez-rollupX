@@ -18,12 +18,15 @@ Usage:
 import argparse
 import http.server
 import json
+import os
 import socketserver
+import tempfile
 import urllib.request
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     upstream = ""
+    capture_dir = None
 
     def log_message(self, *_):
         pass
@@ -103,6 +106,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ),
                 timeout=10,
             ).read()
+            if self.capture_dir is not None and raw.startswith("0x03"):
+                forwarded_result = json.loads(resp)
+                tx_hash = forwarded_result.get("result")
+                if isinstance(tx_hash, str):
+                    capture = {
+                        "raw": raw,
+                        "transactionHash": tx_hash,
+                    }
+                    fd, temporary = tempfile.mkstemp(
+                        dir=self.capture_dir,
+                        prefix="blob-",
+                        suffix=".tmp",
+                    )
+                    try:
+                        with os.fdopen(fd, "w") as output:
+                            json.dump(capture, output)
+                            output.flush()
+                            os.fsync(output.fileno())
+                        os.replace(
+                            temporary,
+                            os.path.join(self.capture_dir, f"{tx_hash}.json"),
+                        )
+                    except Exception:
+                        try:
+                            os.unlink(temporary)
+                        except FileNotFoundError:
+                            pass
+                        raise
         else:
             resp = urllib.request.urlopen(
                 urllib.request.Request(
@@ -123,9 +154,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--listen", required=True, help="host:port")
     p.add_argument("--upstream", required=True, help="anvil RPC url")
+    p.add_argument(
+        "--capture-dir",
+        help="atomically capture accepted pooled blob transactions for test fixtures",
+    )
     args = p.parse_args()
     host, port = args.listen.split(":")
     Handler.upstream = args.upstream
+    Handler.capture_dir = args.capture_dir
+    if Handler.capture_dir is not None:
+        os.makedirs(Handler.capture_dir, exist_ok=True)
 
     class Reusable(socketserver.ThreadingTCPServer):
         allow_reuse_address = True

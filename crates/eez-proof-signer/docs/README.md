@@ -34,12 +34,13 @@ changing `service/`; Operations is aimed at deployment and incident diagnosis.
   carry the effects bound to the posted batch.
 - **Effect candidate:** a locally derived transaction-framing boundary that may
   correspond to an effect. It is not authorization by itself.
-- **Transaction-state checkpoint:** a state root locally recomputed immediately
-  after a selected transaction and before post-block processing. Settlement
-  later binds it to a submitted root-update claim.
-- **DA sidecar / Sync block:** a sidecar is the canonical derivation projection
-  for one effect; the Sync block is the terminal L2 block reconstructed from
-  those projections and retained user transactions.
+- **Prefix-block checkpoint:** a canonical block hash locally reconstructed at
+  a selected transaction boundary from the replayed state root, transactions,
+  receipts, gas, bloom, and the exact accepted header template. Settlement
+  binds it to the corresponding ABI root-update claim.
+- **DA sidecar / Sync block:** a sidecar is the canonical derivation table for
+  one effect; the Sync block is the terminal L2 block carried in full by the
+  self-contained payload and independently checked against those tables.
 - **Admission:** cheap stream-shape, identity, and quota checks. Admission does
   not establish consensus or execution correctness.
 - **Validation:** Stateless/Reth re-execution plus shared backend-contract

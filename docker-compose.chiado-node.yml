@@ -127,16 +127,16 @@ services:
       # L2.
       EEZ_L2_DATADIR: /l2
       EEZ_L2_GENESIS_PATH: /app/genesis.json
-      # EEZ_INITIAL_STATE_ROOT comes from deployments.env (deploy.sh writes it,
-      # matched to the genesis alloc) — the mounted genesis must produce that root.
+      # EEZ_INITIAL_BLOCK_HASH comes from deployments.env (deploy.sh writes it)
+      # — the mounted genesis must produce that exact timestamp-sensitive hash.
     volumes:
       - ${L1_SNAPSHOT_DIR:?set L1_SNAPSHOT_DIR (reth download target)}:/l1
       - ${L2_DATA_DIR:?set L2_DATA_DIR}:/l2
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
       # Fresh-timestamp L2 genesis overriding the (stale) baked one, so the
       # L1-anchored scheduler starts near grid-height 0 instead of racing
-      # millions of blocks. Root is timestamp-independent (matches the
-      # on-chain registration). Generate at deploy time: ts = now.
+      # millions of blocks. The block hash is timestamp-dependent and must
+      # match the genesis rendered and registered by deploy.sh.
       - ${FRESH_GENESIS:?set FRESH_GENESIS}:/app/genesis.json:ro
     command:
       - node

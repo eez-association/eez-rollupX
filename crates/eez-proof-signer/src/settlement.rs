@@ -8,6 +8,7 @@
 //! 4. DA is checked against the same validated window and the public-input hash
 //!    is recomputed locally.
 
+mod blob_da;
 mod blocks;
 mod da;
 mod effect_binding;
@@ -25,6 +26,7 @@ use da::encoded_bytes_match;
 #[cfg(test)]
 use inbound::inspect_inbound_candidate;
 
+pub(crate) use blob_da::{BlobDaError, verify_da_carrier};
 pub(crate) use blocks::{
     BlockInspectionError, inspect_validated_settling_block, paired_outbound_transaction,
     transaction_hash_at, verify_validated_intermediate_blocks,

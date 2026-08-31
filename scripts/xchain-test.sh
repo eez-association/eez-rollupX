@@ -299,7 +299,7 @@ for b in $pbb; do [[ -n "$prev" ]] && { [[ $((b-prev)) -eq 1 ]] && consec=$((con
 drops=$(grep -c 'outcome=Dropped' <<<"$clean")
 # Both eviction paths: 3-strike bundle give-up AND deterministic simulation failure.
 evict=$(grep -cE 'evicted after MAX_BUNDLE_ATTEMPTS|fails simulation deterministically; evicting' <<<"$clean")
-div=$(grep -cE 'diverged from L1-confirmed|local L2 state root differs' <<<"$clean")
+div=$(grep -cE 'diverged from L1-confirmed|local L2 block hash' <<<"$clean")
 # L2 safe lags L1 stored by up to one batch, so a single sample false-FAILs
 # often. Retry and pass on any match; a real divergence never matches, and
 # `div` catches it independently.
@@ -307,7 +307,7 @@ recon=FAIL; recon_n=0
 for _ in $(seq 1 12); do
   recon_n=$((recon_n+1))
   l1r=$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' "$EEZ_ROLLUP_ID" --rpc-url "$L1" 2>/dev/null|sed -n '2p'|tr -d '[:space:]')
-  l2r=$(cast block safe --rpc-url "$L2" --json 2>/dev/null|jq -r '.stateRoot//empty')
+  l2r=$(cast block safe --rpc-url "$L2" --json 2>/dev/null|jq -r '.hash//empty')
   [[ -n "$l1r" && "${l1r,,}" == "${l2r,,}" ]] && { recon=PASS; break; }
   sleep 5
 done

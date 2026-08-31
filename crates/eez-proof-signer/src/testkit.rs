@@ -44,10 +44,10 @@ pub(crate) fn test_proof_system_vkey() -> crate::attest::NonZeroProofSystemVkey 
 
 pub(crate) fn checkpoint(
     transaction_index: usize,
-    state_root: B256,
+    block_hash: B256,
 ) -> crate::validate::TransactionStateCheckpoint {
     crate::validate::TransactionStateCheckpoint {
         transaction_index,
-        state_root,
+        block_hash,
     }
 }

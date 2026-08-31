@@ -10,7 +10,7 @@
 //! extended state: the Sync block under construction is itself the composition
 //! session, so a claim read off it is the value the committed block produces.
 
-use alloy_consensus::{BlockHeader, Header, Transaction};
+use alloy_consensus::{Header, Transaction};
 use alloy_eips::Decodable2718;
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_rpc_types_engine::ExecutionData;
@@ -56,7 +56,7 @@ pub enum BuildError {
     /// Revm rejected the tx at execution time (gas, balance, …).
     #[error("execute tx #{idx}: {msg}")]
     ExecuteTx { idx: usize, msg: String },
-    /// A requested state-root checkpoint did not identify a transaction.
+    /// A requested prefix block-hash checkpoint did not identify a transaction.
     #[error("checkpoint tx position {position} is outside a {tx_count}-transaction Sync block")]
     InvalidCheckpointPosition { position: usize, tx_count: usize },
     /// `reth-evm` block-builder primitive surfaced an error during
@@ -603,20 +603,19 @@ impl SyncBlockFork {
     }
 }
 
-/// Per-effect intermediate L2 state roots — the root after each cross-chain
-/// effect's tx group (its pair-end), in tx order, one per effect.
+/// Per-effect intermediate L2 block hashes — the canonical header hash after
+/// each cross-chain effect's transaction group, in transaction order.
 ///
-/// The prover requires each settlement entry's `newRoot` to equal its effect's
-/// root (not the final Sync-block root), so the composer fills them with these.
-/// Computed by rebuilding the Sync block on each pair-end prefix of `sync_txs`;
-/// since our L2 blocks are state no-ops past the effects, a prefix block's root
-/// equals the full block's root at that tx. Settlement path only.
+/// The prover requires each settlement entry's `newRoot` ABI field to equal its
+/// effect-prefix block hash (not necessarily the final Sync-block hash), so the
+/// composer fills it with these values. Each value is computed by rebuilding
+/// the Sync block over the corresponding prefix of `sync_txs`.
 ///
 /// # Errors
 ///
 /// See [`BuildError`]. A sync tx that fails to decode is treated as a non-system
 /// tx (pair-end), matching the prover's fail-safe flagging.
-pub fn sync_block_pair_roots<P>(
+pub fn sync_block_pair_hashes<P>(
     l2_provider: &P,
     evm_config: &EthEvmConfig,
     parent: &SealedHeader<Header>,
@@ -645,7 +644,7 @@ where
         .collect();
 
     let positions = eez_protocol::settlement::pair_end_positions(&flags);
-    sync_block_roots_at_positions(
+    sync_block_hashes_at_positions(
         l2_provider,
         evm_config,
         parent,
@@ -656,12 +655,12 @@ where
     )
 }
 
-/// State roots after explicit inclusive transaction positions in a Sync block.
+/// Canonical block hashes after explicit inclusive transaction positions.
 ///
 /// Grouped outbound effects can contain callback system transactions after the
 /// user transaction, so boolean system/user framing alone cannot identify the
 /// logical effect endpoint.
-pub fn sync_block_roots_at_positions<P>(
+pub fn sync_block_hashes_at_positions<P>(
     l2_provider: &P,
     evm_config: &EthEvmConfig,
     parent: &SealedHeader<Header>,
@@ -693,7 +692,7 @@ where
                 suggested_fee_recipient,
                 &sync_txs[..=p],
             )
-            .map(|prefix| prefix.header.state_root())
+            .map(|prefix| prefix.header.hash())
         })
         .collect()
 }
@@ -701,7 +700,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_consensus::TxLegacy;
+    use alloy_consensus::{BlockHeader as _, TxLegacy};
     use alloy_eips::eip2718::Encodable2718;
     use alloy_network::TxSignerSync;
     use alloy_primitives::{TxKind, U256, address, bytes};
@@ -974,9 +973,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_root_positions_reject_out_of_bounds_without_panicking() {
+    fn explicit_hash_positions_reject_out_of_bounds_without_panicking() {
         let f = fixture();
-        let error = sync_block_roots_at_positions(
+        let error = sync_block_hashes_at_positions(
             &f.provider,
             &f.evm_config,
             &f.parent,

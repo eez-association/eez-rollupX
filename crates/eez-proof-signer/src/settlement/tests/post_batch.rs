@@ -284,10 +284,6 @@ fn rejects_every_public_input_structural_violation() {
     batch.blockNumber = 1;
     cases.push(("bound block number", batch));
 
-    let mut batch = valid.clone();
-    batch.blobIndices.push(U256::ZERO);
-    cases.push(("blob index", batch));
-
     let mut batch = valid;
     batch.bindMsgSenderInPublicInput = true;
     cases.push(("bound sender", batch));
@@ -295,4 +291,23 @@ fn rejects_every_public_input_structural_violation() {
     for (name, batch) in &cases {
         assert_structure_rejected(name, batch);
     }
+}
+
+#[test]
+fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
+    let mut batch = carrier_batch();
+    batch.blobIndices.push(U256::ZERO);
+    let profile =
+        CheckedPublicInputProfile::new(&batch, expected_rollup_id(), EXPECTED_PROOF_SYSTEM)
+            .expect("blob indices are not a structural-profile violation");
+
+    assert!(matches!(
+        profile.recompute_public_inputs_hash(test_proof_system_vkey(), &[]),
+        Err(PublicInputError::Computation(_))
+    ));
+    assert!(
+        profile
+            .recompute_public_inputs_hash(test_proof_system_vkey(), &[B256::repeat_byte(0x44)],)
+            .is_ok()
+    );
 }

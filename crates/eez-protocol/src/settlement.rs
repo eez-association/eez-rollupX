@@ -6,7 +6,7 @@ use alloy_primitives::{Address, B256};
 /// A sync-block transaction is a system transaction iff its recovered signer
 /// matches the deployment's system address and it targets `EEZL2`.
 /// The proof signer and composer must use the same deployment values so their
-/// pair-end positions, and therefore per-effect settlement roots, agree.
+/// pair-end positions, and therefore per-effect settlement block hashes, agree.
 #[must_use]
 pub fn is_system_tx(
     signer: Address,
@@ -22,7 +22,7 @@ pub fn is_system_tx(
 /// an outbound `[load | user]` pair) OR a SYSTEM tx followed by a system tx / the
 /// block end (a standalone inbound system tx). Single source of truth shared by
 /// the composer (per-effect `RootUpdate.newRoot` stitch) and proof signer
-/// (effect/checkpoint binding), so the settled roots line up entry-for-entry.
+/// (effect/checkpoint binding), so the settled block hashes line up entry-for-entry.
 #[must_use]
 pub fn pair_end_positions(is_system: &[bool]) -> Vec<usize> {
     (0..is_system.len())
@@ -37,7 +37,7 @@ pub fn pair_end_positions(is_system: &[bool]) -> Vec<usize> {
 /// execution outcome in entry order. A leading run of failed entries is
 /// carried by the successful anchor. Every later successful entry carries its
 /// own checkpoint and those of the immediately following failed entries.
-/// Failed entries receive a no-op root (`currentRoot == newRoot` after chain
+/// Failed entries receive a no-op commitment (`currentRoot == newRoot` after chain
 /// stitching), because `EEZ.sol` rolls their root updates back together with
 /// the intentionally reverted call.
 ///
@@ -65,7 +65,7 @@ pub fn settlement_root_carriers(
         }
     }
 
-    // Failed entries must claim the root already persisted by their carrier.
+    // Failed entries must claim the block hash already persisted by their carrier.
     // This also makes their root update a no-op when the chain is stitched.
     let mut persisted_root = anchor_new_root;
     for (effect_index, (_, success)) in effects.iter().copied().enumerate() {

@@ -75,8 +75,8 @@ bash testing/kurtosis/scripts/verify-eezl2-deployment.sh
 ```
 
 The verification checks the live EEZL2 system address, rollup ID,
-`USE_GAS_LEFT` setting, runtime code hash, and genesis state root against the
-generated deployment bindings.
+`USE_GAS_LEFT` setting, runtime code hash, genesis state root, and registered
+genesis block hash against the generated deployment bindings.
 
 ### 4. Connect to the RPC endpoints
 
@@ -101,6 +101,8 @@ EEZ Kurtosis devnet endpoints (enclave: eez-dev)
   L2 explorer:           http://127.0.0.1:<port>
   L1 explorer API:       http://127.0.0.1:<port>
   L2 explorer API:       http://127.0.0.1:<port>
+  Blobscan:              http://127.0.0.1:<port>
+  Blobscan API:          http://127.0.0.1:<port>
 ```
 
 The sourced helper exports:
@@ -116,6 +118,8 @@ EEZ_DEVNET_L1_EXPLORER
 EEZ_DEVNET_L2_EXPLORER
 EEZ_DEVNET_L1_EXPLORER_API
 EEZ_DEVNET_L2_EXPLORER_API
+EEZ_DEVNET_BLOBSCAN
+EEZ_DEVNET_BLOBSCAN_API
 ```
 
 The HTTP URLs can be reused with `cast`, `curl`, or an application under
@@ -133,8 +137,9 @@ composition, while ordinary transactions are forwarded to that chain's normal
 mempool. The direct `EEZ_DEVNET_L1_RPC` and `EEZ_DEVNET_L2_RPC` endpoints remain
 available for protocol tooling.
 
-The explorer variables are exported only when `enable_explorers` is enabled in
-the selected arguments file.
+The Blockscout variables are exported only when `enable_explorers` is enabled
+in the selected arguments file. The Blobscan variables are exported when the
+selected Ethereum-package profile includes `blobscan` in `additional_services`.
 
 ### 5. Stop the network
 
@@ -154,7 +159,8 @@ The local topology contains:
 - An rbuilder, relay, MEV-Boost, and proposer path for atomic bundle inclusion.
 - A deployment task that deploys the L1 contracts, derives the configured L2
   system address, renders the EEZL2 runtime and funded L2 genesis, and registers
-  the resulting genesis state root.
+  the resulting genesis block hash (the state root remains an independently
+  verified genesis integrity value).
 - An `eez-node` running the L2, composer, cross-chain RPC fronts, and an
   embedded L1 execution client.
 - An `eez-follower` Lighthouse beacon node that follows the canonical L1 and
@@ -172,10 +178,55 @@ The local topology contains:
 - Optional L1 and L2 Blockscout instances, each with its own backend, contract
   verifier, and ephemeral PostgreSQL database. They are enabled in the included
   local profile.
+- Blobscan web, API, indexer, PostgreSQL, and Redis services. The indexer reads
+  the canonical L1 execution and beacon APIs and provides searchable historical
+  blob transactions, versioned hashes, commitments, and sidecars. It is enabled
+  in `devnet-args.yaml` and `blob-args.yaml`, and intentionally omitted from the
+  lean CI profile.
+
+Blobscan `1.40.3` does not define arbitrary private chain IDs in its internal
+chain registry, while the upstream Kurtosis launcher uses floating images. The
+local integration therefore builds API and web from pinned commit
+`424d5e512d57ff4ac42509ef93f3845ead392155`, adds exactly the selected EEZ chain
+ID with BPO1 active at genesis, and pins the indexer, PostgreSQL, and Redis image
+digests. Set `EEZ_SKIP_BLOBSCAN_BUILD=1` only when those chain-specific images
+already exist locally.
 
 The topology deliberately omits dedicated load-generation, reorg, metrics, and
 distributed-tracing services. The included shell workloads generate their own
 test traffic.
+
+### Isolated blob-DA profile
+
+The developer profile uses Blob DA and includes Blobscan. The isolated profile
+provides a smaller, focused Blob DA validation enclave so experiments cannot
+mutate a running developer network:
+
+```bash
+KURTOSIS_ENCLAVE=eez-blob \
+KURTOSIS_ARGS_FILE=testing/kurtosis/blob-args.yaml \
+  bash testing/kurtosis/start.sh
+
+KURTOSIS_ENCLAVE=eez-blob \
+  bash testing/kurtosis/scripts/verify-blob-da.sh
+```
+
+This profile posts the same self-contained chain-operation payload in an
+EIP-4844 type-3 transaction, uses the Fulu EIP-7594 sidecar wrapper, retrieves
+the blobs independently through the beacon REST API, verifies their KZG
+versioned hashes, and checks L1/L2 block-hash commitment convergence.
+It then verifies that Blobscan indexed each proven posting transaction with the
+same versioned hashes and commitments, and byte-compares every PostgreSQL-backed
+Blobscan payload returned by both the API and web data proxy with its canonical
+beacon sidecar. Blobscan evidence is written beside the main summary as
+`blobscan.json`. To recheck existing evidence without generating transactions,
+run:
+
+```bash
+KURTOSIS_ENCLAVE=eez-blob \
+  bash testing/kurtosis/scripts/verify-blobscan.sh \
+  artifacts/kurtosis-blob/<run>/summary.json
+```
 
 The playground exposes a known prefunded development private key in its runtime
 configuration so browser actions require no wallet extension. This is suitable
@@ -208,6 +259,9 @@ el-2-reth-builder-lighthouse
 mev-relay-api
 l1-blockscout-frontend
 l2-blockscout-frontend
+blobscan-web
+blobscan-api
+blobscan-indexer
 ```
 
 Replace the service name in the log command to inspect one of them. Use `-a`
@@ -401,9 +455,15 @@ Available modes are:
 | `mixed-pure` | Mixed traffic plus ordinary L2 mempool transactions between waves. |
 
 Each workload verifies transaction inclusion, cross-chain state convergence,
-`postBatch` settlement on L1, L1/L2 state-root agreement, L2 safe-head progress,
+`postBatch` settlement on L1, L1/L2 block-hash commitment agreement, L2 safe-head progress,
 and correlation between the proof signer's result and the node's accepted
 attestation.
+
+The blob-DA smoke additionally calls both node correlation methods for every
+test transaction: `eez_getSettlementByL2Block` must resolve its exact L1 posting
+transaction, and `eez_getSettledL2RangesByL1Block` must return a range containing
+the exact L2 block number/hash. The verified replies are retained under
+`correlation_rpc` in the run's `summary.json`.
 
 Individual workload logs are written under `datadir/smoke-logs`. Override their
 locations with `EEZ_NODE_LOG` and `EEZ_PROOF_SIGNER_LOG`.
@@ -416,8 +476,8 @@ Useful workload controls include:
   default is two.
 - `EEZ_RECEIPT_WAIT_SECS`: transaction inclusion timeout; the default is 300
   seconds.
-- `EEZ_STATE_ROOT_WAIT_SECS`: state-root convergence timeout; the default is 30
-  seconds.
+- `EEZ_STATE_ROOT_WAIT_SECS`: legacy-named block-hash commitment convergence
+  timeout; the default is 30 seconds.
 
 ### Run all included workloads
 
@@ -489,8 +549,8 @@ EEZ_SKIP_UI_BUILD=1 \
 ```
 
 The deployment image is built from the selected node image because it copies
-the `eez-genesis-state-root` utility from that image. If the node changes,
-rebuild the deployment image as well.
+the genesis state-root and block-hash utilities from that image. If the node
+changes, rebuild the deployment image as well.
 
 Set `EEZ_PRUNE_BUILD_CACHE=1` to run
 `docker builder prune --all --force` after building the images. This deletes
@@ -540,7 +600,7 @@ Kurtosis assigns different host ports automatically. Remember that
 - `l2-genesis-profile.json`: reproducible public inputs and hashes for the
   committed test genesis; it contains no private key.
 - `Dockerfile.deploy`: deployment image containing Foundry, contracts, scripts,
-  and the genesis state-root utility copied from the selected node image.
+  and the genesis state-root/block-hash utilities copied from the selected node image.
 - `start.sh` and `stop.sh`: local network lifecycle.
 - `ports.sh`: endpoint discovery, summary, and shell exports.
 - `scripts/verify-eezl2-deployment.sh`: live EEZL2 deployment verification.

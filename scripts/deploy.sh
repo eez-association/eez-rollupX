@@ -35,7 +35,7 @@ source "$ENV_FILE"
 : "${EEZ_PROOF_SIGNER_KEY:?EEZ_PROOF_SIGNER_KEY not set in .env}"
 : "${EEZ_L2_SYSTEM_KEY:?EEZ_L2_SYSTEM_KEY not set in .env}"
 
-configured_initial_state_root="${EEZ_INITIAL_STATE_ROOT:-}"
+configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
 
 # Deploy/own key, decoupled from the composer's poster so posting can't advance
 # the deployer's nonce or shift the CREATE addresses. Defaults to the poster.
@@ -110,6 +110,18 @@ compute_genesis_state_root() {
     fi
 }
 
+compute_genesis_block_hash() {
+    local genesis="$1"
+    if command -v eez-genesis-block-hash >/dev/null 2>&1; then
+        eez-genesis-block-hash "$genesis"
+    else
+        (
+            cd "$REPO"
+            cargo run --quiet --locked --package eez-node --example genesis_block_hash -- "$genesis"
+        )
+    fi
+}
+
 # ── 1/5 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/5] DeployEEZ"
 run_forge "DeployEEZ" forge script script/DeployEEZ.s.sol:DeployEEZ \
@@ -141,7 +153,7 @@ echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS"
 # ── Generate deployment-bound L2 genesis ────────────────────────────
 # This deploy creates a fresh registry, so the first L2 rollup ID is 1.
 # Generate EEZL2 with that ID and the address derived from the secret system
-# key before registering the resulting state root on L1.
+# key before registering the resulting genesis block hash on L1.
 ROLLUP_COUNTER="$(cast call "$EEZ_REGISTRY_ADDRESS" "rollupCounter()(uint256)" \
     --rpc-url "$EEZ_L1_RPC_URL" | awk '{print $1}')"
 [[ "$ROLLUP_COUNTER" == "0" ]] || {
@@ -161,60 +173,12 @@ echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_S
     --output "$GENESIS_OUT" \
     --profile-output "$GENESIS_PROFILE_OUT"
 
-EEZ_INITIAL_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
 EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
-if [[ -n "$configured_initial_state_root" \
-    && "${configured_initial_state_root,,}" != "${EEZ_INITIAL_STATE_ROOT,,}" ]]
-then
-    echo "deploy: configured EEZ_INITIAL_STATE_ROOT does not match the rendered L2 genesis" >&2
-    echo "configured: $configured_initial_state_root" >&2
-    echo "rendered:   $EEZ_INITIAL_STATE_ROOT" >&2
-    exit 1
-fi
-echo "      stateRoot  = $EEZ_INITIAL_STATE_ROOT"
-echo "      runtimeHash= $EEZ_L2_EEZL2_CODE_HASH"
 
-# ── 4/5 RegisterRollup ──────────────────────────────────────────────
-echo "[4/5] RegisterRollup(initialState=$EEZ_INITIAL_STATE_ROOT)"
-run_forge "RegisterRollup" forge script script/RegisterRollup.s.sol:RegisterRollup \
-    --sig "run(address,address,bytes32)" \
-    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ROLLUP_MANAGER_ADDRESS" "$EEZ_INITIAL_STATE_ROOT" \
-    $RPC $KEY --broadcast
-EEZ_ROLLUP_ID="$(extract_uint L2_ROLLUP_ID "$OUT")"
-[[ -n "$EEZ_ROLLUP_ID" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture L2_ROLLUP_ID" >&2; exit 1; }
-[[ "$EEZ_ROLLUP_ID" == "$EXPECTED_ROLLUP_ID" ]] || {
-    echo "deploy: registry assigned rollupId=$EEZ_ROLLUP_ID; generated EEZL2 expects $EXPECTED_ROLLUP_ID" >&2
-    exit 1
-}
-echo "      rollupId   = $EEZ_ROLLUP_ID"
-
-# ── 5/5 DeployBridgeL1 ──────────────────────────────────────────────
-# Creates the L1 CrossChainProxy (representing the L2 BridgeReceiver
-# predeploy at `0x4200…0008`) and a user-facing BridgeSender. The
-# composer's first cross-chain smoke routes a deposit through these.
-EEZ_L2_BRIDGE_RECEIVER_DEFAULT="0x4200000000000000000000000000000000000008"
-EEZ_L2_BRIDGE_RECEIVER="${EEZ_L2_BRIDGE_RECEIVER:-$EEZ_L2_BRIDGE_RECEIVER_DEFAULT}"
-echo "[5/5] DeployBridgeL1(l2Dest=$EEZ_L2_BRIDGE_RECEIVER, rollupId=$EEZ_ROLLUP_ID)"
-EEZ_REGISTRY_ADDRESS="$EEZ_REGISTRY_ADDRESS" \
-EEZ_L2_BRIDGE_RECEIVER="$EEZ_L2_BRIDGE_RECEIVER" \
-EEZ_ROLLUP_ID="$EEZ_ROLLUP_ID" \
-run_forge "DeployBridgeL1" forge script script/DeployBridgeL1.s.sol:DeployBridgeL1 $RPC $KEY --broadcast
-EEZ_L1_L2_PROXY="$(extract L2_PROXY "$OUT")"
-EEZ_L1_BRIDGE_SENDER="$(extract BRIDGE_SENDER "$OUT")"
-[[ -n "$EEZ_L1_L2_PROXY"     ]] || { echo "$OUT" >&2; echo "deploy: failed to capture L2_PROXY" >&2; exit 1; }
-[[ -n "$EEZ_L1_BRIDGE_SENDER" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture BRIDGE_SENDER" >&2; exit 1; }
-echo "      L2 proxy   = $EEZ_L1_L2_PROXY"
-echo "      L1 bridge  = $EEZ_L1_BRIDGE_SENDER"
-
-# ── L2 genesis with deploy-aligned timestamp ────────────────────────
-# Reth's `--chain dev` prebaked genesis has timestamp = June 2023.
-# The Sequencer's greedy backfill loop produces blocks at
-# `parent.timestamp + 2s` until wall-clock — from a 2023 genesis
-# that's ~47M blocks of pure timestamp catch-up to reach 2026.
-# Useless work. We write a per-deploy genesis with timestamp set to
-# the L1 block observed after deploying the EEZ registry, so catch-up
-# only bridges deployment time to now. Timestamp and fork activation do not
-# change the genesis state root, but verify that explicitly before publishing.
+# Align genesis time before computing the registered commitment. Unlike the
+# state trie root, the genesis block hash commits the timestamp and fork-aware
+# header fields.
 DEPLOY_BLOCK_TS_HEX="$(cast block "$EEZ_REGISTRY_DEPLOY_BLOCK" --rpc-url "$EEZ_L1_RPC_URL" --json | jq -r '.timestamp')"
 [[ -n "$DEPLOY_BLOCK_TS_HEX" && "$DEPLOY_BLOCK_TS_HEX" != "null" ]] || {
     echo "deploy: failed to capture L1 block timestamp for $EEZ_REGISTRY_DEPLOY_BLOCK" >&2
@@ -248,15 +212,60 @@ jq --arg timestamp "$DEPLOY_BLOCK_TS_HEX" '
 ' "$GENESIS_OUT" >"$GENESIS_TIMESTAMP_TMP"
 chmod --reference="$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP"
 mv "$GENESIS_TIMESTAMP_TMP" "$GENESIS_OUT"
+GENESIS_TIMESTAMP_TMP=""
 
 FINAL_STATE_ROOT="$(compute_genesis_state_root "$GENESIS_OUT")"
-if [[ "${FINAL_STATE_ROOT,,}" != "${EEZ_INITIAL_STATE_ROOT,,}" ]]; then
-    echo "deploy: finalized genesis state root changed after registration" >&2
-    echo "registered: $EEZ_INITIAL_STATE_ROOT" >&2
-    echo "finalized:  $FINAL_STATE_ROOT" >&2
+if [[ "${FINAL_STATE_ROOT,,}" != "${EEZ_L2_GENESIS_STATE_ROOT,,}" ]]; then
+    echo "deploy: finalized genesis state root differs from the generated profile" >&2
+    echo "profile:   $EEZ_L2_GENESIS_STATE_ROOT" >&2
+    echo "finalized: $FINAL_STATE_ROOT" >&2
     exit 1
 fi
+EEZ_INITIAL_BLOCK_HASH="$(compute_genesis_block_hash "$GENESIS_OUT")"
+if [[ -n "$configured_initial_block_hash" \
+    && "${configured_initial_block_hash,,}" != "${EEZ_INITIAL_BLOCK_HASH,,}" ]]
+then
+    echo "deploy: configured EEZ_INITIAL_BLOCK_HASH does not match the rendered L2 genesis" >&2
+    echo "configured: $configured_initial_block_hash" >&2
+    echo "rendered:   $EEZ_INITIAL_BLOCK_HASH" >&2
+    exit 1
+fi
+echo "      blockHash  = $EEZ_INITIAL_BLOCK_HASH"
+echo "      stateRoot  = $EEZ_L2_GENESIS_STATE_ROOT"
+echo "      runtimeHash= $EEZ_L2_EEZL2_CODE_HASH"
 echo "      genesis.ts = $DEPLOY_BLOCK_TS_HEX ($(printf %d $DEPLOY_BLOCK_TS_HEX))"
+
+# ── 4/5 RegisterRollup ──────────────────────────────────────────────
+echo "[4/5] RegisterRollup(initialBlockHash=$EEZ_INITIAL_BLOCK_HASH)"
+run_forge "RegisterRollup" forge script script/RegisterRollup.s.sol:RegisterRollup \
+    --sig "run(address,address,bytes32)" \
+    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ROLLUP_MANAGER_ADDRESS" "$EEZ_INITIAL_BLOCK_HASH" \
+    $RPC $KEY --broadcast
+EEZ_ROLLUP_ID="$(extract_uint L2_ROLLUP_ID "$OUT")"
+[[ -n "$EEZ_ROLLUP_ID" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture L2_ROLLUP_ID" >&2; exit 1; }
+[[ "$EEZ_ROLLUP_ID" == "$EXPECTED_ROLLUP_ID" ]] || {
+    echo "deploy: registry assigned rollupId=$EEZ_ROLLUP_ID; generated EEZL2 expects $EXPECTED_ROLLUP_ID" >&2
+    exit 1
+}
+echo "      rollupId   = $EEZ_ROLLUP_ID"
+
+# ── 5/5 DeployBridgeL1 ──────────────────────────────────────────────
+# Creates the L1 CrossChainProxy (representing the L2 BridgeReceiver
+# predeploy at `0x4200…0008`) and a user-facing BridgeSender. The
+# composer's first cross-chain smoke routes a deposit through these.
+EEZ_L2_BRIDGE_RECEIVER_DEFAULT="0x4200000000000000000000000000000000000008"
+EEZ_L2_BRIDGE_RECEIVER="${EEZ_L2_BRIDGE_RECEIVER:-$EEZ_L2_BRIDGE_RECEIVER_DEFAULT}"
+echo "[5/5] DeployBridgeL1(l2Dest=$EEZ_L2_BRIDGE_RECEIVER, rollupId=$EEZ_ROLLUP_ID)"
+EEZ_REGISTRY_ADDRESS="$EEZ_REGISTRY_ADDRESS" \
+EEZ_L2_BRIDGE_RECEIVER="$EEZ_L2_BRIDGE_RECEIVER" \
+EEZ_ROLLUP_ID="$EEZ_ROLLUP_ID" \
+run_forge "DeployBridgeL1" forge script script/DeployBridgeL1.s.sol:DeployBridgeL1 $RPC $KEY --broadcast
+EEZ_L1_L2_PROXY="$(extract L2_PROXY "$OUT")"
+EEZ_L1_BRIDGE_SENDER="$(extract BRIDGE_SENDER "$OUT")"
+[[ -n "$EEZ_L1_L2_PROXY"     ]] || { echo "$OUT" >&2; echo "deploy: failed to capture L2_PROXY" >&2; exit 1; }
+[[ -n "$EEZ_L1_BRIDGE_SENDER" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture BRIDGE_SENDER" >&2; exit 1; }
+echo "      L2 proxy   = $EEZ_L1_L2_PROXY"
+echo "      L1 bridge  = $EEZ_L1_BRIDGE_SENDER"
 
 # ── Write deployments.env ───────────────────────────────────────────
 cat > "$OUT_FILE" <<EOF
@@ -272,7 +281,8 @@ EEZ_VKEY=$PROOF_SYSTEM_VKEY
 EEZ_ATTESTER_ADDRESS=$AUTHORIZED_SIGNER
 EEZ_ROLLUP_MANAGER_ADDRESS=$EEZ_ROLLUP_MANAGER_ADDRESS
 EEZ_ROLLUP_ID=$EEZ_ROLLUP_ID
-EEZ_INITIAL_STATE_ROOT=$EEZ_INITIAL_STATE_ROOT
+EEZ_INITIAL_BLOCK_HASH=$EEZ_INITIAL_BLOCK_HASH
+EEZ_L2_GENESIS_STATE_ROOT=$EEZ_L2_GENESIS_STATE_ROOT
 EEZ_L2_GENESIS_PATH=$GENESIS_OUT
 EEZ_L2_GENESIS_PROFILE_PATH=$GENESIS_PROFILE_OUT
 

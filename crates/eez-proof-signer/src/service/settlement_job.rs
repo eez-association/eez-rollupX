@@ -27,9 +27,9 @@ impl AttestablePublicInputsHash {
 
 /// Fully checked material that may cross the attestation boundary.
 pub(super) struct AttestationMaterial {
-    pub(super) attestable_public_inputs_hash: AttestablePublicInputsHash,
-    pub(super) validated_window_pre_state_root: B256,
-    pub(super) validated_window_post_state_root: B256,
+    pub(super) attestable_public_inputs: AttestablePublicInputsHash,
+    pub(super) validated_window_pre_block_hash: B256,
+    pub(super) validated_window_post_block_hash: B256,
 }
 
 /// Failure from either synchronous phase of the request pipeline.
@@ -91,6 +91,7 @@ pub(super) fn validate_and_settle(
     state: &ServiceState,
     blocks: window::AdmittedBlocks,
     submitted_post_batch_calldata: Vec<u8>,
+    submitted_blobs: Vec<Vec<u8>>,
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<AttestationMaterial, PipelineError> {
@@ -100,6 +101,7 @@ pub(super) fn validate_and_settle(
     }
     let attestable_public_inputs_hash = run_settlement(SettlementInput {
         submitted_post_batch_calldata,
+        submitted_blobs: &submitted_blobs,
         validated_window: &validated_window,
         expected_rollup_id: state.expected_rollup_id,
         expected_l2_system_address: state.expected_l2_system_address,
@@ -110,9 +112,9 @@ pub(super) fn validate_and_settle(
     })?;
 
     Ok(AttestationMaterial {
-        attestable_public_inputs_hash,
-        validated_window_pre_state_root: validated_window.window_pre_state_root(),
-        validated_window_post_state_root: validated_window.window_post_state_root(),
+        attestable_public_inputs: attestable_public_inputs_hash,
+        validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
+        validated_window_post_block_hash: validated_window.window_post_block_hash(),
     })
 }
 
@@ -122,6 +124,7 @@ pub(super) fn validate_and_settle(
 /// values remain borrowed from the validated window owned by the worker.
 pub(super) struct SettlementInput<'a> {
     pub(super) submitted_post_batch_calldata: Vec<u8>,
+    pub(super) submitted_blobs: &'a [Vec<u8>],
     pub(super) validated_window: &'a validate::ValidatedWindow,
     pub(super) expected_rollup_id: NonZeroU64,
     pub(super) expected_l2_system_address: Address,
@@ -154,6 +157,8 @@ pub(super) enum SettlementPipelineError {
     OutboundEffects(#[from] settlement::OutboundEffectError),
     #[error(transparent)]
     DaPayload(#[from] settlement::DaPayloadError),
+    #[error(transparent)]
+    BlobDa(#[from] settlement::BlobDaError),
     #[error("request cancelled")]
     Cancelled,
 }
@@ -170,6 +175,7 @@ impl SettlementPipelineError {
             Self::InboundEffects(_) => "inbound_effects",
             Self::OutboundEffects(_) => "outbound_effects",
             Self::DaPayload(_) => "da_payload",
+            Self::BlobDa(_) => "blob_da",
             Self::Cancelled => "cancellation",
         }
     }
@@ -229,7 +235,7 @@ impl SettlementPipelineError {
                 | settlement::EffectPrefixError::EffectCountMismatch { .. }
                 | settlement::EffectPrefixError::AnchorRootMismatch { .. }
                 | settlement::EffectPrefixError::EffectKindMismatch { .. }
-                | settlement::EffectPrefixError::EffectStateRootMismatch { .. }
+                | settlement::EffectPrefixError::EffectBlockHashMismatch { .. }
                 | settlement::EffectPrefixError::NonZeroAnchorEtherDelta { .. }
                 | settlement::EffectPrefixError::InvalidEffectTransactionLayout { .. } => (
                     tonic::Code::FailedPrecondition,
@@ -255,6 +261,7 @@ impl SettlementPipelineError {
                     "validation backend returned invalid output",
                 ),
                 settlement::DaPayloadError::BlockCount { .. }
+                | settlement::DaPayloadError::BlockRlpMismatch { .. }
                 | settlement::DaPayloadError::UnexpectedItems { .. }
                 | settlement::DaPayloadError::ProjectedTransactionCount { .. }
                 | settlement::DaPayloadError::TransactionMismatch { .. }
@@ -267,6 +274,7 @@ impl SettlementPipelineError {
                     "settlement validation rejected",
                 ),
             },
+            Self::BlobDa(_) => (tonic::Code::InvalidArgument, "invalid batch blob DA"),
             Self::Cancelled => (tonic::Code::Cancelled, "Prove request cancelled"),
         };
         Status::new(code, message)
@@ -294,6 +302,7 @@ pub(super) fn run_settlement(
 ) -> Result<AttestablePublicInputsHash, SettlementPipelineError> {
     let SettlementInput {
         submitted_post_batch_calldata,
+        submitted_blobs,
         validated_window,
         expected_rollup_id,
         expected_l2_system_address,
@@ -314,8 +323,8 @@ pub(super) fn run_settlement(
     let verified_state_chain = settlement::verify_root_update_chain(
         &canonical_batch,
         expected_rollup_id,
-        validated_window.window_pre_state_root(),
-        validated_window.window_post_state_root(),
+        validated_window.window_pre_block_hash(),
+        validated_window.window_post_block_hash(),
     )?;
 
     // If an outbound load reverted, report its paired user transaction.
@@ -333,7 +342,7 @@ pub(super) fn run_settlement(
 
     let bound_effects = settlement::bind_effects_to_execution(
         &verified_state_chain,
-        validated_window.settling_pre_state_root(),
+        validated_window.settling_pre_block_hash(),
         settling_block.transaction_state_checkpoints(),
         &settling_observations,
     )?;
@@ -361,18 +370,21 @@ pub(super) fn run_settlement(
 
     ensure_settlement_active(cancellation)?;
 
+    let verified_da =
+        settlement::verify_da_carrier(&canonical_batch, submitted_blobs, expected_rollup_id.get())?;
+
     // Bind posted transactions and effect sidecars to the validated block bytes,
     // including the reconstructed Sync-block transaction sequence.
     settlement::verify_da_payload(
-        &canonical_batch,
+        verified_da.payload(),
         validated_window,
         &authorized_outbound_effects,
         &authorized_inbound_effects,
         system_transaction_reconstructor,
     )?;
 
-    let recomputed_public_inputs_hash =
-        checked_public_input_profile.recompute_public_inputs_hash(proof_system_vkey)?;
+    let recomputed_public_inputs_hash = checked_public_input_profile
+        .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;
     Ok(AttestablePublicInputsHash(recomputed_public_inputs_hash))
 }
 

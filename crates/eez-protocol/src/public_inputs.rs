@@ -181,6 +181,18 @@ pub enum PublicInputsError {
         /// Number of unsupported blob indices.
         count: usize,
     },
+    /// A transaction-local blob index cannot address the supplied blob set.
+    #[error(
+        "blobIndices[{position}] = {index} is outside the supplied transaction blob set of length {blob_count}"
+    )]
+    InvalidBlobIndex {
+        /// Position inside `batch.blobIndices`.
+        position: usize,
+        /// Decimal rendering of the untrusted U256 index.
+        index: String,
+        /// Number of transaction blob hashes supplied by the caller.
+        blob_count: usize,
+    },
 }
 
 /// Compute every per-proof-system hash for the currently supported batch
@@ -209,6 +221,49 @@ pub fn public_inputs_hashes(batch: &EvmBatch, vkey: B256) -> Result<Vec<B256>, P
         });
     }
 
+    public_inputs_hashes_with_blob_hashes(batch, vkey, &[])
+}
+
+/// Compute every per-proof-system hash with independently derived transaction
+/// blob hashes.
+///
+/// `transaction_blob_hashes` is the complete type-3 transaction blob set in
+/// transaction order. `batch.blobIndices` selects from it exactly as Solidity's
+/// `blobhash(index)` does. Callers must derive these hashes from the actual
+/// blobs; accepting composer-claimed hashes at this boundary is unsound.
+///
+/// The other initial-profile restrictions remain unchanged: block number zero,
+/// no sender binding, and empty manager custom data.
+pub fn public_inputs_hashes_with_blob_hashes(
+    batch: &EvmBatch,
+    vkey: B256,
+    transaction_blob_hashes: &[B256],
+) -> Result<Vec<B256>, PublicInputsError> {
+    if batch.blockNumber != 0 {
+        return Err(PublicInputsError::UnsupportedBlockNumber {
+            block_number: batch.blockNumber,
+        });
+    }
+    if batch.bindMsgSenderInPublicInput {
+        return Err(PublicInputsError::UnsupportedSenderBinding);
+    }
+
+    let blob_hashes = batch
+        .blobIndices
+        .iter()
+        .enumerate()
+        .map(|(position, index)| {
+            usize::try_from(*index)
+                .ok()
+                .and_then(|index| transaction_blob_hashes.get(index).copied())
+                .ok_or_else(|| PublicInputsError::InvalidBlobIndex {
+                    position,
+                    index: index.to_string(),
+                    blob_count: transaction_blob_hashes.len(),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     let rollup_assignments: Vec<RollupProofAssignment> = batch
         .rollupIdsWithProofSystems
         .iter()
@@ -234,7 +289,7 @@ pub fn public_inputs_hashes(batch: &EvmBatch, vkey: B256) -> Result<Vec<B256>, P
         &plan,
         &entry_hashes,
         &static_entry_hashes,
-        &[],
+        &blob_hashes,
         &batch.callData,
         Address::ZERO,
     )
@@ -460,6 +515,52 @@ mod tests {
         assert!(matches!(
             public_inputs_hashes(&batch, vkey),
             Err(PublicInputsError::UnsupportedBlobIndices { count: 1 })
+        ));
+    }
+
+    #[test]
+    fn blob_profile_selects_transaction_hashes_in_batch_order() {
+        let vkey = B256::repeat_byte(0x42);
+        let mut batch = carrier_batch();
+        batch.blobIndices = vec![
+            alloy_primitives::U256::from(1),
+            alloy_primitives::U256::ZERO,
+        ];
+        let transaction_hashes = [B256::repeat_byte(0x11), B256::repeat_byte(0x22)];
+
+        let got =
+            public_inputs_hashes_with_blob_hashes(&batch, vkey, &transaction_hashes).unwrap()[0];
+        let expected = all_per_ps_hashes(
+            &ProofPlan {
+                proof_systems: batch.proofSystems.clone(),
+                custom_data: vec![Bytes::new()],
+                rollup_assignments: vec![RollupProofAssignment {
+                    rollup_id: RollupId(1),
+                    proof_system_indexes: vec![0],
+                }],
+                vk_matrix: vec![vec![vkey.0]],
+            },
+            &[],
+            &[],
+            &[transaction_hashes[1], transaction_hashes[0]],
+            &Bytes::new(),
+            Address::ZERO,
+        )
+        .unwrap()[0];
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn blob_profile_rejects_an_unavailable_transaction_index() {
+        let mut batch = carrier_batch();
+        batch.blobIndices = vec![alloy_primitives::U256::from(2)];
+        assert!(matches!(
+            public_inputs_hashes_with_blob_hashes(&batch, B256::repeat_byte(0x42), &[B256::ZERO]),
+            Err(PublicInputsError::InvalidBlobIndex {
+                position: 0,
+                blob_count: 1,
+                ..
+            })
         ));
     }
 }

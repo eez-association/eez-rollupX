@@ -18,11 +18,13 @@ use eez_l1::{BatchRecord, L1CanonicalHead, L1Event, L1Reader, ScannedBatch};
 use eez_protocol::outbound_gate::OutboundCallObservation;
 use reth_chainspec::{ChainSpec, EthereumHardforks};
 use reth_ethereum_engine_primitives::EthEngineTypes;
-use reth_ethereum_primitives::TransactionSigned;
+use reth_ethereum_primitives::{Block as EthereumBlock, TransactionSigned};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes, execute::BlockBuilder};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_payload_primitives::PayloadTypes;
-use reth_primitives_traits::{AlloyBlockHeader, Block, BlockBody, SealedHeader, SignedTransaction};
+use reth_primitives_traits::{
+    AlloyBlockHeader, Block, BlockBody, SealedHeader, SignedTransaction, SignerRecoverable,
+};
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
 use reth_storage_api::{BlockReader, ReceiptProvider, TransactionsProvider};
@@ -30,6 +32,7 @@ use revm::database::State;
 use tokio::sync::broadcast;
 use tracing::{Level, event};
 
+use crate::correlation::{BatchCorrelation, CorrelationStore, L2BlockCorrelation};
 use crate::error::{DeriverError, DeriverResult};
 
 /// Watcher seed: the finalized block, kept inside the range this scan read.
@@ -71,6 +74,8 @@ where
     /// `finalized_l2`. The Deriver is the sole writer; the Composer
     /// reads `cursor()` to compute the next batch's `from_block`.
     l1_head: Arc<L1CanonicalHead>,
+    /// Persistent provenance index shared with the node's read-only RPC.
+    correlations: Arc<CorrelationStore>,
     /// L2 block number currently reth `safe` head points at. Mirrors
     /// what we last passed to [`BlockCommitterHandle::advance_safe_finalized`];
     /// used to compute the FCU when advancing finalized without
@@ -131,6 +136,7 @@ where
         l2_block_time_secs: u64,
         deploy_block: u64,
         l1_head: Arc<L1CanonicalHead>,
+        correlations: Arc<CorrelationStore>,
         system_tx_cfg: Option<eez_protocol::system_tx::SystemTxContext>,
         checkpoint_dir: Option<PathBuf>,
     ) -> Self {
@@ -145,6 +151,7 @@ where
                 l2_block_time_secs,
                 deploy_block,
                 l1_head,
+                correlations,
                 safe_l2_block: AtomicU64::new(0),
                 system_tx_cfg,
                 checkpoint_dir,
@@ -161,15 +168,15 @@ where
         let Some(tail) = self.inner.l1_head.last_indexed() else {
             return;
         };
-        let l2_state_root = match self.l2_state_root_at(tail.last_l2_block) {
-            Ok(root) => root,
+        let l2_block_hash = match self.l2_hash_at(tail.last_l2_block) {
+            Ok(hash) => hash,
             Err(err) => {
                 event!(
-                    name: "eez.deriver.checkpoint.no_local_root",
+                    name: "eez.deriver.checkpoint.no_local_block_hash",
                     Level::WARN,
                     l2_block = tail.last_l2_block,
                     error = %err,
-                    "no local root at the indexed tip; skipping the boot checkpoint",
+                    "no local block hash at the indexed tip; skipping the boot checkpoint",
                 );
                 return;
             }
@@ -179,7 +186,7 @@ where
             l1_block_hash: tail.l1_block_hash,
             tx_hash: tail.tx_hash,
             l2_cursor: tail.last_l2_block,
-            l2_state_root,
+            l2_block_hash,
         };
         if let Err(err) = checkpoint.save(dir) {
             event!(
@@ -204,15 +211,15 @@ where
             .await
             .ok()
             .flatten();
-        let local_root = self.l2_state_root_at(checkpoint.l2_cursor).ok();
-        if let Err(reason) = checkpoint.usable_with(canonical, local_root) {
+        let local_block_hash = self.l2_hash_at(checkpoint.l2_cursor).ok();
+        if let Err(reason) = checkpoint.usable_with(canonical, local_block_hash) {
             event!(
                 name: "eez.deriver.checkpoint.rejected",
                 Level::WARN,
                 l1_block = checkpoint.l1_block,
                 l2_cursor = checkpoint.l2_cursor,
                 canonical = ?canonical,
-                local_root = ?local_root,
+                local_block_hash = ?local_block_hash,
                 reason,
                 "boot checkpoint rejected; rescanning from the deploy block",
             );
@@ -226,6 +233,124 @@ where
             "boot seeded from checkpoint; scanning forward instead of from the deploy block",
         );
         Some(checkpoint)
+    }
+
+    /// Validate and adopt the persistent correlation tail as the boot scan
+    /// anchor. A tail from an orphaned L1 fork or another L2 datadir is removed
+    /// one L1 block at a time until the newest surviving record proves both
+    /// sides. Validating the tail pins every older L1 record through ancestry.
+    async fn correlation_seed(&self) -> DeriverResult<Option<(u64, u64)>> {
+        loop {
+            let Some(tail) = self
+                .inner
+                .correlations
+                .tail()
+                .map_err(DeriverError::l2_provider)?
+            else {
+                return Ok(None);
+            };
+            let canonical = self
+                .inner
+                .l1_reader
+                .canonical_l1_hash(tail.l1_block_number)
+                .await
+                .map_err(DeriverError::l1_scan)?;
+            let Some(canonical) = canonical else {
+                return Err(DeriverError::l1_scan(eez_l1::L1Error::SourceIncomplete {
+                    block: tail.l1_block_number,
+                    tx_hash: tail.l1_transaction_hash,
+                    detail: "L1 does not serve the persistent correlation tail".into(),
+                }));
+            };
+            let last_l2 = tail.last_l2();
+            let local_l2 = self.l2_hash_at(last_l2.number).ok();
+            if canonical != tail.l1_block_hash || local_l2 != Some(last_l2.hash) {
+                let ancestor = tail.l1_block_number.saturating_sub(1);
+                let removed = self
+                    .inner
+                    .correlations
+                    .remove_after_l1(ancestor)
+                    .map_err(DeriverError::l2_provider)?;
+                event!(
+                    name: "eez.deriver.correlation.tail_rejected",
+                    Level::WARN,
+                    l1_block = tail.l1_block_number,
+                    indexed_l1_hash = %tail.l1_block_hash,
+                    canonical_l1_hash = %canonical,
+                    l2_block = last_l2.number,
+                    indexed_l2_hash = %last_l2.hash,
+                    local_l2_hash = ?local_l2,
+                    removed,
+                    "persistent correlation tail does not match canonical L1/local L2; removing its L1-block suffix",
+                );
+                continue;
+            }
+
+            // Seed every record in the tail block. The subsequent inclusive
+            // scan starts at this block, so this de-duplicates same-block peers
+            // as well as the final transaction and preserves transaction order.
+            let tail_block_records = self
+                .inner
+                .correlations
+                .by_l1_number(tail.l1_block_number)
+                .map_err(DeriverError::l2_provider)?;
+            self.inner
+                .l1_head
+                .append_many(tail_block_records.iter().map(|record| BatchRecord {
+                    l1_block: record.l1_block_number,
+                    l1_block_hash: record.l1_block_hash,
+                    tx_hash: record.l1_transaction_hash,
+                    last_l2_block: record.last_l2().number,
+                }));
+            event!(
+                name: "eez.deriver.correlation.seeded",
+                Level::INFO,
+                l1_block = tail.l1_block_number,
+                l2_cursor = last_l2.number,
+                records_in_tail_block = tail_block_records.len(),
+                "boot seeded from the persistent L1/L2 correlation index",
+            );
+            return Ok(Some((tail.l1_block_number, last_l2.number)));
+        }
+    }
+
+    fn correlation_record(
+        &self,
+        l1_block_number: u64,
+        l1_block_hash: B256,
+        tx_hash: B256,
+        tx_index: u64,
+        first_l2: u64,
+        last_l2: u64,
+        newest_hash: Option<B256>,
+    ) -> DeriverResult<BatchCorrelation> {
+        if last_l2 < first_l2 {
+            return Err(DeriverError::l2_provider(format!(
+                "invalid settled L2 correlation range {first_l2}..={last_l2} for {tx_hash}"
+            )));
+        }
+        let mut l2_blocks = Vec::with_capacity(
+            usize::try_from(last_l2 - first_l2 + 1)
+                .map_err(|_| DeriverError::l2_provider("L2 correlation range is too large"))?,
+        );
+        for number in first_l2..=last_l2 {
+            let hash = if number == last_l2 {
+                match newest_hash {
+                    Some(hash) => hash,
+                    None => self.l2_hash_at(number)?,
+                }
+            } else {
+                self.l2_hash_at(number)?
+            };
+            l2_blocks.push(L2BlockCorrelation { number, hash });
+        }
+        Ok(BatchCorrelation {
+            l1_block_number,
+            l1_block_hash,
+            l1_transaction_hash: tx_hash,
+            l1_transaction_index: tx_index,
+            l2_blocks,
+        })
     }
 
     /// Current cursor — highest L2 block confirmed by any L1-landed
@@ -327,19 +452,27 @@ where
         }
         match anchor {
             Some(anchor_l1_block) => self.sync_batches_inner(anchor_l1_block, cursor).await,
-            // Every boot has an empty index. The checkpoint keeps the scan
-            // short (`docs/issues/deep-reverify-cost.md`).
-            None => match self.checkpoint_seed().await {
-                Some(seed) => {
-                    self.inner.l1_head.append(BatchRecord {
-                        l1_block: seed.l1_block,
-                        l1_block_hash: seed.l1_block_hash,
-                        tx_hash: seed.tx_hash,
-                        last_l2_block: seed.l2_cursor,
-                    });
-                    self.sync_batches_inner(seed.l1_block, seed.l2_cursor).await
+            // Prefer the complete correlation index. A newly enabled persistent
+            // store intentionally performs one full scan to backfill history;
+            // using the legacy one-record checkpoint would permanently leave
+            // older RPC lookups empty.
+            None => match self.correlation_seed().await? {
+                Some((l1_block, l2_cursor)) => self.sync_batches_inner(l1_block, l2_cursor).await,
+                None if self.inner.correlations.is_persistent() => {
+                    self.sync_batches_inner(self.inner.deploy_block, 0).await
                 }
-                None => self.sync_batches_inner(self.inner.deploy_block, 0).await,
+                None => match self.checkpoint_seed().await {
+                    Some(seed) => {
+                        self.inner.l1_head.append(BatchRecord {
+                            l1_block: seed.l1_block,
+                            l1_block_hash: seed.l1_block_hash,
+                            tx_hash: seed.tx_hash,
+                            last_l2_block: seed.l2_cursor,
+                        });
+                        self.sync_batches_inner(seed.l1_block, seed.l2_cursor).await
+                    }
+                    None => self.sync_batches_inner(self.inner.deploy_block, 0).await,
+                },
             },
         }
     }
@@ -386,6 +519,11 @@ where
                 .inner
                 .l1_head
                 .retreat_on_l1_reorg(tail.l1_block.saturating_sub(1));
+            let removed_correlations = self
+                .inner
+                .correlations
+                .remove_after_l1(tail.l1_block.saturating_sub(1))
+                .map_err(DeriverError::l2_provider)?;
             event!(
                 name: "eez.deriver.l1.reorg.retreated",
                 Level::WARN,
@@ -395,6 +533,7 @@ where
                 old_cursor,
                 new_cursor,
                 dropped_batches = dropped,
+                removed_correlations,
                 "L1 reorg rolled out confirmed batches; L2 safe cursor retreated",
             );
         }
@@ -524,7 +663,7 @@ where
             // Cursor guard (as in on_batch_posted): a root this batch cannot leave at
             // the cursor means the scan is off L1, and replaying would fork us alone.
             if let Some(entry_state) = batch.settlement.entry_state {
-                let local_root = self.l2_state_root_at(anchor)?;
+                let local_root = self.l2_hash_at(anchor)?;
                 if !cursor_root_accepted(local_root, entry_state, batch.settlement.final_state) {
                     event!(
                         name: "eez.deriver.catch_up.cursor.misaligned",
@@ -537,7 +676,7 @@ where
                         entry_state = %entry_state,
                         final_state = ?batch.settlement.final_state,
                         applied_start = batch.settlement.start,
-                        "local state root at the scan cursor is neither the root the batch's applied run started from nor its settled endpoint; refusing to replay",
+                        "local block hash at the scan cursor is neither the commitment the batch's applied run started from nor its settled endpoint; refusing to replay",
                     );
                     return Err(DeriverError::local_diverged(batch_first_l2));
                 }
@@ -576,6 +715,19 @@ where
             // Follow L1's real endpoint. A partial settlement stops early, and
             // the composer must not anchor past L1's stored root.
             let end = settled_end.unwrap_or(batch_last_l2);
+            let correlation = self.correlation_record(
+                batch.l1_block_number,
+                batch.l1_block_hash,
+                batch.tx_hash,
+                batch.tx_index,
+                batch_first_l2,
+                end,
+                (end == batch_last_l2).then_some(scan_sync_hash).flatten(),
+            )?;
+            self.inner
+                .correlations
+                .put(&correlation)
+                .map_err(DeriverError::l2_provider)?;
             new_batches.push(BatchRecord {
                 l1_block: batch.l1_block_number,
                 l1_block_hash: batch.l1_block_hash,
@@ -623,6 +775,17 @@ where
         parent_block_number: u64,
         raw_txs: &[Vec<u8>],
     ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
+        self.execute_block_with_template(parent_block_number, raw_txs, None)
+    }
+
+    /// Execute a block using the complete producer-advertised metadata when
+    /// the self-contained DA profile supplies it.
+    fn execute_block_with_template(
+        &self,
+        parent_block_number: u64,
+        raw_txs: &[Vec<u8>],
+        template: Option<&EthereumBlock>,
+    ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
         // Diagnostic: log parent context before touching reth so we can
         // pinpoint failing `state_by_block_hash` lookups.
         let local_best = self
@@ -668,9 +831,23 @@ where
             })?;
 
         let parent_hash = parent_header.hash();
-        let timestamp = parent_header
-            .timestamp()
-            .saturating_add(self.inner.l2_block_time_secs);
+        let timestamp = template.map_or_else(
+            || {
+                parent_header
+                    .timestamp()
+                    .saturating_add(self.inner.l2_block_time_secs)
+            },
+            |block| block.header.timestamp,
+        );
+        if let Some(block) = template
+            && (block.header.number != parent_block_number.saturating_add(1)
+                || block.header.parent_hash != parent_hash)
+        {
+            return Err(DeriverError::local_diverged_with_msg(
+                parent_block_number.saturating_add(1),
+                "self-contained block metadata does not extend the local parent",
+            ));
+        }
 
         let state_provider = self
             .inner
@@ -703,16 +880,30 @@ where
         let chain_spec = &self.inner.chain_spec;
         let attributes = NextBlockEnvAttributes {
             timestamp,
-            suggested_fee_recipient: Address::ZERO,
-            prev_randao: B256::ZERO,
-            gas_limit: BUILDER_GAS_LIMIT,
-            parent_beacon_block_root: chain_spec
-                .is_cancun_active_at_timestamp(timestamp)
-                .then_some(B256::ZERO),
-            withdrawals: chain_spec
-                .is_shanghai_active_at_timestamp(timestamp)
-                .then(alloy_eips::eip4895::Withdrawals::default),
-            extra_data: Bytes::from_static(BUILDER_EXTRA_DATA),
+            suggested_fee_recipient: template
+                .map_or(Address::ZERO, |block| block.header.beneficiary),
+            prev_randao: template.map_or(B256::ZERO, |block| block.header.mix_hash),
+            gas_limit: template.map_or(BUILDER_GAS_LIMIT, |block| block.header.gas_limit),
+            parent_beacon_block_root: template.map_or_else(
+                || {
+                    chain_spec
+                        .is_cancun_active_at_timestamp(timestamp)
+                        .then_some(B256::ZERO)
+                },
+                |block| block.header.parent_beacon_block_root,
+            ),
+            withdrawals: template.map_or_else(
+                || {
+                    chain_spec
+                        .is_shanghai_active_at_timestamp(timestamp)
+                        .then(alloy_eips::eip4895::Withdrawals::default)
+                },
+                |block| block.body.withdrawals.clone(),
+            ),
+            extra_data: template.map_or_else(
+                || Bytes::from_static(BUILDER_EXTRA_DATA),
+                |block| block.header.extra_data.clone(),
+            ),
             slot_number: None,
         };
 
@@ -755,6 +946,50 @@ where
 
         let sealed_block = outcome.block.sealed_block().clone();
         let sealed_header = sealed_block.sealed_header().clone();
+        if let Some(template) = template {
+            let advertised_txs = template
+                .body
+                .transactions
+                .iter()
+                .map(Encodable2718::encoded_2718)
+                .collect::<Vec<_>>();
+            if !advertised_txs.starts_with(raw_txs) {
+                return Err(DeriverError::local_diverged_with_msg(
+                    parent_block_number.saturating_add(1),
+                    "replayed transactions are not an exact prefix of the self-contained block",
+                ));
+            }
+            if advertised_txs.len() != raw_txs.len()
+                && template
+                    .body
+                    .withdrawals
+                    .as_ref()
+                    .is_some_and(|withdrawals| !withdrawals.is_empty())
+            {
+                return Err(DeriverError::local_diverged_with_msg(
+                    parent_block_number.saturating_add(1),
+                    "partial self-contained block replay cannot include withdrawals",
+                ));
+            }
+            if advertised_txs.len() != raw_txs.len() && !template.body.ommers.is_empty() {
+                return Err(DeriverError::local_diverged_with_msg(
+                    parent_block_number.saturating_add(1),
+                    "partial self-contained block replay cannot include ommers",
+                ));
+            }
+            if advertised_txs.len() == raw_txs.len() {
+                let advertised_hash = template.header.hash_slow();
+                if sealed_header.hash() != advertised_hash {
+                    return Err(DeriverError::local_diverged_with_msg(
+                        parent_block_number.saturating_add(1),
+                        &format!(
+                            "replayed self-contained block hash {} differs from advertised hash {advertised_hash}",
+                            sealed_header.hash(),
+                        ),
+                    ));
+                }
+            }
+        }
         let execution_data = <EthEngineTypes as PayloadTypes>::block_to_payload(sealed_block, None);
         Ok((execution_data, sealed_header))
     }
@@ -772,7 +1007,18 @@ where
         parent_block_number: u64,
         raw_txs: &[Vec<u8>],
     ) -> DeriverResult<DeriveOutcome> {
-        let (payload, header) = self.execute_block(parent_block_number, raw_txs)?;
+        self.replay_block_with_template(parent_block_number, raw_txs, None)
+            .await
+    }
+
+    async fn replay_block_with_template(
+        &self,
+        parent_block_number: u64,
+        raw_txs: &[Vec<u8>],
+        template: Option<&EthereumBlock>,
+    ) -> DeriverResult<DeriveOutcome> {
+        let (payload, header) =
+            self.execute_block_with_template(parent_block_number, raw_txs, template)?;
         // feed_witness=false: follower / L1-reconcile re-derive — the producer
         // already fed this block to the prover witness capture; don't double-feed.
         Ok(self
@@ -894,6 +1140,7 @@ where
                 l1_block_number,
                 l1_block_hash,
                 tx_hash,
+                tx_index,
                 submitter,
                 call_data,
                 post_batch_input,
@@ -907,6 +1154,7 @@ where
                     l1_block_number,
                     l1_block_hash,
                     tx_hash,
+                    tx_index,
                     submitter,
                     call_data,
                     post_batch_input,
@@ -944,6 +1192,7 @@ where
         l1_block_number: u64,
         l1_block_hash: B256,
         tx_hash: B256,
+        tx_index: u64,
         submitter: Address,
         call_data: Bytes,
         post_batch_input: Bytes,
@@ -1044,7 +1293,7 @@ where
         // Cursor guard: a root this batch cannot leave at the cursor means the local
         // index is off L1 (e.g. a dropped event); let the run-loop resync re-anchor.
         if let Some(entry_state) = settlement.entry_state {
-            let local_root = self.l2_state_root_at(anchor)?;
+            let local_root = self.l2_hash_at(anchor)?;
             if !cursor_root_accepted(local_root, entry_state, settlement.final_state) {
                 event!(
                     name: "eez.deriver.cursor.misaligned",
@@ -1057,7 +1306,7 @@ where
                     entry_state = %entry_state,
                     final_state = ?settlement.final_state,
                     applied_start = settlement.start,
-                    "local state root at cursor is neither the root the batch's applied run started from nor its settled endpoint; resync required",
+                    "local block hash at cursor is neither the commitment the batch's applied run started from nor its settled endpoint; resync required",
                 );
                 return Err(DeriverError::local_diverged(from_block));
             }
@@ -1105,13 +1354,30 @@ where
             tx_hash,
         )?;
 
+        let settled_last_l2 = settled_end.unwrap_or(to_block);
+        let correlation = self.correlation_record(
+            l1_block_number,
+            l1_block_hash,
+            tx_hash,
+            tx_index,
+            from_block,
+            settled_last_l2,
+            (settled_last_l2 == to_block)
+                .then_some(sync_block_hash)
+                .flatten(),
+        )?;
+        self.inner
+            .correlations
+            .put(&correlation)
+            .map_err(DeriverError::l2_provider)?;
+
         // Index first: the safe advance reads this cursor, and a replayed batch
         // must stay indexed even if the FCU fails. Use L1's real endpoint.
         self.inner.l1_head.append(BatchRecord {
             l1_block: l1_block_number,
             l1_block_hash,
             tx_hash,
-            last_l2_block: settled_end.unwrap_or(to_block),
+            last_l2_block: settled_last_l2,
         });
         // After the index, so the checkpoint never names a batch the index does
         // not hold; the blocks it points at are already committed locally.
@@ -1191,6 +1457,11 @@ where
             .inner
             .l1_head
             .retreat_on_l1_reorg(common_ancestor_number);
+        let removed_correlations = self
+            .inner
+            .correlations
+            .remove_after_l1(common_ancestor_number)
+            .map_err(DeriverError::l2_provider)?;
         if new_cursor >= old_cursor {
             event!(
                 name: "eez.deriver.l1.reorg.noop",
@@ -1200,6 +1471,7 @@ where
                 new_head_number,
                 new_head_hash = %new_head_hash,
                 dropped_batches = dropped,
+                removed_correlations,
                 "L1 reorg reported above indexed batches; no L2 retreat needed",
             );
             return Ok(());
@@ -1217,6 +1489,7 @@ where
             old_cursor,
             new_cursor,
             dropped_batches = dropped,
+            removed_correlations,
             new_safe_hash = %new_safe_hash,
             "L1 reorg rolled out confirmed batches; L2 head retreated to the surviving safe cursor",
         );
@@ -1295,7 +1568,7 @@ where
         Ok(self.l2_sealed_header_at(l2_block)?.hash())
     }
 
-    /// Block whose root is `entry_state`: where this batch's run starts. A
+    /// Block whose hash is `entry_state`: where this batch's run starts. A
     /// competing composer's batch can begin below our cursor, so search back.
     fn batch_anchor(
         &self,
@@ -1303,13 +1576,7 @@ where
         entry_state: B256,
         window: u64,
     ) -> DeriverResult<Option<u64>> {
-        anchor_with_overlap_log(cursor, entry_state, window, |block| {
-            self.l2_state_root_at(block)
-        })
-    }
-
-    fn l2_state_root_at(&self, l2_block: u64) -> DeriverResult<B256> {
-        Ok(self.l2_sealed_header_at(l2_block)?.state_root())
+        anchor_with_overlap_log(cursor, entry_state, window, |block| self.l2_hash_at(block))
     }
 
     /// Per-block reconciliation against a decoded batch beginning at
@@ -1334,6 +1601,25 @@ where
         tx_hash: B256,
         settlement: eez_l1::Settlement,
     ) -> DeriverResult<(u64, Option<B256>)> {
+        let block_templates = decoded
+            .block_rlps
+            .iter()
+            .enumerate()
+            .map(|(index, encoded)| {
+                alloy_rlp::decode_exact::<EthereumBlock>(encoded).map_err(|error| {
+                    DeriverError::l2_provider(format!(
+                        "self-contained block {index} failed exact decode after payload admission: {error}"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !block_templates.is_empty() && block_templates.len() != decoded.block_count() {
+            return Err(DeriverError::l2_provider(format!(
+                "self-contained metadata covers {} blocks, decoded payload covers {}",
+                block_templates.len(),
+                decoded.block_count(),
+            )));
+        }
         // Cross-chain path (skipped when `system_tx_cfg` is `None`):
         // reconstruct the system txs the composer produced, from either
         // codec branch:
@@ -1362,7 +1648,7 @@ where
         // `postAndVerifyBatch` drains the leading `proxyEntryHash==0` run (anchor +
         // outbound) inline, then consumes the deferred inbound ones (`EEZ.sol:387`).
         // `Settlement::producing_slice` says WHICH of those L1 actually ran, read
-        // off the settled roots — the anchor cannot be assumed to have run, since
+        // off the settled block hashes — the anchor cannot be assumed to have run, since
         // a competing same-block batch can supply its hop.
         //
         // L1 entries whose L2-origin calls must match post-replay EEZL2 events.
@@ -1562,10 +1848,27 @@ where
                     .map(usize::from)
                     .unwrap_or(0);
                 let sync_user_start = decoded.transactions.len().saturating_sub(last_count);
-                let sync_user_txs: Vec<Bytes> = decoded.transactions[sync_user_start..]
-                    .iter()
-                    .map(|t| Bytes::from(t.clone()))
-                    .collect();
+                let sync_user_txs: Vec<Bytes> = if let Some(terminal) = block_templates.last() {
+                    terminal
+                        .body
+                        .transactions
+                        .iter()
+                        .filter_map(|transaction| {
+                            match transaction.recover_signer() {
+                                Ok(signer) if signer == cfg.system_signer.address() => None,
+                                Ok(_) => Some(Ok(Bytes::from(transaction.encoded_2718()))),
+                                Err(error) => Some(Err(DeriverError::l2_provider(format!(
+                                    "recover terminal transaction signer in postBatch({tx_hash}): {error}"
+                                )))),
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    decoded.transactions[sync_user_start..]
+                        .iter()
+                        .map(|t| Bytes::from(t.clone()))
+                        .collect()
+                };
                 if sync_user_txs.len() < outbound_group_sizes.len() {
                     return Err(DeriverError::local_diverged_with_msg(
                         from_block,
@@ -1808,8 +2111,8 @@ where
                         .into_iter()
                         .map(|b| b.to_vec())
                         .collect();
-                for t in &decoded.transactions[sync_user_start + outbound_group_sizes.len()..] {
-                    full.push(t.clone());
+                for transaction in &sync_user_txs[outbound_group_sizes.len()..] {
+                    full.push(transaction.to_vec());
                 }
                 event!(
                     name: "eez.deriver.reconcile.sync_block_built",
@@ -1906,7 +2209,9 @@ where
                     );
                 }
                 block_txs.extend(new_content);
-                let outcome = self.replay_block(from_block - 1, &block_txs).await?;
+                let outcome = self
+                    .replay_block_with_template(from_block - 1, &block_txs, block_templates.last())
+                    .await?;
                 // A same-height replacement is invisible to by-number reads until
                 // persistence, so later reads must go by this hash.
                 sync_block_hash = Some(outcome.block_hash);
@@ -1951,7 +2256,9 @@ where
                 if !should_replay {
                     continue;
                 }
-                let outcome = self.replay_block(l2_block - 1, &block_txs).await?;
+                let outcome = self
+                    .replay_block_with_template(l2_block - 1, &block_txs, block_templates.get(i))
+                    .await?;
                 if is_sync_block {
                     sync_block_hash = Some(outcome.block_hash);
                 }
@@ -2045,13 +2352,13 @@ where
             .unwrap_or(0))
     }
 
-    /// Loud-fail if the batch's claimed state-root chain disagrees with
-    /// our STF's actual L2 roots at the batch boundaries:
+    /// Loud-fail if the batch's claimed commitment chain disagrees with
+    /// our STF's actual L2 block hashes at the batch boundaries:
     ///
     /// - `claimed_current_root` (first root update's `currentRoot`) vs the
-    ///   local root at `from_block - 1`.
+    ///   local block hash at `from_block - 1`.
     /// - `claimed_new_root` (last root update's `newRoot`) vs the local
-    ///   root at `to_block`.
+    ///   block hash at `to_block`.
     ///
     /// Both ends are checked — the composer chains deltas across
     /// entries, so checking one would let a crafted chain pass. Matters
@@ -2083,7 +2390,7 @@ where
                 .ok_or_else(|| {
                     DeriverError::l2_provider(format!("local L2 header at {pre} missing"))
                 })?
-                .state_root();
+                .hash();
             if local_pre != claimed_curr {
                 event!(
                     name: "eez.deriver.state.diverged_pre",
@@ -2093,13 +2400,13 @@ where
                     pre_block = pre,
                     local_root = %local_pre,
                     claimed = %claimed_curr,
-                    "local L2 state root at from_block-1 differs from the root the batch's applied run started from",
+                    "local L2 block hash at from_block-1 differs from the commitment the batch's applied run started from",
                 );
                 return Err(DeriverError::local_diverged(pre));
             }
         }
         // A partial settlement stops early, so find the block carrying the
-        // settled root rather than assuming `to_block`. It becomes the cursor.
+        // settled block hash rather than assuming `to_block`. It becomes the cursor.
         if let Some(claimed_new) = claimed_new_root {
             // L1 can only apply a PREFIX of the claimed chain, so the settled
             // endpoint is at or below the range end — never above our tip.
@@ -2118,7 +2425,7 @@ where
             }
             let window = to_block.saturating_sub(from_block).saturating_add(1);
             if let Some(settled_end) = find_batch_anchor(to_block, claimed_new, window, |block| {
-                self.l2_state_root_at(block)
+                self.l2_hash_at(block)
             })? {
                 if settled_end != to_block {
                     event!(
@@ -2134,16 +2441,7 @@ where
                 return Ok(Some(settled_end));
             }
             let local_post = if let Some(hash) = to_block_hash {
-                self.inner
-                    .l2_provider
-                    .header(hash)
-                    .map_err(DeriverError::l2_provider)?
-                    .ok_or_else(|| {
-                        DeriverError::l2_provider(format!(
-                            "local L2 header for replayed block {hash} missing"
-                        ))
-                    })?
-                    .state_root
+                hash
             } else {
                 self.inner
                     .l2_provider
@@ -2152,7 +2450,7 @@ where
                     .ok_or_else(|| {
                         DeriverError::l2_provider(format!("local L2 header at {to_block} missing"))
                     })?
-                    .state_root()
+                    .hash()
             };
             if local_post != claimed_new {
                 event!(
@@ -2163,7 +2461,7 @@ where
                     to_block,
                     local_root = %local_post,
                     claimed = %claimed_new,
-                    "local L2 state root at to_block differs from batch's claimed newRoot",
+                    "local L2 block hash at to_block differs from batch's claimed newRoot commitment",
                 );
                 return Err(DeriverError::local_diverged(to_block));
             }

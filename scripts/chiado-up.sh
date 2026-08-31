@@ -24,7 +24,7 @@ for t in docker cast make; do command -v "$t" >/dev/null || { echo "✗ $t not i
 [[ -f .env.chiado ]] || { echo "✗ .env.chiado missing — cp .env.chiado.example .env.chiado and fill it in first"; exit 1; }
 
 set -a; source .env; source .env.chiado; set +a
-for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR; do
+for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR FRESH_GENESIS; do
     [[ -e "${!v:-}" ]] || { echo "✗ $v=${!v:-<unset>} missing — finish the One-time setup steps first"; exit 1; }
 done
 : "${L2_DATA_DIR:?set L2_DATA_DIR in .env.chiado}"
@@ -41,6 +41,14 @@ else
 fi
 set -a; source deployments.env; set +a
 : "${EEZ_REGISTRY_ADDRESS:?deploy did not write EEZ_REGISTRY_ADDRESS}"
+: "${EEZ_INITIAL_BLOCK_HASH:?deployments.env predates block-hash commitments; redeploy on a fresh registry}"
+: "${EEZ_L2_GENESIS_PATH:?deploy did not write EEZ_L2_GENESIS_PATH}"
+if ! cmp -s "$FRESH_GENESIS" "$EEZ_L2_GENESIS_PATH"; then
+    echo "✗ FRESH_GENESIS must be byte-identical to the genesis rendered and registered by deploy.sh" >&2
+    echo "  mounted:    $FRESH_GENESIS" >&2
+    echo "  registered: $EEZ_L2_GENESIS_PATH" >&2
+    exit 1
+fi
 
 # ── 2. Prepare datadirs ─────────────────────────────────────────────────
 echo "==> [2/5] preparing datadirs"
@@ -59,13 +67,13 @@ echo "==> [3/5] docker compose up (eez-node + eez-proof-signer + lighthouse)"
 echo "==> [4/5] waiting for L1 catch-up + L2 production + first settle (up to ~15 min)"
 L1=http://localhost:18645
 L2=http://localhost:18688
-GEN_ROOT="${EEZ_INITIAL_STATE_ROOT:-}"
+GEN_ROOT="${EEZ_INITIAL_BLOCK_HASH:-}"
 healthy=0
 for i in $(seq 1 90); do
     l2h=$(cast block-number --rpc-url "$L2" 2>/dev/null || echo 0)
     l1r=$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' "${EEZ_ROLLUP_ID:-1}" \
             --rpc-url "$L1" 2>/dev/null | sed -n '2p' | tr -d '[:space:]' || echo "")
-    echo "    [$i] L2 head=$l2h  L1 settled root=${l1r:0:14}…"
+    echo "    [$i] L2 head=$l2h  L1 commitment=${l1r:0:14}…"
     if [[ "$l2h" -gt 3 && -n "$l1r" && "$l1r" != "$GEN_ROOT" ]]; then
         healthy=1; echo "    ✓ pipeline healthy"; break
     fi

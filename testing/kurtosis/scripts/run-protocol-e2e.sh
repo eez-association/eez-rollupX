@@ -67,22 +67,22 @@ echo "    registry:     $ROLLUPS"
 wait_for_protocol_ready() {
     local timeout="${EEZ_PROTOCOL_READY_TIMEOUT:-300}"
     local deadline=$((SECONDS + timeout))
-    local safe_json safe_number_hex safe_number safe_root rollup_data registry_root
+    local safe_json safe_number_hex safe_number safe_hash rollup_data registry_root
 
-    echo "==> waiting for the first L2 safe root to settle on L1"
+    echo "==> waiting for the first L2 safe block hash to settle on L1"
     while (( SECONDS < deadline )); do
         if safe_json="$(cast block safe --json --rpc-url "$L2_RPC" 2>/dev/null)" &&
             safe_number_hex="$(jq -er '.number' <<<"$safe_json" 2>/dev/null)" &&
             safe_number="$(cast to-dec "$safe_number_hex" 2>/dev/null)" &&
-            safe_root="$(jq -er '.stateRoot' <<<"$safe_json" 2>/dev/null)" &&
+            safe_hash="$(jq -er '.hash' <<<"$safe_json" 2>/dev/null)" &&
             rollup_data="$(cast call "$ROLLUPS" \
                 'rollups(uint64)(address,bytes32,uint256)' "$ROLLUP_ID" \
                 --rpc-url "$L1_RPC" 2>/dev/null)"; then
             registry_root="$(sed -n '2p' <<<"$rollup_data" | tr -d '[:space:]')"
             if [[ "$safe_number" =~ ^[0-9]+$ ]] &&
                 (( 10#$safe_number > 0 )) &&
-                [[ "${registry_root,,}" == "${safe_root,,}" ]]; then
-                echo "    ready: safe L2 block $safe_number, root $safe_root"
+                [[ "${registry_root,,}" == "${safe_hash,,}" ]]; then
+                echo "    ready: safe L2 block $safe_number, hash $safe_hash"
                 return 0
             fi
         fi
@@ -90,7 +90,7 @@ wait_for_protocol_ready() {
     done
 
     echo "protocol network did not become settlement-ready within ${timeout}s" >&2
-    echo "last safe block/root: ${safe_number:-unavailable} / ${safe_root:-unavailable}" >&2
+    echo "last safe block/hash: ${safe_number:-unavailable} / ${safe_hash:-unavailable}" >&2
     echo "last registry root: ${registry_root:-unavailable}" >&2
     return 1
 }

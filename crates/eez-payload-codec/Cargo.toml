@@ -7,10 +7,14 @@ rust-version.workspace = true
 description            = "Batch payload encode/decode shared by the Submitter and the Deriver."
 
 [dependencies]
-alloy-rlp.workspace = true
-thiserror.workspace = true
+alloy-eips.workspace                = true
+alloy-primitives.workspace          = true
+alloy-rlp.workspace                 = true
+reth-ethereum-primitives.workspace = true
+thiserror.workspace                 = true
 
 [dev-dependencies]
+alloy-consensus.workspace = true
 alloy-primitives.workspace = true
 
 [lints]

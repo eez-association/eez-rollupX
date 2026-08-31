@@ -29,18 +29,18 @@ use crate::testkit::{
 use crate::validate::{OutboundEventObservation, SettlementBlockEvidence, ValidatedBlock};
 
 use super::{
-    AuthorizedInboundEffects, AuthorizedOutboundEffects, BlockInspectionError, BoundEffectSequence,
-    CanonicalPostBatch, ClaimedEntryShape, DaPayloadError, EffectPrefixError, EthereumBlock,
-    InboundCandidate, InboundEffectError, InboundObservationError, ObservedEffectKind,
-    OutboundEffectError, OutboundLoadCandidate, PostBatchDecodeError, PublicInputError,
-    RootUpdateChainError, SettlingBlockObservations, SystemTransactionKey,
-    authorize_inbound_effects as authorize_inbound_effects_for_rollup,
+    AuthorizedInboundEffects, AuthorizedOutboundEffects, BlobDaError, BlockInspectionError,
+    BoundEffectSequence, CanonicalPostBatch, CheckedPublicInputProfile, ClaimedEntryShape,
+    DaPayloadError, EffectPrefixError, EthereumBlock, InboundCandidate, InboundEffectError,
+    InboundObservationError, ObservedEffectKind, OutboundEffectError, OutboundLoadCandidate,
+    PostBatchDecodeError, PublicInputError, RootUpdateChainError, SettlingBlockObservations,
+    SystemTransactionKey, authorize_inbound_effects as authorize_inbound_effects_for_rollup,
     authorize_outbound_effects as authorize_outbound_effects_for_rollup, bind_effects_to_execution,
     decode_canonical_post_batch, encode_da_payload, encode_grouped_da_payload,
     inspect_inbound_candidate, inspect_settling_block, inspect_validated_settling_block,
-    recompute_public_input_hash, verify_da_payload_for_test as verify_da_payload,
-    verify_no_intermediate_system_transactions, verify_root_update_chain,
-    verify_validated_intermediate_blocks,
+    recompute_public_input_hash, verify_da_carrier,
+    verify_da_payload_for_test as verify_da_payload, verify_no_intermediate_system_transactions,
+    verify_root_update_chain, verify_validated_intermediate_blocks,
 };
 
 const EXPECTED_PROOF_SYSTEM: Address = address!("00000000000000000000000000000000000000aa");
@@ -353,13 +353,13 @@ fn verified_state_chain_for_test(
     batch: &CanonicalPostBatch,
 ) -> super::state_chain::VerifiedRootUpdateChain<'_> {
     let entries = &batch.entries;
-    let window_pre_state_root = entries[0].rootUpdates[0].currentRoot;
-    let window_post_state_root = entries[entries.len() - 1].rootUpdates[0].newRoot;
+    let window_pre_block_hash = entries[0].rootUpdates[0].currentRoot;
+    let window_post_block_hash = entries[entries.len() - 1].rootUpdates[0].newRoot;
     verify_root_update_chain(
         batch,
         expected_rollup_id(),
-        window_pre_state_root,
-        window_post_state_root,
+        window_pre_block_hash,
+        window_post_block_hash,
     )
     .expect("effect-binding fixture must have a valid root-update chain")
 }
@@ -506,6 +506,7 @@ fn target_anchor_batch() -> CanonicalPostBatch {
     batch
 }
 
+mod blob_da;
 mod blocks;
 mod da;
 mod inbound;

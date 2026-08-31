@@ -8,7 +8,7 @@ use reth_primitives_traits::BlockBody as _;
 use thiserror::Error;
 
 use super::{
-    AuthorizedInboundEffects, AuthorizedOutboundEffects, CanonicalPostBatch, EthereumBlock,
+    AuthorizedInboundEffects, AuthorizedOutboundEffects, EthereumBlock,
     SystemTransactionReconstructor,
 };
 use super::{inbound::AuthorizedInboundEffect, outbound::AuthorizedOutboundEffect};
@@ -29,6 +29,8 @@ pub(crate) enum DaPayloadError {
     },
     #[error("validated block {block_number} RLP does not decode exactly: {reason}")]
     InvalidBlockRlp { block_number: u64, reason: String },
+    #[error("self-contained block {block_number} does not exactly match the validated block RLP")]
+    BlockRlpMismatch { block_number: u64 },
     #[error(
         "batch callData claims {submitted} retained transactions for block {block_number}; expected projection has {expected}"
     )]
@@ -76,6 +78,7 @@ pub(crate) enum DaPayloadError {
 
 const CALL_DATA_TAG: u8 = 0;
 const GROUPED_CALL_DATA_TAG: u8 = 1;
+const SELF_CONTAINED_BLOCKS_TAG: u8 = 2;
 
 /// Borrowed RLP-list bodies that advance as their items are verified.
 ///
@@ -146,7 +149,7 @@ fn invalid_da_payload(reason: impl Into<String>) -> DaPayloadError {
 /// derivation sidecar, and the resulting mixed Sync sequence is reconstructed
 /// byte for byte.
 pub(crate) fn verify_da_payload(
-    batch: &CanonicalPostBatch,
+    encoded_payload: &[u8],
     validated_window: &ValidatedWindow,
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
@@ -154,7 +157,7 @@ pub(crate) fn verify_da_payload(
 ) -> Result<(), DaPayloadError> {
     let settling = validated_window.settling_block().block();
     verify_encoded_da_payload(
-        batch.as_batch().callData.as_ref(),
+        encoded_payload,
         validated_window
             .preceding_blocks()
             .iter()
@@ -200,6 +203,16 @@ fn verify_encoded_da_payload<'a, I>(
 where
     I: ExactSizeIterator<Item = (u64, &'a [u8])>,
 {
+    if encoded_payload.first() == Some(&SELF_CONTAINED_BLOCKS_TAG) {
+        return verify_self_contained_da_payload(
+            encoded_payload,
+            intermediate_blocks,
+            settling_block,
+            outbound_effects,
+            inbound_effects,
+            system_transaction_reconstructor,
+        );
+    }
     let mut payload_cursor = DaPayloadCursor::decode(encoded_payload)?;
     let expected_blocks = intermediate_blocks.len() + 1;
     let omitted_terminal_count = outbound_effects
@@ -250,6 +263,107 @@ where
         verify_reconstructed_sync_block(
             &settling.block,
             &settling.encoded_transactions,
+            outbound_effects,
+            inbound_effects,
+            system_transaction_reconstructor,
+        )?;
+    }
+    Ok(())
+}
+
+/// Verify the self-contained profile byte-for-byte against the exact blocks
+/// accepted by Stateless. Unlike the legacy projection, complete terminal
+/// system transactions are present, so no transaction omission is inferred.
+fn verify_self_contained_da_payload<'a, I>(
+    encoded_payload: &[u8],
+    intermediate_blocks: I,
+    settling_block: (u64, &'a [u8]),
+    outbound_effects: &AuthorizedOutboundEffects,
+    inbound_effects: &AuthorizedInboundEffects<'_>,
+    system_transaction_reconstructor: &SystemTransactionReconstructor,
+) -> Result<(), DaPayloadError>
+where
+    I: ExactSizeIterator<Item = (u64, &'a [u8])>,
+{
+    let decoded = eez_payload_codec::decode(encoded_payload)
+        .map_err(|error| invalid_da_payload(error.to_string()))?;
+    let expected_blocks = intermediate_blocks.len() + 1;
+    if decoded.block_rlps.len() != expected_blocks {
+        return Err(DaPayloadError::BlockCount {
+            expected: expected_blocks,
+            actual: decoded.block_rlps.len(),
+        });
+    }
+    let expected_rlps = intermediate_blocks.chain(std::iter::once(settling_block));
+    for ((block_number, validated_rlp), submitted_rlp) in expected_rlps.zip(&decoded.block_rlps) {
+        if submitted_rlp.as_slice() != validated_rlp {
+            return Err(DaPayloadError::BlockRlpMismatch { block_number });
+        }
+    }
+
+    let expected_group_sizes = outbound_effects
+        .groups()
+        .map(|group| u16::try_from(group.len()).map_err(|_| DaPayloadError::OutboundGroupSizes))
+        .collect::<Result<Vec<_>, _>>()?;
+    if decoded.outbound_group_sizes != expected_group_sizes {
+        return Err(DaPayloadError::OutboundGroupSizes);
+    }
+
+    let expected_sidecars = outbound_effects
+        .iter()
+        .flat_map(|outbound| {
+            let source_encoding = match outbound.derived_source_entry() {
+                eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => entry.abi_encode(),
+                eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => entry.abi_encode(),
+            };
+            std::iter::once((outbound.transaction_index(), source_encoding)).chain(
+                outbound
+                    .callback_transaction_indices()
+                    .iter()
+                    .copied()
+                    .zip(outbound.derived_callback_entries())
+                    .map(|(transaction_index, entry)| (transaction_index, entry.abi_encode())),
+            )
+        })
+        .chain(inbound_effects.iter().map(|inbound| {
+            (
+                inbound.transaction_index(),
+                inbound.observation().derived_da_entry.encoded(),
+            )
+        }))
+        .collect::<Vec<_>>();
+    for (entry_index, (transaction_index, expected)) in expected_sidecars.iter().enumerate() {
+        let Some(actual) = decoded.l2_entries.get(entry_index) else {
+            return Err(DaPayloadError::MissingL2Entry {
+                entry_index,
+                transaction_index: *transaction_index,
+            });
+        };
+        if actual != expected {
+            return Err(DaPayloadError::L2EntryMismatch {
+                entry_index,
+                transaction_index: *transaction_index,
+            });
+        }
+    }
+    if decoded.l2_entries.len() != expected_sidecars.len() {
+        return Err(DaPayloadError::UnexpectedItems {
+            field: "l2Entries",
+            expected: expected_sidecars.len(),
+        });
+    }
+
+    if outbound_effects.iter().next().is_some() || inbound_effects.len() != 0 {
+        let (settling_number, settling_rlp) = settling_block;
+        let block = decode_validated_block(settling_number, settling_rlp)?;
+        let encoded_transactions = block
+            .body
+            .encoded_2718_transactions_iter()
+            .map(Bytes::from)
+            .collect::<Vec<_>>();
+        verify_reconstructed_sync_block(
+            &block,
+            &encoded_transactions,
             outbound_effects,
             inbound_effects,
             system_transaction_reconstructor,

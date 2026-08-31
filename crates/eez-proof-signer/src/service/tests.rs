@@ -216,7 +216,9 @@ fn canonical_outbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256)
 }
 
 fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
-    let mut batch = outbound_batch(B256::ZERO, B256::ZERO, B256::ZERO);
+    let parent_hash = B256::repeat_byte(0x04);
+    let block_hash = B256::repeat_byte(0x05);
+    let mut batch = outbound_batch(parent_hash, parent_hash, block_hash);
     batch.entries[1].l2ToL1Calls[0].value = value;
     batch.entries[1].rootUpdates[0].etherDelta = -EtherDeltaSol::from(value);
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
@@ -264,7 +266,8 @@ fn outbound_backend_output() -> validate::BackendWindowOutput {
     let inputs = [AdmittedBlock::test(5, 0x04, 0x05)];
     let mut backend_output = backend_output_for(&inputs);
     backend_output.blocks[0].set_transaction_results_for_test(vec![true, true]);
-    backend_output.blocks[0].transaction_state_checkpoints = vec![checkpoint(1, B256::ZERO)];
+    backend_output.blocks[0].transaction_state_checkpoints =
+        vec![checkpoint(1, B256::repeat_byte(0x05))];
     backend_output.blocks[0]
         .settlement_evidence
         .set_system_sender_flags_for_test(vec![true, false]);
@@ -282,11 +285,16 @@ fn outbound_evidence(call_hash: B256) -> validate::SettlementBlockEvidence {
 
 fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
     let (mut batch, _outbound_block, user, outbound_call_hash) = canonical_outbound_case();
+    let outbound_prefix_hash = B256::repeat_byte(0x44);
+    let final_block_hash = B256::repeat_byte(0x05);
     let value = U256::from(9);
     let (_unused_nonce_zero_tx, inbound_call_hash, return_data, inbound_sidecar) =
         strict_inbound_transaction(value);
 
     let mut inbound_entry = batch.entries[0].clone();
+    batch.entries[1].rootUpdates[0].newRoot = outbound_prefix_hash;
+    inbound_entry.rootUpdates[0].currentRoot = outbound_prefix_hash;
+    inbound_entry.rootUpdates[0].newRoot = final_block_hash;
     inbound_entry.rootUpdates[0].etherDelta = EtherDeltaSol::from(value);
     inbound_entry.proxyEntryHash = inbound_call_hash;
     inbound_entry.returnData = return_data;
@@ -323,8 +331,10 @@ fn mixed_backend_output() -> validate::BackendWindowOutput {
     let inputs = [AdmittedBlock::test(5, 0x04, 0x05)];
     let mut backend_output = backend_output_for(&inputs);
     backend_output.blocks[0].set_transaction_results_for_test(vec![true, true, true]);
-    backend_output.blocks[0].transaction_state_checkpoints =
-        vec![checkpoint(1, B256::ZERO), checkpoint(2, B256::ZERO)];
+    backend_output.blocks[0].transaction_state_checkpoints = vec![
+        checkpoint(1, B256::repeat_byte(0x44)),
+        checkpoint(2, B256::repeat_byte(0x05)),
+    ];
     backend_output
 }
 
@@ -385,8 +395,26 @@ fn public_input_post_batch_for_empty_blocks(
     mut batch: eez_protocol::EvmBatch,
     block_count: usize,
 ) -> PostBatch {
+    bind_anchor_commitments(&mut batch, block_count);
     batch.callData = settlement::encode_da_payload(&vec![Vec::new(); block_count], &[]).into();
     public_input_post_batch_for(batch)
+}
+
+/// Bind an anchor-only fixture to the synthetic window hashes used by
+/// `block_chunk`: parent `0x04..04`, followed by `block_count` sequential
+/// block hashes. State roots in the stub backend deliberately do not
+/// participate in this commitment.
+fn bind_anchor_commitments(batch: &mut eez_protocol::EvmBatch, block_count: usize) {
+    assert_eq!(
+        batch.entries.len(),
+        1,
+        "fixture must contain one anchor entry"
+    );
+    let final_hash_byte = u8::try_from(4usize.checked_add(block_count).unwrap()).unwrap();
+    let update = &mut batch.entries[0].rootUpdates[0];
+    update.currentRoot = B256::repeat_byte(0x04);
+    update.newRoot = B256::repeat_byte(final_hash_byte);
+    eez_protocol::entries::finalize_l1_rolling_hashes(batch).unwrap();
 }
 
 fn recompute_test_public_inputs_hash(batch: &eez_protocol::EvmBatch) -> B256 {
@@ -449,6 +477,7 @@ fn da_payload_for_window(window: &[ProveChunk]) -> Vec<u8> {
 }
 
 fn replace_batch_bound_to_window(window: &mut [ProveChunk], mut batch: eez_protocol::EvmBatch) {
+    bind_anchor_commitments(&mut batch, window.len() - 1);
     batch.callData = da_payload_for_window(window).into();
     replace_post_batch(window, public_input_post_batch_for(batch));
 }

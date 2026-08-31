@@ -153,11 +153,11 @@ pub(crate) enum EffectPrefixError {
     )]
     EffectCountMismatch { claimed: usize, observed: usize },
     #[error(
-        "anchor claims post-state {claimed_anchor_post_state}; expected root carrier endpoint is {validated_pre_settling_root}"
+        "anchor claims block hash {claimed_anchor_block_hash}; expected carrier endpoint is {validated_pre_settling_block_hash}"
     )]
     AnchorRootMismatch {
-        validated_pre_settling_root: B256,
-        claimed_anchor_post_state: B256,
+        validated_pre_settling_block_hash: B256,
+        claimed_anchor_block_hash: B256,
     },
     #[error(
         "settlement effects require {expected} transaction state checkpoints, but received {actual}"
@@ -181,13 +181,13 @@ pub(crate) enum EffectPrefixError {
         observed: ObservedEffectKind,
     },
     #[error(
-        "settlement entry {entry_index} claims post-state {claimed_post_state}; effect candidate {transaction_index} requires carrier root {recomputed_checkpoint}"
+        "settlement entry {entry_index} claims block hash {claimed_block_hash}; effect candidate {transaction_index} requires carrier hash {recomputed_checkpoint}"
     )]
-    EffectStateRootMismatch {
+    EffectBlockHashMismatch {
         entry_index: usize,
         transaction_index: usize,
         recomputed_checkpoint: B256,
-        claimed_post_state: B256,
+        claimed_block_hash: B256,
     },
     #[error("anchor ether delta is {claimed}; expected zero")]
     NonZeroAnchorEtherDelta { claimed: I256 },
@@ -469,17 +469,17 @@ fn derive_effect_positions(
 }
 
 /// Bind each verified root-update-chain entry to its settling-block candidate and
-/// transaction state checkpoint.
+/// canonical transaction-prefix block hash.
 ///
 /// [`VerifiedRootUpdateChain`] already guarantees a nonempty batch with exactly
 /// one continuous, expected-rollup update per entry. This gate adds effect-shape,
-/// candidate, checkpoint, and root-carrier bindings. A successful entry carries
+/// candidate, checkpoint, and block-hash-carrier bindings. A successful entry carries
 /// its checkpoint and those of any immediately following failed entries. The
 /// anchor carries leading failed checkpoints, and failed entries claim no-op
-/// root updates because their L1 execution rolls updates back.
+/// no-op commitment updates because their L1 execution rolls updates back.
 pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     verified_state_chain: &VerifiedRootUpdateChain<'batch>,
-    validated_settling_pre_state_root: B256,
+    validated_settling_pre_block_hash: B256,
     computed_transaction_state_checkpoints: &[TransactionStateCheckpoint],
     settling_observations: &'settling SettlingBlockObservations,
 ) -> Result<BoundEffectSequence<'batch, 'settling>, EffectPrefixError> {
@@ -536,8 +536,9 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             claimed: anchor_ether_delta,
         });
     }
-    // With no effects the batch never represents the pre-settling root; the
-    // root-update-chain gate binds the anchor's `newRoot` to the final root instead.
+    // With no effects the batch never represents a distinct pre-settling
+    // commitment; the chain gate binds the anchor's `newRoot` directly to the
+    // final block hash.
     if claimed == 0 {
         if !computed_transaction_state_checkpoints.is_empty() {
             return Err(EffectPrefixError::TransactionStateCheckpointCountMismatch {
@@ -590,22 +591,22 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
 
     let (expected_anchor_root, expected_effect_roots) =
         eez_protocol::settlement::settlement_root_carriers(
-            validated_settling_pre_state_root,
+            validated_settling_pre_block_hash,
             matched_checkpoints
                 .iter()
                 .zip(&claimed_effects)
-                .map(|(checkpoint, (_, _, entry, _))| (checkpoint.state_root, entry.success)),
+                .map(|(checkpoint, (_, _, entry, _))| (checkpoint.block_hash, entry.success)),
         );
     if anchor_update.newRoot != expected_anchor_root {
         return Err(EffectPrefixError::AnchorRootMismatch {
-            validated_pre_settling_root: expected_anchor_root,
-            claimed_anchor_post_state: anchor_update.newRoot,
+            validated_pre_settling_block_hash: expected_anchor_root,
+            claimed_anchor_block_hash: anchor_update.newRoot,
         });
     }
 
     let mut bound_effects = Vec::with_capacity(claimed);
     // Candidate positions and checkpoints were joined above. Bind direction
-    // and the independently derived carrier root in that same order.
+    // and the independently derived carrier block hash in that same order.
     for (effect_index, (entry_index, kind, entry, update)) in
         claimed_effects.into_iter().enumerate()
     {
@@ -631,13 +632,13 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
         }
 
         let recomputed_checkpoint = expected_effect_roots[effect_index];
-        let claimed_post_state = update.newRoot;
-        if claimed_post_state != recomputed_checkpoint {
-            return Err(EffectPrefixError::EffectStateRootMismatch {
+        let claimed_block_hash = update.newRoot;
+        if claimed_block_hash != recomputed_checkpoint {
+            return Err(EffectPrefixError::EffectBlockHashMismatch {
                 entry_index,
                 transaction_index,
                 recomputed_checkpoint,
-                claimed_post_state,
+                claimed_block_hash,
             });
         }
         bound_effects.push(BoundEffect {

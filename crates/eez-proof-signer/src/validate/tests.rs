@@ -23,10 +23,10 @@ fn admitted_block_with_transactions(number: u64, hash: u8, count: usize) -> Admi
     input
 }
 
-fn checkpoint(transaction_index: usize, state_root: u8) -> TransactionStateCheckpoint {
+fn checkpoint(transaction_index: usize, block_hash: u8) -> TransactionStateCheckpoint {
     TransactionStateCheckpoint {
         transaction_index,
-        state_root: B256::repeat_byte(state_root),
+        block_hash: B256::repeat_byte(block_hash),
     }
 }
 
@@ -289,11 +289,13 @@ fn rejects_transaction_state_checkpoints_on_preceding_blocks() {
 
 #[test]
 fn normalizes_validated_output_for_settlement() {
-    let window = vec![
+    let mut window = vec![
         admitted_block(5, 0x05),
         admitted_block(6, 0x06),
         admitted_block(7, 0x07),
     ];
+    window[1].claimed_parent_hash = B256::repeat_byte(0x05);
+    window[2].claimed_parent_hash = B256::repeat_byte(0x06);
     let mut output = backend_output_for(&window);
     output.pre_state_root = B256::repeat_byte(0x10);
     for (block, post_state_root) in output.blocks.iter_mut().zip([
@@ -312,9 +314,9 @@ fn normalizes_validated_output_for_settlement() {
         )
         .unwrap();
 
-    assert_eq!(validated.window_pre_state_root(), B256::repeat_byte(0x10));
-    assert_eq!(validated.settling_pre_state_root(), B256::repeat_byte(0x12));
-    assert_eq!(validated.window_post_state_root(), B256::repeat_byte(0x13));
+    assert_eq!(validated.window_pre_block_hash(), B256::ZERO);
+    assert_eq!(validated.settling_pre_block_hash(), B256::repeat_byte(0x06));
+    assert_eq!(validated.window_post_block_hash(), B256::repeat_byte(0x07));
     assert_eq!(
         validated
             .preceding_blocks()
@@ -327,7 +329,7 @@ fn normalizes_validated_output_for_settlement() {
 }
 
 #[test]
-fn uses_the_window_pre_state_as_the_settling_pre_state_for_one_block() {
+fn uses_the_parent_hash_for_both_pre_commitments_in_one_block() {
     let window = vec![admitted_block(5, 0x05)];
     let mut output = backend_output_for(&window);
     output.pre_state_root = B256::repeat_byte(0x10);
@@ -342,8 +344,8 @@ fn uses_the_window_pre_state_as_the_settling_pre_state_for_one_block() {
         .unwrap();
 
     assert_eq!(
-        validated.settling_pre_state_root(),
-        validated.window_pre_state_root()
+        validated.settling_pre_block_hash(),
+        validated.window_pre_block_hash()
     );
     assert!(validated.preceding_blocks().is_empty());
 }

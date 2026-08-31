@@ -49,15 +49,15 @@ flowchart LR
    one-proof-system, timeless shape to the expected/configured deployment
    values. It retains the typed capability needed for later hash computation;
    it never accepts the wire hash as authoritative.
-3. `state_chain` requires exactly one expected-rollup root update per entry and a
-   continuous chain from `ValidatedWindow.window_pre_state_root` to
-   `window_post_state_root`.
+3. `state_chain` requires exactly one expected-rollup ABI root update per entry
+   and a continuous block-hash chain from
+   `ValidatedWindow.window_pre_block_hash` to `window_post_block_hash`.
 4. `blocks` consumes the validated system-sender flags, receipt outcomes,
    source-table loads, and outbound observations in exact transaction order. It rejects
    privileged/effect evidence in `preceding_blocks` and derives the
    `settling_block` effect-candidate framing once.
 5. `effect_binding` enforces the leading-anchor and later-effect shapes,
-   including the anchor root and zero anchor ether delta, then joins every
+   including the anchor commitment and zero anchor ether delta, then joins every
    submitted effect, candidate transaction, and locally recomputed checkpoint by ordinal.
    It returns one ordered `BoundEffectSequence`.
 6. `inbound` returns `AuthorizedInboundEffects` only after canonical delivery
@@ -67,15 +67,15 @@ flowchart LR
 7. `outbound` returns `AuthorizedOutboundEffects` only after the exact loaded
    L2 source table recursively matches the L1 host entry and all recomputed
    L2-origin call hashes match the ordered EEZL2 receipt events. Exact
-   `[load, user]` transaction-byte equality remains the DA gate in step 8.
-8. `da` parses the tagged RLP payload without attacker-sized list allocations,
-   compares every retained transaction and authorized sidecar, uses
+   `[load, user]` transaction-byte equality remains part of the DA gate in step 8.
+8. `da` exact-binds the self-contained block RLP stream and authorized
+   sidecars. It also supports legacy projected payloads, using
    `SystemTransactionReconstructor` for omitted system transactions, and
    requires byte equality with the validated settling block.
 9. Only after every gate passes does `CheckedPublicInputProfile` construct
    `RecomputedPublicInputsHash`. The complete job then wraps it as
    `AttestablePublicInputsHash`; `AttestationMaterial` carries that stronger
-   capability and the validated endpoint roots to the async RPC for signing
+   capability and the validated endpoint block hashes to the async RPC for signing
    and audit logging.
 
 ## Why the order matters
@@ -112,7 +112,7 @@ for the exact shapes and equations.
 | Module | Gate family |
 | --- | --- |
 | [`post_batch.rs`](../src/settlement/post_batch.rs) | `CanonicalPostBatch`, configured public-input profile, typed hash fold |
-| [`state_chain.rs`](../src/settlement/state_chain.rs) | State-update continuity and validated window endpoints |
+| [`state_chain.rs`](../src/settlement/state_chain.rs) | Block-hash commitment continuity and validated window endpoints |
 | [`effect_binding.rs`](../src/settlement/effect_binding.rs) | Entry classification and effect/checkpoint correspondence |
 | [`blocks.rs`](../src/settlement/blocks.rs) | Transaction roles, statuses, preceding-block policy |
 | [`inbound.rs`](../src/settlement/inbound.rs) | Strict inbound observation and entry authorization |
@@ -122,13 +122,14 @@ for the exact shapes and equations.
 
 ## Attestation boundary
 
-The final signature commits to the complete mutable entries, `callData`, and
-the derived profile terms listed in `SPEC.md` section 12. Other batch carriers,
+The final signature commits to the complete mutable/static entries, calldata
+or physical blob hashes, and the derived profile terms listed in `SPEC.md`
+section 12. Other batch carriers,
 including scheduling counts and proof bytes, are constrained only by admission
 and are not direct signature commitments. `RecomputedPublicInputsHash` proves
 local profile-checked computation, while only the complete settlement job can
 grant the attestable capability after every gate. The signing API accepts
 neither the weaker type nor the Composer-supplied wire hash. The signature
 proves neither that L1 will apply the transition nor that an expected outbound
-call will succeed in the future. Live-root checks, actual L1 execution, and
+call will succeed in the future. Live-commitment checks, actual L1 execution, and
 dispatch scheduling remain outside this daemon's observation.

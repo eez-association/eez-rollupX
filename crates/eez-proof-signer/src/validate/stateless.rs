@@ -9,11 +9,14 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use alloy_consensus::{EthereumReceipt, Transaction as _};
+use alloy_consensus::{
+    EthereumReceipt, Transaction as _, TxReceipt as _,
+    proofs::{calculate_receipt_root, calculate_transaction_root},
+};
 #[cfg(test)]
 use alloy_genesis::ChainConfig;
 use alloy_genesis::Genesis;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256, Bloom};
 use alloy_sol_types::SolEvent as _;
 use eez_protocol::abi::eez_l2_events::CrossChainCallExecuted;
 use eez_protocol::settlement::{is_system_tx, pair_end_positions};
@@ -42,7 +45,8 @@ use chain_config::{ChainDocumentKind, load_chain_document};
 
 const DEBUG_PROGRESS_INTERVAL: usize = 100;
 
-/// Transaction boundaries at which settlement framing needs state roots.
+/// Transaction boundaries at which settlement framing needs replay-state
+/// checkpoints in order to derive canonical prefix-block hashes.
 ///
 /// The indices are derived locally from the recovered block. Composer-supplied
 /// metadata never participates in checkpoint selection.
@@ -80,7 +84,7 @@ impl CheckpointPlan {
     /// Check that a checkpoint-capable backend honored the selection exactly.
     fn verify_returned(
         &self,
-        checkpoints: &[TransactionStateCheckpoint],
+        checkpoints: &[ReplayStateCheckpoint],
     ) -> Result<(), ValidationError> {
         let selection_matches = checkpoints.len() == self.transaction_indices.len()
             && checkpoints
@@ -100,6 +104,16 @@ impl CheckpointPlan {
         }
         Ok(())
     }
+}
+
+/// Stateless replay's internal state commitment at a transaction boundary.
+/// It is never exposed to settlement directly: the accepted block template,
+/// prefix transactions and replayed receipts are required to turn it into a
+/// canonical prefix-block hash first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayStateCheckpoint {
+    transaction_index: usize,
+    state_root: B256,
 }
 
 /// Signer-recovered settling block prepared before replay.
@@ -241,6 +255,7 @@ impl Backend {
             let decoded_parent_hash = recovered_block.header().parent_hash;
             let timestamp = recovered_block.header().timestamp;
             let transaction_count = recovered_block.body().transactions.len();
+            let settling_block_template = checkpoint_plan.as_ref().map(|_| recovered_block.clone());
             trace!(
                 block_ordinal,
                 block_number,
@@ -255,7 +270,7 @@ impl Backend {
             // execution receipts, and the recomputed post-state commitment all
             // passed. Only a non-empty final selection uses the checkpoint path.
             let witness = std::mem::take(&mut admitted.witness);
-            let (stateless_output, transaction_state_checkpoints) = match checkpoint_plan {
+            let (stateless_output, replay_state_checkpoints) = match checkpoint_plan {
                 Some(plan) if !plan.transaction_indices.is_empty() => {
                     let output = stateless_validation_recovered_with_state_checkpoints(
                         recovered_block,
@@ -269,7 +284,7 @@ impl Backend {
                         .checkpoints
                         .transaction_state_checkpoints
                         .into_iter()
-                        .map(|checkpoint| TransactionStateCheckpoint {
+                        .map(|checkpoint| ReplayStateCheckpoint {
                             transaction_index: checkpoint.transaction_index,
                             state_root: checkpoint.state_root,
                         })
@@ -310,7 +325,17 @@ impl Backend {
             // These receipts come from successful replay. Observed outbound
             // events are retained here but authorized against batch entries only
             // later by settlement.
+            let has_execution_requests = !execution_output.result.requests.is_empty();
             let validated_receipts = execution_output.result.receipts;
+            let transaction_state_checkpoints = match settling_block_template {
+                Some(block) => derive_prefix_block_hashes(
+                    &block,
+                    &validated_receipts,
+                    &replay_state_checkpoints,
+                    has_execution_requests,
+                )?,
+                None => Vec::new(),
+            };
             let receipt_successes = validated_receipts
                 .iter()
                 .map(|receipt| receipt.success)
@@ -375,6 +400,101 @@ impl Backend {
             blocks: block_outputs,
         })
     }
+}
+
+/// Convert replayed transaction-state checkpoints into complete canonical
+/// block-hash commitments. Every header field not affected by truncating the
+/// transaction list is inherited from the exact block accepted by Stateless.
+/// Transaction/receipt roots, bloom, gas and state commitment are recomputed
+/// for each prefix.
+fn derive_prefix_block_hashes(
+    block: &RecoveredBlock<Block>,
+    receipts: &[EthereumReceipt],
+    checkpoints: &[ReplayStateCheckpoint],
+    has_execution_requests: bool,
+) -> Result<Vec<TransactionStateCheckpoint>, ValidationError> {
+    if checkpoints.is_empty() {
+        return Ok(Vec::new());
+    }
+    if receipts.len() != block.body().transactions.len() {
+        return Err(ValidationError::InvalidBackendOutput(format!(
+            "cannot derive prefix block hashes for block {}: replay returned {} receipts for {} transactions",
+            block.header().number,
+            receipts.len(),
+            block.body().transactions.len(),
+        )));
+    }
+    if block
+        .body()
+        .withdrawals
+        .as_ref()
+        .is_some_and(|withdrawals| !withdrawals.is_empty())
+    {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} has withdrawals; prefix block-hash commitments require no post-transaction state changes",
+            block.header().number,
+        )));
+    }
+    if !block.body().ommers.is_empty() {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} has ommers; prefix block-hash commitments require a post-merge block body",
+            block.header().number,
+        )));
+    }
+    if has_execution_requests {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} produces EIP-7685 requests; prefix block-hash commitments currently support only empty requests",
+            block.header().number,
+        )));
+    }
+
+    let mut block_hashes = Vec::with_capacity(checkpoints.len());
+    for checkpoint in checkpoints {
+        let prefix_len = checkpoint.transaction_index + 1;
+        let prefix_receipts = receipts[..prefix_len]
+            .iter()
+            .map(alloy_consensus::TxReceipt::with_bloom_ref)
+            .collect::<Vec<_>>();
+        let mut header = block.header().clone();
+        header.state_root = checkpoint.state_root;
+        header.transactions_root =
+            calculate_transaction_root(&block.body().transactions[..prefix_len]);
+        header.receipts_root = calculate_receipt_root(&prefix_receipts);
+        header.logs_bloom = prefix_receipts
+            .iter()
+            .fold(Bloom::ZERO, |bloom, receipt| bloom | receipt.bloom_ref());
+        header.gas_used = receipts[checkpoint.transaction_index].cumulative_gas_used();
+        if header.blob_gas_used.is_some() {
+            header.blob_gas_used = Some(
+                block.body().transactions[..prefix_len]
+                    .iter()
+                    .try_fold(0u64, |total, transaction| {
+                        total.checked_add(transaction.blob_gas_used().unwrap_or(0))
+                    })
+                    .ok_or_else(|| {
+                        ValidationError::InvalidBackendOutput(format!(
+                            "blob gas overflow while deriving a prefix hash for block {}",
+                            block.header().number,
+                        ))
+                    })?,
+            );
+        }
+        let block_hash = header.hash_slow();
+        if prefix_len == block.body().transactions.len() {
+            let full_block_hash = block.header().hash_slow();
+            if block_hash != full_block_hash {
+                return Err(ValidationError::InvalidBackendOutput(format!(
+                    "final prefix hash {block_hash} for block {} does not match validated full block hash {full_block_hash}",
+                    block.header().number,
+                )));
+            }
+        }
+        block_hashes.push(TransactionStateCheckpoint {
+            transaction_index: checkpoint.transaction_index,
+            block_hash,
+        });
+    }
+    Ok(block_hashes)
 }
 
 /// Classify a rejected local checkpoint plan as an internal invariant failure;

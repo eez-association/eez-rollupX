@@ -40,7 +40,8 @@ for name in \
     EEZ_L2_SYSTEM_ADDRESS \
     EEZ_L2_EEZL2_CODE_HASH \
     EEZ_ROLLUP_ID \
-    EEZ_INITIAL_STATE_ROOT
+    EEZ_INITIAL_BLOCK_HASH \
+    EEZ_L2_GENESIS_STATE_ROOT
 do
     [[ -n "${!name:-}" ]] || { echo "$name missing from deployments.env" >&2; exit 1; }
 done
@@ -51,6 +52,7 @@ actual_use_gas_left="$(cast call "$EEZL2_ADDRESS" 'USE_GAS_LEFT()(bool)' --rpc-u
 runtime="$(cast code "$EEZL2_ADDRESS" --rpc-url "$L2")"
 actual_runtime_hash="$(cast keccak "$runtime")"
 actual_state_root="$(cast block 0 --rpc-url "$L2" --json | jq -er '.stateRoot')"
+actual_block_hash="$(cast block 0 --rpc-url "$L2" --json | jq -er '.hash')"
 actual_proxy_address="$(cast call \
     "$EEZL2_ADDRESS" \
     'computeCrossChainProxyAddress(address,uint64)(address)' \
@@ -74,8 +76,12 @@ actual_proxy_address="$(cast call \
     echo "live EEZL2 runtime hash mismatch: $actual_runtime_hash != $EEZ_L2_EEZL2_CODE_HASH" >&2
     exit 1
 }
-[[ "${actual_state_root,,}" == "${EEZ_INITIAL_STATE_ROOT,,}" ]] || {
-    echo "live L2 genesis state root mismatch: $actual_state_root != $EEZ_INITIAL_STATE_ROOT" >&2
+[[ "${actual_state_root,,}" == "${EEZ_L2_GENESIS_STATE_ROOT,,}" ]] || {
+    echo "live L2 genesis state root mismatch: $actual_state_root != $EEZ_L2_GENESIS_STATE_ROOT" >&2
+    exit 1
+}
+[[ "${actual_block_hash,,}" == "${EEZ_INITIAL_BLOCK_HASH,,}" ]] || {
+    echo "live L2 genesis block hash mismatch: $actual_block_hash != $EEZ_INITIAL_BLOCK_HASH" >&2
     exit 1
 }
 [[ "${actual_proxy_address,,}" == "${EXPECTED_PROXY_ADDRESS,,}" ]] || {

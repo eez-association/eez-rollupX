@@ -45,13 +45,22 @@ use crate::held_pool::HeldTx;
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
-    build_sync_block, sync_block_roots_at_positions,
+    build_sync_block, sync_block_hashes_at_positions,
 };
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
     actionable_held_tx, partition_retryable, prove_with_retry, validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
+
+/// Data-availability carrier used for newly posted batches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataAvailabilityMode {
+    /// Existing `batch.callData` carrier.
+    Calldata,
+    /// Compatibility-profile blobs with an explicit pool sidecar encoding.
+    Blob(eez_blob_codec::BlobSidecarEncoding),
+}
 
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
@@ -102,6 +111,8 @@ pub struct CrossChainExecCtx {
     /// the L1 block. Default: 10 gwei (well above the smoke's
     /// `cast mktx --gas-price 2 gwei` user_tx).
     pub l1_post_batch_priority_fee: u128,
+    /// Explicit DA transport policy for postBatch transactions.
+    pub data_availability: DataAvailabilityMode,
     /// Address of the rollup's on-chain proof-system contract, embedded
     /// in `batch.proofSystems[0]`; `EEZ.postAndVerifyBatch` iterates
     /// `proofSystems[]` and calls `verify` on each. Deployment registers
@@ -119,6 +130,7 @@ impl std::fmt::Debug for CrossChainExecCtx {
             .field("l2_chain_id", &self.l2_chain_id)
             .field("l2_gas_price", &self.l2_gas_price)
             .field("l2_gas_limit", &self.l2_gas_limit)
+            .field("data_availability", &self.data_availability)
             .finish_non_exhaustive()
     }
 }
@@ -1319,7 +1331,7 @@ where
         let drained = pool.pop_n(max_user_txs);
         // When the pool is empty, do not return early. This slot attempts a
         // minimal postBatch whose leading immediate entry advances L1's stored
-        // root to the empty Sync block's final state root. Without it, L1's view
+        // commitment to the empty Sync block's hash. Without it, L1's view
         // would stop advancing while L2 continues producing blocks. The L1
         // bundle contains only `postBatch` in this path.
         let drained_count = drained.len();
@@ -1337,9 +1349,9 @@ where
         );
 
         // Process held transactions through direction-specific nonce preflight
-        // and simulation. The cross-chain path computes per-effect roots and
-        // stitches root updates so their final endpoint equals the locally
-        // built Sync-block root.
+        // and simulation. The cross-chain path computes per-effect prefix block
+        // hashes and stitches ABI root updates so their final endpoint equals
+        // the locally built Sync-block hash.
         //
         // This path owns the composed Sync block, registers its survivors in
         // the optimistic ledger, and observes L1 settlement in the background.
@@ -2056,7 +2068,7 @@ where
                                     tx_idx = idx,
                                     tx_hash = %held.hash,
                                     error = %error,
-                                    "outbound settlement root partition is unsupported; evicting",
+                                    "outbound settlement commitment partition is unsupported; evicting",
                                 );
                                 push_poison_root(&mut poison, &mut poison_gaps, held);
                                 continue;
@@ -2966,11 +2978,11 @@ where
                 )
                 .await;
         }
-        // Per-effect intermediate L2 roots: the prover requires each entry's
-        // `newRoot` to be its own effect's root, not the final Sync-block root.
+        // Per-effect intermediate L2 block hashes: the prover requires each
+        // entry's `newRoot` ABI slot to commit its own effect-prefix block.
         // Failure here is systemic (like build/prepare) → degrade.
         let effect_end_positions = eez_protocol::system_tx::sync_pair_end_positions(&pairs);
-        let pair_roots = match sync_block_roots_at_positions(
+        let pair_hashes = match sync_block_hashes_at_positions(
             rollup.l2_provider.as_ref(),
             &self.inner.evm_config,
             parent_header,
@@ -2982,11 +2994,11 @@ where
             Ok(r) => r,
             Err(e) => {
                 event!(
-                    name: "eez.composer.phase2.pair_roots_failed",
+                    name: "eez.composer.phase2.pair_hashes_failed",
                     Level::WARN,
                     rollup_id,
                     error = %e,
-                    "sync_block_pair_roots failed; re-queueing survivors, degrading to minimal postBatch",
+                    "sync_block_pair_hashes failed; re-queueing survivors, degrading to minimal postBatch",
                 );
                 pool.push_front_batch(survivors);
                 return self
@@ -3006,26 +3018,20 @@ where
             .iter()
             .map(|(composition, _)| composition)
             .collect();
-        // Outbound user txs (the SyncPair user halves) travel in the sync-block
-        // DA slot — the deriver can't reconstruct them from the postBatch entries
-        // (only the system/load txs are). Empty for inbound-only.
-        let outbound_user_txs: Vec<Bytes> =
-            pairs.iter().filter_map(|p| p.user_tx.clone()).collect();
         // Per-slot phase: one merge over all survivor compositions, now that
-        // the built block's state root and per-effect roots exist.
+        // the built block hash and per-effect prefix hashes exist.
         let postbatch_raw = match self
             .prepare_post_batch_raw(
                 ctx,
                 rollup_id,
                 &comp_refs,
                 parent_header,
-                built.header.state_root(),
+                built.header.hash(),
                 Some(&built.block),
-                &pair_roots,
+                &pair_hashes,
                 &outbound_entries,
                 &outbound_entry_traces,
                 &pending_out,
-                &outbound_user_txs,
                 outbound_target_gas,
                 bundle_target,
             )
@@ -3190,10 +3196,7 @@ where
 
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
-        // keccak of the raw EIP-2718 envelope IS the typed tx's hash —
-        // recorded in the ledger so the finality audit can look up the
-        // postBatch receipt.
-        let post_batch_hash = alloy_primitives::keccak256(&postbatch_raw);
+        let post_batch_hash = post_batch_transaction_hash(&postbatch_raw)?;
         let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
         bundle.push(postbatch_raw);
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
@@ -3227,7 +3230,7 @@ where
             rollup_id,
             sync_height,
             bundle,
-            built.header.state_root(),
+            built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3282,13 +3285,12 @@ where
                 rollup_id,
                 &[], // no compositions → leading immediate only
                 parent_header,
-                empty_built.header.state_root(),
+                empty_built.header.hash(),
                 Some(&empty_built.block),
                 &[], // no cross-chain effects → no per-effect roots
                 &[], // no outbound entries
                 &[], // no outbound entry traces
                 &[], // no outbound L2 sidecars
-                &[], // no outbound user txs
                 0,   // no inline outbound target calls
                 bundle_target,
             )
@@ -3335,10 +3337,7 @@ where
             }
         };
         let sync_height = empty_built.header.number();
-        // keccak of the raw EIP-2718 envelope IS the typed tx's hash —
-        // recorded in the ledger so the finality audit can look up the
-        // postBatch receipt.
-        let post_batch_hash = alloy_primitives::keccak256(&minimal_postbatch_raw);
+        let post_batch_hash = post_batch_transaction_hash(&minimal_postbatch_raw)?;
         event!(
             name: "eez.composer.phase1.bundle.dispatched",
             Level::INFO,
@@ -3357,7 +3356,7 @@ where
             rollup_id,
             sync_height,
             vec![minimal_postbatch_raw],
-            empty_built.header.state_root(),
+            empty_built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3446,9 +3445,8 @@ where
                     rollup_id,
                     &[], // no compositions → leading immediate only
                     &boundary_parent,
-                    boundary_header.state_root(),
+                    boundary_header.hash(),
                     None, // terminal is committed → witnesses come from the store
-                    &[],
                     &[],
                     &[],
                     &[],
@@ -3476,7 +3474,7 @@ where
                 "settlement backlog exceeds the batch cap; settling a bounded historical chunk",
             );
 
-            let post_batch_hash = alloy_primitives::keccak256(&raw);
+            let post_batch_hash = post_batch_transaction_hash(&raw)?;
             rollup
                 .optimistic
                 .begin(boundary, post_batch_hash, boundary_parent, Vec::new());
@@ -3487,7 +3485,7 @@ where
                 rollup_id,
                 boundary,
                 vec![raw],
-                boundary_header.state_root(),
+                boundary_header.hash(),
                 Arc::clone(&rollup.optimistic),
                 BundleTarget::NextBlock,
             );
@@ -3587,7 +3585,7 @@ where
     /// leading anchor, outbound immediate entries in drain order, then inbound
     /// deferred entries in drain order. One proof covers the merged batch.
     ///
-    /// **Chained root updates**: this function
+    /// **Chained block-hash commitments**: this function
     /// stitches the merged entries so `entries[k].currentRoot ==
     /// entries[k-1].newRoot` per rollup; EEZ.sol's `_applyRootUpdates`
     /// enforces the chain on L1 (`RootMismatch` revert) regardless of
@@ -3596,8 +3594,8 @@ where
     /// Leading failures are carried by the anchor, while every failed entry
     /// receives a no-op update because its L1 execution rolls state back. The
     /// proof signer independently derives and verifies the same carrier plan;
-    /// the last carrier is the final Sync-block root.
-    /// `sync_block_state_root` is the required settlement-chain endpoint.
+    /// the last carrier is the final Sync-block hash.
+    /// `sync_block_hash` is the required settlement-chain endpoint.
     ///
     /// `sync_block` is the terminal, `Some` only while freshly built; `None`
     /// (historical chunk) takes its witness from the store like the rest.
@@ -3606,7 +3604,7 @@ where
     /// inline, which calldata size cannot predict.
     /// # Errors
     ///
-    /// Returns an error for missing chain data, inconsistent IDs or roots,
+    /// Returns an error for missing chain data, inconsistent IDs or commitments,
     /// malformed batch ranges, witness or proof failure, transaction signing,
     /// or RPC data required to build the submission.
     async fn prepare_post_batch_raw(
@@ -3615,15 +3613,14 @@ where
         rollup_id: u64,
         compositions: &[&eez_protocol::Composition],
         parent_header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
-        sync_block_state_root: B256,
+        sync_block_hash: B256,
         sync_block: Option<
             &reth_primitives_traits::RecoveredBlock<reth_ethereum_primitives::Block>,
         >,
-        pair_roots: &[B256],
+        pair_hashes: &[B256],
         outbound_entries: &[eez_protocol::abi::ExecutionEntrySol],
         outbound_entry_traces: &[eez_protocol::entries::EntryTrace],
         outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
-        outbound_user_txs: &[Bytes],
         outbound_target_gas: u64,
         bundle_target: BundleTarget,
     ) -> Result<Option<Bytes>, PreparePostBatchError> {
@@ -3632,7 +3629,7 @@ where
 
         // Merge inbound compositions' L1 source batches, or start empty so an
         // idle Sync slot can carry only the leading immediate entry that
-        // advances L1's stored root.
+        // advances L1's stored commitment.
         let (mut batch, mut entry_traces) = if compositions.is_empty() {
             (eez_protocol::EvmBatch::default(), Vec::new())
         } else {
@@ -3650,13 +3647,13 @@ where
         // Prepend one leading immediate entry (`proxyEntryHash == 0`)
         // covering all L2 effects before the sync block — EEZ.sol drains
         // it inline during postAndVerifyBatch, applying its root update
-        // against L1's recorded root.
+        // against L1's recorded commitment.
         //
-        // `currentRoot` = L2.stateRoot(posted) (the L1-confirmed cursor)
+        // `currentRoot` = L2.blockHash(posted) (the L1-confirmed cursor)
         // — must equal L1.config.root at postBatch time so the
         // deriver's check_claimed_state agrees. `newRoot` initially equals the
-        // pre-Sync root so later effect entries chain from it; an anchor-only
-        // batch replaces it below with the empty Sync block's final root.
+        // pre-Sync block hash so later effect entries chain from it; an
+        // anchor-only batch replaces it below with the Sync block's final hash.
         let posted = self
             .inner
             .rollups
@@ -3664,7 +3661,7 @@ where
             .ok_or_else(|| format!("unknown rollup_id {rollup_id}"))?
             .l1_head
             .cursor();
-        let pre_state_root: B256 = {
+        let pre_block_hash: B256 = {
             let h = self
                 .inner
                 .rollups
@@ -3674,14 +3671,14 @@ where
                 .sealed_header(posted)
                 .map_err(|e| format!("sealed_header({posted}): {e}"))?
                 .ok_or_else(|| format!("local L2 header at {posted} missing"))?;
-            h.state_root()
+            h.hash()
         };
-        let pre_sync_state_root = parent_header.state_root();
+        let pre_sync_block_hash = parent_header.hash();
         let immediate_entry = eez_protocol::abi::ExecutionEntrySol {
             rootUpdates: vec![eez_protocol::abi::RootUpdateSol {
                 rollupId: rollup_id,
-                currentRoot: pre_state_root,
-                newRoot: pre_sync_state_root,
+                currentRoot: pre_block_hash,
+                newRoot: pre_sync_block_hash,
                 etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
             }],
             proxyEntryHash: B256::ZERO,
@@ -3750,16 +3747,16 @@ where
             .iter()
             .map(|composition| composition.source.batch.entries.len())
             .sum::<usize>();
-        if pair_roots.len() != outbound_effect_count + inbound_effect_count {
+        if pair_hashes.len() != outbound_effect_count + inbound_effect_count {
             return Err(format!(
-                "pair roots cover {} effects, expected {outbound_effect_count} outbound + {inbound_effect_count} inbound",
-                pair_roots.len(),
+                "pair hashes cover {} effects, expected {outbound_effect_count} outbound + {inbound_effect_count} inbound",
+                pair_hashes.len(),
             )
             .into());
         }
         let mut effect_ether_deltas =
             Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
-        let mut effect_state_roots =
+        let mut effect_block_hashes =
             Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
         let mut effect_successes =
             Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
@@ -3796,7 +3793,7 @@ where
                     )
                 })?;
             effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
-            effect_state_roots.push(pair_roots[effect_end - 1]);
+            effect_block_hashes.push(pair_hashes[effect_end - 1]);
             effect_successes.push(settlement.success);
             outbound_effect_cursor = effect_end;
         }
@@ -3829,7 +3826,7 @@ where
                 let inflow = eez_protocol::entries::entry_flat_value_sum(sidecar)
                     .ok_or_else(|| "invalid inbound L2 sidecar value shape".to_string())?;
                 effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
-                effect_state_roots.push(pair_roots[inbound_effect_cursor]);
+                effect_block_hashes.push(pair_hashes[inbound_effect_cursor]);
                 effect_successes.push(source_entry.success);
                 inbound_effect_cursor += 1;
             }
@@ -3837,8 +3834,8 @@ where
 
         let (anchor_new_root, effect_carrier_roots) =
             eez_protocol::settlement::settlement_root_carriers(
-                pre_sync_state_root,
-                effect_state_roots
+                pre_sync_block_hash,
+                effect_block_hashes
                     .iter()
                     .copied()
                     .zip(effect_successes.iter().copied()),
@@ -3846,12 +3843,12 @@ where
         batch.entries[0].rootUpdates[0].newRoot = anchor_new_root;
 
         // Cross-chain entries arrive with EMPTY `rootUpdates`; attach one chained
-        // settlement root update to each (the anchor already has its own) — else
-        // `_applyRootUpdates` no-ops and the L2 root never settles. The net
+        // settlement commitment update to each (the anchor already has its own)
+        // — otherwise `_applyRootUpdates` no-ops and the L2 hash never settles. The net
         // nested value delta above is attached in settlement-entry order.
         // Successful entries carry their own final source checkpoint and any
         // immediately following failed checkpoints. Failed entries use the
-        // already-persisted carrier root, making their stitched update a no-op
+        // already-persisted carrier hash, making their stitched update a no-op
         // when EEZ.sol intentionally rolls the failed execution back.
         // `currentRoot` is fixed by the stitch below.
         let mut effect_k = 0usize;
@@ -3866,8 +3863,8 @@ where
             })?;
             let new_root = *effect_carrier_roots.get(effect_k).ok_or_else(|| {
                 format!(
-                    "settlement stitch: entry {effect_k} has no carrier state root \
-                     (only {} carrier roots)",
+                    "settlement stitch: entry {effect_k} has no carrier block hash \
+                     (only {} carrier hashes)",
                     effect_carrier_roots.len(),
                 )
             })?;
@@ -3881,7 +3878,7 @@ where
         }
         if effect_k != effect_carrier_roots.len() {
             return Err(format!(
-                "settlement stitch: {effect_k} effect entries but {} carrier roots \
+                "settlement stitch: {effect_k} effect entries but {} carrier hashes \
                  (pair-end/entry misalignment)",
                 effect_carrier_roots.len(),
             )
@@ -3905,36 +3902,35 @@ where
         }
 
         // Anchor-only batch (no effects): the immediate is the last entry, so it
-        // must carry the final root. An empty Sync block still mutates state
-        // (EIP-2935 / EIP-4788 system writes), so `parent.stateRoot` differs from
-        // the re-executed final root and the endpoint gate would fail. With
-        // effects, the last effect's root already is the final root.
-        if pair_roots.is_empty()
+        // must carry the final block hash. With effects, the last effect's
+        // canonical prefix-block hash already is the full Sync-block hash.
+        if pair_hashes.is_empty()
             && let Some(last) = batch.entries.last_mut()
         {
             for update in last.rootUpdates.iter_mut().rev() {
                 if update.rollupId == rollup_id {
-                    update.newRoot = sync_block_state_root;
+                    update.newRoot = sync_block_hash;
                     break;
                 }
             }
         }
 
-        // The validating proof path enforces that the chain ends at the Sync
-        // block's final root. Debug builds also check the local stitching
-        // invariant here, including when a mock prover is configured.
-        debug_assert_eq!(
-            batch
-                .entries
-                .last()
-                .and_then(|entry| entry.rootUpdates.last())
-                .map(|update| update.newRoot),
-            Some(sync_block_state_root),
-            "settlement chain must end at the Sync-block state root",
-        );
+        // Fail before proving or submission if prefix reconstruction did not
+        // converge on the exact full Sync-block hash.
+        let stitched_endpoint = batch
+            .entries
+            .last()
+            .and_then(|entry| entry.rootUpdates.last())
+            .map(|update| update.newRoot);
+        if stitched_endpoint != Some(sync_block_hash) {
+            return Err(format!(
+                "settlement chain endpoint {stitched_endpoint:?} does not match Sync-block hash {sync_block_hash}"
+            )
+            .into());
+        }
 
         // L1 top-level static entries are persistent, read-only claims. The
-        // destination rollup must be pinned to the exact root installed by
+        // destination rollup must be pinned to the exact block hash installed by
         // this batch; L2's corresponding static pool omits pins entirely.
         for entry in &mut batch.staticEntries {
             if entry.destinationRollupId != rollup_id {
@@ -3951,7 +3947,7 @@ where
             }
             entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
                 rollupId: rollup_id,
-                root: sync_block_state_root,
+                root: sync_block_hash,
             }];
         }
 
@@ -3981,12 +3977,16 @@ where
         // from = cursor+1 (first unposted L2
         // block), to = parent+1 (the Sync block).
         //
-        // Intermediate blocks [from..to-1] are walked via parent-hash
+        // Every block is encoded as exact canonical full-block RLP, so the DA
+        // operation is sufficient to reconstruct headers, transactions,
+        // ommers, and withdrawals from the preceding settled block. Receipts
+        // and execution requests are deterministic replay outputs. Intermediate
+        // blocks [from..to-1] are walked via parent-hash
         // from `parent_header` — `block_by_hash` is reliable for
         // canonical blocks, unlike `block_by_number`, which races reth's
-        // provider index for the newest block. The Sync-block DA carries
-        // outbound user transactions; its system transactions are reconstructed
-        // by the deriver from the postBatch entries.
+        // provider index for the newest block. The terminal RLP carries the
+        // complete Sync transaction sequence; derivation sidecars let the
+        // follower independently reconstruct and compare its system txs.
         let rollup =
             self.inner.rollups.get(&rollup_id).ok_or_else(|| {
                 format!("unknown rollup_id {rollup_id} in prepare_post_batch_raw")
@@ -4016,7 +4016,7 @@ where
             .into());
         }
         let span_len = usize::try_from(span).map_err(|e| format!("batch span overflow: {e}"))?;
-        let mut blocks_rev: Vec<Vec<Vec<u8>>> = Vec::with_capacity(span_len.saturating_sub(1));
+        let mut block_rlps_rev: Vec<Vec<u8>> = Vec::with_capacity(span_len.saturating_sub(1));
         let mut cursor_hash = parent_header.hash();
         let mut cursor_number = parent_header.number();
         while cursor_number >= from {
@@ -4075,19 +4075,27 @@ where
                     .into());
                 }
             }
-            blocks_rev.push(tx_bytes);
+            block_rlps_rev.push(alloy_rlp::encode(&block));
             if cursor_number == 0 {
                 break;
             }
             cursor_hash = block.header().parent_hash();
             cursor_number -= 1;
         }
-        blocks_rev.reverse();
-        let mut blocks = blocks_rev;
-        // Outbound user txs aren't reconstructible from the entries (only the load
-        // is), so they travel in the Sync-block DA here; the deriver interleaves
-        // them with the rebuilt loads. Inbound-only → empty.
-        blocks.push(outbound_user_txs.iter().map(|b| b.to_vec()).collect());
+        block_rlps_rev.reverse();
+        let mut block_rlps = block_rlps_rev;
+        let terminal_rlp = match sync_block {
+            Some(block) => alloy_rlp::encode(block.clone().into_block()),
+            None => {
+                let block = rollup
+                    .l2_provider
+                    .find_block_by_hash(sync_block_hash, BlockSource::Any)
+                    .map_err(|error| format!("find terminal block {sync_block_hash}: {error}"))?
+                    .ok_or_else(|| format!("terminal block {sync_block_hash} is missing"))?;
+                alloy_rlp::encode(block)
+            }
+        };
+        block_rlps.push(terminal_rlp);
         // Encoded `ExecutionEntrySol` values let followers reconstruct system
         // transactions. Outbound entries describe L1 settlement and L2 loads;
         // inbound target batches carry the L2 delivery inputs. Encode both into
@@ -4135,10 +4143,45 @@ where
                     .map_err(|_| "outbound root count exceeds u16::MAX".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let payload =
-            eez_payload_codec::encode_grouped(&blocks, &l2_entries_bytes, &outbound_group_sizes)
-                .map_err(|e| format!("eez_payload_codec::encode: {e}"))?;
-        batch.callData = alloy_primitives::Bytes::from(payload);
+        let payload = eez_payload_codec::encode_self_contained(
+            &block_rlps,
+            &l2_entries_bytes,
+            &outbound_group_sizes,
+        )
+        .map_err(|e| format!("encode self-contained chain operations: {e}"))?;
+        let mut transaction_blobs = Vec::new();
+        let prepared_blob_sidecar = match ctx.data_availability {
+            DataAvailabilityMode::Calldata => {
+                batch.callData = alloy_primitives::Bytes::from(payload);
+                None
+            }
+            DataAvailabilityMode::Blob(sidecar_encoding) => {
+                transaction_blobs = eez_blob_codec::encode_compatibility_payload(
+                    rollup_id,
+                    alloy_primitives::Bytes::from(payload),
+                )
+                .map_err(|error| format!("encode compatibility blob payload: {error}"))?;
+                if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
+                    event!(
+                        name: "eez.composer.emission.candidate_over_blob_limit",
+                        Level::DEBUG,
+                        rollup_id,
+                        from,
+                        to = sync_block_number,
+                        blobs = transaction_blobs.len(),
+                        maximum = eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+                        "candidate range exceeds the per-transaction blob limit",
+                    );
+                    return Ok(None);
+                }
+                batch.blobIndices = (0..transaction_blobs.len()).map(U256::from).collect();
+                batch.callData = Bytes::new();
+                Some(
+                    eez_blob_codec::prepare_blob_sidecar(&transaction_blobs, sidecar_encoding)
+                        .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?,
+                )
+            }
+        };
 
         // Priced on the encoded candidate before witnesses and proving; `Ok(None)`
         // is over-budget, not an error, and the caller chooses what to do.
@@ -4234,6 +4277,7 @@ where
             from_block: from,
             to_block: sync_block_number,
             batch: batch.clone(),
+            blobs: transaction_blobs.clone(),
             blocks: block_witnesses,
             l1_block_hash: None, // timeless batch (blockNumber 0)
         };
@@ -4275,9 +4319,9 @@ where
             span,
             calldata_bytes = calldata.len(),
             floor_gas = calldata_floor_gas(&calldata),
-            current_root = %pre_state_root,
-            claimed_final = %sync_block_state_root,
-            "postBatch anchors: currentRoot at cursor, claimed final at Sync block",
+            current_root = %pre_block_hash,
+            claimed_final = %sync_block_hash,
+            "postBatch commitments: current block hash at cursor, claimed final Sync block hash",
         );
 
         // Read the deployment-specific EEZ registry address from the
@@ -4287,17 +4331,34 @@ where
             .and_then(|s| s.parse::<Address>().ok())
             .ok_or("EEZ_REGISTRY_ADDRESS missing or not a valid address")?;
 
-        Ok(sign_post_batch_tx(
-            &ctx.l1_poster_signer,
-            &ctx.l1_provider,
-            eez_address,
-            calldata,
-            ctx.l1_chain_id,
-            ctx.l1_post_batch_priority_fee,
-            self.inner.emission.max_gas,
-        )
-        .await
-        .map(Some)?)
+        let raw = match prepared_blob_sidecar {
+            Some(sidecar) => {
+                sign_post_batch_blob_tx(
+                    &ctx.l1_poster_signer,
+                    &ctx.l1_provider,
+                    eez_address,
+                    calldata,
+                    ctx.l1_chain_id,
+                    ctx.l1_post_batch_priority_fee,
+                    self.inner.emission.max_gas,
+                    sidecar,
+                )
+                .await?
+            }
+            None => {
+                sign_post_batch_tx(
+                    &ctx.l1_poster_signer,
+                    &ctx.l1_provider,
+                    eez_address,
+                    calldata,
+                    ctx.l1_chain_id,
+                    ctx.l1_post_batch_priority_fee,
+                    self.inner.emission.max_gas,
+                )
+                .await?
+            }
+        };
+        Ok(Some(raw))
     }
 }
 
@@ -4508,6 +4569,102 @@ async fn sign_post_batch_tx(
     let mut buf = Vec::with_capacity(512);
     signed.encode_2718(&mut buf);
     Ok(Bytes::from(buf))
+}
+
+/// Sign a type-3 postBatch transaction with a precomputed, validated sidecar.
+async fn sign_post_batch_blob_tx(
+    signer: &alloy_signer_local::PrivateKeySigner,
+    provider: &alloy_provider::RootProvider,
+    eez_address: Address,
+    calldata: Vec<u8>,
+    chain_id: u64,
+    priority_fee: u128,
+    max_gas: u64,
+    sidecar: eez_blob_codec::PreparedBlobSidecar,
+) -> Result<Bytes, String> {
+    use alloy_eips::{BlockNumberOrTag, eip2930::AccessList, eip4844::DATA_GAS_PER_BLOB};
+    use alloy_provider::Provider as _;
+
+    let from = signer.address();
+    let nonce = provider
+        .get_transaction_count(from)
+        .pending()
+        .await
+        .map_err(|error| format!("get_transaction_count({from}): {error}"))?;
+    let latest = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .map_err(|error| format!("get_block latest: {error}"))?
+        .ok_or_else(|| "get_block latest: None".to_string())?;
+    let base_fee = u128::from(latest.header.base_fee_per_gas.unwrap_or(0));
+    let max_fee_per_gas = base_fee.saturating_mul(2).saturating_add(priority_fee);
+    let blob_base_fee = provider
+        .get_blob_base_fee()
+        .await
+        .map_err(|error| format!("eth_blobBaseFee: {error}"))?;
+    let max_fee_per_blob_gas = blob_base_fee.saturating_mul(2).max(1);
+
+    let floor_gas = calldata_floor_gas(&calldata);
+    if floor_gas > max_gas {
+        return Err(format!(
+            "postBatch calldata floor {floor_gas} exceeds EEZ_MAX_POSTBATCH_GAS {max_gas} \
+             ({} calldata bytes); refusing emission — bounded chunks cover the range",
+            calldata.len(),
+        ));
+    }
+
+    let blob_count = sidecar.versioned_hashes().len();
+    let execution_reserve = U256::from(max_gas).saturating_mul(U256::from(max_fee_per_gas));
+    let blob_reserve = U256::from(blob_count)
+        .saturating_mul(U256::from(DATA_GAS_PER_BLOB))
+        .saturating_mul(U256::from(max_fee_per_blob_gas));
+    let required = execution_reserve.saturating_add(blob_reserve);
+    if let Ok(balance) = provider.get_balance(from).await
+        && balance < required
+    {
+        event!(
+            name: "eez.composer.postbatch.poster_underfunded",
+            Level::ERROR,
+            poster = %from,
+            balance = %balance,
+            required = %required,
+            gas_limit = max_gas,
+            max_fee_per_gas,
+            blob_count,
+            max_fee_per_blob_gas,
+            "poster balance below blob postBatch gas reserve",
+        );
+    }
+
+    let prepared = eez_blob_codec::prepare_blob_transaction_with_sidecar(
+        eez_blob_codec::BlobTransactionParams {
+            chain_id,
+            nonce,
+            gas_limit: max_gas,
+            max_fee_per_gas,
+            max_priority_fee_per_gas: priority_fee,
+            max_fee_per_blob_gas,
+            to: eez_address,
+            value: U256::ZERO,
+            access_list: AccessList::default(),
+            input: calldata.into(),
+        },
+        sidecar,
+    )
+    .map_err(|error| format!("prepare postBatch blob transaction: {error}"))?;
+    let signed = eez_blob_codec::sign_blob_transaction(prepared, signer)
+        .map_err(|error| format!("sign postBatch blob transaction: {error}"))?;
+    Ok(signed.pooled_transaction)
+}
+
+/// Return the canonical Ethereum hash for either a normal typed envelope or a
+/// type-3 transaction-pool wrapper carrying a sidecar.
+fn post_batch_transaction_hash(raw: &[u8]) -> Result<alloy_primitives::TxHash, String> {
+    if raw.first() == Some(&3) {
+        return eez_blob_codec::pooled_blob_transaction_hash(raw)
+            .map_err(|error| format!("decode signed postBatch blob transaction: {error}"));
+    }
+    Ok(alloy_primitives::keccak256(raw))
 }
 
 #[cfg(test)]

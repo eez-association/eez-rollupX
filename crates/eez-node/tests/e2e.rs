@@ -10,8 +10,8 @@ mod common;
 use common::{
     ANVIL_ADDR, ANVIL_ADDR_3, ANVIL_KEY, ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_3, ANVIL_KEY_4,
     Harness, NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at, override_env,
-    reorg_genesis_state_root, send_l2_value_transfer, send_l2_value_transfer_confirmed, wait_for,
-    wait_for_latest_height, wait_for_new_attested_safe_block, wait_for_safe_chain_contains,
+    send_l2_value_transfer, send_l2_value_transfer_confirmed, wait_for, wait_for_latest_height,
+    wait_for_new_attested_safe_block, wait_for_safe_chain_contains,
     wait_for_safe_prefix_convergence, wait_for_safe_state,
 };
 
@@ -171,7 +171,7 @@ async fn happy_case_composer_sustained() {
         wait_for_safe_state(
             &node_before_restart,
             &chain,
-            common::dev_genesis_state_root(),
+            harness.l2_genesis_block_hash().unwrap(),
             DEFAULT_TIMEOUT,
         )
         .await
@@ -191,7 +191,7 @@ async fn happy_case_composer_sustained() {
             "no entry should revert"
         );
         let root_before = chain.state_root().await.unwrap();
-        assert_ne!(root_before, common::dev_genesis_state_root());
+        assert_ne!(root_before, harness.l2_genesis_block_hash().unwrap());
         assert_eq!(
             chain.latest_execution_state().await.unwrap().unwrap(),
             root_before,
@@ -216,11 +216,19 @@ async fn happy_case_composer_sustained() {
     )
     .await
     .unwrap();
+    wait_for(DEFAULT_TIMEOUT, || async {
+        Ok((node
+            .log_count_matching(&["boot seeded from the persistent L1/L2 correlation index"])?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .expect("restarted composer did not seed its L1 scan from the persistent correlation index");
     assert_eq!(
-        node.log_count_matching(&["boot seeded from checkpoint"])
+        node.log_count_matching(&["boot seeded from the persistent L1/L2 correlation index"])
             .unwrap(),
         1,
-        "restarted composer did not seed its L1 scan from the persisted checkpoint",
+        "restarted composer did not seed its L1 scan from the persistent correlation index",
     );
 
     let n_after = chain
@@ -309,7 +317,7 @@ async fn failure_wrong_rollup_id() {
     assert_eq!(chain.executions_performed().await.unwrap(), 0);
     assert_eq!(
         chain.state_root().await.unwrap(),
-        common::dev_genesis_state_root()
+        harness.l2_genesis_block_hash().unwrap()
     );
     node.assert_no_process_death();
 }
@@ -399,7 +407,7 @@ async fn failure_prover_signer_mismatch() {
     assert_eq!(chain.executions_performed().await.unwrap(), 0);
     assert_eq!(
         chain.state_root().await.unwrap(),
-        common::dev_genesis_state_root()
+        harness.l2_genesis_block_hash().unwrap()
     );
     node.assert_no_process_death();
 }
@@ -666,6 +674,271 @@ async fn happy_case_follower_l1_reorg_recovers() {
     seq.assert_no_process_death();
 }
 
+async fn settlement_by_l2(
+    node: &NodeHandle,
+    selector: serde_json::Value,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let provider = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse()?);
+    Ok(provider
+        .client()
+        .request("eez_getSettlementByL2Block", (selector,))
+        .await?)
+}
+
+async fn settled_ranges_by_l1(
+    node: &NodeHandle,
+    selector: serde_json::Value,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let provider = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse()?);
+    Ok(provider
+        .client()
+        .request("eez_getSettledL2RangesByL1Block", (selector,))
+        .await?)
+}
+
+fn correlation_hash(record: &serde_json::Value, field: &str) -> B256 {
+    record[field]
+        .as_str()
+        .unwrap_or_else(|| panic!("correlation field {field} is not a hash"))
+        .parse()
+        .unwrap_or_else(|error| panic!("invalid correlation {field}: {error}"))
+}
+
+fn correlation_quantity(record: &serde_json::Value, field: &str) -> u64 {
+    let raw = record[field]
+        .as_str()
+        .unwrap_or_else(|| panic!("correlation field {field} is not a quantity"));
+    u64::from_str_radix(raw.strip_prefix("0x").unwrap_or(raw), 16)
+        .unwrap_or_else(|error| panic!("invalid correlation {field}: {error}"))
+}
+
+async fn assert_blob_settlement_transaction(
+    l1_rpc: &str,
+    transaction_hash: B256,
+) -> anyhow::Result<()> {
+    let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
+    let transaction: Option<serde_json::Value> = provider
+        .client()
+        .request(
+            "eth_getTransactionByHash",
+            (format!("{transaction_hash:#x}"),),
+        )
+        .await?;
+    let transaction = transaction
+        .unwrap_or_else(|| panic!("blob settlement transaction {transaction_hash} is missing"));
+    assert_eq!(
+        transaction["type"], "0x3",
+        "settlement {transaction_hash} is not EIP-4844"
+    );
+    assert!(
+        transaction["blobVersionedHashes"]
+            .as_array()
+            .is_some_and(|hashes| !hashes.is_empty()),
+        "settlement {transaction_hash} has no blob versioned hashes"
+    );
+    Ok(())
+}
+
+/// A real EIP-4844 settlement is orphaned on L1 and replaced on the new fork.
+/// The old L1-hash index must disappear, the same L2 height must be remapped to
+/// a canonical blob transaction, and both correlation directions must agree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn happy_case_blob_l1_reorg_replaces_correlations() {
+    let harness = Harness::for_reorg().await.unwrap();
+    let chain = harness.chain();
+    let genesis = harness.l2_genesis_path();
+    let cfg = NodeConfig {
+        genesis_path: Some(genesis),
+        ..Default::default()
+    };
+    let env = override_env(
+        harness.blob_env().await.unwrap(),
+        "RUST_LOG",
+        "warn,eez_deriver=info,eez_l1=info",
+    );
+    let seq = NodeHandle::start("blob-reorg", &cfg, &env).await.unwrap();
+
+    send_l2_value_transfer_confirmed(
+        &seq.l2_rpc_url(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1u64),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("pre-reorg L2 transaction did not land");
+    wait_for_safe_state(
+        &seq,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("pre-reorg blob settlement was not adopted as safe");
+
+    // Leave the deployment/registration blocks below the common ancestor,
+    // then select a newer blob settlement that is still inside the exact
+    // three-block suffix we will replace.
+    chain
+        .wait_for_l1_blocks(4, DEFAULT_TIMEOUT)
+        .await
+        .expect("L1 did not advance beyond the deployment window");
+    let (old_l2_number, old_l2_hash, pre, old_l1_tip) = wait_for(DEFAULT_TIMEOUT, || async {
+        let Some((l2_number, l2_hash)) =
+            block_number_and_hash_at(&seq.l2_rpc_url(), BlockNumberOrTag::Safe).await?
+        else {
+            return Ok(None);
+        };
+        let Some(record) =
+            settlement_by_l2(&seq, serde_json::json!(format!("{l2_hash:#x}"))).await?
+        else {
+            return Ok(None);
+        };
+        let tip = chain.block_number().await?;
+        let settlement_block = correlation_quantity(&record, "l1BlockNumber");
+        let common_ancestor = tip.saturating_sub(3);
+        let registration_block = harness.dep.deploy_block + 3;
+        Ok((record["canonicalL2"] == true
+            && settlement_block > common_ancestor
+            && common_ancestor >= registration_block)
+            .then_some((l2_number, l2_hash, record, tip)))
+    })
+    .await
+    .expect("no blob settlement entered a safe depth-3 reorg window");
+    assert_eq!(
+        correlation_hash(&pre["matchedL2Block"], "hash"),
+        old_l2_hash,
+        "pre-reorg correlation resolved a different L2 block"
+    );
+    let old_l1_number = correlation_quantity(&pre, "l1BlockNumber");
+    let old_l1_hash = correlation_hash(&pre, "l1BlockHash");
+    let old_l1_transaction = correlation_hash(&pre, "l1TransactionHash");
+    assert_blob_settlement_transaction(&harness.anvil.rpc_url, old_l1_transaction)
+        .await
+        .expect("pre-reorg settlement was not a canonical blob transaction");
+    let old_reverse = settled_ranges_by_l1(&seq, serde_json::json!(format!("{old_l1_hash:#x}")))
+        .await
+        .expect("pre-reorg reverse correlation RPC failed");
+    assert!(
+        old_reverse
+            .iter()
+            .any(|record| { correlation_hash(record, "l1TransactionHash") == old_l1_transaction }),
+        "pre-reorg L1->L2 correlation is missing the blob settlement"
+    );
+
+    assert!(
+        old_l1_number > old_l1_tip.saturating_sub(3),
+        "latest safe blob settlement at L1 block {old_l1_number} would survive a depth-3 reorg from tip {old_l1_tip}"
+    );
+    let pre_reorg_states = chain.executed_states().await.unwrap();
+
+    harness.anvil.reorg(3).await.unwrap();
+    send_l2_value_transfer_confirmed(
+        &seq.l2_rpc_url(),
+        ANVIL_KEY_3,
+        ANVIL_ADDR_3,
+        U256::from(2u64),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("post-reorg L2 transaction did not land");
+    let (new_safe_number, new_safe_hash) =
+        wait_for_new_attested_safe_block(&seq, &chain, &pre_reorg_states, DEFAULT_TIMEOUT)
+            .await
+            .expect("no newly attested safe block was imported after the blob reorg");
+
+    // The exact old L2 height must be backed by a settlement on the replacement
+    // L1 fork. This prevents later-only progress from masking a gap at the
+    // rolled-out height.
+    let replacement = wait_for(DEFAULT_TIMEOUT, || async {
+        Ok(settlement_by_l2(&seq, serde_json::json!(old_l2_number))
+            .await?
+            .filter(|record| {
+                record["canonicalL2"] == true
+                    && correlation_hash(record, "l1BlockHash") != old_l1_hash
+            }))
+    })
+    .await
+    .expect("old L2 height was not remapped to the replacement L1 fork");
+    assert_eq!(
+        correlation_quantity(&replacement["matchedL2Block"], "number"),
+        old_l2_number
+    );
+    let replacement_l2_hash = correlation_hash(&replacement["matchedL2Block"], "hash");
+    let replacement_l1_hash = correlation_hash(&replacement, "l1BlockHash");
+    let replacement_l1_transaction = correlation_hash(&replacement, "l1TransactionHash");
+    assert_ne!(replacement_l1_hash, old_l1_hash);
+    assert_blob_settlement_transaction(&harness.anvil.rpc_url, replacement_l1_transaction)
+        .await
+        .expect("replacement settlement was not a canonical blob transaction");
+
+    let orphan_removed = wait_for(DEFAULT_TIMEOUT, || async {
+        let records =
+            settled_ranges_by_l1(&seq, serde_json::json!(format!("{old_l1_hash:#x}"))).await?;
+        Ok(records.is_empty().then_some(()))
+    })
+    .await;
+    orphan_removed.expect("orphaned L1 block remained in the reverse correlation index");
+
+    let replacement_reverse =
+        settled_ranges_by_l1(&seq, serde_json::json!(format!("{replacement_l1_hash:#x}")))
+            .await
+            .expect("replacement reverse correlation RPC failed");
+    assert!(
+        replacement_reverse.iter().any(|record| {
+            correlation_hash(record, "l1TransactionHash") == replacement_l1_transaction
+                && record["canonicalL2"] == true
+        }),
+        "replacement L1->L2 correlation is absent or noncanonical"
+    );
+
+    if replacement_l2_hash != old_l2_hash {
+        let stale = settlement_by_l2(&seq, serde_json::json!(format!("{old_l2_hash:#x}")))
+            .await
+            .expect("old L2-hash correlation query failed");
+        assert!(stale.is_none(), "orphaned L2 hash remained indexed");
+    }
+
+    let l1_provider = ProviderBuilder::new().connect_http(harness.anvil.rpc_url.parse().unwrap());
+    let canonical_at_old_height = l1_provider
+        .get_block_by_number(BlockNumberOrTag::Number(old_l1_number))
+        .await
+        .unwrap()
+        .expect("replacement L1 block is missing at the orphaned height");
+    assert_ne!(
+        canonical_at_old_height.header.hash, old_l1_hash,
+        "anvil did not produce an alternative L1 fork"
+    );
+    if let Some(old_receipt) = l1_provider
+        .get_transaction_receipt(old_l1_transaction)
+        .await
+        .unwrap()
+    {
+        assert_ne!(
+            old_receipt.block_hash,
+            Some(old_l1_hash),
+            "orphaned blob receipt still names the old L1 block"
+        );
+    }
+
+    let new_safe = settlement_by_l2(&seq, serde_json::json!(format!("{new_safe_hash:#x}")))
+        .await
+        .expect("new safe correlation RPC failed")
+        .expect("newly attested safe block has no correlation");
+    assert_eq!(
+        correlation_quantity(&new_safe["matchedL2Block"], "number"),
+        new_safe_number
+    );
+    assert_eq!(
+        correlation_hash(&new_safe["matchedL2Block"], "hash"),
+        new_safe_hash
+    );
+    assert_eq!(new_safe["canonicalL2"], true);
+
+    seq.wait_for_reorg_seen(DEFAULT_TIMEOUT).await.unwrap();
+    seq.assert_no_divergence_failure_logs();
+}
+
 /// Followers with different unsafe sources converge on the same safe prefix.
 /// This proves L1 derivation, rather than the unsafe source, controls safe-head selection.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -750,7 +1023,7 @@ async fn happy_case_follower_rogue_sequencer_safe_head_holds() {
     wait_for_safe_state(
         &follower,
         &chain,
-        reorg_genesis_state_root().unwrap(),
+        harness.l2_genesis_block_hash().unwrap(),
         DEFAULT_TIMEOUT,
     )
     .await

@@ -82,6 +82,9 @@ pub(crate) struct AdmittedHeader {
     pub(crate) declared_to_block: u64,
     /// Composer-submitted calldata retained for canonical decoding and settlement checks.
     pub(crate) submitted_post_batch_calldata: Vec<u8>,
+    /// Untrusted physical blobs retained for KZG and compatibility-profile
+    /// validation inside the settlement worker.
+    pub(crate) submitted_blobs: Vec<Vec<u8>>,
 }
 
 /// A complete, structurally checked window ready for backend validation.
@@ -325,6 +328,7 @@ impl WindowAssembler<false> {
             public_inputs_hash: _composer_claimed_public_inputs_hash,
             l1_block_hash: submitted_l1_block_hash,
             abi_calldata: submitted_post_batch_calldata,
+            blobs: submitted_blobs,
         } = submitted_post_batch;
         let l1_block_hash_len = submitted_l1_block_hash.len();
         if l1_block_hash_len != 0 {
@@ -358,6 +362,7 @@ impl WindowAssembler<false> {
                 declared_from_block,
                 declared_to_block,
                 submitted_post_batch_calldata,
+                submitted_blobs,
             },
             declared_block_count,
         })

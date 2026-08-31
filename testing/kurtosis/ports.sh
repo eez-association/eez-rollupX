@@ -32,6 +32,7 @@ eez_devnet_ports_main() {
 
     local l1_rpc l2_rpc l1_front l2_front proof_signer_grpc dashboard
     local l1_explorer l2_explorer l1_explorer_api l2_explorer_api
+    local blobscan blobscan_api
     l1_rpc="$(eez_devnet_port el-1-reth-lighthouse rpc)" || return 1
     l2_rpc="$(eez_devnet_port eez-node l2-rpc)" || return 1
     l1_front="$(eez_devnet_port eez-node l1-xchain)" || return 1
@@ -42,6 +43,8 @@ eez_devnet_ports_main() {
     l2_explorer="$(eez_devnet_port l2-blockscout-frontend http 2>/dev/null || true)"
     l1_explorer_api="$(eez_devnet_port l1-blockscout http 2>/dev/null || true)"
     l2_explorer_api="$(eez_devnet_port l2-blockscout http 2>/dev/null || true)"
+    blobscan="$(eez_devnet_port blobscan-web http 2>/dev/null || true)"
+    blobscan_api="$(eez_devnet_port blobscan-api http 2>/dev/null || true)"
 
     export EEZ_DEVNET_L1_RPC="$(eez_devnet_http_url "$l1_rpc")"
     export EEZ_DEVNET_L2_RPC="$(eez_devnet_http_url "$l2_rpc")"
@@ -54,6 +57,7 @@ eez_devnet_ports_main() {
     fi
     unset EEZ_DEVNET_L1_EXPLORER EEZ_DEVNET_L2_EXPLORER
     unset EEZ_DEVNET_L1_EXPLORER_API EEZ_DEVNET_L2_EXPLORER_API
+    unset EEZ_DEVNET_BLOBSCAN EEZ_DEVNET_BLOBSCAN_API
     if [[ -n "$l1_explorer" ]]; then
         export EEZ_DEVNET_L1_EXPLORER="$(eez_devnet_http_url "$l1_explorer")"
     fi
@@ -65,6 +69,12 @@ eez_devnet_ports_main() {
     fi
     if [[ -n "$l2_explorer_api" ]]; then
         export EEZ_DEVNET_L2_EXPLORER_API="$(eez_devnet_http_url "$l2_explorer_api")"
+    fi
+    if [[ -n "$blobscan" ]]; then
+        export EEZ_DEVNET_BLOBSCAN="$(eez_devnet_http_url "$blobscan")"
+    fi
+    if [[ -n "$blobscan_api" ]]; then
+        export EEZ_DEVNET_BLOBSCAN_API="$(eez_devnet_http_url "$blobscan_api")"
     fi
 
     printf '\nEEZ Kurtosis devnet endpoints (enclave: %s)\n' "$enclave"
@@ -87,6 +97,12 @@ eez_devnet_ports_main() {
     fi
     if [[ -n "${EEZ_DEVNET_L2_EXPLORER_API:-}" ]]; then
         printf '  %-22s %s\n' 'L2 explorer API:' "$EEZ_DEVNET_L2_EXPLORER_API"
+    fi
+    if [[ -n "${EEZ_DEVNET_BLOBSCAN:-}" ]]; then
+        printf '  %-22s %s\n' 'Blobscan:' "$EEZ_DEVNET_BLOBSCAN"
+    fi
+    if [[ -n "${EEZ_DEVNET_BLOBSCAN_API:-}" ]]; then
+        printf '  %-22s %s\n' 'Blobscan API:' "$EEZ_DEVNET_BLOBSCAN_API"
     fi
 }
 

@@ -9,6 +9,8 @@ description            = "EEZ attestation daemon: re-executes composer-streamed 
 [dependencies]
 # The `prove.v1` wire this daemon serves.
 eez-control-rpc.workspace = true
+eez-blob-codec.workspace = true
+eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
 eez-protocol.workspace = true
 

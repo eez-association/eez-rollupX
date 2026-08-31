@@ -211,6 +211,40 @@ cargo run -p eez-node --bin eez-dev-node -- node \
   --datadir "$EEZ_L2_DATADIR"
 ```
 
+### L1/L2 settlement correlation RPC
+
+Composer and follower L2 RPCs expose the exact canonical mapping derived from
+accepted `postAndVerifyBatch` transactions:
+
+```bash
+# L2 number or 32-byte hash -> its L1 posting block/transaction and exact range.
+curl -s http://localhost:18688 \
+  -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eez_getSettlementByL2Block","params":["0xcc"]}'
+
+# L1 number or 32-byte hash -> zero or more settled L2 ranges.
+curl -s http://localhost:18688 \
+  -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"eez_getSettledL2RangesByL1Block","params":["0x23"]}'
+```
+
+Selectors also accept `{"blockNumber":"0xcc"}` or
+`{"blockHash":"0x…"}`. Numbers are Ethereum hex quantities. An unknown L2
+block returns `null`; an L1 block with no accepted batches returns `[]`.
+Responses include every exact L2 block hash, the posting transaction hash and
+index, `canonicalL2`, and `l2Finalized`. A same-height replacement remains
+discoverable by its old hash but is marked non-canonical.
+
+Set `EEZ_L2_DATADIR` to retain the MDBX index under
+`$EEZ_L2_DATADIR/eez-correlations`. On its first run after this feature is
+enabled, the deriver performs one full L1 scan to backfill history. With no
+configured datadir the methods still work for batches observed during that
+process, but their history does not survive restart.
+
+This mapping means “the L1 transaction that published and settled this L2
+block.” It is distinct from an L1-origin field embedded in every L2 header,
+which this protocol does not currently define.
+
 ## Build, test, teardown
 
 ```bash

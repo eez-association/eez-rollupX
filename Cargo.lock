@@ -3157,6 +3157,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eez-blob-codec"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips 2.0.5",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-signer-local",
+ "c-kzg",
+ "hex",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "eez-composer"
 version = "0.1.0"
 dependencies = [
@@ -3166,10 +3180,12 @@ dependencies = [
  "alloy-network",
  "alloy-primitives",
  "alloy-provider",
+ "alloy-rlp",
  "alloy-rpc-types-engine",
  "alloy-signer-local",
  "alloy-sol-types",
  "async-trait",
+ "eez-blob-codec",
  "eez-driver",
  "eez-evm-inspector",
  "eez-l1",
@@ -3211,23 +3227,27 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips 2.0.5",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-rpc-types-engine",
  "alloy-sol-types",
  "eez-driver",
  "eez-l1",
  "eez-payload-codec",
  "eez-protocol",
+ "postcard",
  "reth-chainspec 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-ethereum-engine-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-ethereum-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-evm 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-evm-ethereum 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
+ "reth-libmdbx 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-payload-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-primitives-traits",
  "reth-provider 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-revm 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-storage-api 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "revm",
+ "serde",
  "tempfile",
  "tokio",
  "tracing",
@@ -3280,13 +3300,17 @@ dependencies = [
  "alloy-eips 2.0.5",
  "alloy-primitives",
  "alloy-provider",
+ "alloy-rlp",
  "alloy-rpc-types-eth",
  "alloy-signer-local",
  "alloy-sol-types",
  "alloy-transport",
+ "eez-blob-codec",
+ "eez-payload-codec",
  "eez-protocol",
  "fail",
  "reqwest 0.12.28",
+ "reth-ethereum-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -3312,6 +3336,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dotenvy",
+ "eez-blob-codec",
  "eez-composer",
  "eez-control-rpc",
  "eez-deriver",
@@ -3364,8 +3389,11 @@ dependencies = [
 name = "eez-payload-codec"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
+ "alloy-eips 2.0.5",
  "alloy-primitives",
  "alloy-rlp",
+ "reth-ethereum-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "thiserror 2.0.18",
 ]
 
@@ -3381,7 +3409,9 @@ dependencies = [
  "alloy-signer-local",
  "alloy-sol-types",
  "clap",
+ "eez-blob-codec",
  "eez-control-rpc",
+ "eez-payload-codec",
  "eez-protocol",
  "eyre",
  "hex",
@@ -3431,6 +3461,7 @@ dependencies = [
  "alloy-signer",
  "alloy-signer-local",
  "async-trait",
+ "eez-blob-codec",
  "eez-protocol",
  "futures-util",
  "thiserror 2.0.18",

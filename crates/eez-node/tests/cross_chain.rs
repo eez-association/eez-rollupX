@@ -94,7 +94,7 @@ async fn minimal_bidirectional_cross_chain_smoke() {
             let inbound_applied = l2_value(&l2_rpc, w.value_l2).await? == U256::from(41u64);
             let outbound_applied = l2_value(&l1_rpc, w.outbound_value).await? == U256::from(43u64);
             let l1_root = state_root(&l1_rpc, eez, rollup_id).await?;
-            let l2_root = common::safe_block_state_root(&l2_rpc).await?;
+            let l2_root = common::safe_block_hash(&l2_rpc).await?;
             Ok((inbound_applied && outbound_applied && l2_root == Some(l1_root)).then_some(()))
         }
     })
@@ -396,12 +396,12 @@ async fn mixed_cross_chain_wave_matrix_over_bundle() {
         let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
         async move {
             let l1_root = state_root(&l1_rpc, eez, rollup_id).await?;
-            let l2_root = common::safe_block_state_root(&l2_rpc).await?;
+            let l2_root = common::safe_block_hash(&l2_rpc).await?;
             Ok(l2_root.filter(|r| *r == l1_root).map(|_| ()))
         }
     })
     .await
-    .expect("L1 stored stateRoot never matched L2 safe stateRoot");
+    .expect("L1 stored commitment never matched the L2 safe block hash");
 
     let pb = batches_posted(&l1_rpc, w.cfg.eez_address, w.dep.deploy_block)
         .await

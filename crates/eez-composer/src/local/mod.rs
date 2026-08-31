@@ -22,8 +22,8 @@ pub(crate) mod slot;
 
 #[doc(inline)]
 pub use build::{
-    BuildError, BuiltSyncBlock, build_sync_block, sync_block_pair_roots,
-    sync_block_roots_at_positions,
+    BuildError, BuiltSyncBlock, build_sync_block, sync_block_hashes_at_positions,
+    sync_block_pair_hashes,
 };
 #[doc(inline)]
 pub use client::LocalChainClient;
