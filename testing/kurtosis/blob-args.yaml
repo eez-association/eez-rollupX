@@ -7,9 +7,8 @@ ethereum_package:
       el_image: ghcr.io/paradigmxyz/reth:latest
       cl_type: lighthouse
       cl_image: sigp/lighthouse:v8.1.2
-      # Fulu/PeerDAS stores only a custody subset by default. The current
-      # authenticated blob source uses the legacy full-blob sidecars endpoint,
-      # so this participant must retain enough columns to reconstruct blobs.
+      # Fulu/PeerDAS stores only a custody subset by default. The standard
+      # full-blob API requires enough columns to reconstruct each blob.
       supernode: true
       count: 1
 

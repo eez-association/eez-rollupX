@@ -54,14 +54,15 @@ elapsed=$((timestamp - genesis_time))
 (( elapsed % seconds_per_slot == 0 )) || die "execution timestamp is not on a beacon slot"
 slot=$((elapsed / seconds_per_slot))
 
-sidecars_tmp="$tmp_dir/sidecars.json"
+sidecars_tmp="$tmp_dir/beacon-blobs.json"
 for _attempt in {1..20}; do
-    if curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$slot" -o "$sidecars_tmp" 2>/dev/null; then
+    if curl -fsS "$BEACON_URL/eth/v1/beacon/blobs/$slot" -o "$sidecars_tmp" 2>/dev/null ||
+        curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$slot" -o "$sidecars_tmp" 2>/dev/null; then
         break
     fi
     sleep 2
 done
-[[ -s "$sidecars_tmp" ]] || die "beacon sidecars for slot $slot are unavailable"
+[[ -s "$sidecars_tmp" ]] || die "beacon blobs for slot $slot are unavailable"
 
 verifier_input="$tmp_dir/input.json"
 verifier_output="$tmp_dir/output.json"

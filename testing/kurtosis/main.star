@@ -169,6 +169,8 @@ def run(plan, args):
         "EEZ_PROOF_TIME_MS": str(eez.get("proof_time_ms", 5000)),
         "EEZ_SUBMISSION_SLACK_MS": str(eez.get("submission_slack_ms", 2500)),
         "EEZ_MAX_SPECULATIVE_DEPTH": str(eez.get("max_speculative_depth", 0)),
+        "EEZ_MAX_USER_TXS_PER_BUNDLE": str(eez.get("max_user_txs_per_bundle", 50)),
+        "EEZ_COMPOSER_DEBUG_LOGGING": "1" if eez.get("composer_debug_logging", False) else "0",
         "EEZ_L1_POSTER_KEY": poster_key,
         "EEZ_DA_MODE": eez.get("da_mode", "calldata"),
         "EEZ_L1_BLOB_SIDECAR_ENCODING": eez.get("blob_sidecar_encoding", "eip4844"),
@@ -183,11 +185,13 @@ def run(plan, args):
         "EEZ_L2_P2P_PORT": str(L2_P2P_PORT),
         "EEZ_L2_SYSTEM_KEY": l2_system_key,
         "EEZL2_ADDRESS": "0x4200000000000000000000000000000000000007",
+        "RUST_LOG": eez.get("node_rust_log", "info"),
     }
 
     node_cmd = " ".join(
         [
             "set -eu;",
+            "if [ \"$EEZ_COMPOSER_DEBUG_LOGGING\" = 1 ]; then export RUST_LOG='info,eez_composer=debug'; fi;",
             "echo 'eez-node: sourcing /out/deployments.env';",
             "test -f /out/deployments.env;",
             "grep -E '^(EEZ_REGISTRY_ADDRESS|EEZ_REGISTRY_DEPLOY_BLOCK|EEZ_ROLLUP_ID|EEZ_INITIAL_BLOCK_HASH|EEZ_L2_GENESIS_STATE_ROOT|EEZ_L1_L2_PROXY|EEZ_L1_BRIDGE_SENDER)=' /out/deployments.env;",

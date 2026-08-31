@@ -141,7 +141,7 @@ impl BeaconBlobSource {
                         block: scanned.l1_block_number,
                         tx_hash: scanned.tx_hash,
                         detail: format!(
-                            "beacon sidecars do not contain transaction blob {expected_hash}"
+                            "beacon blob response does not contain transaction blob {expected_hash}"
                         ),
                     });
                 };
@@ -189,15 +189,26 @@ impl BeaconBlobSource {
             )));
         }
         let slot = since_genesis / timing.seconds_per_slot;
+        let context = Some((block, tx_hash, slot));
+        let blobs_path = format!("eth/v1/beacon/blobs/{slot}");
+        if let Some(value) = self.get_json_if_present(&blobs_path, context).await? {
+            return parse_blobs(&value).map_err(|detail| {
+                L1Error::Decode(format!(
+                    "invalid beacon blobs response for slot {slot}: {detail}"
+                ))
+            });
+        }
+
+        // Beacon API v4 replaced blob_sidecars with blobs for Fulu/PeerDAS.
+        // Keep the deprecated endpoint as a compatibility fallback for older
+        // pre-Fulu clients, but never prefer it on a server implementing the
+        // standard full-blob endpoint.
         let value = self
-            .get_json(
-                &format!("eth/v1/beacon/blob_sidecars/{slot}"),
-                Some((block, tx_hash, slot)),
-            )
+            .get_json(&format!("eth/v1/beacon/blob_sidecars/{slot}"), context)
             .await?;
         parse_sidecars(&value).map_err(|detail| {
             L1Error::Decode(format!(
-                "invalid beacon blob_sidecars response for slot {slot}: {detail}"
+                "invalid legacy beacon blob_sidecars response for slot {slot}: {detail}"
             ))
         })
     }
@@ -256,6 +267,52 @@ impl BeaconBlobSource {
             )));
         }
         response.json::<Value>().await.map_err(|error| {
+            L1Error::Provider(format!("decode beacon JSON from {endpoint}: {error}"))
+        })
+    }
+
+    /// Fetch a fork-aware endpoint, returning `None` only when the beacon node
+    /// does not expose it. This lets pre-Fulu clients fall back to the legacy
+    /// sidecar API without masking transport, decoding, or server failures.
+    async fn get_json_if_present(
+        &self,
+        path: &str,
+        sidecar_context: Option<(u64, B256, u64)>,
+    ) -> L1Result<Option<Value>> {
+        let base = self.beacon_url.as_ref().ok_or_else(|| {
+            L1Error::Config("EEZ_L1_BEACON_URL is required to retrieve EIP-4844 blobs".into())
+        })?;
+        let endpoint = base
+            .join(path)
+            .map_err(|error| L1Error::Config(format!("EEZ_L1_BEACON_URL: {error}")))?;
+        let response = self
+            .client
+            .get(endpoint.clone())
+            .send()
+            .await
+            .map_err(|error| L1Error::Provider(format!("beacon GET {endpoint}: {error}")))?;
+        let status = response.status();
+        if status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+        {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let response_detail = response.text().await.unwrap_or_default();
+            if let Some((block, tx_hash, slot)) = sidecar_context {
+                return Err(L1Error::SourceIncomplete {
+                    block,
+                    tx_hash,
+                    detail: format!(
+                        "beacon blobs for slot {slot} returned HTTP {status}: {response_detail}"
+                    ),
+                });
+            }
+            return Err(L1Error::Provider(format!(
+                "beacon GET {endpoint} returned HTTP {status}: {response_detail}"
+            )));
+        }
+        response.json::<Value>().await.map(Some).map_err(|error| {
             L1Error::Provider(format!("decode beacon JSON from {endpoint}: {error}"))
         })
     }
@@ -334,6 +391,35 @@ fn parse_sidecars(value: &Value) -> Result<Vec<AvailableBlob>, String> {
         }
         available.push(AvailableBlob {
             versioned_hash: computed_hash,
+            blob,
+        });
+    }
+    Ok(available)
+}
+
+/// Parse the post-Fulu Beacon API `getBlobs` response. The response carries
+/// only blob bodies; recomputing each KZG commitment and versioned hash
+/// authenticates it against the hashes in the canonical execution transaction.
+fn parse_blobs(value: &Value) -> Result<Vec<AvailableBlob>, String> {
+    let blobs = value
+        .pointer("/data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing data array".to_owned())?;
+    let mut available = Vec::with_capacity(blobs.len());
+    for (position, item) in blobs.iter().enumerate() {
+        let blob_hex = item
+            .as_str()
+            .ok_or_else(|| format!("data[{position}] is not a blob string"))?;
+        let blob_bytes = decode_hex(blob_hex, &format!("data[{position}]"))?;
+        let blob = Blob::try_from_slice(position, &blob_bytes)
+            .map_err(|error| format!("data[{position}]: {error}"))?;
+        let versioned_hash = blob_versioned_hashes(std::slice::from_ref(&blob))
+            .map_err(|error| format!("data[{position}] KZG commitment: {error}"))?
+            .into_iter()
+            .next()
+            .expect("one input blob produces one hash");
+        available.push(AvailableBlob {
+            versioned_hash,
             blob,
         });
     }
@@ -460,6 +546,26 @@ mod tests {
         assert!(parse_sidecars(&mismatched).is_err());
     }
 
+    #[test]
+    fn blobs_parser_recomputes_versioned_hash() {
+        let blobs = eez_blob_codec::encode_compatibility_payload(
+            7,
+            Bytes::from_static(b"post-Fulu authenticated payload"),
+        )
+        .unwrap();
+        let response = serde_json::json!({
+            "data": [format!("0x{}", hex::encode(blobs[0].as_bytes()))]
+        });
+
+        let parsed = parse_blobs(&response).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(
+            parsed[0].versioned_hash,
+            blob_versioned_hashes(&blobs).unwrap()[0]
+        );
+        assert!(parse_blobs(&serde_json::json!({"data": [{}]})).is_err());
+    }
+
     #[tokio::test]
     async fn hydration_recovers_payload_from_authenticated_beacon_sidecar() {
         let rollup_id = 7;
@@ -467,21 +573,15 @@ mod tests {
         let blobs =
             eez_blob_codec::encode_compatibility_payload(rollup_id, expected_payload.clone())
                 .unwrap();
-        let commitment = eez_blob_codec::blob_kzg_commitments(&blobs)
-            .unwrap()
-            .remove(0);
         let versioned_hashes = blob_versioned_hashes(&blobs).unwrap();
-        let sidecars = serde_json::json!({
-            "data": [{
-                "blob": format!("0x{}", hex::encode(blobs[0].as_bytes())),
-                "kzg_commitment": format!("0x{}", hex::encode(commitment)),
-            }]
+        let beacon_blobs = serde_json::json!({
+            "data": [format!("0x{}", hex::encode(blobs[0].as_bytes()))]
         })
         .to_string();
         let beacon_url = serve_json_responses(vec![
             serde_json::json!({"data": {"genesis_time": "1000"}}).to_string(),
             serde_json::json!({"data": {"SECONDS_PER_SLOT": "12"}}).to_string(),
-            sidecars,
+            beacon_blobs,
         ])
         .await;
 

@@ -81,6 +81,7 @@ services:
       EEZ_L2_RPC_URL: http://127.0.0.1:18688
       EEZ_L1_XCHAIN_PORT: "18999"    # L1→L2 inbound front
       EEZ_L2_XCHAIN_PORT: "18998"    # L2→L1 outbound front
+      # Combined cap for both cross-chain directions. Overflow remains queued.
       # Keep the whole bundle small enough to fit one L1 block — a 60M devnet
       # block is roomy, a 17M chain is not.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-50}"

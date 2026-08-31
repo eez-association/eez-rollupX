@@ -218,13 +218,14 @@ rollback actions, and `CloseBlobStream`. The proof signer requires those
 semantics to reproduce the validated execution tables before it signs.
 
 The verifier uses the Fulu EIP-7594 sidecar wrapper, retrieves the blobs
-independently through the beacon REST API, verifies their KZG versioned hashes,
+independently through the standard `/eth/v1/beacon/blobs/{block_id}` REST API,
+verifies their KZG versioned hashes,
 decodes the native semantic stream, binds each semantic transaction to the
 exact raw user transaction, and checks L1/L2 block-hash commitment convergence.
 It then verifies that Blobscan indexed each proven posting transaction with the
 same versioned hashes and commitments, and byte-compares every PostgreSQL-backed
 Blobscan payload returned by both the API and web data proxy with its canonical
-beacon sidecar. Blobscan evidence is written beside the main summary as
+Beacon blob. Blobscan evidence is written beside the main summary as
 `blobscan.json`. To recheck existing evidence without generating transactions,
 run:
 
@@ -514,13 +515,13 @@ bash testing/kurtosis/scripts/run-protocol-e2e.sh
 
 For every passing scenario, the evidence collector re-reads canonical user,
 settlement, and L2 delivery receipts; verifies the causal execution tables;
-downloads the exact Beacon sidecars; recomputes their KZG versioned hashes;
+downloads the exact Beacon blob responses; recomputes their KZG versioned hashes;
 decodes the native cross-chain semantics; and requires each trigger's raw
 signed transaction bytes to occur in semantic `tx_data`. The command succeeds
 only when suite accounting, receipt evidence, causal coverage, and authenticated
 semantic-blob coverage are all complete. `protocol-e2e/summary.json` is the
 machine-readable index, and each scenario retains its decoded evidence and raw
-Beacon sidecar response under `protocol-e2e/evidence/`.
+Beacon blob response under `protocol-e2e/evidence/`.
 
 ## Customize the network
 
@@ -543,11 +544,40 @@ slot time, prefunded accounts, and MEV stack. The `eez` section configures:
 - Node, proof-signer, deployment, and follower images.
 - Poster, proof-signer, and L2 system test keys.
 - L1 and L2 block timing, proof time, and submission slack.
-- Maximum speculative depth and proposer fee recipient.
+- Maximum speculative depth, cross-chain transactions per bundle, and proposer
+  fee recipient.
 - L1/L2 explorers and their images.
 
 Keep the private-network keys distinct, and never reuse them outside a
 disposable local environment.
+
+`max_user_txs_per_bundle` is the maximum number of held user cross-chain
+transactions, combined across both directions, offered to one Sync block. If
+omitted, the Kurtosis package uses `50`, matching the composer's in-code
+fallback and the standard Kurtosis deployment profile. Transactions beyond the
+cap remain FIFO-queued for later Sync blocks; the block-gas budget can reduce
+the actual drain below the cap. This is a resource and atomic-inclusion safety
+bound, not an unlimited-mode control.
+
+The dedicated `crosschain-limit-args.yaml` profile deliberately sets the cap to
+`3` to make spillover observable under a small workload. It is a disposable
+validation profile, not the recommended setting for a normal devnet. Start it
+under a separate enclave and run its evidence check with:
+
+```bash
+KURTOSIS_ENCLAVE=eez-crosschain-limit \
+  bash testing/kurtosis/start.sh \
+  testing/kurtosis/crosschain-limit-args.yaml
+
+KURTOSIS_ENCLAVE=eez-crosschain-limit \
+KURTOSIS_ARGS_FILE=testing/kurtosis/crosschain-limit-args.yaml \
+  bash testing/kurtosis/scripts/verify-cross-chain-limit.sh
+```
+
+The verifier requires both directions to settle without loss, duplication,
+nonce gaps, cap violations, held-transaction evictions, or composition
+failures, and writes machine-readable evidence under
+`artifacts/kurtosis-crosschain-limit` by default.
 
 ### Build or reuse images
 
@@ -623,6 +653,7 @@ Kurtosis assigns different host ports automatically. Remember that
 - `blockscout.star`: prefix-aware L1 and L2 Blockscout service definitions.
 - `ci-args.yaml`: default local topology, image selections, timing, and test
   keys.
+- `crosschain-limit-args.yaml`: disposable cap-`3` spillover validation profile.
 - `l2-genesis-profile.json`: reproducible public inputs and hashes for the
   committed test genesis; it contains no private key.
 - `Dockerfile.deploy`: deployment image containing Foundry, contracts, scripts,
@@ -633,4 +664,6 @@ Kurtosis assigns different host ports automatically. Remember that
 - `scripts/verify-eezl2-blockscout.sh`: L2 Blockscout source verification for
   the genesis-installed EEZL2 contract.
 - `scripts/cross-chain-wave.sh`: individual cross-chain workload modes.
+- `scripts/verify-cross-chain-limit.sh`: bounded FIFO spillover and loss-safety
+  evidence check.
 - `scripts/verify-cross-chain-waves.sh`: complete workload suite.

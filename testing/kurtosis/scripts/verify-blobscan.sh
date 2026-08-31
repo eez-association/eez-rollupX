@@ -107,8 +107,9 @@ for ((batch_position = 0; batch_position < batch_count; batch_position++)); do
     )"
     transactions_evidence="$(jq -c --argjson item "$tx_item" '. + [$item]' <<<"$transactions_evidence")"
 
-    sidecars_file="$temp_dir/sidecars-$batch_position.json"
-    curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$beacon_slot" -o "$sidecars_file"
+    sidecars_file="$temp_dir/beacon-blobs-$batch_position.json"
+    curl -fsS "$BEACON_URL/eth/v1/beacon/blobs/$beacon_slot" -o "$sidecars_file" ||
+        curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$beacon_slot" -o "$sidecars_file"
 
     for ((blob_position = 0; blob_position < blob_count; blob_position++)); do
         versioned_hash="$(jq -er --argjson position "$blob_position" '.blob_versioned_hashes[$position] | ascii_downcase' <<<"$batch")"
@@ -131,12 +132,17 @@ for ((batch_position = 0; batch_position < batch_count; batch_position++)); do
                 exit 1
             }
 
-        beacon_blob="$(
-            jq -er --arg index "$blob_index" \
-                '.data[] | select((.index | tostring) == $index) | .blob' \
-                "$sidecars_file"
-        )"
         indexed_blob="$(curl -fsS "$BLOBSCAN_API/blobs/$versioned_hash/data" | jq -er '.')"
+        beacon_blob="$(
+            jq -er --arg blob "${indexed_blob,,}" \
+                '.data[] | (if type == "object" then .blob else . end) |
+                 select(ascii_downcase == $blob)' \
+                "$sidecars_file" | head -n 1
+        )"
+        [[ -n "$beacon_blob" ]] || {
+            echo "Blobscan bytes are absent from the canonical Beacon response for $versioned_hash" >&2
+            exit 1
+        }
         beacon_blob_sha256="$(printf '%s' "${beacon_blob#0x}" | xxd -r -p | sha256sum | awk '{print $1}')"
         indexed_blob_sha256="$(printf '%s' "${indexed_blob#0x}" | xxd -r -p | sha256sum | awk '{print $1}')"
         if [[ "$indexed_blob_sha256" != "$beacon_blob_sha256" ]]; then

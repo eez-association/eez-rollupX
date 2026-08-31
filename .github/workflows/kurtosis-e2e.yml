@@ -15,7 +15,7 @@ concurrency:
 jobs:
   kurtosis-e2e:
     name: Kurtosis E2E
-    runs-on: ubuntu-latest
+    runs-on: homelab-rust
     timeout-minutes: 150
     env:
       KURTOSIS_ENCLAVE: eez-ci

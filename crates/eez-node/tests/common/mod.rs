@@ -458,6 +458,30 @@ async fn beacon_fixture_response(
     } else if path == "/eth/v1/config/spec" {
         serde_json::json!({"data": {"SECONDS_PER_SLOT": BEACON_FIXTURE_SECONDS_PER_SLOT.to_string()}})
             .to_string()
+    } else if let Some(raw_slot) = path.strip_prefix("/eth/v1/beacon/blobs/") {
+        match raw_slot.parse::<u64>() {
+            Ok(slot) => match canonical_blob_sidecars(&state, slot).await {
+                Ok(sidecars) => serde_json::json!({
+                    "data": sidecars
+                        .iter()
+                        .filter_map(|sidecar| sidecar.get("blob"))
+                        .collect::<Vec<_>>()
+                })
+                .to_string(),
+                Err(error) => {
+                    return Ok(beacon_json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        serde_json::json!({"code": 500, "message": error.to_string()}),
+                    ));
+                }
+            },
+            Err(error) => {
+                return Ok(beacon_json_response(
+                    StatusCode::BAD_REQUEST,
+                    serde_json::json!({"code": 400, "message": error.to_string()}),
+                ));
+            }
+        }
     } else if let Some(raw_slot) = path.strip_prefix("/eth/v1/beacon/blob_sidecars/") {
         match raw_slot.parse::<u64>() {
             Ok(slot) => match canonical_blob_sidecars(&state, slot).await {

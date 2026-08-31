@@ -87,7 +87,7 @@ L1_CID=$(cast chain-id --rpc-url "$L1"); L2_CID=$(cast chain-id --rpc-url "$L2")
 NODE_LOG="$(mktemp)"; SINCE_TS="$(date +%s)"       # scope log metrics to THIS run
 refresh_log(){ docker logs --since "$SINCE_TS" "$NODE_CONTAINER" >"$NODE_LOG" 2>&1 || true; }
 trap 'rm -f "$NODE_LOG"' EXIT
-CAP="$(docker exec "$NODE_CONTAINER" printenv EEZ_MAX_USER_TXS_PER_BUNDLE 2>/dev/null || echo 3)"
+CAP="$(docker exec "$NODE_CONTAINER" printenv EEZ_MAX_USER_TXS_PER_BUNDLE 2>/dev/null || echo 50)"
 echo "════ XCHAIN TEST ════  mode=$MODE  bundle_cap=$CAP  restart=$DO_RESTART  (L2=$(cast block-number --rpc-url "$L2"))"
 
 # ── Shared helpers ───────────────────────────────────────────────────

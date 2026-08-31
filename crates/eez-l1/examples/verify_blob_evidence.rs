@@ -118,31 +118,46 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let sidecars = required(sidecar_response, "/data")?
         .as_array()
-        .ok_or("beacon_sidecars.data is not an array")?;
+        .ok_or("beacon blob response data is not an array")?;
     let mut authenticated = Vec::with_capacity(sidecars.len());
     for (position, sidecar) in sidecars.iter().enumerate() {
-        let slot = required_u64(sidecar, "/signed_block_header/message/slot")?;
-        if slot != expected_slot {
-            return Err(format!(
-                "sidecar {position} belongs to slot {slot}, expected {expected_slot}"
+        // Beacon API v4 getBlobs returns bare blob strings. Pre-Fulu clients
+        // may still return legacy sidecar objects, which carry an advertised
+        // commitment and signed-header slot that we additionally verify.
+        let (physical, advertised_commitment) = if let Some(raw) = sidecar.as_str() {
+            (
+                decode_hex_string(raw, &format!("beacon blob {position}"))?,
+                None,
             )
-            .into());
-        }
-        let physical = required_hex_bytes(sidecar, "/blob")?;
+        } else {
+            let slot = required_u64(sidecar, "/signed_block_header/message/slot")?;
+            if slot != expected_slot {
+                return Err(format!(
+                    "sidecar {position} belongs to slot {slot}, expected {expected_slot}"
+                )
+                .into());
+            }
+            (
+                required_hex_bytes(sidecar, "/blob")?,
+                Some(required_hex_bytes(sidecar, "/kzg_commitment")?),
+            )
+        };
         if physical.len() != BLOB_BYTES {
             return Err(format!(
-                "sidecar {position} has {} blob bytes, expected {BLOB_BYTES}",
+                "beacon blob {position} has {} bytes, expected {BLOB_BYTES}",
                 physical.len()
             )
             .into());
         }
         let blob = Blob::try_from_slice(position, &physical)?;
-        let advertised_commitment = required_hex_bytes(sidecar, "/kzg_commitment")?;
         let computed_commitment = blob_kzg_commitments(std::slice::from_ref(&blob))?
             .into_iter()
             .next()
             .ok_or("one blob did not produce one KZG commitment")?;
-        if advertised_commitment.as_ref() != computed_commitment {
+        if advertised_commitment
+            .as_ref()
+            .is_some_and(|commitment| commitment.as_ref() != computed_commitment)
+        {
             return Err(format!("sidecar {position} KZG commitment mismatch").into());
         }
         let versioned_hash = blob_versioned_hashes(std::slice::from_ref(&blob))?
@@ -316,8 +331,12 @@ fn required_hex_bytes(value: &Value, pointer: &str) -> Result<Bytes, Box<dyn Err
     let raw = required(value, pointer)?
         .as_str()
         .ok_or_else(|| format!("JSON field {pointer} is not a string"))?;
+    decode_hex_string(raw, &format!("JSON field {pointer}"))
+}
+
+fn decode_hex_string(raw: &str, field: &str) -> Result<Bytes, Box<dyn Error>> {
     let hexadecimal = raw
         .strip_prefix("0x")
-        .ok_or_else(|| format!("JSON field {pointer} is missing its 0x prefix"))?;
+        .ok_or_else(|| format!("{field} is missing its 0x prefix"))?;
     Ok(hex::decode(hexadecimal)?.into())
 }

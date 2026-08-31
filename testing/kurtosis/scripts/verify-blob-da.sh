@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercise blob DA with a real contract deployment and state-changing calls,
-# then independently verify the L1 transactions, beacon sidecars, decoded
+# then independently verify the L1 transactions, Beacon blob responses, decoded
 # payloads, L2 safe head, and L1 registry root.
 set -euo pipefail
 
@@ -143,9 +143,10 @@ verify_l1_blob_batch() {
     (( elapsed % seconds_per_slot == 0 )) || return 1
     slot=$((elapsed / seconds_per_slot))
 
-    sidecars_file="$temp_dir/sidecars-$slot.json"
+    sidecars_file="$temp_dir/beacon-blobs-$slot.json"
     for attempt in {1..20}; do
-        if curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$slot" -o "$sidecars_file" 2>/dev/null; then
+        if curl -fsS "$BEACON_URL/eth/v1/beacon/blobs/$slot" -o "$sidecars_file" 2>/dev/null ||
+            curl -fsS "$BEACON_URL/eth/v1/beacon/blob_sidecars/$slot" -o "$sidecars_file" 2>/dev/null; then
             break
         fi
         sleep 2

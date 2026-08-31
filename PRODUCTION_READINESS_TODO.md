@@ -7,7 +7,7 @@ below.
 
 ## P0 — release blockers
 
-- [ ] Replace the deprecated Beacon API `blob_sidecars` dependency with a
+- [x] Replace the deprecated Beacon API `blob_sidecars` dependency with a
   fork-aware blob retrieval abstraction that supports
   `/eth/v1/beacon/blobs/{block_id}` and a deliberate legacy fallback.
 - [ ] Define and operate a durable historical blob source. It must support a

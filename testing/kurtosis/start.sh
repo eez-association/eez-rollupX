@@ -35,8 +35,11 @@ echo "==> protocol submodule: $(git -C "$PROTOCOL_DIR" rev-parse --short HEAD)"
 [[ -f "$ARGS_FILE" ]] || { echo "Kurtosis args not found: $ARGS_FILE" >&2; exit 1; }
 
 # Flat key lookup for this simple args template.
-yv() { grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//'; }
+yv() {
+    grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
+        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//' \
+        || true
+}
 
 NODE_IMAGE="$(yv eez_node_image)";                NODE_IMAGE="${NODE_IMAGE:-eez-node:dev}"
 PROOF_SIGNER_IMAGE="$(yv proof_signer_image)";    PROOF_SIGNER_IMAGE="${PROOF_SIGNER_IMAGE:-eez-proof-signer:dev}"

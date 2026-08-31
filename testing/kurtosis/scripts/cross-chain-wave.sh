@@ -250,14 +250,15 @@ echo
 echo "==> setup complete; running waves"
 RECEIPT_WAIT_SECS="${EEZ_RECEIPT_WAIT_SECS:-300}"
 WAVE_GAP_SECS="${EEZ_WAVE_GAP_SECS:-20}"
+WAIT_BETWEEN_WAVES="${EEZ_WAIT_BETWEEN_WAVES:-1}"
 FILLER_PER_GAP="${EEZ_FILLER_PER_GAP:-2}"
 # One reverting cross-chain call per side per wave (bogus selector, no
 # fallback). They must NOT settle, and must not disturb the rest.
 INCLUDE_REVERTS="${EEZ_INCLUDE_REVERTS:-0}"
 PURE_RECIPIENT=0x2222222222222222222222222222222222222222
 
-refresh_node_log() { docker logs "$(docker ps --format "{{.Names}}" | grep -m1 "eez-node--")" >"$NODE_LOG" 2>&1 || true; }
-refresh_signer_log() { docker logs "$(docker ps --format "{{.Names}}" | grep -m1 "eez-proof-signer--")" >"$SIGNER_LOG" 2>&1 || true; }
+refresh_node_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-node >"$NODE_LOG" 2>&1 || true; }
+refresh_signer_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-proof-signer >"$SIGNER_LOG" 2>&1 || true; }
 strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
 # The relay needs a few L1 slots before it includes anything. Firing into that
@@ -469,7 +470,7 @@ run_waves() {
             echo "    outbound: 4 ops via L2 front (set/noret/wd/wrap)"
         fi
         (( do_pure )) && { submit_pure_filler "$FILLER_PER_GAP"; echo "    pure: $FILLER_PER_GAP L2 filler txs"; }
-        if (( w < WAVES )); then
+        if (( WAIT_BETWEEN_WAVES && w < WAVES )); then
             if (( do_in )); then
                 wait_nonce_at_least "$L1" "$HH_ADDR_IN" "$IN_WAVE_TARGET" "inbound sender" || exit 1
             fi
