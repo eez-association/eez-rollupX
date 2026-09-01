@@ -7,6 +7,10 @@ REPO="$(cd "$HERE/../.." && pwd)"
 export KURTOSIS_ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 export KURTOSIS_BUILDER_SERVICE="${KURTOSIS_BUILDER_SERVICE:-el-2-reth-builder-lighthouse}"
 export KURTOSIS_PRIVILEGED=0
+# The CI assertions exercise the node, protocol, proof, and settlement paths.
+# Keep optional UI/demo services out of this lane so it has no undeclared
+# dependency on a sibling eez-rollup-ui checkout or a host-local image.
+export EEZ_SKIP_UI_BUILD=1
 
 RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}"
 mkdir -p "$RESULT_DIR"
@@ -150,6 +154,8 @@ sed \
     -e "s|^[[:space:]]*proof_signer_image:.*|  proof_signer_image: $EEZ_PROOF_SIGNER_IMAGE|" \
     -e "s|^[[:space:]]*deploy_image:.*|  deploy_image: $EEZ_DEPLOY_IMAGE|" \
     -e "s|^[[:space:]]*enable_explorers:.*|  enable_explorers: false|" \
+    -e "s|^[[:space:]]*enable_ui:.*|  enable_ui: false|" \
+    -e "s|^[[:space:]]*enable_demo_apps:.*|  enable_demo_apps: false|" \
     "$ARGS_TEMPLATE" >"$KURTOSIS_ARGS_FILE"
 
 bash "$HERE/start.sh" "$KURTOSIS_ARGS_FILE"
