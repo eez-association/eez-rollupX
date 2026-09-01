@@ -1,0 +1,45 @@
+name: eez-public-gateway
+
+services:
+  gateway:
+    image: caddy:2-alpine
+    container_name: eez-public-gateway
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+      - "0.0.0.0:443:443/udp"
+      - "0.0.0.0:4443:4443"
+      - "0.0.0.0:4444:4444"
+      - "0.0.0.0:4445:4445"
+    environment:
+      EEZ_DOMAIN: "${EEZ_DOMAIN:-eez.asuscomm.com}"
+      EEZ_L1_RPC_UPSTREAM: "${EEZ_L1_RPC_UPSTREAM:-el-1-reth-lighthouse:8545}"
+      EEZ_L2_RPC_UPSTREAM: "${EEZ_L2_RPC_UPSTREAM:-eez-node:18688}"
+      EEZ_L1_FRONT_UPSTREAM: "${EEZ_L1_FRONT_UPSTREAM:-eez-node:18999}"
+      EEZ_L2_FRONT_UPSTREAM: "${EEZ_L2_FRONT_UPSTREAM:-eez-node:18998}"
+      EEZ_UI_UPSTREAM: "${EEZ_UI_UPSTREAM:-eez-ui:8080}"
+      EEZ_DASHBOARD_UPSTREAM: "${EEZ_DASHBOARD_UPSTREAM:-eez-monitor:8080}"
+      EEZ_BLOBSCAN_UPSTREAM: "${EEZ_BLOBSCAN_UPSTREAM:-blobscan-web:3000}"
+      EEZ_L1_EXPLORER_UPSTREAM: "${EEZ_L1_EXPLORER_UPSTREAM:-l1-blockscout-frontend:3000}"
+      EEZ_L2_EXPLORER_UPSTREAM: "${EEZ_L2_EXPLORER_UPSTREAM:-l2-blockscout-frontend:3000}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - eez
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+networks:
+  eez:
+    external: true
+    name: "${EEZ_DOCKER_NETWORK:-kt-eez-engineer-dev}"
+
+volumes:
+  caddy_data:
+  caddy_config:
