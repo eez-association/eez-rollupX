@@ -21,6 +21,11 @@ chiado-*/
 # CI diagnostics.
 artifacts/
 .runtime/
+
+# Python helper output.
+__pycache__/
+*.py[cod]
+
 # Per-network env files (private keys)
 .env.*
 # ...except the templates, which carry placeholders instead of keys.
