@@ -18,6 +18,8 @@ jobs:
     runs-on: homelab-rust
     timeout-minutes: 150
     env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/cargo-target
+      CARGO_INCREMENTAL: "0"
       KURTOSIS_ENCLAVE: eez-ci
       EEZ_NODE_IMAGE: eez-node:ci-${{ github.sha }}
       EEZ_PROOF_SIGNER_IMAGE: eez-proof-signer:ci-${{ github.sha }}
@@ -29,6 +31,8 @@ jobs:
           persist-credentials: false
       - name: Initialize submodules
         run: git submodule update --init --recursive
+      - name: Initialize Cargo target directory
+        run: mkdir -p "$CARGO_TARGET_DIR"
       - name: Reclaim runner filesystem space
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
@@ -45,6 +49,9 @@ jobs:
           kurtosis engine start
       - name: Run Enclave
         run: bash testing/kurtosis/run-ci.sh
+      - name: Cargo failure diagnostics
+        if: failure()
+        run: bash scripts/ci/cargo-failure-diagnostics.sh
       - name: Stop kurtosis enclave
         if: always()
         run: bash testing/kurtosis/stop.sh
