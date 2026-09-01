@@ -15,6 +15,7 @@ use url::Url;
 use crate::error::{L1Error, L1Result};
 
 const ENV_RPC_URL: &str = "EEZ_L1_RPC_URL";
+const ENV_BEACON_URL: &str = "EEZ_L1_BEACON_URL";
 const ENV_BUILDER_RPC_URL: &str = "EEZ_L1_BUILDER_RPC_URL";
 const ENV_TARGET_RPC_URL: &str = "EEZ_L1_TARGET_RPC_URL";
 const ENV_POSTER_KEY: &str = "EEZ_L1_POSTER_KEY";
@@ -27,6 +28,9 @@ const ENV_BUNDLE_CAPTURE_DIR: &str = "EEZ_BUNDLE_CAPTURE_DIR";
 pub struct L1ReaderConfig {
     /// L1 RPC endpoint (HTTP / HTTPS).
     pub rpc_url: Url,
+    /// Optional consensus-layer REST endpoint used to retrieve EIP-4844 blob
+    /// sidecars. Required only when a scanned batch selects `blobIndices`.
+    pub beacon_url: Option<Url>,
     /// Deployed `EEZ` (rollups registry) address.
     pub eez: Address,
     /// Our rollup's id. Used by the batch-log scanner to filter the
@@ -39,6 +43,7 @@ impl std::fmt::Debug for L1ReaderConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("L1ReaderConfig")
             .field("rpc_url", &self.rpc_url.as_str())
+            .field("beacon_url", &self.beacon_url.as_ref().map(Url::as_str))
             .field("eez", &self.eez)
             .field("rollup_id", &self.rollup_id)
             .finish()
@@ -55,6 +60,7 @@ impl L1ReaderConfig {
     pub fn from_env() -> L1Result<Self> {
         Ok(Self {
             rpc_url: parse_url(ENV_RPC_URL)?,
+            beacon_url: optional_url(ENV_BEACON_URL)?,
             eez: parse_address(ENV_EEZ_ADDRESS)?,
             rollup_id: parse_u64(ENV_ROLLUP_ID)?,
         })
@@ -133,6 +139,19 @@ fn optional_path(name: &str) -> L1Result<Option<PathBuf>> {
     match env::var(name) {
         Ok(raw) if raw.trim().is_empty() => Ok(None),
         Ok(raw) => Ok(Some(PathBuf::from(raw))),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))
+        }
+    }
+}
+
+fn optional_url(name: &str) -> L1Result<Option<Url>> {
+    match env::var(name) {
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => Url::parse(&raw)
+            .map(Some)
+            .map_err(|e| L1Error::Config(format!("{name}: {e}"))),
         Err(env::VarError::NotPresent) => Ok(None),
         Err(env::VarError::NotUnicode(_)) => {
             Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))

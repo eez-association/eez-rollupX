@@ -19,13 +19,14 @@ use crate::error::{L1Error, L1Result};
 /// split before hitting RPCs that reject long `eth_getLogs` ranges.
 pub(crate) const LOG_SCAN_CHUNK_BLOCKS: u64 = 100_000;
 
-/// One `L2ExecutionPerformed.newRoot` for our rollup, tagged with where in the
-/// L1 block it was emitted so it can be attributed to the owning batch.
+/// One `L2ExecutionPerformed.newRoot` block-hash commitment for our rollup,
+/// tagged with where in the L1 block it was emitted so it can be attributed to
+/// the owning batch.
 #[derive(Debug, Clone, Copy)]
 struct SettledRoot {
     tx_index: u64,
     log_index: u64,
-    /// L1 block this root's log landed in — attribution requires it to
+    /// L1 block this commitment's log landed in — attribution requires it to
     /// match the batch's block hash (fork-pinning).
     block_hash: B256,
     root: B256,
@@ -43,6 +44,7 @@ struct DecodedBatchLog {
     /// This batch lists our rollup, so it wiped our queue — a window boundary.
     verifies_our_rollup: bool,
     call_data: Bytes,
+    transaction_blob_hashes: Vec<B256>,
     post_batch_input: Bytes,
     claimed_current_root: Option<B256>,
     claimed_chain: Vec<B256>,
@@ -84,8 +86,8 @@ impl BatchLogChunks {
     }
 }
 
-/// One decoded `BatchPosted` log: winner flag plus the claimed state
-/// roots from our rollup's `RootUpdate`. The Deriver's catch-up scan and
+/// One decoded `BatchPosted` log: winner flag plus the claimed block hashes
+/// from our rollup's legacy-named `RootUpdate`. The Deriver's catch-up scan and
 /// the live [`L1Watcher`](crate::L1Watcher) poll consume the same shape.
 #[derive(Debug, Clone)]
 pub struct ScannedBatch {
@@ -94,8 +96,16 @@ pub struct ScannedBatch {
     /// for the resync anchor walk.
     pub l1_block_hash: B256,
     pub tx_hash: B256,
+    /// Position of the posting transaction in its L1 block. Together with
+    /// `l1_block_number` this gives a stable total order for same-block batches.
+    pub tx_index: u64,
     pub submitter: Address,
     pub call_data: Bytes,
+    /// EIP-4844 versioned hashes committed by the originating transaction.
+    /// Internal derivation metadata; the beacon retrieval path replaces
+    /// `call_data` with the authenticated decoded blob payload before this
+    /// value leaves `eez-l1`.
+    pub(crate) transaction_blob_hashes: Vec<B256>,
     /// The originating postBatch tx's full input (the `postAndVerifyBatch`
     /// calldata), captured from the tx fetched by (block, index). Carried
     /// so the Deriver's reconcile fallback decodes `batch.entries`
@@ -110,10 +120,10 @@ pub struct ScannedBatch {
     pub claimed_new_root: Option<B256>,
 }
 
-/// Scan-only metadata used to remove an L2-range ambiguity that the root-only
+/// Scan-only metadata used to remove an L2-range ambiguity that the hash-only
 /// L1 registry cannot resolve by itself. Two composers can submit from the
 /// same cursor in one L1 block. If an anchor-only `A -> A` batch lands before
-/// an `A -> B` batch, both root updates execute, but both payloads describe the
+/// an `A -> B` batch, both updates execute, but both payloads describe the
 /// same L2 range. Advancing the range for the idle batch makes the richer batch
 /// replay at the wrong block numbers. Duplicate `A -> A` batches have the same
 /// ambiguity even without a richer peer.
@@ -124,8 +134,8 @@ struct AttributedBatch {
     anchor_only_root_noop: bool,
 }
 
-/// Canonicalize competing batches that started at the same root in the same
-/// L1 block. Prefer any settled non-trivial batch over anchor-only root no-ops;
+/// Canonicalize competing batches that started at the same commitment in the
+/// same L1 block. Prefer any settled non-trivial batch over anchor-only no-ops;
 /// when every settled candidate is a no-op, keep only the earliest one. This
 /// preserves idle-chain cursor progress while ensuring a root-no-op can never
 /// consume the range of a richer competing payload.
@@ -196,7 +206,7 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
 }
 
 /// Which of a batch's claimed L2 steps an observed L1 carrier committed. A
-/// successful entry moves the stored root and emits `L2ExecutionPerformed`;
+/// successful entry moves the stored block hash and emits `L2ExecutionPerformed`;
 /// failed entries emit nothing because their frames revert, so their L2
 /// checkpoints are assigned to the preceding successful carrier. The expanded
 /// committed run remains contiguous, so `(start, len)` describes it fully in
@@ -204,7 +214,7 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
 ///
 /// `start > 0` = leading steps skipped: a competing same-block batch already made
 /// those hops (routine with two composers on a shared tx stream, since identical
-/// txs produce identical roots).
+/// Sync blocks produce identical hashes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Settlement {
     /// Index into the claimed chain where the applied run starts. Meaningless
@@ -212,11 +222,11 @@ pub struct Settlement {
     pub start: usize,
     /// How many consecutive steps ran. `0` = nothing settled → skip the batch.
     pub len: usize,
-    /// `newRoot` of the last step that ran — L1's ACTUAL stored root after this
+    /// `newRoot` of the last step that ran — L1's ACTUAL stored block hash after this
     /// batch (a prefix endpoint under partial consumption). Reconciliation
     /// validates against THIS, never the claimed full-chain end.
     pub final_state: Option<B256>,
-    /// The stored root the applied run STARTED from — what reconciliation compares
+    /// The stored block hash the applied run STARTED from — what reconciliation compares
     /// its local cursor against. The claimed `currentRoot` when `start == 0`,
     /// else `claimed_chain[start - 1]`; using the claimed value on a mid-chain
     /// resume reports a divergence that isn't one.
@@ -232,7 +242,7 @@ impl Settlement {
         entry_state: None,
     };
 
-    /// True when L1 ran none of this batch's steps — the claimed roots are
+    /// True when L1 ran none of this batch's steps — the claimed hashes are
     /// phantoms and the batch must be skipped entirely.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -352,9 +362,10 @@ pub(crate) async fn scan_next_batch_log_chunk(
 
 /// Fetch every `BatchPosted` log in `[from_block, to_block]` and cross-
 /// reference each against `L2ExecutionPerformed` for our rollup — present
-/// ⇔ this batch's state delta applied (winner; losers emit `BatchPosted`
+/// ⇔ this batch's commitment delta applied (winner; losers emit `BatchPosted`
 /// only). For each, decode the originating tx for the submitter, callData
-/// and our rollup's claimed state roots.
+/// and our rollup's claimed block hashes. The contract retains the legacy
+/// `currentRoot` / `newRoot` field names.
 pub(crate) async fn scan_batch_logs_range(
     provider: &impl Provider,
     eez: Address,
@@ -522,6 +533,10 @@ pub(crate) async fn scan_batch_logs_range(
                 .iter()
                 .any(|r| r.rollupId == rollup_id),
             call_data: decoded.batch.callData,
+            transaction_blob_hashes: tx
+                .inner
+                .blob_versioned_hashes()
+                .map_or_else(Vec::new, <[B256]>::to_vec),
             post_batch_input: input.clone(),
             claimed_current_root,
             claimed_chain,
@@ -530,7 +545,7 @@ pub(crate) async fn scan_batch_logs_range(
     }
 
     // Window boundaries: tx indices, per block, of the postBatches that verify
-    // our rollup. A batch owns the settled roots emitted from its own tx up to
+    // our rollup. A batch owns the settled block hashes emitted from its own tx up to
     // (excluding) the next such boundary — its entries are provably dead past
     // that point, queue wiped.
     let mut boundaries: HashMap<(u64, B256), Vec<u64>> = HashMap::new();
@@ -581,8 +596,10 @@ pub(crate) async fn scan_batch_logs_range(
                 l1_block_number: b.l1_block_number,
                 l1_block_hash: b.l1_block_hash,
                 tx_hash: b.tx_hash,
+                tx_index: b.tx_index,
                 submitter: b.submitter,
                 call_data: b.call_data,
+                transaction_blob_hashes: b.transaction_blob_hashes,
                 post_batch_input: b.post_batch_input,
                 state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
                 settlement,
@@ -596,8 +613,9 @@ pub(crate) async fn scan_batch_logs_range(
     Ok(canonicalize_root_noops(out))
 }
 
-/// Our rollup's root-update chain in a batch: the first update's
-/// `currentRoot` (pre-batch root) and the ordered per-update `newRoot` roots.
+/// Our rollup's commitment chain in a batch: the first update's
+/// `currentRoot` (pre-batch block hash) and the ordered per-update `newRoot`
+/// block hashes. The function name retains protocol terminology.
 fn our_state_chain(
     batch: &ProofSystemBatchPerVerificationEntriesSol,
     rollup_id: u64,
@@ -620,8 +638,9 @@ fn our_state_chain(
     (first_curr, new_roots, successes)
 }
 
-/// Roots settled inside this batch's tx-index window AND on this batch's own
-/// L1 block hash — a same-numbered root from a different fork never attributes.
+/// Commitments settled inside this batch's tx-index window AND on this batch's
+/// own L1 block hash — a same-numbered hash from a different fork never
+/// attributes.
 fn window_roots(
     roots: &[SettledRoot],
     tx_index: u64,
@@ -727,7 +746,7 @@ fn attribute_settlement_with_successes(
             .map(|carrier| carrier.root)
             .eq(observed.iter().copied())
     }) else {
-        // The window settled roots this batch never claimed. Not attributable
+        // The window settled block hashes this batch never claimed. Not attributable
         // to it — treat as "nothing of ours applied" and let the caller skip;
         // the cursor guard catches any real misalignment loudly.
         event!(
@@ -735,7 +754,7 @@ fn attribute_settlement_with_successes(
             Level::WARN,
             observed = observed.len(),
             claimed = claimed_chain.len(),
-            "settled roots in this batch's window match no consecutive run of its claimed chain",
+            "settled block hashes in this batch's window match no consecutive run of its claimed chain",
         );
         return Settlement::NONE;
     };
@@ -938,8 +957,10 @@ mod tests {
                 l1_block_number: 42,
                 l1_block_hash: B256::repeat_byte(0x42),
                 tx_hash: B256::repeat_byte(tx_byte),
+                tx_index,
                 submitter: Address::ZERO,
                 call_data: Bytes::new(),
+                transaction_blob_hashes: Vec::new(),
                 post_batch_input: Bytes::new(),
                 state_applied: settled,
                 settlement: if settled {

@@ -165,12 +165,12 @@ async fn assert_reconciled(w: &CrossChainWorld) {
         let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
         async move {
             let l1_root = state_root(&l1_rpc, eez, rollup_id).await?;
-            let l2_root = common::safe_block_state_root(&l2_rpc).await?;
+            let l2_root = common::safe_block_hash(&l2_rpc).await?;
             Ok(l2_root.filter(|root| *root == l1_root).map(|_| ()))
         }
     })
     .await
-    .expect("L1 stored stateRoot never matched the L2 safe stateRoot");
+    .expect("L1 stored commitment never matched the L2 safe block hash");
 }
 
 /// Return at the start of a drain window, so everything submitted next lands
@@ -310,7 +310,7 @@ async fn three_order_dependent_inbound_calls_in_one_bundle() {
     assert_reconciled(&w).await;
     assert_no_evictions(&w);
     assert_eq!(
-        w.node.log_count_matching(&["local L2 state root"]).unwrap(),
+        w.node.log_count_matching(&["local L2 block hash"]).unwrap(),
         0,
         "no state-root divergence",
     );

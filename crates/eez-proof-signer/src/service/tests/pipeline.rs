@@ -7,10 +7,12 @@ fn validated_single_block(
     receipt_successes: Vec<bool>,
     transaction_state_checkpoints: Vec<validate::TransactionStateCheckpoint>,
 ) -> validate::ValidatedWindow {
+    let parent_hash = B256::repeat_byte(0x04);
+    let block_hash = B256::repeat_byte(0x05);
     validate::ValidatedWindow::for_test(
-        B256::ZERO,
-        B256::ZERO,
-        B256::ZERO,
+        parent_hash,
+        parent_hash,
+        block_hash,
         Vec::new(),
         validate::ValidatedSettlingBlock::for_test(
             block,
@@ -232,6 +234,7 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
 
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: b"not ABI calldata".to_vec(),
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -262,6 +265,7 @@ fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
         &state,
         crate::window::AdmittedBlocks::for_test(inputs),
         b"not ABI calldata".to_vec(),
+        Vec::new(),
         deadline,
         &CancellationToken::default(),
     );
@@ -296,11 +300,13 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
 
     let mut batch = anchor_batch();
+    batch.entries[0].rootUpdates[0].currentRoot = B256::repeat_byte(0x04);
+    batch.entries[0].rootUpdates[0].newRoot = B256::repeat_byte(0x04);
     batch.entries.push(ExecutionEntrySol {
         rootUpdates: vec![RootUpdateSol {
             rollupId: 1,
-            currentRoot: B256::ZERO,
-            newRoot: B256::ZERO,
+            currentRoot: B256::repeat_byte(0x04),
+            newRoot: B256::repeat_byte(0x05),
             etherDelta: EtherDeltaSol::from(value),
         }],
         proxyEntryHash: call_hash,
@@ -316,7 +322,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     let expected_hash = recompute_test_public_inputs_hash(&batch);
     let calldata = eez_protocol::entries::encode_postbatch(&batch);
     let statuses = [true];
-    let checkpoints = [checkpoint(0, B256::ZERO)];
+    let checkpoints = [checkpoint(0, B256::repeat_byte(0x05))];
     let validated = validated_single_block(settling_block, statuses.to_vec(), checkpoints.to_vec());
     let cancellation = CancellationToken::default();
     let system_transaction_reconstructor =
@@ -324,6 +330,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
 
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata.clone(),
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -343,6 +350,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata,
+        submitted_blobs: &[],
         validated_window: &reverted,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -378,7 +386,7 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
     let validated = validated_single_block(
         settling_block,
         vec![false, true],
-        vec![checkpoint(1, B256::ZERO)],
+        vec![checkpoint(1, B256::repeat_byte(0x05))],
     );
     let cancellation = CancellationToken::default();
     let system_transaction_reconstructor =
@@ -386,6 +394,7 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
 
     let error = run_settlement(SettlementInput {
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -419,7 +428,7 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
     let validated = validated_single_block(
         settling_block,
         vec![true, true],
-        vec![checkpoint(1, B256::ZERO)],
+        vec![checkpoint(1, B256::repeat_byte(0x05))],
     );
     let cancellation = CancellationToken::default();
     let system_transaction_reconstructor =
@@ -427,6 +436,7 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
 
     let error = run_settlement(SettlementInput {
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -466,7 +476,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
     let validated = validated_single_block(
         settling_block,
         vec![true, true],
-        vec![checkpoint(1, B256::ZERO)],
+        vec![checkpoint(1, B256::repeat_byte(0x05))],
     );
     let cancellation = CancellationToken::default();
     let system_transaction_reconstructor =
@@ -474,6 +484,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
 
     let error = run_settlement(SettlementInput {
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -506,7 +517,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     let expected_hash = recompute_test_public_inputs_hash(&batch);
     let calldata = eez_protocol::entries::encode_postbatch(&batch);
     let statuses = [true, true];
-    let checkpoints = [checkpoint(1, B256::ZERO)];
+    let checkpoints = [checkpoint(1, B256::repeat_byte(0x05))];
     let validated = validated_single_block(settling_block, statuses.to_vec(), checkpoints.to_vec());
     let cancellation = CancellationToken::default();
     let system_transaction_reconstructor =
@@ -514,6 +525,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
 
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata,
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -532,6 +544,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     let mismatched_calldata = eez_protocol::entries::encode_postbatch(&mismatched_da);
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: mismatched_calldata,
+        submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,

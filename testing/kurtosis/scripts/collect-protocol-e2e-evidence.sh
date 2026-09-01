@@ -10,10 +10,11 @@ SCENARIO_SOL="${2:?missing scenario Solidity path}"
 SCENARIO_LOG="${3:?missing scenario log}"
 OUTPUT_JSON="${4:?missing evidence output path}"
 
-for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER; do
+for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER \
+    BEACON_URL BLOB_VERIFIER ROLLUP_ID; do
     [[ -n "${!var:-}" ]] || { echo "missing $var" >&2; exit 1; }
 done
-for tool in cast jq sed sha256sum; do
+for tool in cast curl jq sed sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool not found" >&2; exit 1; }
 done
 [[ -f "$SCENARIO_SOL" ]] || { echo "scenario not found: $SCENARIO_SOL" >&2; exit 1; }
@@ -232,10 +233,28 @@ if ! "$CAUSAL_VERIFIER" "$causal_tmp/input.json" "$causal_tmp/output.json"; then
 fi
 causal_graph="$(jq -c . "$causal_tmp/output.json")"
 
+# Authenticate the exact physical blob selected by postBatch, decode the
+# native semantic stream, and require every canonical raw trigger transaction
+# to appear byte-for-byte as semantic tx_data.
+trigger_hashes=()
+for evidence in "${user_receipts[@]}"; do
+    trigger_hashes+=("$(jq -r '.hash' <<<"$evidence")")
+done
+blob_evidence_file="$causal_tmp/blob-evidence.json"
+sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
+if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
+    BLOB_VERIFIER="$BLOB_VERIFIER" ROLLUP_ID="$ROLLUP_ID" \
+    bash "$(dirname "$0")/verify-semantic-settlement-blob.sh" \
+        "$post_hash" "$trigger_chain" "$blob_evidence_file" "$sidecars_file" \
+        "${trigger_hashes[@]}"; then
+    die "settlement blob semantic verification failed"
+fi
+blob_da="$(jq -c . "$blob_evidence_file")"
+
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"
 jq -n \
-    --argjson schema_version 1 \
+    --argjson schema_version 2 \
     --arg scenario "$SCENARIO_NAME" \
     --arg scenario_path "$SCENARIO_SOL" \
     --arg protocol_commit "$PROTOCOL_COMMIT" \
@@ -256,6 +275,7 @@ jq -n \
     --argjson l2_calls_verified "$l2_calls_verified" \
     --argjson summary_blocks_match "$summary_blocks_match" \
     --argjson causal_graph "$causal_graph" \
+    --argjson blob_da "$blob_da" \
     '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
       trigger_chain: $trigger_chain, trigger_transactions: $trigger_transactions,
@@ -264,9 +284,12 @@ jq -n \
       expected: {l1_entries: $expected_l1_entries, l2_entries: $expected_l2_entries,
                  l1_calls: $expected_l1_calls, l2_calls: $expected_l2_calls},
       causal_graph: $causal_graph,
+      blob_da: $blob_da,
       claims: {upstream_completed: true, receipts_revalidated: true,
                upstream_summary_blocks_match_receipts: $summary_blocks_match,
                causal_graph_bijection: true,
+               blob_kzg_authenticated: true, native_semantics_decoded: true,
+               semantic_trigger_bytes_bound: true,
                l1_settlement_verified: true, posted_table_field_match: true,
                rolling_hashes_replayed: $rolling_replayed, l2_table_field_match: true,
                l2_calls_verified: $l2_calls_verified},

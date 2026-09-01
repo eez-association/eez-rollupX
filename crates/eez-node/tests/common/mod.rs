@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashSet,
+    convert::Infallible,
     fmt::Write as _,
     net::{TcpListener, UdpSocket},
     path::PathBuf,
@@ -15,7 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_consensus::Transaction as _;
+use alloy_consensus::{EthereumTxEnvelope, Transaction as _, TxEip4844WithSidecar};
+use alloy_eips::Decodable2718;
 use alloy_primitives::{Address, B256, Signature, U256, address, hex};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{BlockNumHash, BlockNumberOrTag, TransactionReceipt, TransactionRequest};
@@ -31,6 +33,9 @@ use eez_control_rpc::{
     },
 };
 use eez_protocol::EEZL2_ADDRESS;
+use http_body_util::Full;
+use hyper::{Request as HttpRequest, Response as HttpResponse, StatusCode, body::Incoming};
+use hyper_util::rt::TokioIo;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -55,6 +60,10 @@ pub const L2_SYSTEM_KEY: &str =
 
 // K = L1/L2 = 2 matches standalone's 2s cadence and leaves one L2 slot for proving.
 const L1_BLOCK_TIME_SECS: u64 = 4;
+// `anvil_reorg` can assign replacement-block timestamps between regular
+// four-second mining ticks. Model one-second Beacon slots (with skipped slots)
+// so every canonical Anvil block still has an unambiguous consensus slot.
+const BEACON_FIXTURE_SECONDS_PER_SLOT: u64 = 1;
 
 // Consumed by the launcher as `--chain`; never forwarded to `eez-node`.
 const TEST_L2_GENESIS_ENV: &str = "EEZ_TEST_L2_GENESIS_PATH";
@@ -314,6 +323,7 @@ struct BundleStub {
     url: String,
     log_path: PathBuf,
     _log_dir: Option<tempfile::TempDir>,
+    capture_dir: tempfile::TempDir,
 }
 
 impl BundleStub {
@@ -321,11 +331,14 @@ impl BundleStub {
         let script = repo_root().join("scripts/builder-stub.py");
         let listen = format!("127.0.0.1:{port}");
         let (log_path, log_dir) = test_log_destination("builder-stub")?;
+        let capture_dir = tempfile::tempdir().context("builder blob capture tempdir")?;
         let log = std::fs::File::create(&log_path).context("create builder stub log")?;
         let err_log = log.try_clone().context("clone builder stub log")?;
         let mut child = Command::new("python3")
             .arg(script)
             .args(["--listen", &listen, "--upstream", upstream])
+            .arg("--capture-dir")
+            .arg(capture_dir.path())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log))
             .spawn()
@@ -339,6 +352,7 @@ impl BundleStub {
                     url,
                     log_path,
                     _log_dir: log_dir,
+                    capture_dir,
                 });
             }
             if let Some(status) = child.try_wait().context("poll builder stub process")? {
@@ -355,6 +369,10 @@ impl BundleStub {
             std::fs::read_to_string(&log_path).unwrap_or_default(),
         );
     }
+
+    fn capture_dir(&self) -> &std::path::Path {
+        self.capture_dir.path()
+    }
 }
 
 impl Drop for BundleStub {
@@ -368,6 +386,222 @@ impl Drop for BundleStub {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+#[derive(Clone)]
+struct BeaconFixtureState {
+    anvil_rpc: String,
+    capture_dir: PathBuf,
+    genesis_time: u64,
+}
+
+/// Test-only Beacon REST fixture backed by canonical Anvil receipts.
+///
+/// The builder stub captures the exact pooled EIP-4844 envelope before it is
+/// forwarded to Anvil. Sidecar requests only expose captures whose receipt is
+/// currently canonical and whose execution timestamp maps to the requested
+/// slot, so `anvil_reorg` also removes orphaned sidecars from this view.
+struct BeaconStub {
+    endpoint: String,
+    task: JoinHandle<()>,
+}
+
+impl BeaconStub {
+    async fn spawn(anvil_rpc: String, capture_dir: PathBuf, genesis_time: u64) -> Result<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let state = BeaconFixtureState {
+            anvil_rpc,
+            capture_dir,
+            genesis_time,
+        };
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let state = state.clone();
+                tokio::spawn(async move {
+                    let service = hyper::service::service_fn(move |request| {
+                        beacon_fixture_response(request, state.clone())
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        Ok(Self {
+            endpoint: format!("http://{address}"),
+            task,
+        })
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+}
+
+impl Drop for BeaconStub {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn beacon_fixture_response(
+    request: HttpRequest<Incoming>,
+    state: BeaconFixtureState,
+) -> Result<HttpResponse<Full<hyper::body::Bytes>>, Infallible> {
+    let path = request.uri().path();
+    let response = if path == "/eth/v1/beacon/genesis" {
+        serde_json::json!({"data": {"genesis_time": state.genesis_time.to_string()}}).to_string()
+    } else if path == "/eth/v1/config/spec" {
+        serde_json::json!({"data": {"SECONDS_PER_SLOT": BEACON_FIXTURE_SECONDS_PER_SLOT.to_string()}})
+            .to_string()
+    } else if let Some(raw_slot) = path.strip_prefix("/eth/v1/beacon/blobs/") {
+        match raw_slot.parse::<u64>() {
+            Ok(slot) => match canonical_blob_sidecars(&state, slot).await {
+                Ok(sidecars) => serde_json::json!({
+                    "data": sidecars
+                        .iter()
+                        .filter_map(|sidecar| sidecar.get("blob"))
+                        .collect::<Vec<_>>()
+                })
+                .to_string(),
+                Err(error) => {
+                    return Ok(beacon_json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        serde_json::json!({"code": 500, "message": error.to_string()}),
+                    ));
+                }
+            },
+            Err(error) => {
+                return Ok(beacon_json_response(
+                    StatusCode::BAD_REQUEST,
+                    serde_json::json!({"code": 400, "message": error.to_string()}),
+                ));
+            }
+        }
+    } else if let Some(raw_slot) = path.strip_prefix("/eth/v1/beacon/blob_sidecars/") {
+        match raw_slot.parse::<u64>() {
+            Ok(slot) => match canonical_blob_sidecars(&state, slot).await {
+                Ok(sidecars) => serde_json::json!({"data": sidecars}).to_string(),
+                Err(error) => {
+                    return Ok(beacon_json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        serde_json::json!({"code": 500, "message": error.to_string()}),
+                    ));
+                }
+            },
+            Err(error) => {
+                return Ok(beacon_json_response(
+                    StatusCode::BAD_REQUEST,
+                    serde_json::json!({"code": 400, "message": error.to_string()}),
+                ));
+            }
+        }
+    } else {
+        return Ok(beacon_json_response(
+            StatusCode::NOT_FOUND,
+            serde_json::json!({"code": 404, "message": "not found"}),
+        ));
+    };
+    Ok(beacon_json_response(
+        StatusCode::OK,
+        serde_json::from_str(&response).expect("fixture generated valid JSON"),
+    ))
+}
+
+fn beacon_json_response(
+    status: StatusCode,
+    value: serde_json::Value,
+) -> HttpResponse<Full<hyper::body::Bytes>> {
+    HttpResponse::builder()
+        .status(status)
+        .header(hyper::header::CONTENT_TYPE, "application/json")
+        .body(Full::new(hyper::body::Bytes::from(value.to_string())))
+        .expect("static Beacon fixture response")
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CapturedBlobTransaction {
+    raw: String,
+    transaction_hash: B256,
+}
+
+async fn canonical_blob_sidecars(
+    state: &BeaconFixtureState,
+    requested_slot: u64,
+) -> Result<Vec<serde_json::Value>> {
+    type PooledBlobEnvelope = EthereumTxEnvelope<TxEip4844WithSidecar>;
+
+    let provider = ProviderBuilder::new().connect_http(state.anvil_rpc.parse()?);
+    let mut captures = std::fs::read_dir(&state.capture_dir)
+        .with_context(|| format!("read blob captures at {}", state.capture_dir.display()))?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect::<Vec<_>>();
+    captures.sort();
+
+    let mut sidecars = Vec::new();
+    for path in captures {
+        let capture: CapturedBlobTransaction = serde_json::from_slice(
+            &std::fs::read(&path).with_context(|| format!("read {}", path.display()))?,
+        )
+        .with_context(|| format!("decode {}", path.display()))?;
+        let Some(receipt) = provider
+            .get_transaction_receipt(capture.transaction_hash)
+            .await?
+        else {
+            continue;
+        };
+        let Some(block_hash) = receipt.block_hash else {
+            continue;
+        };
+        let Some(block) = provider.get_block_by_hash(block_hash).await? else {
+            continue;
+        };
+        let Some(since_genesis) = block.header.timestamp.checked_sub(state.genesis_time) else {
+            continue;
+        };
+        if !since_genesis.is_multiple_of(BEACON_FIXTURE_SECONDS_PER_SLOT)
+            || since_genesis / BEACON_FIXTURE_SECONDS_PER_SLOT != requested_slot
+        {
+            continue;
+        }
+
+        let raw = hex::decode(capture.raw.strip_prefix("0x").unwrap_or(&capture.raw))
+            .with_context(|| format!("decode pooled blob tx {}", capture.transaction_hash))?;
+        let envelope = PooledBlobEnvelope::decode_2718(&mut raw.as_slice())
+            .with_context(|| format!("decode pooled blob envelope {}", capture.transaction_hash))?;
+        let signed = envelope
+            .as_eip4844()
+            .ok_or_else(|| anyhow!("captured transaction is not EIP-4844"))?;
+        let sidecar = signed
+            .tx()
+            .sidecar()
+            .as_eip4844()
+            .ok_or_else(|| anyhow!("blob reorg fixture requires EIP-4844 sidecar encoding"))?;
+        for ((blob, commitment), proof) in sidecar
+            .blobs
+            .iter()
+            .zip(&sidecar.commitments)
+            .zip(&sidecar.proofs)
+        {
+            sidecars.push(serde_json::json!({
+                "index": sidecars.len().to_string(),
+                "blob": format!("0x{}", hex::encode(blob.as_slice())),
+                "kzg_commitment": format!("0x{}", hex::encode(commitment.as_slice())),
+                "kzg_proof": format!("0x{}", hex::encode(proof.as_slice())),
+            }));
+        }
+    }
+    Ok(sidecars)
 }
 
 /// Persists logs under `EEZ_TEST_LOG_DIR`, or owns them in a temporary directory.
@@ -732,6 +966,7 @@ impl Drop for ProverProxyHandle {
 pub struct Harness {
     pub anvil: Anvil,
     stub: BundleStub,
+    beacon: BeaconStub,
     pub dep: Deployment,
     // The owning tempdir must outlive every node and signer using this genesis.
     l2_genesis: (PathBuf, tempfile::TempDir),
@@ -744,29 +979,40 @@ impl Harness {
     pub async fn fresh() -> Result<Self> {
         let ts = now_unix_secs();
         let l2_genesis = write_dev_genesis_at(ts)?;
+        let initial_block_hash = genesis_block_hash(&l2_genesis.0)?;
         let cfg = AnvilConfig::standard(ts);
-        Self::with_anvil_config(cfg, dev_genesis_state_root(), l2_genesis).await
+        Self::with_anvil_config(cfg, initial_block_hash, l2_genesis).await
     }
 
     /// Starts the reorg fixture with one timestamp shared by Anvil and the L2.
     pub async fn for_reorg() -> Result<Self> {
         let ts = now_unix_secs();
         let l2_genesis = write_l2_genesis_at(ts)?;
+        let initial_block_hash = genesis_block_hash(&l2_genesis.0)?;
         let cfg = AnvilConfig::for_reorg(ts);
-        Self::with_anvil_config(cfg, reorg_genesis_state_root()?, l2_genesis).await
+        Self::with_anvil_config(cfg, initial_block_hash, l2_genesis).await
     }
 
     async fn with_anvil_config(
         cfg: AnvilConfig,
-        initial_state: B256,
+        initial_block_hash: B256,
         l2_genesis: (PathBuf, tempfile::TempDir),
     ) -> Result<Self> {
+        let genesis_time = cfg.genesis_timestamp;
         let anvil = Anvil::spawn_with(free_port(), cfg).await?;
         let stub = BundleStub::spawn(free_port(), &anvil.rpc_url).await?;
-        let dep = deploy_contracts_with_initial(&anvil.rpc_url, ANVIL_KEY, initial_state).await?;
+        let beacon = BeaconStub::spawn(
+            anvil.rpc_url.clone(),
+            stub.capture_dir().to_path_buf(),
+            genesis_time,
+        )
+        .await?;
+        let dep =
+            deploy_contracts_with_initial(&anvil.rpc_url, ANVIL_KEY, initial_block_hash).await?;
         Ok(Self {
             anvil,
             stub,
+            beacon,
             dep,
             l2_genesis,
             provers: std::sync::Mutex::new(Vec::new()),
@@ -813,8 +1059,24 @@ impl Harness {
         &self.l2_genesis.0
     }
 
+    pub fn l2_genesis_block_hash(&self) -> Result<B256> {
+        genesis_block_hash(&self.l2_genesis.0)
+    }
+
     pub async fn env(&self) -> Result<Vec<(&'static str, String)>> {
         self.env_for(ANVIL_KEY, false).await
+    }
+
+    /// Composer environment that posts the compatibility payload as a real
+    /// EIP-4844 transaction and retrieves it through the Beacon REST fixture.
+    pub async fn blob_env(&self) -> Result<Vec<(&'static str, String)>> {
+        let mut env = self.env().await?;
+        env.extend([
+            ("EEZ_DA_MODE", "blob".to_string()),
+            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
+            ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
+        ]);
+        Ok(env)
     }
 
     pub async fn env_for(
@@ -1000,16 +1262,6 @@ sol! {
 pub const INVALID_PROOF_SELECTOR: [u8; 4] = IEEZ::InvalidProof::SELECTOR;
 pub const INVALID_PROOF_SYSTEM_CONFIG_SELECTOR: [u8; 4] = IEEZ::InvalidProofSystemConfig::SELECTOR;
 
-/// Reth's `--chain dev` genesis state root. Used as the `initialRoot`
-/// when registering the rollup so the very first batch's prestate
-/// (`l2_state_root(0)`) matches the on-chain `rollups[rid].root`.
-/// With the default `B256::ZERO`, every batch's `_applyRootUpdates`
-/// reverts with `RootMismatch`, caught by the try/catch,
-/// emitting `L2TxSkipped` instead of `L2ExecutionPerformed`.
-pub fn dev_genesis_state_root() -> B256 {
-    reth_chainspec::DEV.genesis_header().state_root
-}
-
 /// Wall-clock seconds for stamping test genesis + anvil, so the sequencer's
 /// defer-on-lateness gate doesn't read every trigger as late.
 fn now_unix_secs() -> u64 {
@@ -1020,8 +1272,9 @@ fn now_unix_secs() -> u64 {
 }
 
 /// Reth's dev genesis with timestamp set to `ts`, written to a temp file for
-/// `--chain`. Same alloc as `--chain dev` → state root still equals
-/// [`dev_genesis_state_root`]. The tempdir must outlive nodes using the path.
+/// `--chain`. The exact rendered file is also hashed for rollup registration;
+/// unlike a state root, its canonical block hash commits the timestamp. The
+/// tempdir must outlive nodes using the path.
 fn write_dev_genesis_at(ts: u64) -> Result<(PathBuf, tempfile::TempDir)> {
     let mut genesis: alloy_genesis::Genesis = reth_chainspec::DEV.genesis().clone();
     genesis.timestamp = ts;
@@ -1040,14 +1293,12 @@ fn reorg_genesis_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/genesis.json")
 }
 
-/// Genesis state root of `reorg_genesis_path()`. Computed by reading the
-/// JSON into reth's `Genesis` and converting to a `ChainSpec`.
-pub fn reorg_genesis_state_root() -> Result<B256> {
-    let raw = std::fs::read_to_string(reorg_genesis_path()).context("read genesis.json")?;
-    let genesis: alloy_genesis::Genesis =
-        serde_json::from_str(&raw).context("parse genesis.json")?;
+/// Canonical genesis header hash for the exact JSON passed to the L2 node.
+pub fn genesis_block_hash(path: &std::path::Path) -> Result<B256> {
+    let raw = std::fs::read_to_string(path).context("read L2 genesis")?;
+    let genesis: alloy_genesis::Genesis = serde_json::from_str(&raw).context("parse L2 genesis")?;
     let spec: reth_chainspec::ChainSpec = genesis.into();
-    Ok(spec.genesis_header().state_root)
+    Ok(spec.genesis_header().hash_slow())
 }
 
 /// Sign and submit one legacy L2 value transfer. The default dev L2 does not
@@ -1120,16 +1371,16 @@ pub async fn send_l2_value_transfer_confirmed(
     Ok(hash)
 }
 
-/// Read the `stateRoot` of the latest `safe` block on the L2 at `rpc_url`.
+/// Read the hash of the latest `safe` block on the L2 at `rpc_url`.
 /// Returns `Ok(None)` while the L2 hasn't yet adopted any safe block
 /// (genesis L1 derivation pending). Used by the multi-composer reorg
 /// test to verify both composers settle on the same canonical L2 head.
-pub async fn safe_block_state_root(rpc_url: &str) -> Result<Option<B256>> {
+pub async fn safe_block_hash(rpc_url: &str) -> Result<Option<B256>> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
     let block = provider
         .get_block_by_number(alloy_rpc_types_eth::BlockNumberOrTag::Safe)
         .await?;
-    Ok(block.map(|b| b.header.state_root))
+    Ok(block.map(|b| b.header.hash))
 }
 
 /// Block number and hash at a named tag (`latest`, `safe`, `finalized`, …).
@@ -1541,7 +1792,7 @@ impl NodeHandle {
         self.assert_no_process_death();
         let patterns = [
             "eez.deriver.state.diverged",
-            "local L2 state root differs",
+            "local L2 block hash",
             "engine rejected safe/finalized FCU",
             "payload builder returned no payload",
         ];
@@ -1790,6 +2041,51 @@ impl<'a> Chain<'a> {
             deploy_block: dep.deploy_block,
             rollup_id: dep.rollup_id,
         }
+    }
+
+    /// Deployment coordinates for tests that construct their own L1 calls.
+    pub const fn rpc_url(&self) -> &str {
+        self.rpc_url
+    }
+
+    pub const fn eez_address(&self) -> Address {
+        self.eez_address
+    }
+
+    pub const fn deploy_block(&self) -> u64 {
+        self.deploy_block
+    }
+
+    pub const fn rollup_id(&self) -> u64 {
+        self.rollup_id
+    }
+
+    /// Anvil uses `--block-time`, so `evm_setAutomine` does not stop it.
+    /// An interval of zero pauses block production; restore it with
+    /// [`Self::block_time_secs`].
+    pub async fn set_interval_mining(&self, secs: u64) -> Result<()> {
+        let provider = ProviderBuilder::new().connect_http(self.rpc_url.parse()?);
+        let _: serde_json::Value = provider
+            .client()
+            .request("anvil_setIntervalMining", (secs,))
+            .await
+            .context("anvil_setIntervalMining")?;
+        Ok(())
+    }
+
+    /// Mine exactly one L1 block.
+    pub async fn mine(&self) -> Result<()> {
+        let provider = ProviderBuilder::new().connect_http(self.rpc_url.parse()?);
+        let _: serde_json::Value = provider
+            .client()
+            .request("evm_mine", ())
+            .await
+            .context("evm_mine")?;
+        Ok(())
+    }
+
+    pub const fn block_time_secs() -> u64 {
+        L1_BLOCK_TIME_SECS
     }
 
     pub async fn batches_posted(&self) -> Result<usize> {
@@ -2105,7 +2401,7 @@ pub async fn wait_for_safe_state(
             let block = provider
                 .get_block_by_number(alloy_rpc_types_eth::BlockNumberOrTag::Safe)
                 .await?;
-            Ok::<Option<B256>, anyhow::Error>(block.map(|b| b.header.state_root))
+            Ok::<Option<B256>, anyhow::Error>(block.map(|b| b.header.hash))
         }
         .await
         .ok()
@@ -2120,7 +2416,7 @@ pub async fn wait_for_safe_state(
 }
 
 /// Waits for a safe block whose state was newly attested after `previous_states`.
-/// The returned number and hash distinguish the exact block when state roots repeat.
+/// The returned number and hash identify the exact newly attested block.
 pub async fn wait_for_new_attested_safe_block(
     node: &NodeHandle,
     chain: &Chain<'_>,
@@ -2139,12 +2435,12 @@ pub async fn wait_for_new_attested_safe_block(
             };
             let number = block.header.number;
             let hash = block.header.hash;
-            let root = block.header.state_root;
-            if number == 0 || root == B256::ZERO || previous_states.contains(&root) {
+            let commitment = block.header.hash;
+            if number == 0 || commitment == B256::ZERO || previous_states.contains(&commitment) {
                 return Ok(None);
             }
             let attested = chain.executed_states().await?;
-            Ok(attested.contains(&root).then_some((number, hash)))
+            Ok(attested.contains(&commitment).then_some((number, hash)))
         }
     })
     .await
@@ -2662,8 +2958,9 @@ impl CrossChainConfig {
         let eez_address = deployer.create(0);
         let proof_system_address = deployer.create(1);
         let rollup_manager_address = deployer.create(2);
-        let initial_state = reorg_genesis_state_root()?;
         let ts = now_unix_secs();
+        let l2_genesis = write_l2_genesis_at(ts)?;
+        let initial_state = genesis_block_hash(&l2_genesis.0)?;
         // Reserves the adjacent WS port too, so no later probe hands it out.
         let l1_http_port = probe_unique_http_port(&mut handed_out_ports());
         let l1_auth_port = free_port();
@@ -2681,7 +2978,7 @@ impl CrossChainConfig {
             deployer_key,
             poster_key,
             l1_genesis: write_l1_dev_genesis_at(ts)?,
-            l2_genesis: write_l2_genesis_at(ts)?,
+            l2_genesis,
         })
     }
 

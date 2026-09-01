@@ -107,8 +107,8 @@ fn rejects_wrong_root_update_endpoints_or_a_chain_break() {
         verify_root_update_chain(&broken, expected_rollup_id(), a, c).map(|_| ()),
         Err(RootUpdateChainError::ChainBreak {
             entry_index: 1,
-            previous_claimed_post_state: b,
-            next_claimed_pre_state: wrong,
+            previous_claimed_block_hash: b,
+            next_claimed_parent_hash: wrong,
         })
     );
 }
@@ -368,8 +368,8 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
     assert_eq!(
         verify_effect_prefix(&batch, wrong, &valid_checkpoints, &settling).err(),
         Some(EffectPrefixError::AnchorRootMismatch {
-            validated_pre_settling_root: wrong,
-            claimed_anchor_post_state: pre_settling,
+            validated_pre_settling_block_hash: wrong,
+            claimed_anchor_block_hash: pre_settling,
         })
     );
     assert_eq!(
@@ -408,11 +408,11 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
     );
     assert_eq!(
         verify_effect_prefix(&batch, pre_settling, &[checkpoint(0, wrong)], &settling,).err(),
-        Some(EffectPrefixError::EffectStateRootMismatch {
+        Some(EffectPrefixError::EffectBlockHashMismatch {
             entry_index: 1,
             transaction_index: 0,
             recomputed_checkpoint: wrong,
-            claimed_post_state: effect_root,
+            claimed_block_hash: effect_root,
         })
     );
 }
@@ -453,11 +453,11 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
     );
     assert_eq!(
         verify_effect_prefix(&final_endpoint, pre_settling, &checkpoints, &settling,).err(),
-        Some(EffectPrefixError::EffectStateRootMismatch {
+        Some(EffectPrefixError::EffectBlockHashMismatch {
             entry_index: 1,
             transaction_index: 0,
             recomputed_checkpoint: transaction_root,
-            claimed_post_state: final_root,
+            claimed_block_hash: final_root,
         })
     );
 }

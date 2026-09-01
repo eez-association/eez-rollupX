@@ -15,25 +15,29 @@ concurrency:
 jobs:
   kurtosis-e2e:
     name: Kurtosis E2E
-    runs-on: ubuntu-latest
+    runs-on: homelab-rust
     timeout-minutes: 150
     env:
+      CARGO_INCREMENTAL: "0"
       KURTOSIS_ENCLAVE: eez-ci
       EEZ_NODE_IMAGE: eez-node:ci-${{ github.sha }}
       EEZ_PROOF_SIGNER_IMAGE: eez-proof-signer:ci-${{ github.sha }}
       EEZ_DEPLOY_IMAGE: eez-deploy:ci-${{ github.sha }}
       EEZ_CI_RESULT_DIR: ${{ github.workspace }}/artifacts/kurtosis-e2e
-      EEZ_PRUNE_BUILD_CACHE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
       - name: Initialize submodules
         run: git submodule update --init --recursive
-      - name: Reclaim runner disk space
+      - name: Initialize Cargo target directory
+        run: |
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
+      - name: Reclaim runner filesystem space
+        if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
-          docker system prune --all --force
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
@@ -46,6 +50,9 @@ jobs:
           kurtosis engine start
       - name: Run Enclave
         run: bash testing/kurtosis/run-ci.sh
+      - name: Cargo failure diagnostics
+        if: failure()
+        run: bash scripts/ci/cargo-failure-diagnostics.sh
       - name: Stop kurtosis enclave
         if: always()
         run: bash testing/kurtosis/stop.sh

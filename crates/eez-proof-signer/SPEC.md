@@ -326,15 +326,49 @@ supplied witness and configured chain rules:
 - any selected post-transaction state roots.
 
 The pre-state root of each block after the first MUST equal the preceding
-block's computed post-state root. The resulting window therefore exposes:
+block's computed post-state root. This state-root telescope is an internal
+execution-consistency check; state roots are not settlement commitments.
 
-- `window_pre_state_root`: validated pre-state of the first block;
-- `settling_pre_state_root`: computed post-state of the preceding block, or the
-  window pre-state for a one-block window; and
-- `window_post_state_root`: computed post-state of the terminal block.
+For every selected terminal transaction boundary, the signer MUST construct a
+canonical prefix block header from the exact validated block, replacing the
+transaction root, receipt root, logs bloom, gas used, state root, and blob gas
+used with values independently derived for that prefix. The resulting header
+hash is the effect checkpoint. A final prefix MUST equal the validated full
+block hash. Prefix commitments MUST reject nonempty withdrawals, ommers, or
+EIP-7685 requests until their per-prefix post-block semantics are represented.
 
-This telescope is self-consistency, not proof that the first pre-state belongs
-to the canonical chain.
+#### Supported prefix-commitment block profile
+
+The restriction above applies only when the terminal block needs an
+intermediate transaction-prefix commitment. It does not remove these fields
+from exact full-block decoding or validation. A batch with no effect-prefix
+checkpoints uses the independently validated full block hash directly.
+
+For the supported EEZ L2 profile:
+
+- the chain is post-merge, so the ommer list MUST be empty;
+- consensus-layer EIP-4895 withdrawals MUST be empty; these are validator
+  withdrawals and are unrelated to EEZ bridge or L2-to-L1 withdrawal calls;
+- EIP-7685 execution requests MUST be empty; these are validator
+  deposit/withdrawal/consolidation requests and are unrelated to EEZ
+  cross-chain operations.
+
+An empty withdrawals list or empty requests commitment remains part of the
+fork-correct block format. The signer rejects only nonempty values when it
+would otherwise need to derive a synthetic prefix header. This is a
+fail-closed availability restriction: an unsupported settling block receives
+no attestation rather than an incompletely derived commitment. Any future L2
+fork that enables these features MUST first define and implement their exact
+per-prefix post-transaction semantics.
+
+The validated window exposes:
+
+- `window_pre_block_hash`: parent hash of the first validated block;
+- `settling_pre_block_hash`: parent hash of the terminal block; and
+- `window_post_block_hash`: validated hash of the terminal block.
+
+These hashes bind ancestry and complete header commitments. They do not by
+themselves prove that the first parent belongs to the live canonical chain.
 
 ### 6.4 Settlement evidence
 
@@ -374,13 +408,16 @@ The decoded batch MUST satisfy all of these profile rules:
    rollup ID and `proofSystemIndexes == [0]`.
 3. `expectedRootPerRollup` is empty.
 4. Every mutable entry has `destinationRollupId == expected_rollup_id`.
-5. `staticEntries` is empty.
+5. Every static entry has the canonical supported shape, targets the expected
+   rollup, and contains exactly one pin for that rollup.
 6. `immediateStaticEntryCount == 0`.
 7. `immediateEntryCount` equals the complete leading run of mutable entries
    whose `proxyEntryHash == 0`.
 8. `blockNumber == 0`.
-9. `blobIndices` is empty.
-10. `bindMsgSenderInPublicInput == false`.
+9. `bindMsgSenderInPublicInput == false`.
+
+`blobIndices` is checked together with the physical DA carrier in section 11:
+it is empty for calldata and exactly `[0, 1, ..., blob_count - 1]` for blobs.
 
 `proofs` is not inspected and is absent from the public-input hash. The caller
 is responsible for inserting the returned signature into the correct proof
@@ -392,9 +429,9 @@ This profile assumes the deployed rollup manager returns empty `customData` for
 and proof-system address MUST match the deployed manager configuration; the
 signer does not query L1 to confirm them.
 
-## 8. State-update chain and effect binding
+## 8. Block-hash commitment chain and effect binding
 
-### 8.1 State-update chain
+### 8.1 Commitment chain
 
 The batch MUST contain at least one mutable entry. Every entry MUST contain
 exactly one `RootUpdate` and that update's `rollupId` MUST equal the expected
@@ -403,14 +440,16 @@ rollup ID.
 For entries `E[0..n)` with updates `U[0..n)`, the signer MUST require:
 
 ```text
-U[0].currentRoot == window_pre_state_root
+U[0].currentRoot == window_pre_block_hash
 U[i].currentRoot == U[i - 1].newRoot       for every i > 0
-U[n - 1].newRoot == window_post_state_root
+U[n - 1].newRoot == window_post_block_hash
 ```
 
-These checks bind the continuous Composer claim to validated endpoints. The
-interior `newRoot` values are additionally bound to execution checkpoints and
-their persistent root carriers below.
+The ABI retains the historical `RootUpdate`, `currentRoot`, and `newRoot`
+names, but these `bytes32` values are block hashes in this profile. The checks
+bind the continuous Composer claim to validated endpoints. Interior `newRoot`
+values are bound to prefix-block hash checkpoints and their persistent
+carriers below. Every static-entry pin MUST equal `window_post_block_hash`.
 
 ### 8.2 Terminal-block framing
 
@@ -477,7 +516,7 @@ The anchor's `etherDelta` MUST be zero. If no effects exist, the anchor alone
 covers the complete window transition.
 
 For every effect at candidate position `C[i]`, the backend checkpoint MUST
-target `C[i]`. Root updates MUST then use the following persistent-carrier
+target `C[i]`. Commitment updates MUST then use the following persistent-carrier
 rule, because a failed L1 entry rolls back its root update together with the
 intentionally reverted call:
 
@@ -490,8 +529,8 @@ intentionally reverted call:
   its own stitched update a no-op (`currentRoot == newRoot`).
 
 With no leading failures, the anchor's `newRoot` equals
-`settling_pre_state_root`. With no failures, every effect directly carries its
-own computed post-transaction state root.
+`settling_pre_block_hash`. With no failures, every effect directly carries its
+own computed prefix-block hash.
 
 ## 9. Inbound authorization
 
@@ -592,41 +631,43 @@ all roots covered by that host, within the `int256` range.
 
 ## 11. Data-availability and Sync-block verification
 
-The batch `callData` MUST have this exact shape:
+Newly composed batches MUST use the self-contained chain-operation payload:
 
 ```text
-0x00 || RLP([blockTxCounts, transactions, l2Entries])
+0x02 || RLP([blocks, l2Entries, outboundGroupSizes])
 ```
 
-There MUST be no trailing bytes or fields. `blockTxCounts` contains one RLP
-`u16` per validated block. `transactions` and `l2Entries` are RLP lists whose
-items are themselves RLP lists of byte values; decoding each item MUST recover
-the exact EIP-2718 transaction bytes or ABI sidecar bytes being compared.
+`blocks` contains the complete canonical consensus RLP of every block in the
+settlement window, including the header, every transaction, ommers, and
+withdrawals. Blocks MUST be number-contiguous and each header's `parentHash`
+MUST equal the preceding block's hash. There MUST be no trailing bytes or
+fields. The decoded block count and every block RLP byte MUST exactly equal the
+window accepted by Stateless. Thus the payload explicitly carries all current
+block metadata and transactions needed to replay and hash the range; it does
+not depend on reconstructing ordinary transactions from another source.
 
-For every block before the terminal block, `blockTxCounts` MUST equal the exact
-validated transaction count and every transaction byte string MUST match in
-order.
+`l2Entries` contains the derivation tables required to reconstruct and
+authorize cross-chain system transactions. In canonical order it contains:
 
-For the terminal block, the DA projection omits:
+- each outbound source entry, followed by its callback entries;
+- then each inbound target entry.
 
-- the system load immediately preceding each outbound user transaction; and
-- each inbound delivery system transaction.
+`outboundGroupSizes` contains one `u16` per outbound user transaction and says
+how many authorized outbound effects that transaction settles. Every sidecar
+and group size MUST match the independently authorized effect layout exactly.
+No missing, extra, reordered, or byte-different item is accepted.
 
-Outbound user transactions remain. Counts and retained transaction bytes MUST
-match this projection exactly.
+Tags `0x00` and `0x01` remain accepted only as backward-compatible projected
+payloads. Tag `0x00` is
+`RLP([blockTxCounts, transactions, l2Entries])`; tag `0x01` adds
+`outboundGroupSizes`. In those profiles preceding transactions are verbatim,
+while the terminal projection omits system loads and inbound deliveries. The
+signer reconstructs all omitted transactions and still requires exact equality
+with the validated block.
 
-There MUST be one `l2Entries` sidecar per effect, in effect order:
-
-- an outbound sidecar is the exact L2 source table decoded from the preceding
-  `loadExecutionTable`, lifted field-for-field into the shared transport shape;
-- an inbound sidecar is the exact L2 target table decoded from the executed
-  inbound calldata and lifted field-for-field into the shared transport shape.
-
-No missing, extra, reordered, or byte-different sidecar is accepted.
-
-When effects exist, the signer MUST reconstruct the complete terminal Sync
-transaction sequence and compare it byte for byte with the validated block.
-The reconstruction context is:
+For every profile with effects, the signer MUST reconstruct the complete
+terminal Sync transaction sequence and compare it byte for byte with the
+validated terminal block. The reconstruction context is:
 
 ```text
 signer       = operator-provided key deriving EEZ_L2_SYSTEM_ADDRESS
@@ -654,8 +695,58 @@ value. Inbound deliveries carry their authorized inbound value. The reconstructe
 sequence length and every raw transaction byte MUST equal the validated
 terminal block.
 
-With no authorized effects, no transactions are omitted and no Sync sequence
-is reconstructed.
+With no authorized effects, no Sync sequence is reconstructed.
+
+The payload is transported in exactly one of two modes:
+
+- **calldata:** `batch.blobIndices` is empty, no physical blobs are supplied,
+  and the payload is `batch.callData`;
+- **blob:** `batch.callData` is empty, one to six physical EIP-4844 blobs are
+  supplied, and `batch.blobIndices` is exactly the ordered identity selection
+  `[0, 1, ...]`.
+
+Blob mode MUST decode as the EEZ version-`00` message stream containing exactly
+one leading `ChainOperation(expected_rollup_id, payload)`, zero or more complete
+`InitiateCrossChainTransaction` … `FinishCrossChainTransaction` brackets, then
+exactly one `CloseBlobStream`, with canonical field-element packing and zero
+padding. The transaction brackets use the protocol-native `Call`, `StaticCall`,
+`ReturnSuccess`, `ReturnFail`, `Snapshot`, and `Revert` messages. Carrier markers
+cannot appear inside the semantic section. Calls with nonzero `gas` are rejected
+because this deployment pins manager `useGasLeft = false` and supports only the
+zero-gas table identity.
+
+The signer decodes each semantic transaction back into the production call
+forest and materializes it with the same table builder used by the Composer.
+For every L2-origin transaction it requires:
+
+- origin chain equal to `expected_rollup_id`;
+- `tx_data` byte-for-byte equal to the positioned signed user transaction in
+  the validated Sync block;
+- the exact authorized L2 source and callback sidecars; and
+- the exact authorized L1 settlement host entries. The signer copies only the
+  independently authorized `rootUpdates` into the materialized table, runs the
+  production symbolic trace finalizer, and then requires byte-for-byte equality
+  of every root-dependent rolling hash, nested position key, destination, and
+  remaining entry field.
+
+All remaining semantic transactions MUST originate on L1. Their aggregate L1
+source entries are finalized from independently authorized `rootUpdates` and
+MUST byte-for-byte reproduce every authorized inbound entry; their L2 target
+sidecars MUST likewise reproduce every authorized inbound delivery, with no
+extra or foreign-chain target. Top-level L1 static transactions have no mutable
+L2 delivery; their materialized L1 static-pool entries receive only the
+independently validated destination-root pins and MUST byte-for-byte reproduce
+`postBatch.staticEntries`. L1 `tx_data` remains an opaque chain-defined sidecar:
+this signer validates the `postBatch` transaction and L2 window but does not
+execute the later L1 user transactions in the atomic bundle. Consequently, the
+aggregate effects are exact, but L1 semantic transaction boundaries and the
+relative ordering of transactions that land in different mutable/static pools
+are descriptive rather than independently authenticated by this signer.
+
+Legacy calldata remains supported without a native semantic stream. The signer
+recomputes every KZG versioned hash from physical blobs. Mixed, missing, surplus,
+reordered, malformed, wrong-rollup, semantically unbound, or oversized blob
+carriers MUST be rejected.
 
 ## 12. Public-input recomputation
 
@@ -665,13 +756,15 @@ For every mutable entry:
 
 ```text
 entryHash[i] = H(abi.encode(batch.entries[i]))
+staticEntryHash[i] = H(abi.encode(batch.staticEntries[i]))
 ```
 
 For the supported profile:
 
 ```text
-staticEntryHashes = []
-blobHashes        = []
+staticEntryHashes = ordered staticEntryHash values
+blobHashes        = [] for calldata, otherwise the versioned hashes selected
+                    by the canonical identity blobIndices
 customData        = bytes("")
 customDataHash    = H(abi.encode(uint64(expected_rollup_id), customData))
 customDataHashes  = dynamic bytes32[] containing only customDataHash
@@ -714,8 +807,9 @@ not participate.
 
 ### 12.1 Fields not bound by the digest
 
-The full mutable entries and `callData` are bound as above. The following batch
-carriers are not directly included in the digest:
+The full mutable and static entries, selected physical blob contents through
+their KZG versioned hashes, and `callData` are bound as above. The following
+batch carriers are not directly included in the digest:
 
 - `expectedRootPerRollup`;
 - `immediateEntryCount` and `immediateStaticEntryCount`;
@@ -761,7 +855,7 @@ messages SHOULD remain stable and must not expose secrets.
 | gRPC code | Principal cases |
 | --- | --- |
 | `InvalidArgument` | Malformed stream structure; invalid widths or bounds; noncanonical/invalid PostBatch calldata; malformed or trailing DA payload. |
-| `FailedPrecondition` | Rollup identity mismatch; Stateless input rejection; unsupported batch profile; state/effect/inbound/outbound/DA semantic rejection. |
+| `FailedPrecondition` | Rollup identity mismatch; Stateless input rejection; unsupported batch profile; state/effect/inbound/outbound/DA/native-blob-semantic rejection. |
 | `Unavailable` | Another request is active. The same complete request may succeed after the active request releases the slot. |
 | `ResourceExhausted` | A decoding, block, byte, or witness-item limit was exceeded; or block-vector storage could not be reserved. |
 | `DeadlineExceeded` | Stream idle timeout or absolute request deadline. |

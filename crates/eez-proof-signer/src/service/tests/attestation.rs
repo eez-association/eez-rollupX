@@ -291,13 +291,17 @@ async fn a_multi_block_effect_uses_the_penultimate_block_root() {
 }
 
 #[tokio::test]
-async fn a_root_update_final_root_mismatch_is_rejected() {
-    let window = happy_block_inputs();
-    let mut backend_output = backend_output_for(&window);
-    backend_output.blocks.last_mut().unwrap().post_state_root = B256::repeat_byte(0xee);
-    let server = TestServer::new(inner(Validator::stub(vec![Ok(backend_output)]))).await;
+async fn a_root_update_final_block_hash_mismatch_is_rejected() {
+    let server = TestServer::new(one_accepting_validator()).await;
+    let mut batch = anchor_batch();
+    bind_anchor_commitments(&mut batch, 3);
+    batch.entries[0].rootUpdates[0].newRoot = B256::repeat_byte(0xee);
+    eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
+    batch.callData = settlement::encode_da_payload(&vec![Vec::new(); 3], &[]).into();
+    let mut window = happy_window();
+    replace_post_batch(&mut window, public_input_post_batch_for(batch));
 
-    let status = server.prove(happy_window()).await;
+    let status = server.prove(window).await;
 
     assert_eq!(status.code(), Code::FailedPrecondition, "{status:?}");
     assert_eq!(status.message(), "settlement validation rejected");
@@ -335,21 +339,17 @@ async fn malformed_settling_block_rlp_after_backend_success_is_internal() {
 }
 
 #[tokio::test]
-async fn distinct_reexecuted_roots_are_attested_when_the_anchor_matches() {
-    let parent = B256::repeat_byte(0x11);
-    let final_root = B256::repeat_byte(0x22);
+async fn distinct_reexecuted_state_roots_do_not_replace_block_hash_commitments() {
+    let parent_state_root = B256::repeat_byte(0x11);
+    let final_state_root = B256::repeat_byte(0x22);
     let mut backend_output = backend_output_for(&happy_block_inputs());
-    backend_output.pre_state_root = parent;
-    backend_output.blocks.last_mut().unwrap().post_state_root = final_root;
+    backend_output.pre_state_root = parent_state_root;
+    backend_output.blocks.last_mut().unwrap().post_state_root = final_state_root;
     let server = TestServer::new(inner(Validator::stub(vec![Ok(backend_output)]))).await;
-    let mut batch = anchor_batch();
-    batch.entries[0].rootUpdates[0].currentRoot = parent;
-    batch.entries[0].rootUpdates[0].newRoot = final_root;
-    eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     let mut window = happy_window();
     replace_post_batch(
         &mut window,
-        public_input_post_batch_for_empty_blocks(batch, 3),
+        public_input_post_batch_for_empty_blocks(anchor_batch(), 3),
     );
 
     let _response = server.attest(window).await;
@@ -586,6 +586,7 @@ async fn malformed_or_trailing_da_payload_is_an_invalid_argument() {
 
     for payload in [vec![0x00], trailing] {
         let mut batch = anchor_batch();
+        bind_anchor_commitments(&mut batch, 3);
         batch.callData = payload.into();
         let mut window = happy_window();
         replace_post_batch(&mut window, public_input_post_batch_for(batch));

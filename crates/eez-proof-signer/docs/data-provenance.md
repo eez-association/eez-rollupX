@@ -43,7 +43,7 @@ retained only after successful replay.
 
 Avoid the unqualified word `trusted` when a more precise source exists. Prefer
 `expected_rollup_id`, `configured_chain_spec`, or
-`validated_window_pre_state_root` over `trusted_id`, `trusted_config`, or
+`validated_window_pre_block_hash` over `trusted_id`, `trusted_config`, or
 `trusted_root`.
 
 ## Boundary guarantees
@@ -64,8 +64,9 @@ consensus or execution correctness.
 Stateless exact-decodes the block, recovers signers under the configured fork
 rules, checks consensus, verifies the witness pre-state, re-executes the block,
 and compares the locally computed post-state root with the header commitment.
-The backend returns each block's computed identity, validated roots, receipt
-outcomes, selected transaction checkpoints, and settlement evidence together.
+The backend returns each block's computed identity, validated internal state
+roots, receipt outcomes, selected prefix-block hash checkpoints, and settlement
+evidence together.
 
 Shared validation consumes that backend result and compares it with the
 admitted stream. A backend result is not handed to settlement until this
@@ -74,13 +75,14 @@ contract check succeeds.
 ### `ValidatedWindow`
 
 This is the settlement-facing output of execution validation. It contains exact
-admitted block bytes, locally validated endpoint roots, system-sender flags,
+admitted block bytes, locally validated endpoint block hashes, system-sender flags,
 and outbound receipt observations. The terminal block additionally retains
 receipt outcomes and selected transaction checkpoints. It contains no execution
 witnesses; validation consumed them.
 
-Its `window_pre_state_root` is not yet a batch anchor. It becomes an anchor only
-when settlement matches the leading submitted root update against it.
+Its `window_pre_block_hash` is not yet a canonical-chain anchor. It becomes the
+batch anchor only when settlement matches the leading submitted ABI root update
+against it.
 
 ### `CanonicalPostBatch`
 
@@ -91,7 +93,7 @@ rollup assignments, and public-input fields remain untrusted claims.
 ### Bound and authorized settlement data
 
 The effect-binding gate joins submitted entries to locally derived transaction
-positions and state checkpoints. Inbound and outbound authorization then
+positions and prefix-block hash checkpoints. Inbound and outbound authorization then
 checks the direction-specific transaction, receipt, call-hash, value, and
 ether-delta evidence. DA verification consumes only those authorized bindings.
 

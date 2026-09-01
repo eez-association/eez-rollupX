@@ -2,8 +2,9 @@
 //!
 //! ```text
 //!   payload := tagByte ‖ rlp([
-//!     blockTxCounts,    # list of uint16, length == toBlock - fromBlock + 1
-//!                       # entry i = number of user txs in block (fromBlock + i)
+//!     blockTxCounts,    # legacy tags: list of uint16, length ==
+//!                       # toBlock - fromBlock + 1
+//!                       # entry i = number of retained txs in block
 //!                       # 0 means empty block
 //!     transactions,     # list of bytes, block-major order
 //!                       # the first blockTxCounts[0] entries belong to block fromBlock,
@@ -21,6 +22,9 @@
 //!   tagByte:
 //!     0x00  legacy three-field body
 //!     0x01  grouped four-field body
+//!     0x02  self-contained blocks: full canonical block RLP values replace
+//!           the separate block counts and transactions fields; decoded counts
+//!           and transactions are derived from those exact block bodies
 //! ```
 //!
 //! `fromBlock` and `toBlock` are **not** in this encoding. Callers supply the
@@ -45,6 +49,8 @@ pub type RawTx = Vec<u8>;
 pub const TAG_CALLDATA: u8 = 0x00;
 /// Calldata format carrying explicit outbound-root counts per signed user tx.
 pub const TAG_GROUPED_CALLDATA: u8 = 0x01;
+/// Self-contained format carrying each complete L2 block as consensus RLP.
+pub const TAG_SELF_CONTAINED_BLOCKS: u8 = 0x02;
 
 /// Convenience [`Result`] alias.
 pub type CodecResult<T> = Result<T, CodecError>;
@@ -57,9 +63,16 @@ pub enum CodecError {
     TooShort(usize),
     /// Tag byte didn't match the current format.
     #[error(
-        "unsupported tag byte 0x{0:02x}; expected 0x{TAG_CALLDATA:02x} or 0x{TAG_GROUPED_CALLDATA:02x}"
+        "unsupported tag byte 0x{0:02x}; expected 0x{TAG_CALLDATA:02x}, \
+         0x{TAG_GROUPED_CALLDATA:02x}, or 0x{TAG_SELF_CONTAINED_BLOCKS:02x}"
     )]
     UnsupportedTag(u8),
+    /// A self-contained block is not exact canonical Ethereum block RLP.
+    #[error("invalid self-contained block {index}: {reason}")]
+    InvalidBlock { index: usize, reason: String },
+    /// Adjacent self-contained blocks do not form one hash-linked sequence.
+    #[error("self-contained block {index} is not contiguous with its predecessor")]
+    NonContiguousBlock { index: usize },
     /// RLP decoding failed.
     #[error("rlp decode failed: {0}")]
     Rlp(#[from] alloy_rlp::Error),
@@ -77,7 +90,11 @@ pub enum CodecError {
 /// A decoded batch payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedBatch {
-    /// Per-block user-tx counts. Length = number of L2 blocks covered.
+    /// Per-block transaction counts. Length = number of L2 blocks covered.
+    ///
+    /// For legacy tags these are the retained payload transactions. For the
+    /// self-contained tag they count every transaction in the exact block body,
+    /// including system transactions.
     pub block_tx_counts: Vec<u16>,
     /// Flat list of raw EIP-2718 signed transactions in block-major order.
     pub transactions: Vec<RawTx>,
@@ -89,6 +106,12 @@ pub struct DecodedBatch {
     /// Number of outbound source roots consumed by each terminal-block user
     /// transaction. Empty for legacy tag-0 payloads.
     pub outbound_group_sizes: Vec<u16>,
+    /// Canonical full-block RLP, one value per block. Empty for legacy tags.
+    ///
+    /// This commits every original header field, transaction, ommer and
+    /// withdrawal needed to reproduce and hash the exact block. Receipts and
+    /// execution requests are deterministic STF outputs and are not duplicated.
+    pub block_rlps: Vec<Vec<u8>>,
 }
 
 impl DecodedBatch {
@@ -154,13 +177,34 @@ pub fn encode_grouped(
     Ok(buf)
 }
 
+/// Encode the self-contained chain-operations profile.
+///
+/// Every element is one complete canonical Ethereum block RLP. Blocks must be
+/// number- and parent-hash-contiguous. Transactions are recovered from those
+/// block bodies during decoding rather than duplicated in a parallel field.
+pub fn encode_self_contained(
+    block_rlps: &[Vec<u8>],
+    l2_entries: &[Vec<u8>],
+    outbound_group_sizes: &[u16],
+) -> CodecResult<Vec<u8>> {
+    decode_self_contained_blocks(block_rlps)?;
+    let body = SelfContainedBody {
+        blocks: block_rlps.to_vec(),
+        l2_entries: l2_entries.to_vec(),
+        outbound_group_sizes: outbound_group_sizes.to_vec(),
+    };
+    let mut buf = Vec::with_capacity(1 + body.length());
+    buf.push(TAG_SELF_CONTAINED_BLOCKS);
+    body.encode(&mut buf);
+    Ok(buf)
+}
+
 /// Decode a calldata payload.
 ///
 /// # Errors
 ///
 /// - [`CodecError::TooShort`] if `payload` is empty.
-/// - [`CodecError::UnsupportedTag`] if the leading byte is neither
-///   [`TAG_CALLDATA`] nor [`TAG_GROUPED_CALLDATA`].
+/// - [`CodecError::UnsupportedTag`] if the leading byte is not a supported tag.
 /// - [`CodecError::Rlp`] if the RLP body is malformed.
 /// - [`CodecError::TrailingBytes`] if bytes remain after the RLP body.
 /// - [`CodecError::TxCountMismatch`] if `sum(blockTxCounts) != transactions.len()`.
@@ -169,13 +213,14 @@ pub fn decode(payload: &[u8]) -> CodecResult<DecodedBatch> {
         return Err(CodecError::TooShort(0));
     };
     let mut encoded_body = rest;
-    let (block_tx_counts, transactions, l2_entries, outbound_group_sizes) = match tag {
+    let (block_tx_counts, transactions, l2_entries, outbound_group_sizes, block_rlps) = match tag {
         TAG_CALLDATA => {
             let body = Body::decode(&mut encoded_body)?;
             (
                 body.block_tx_counts,
                 body.transactions,
                 body.l2_entries,
+                Vec::new(),
                 Vec::new(),
             )
         }
@@ -186,6 +231,18 @@ pub fn decode(payload: &[u8]) -> CodecResult<DecodedBatch> {
                 body.transactions,
                 body.l2_entries,
                 body.outbound_group_sizes,
+                Vec::new(),
+            )
+        }
+        TAG_SELF_CONTAINED_BLOCKS => {
+            let body = SelfContainedBody::decode(&mut encoded_body)?;
+            let (block_tx_counts, transactions) = decode_self_contained_blocks(&body.blocks)?;
+            (
+                block_tx_counts,
+                transactions,
+                body.l2_entries,
+                body.outbound_group_sizes,
+                body.blocks,
             )
         }
         _ => return Err(CodecError::UnsupportedTag(tag)),
@@ -203,6 +260,7 @@ pub fn decode(payload: &[u8]) -> CodecResult<DecodedBatch> {
         transactions,
         l2_entries,
         outbound_group_sizes,
+        block_rlps,
     })
 }
 
@@ -219,6 +277,52 @@ struct GroupedBody {
     transactions: Vec<RawTx>,
     l2_entries: Vec<Vec<u8>>,
     outbound_group_sizes: Vec<u16>,
+}
+
+#[derive(Debug, alloy_rlp::RlpEncodable, alloy_rlp::RlpDecodable)]
+struct SelfContainedBody {
+    blocks: Vec<Vec<u8>>,
+    l2_entries: Vec<Vec<u8>>,
+    outbound_group_sizes: Vec<u16>,
+}
+
+fn decode_self_contained_blocks(block_rlps: &[Vec<u8>]) -> CodecResult<(Vec<u16>, Vec<RawTx>)> {
+    let mut block_tx_counts = Vec::with_capacity(block_rlps.len());
+    let mut transactions = Vec::new();
+    let mut previous: Option<(u64, alloy_primitives::B256)> = None;
+    for (index, encoded) in block_rlps.iter().enumerate() {
+        let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(encoded).map_err(
+            |error| CodecError::InvalidBlock {
+                index,
+                reason: error.to_string(),
+            },
+        )?;
+        if alloy_rlp::encode(&block) != *encoded {
+            return Err(CodecError::InvalidBlock {
+                index,
+                reason: "non-canonical RLP".to_owned(),
+            });
+        }
+        if let Some((previous_number, previous_hash)) = previous
+            && (block.header.number != previous_number.saturating_add(1)
+                || block.header.parent_hash != previous_hash)
+        {
+            return Err(CodecError::NonContiguousBlock { index });
+        }
+        let count = u16::try_from(block.body.transactions.len()).map_err(|_| {
+            CodecError::BlockTxCountOverflow(block.body.transactions.len() as u64, index)
+        })?;
+        block_tx_counts.push(count);
+        transactions.extend(
+            block
+                .body
+                .transactions
+                .iter()
+                .map(alloy_eips::Encodable2718::encoded_2718),
+        );
+        previous = Some((block.header.number, block.header.hash_slow()));
+    }
+    Ok((block_tx_counts, transactions))
 }
 
 #[cfg(test)]
@@ -329,5 +433,58 @@ mod tests {
         let decoded = decode(&bytes).unwrap();
         assert_eq!(decoded.outbound_group_sizes, [2, 1]);
         assert_eq!(decoded.l2_entries.len(), 3);
+    }
+
+    fn self_contained_blocks() -> Vec<Vec<u8>> {
+        use alloy_consensus::{BlockBody, Header};
+
+        let first = reth_ethereum_primitives::Block {
+            header: Header {
+                number: 10,
+                timestamp: 123,
+                beneficiary: alloy_primitives::Address::repeat_byte(0x11),
+                extra_data: alloy_primitives::Bytes::from_static(b"eez-test"),
+                ..Default::default()
+            },
+            body: BlockBody::default(),
+        };
+        let second = reth_ethereum_primitives::Block {
+            header: Header {
+                parent_hash: first.header.hash_slow(),
+                number: 11,
+                timestamp: 125,
+                beneficiary: alloy_primitives::Address::repeat_byte(0x22),
+                ..Default::default()
+            },
+            body: BlockBody::default(),
+        };
+        vec![alloy_rlp::encode(first), alloy_rlp::encode(second)]
+    }
+
+    #[test]
+    fn self_contained_roundtrip_preserves_exact_blocks_and_metadata() {
+        let blocks = self_contained_blocks();
+        let entries = vec![vec![0xde, 0xad]];
+        let encoded = encode_self_contained(&blocks, &entries, &[2]).unwrap();
+        assert_eq!(encoded[0], TAG_SELF_CONTAINED_BLOCKS);
+        let decoded = decode(&encoded).unwrap();
+        assert_eq!(decoded.block_rlps, blocks);
+        assert_eq!(decoded.block_tx_counts, [0, 0]);
+        assert!(decoded.transactions.is_empty());
+        assert_eq!(decoded.l2_entries, entries);
+        assert_eq!(decoded.outbound_group_sizes, [2]);
+    }
+
+    #[test]
+    fn self_contained_blocks_must_be_hash_linked() {
+        let mut blocks = self_contained_blocks();
+        let mut second =
+            alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(&blocks[1]).unwrap();
+        second.header.parent_hash = alloy_primitives::B256::repeat_byte(0xff);
+        blocks[1] = alloy_rlp::encode(second);
+        assert!(matches!(
+            encode_self_contained(&blocks, &[], &[]),
+            Err(CodecError::NonContiguousBlock { index: 1 })
+        ));
     }
 }

@@ -1,0 +1,22 @@
+[package]
+name                   = "eez-blob-codec"
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+description            = "Strict codec and EIP-4844 packing for the EEZ standardized blob message stream."
+
+[dependencies]
+alloy-consensus            = { workspace = true, features = ["kzg"] }
+alloy-eips                 = { workspace = true, features = ["kzg"] }
+alloy-network.workspace    = true
+alloy-primitives.workspace = true
+c-kzg.workspace            = true
+thiserror.workspace        = true
+
+[dev-dependencies]
+alloy-signer-local.workspace = true
+hex.workspace                = true
+
+[lints]
+workspace = true

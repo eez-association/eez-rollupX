@@ -85,6 +85,13 @@ services:
       EEZ_L1_DATADIR: /l1
       EEZ_L1_JWT_SECRET: /jwt/jwt.hex
       EEZ_L1_RPC_URL: http://127.0.0.1:18645
+      # Chiado is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
+      # derivation reads full blobs from the colocated supernode Lighthouse.
+      # EEZ_DA_MODE is mandatory so an existing calldata deployment cannot
+      # silently change its L1 data carrier during a restart.
+      EEZ_DA_MODE: "${EEZ_DA_MODE:?set EEZ_DA_MODE to blob or calldata}"
+      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:-}"
+      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:-}"
       # Forwarded but empty by default - the bundle
       # target-block oracle falls back to the embedded L1. Set it in
       # .env.chiado
@@ -100,8 +107,9 @@ services:
       # other eth_* is transparently forwarded to the matching source-chain RPC.
       EEZ_L1_XCHAIN_PORT: "18999"
       EEZ_L2_XCHAIN_PORT: "18998"
+      # Combined cap for both cross-chain directions; overflow remains queued.
       # Lower than the in-code default (50) because the whole bundle
-      # [postBatch, user_tx...] has to fit a 17M chiado block, not the 60M a
+      # [postBatch, user_tx...] has to fit a 17M Chiado block, not the 60M a
       # devnet L1 gives: 9M cap + 12 * 400k = 13.8M.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
       # Emission + reorg bounds documented in .env.example. eez-node reads these
@@ -127,16 +135,16 @@ services:
       # L2.
       EEZ_L2_DATADIR: /l2
       EEZ_L2_GENESIS_PATH: /app/genesis.json
-      # EEZ_INITIAL_STATE_ROOT comes from deployments.env (deploy.sh writes it,
-      # matched to the genesis alloc) — the mounted genesis must produce that root.
+      # EEZ_INITIAL_BLOCK_HASH comes from deployments.env (deploy.sh writes it)
+      # — the mounted genesis must produce that exact timestamp-sensitive hash.
     volumes:
       - ${L1_SNAPSHOT_DIR:?set L1_SNAPSHOT_DIR (reth download target)}:/l1
       - ${L2_DATA_DIR:?set L2_DATA_DIR}:/l2
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
       # Fresh-timestamp L2 genesis overriding the (stale) baked one, so the
       # L1-anchored scheduler starts near grid-height 0 instead of racing
-      # millions of blocks. Root is timestamp-independent (matches the
-      # on-chain registration). Generate at deploy time: ts = now.
+      # millions of blocks. The block hash is timestamp-dependent and must
+      # match the genesis rendered and registered by deploy.sh.
       - ${FRESH_GENESIS:?set FRESH_GENESIS}:/app/genesis.json:ro
     command:
       - node
@@ -159,7 +167,7 @@ services:
       driver: "local"
 
   lighthouse:
-    image: sigp/lighthouse:v8.1.2
+    image: sigp/lighthouse:v8.1.3
     container_name: eez-chiado-lighthouse
     network_mode: host
     restart: unless-stopped
@@ -184,6 +192,10 @@ services:
       - --jwt-secrets=/jwt/jwt.hex
       - --datadir=/data
       - --checkpoint-sync-url=${LH_CHECKPOINT_URL:-https://checkpoint.chiadochain.net/}
+      # Fulu/PeerDAS full-blob retrieval is not available from an ordinary
+      # sampling node. The deriver requires /eth/v1/beacon/blobs/{block_id},
+      # so custody every data column and retain reconstructable blobs locally.
+      - --supernode
       # Direct chiado peers — discovery alone is too sparse on a fresh
       # lighthouse DB; without these the beacon head never advances (0
       # peers) and the embedded EL stalls. Copied from docker-compose.chiado.yml.

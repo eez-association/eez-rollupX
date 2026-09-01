@@ -35,13 +35,19 @@ echo "==> protocol submodule: $(git -C "$PROTOCOL_DIR" rev-parse --short HEAD)"
 [[ -f "$ARGS_FILE" ]] || { echo "Kurtosis args not found: $ARGS_FILE" >&2; exit 1; }
 
 # Flat key lookup for this simple args template.
-yv() { grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//'; }
+yv() {
+    grep -E "^[[:space:]]*$1:" "$ARGS_FILE" | head -1 \
+        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//' \
+        || true
+}
 
 NODE_IMAGE="$(yv eez_node_image)";                NODE_IMAGE="${NODE_IMAGE:-eez-node:dev}"
 PROOF_SIGNER_IMAGE="$(yv proof_signer_image)";    PROOF_SIGNER_IMAGE="${PROOF_SIGNER_IMAGE:-eez-proof-signer:dev}"
 DEPLOY_IMAGE="$(yv deploy_image)";                DEPLOY_IMAGE="${DEPLOY_IMAGE:-eez-deploy:dev}"
 UI_IMAGE="$(yv ui_image)";                        UI_IMAGE="${UI_IMAGE:-eez-rollup-ui:dev}"
+BLOBSCAN_ENABLED="$(yv enable_blobscan)";          BLOBSCAN_ENABLED="${BLOBSCAN_ENABLED:-false}"
+BLOBSCAN_API_IMAGE="$(yv blobscan_api_image)"
+BLOBSCAN_WEB_IMAGE="$(yv blobscan_web_image)"
 
 export DOCKER_BUILDKIT=1
 
@@ -91,6 +97,22 @@ if [[ "${EEZ_SKIP_UI_BUILD:-0}" != "1" ]]; then
         "$UI_REPO"
 else
     echo "==> reusing $UI_IMAGE (EEZ_SKIP_UI_BUILD=1)"
+fi
+
+if [[ "$BLOBSCAN_ENABLED" == "true" ]]; then
+    BLOBSCAN_CHAIN_ID="$(yv network_id)"
+    if [[ -z "$BLOBSCAN_CHAIN_ID" || -z "$BLOBSCAN_API_IMAGE" || -z "$BLOBSCAN_WEB_IMAGE" ]]; then
+        echo "Blobscan requires network_id, blobscan_api_image, and blobscan_web_image." >&2
+        exit 1
+    fi
+    if [[ "${EEZ_SKIP_BLOBSCAN_BUILD:-0}" != "1" ]]; then
+        "$HERE/blobscan/build.sh" \
+            "$BLOBSCAN_CHAIN_ID" \
+            "$BLOBSCAN_API_IMAGE" \
+            "$BLOBSCAN_WEB_IMAGE"
+    else
+        echo "==> reusing $BLOBSCAN_API_IMAGE and $BLOBSCAN_WEB_IMAGE (EEZ_SKIP_BLOBSCAN_BUILD=1)"
+    fi
 fi
 
 if [[ "${EEZ_PRUNE_BUILD_CACHE:-0}" == "1" ]]; then

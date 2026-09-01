@@ -462,8 +462,8 @@ pub fn build_l1_inbound_entry(
 
 /// Build one immediate, call-free L1 settlement entry.
 ///
-/// Its rolling hash is finalized after the settlement root update is
-/// attached.
+/// Its rolling hash is finalized after the legacy-named settlement root update
+/// carrying block-hash commitments is attached.
 #[must_use]
 pub fn build_l1_settlement_only(rollup_id: RollupId) -> EvmBatch {
     batch_with_entries(

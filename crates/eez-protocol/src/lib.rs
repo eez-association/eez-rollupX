@@ -13,15 +13,16 @@
 //!   into the entry's `proxyEntryHash` and whose result is bound into the
 //!   `rollingHash` (see [`entries::decode_inbound`] / [`entries::DecodedInbound`]).
 //! - **COMMIT OUTBOUND.** `proxyEntryHash` and `rollingHash` bind the outbound
-//!   call chain. The settlement `RootUpdate` carries the L2 post-state root,
-//!   which the proof signer verifies rather than re-executing the call on L1.
+//!   call chain. Despite its legacy name, the settlement `RootUpdate` carries
+//!   canonical L2 block-hash commitments. The proof signer independently
+//!   replays execution and verifies the committed block headers.
 //! - **Canonical public inputs.** [`public_inputs::public_inputs_hashes`] is the
 //!   reconstruction used by the proof signer; another encoding changes the
 //!   signed inputs. The supported profile requires one uniform verification
 //!   key, block number zero, no blobs, and no sender binding; other profiles are
 //!   rejected.
-//! - **Settlement root.** Before signing, the proof signer checks
-//!   `RootUpdate.newRoot` against the root reth produced for the block.
+//! - **Settlement commitment.** Before signing, the proof signer checks
+//!   `RootUpdate.newRoot` against the canonical block hash reth produced.
 //!
 //! # Where to start reading
 //!
@@ -38,6 +39,7 @@ pub mod abi;
 pub mod action;
 pub mod addresses;
 pub mod authorized_proxies;
+pub mod blob_semantics;
 pub mod composition;
 pub mod dialect;
 pub mod entries;
@@ -67,7 +69,7 @@ pub use authorized_proxies::{
     decode_proxy_value, proxy_mapping_key,
 };
 #[doc(inline)]
-pub use composition::{CompositionBuilder, Rollup, TargetConfig};
+pub use composition::{CompositionBuilder, Rollup, TargetConfig, materialize_actions};
 #[doc(inline)]
 pub use dialect::ChainDialect;
 #[doc(inline)]
@@ -82,8 +84,8 @@ pub use executor::{ChainClient, ExecutionRequest, SessionSnapshot, TargetExecuti
 pub use proof_plan::{ProofPlan, ProofPlanInvariantError, RollupProofAssignment};
 #[doc(inline)]
 pub use public_inputs::{
-    PublicInputsError, all_per_ps_hashes, entry_hash, public_inputs_hashes, shared_public_input,
-    static_entry_hash,
+    PublicInputsError, all_per_ps_hashes, entry_hash, public_inputs_hashes,
+    public_inputs_hashes_with_blob_hashes, shared_public_input, static_entry_hash,
 };
 #[doc(inline)]
 pub use rolling_hash::{EntryRollingHash, StaticCallRollingHash};

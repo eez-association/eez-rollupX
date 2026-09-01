@@ -65,10 +65,13 @@ impl L1Error {
     }
 
     /// True when retrying re-reads the same bytes or re-walks the same chain,
-    /// so a polling caller would spin forever instead of failing. Both arms
-    /// document operator intervention; this is what makes that real.
+    /// so a polling caller would spin forever instead of failing. These cases
+    /// require operator intervention; this is what makes that real.
     #[must_use]
     pub const fn is_terminal(&self) -> bool {
-        matches!(self, Self::Decode(_) | Self::ReorgTooDeep { .. })
+        matches!(
+            self,
+            Self::Config(_) | Self::Decode(_) | Self::ReorgTooDeep { .. }
+        )
     }
 }

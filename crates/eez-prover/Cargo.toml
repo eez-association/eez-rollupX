@@ -9,6 +9,7 @@ description            = "Prover trait + stage-2 MockEcdsaProver. Real prover sl
 [dependencies]
 # EvmBatch in ProvingContext (the authoritative postBatch payload).
 eez-protocol.workspace       = true
+eez-blob-codec.workspace     = true
 alloy-primitives.workspace   = true
 # ExecutionWitness carried per block in ProvingContext.
 alloy-rpc-types-debug.workspace = true

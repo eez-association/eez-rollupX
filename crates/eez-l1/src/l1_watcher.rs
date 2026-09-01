@@ -33,6 +33,7 @@ use tokio::time::{Instant, MissedTickBehavior, interval_at};
 use tracing::{Level, event};
 use url::Url;
 
+use crate::blob_source::BeaconBlobSource;
 use crate::error::{L1Error, L1Result};
 use crate::scan::ScannedBatch;
 
@@ -61,6 +62,10 @@ const MAX_SEED_ATTEMPTS: u32 = 150;
 
 /// Event emitted by the [`L1Watcher`].
 #[derive(Debug, Clone)]
+// BatchPosted intentionally carries the authenticated payload and settlement
+// metadata by value across the broadcast channel; boxing one small field would
+// add per-event allocation without reducing the payload itself.
+#[allow(clippy::large_enum_variant)]
 pub enum L1Event {
     /// Canonical L1 chain extended to a new head.
     NewHead {
@@ -90,6 +95,8 @@ pub enum L1Event {
         l1_block_number: u64,
         l1_block_hash: B256,
         tx_hash: B256,
+        /// Position of the posting transaction in its L1 block.
+        tx_index: u64,
         /// Tx originator — the address that sent the postBatch.
         /// Composer uses this to detect external batches (based mode).
         submitter: Address,
@@ -109,12 +116,12 @@ pub enum L1Event {
         /// (its postBatch tx up to the next postBatch verifying our rollup).
         /// `is_empty()` = nothing settled → Deriver skips the batch.
         settlement: crate::scan::Settlement,
-        /// FIRST stateDelta's `currentRoot` for our rollup. Deriver
-        /// compares to local STF result at `from_block - 1` to catch
-        /// claimed-vs-derived divergence at the batch entry point.
+        /// FIRST stateDelta's `currentRoot` for our rollup. Despite the ABI
+        /// name, this is a block hash. Deriver compares it to the local block
+        /// hash at `from_block - 1` to catch claimed-vs-derived divergence.
         claimed_current_root: Option<B256>,
-        /// LAST stateDelta's `newRoot` for our rollup — the claimed
-        /// full-chain end. Diagnostics only; see `settlement.final_state`.
+        /// LAST stateDelta's `newRoot` for our rollup — the claimed terminal
+        /// block hash. Diagnostics only; see `settlement.final_state`.
         claimed_new_root: Option<B256>,
         /// `true` for the LAST batch of its L1 block. The Deriver waits for it to
         /// move safe: two batches in one L1 block can rewrite the same L2 height.
@@ -130,6 +137,9 @@ pub struct L1WatcherConfig {
     /// L1 RPC endpoint (HTTP / HTTPS). Uses the same `EEZ_L1_RPC_URL` as
     /// [`L1ReaderConfig`](crate::L1ReaderConfig).
     pub rpc_url: Url,
+    /// Optional consensus-layer REST endpoint used for EIP-4844 blob
+    /// sidecars. Required only after a blob-backed batch is observed.
+    pub beacon_url: Option<Url>,
     /// Deployed `EEZ` (rollups registry) address. Used to filter
     /// `BatchPosted` log events.
     pub eez: Address,
@@ -161,6 +171,18 @@ impl L1WatcherConfig {
             .map_err(|_| L1Error::Config("EEZ_L1_RPC_URL is required (see .env.example)".into()))?;
         let rpc_url = Url::parse(&rpc_url_raw)
             .map_err(|e| L1Error::Config(format!("EEZ_L1_RPC_URL: {e}")))?;
+        let beacon_url = match env::var("EEZ_L1_BEACON_URL") {
+            Ok(raw) if raw.trim().is_empty() => None,
+            Ok(raw) => Some(
+                Url::parse(&raw).map_err(|e| L1Error::Config(format!("EEZ_L1_BEACON_URL: {e}")))?,
+            ),
+            Err(env::VarError::NotPresent) => None,
+            Err(env::VarError::NotUnicode(_)) => {
+                return Err(L1Error::Config(
+                    "EEZ_L1_BEACON_URL contains non-UTF-8 bytes".into(),
+                ));
+            }
+        };
 
         let eez_raw = env::var("EEZ_REGISTRY_ADDRESS").map_err(|_| {
             L1Error::Config("EEZ_REGISTRY_ADDRESS is required (see .env.example)".into())
@@ -193,6 +215,7 @@ impl L1WatcherConfig {
         }
         Ok(Self {
             rpc_url,
+            beacon_url,
             eez,
             rollup_id,
             reorg_max_depth,
@@ -209,6 +232,7 @@ pub struct L1Watcher {
 
 struct Inner {
     config: L1WatcherConfig,
+    blob_source: BeaconBlobSource,
     event_tx: broadcast::Sender<L1Event>,
 }
 
@@ -216,6 +240,10 @@ impl std::fmt::Debug for L1Watcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("L1Watcher")
             .field("rpc_url", &self.inner.config.rpc_url.as_str())
+            .field(
+                "beacon_url",
+                &self.inner.config.beacon_url.as_ref().map(Url::as_str),
+            )
             .field("eez", &self.inner.config.eez)
             .field("reorg_max_depth", &self.inner.config.reorg_max_depth)
             .field("subscribers", &self.inner.event_tx.receiver_count())
@@ -229,8 +257,13 @@ impl L1Watcher {
     #[must_use]
     pub fn new(config: L1WatcherConfig) -> Self {
         let (event_tx, _) = broadcast::channel(EVENT_BUFFER);
+        let blob_source = BeaconBlobSource::new(config.beacon_url.clone());
         Self {
-            inner: Arc::new(Inner { config, event_tx }),
+            inner: Arc::new(Inner {
+                config,
+                blob_source,
+                event_tx,
+            }),
         }
     }
 
@@ -493,14 +526,9 @@ impl L1Watcher {
                 // matches more logs than the provider serves; the ring must
                 // then be reseeded at the block actually reached, or we'd
                 // claim to have scanned blocks we never read.
-                let (scanned, reached) = crate::scan::scan_batch_logs_range_adaptive(
-                    provider,
-                    self.inner.config.eez,
-                    self.inner.config.rollup_id,
-                    scan_from,
-                    chunk_to,
-                )
-                .await?;
+                let (scanned, reached) = self
+                    .scan_batch_logs_range_adaptive(provider, scan_from, chunk_to)
+                    .await?;
                 let boundary = if reached == chunk_to {
                     boundary
                 } else {
@@ -594,14 +622,9 @@ impl L1Watcher {
             // for each missed block and scanning its BatchPosted
             // logs.
             let scan_from = common.number + 1;
-            let (scanned, reached) = crate::scan::scan_batch_logs_range_adaptive(
-                provider,
-                self.inner.config.eez,
-                self.inner.config.rollup_id,
-                scan_from,
-                latest_number,
-            )
-            .await?;
+            let (scanned, reached) = self
+                .scan_batch_logs_range_adaptive(provider, scan_from, latest_number)
+                .await?;
             // Narrowed: commit only what was read; the next tick resumes there.
             let (to, to_hash) = if reached == latest_number {
                 (latest_number, latest_hash)
@@ -687,14 +710,40 @@ impl L1Watcher {
             to,
             "scanning L1 range for BatchPosted logs",
         );
-        crate::scan::scan_batch_logs_range(
+        let mut scanned = crate::scan::scan_batch_logs_range(
             provider,
             self.inner.config.eez,
             self.inner.config.rollup_id,
             from,
             to,
         )
-        .await
+        .await?;
+        self.inner
+            .blob_source
+            .hydrate_scanned_batches(provider, self.inner.config.rollup_id, &mut scanned)
+            .await?;
+        Ok(scanned)
+    }
+
+    async fn scan_batch_logs_range_adaptive(
+        &self,
+        provider: &impl Provider,
+        from: u64,
+        to: u64,
+    ) -> L1Result<(Vec<ScannedBatch>, u64)> {
+        let (mut scanned, reached) = crate::scan::scan_batch_logs_range_adaptive(
+            provider,
+            self.inner.config.eez,
+            self.inner.config.rollup_id,
+            from,
+            to,
+        )
+        .await?;
+        self.inner
+            .blob_source
+            .hydrate_scanned_batches(provider, self.inner.config.rollup_id, &mut scanned)
+            .await?;
+        Ok((scanned, reached))
     }
 
     fn emit_scanned_batches(&self, from: u64, to: u64, scanned: Vec<ScannedBatch>) {
@@ -719,6 +768,7 @@ impl L1Watcher {
                 l1_block_number: b.l1_block_number,
                 l1_block_hash: b.l1_block_hash,
                 tx_hash: b.tx_hash,
+                tx_index: b.tx_index,
                 submitter: b.submitter,
                 call_data: b.call_data,
                 post_batch_input: b.post_batch_input,
@@ -958,10 +1008,12 @@ mod tests {
             inner: std::sync::Arc::new(Inner {
                 config: L1WatcherConfig {
                     rpc_url: "http://127.0.0.1:0".parse().expect("static url"),
+                    beacon_url: None,
                     eez: alloy_primitives::Address::ZERO,
                     rollup_id: 1,
                     reorg_max_depth: 3,
                 },
+                blob_source: BeaconBlobSource::new(None),
                 event_tx,
             }),
         };
@@ -1477,8 +1529,10 @@ mod tests {
                 u8::try_from(l1_block_number).expect("test block numbers fit in u8"),
             ),
             tx_hash: B256::with_last_byte(tx),
+            tx_index: u64::from(tx),
             submitter: Address::ZERO,
             call_data: Bytes::new(),
+            transaction_blob_hashes: Vec::new(),
             post_batch_input: Bytes::new(),
             state_applied: true,
             settlement: crate::scan::Settlement::NONE,
@@ -1601,6 +1655,7 @@ mod tests {
             tx_hash: B256::ZERO,
             detail: "warming up".into(),
         };
+        assert!(L1Error::Config("missing beacon URL".into()).is_terminal());
         assert!(L1Error::Decode("bad abi".into()).is_terminal());
         assert!(depth.is_terminal());
         // A malformed RPC response is retryable — re-requesting can succeed.

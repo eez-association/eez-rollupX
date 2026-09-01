@@ -1,0 +1,99 @@
+diff --git a/apps/web/src/pages/api/blob-data.ts b/apps/web/src/pages/api/blob-data.ts
+index a425abd0..440aeab4 100644
+--- a/apps/web/src/pages/api/blob-data.ts
++++ b/apps/web/src/pages/api/blob-data.ts
+@@ -29,7 +29,13 @@ export default async function (req: NextApiRequest, res: NextApiResponse) {
+   }
+ 
+   try {
+-    const response = await fetch(url, requestInit);
++    // Postgres references are emitted with Blobscan API's own public base URL.
++    // Resolve only their path against the server-side API endpoint so a web
++    // container never calls its own localhost or trusts a caller-supplied host.
++    const fetchUrl = isBlobscanStorageRef
++      ? new URL(new URL(url).pathname, env.BLOBSCAN_API_BASE_URL).toString()
++      : url;
++    const response = await fetch(fetchUrl, requestInit);
+ 
+     if (!response.ok) {
+       return res.status(response.status).json({ message: response.statusText });
+@@ -39,9 +45,9 @@ export default async function (req: NextApiRequest, res: NextApiResponse) {
+     // file extension must be read from the pathname rather than the full URL.
+     let pathname: string;
+     try {
+-      pathname = new URL(url).pathname;
++      pathname = new URL(fetchUrl).pathname;
+     } catch {
+-      pathname = url;
++      pathname = fetchUrl;
+     }
+ 
+     const contentType = response.headers.get("content-type");
+@@ -58,11 +64,11 @@ export default async function (req: NextApiRequest, res: NextApiResponse) {
+ 
+       if (typeof data !== "string" || !data.startsWith("0x")) {
+         return res.status(500).json({
+-          message: `Unexpected content fetched from storage ${storage} and url ${url}`,
++          message: `Unexpected content fetched from storage ${storage} and url ${fetchUrl}`,
+         });
+       }
+ 
+-      blobData = Buffer.from(data.slice(2));
++      blobData = Buffer.from(data.slice(2), "hex");
+     } else if (isTextPlainFile) {
+       const data = await response.text();
+ 
+@@ -73,7 +79,7 @@ export default async function (req: NextApiRequest, res: NextApiResponse) {
+       blobData = Buffer.from(blobBytes);
+     } else {
+       throw new Error(
+-        `Unexpected content type "${contentType}" for URL "${url}"`
++        `Unexpected content type "${contentType}" for URL "${fetchUrl}"`
+       );
+     }
+ 
+diff --git a/Dockerfile b/Dockerfile
+index bcf70caa..10d41b3a 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -23,7 +23,7 @@ ENV PATH="$PNPM_HOME:$PATH"
+ ENV SKIP_ENV_VALIDATION=true
+ 
+ RUN apk add --no-cache curl
+-RUN npm install -g pnpm turbo
++RUN npm install -g pnpm@10.12.1 turbo@1.13.4
+ WORKDIR /app
+ RUN mkdir -p /tmp/blobscan-blobs && chmod 777 /tmp/blobscan-blobs
+ 
+diff --git a/packages/chains/src/chains/devnet.ts b/packages/chains/src/chains/devnet.ts
+new file mode 100644
+index 00000000..8d915633
+--- /dev/null
++++ b/packages/chains/src/chains/devnet.ts
+@@ -0,0 +1,17 @@
++import { Chain } from "../Chain";
++
++// This image is built for exactly one disposable EEZ devnet chain. The
++// placeholder is replaced by testing/kurtosis/blobscan/build.sh before the
++// image is built, so API and web never claim to index a different chain ID.
++// The pinned ethereum-package profile activates Fulu and BPO1 at genesis.
++export const devnet = new Chain(
++  __EEZ_BLOBSCAN_CHAIN_ID__,
++  "devnet",
++  { number: 0 },
++  {
++    bpo1: {
++      activationDate: new Date(0),
++      activationSlot: 0,
++    },
++  }
++);
+diff --git a/packages/chains/src/chains/index.ts b/packages/chains/src/chains/index.ts
+index dca7754a..e13c2f5f 100644
+--- a/packages/chains/src/chains/index.ts
++++ b/packages/chains/src/chains/index.ts
+@@ -1,3 +1,4 @@
++export { devnet } from "./devnet";
+ export { gnosis } from "./gnosis";
+ export { hoodi } from "./hoodi";
+ export { mainnet } from "./mainnet";

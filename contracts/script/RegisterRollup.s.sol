@@ -24,10 +24,10 @@ import {EEZ} from "eez-core-protocol/src/EEZ.sol";
 ///           - eez            — central registry address.
 ///           - rollupContract — the per-rollup manager deployed by
 ///                              DeployRollup.
-///           - initialRoot    — genesis state root for the new rollup
-///                              (typically `bytes32(0)` for a dev L2
-///                              that starts from an empty trie, or the
-///                              L2 genesis state root if known).
+///           - initialRoot    — genesis block hash commitment for the new
+///                              rollup. The protocol ABI calls this a root,
+///                              but this deployment profile assigns block-hash
+///                              semantics to the opaque bytes32 value.
 contract RegisterRollup is Script {
     function run(address eez, address rollupContract, bytes32 initialRoot) external {
         vm.startBroadcast();

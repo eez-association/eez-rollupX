@@ -21,7 +21,9 @@ sol! {
         bytes32 newRoot;
     }
 
-    /// A composer assertion about a rollup's live state root.
+    /// A composer assertion about a rollup's live block-hash commitment.
+    ///
+    /// `ExpectedRootPerRollup` and `root` are legacy Solidity ABI names.
     #[derive(Debug)]
     struct ExpectedRootPerRollupSol {
         uint64 rollupId;

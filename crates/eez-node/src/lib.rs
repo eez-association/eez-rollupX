@@ -15,6 +15,7 @@
 //! - `eez-dev-node`: unanchored interval sequencing for local development.
 
 mod bundle_rpc;
+mod correlation_rpc;
 mod follower;
 mod ingress;
 mod l1_embedded;
@@ -29,7 +30,7 @@ use alloy_signer_local::PrivateKeySigner;
 use clap::Parser as _;
 use eez_composer::composer::CrossChainWiring;
 use eez_composer::{Composer, HeldPool, RollupConfig, RollupState};
-use eez_deriver::Deriver;
+use eez_deriver::{CorrelationStore, Deriver};
 use eez_driver::{
     BlockCommitterHandle, DEFAULT_MAX_SPECULATIVE_DEPTH, EthAttributesBuilder, RollupTiming,
     Sequencer, SyncSlotComposerHandle, spawn_interval, spawn_l1_anchored,
@@ -290,6 +291,11 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
     );
     warn_on_deprecated_env();
     let l2_system_address = read_l2_system_address(PoolRole::Follower)?;
+    let l2_data_dir = checkpoint_dir();
+    let correlations = correlation_store(l2_data_dir.as_deref())?;
+    let l1_head = Arc::new(L1CanonicalHead::default());
+    let rpc_correlations = Arc::clone(&correlations);
+    let rpc_l1_head = Arc::clone(&l1_head);
 
     let handle = builder
         .with_types::<EthereumNode>()
@@ -299,6 +305,9 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
                 .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
+        .extend_rpc_modules(move |ctx| {
+            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
+        })
         .launch_with_debug_capabilities()
         .await?;
 
@@ -306,8 +315,6 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
     let provider = handle.node.provider.clone();
     let task_executor = handle.node.task_executor.clone();
     let timing = RollupTiming::from_env()?;
-    let l1_head = Arc::new(L1CanonicalHead::default());
-
     let block_committer = BlockCommitterHandle::spawn_from_provider(
         &provider,
         handle.node.add_ons_handle.beacon_engine_handle.clone(),
@@ -334,8 +341,9 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
         timing.l2_block_time().as_secs(),
         rollup_config.deploy_block,
         Arc::clone(&l1_head),
+        Arc::clone(&correlations),
         system_tx_cfg,
-        checkpoint_dir(),
+        l2_data_dir,
     );
 
     wait_for_l1_ready(&l1_reader, rollup_config.deploy_block, read_l1_chain_id()?).await?;
@@ -395,6 +403,7 @@ async fn launch_follower(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Res
             }
         }
     };
+    correlations.mark_ready();
 
     event!(
         name: "eez.node.deriver.spawned",
@@ -575,6 +584,13 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
     // yield identical headers.
+    let l2_data_dir = checkpoint_dir();
+    let correlations = correlation_store(l2_data_dir.as_deref())?;
+    // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
+    // Sequencer and correlation RPC read it.
+    let l1_head = Arc::new(L1CanonicalHead::default());
+    let rpc_correlations = Arc::clone(&correlations);
+    let rpc_l1_head = Arc::clone(&l1_head);
     let handle = builder
         .with_types::<EthereumNode>()
         .with_components(
@@ -583,6 +599,9 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
                 .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder)),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
+        .extend_rpc_modules(move |ctx| {
+            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
+        })
         .launch_with_debug_capabilities()
         .await?;
 
@@ -592,12 +611,6 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
-
-    // Shared L1-confirmed L2 head. Created unconditionally so the
-    // Sequencer's speculative-depth limit can be wired even when
-    // the L1 stack isn't activated. Deriver is the sole writer
-    // (only in follower/composer modes).
-    let l1_head = Arc::new(L1CanonicalHead::default());
 
     let timing = RollupTiming::from_env()?;
 
@@ -814,6 +827,36 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10_000_000_000);
+        let data_availability = match env::var("EEZ_DA_MODE")
+            .unwrap_or_else(|_| "calldata".to_string())
+            .as_str()
+        {
+            "calldata" => eez_composer::DataAvailabilityMode::Calldata,
+            "blob" => {
+                let encoding = match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
+                    .map_err(|_| {
+                        eyre::eyre!(
+                            "EEZ_L1_BLOB_SIDECAR_ENCODING is required when EEZ_DA_MODE=blob"
+                        )
+                    })?
+                    .as_str()
+                {
+                    "eip4844" => eez_blob_codec::BlobSidecarEncoding::Eip4844,
+                    "eip7594" => eez_blob_codec::BlobSidecarEncoding::Eip7594,
+                    value => {
+                        return Err(eyre::eyre!(
+                            "EEZ_L1_BLOB_SIDECAR_ENCODING must be eip4844 or eip7594, got {value}"
+                        ));
+                    }
+                };
+                eez_composer::DataAvailabilityMode::Blob(encoding)
+            }
+            value => {
+                return Err(eyre::eyre!(
+                    "EEZ_DA_MODE must be calldata or blob, got {value}"
+                ));
+            }
+        };
         // One submission path everywhere: the composer always
         // routes `[postBatch, user_tx_1, …]` through the shared
         // Submitter. The Submitter owns the transport decision —
@@ -831,6 +874,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             l1_poster_signer,
             l1_chain_id: l1_submission_chain_id,
             l1_post_batch_priority_fee,
+            data_availability,
             ecdsa_proof_system_address,
         });
         event!(
@@ -967,8 +1011,9 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         l2_block_time_secs,
         rollup_config.deploy_block,
         Arc::clone(&l1_head),
+        Arc::clone(&correlations),
         Some(system_tx_cfg),
-        checkpoint_dir(),
+        l2_data_dir,
     );
 
     // Bind before the L1 wait so port checks see a live front. Submissions are
@@ -1058,6 +1103,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             }
         }
     };
+    correlations.mark_ready();
     event!(
         name: "eez.node.deriver.spawned",
         Level::INFO,
@@ -1098,10 +1144,23 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
 /// disables the boot-checkpoint cache and preserves the safe full L1 rescan.
 fn checkpoint_dir() -> Option<PathBuf> {
     let configured = env::var("EEZ_L2_DATADIR").ok();
-    let checkpoint_dir = configured
-        .as_ref()
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_dir());
+    let checkpoint_dir = configured.as_ref().and_then(|raw| {
+        let dir = PathBuf::from(raw);
+        match std::fs::create_dir_all(&dir) {
+            Ok(()) if dir.is_dir() => Some(dir),
+            Ok(()) => None,
+            Err(error) => {
+                event!(
+                    name: "eez.node.datadir.unusable",
+                    Level::WARN,
+                    path = %dir.display(),
+                    error = %error,
+                    "EEZ_L2_DATADIR could not be prepared for derived metadata",
+                );
+                None
+            }
+        }
+    });
     if checkpoint_dir.is_none() {
         event!(
             name: "eez.node.checkpoint.disabled",
@@ -1111,6 +1170,31 @@ fn checkpoint_dir() -> Option<PathBuf> {
         );
     }
     checkpoint_dir
+}
+
+fn correlation_store(datadir: Option<&std::path::Path>) -> eyre::Result<Arc<CorrelationStore>> {
+    let store = match datadir {
+        Some(datadir) => {
+            let path = datadir.join("eez-correlations");
+            let store = CorrelationStore::open(&path).map_err(|error| eyre::eyre!(error))?;
+            event!(
+                name: "eez.node.correlation_store.opened",
+                Level::INFO,
+                path = %path.display(),
+                "persistent L1/L2 settlement correlation index opened",
+            );
+            store
+        }
+        None => {
+            event!(
+                name: "eez.node.correlation_store.memory_only",
+                Level::WARN,
+                "no usable EEZ_L2_DATADIR; correlation RPC history will not survive restart",
+            );
+            CorrelationStore::in_memory()
+        }
+    };
+    Ok(Arc::new(store))
 }
 
 /// Blocks until L1 serves our history: head at or past the deploy block, with
@@ -1200,29 +1284,27 @@ async fn wait_for_l1_ready(
 /// The SYSTEM_ADDRESS the pool refuses: `EEZ_L2_SYSTEM_ADDRESS`, else derived
 /// from `EEZ_L2_SYSTEM_KEY`. The role is selected by the executable and only
 /// controls how a missing value is handled.
+///
+/// Both set and disagreeing is fatal: the key signs, so a differing address
+/// would gate a sender that never appears and leave the real one open.
 fn read_l2_system_address(role: PoolRole) -> eyre::Result<Option<Address>> {
+    let from_key = l2_system_key_address()?;
     let configured = match env::var("EEZ_L2_SYSTEM_ADDRESS") {
-        Ok(raw) => Some(
-            Address::from_str(raw.trim())
-                .map_err(|e| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {e}"))?,
-        ),
+        Ok(raw) => {
+            let address = Address::from_str(raw.trim())
+                .map_err(|e| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {e}"))?;
+            eyre::ensure!(
+                from_key.is_none_or(|key_address| key_address == address),
+                "EEZ_L2_SYSTEM_ADDRESS {address} does not match EEZ_L2_SYSTEM_KEY"
+            );
+            Some(address)
+        }
         Err(env::VarError::NotUnicode(_)) => {
             return Err(eyre::eyre!(
                 "EEZ_L2_SYSTEM_ADDRESS contains non-UTF-8 bytes"
             ));
         }
-        Err(env::VarError::NotPresent) => match env::var("EEZ_L2_SYSTEM_KEY") {
-            Ok(raw) => Some(
-                PrivateKeySigner::from_bytes(&B256::from_str(
-                    raw.trim().trim_start_matches("0x"),
-                )?)?
-                .address(),
-            ),
-            Err(env::VarError::NotUnicode(_)) => {
-                return Err(eyre::eyre!("EEZ_L2_SYSTEM_KEY contains non-UTF-8 bytes"));
-            }
-            Err(env::VarError::NotPresent) => None,
-        },
+        Err(env::VarError::NotPresent) => from_key,
     };
 
     match (role, configured) {
@@ -1240,6 +1322,20 @@ fn read_l2_system_address(role: PoolRole) -> eyre::Result<Option<Address>> {
             Ok(None)
         }
         _ => Ok(configured),
+    }
+}
+
+/// Address of `EEZ_L2_SYSTEM_KEY`, if set.
+fn l2_system_key_address() -> eyre::Result<Option<Address>> {
+    match env::var("EEZ_L2_SYSTEM_KEY") {
+        Ok(raw) => Ok(Some(
+            PrivateKeySigner::from_bytes(&B256::from_str(raw.trim().trim_start_matches("0x"))?)?
+                .address(),
+        )),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(eyre::eyre!("EEZ_L2_SYSTEM_KEY contains non-UTF-8 bytes"))
+        }
     }
 }
 

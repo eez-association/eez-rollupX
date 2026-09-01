@@ -4,6 +4,7 @@ ethereum_package = import_module(
     "github.com/ethpandaops/ethereum-package/main.star@199620b24ac979c676010c5a68b2893c2bce4f1f"
 )
 blockscout = import_module("./blockscout.star")
+blobscan = import_module("./blobscan.star")
 
 # Pair A fixed ports inside the enclave.
 EMBEDDED_L1_RPC_PORT = 18545
@@ -23,6 +24,7 @@ def run(plan, args):
     eth_args = args["ethereum_package"]
     eez = args.get("eez", {})
     enable_explorers = eez.get("enable_explorers", False)
+    enable_blobscan = eez.get("enable_blobscan", False)
     enable_ui = eez.get("enable_ui", True)
     enable_demo_apps = eez.get("enable_demo_apps", enable_ui)
 
@@ -44,6 +46,7 @@ def run(plan, args):
 
     participants = eth.all_participants
     l1_el = participants[0].el_context
+    l1_cl = participants[0].cl_context
 
     # Feed the follower all Pair B beacon peers for stable block gossip.
     cl_enrs = [p.cl_context.enr for p in participants]
@@ -70,6 +73,22 @@ def run(plan, args):
 
     chain_id = str(eth_args.get("network_params", {}).get("network_id", "7331"))
     l2_chain_id = L2_CHAIN_ID
+
+    if enable_blobscan:
+        blobscan.launch(
+            plan=plan,
+            chain_id=chain_id,
+            execution_rpc_url=l1_el.rpc_http_url,
+            beacon_rpc_url=l1_cl.beacon_http_url,
+            params={
+                "api_image": eez["blobscan_api_image"],
+                "web_image": eez["blobscan_web_image"],
+                "indexer_image": eez["blobscan_indexer_image"],
+                "postgres_image": eez["blobscan_postgres_image"],
+                "redis_image": eez["blobscan_redis_image"],
+                "indexer_rust_log": eez.get("blobscan_indexer_rust_log", "info"),
+            },
+        )
 
     # Pair A engine API JWT.
     jwt = plan.run_sh(
@@ -140,6 +159,7 @@ def run(plan, args):
         "EEZ_L1_AUTH_PORT": str(EMBEDDED_L1_ENGINE_PORT),
         "EEZ_L1_CHAIN_ID": chain_id,
         "EEZ_L1_RPC_URL": "http://127.0.0.1:{}".format(EMBEDDED_L1_RPC_PORT),
+        "EEZ_L1_BEACON_URL": l1_cl.beacon_http_url,
         "EEZ_L1_TARGET_RPC_URL": l1_el.rpc_http_url,
         "EEZ_L1_BUILDER_RPC_URL": builder_rpc,
         "EEZ_BUNDLE_CAPTURE_DIR": "/tmp/eez-bundle-captures",
@@ -149,7 +169,11 @@ def run(plan, args):
         "EEZ_PROOF_TIME_MS": str(eez.get("proof_time_ms", 5000)),
         "EEZ_SUBMISSION_SLACK_MS": str(eez.get("submission_slack_ms", 2500)),
         "EEZ_MAX_SPECULATIVE_DEPTH": str(eez.get("max_speculative_depth", 0)),
+        "EEZ_MAX_USER_TXS_PER_BUNDLE": str(eez.get("max_user_txs_per_bundle", 50)),
+        "EEZ_COMPOSER_DEBUG_LOGGING": "1" if eez.get("composer_debug_logging", False) else "0",
         "EEZ_L1_POSTER_KEY": poster_key,
+        "EEZ_DA_MODE": eez.get("da_mode", "calldata"),
+        "EEZ_L1_BLOB_SIDECAR_ENCODING": eez.get("blob_sidecar_encoding", "eip4844"),
         "EEZ_PROVER_URL": "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT),
         "EEZ_WITNESS_DB_PATH": "/data/witnesses",
         "EEZ_L2_DATADIR": "/data/l2",
@@ -161,16 +185,18 @@ def run(plan, args):
         "EEZ_L2_P2P_PORT": str(L2_P2P_PORT),
         "EEZ_L2_SYSTEM_KEY": l2_system_key,
         "EEZL2_ADDRESS": "0x4200000000000000000000000000000000000007",
+        "RUST_LOG": eez.get("node_rust_log", "info"),
     }
 
     node_cmd = " ".join(
         [
             "set -eu;",
+            "if [ \"$EEZ_COMPOSER_DEBUG_LOGGING\" = 1 ]; then export RUST_LOG='info,eez_composer=debug'; fi;",
             "echo 'eez-node: sourcing /out/deployments.env';",
             "test -f /out/deployments.env;",
-            "grep -E '^(EEZ_REGISTRY_ADDRESS|EEZ_REGISTRY_DEPLOY_BLOCK|EEZ_ROLLUP_ID|EEZ_INITIAL_STATE_ROOT|EEZ_L1_L2_PROXY|EEZ_L1_BRIDGE_SENDER)=' /out/deployments.env;",
+            "grep -E '^(EEZ_REGISTRY_ADDRESS|EEZ_REGISTRY_DEPLOY_BLOCK|EEZ_ROLLUP_ID|EEZ_INITIAL_BLOCK_HASH|EEZ_L2_GENESIS_STATE_ROOT|EEZ_L1_L2_PROXY|EEZ_L1_BRIDGE_SENDER)=' /out/deployments.env;",
             "set -a; . /out/deployments.env; set +a;",
-            'echo "eez-node: loaded EEZ_REGISTRY_ADDRESS=$EEZ_REGISTRY_ADDRESS EEZ_ROLLUP_ID=$EEZ_ROLLUP_ID EEZ_INITIAL_STATE_ROOT=$EEZ_INITIAL_STATE_ROOT";',
+            'echo "eez-node: loaded EEZ_REGISTRY_ADDRESS=$EEZ_REGISTRY_ADDRESS EEZ_ROLLUP_ID=$EEZ_ROLLUP_ID EEZ_INITIAL_BLOCK_HASH=$EEZ_INITIAL_BLOCK_HASH";',
             "exec eez-composer node",
             "--chain=/out/l2-genesis.json",
             "--datadir=$EEZ_L2_DATADIR",

@@ -11,9 +11,9 @@
 #     filler) at the L2 ingress
 #   - wait for the L1 user_tx receipts, then tally:
 #       * per-PB analyzer (Sync blocks vs BatchPosted)
-#       * L1 rollups(id).stateRoot == L2 actual at last settled height
+#       * L1 rollups(id).root commitment == L2 block hash at last settled height
 #       * semantic effects (Value + recipient balance vs confirmed view)
-#       * zero state-root divergence events
+#       * zero block-hash commitment divergence events
 #
 # Post-deploy everything uses the node's OWN (internal) L1 — proxies,
 # reconcile and receipts all go to $L1_RPC (the embedded reth). Only the
@@ -267,21 +267,21 @@ else
     echo "    ✗ only $PB_COUNT PBs (expected ≥$WAVE_COUNT)"; ALL_PB_OK=0
 fi
 
-# ── L1↔L2 stateRoot reconciliation ───────────────────────────────────
+# ── L1↔L2 block-hash reconciliation ──────────────────────────────────
 echo
-echo "==> L1 vs L2 stateRoot reconciliation"
+echo "==> L1 commitment vs L2 block-hash reconciliation"
 L1_TRACKED=$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' "$EEZ_ROLLUP_ID" \
     --rpc-url "$L1_RPC" 2>/dev/null | sed -n '2p' | tr -d '[:space:]')
 LAST_SETTLED=$(sed 's/\x1b\[[0-9;]*m//g' "$NODE_LOG" 2>/dev/null \
     | grep "bundle outcome observed" | grep "settled=true" \
     | grep -oE "sync_height=[0-9]+" | grep -oE "[0-9]+" | sort -n | tail -1 || true)
 [[ -z "$LAST_SETTLED" ]] && { [[ ${#SYNC_BLOCKS[@]} -gt 0 ]] && LAST_SETTLED="${SYNC_BLOCKS[-1]}" || LAST_SETTLED=0; }
-L2_AT_LAST_SETTLED=$(cast block "$LAST_SETTLED" --rpc-url "$L2_RPC" --json | jq -r '.stateRoot')
-echo "    L1 rollups($EEZ_ROLLUP_ID).stateRoot                    = $L1_TRACKED"
-echo "    L2 actual stateRoot at last settled height $LAST_SETTLED = $L2_AT_LAST_SETTLED"
+L2_AT_LAST_SETTLED=$(cast block "$LAST_SETTLED" --rpc-url "$L2_RPC" --json | jq -r '.hash')
+echo "    L1 rollups($EEZ_ROLLUP_ID) commitment                  = $L1_TRACKED"
+echo "    L2 block hash at last settled height $LAST_SETTLED     = $L2_AT_LAST_SETTLED"
 L1_L2_OK=0
 if [[ "${L1_TRACKED,,}" == "${L2_AT_LAST_SETTLED,,}" ]]; then
-    echo "    ✓ L1 stored stateRoot == L2 actual at last settled Sync height"; L1_L2_OK=1
+    echo "    ✓ L1 stored commitment == L2 hash at last settled Sync height"; L1_L2_OK=1
 else
     echo "    ✗ L1 ≠ L2 at last settled Sync height"
 fi
@@ -318,7 +318,7 @@ DIV_OK=0
 if [[ "$DIVERGED_LEGACY" -eq 0 ]]; then
     DIV_OK=1
     [[ "$DIVERGED_DERIVER" -eq 0 ]] \
-        && echo "    ✓ zero state-root divergence events" \
+        && echo "    ✓ zero block-hash commitment divergence events" \
         || echo "    ⚠ $DIVERGED_DERIVER deriver-side WARN(s) from skipped (state_applied=false) batches — residual; reconcile is authoritative"
 else
     echo "    ✗ legacy divergences: $DIVERGED_LEGACY"

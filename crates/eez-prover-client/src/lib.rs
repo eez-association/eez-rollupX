@@ -84,6 +84,11 @@ fn chunks_for(ctx: &ProvingContext) -> Vec<ProveChunk> {
                 // pre-claim it (the batch determines it deterministically).
                 public_inputs_hash: Vec::new(),
                 l1_block_hash: ctx.l1_block_hash.map(|h| h.to_vec()).unwrap_or_default(),
+                blobs: ctx
+                    .blobs
+                    .iter()
+                    .map(|blob| blob.as_bytes().to_vec())
+                    .collect(),
             }),
         })),
     });

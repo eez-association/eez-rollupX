@@ -7,7 +7,7 @@ fn nested_position_key(call_hash: B256, rolling_hash: B256) -> B256 {
     alloy_primitives::keccak256(input)
 }
 
-fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
+pub(super) fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
     let make_call = |index: u8, source_rollup_id: u64| L2ToL1CallSol {
         revertNextNCalls: 0,
         isStatic: false,

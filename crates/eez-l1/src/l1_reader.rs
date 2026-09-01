@@ -6,6 +6,7 @@ use alloy_eips::BlockNumberOrTag;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::Filter;
 
+use crate::blob_source::BeaconBlobSource;
 use crate::config::L1ReaderConfig;
 use crate::error::{L1Error, L1Result};
 use crate::scan::{BatchLogChunks, ScannedBatch, scan_next_batch_log_chunk};
@@ -15,6 +16,7 @@ use crate::scan::{BatchLogChunks, ScannedBatch, scan_next_batch_log_chunk};
 #[derive(Clone)]
 pub struct L1Reader {
     config: Arc<L1ReaderConfig>,
+    blob_source: Arc<BeaconBlobSource>,
 }
 
 /// What the L1 source can currently serve. See [`L1Reader::readiness`].
@@ -38,8 +40,10 @@ impl L1Reader {
     /// Build a read-only L1 client from its config.
     #[must_use]
     pub fn new(config: L1ReaderConfig) -> Self {
+        let blob_source = Arc::new(BeaconBlobSource::new(config.beacon_url.clone()));
         Self {
             config: Arc::new(config),
+            blob_source,
         }
     }
 
@@ -71,7 +75,16 @@ impl L1Reader {
         chunks: &mut BatchLogChunks,
     ) -> L1Result<Option<Vec<ScannedBatch>>> {
         let provider = self.build_provider();
-        scan_next_batch_log_chunk(&provider, self.config.eez, self.config.rollup_id, chunks).await
+        let Some(mut scanned) =
+            scan_next_batch_log_chunk(&provider, self.config.eez, self.config.rollup_id, chunks)
+                .await?
+        else {
+            return Ok(None);
+        };
+        self.blob_source
+            .hydrate_scanned_batches(&provider, self.config.rollup_id, &mut scanned)
+            .await?;
+        Ok(Some(scanned))
     }
 
     /// Hash of the canonical L1 block at `number`, or `None` if none. Used by

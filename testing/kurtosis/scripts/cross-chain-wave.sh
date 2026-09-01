@@ -250,14 +250,15 @@ echo
 echo "==> setup complete; running waves"
 RECEIPT_WAIT_SECS="${EEZ_RECEIPT_WAIT_SECS:-300}"
 WAVE_GAP_SECS="${EEZ_WAVE_GAP_SECS:-20}"
+WAIT_BETWEEN_WAVES="${EEZ_WAIT_BETWEEN_WAVES:-1}"
 FILLER_PER_GAP="${EEZ_FILLER_PER_GAP:-2}"
 # One reverting cross-chain call per side per wave (bogus selector, no
 # fallback). They must NOT settle, and must not disturb the rest.
 INCLUDE_REVERTS="${EEZ_INCLUDE_REVERTS:-0}"
 PURE_RECIPIENT=0x2222222222222222222222222222222222222222
 
-refresh_node_log() { docker logs "$(docker ps --format "{{.Names}}" | grep -m1 "eez-node--")" >"$NODE_LOG" 2>&1 || true; }
-refresh_signer_log() { docker logs "$(docker ps --format "{{.Names}}" | grep -m1 "eez-proof-signer--")" >"$SIGNER_LOG" 2>&1 || true; }
+refresh_node_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-node >"$NODE_LOG" 2>&1 || true; }
+refresh_signer_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-proof-signer >"$SIGNER_LOG" 2>&1 || true; }
 strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
 # The relay needs a few L1 slots before it includes anything. Firing into that
@@ -271,19 +272,18 @@ registry_events() { # <event-sig> [from-block]
         "$1" --rpc-url "$L1" --json 2>/dev/null | jq 'length' 2>/dev/null || echo 0
 }
 
-settled_count() { refresh_node_log; strip_ansi <"$NODE_LOG" | grep -c "settled=true" || true; }
-
 wait_for_builder() {
-    local deadline=$(( SECONDS + ${EEZ_BUILDER_WARM_SECS:-600} )) base hits
-    # Baseline first: an earlier mode's settlements are still in the log.
-    base=$(settled_count)
+    local from_block="$1"
+    local deadline=$(( SECONDS + ${EEZ_BUILDER_WARM_SECS:-600} )) hits
     echo "==> waiting for the builder to include a bundle"
     while :; do
-        # `-c` not `-q`: -q exits on first match, SIGPIPEs sed, and pipefail
-        # then reports the successful pipeline as failed.
-        hits=$(settled_count)
-        if (( ${hits:-0} > ${base:-0} )); then
-            echo "    ✓ builder is including bundles ($((hits - base)) new this run)"; return 0
+        # Query the canonical L1 instead of counting a snapshot of service
+        # logs. `kurtosis service logs` returns a rolling 200-line window by
+        # default, so its match count can remain constant while new bundles
+        # are successfully included and older matches leave the window.
+        hits=$(registry_events "BatchPosted(uint256)" "$from_block")
+        if (( ${hits:-0} > 0 )); then
+            echo "    ✓ builder included a bundle on L1"; return 0
         fi
         (( SECONDS < deadline )) || {
             echo "    ✗ no bundle included in ${EEZ_BUILDER_WARM_SECS:-600}s"; return 1
@@ -441,11 +441,13 @@ run_waves() {
     # LAST so the wrapper's value is the expected final Value.value() (both
     # write the same target through the same proxy, in submission order).
     local w
-    # Baseline for the per-run event counts below.
-    # +1: the current head is already mined, so its events predate this run.
-    L1_FIRST_COUNTED_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
+    # Warm-up uses its own L1 baseline. Reset the wave baseline afterwards so
+    # the readiness bundle cannot satisfy the per-wave event assertions.
+    local BUILDER_FIRST_BLOCK
+    BUILDER_FIRST_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
     # Here, not at setup: the helpers it calls are defined above this point.
-    wait_for_builder || return 1
+    wait_for_builder "$BUILDER_FIRST_BLOCK" || return 1
+    L1_FIRST_COUNTED_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
     echo
     echo "==> firing $WAVES wave(s), mode=$MODE"
     for ((w=1; w<=WAVES; w++)); do
@@ -469,7 +471,7 @@ run_waves() {
             echo "    outbound: 4 ops via L2 front (set/noret/wd/wrap)"
         fi
         (( do_pure )) && { submit_pure_filler "$FILLER_PER_GAP"; echo "    pure: $FILLER_PER_GAP L2 filler txs"; }
-        if (( w < WAVES )); then
+        if (( WAIT_BETWEEN_WAVES && w < WAVES )); then
             if (( do_in )); then
                 wait_nonce_at_least "$L1" "$HH_ADDR_IN" "$IN_WAVE_TARGET" "inbound sender" || exit 1
             fi
@@ -599,31 +601,31 @@ run_waves() {
         echo "    ✗ no L2ExecutionPerformed event found"; ok_all=0
     fi
 
-    # L1's stored state root must converge with the current L2 safe block.
-    local LAST_SETTLED="" L1_TRACKED="" L1_RECHECK="" L2_ROOT="" L2_SAFE=0 SAFE_BLOCK=""
-    local root_deadline=$((SECONDS + ${EEZ_STATE_ROOT_WAIT_SECS:-30})) root_matched=0
+    # L1's stored commitment must converge with the current L2 safe block hash.
+    local LAST_SETTLED="" L1_TRACKED="" L1_RECHECK="" L2_HASH="" L2_SAFE=0 SAFE_BLOCK=""
+    local commitment_deadline=$((SECONDS + ${EEZ_STATE_ROOT_WAIT_SECS:-30})) commitment_matched=0
     LAST_SETTLED=$(strip_ansi <"$NODE_LOG" | grep "bundle outcome observed" | grep "settled=true" \
         | grep -oE "sync_height=[0-9]+" | grep -oE "[0-9]+" | sort -n | tail -1 || true)
     if [[ -n "$LAST_SETTLED" ]]; then
-        while (( SECONDS < root_deadline )); do
+        while (( SECONDS < commitment_deadline )); do
             L1_TRACKED=$(retry cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
                 "$EEZ_ROLLUP_ID" --rpc-url "$L1" | sed -n '2p' | tr -d '[:space:]')
             SAFE_BLOCK=$(retry cast block safe --rpc-url "$L2" --json)
             L2_SAFE=$(jq -r '.number' <<<"$SAFE_BLOCK" | xargs cast to-dec)
-            L2_ROOT=$(jq -r '.stateRoot' <<<"$SAFE_BLOCK")
+            L2_HASH=$(jq -r '.hash' <<<"$SAFE_BLOCK")
             L1_RECHECK=$(retry cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
                 "$EEZ_ROLLUP_ID" --rpc-url "$L1" | sed -n '2p' | tr -d '[:space:]')
             if [[ "${L1_TRACKED,,}" == "${L1_RECHECK,,}" \
-                && "${L1_RECHECK,,}" == "${L2_ROOT,,}" ]]; then
-                root_matched=1
+                && "${L1_RECHECK,,}" == "${L2_HASH,,}" ]]; then
+                commitment_matched=1
                 break
             fi
             sleep 1
         done
-        if (( root_matched )); then
-            echo "    ✓ L1 rollups($EEZ_ROLLUP_ID).root == L2 safe root at height $L2_SAFE"
+        if (( commitment_matched )); then
+            echo "    ✓ L1 commitment == L2 safe block hash at height $L2_SAFE"
         else
-            echo "    ✗ L1 root $L1_RECHECK != L2 safe root $L2_ROOT at height $L2_SAFE"; ok_all=0
+            echo "    ✗ L1 commitment $L1_RECHECK != L2 safe block hash $L2_HASH at height $L2_SAFE"; ok_all=0
         fi
         if (( L2_SAFE >= LAST_SETTLED )); then
             echo "    ✓ L2 safe head reached settled height: $L2_SAFE"
@@ -638,9 +640,9 @@ run_waves() {
     local DIVERGED
     DIVERGED=$(grep -c "diverged from L1-confirmed batch" "$NODE_LOG" 2>/dev/null || true); DIVERGED=${DIVERGED:-0}
     if (( DIVERGED == 0 )); then
-        echo "    ✓ zero state-root divergence events"
+        echo "    ✓ zero block-hash commitment divergence events"
     else
-        echo "    ✗ $DIVERGED state-root divergence event(s)"; ok_all=0
+        echo "    ✗ $DIVERGED block-hash commitment divergence event(s)"; ok_all=0
     fi
 
     # Dropped-bundle telemetry.

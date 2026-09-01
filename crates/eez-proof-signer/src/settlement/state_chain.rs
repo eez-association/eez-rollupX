@@ -1,4 +1,4 @@
-//! Continuity checks for Composer-claimed root-update chains.
+//! Continuity checks for block-hash commitments carried in ABI root updates.
 
 use std::num::NonZeroU64;
 
@@ -14,7 +14,7 @@ struct VerifiedRootUpdateEntry<'batch> {
     claimed_update: &'batch RootUpdateSol,
 }
 
-/// A nonempty, single-rollup root-update chain bound to validated endpoints.
+/// A nonempty, single-rollup commitment chain bound to validated endpoints.
 ///
 /// Private fields make construction exclusive to [`verify_root_update_chain`].
 /// Downstream effect binding can therefore use each retained entry/update pair
@@ -66,21 +66,23 @@ pub(crate) enum RootUpdateChainError {
         claimed: u64,
     },
     #[error(
-        "leading root update claims initial root {claimed}; validated window root is {validated}"
+        "leading root update claims initial commitment {claimed}; validated parent block hash is {validated}"
     )]
     InitialRootMismatch { validated: B256, claimed: B256 },
     #[error(
-        "root-update chain breaks before entry {entry_index}: previous claimed post-state is {previous_claimed_post_state}, next claimed pre-state is {next_claimed_pre_state}"
+        "root-update chain breaks before entry {entry_index}: previous claimed block hash is {previous_claimed_block_hash}, next claimed parent hash is {next_claimed_parent_hash}"
     )]
     ChainBreak {
         entry_index: usize,
-        previous_claimed_post_state: B256,
-        next_claimed_pre_state: B256,
+        previous_claimed_block_hash: B256,
+        next_claimed_parent_hash: B256,
     },
-    #[error("root-update chain claims final root {claimed}; validated final root is {validated}")]
+    #[error(
+        "root-update chain claims final commitment {claimed}; validated block hash is {validated}"
+    )]
     FinalMismatch { validated: B256, claimed: B256 },
     #[error(
-        "batch static entry {entry_index} pins root {claimed}; validated final root is {validated}"
+        "batch static entry {entry_index} pins commitment {claimed}; validated block hash is {validated}"
     )]
     StaticRootMismatch {
         entry_index: usize,
@@ -90,16 +92,16 @@ pub(crate) enum RootUpdateChainError {
 }
 
 /// Require one claimed root update per entry, the expected rollup, and a
-/// continuous root chain between the locally validated window endpoints.
+/// continuous block-hash chain between the locally validated window endpoints.
 ///
 /// This checks continuity of Composer claims; `bind_effects_to_execution`
 /// separately proves that the leading entry is an anchor and binds interior
-/// roots to transaction checkpoints.
+/// commitments to prefix-block checkpoints.
 pub(crate) fn verify_root_update_chain(
     batch: &CanonicalPostBatch,
     expected_rollup_id: NonZeroU64,
-    validated_window_pre_state_root: B256,
-    validated_window_post_state_root: B256,
+    validated_window_pre_block_hash: B256,
+    validated_window_post_block_hash: B256,
 ) -> Result<VerifiedRootUpdateChain<'_>, RootUpdateChainError> {
     let submitted_batch = batch.as_batch();
     let (leading_claimed_entry, trailing_claimed_entries) =
@@ -115,15 +117,15 @@ pub(crate) fn verify_root_update_chain(
             claimed: leading_claimed_update.rollupId,
         });
     }
-    if leading_claimed_update.currentRoot != validated_window_pre_state_root {
+    if leading_claimed_update.currentRoot != validated_window_pre_block_hash {
         return Err(RootUpdateChainError::InitialRootMismatch {
-            validated: validated_window_pre_state_root,
+            validated: validated_window_pre_block_hash,
             claimed: leading_claimed_update.currentRoot,
         });
     }
 
     let claimed_rollup = leading_claimed_update.rollupId;
-    let mut previous_claimed_post_state = leading_claimed_update.newRoot;
+    let mut previous_claimed_block_hash = leading_claimed_update.newRoot;
     let mut verified_trailing = Vec::with_capacity(trailing_claimed_entries.len());
     for (entry_index, entry) in trailing_claimed_entries.iter().enumerate() {
         let entry_index = entry_index + 1;
@@ -135,24 +137,24 @@ pub(crate) fn verify_root_update_chain(
                 claimed: claimed_update.rollupId,
             });
         }
-        if claimed_update.currentRoot != previous_claimed_post_state {
+        if claimed_update.currentRoot != previous_claimed_block_hash {
             return Err(RootUpdateChainError::ChainBreak {
                 entry_index,
-                previous_claimed_post_state,
-                next_claimed_pre_state: claimed_update.currentRoot,
+                previous_claimed_block_hash,
+                next_claimed_parent_hash: claimed_update.currentRoot,
             });
         }
-        previous_claimed_post_state = claimed_update.newRoot;
+        previous_claimed_block_hash = claimed_update.newRoot;
         verified_trailing.push(VerifiedRootUpdateEntry {
             claimed_entry: entry,
             claimed_update,
         });
     }
 
-    if previous_claimed_post_state != validated_window_post_state_root {
+    if previous_claimed_block_hash != validated_window_post_block_hash {
         return Err(RootUpdateChainError::FinalMismatch {
-            validated: validated_window_post_state_root,
-            claimed: previous_claimed_post_state,
+            validated: validated_window_post_block_hash,
+            claimed: previous_claimed_block_hash,
         });
     }
 
@@ -160,14 +162,14 @@ pub(crate) fn verify_root_update_chain(
         let [pin] = entry.expectedRoots.as_slice() else {
             return Err(RootUpdateChainError::StaticRootMismatch {
                 entry_index,
-                validated: validated_window_post_state_root,
+                validated: validated_window_post_block_hash,
                 claimed: B256::ZERO,
             });
         };
-        if pin.root != validated_window_post_state_root {
+        if pin.root != validated_window_post_block_hash {
             return Err(RootUpdateChainError::StaticRootMismatch {
                 entry_index,
-                validated: validated_window_post_state_root,
+                validated: validated_window_post_block_hash,
                 claimed: pin.root,
             });
         }

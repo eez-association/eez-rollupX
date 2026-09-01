@@ -120,6 +120,7 @@ impl Prover for ProveSvc {
             declared_from_block,
             declared_to_block,
             submitted_post_batch_calldata,
+            submitted_blobs,
         } = header;
         timing.ensure_before_deadline(
             "pipeline",
@@ -135,6 +136,7 @@ impl Prover for ProveSvc {
             .run_pipeline(
                 blocks,
                 submitted_post_batch_calldata,
+                submitted_blobs,
                 request_permit,
                 pipeline_started,
                 timing,
@@ -142,7 +144,7 @@ impl Prover for ProveSvc {
             .await?;
         // Keep the exclusive slot through signing and response construction.
         let _active_request_guard = request_permit;
-        let attestable_public_inputs_hash = attestation_material.attestable_public_inputs_hash;
+        let attestable_public_inputs_hash = attestation_material.attestable_public_inputs;
 
         timing.ensure_before_deadline(
             "attestation",
@@ -177,8 +179,8 @@ impl Prover for ProveSvc {
             phase = "attestation",
             validated_from_block = declared_from_block,
             validated_to_block = declared_to_block,
-            validated_window_pre_state_root = %attestation_material.validated_window_pre_state_root,
-            validated_window_post_state_root = %attestation_material.validated_window_post_state_root,
+            validated_window_pre_block_hash = %attestation_material.validated_window_pre_block_hash,
+            validated_window_post_block_hash = %attestation_material.validated_window_post_block_hash,
             recomputed_public_inputs_hash = %attestable_public_inputs_hash.into_inner(),
             attester = %self.state.attester.address(),
             elapsed_ms = timing.elapsed_ms(),
@@ -269,6 +271,7 @@ impl ProveSvc {
         &self,
         blocks: window::AdmittedBlocks,
         submitted_post_batch_calldata: Vec<u8>,
+        submitted_blobs: Vec<Vec<u8>>,
         request_permit: OwnedSemaphorePermit,
         pipeline_started: Instant,
         timing: RequestTiming,
@@ -294,6 +297,7 @@ impl ProveSvc {
                     &state,
                     blocks,
                     submitted_post_batch_calldata,
+                    submitted_blobs,
                     deadline,
                     &worker_cancellation,
                 )

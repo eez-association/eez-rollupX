@@ -36,7 +36,7 @@ the spec are appropriate in repository documentation.
   supported outbound effects and then zero or more supported successful inbound
   effects. Richer or ambiguous shapes fail closed.
 - Every successful `BackendWindowOutput` associates each block's computed hash,
-  post-state root, receipt coverage, selected checkpoints, and settlement
+  post-state root, receipt coverage, selected prefix-block hash checkpoints, and settlement
   evidence in one `BackendBlockOutput`. Preceding-block checkpoint vectors are
   empty; the settling vector is the exact locally derived selection and may
   also be empty.

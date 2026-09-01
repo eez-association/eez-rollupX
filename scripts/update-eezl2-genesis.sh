@@ -375,7 +375,7 @@ if [[ "$mode" == "render" ]]; then
     fi
     printf 'EEZ_L2_SYSTEM_ADDRESS=%s\n' "$system_address"
     printf 'EEZ_L2_EEZL2_CODE_HASH=%s\n' "$runtime_hash"
-    printf 'EEZ_INITIAL_STATE_ROOT=%s\n' "$state_root"
+    printf 'EEZ_L2_GENESIS_STATE_ROOT=%s\n' "$state_root"
     exit 0
 fi
 

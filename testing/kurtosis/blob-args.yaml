@@ -1,0 +1,69 @@
+# Isolated EIP-4844 data-availability validation profile. This intentionally
+# uses separate image tags and should run in its own enclave (for example,
+# `eez-blob`) so it cannot alter the normal developer network.
+ethereum_package:
+  participants:
+    - el_type: reth
+      el_image: ghcr.io/paradigmxyz/reth:latest
+      cl_type: lighthouse
+      cl_image: sigp/lighthouse:v8.1.2
+      # Fulu/PeerDAS stores only a custody subset by default. The standard
+      # full-blob API requires enough columns to reconstruct each blob.
+      supernode: true
+      count: 1
+
+  network_params:
+    network_id: "7332"
+    seconds_per_slot: 12
+    slot_duration_ms: 12000
+    genesis_gaslimit: 60000000
+    min_validator_withdrawability_delay: 1
+    shard_committee_period: 1
+    deneb_fork_epoch: 0
+    electra_fork_epoch: 0
+    fulu_fork_epoch: 0
+    bpo_1_epoch: 0
+    bpo_1_max_blobs: 15
+    bpo_1_target_blobs: 10
+    bpo_1_base_fee_update_fraction: 8346193
+    prefunded_accounts: '{"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {"balance": "1000000ETH"}, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": {"balance": "1000000ETH"}, "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": {"balance": "1000000ETH"}, "0xb9e79D19f651a941757b35830232E7EFC77E1c79": {"balance": "1000000ETH"}}'
+
+  mev_type: flashbots
+  mev_params:
+    mev_builder_image: ethpandaops/reth-rbuilder:develop
+    mev_relay_image: ethpandaops/mev-boost-relay@sha256:3600f04fcaf0bbb231f4737470f094fdf2314db54b4853197fa369aea90f8b19
+    mev_boost_image: ethpandaops/mev-boost:develop
+    mev_builder_cl_image: sigp/lighthouse:v8.1.2
+    mev_builder_subsidy: 1
+
+eez:
+  enable_explorers: false
+  enable_blobscan: true
+  enable_ui: false
+  enable_demo_apps: false
+
+  eez_node_image: eez-node:blob-test
+  proof_signer_image: eez-proof-signer:blob-test
+  deploy_image: eez-deploy:blob-test
+  ui_image: eez-rollup-ui:ci
+  follower_image: sigp/lighthouse:v8.1.2
+  blobscan_api_image: eez-blobscan-api:1.40.3-chain7332
+  blobscan_web_image: eez-blobscan-web:1.40.3-chain7332
+  blobscan_indexer_image: blossomlabs/blobscan-indexer@sha256:5dd9d1de60d2d6875fa2655097b4388cb058566f2ab5b63623c6c728bbe281dc
+  blobscan_postgres_image: postgres:alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+  blobscan_redis_image: redis:alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+
+  poster_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  proof_signer_key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+  l1_block_time_ms: 12000
+  l2_block_time_ms: 2000
+  proof_time_ms: 5000
+  submission_slack_ms: 500
+  max_speculative_depth: 0
+  da_mode: blob
+  # The pinned ethereum-package activates Fulu at genesis, so blob pool
+  # transactions must carry the EIP-7594 cell-proof sidecar wrapper.
+  blob_sidecar_encoding: eip7594
+
+  fee_recipient: "0x0000000000000000000000000000000000000000"
+  l2_system_key: "0x6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1"

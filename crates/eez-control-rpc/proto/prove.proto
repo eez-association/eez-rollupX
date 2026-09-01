@@ -40,6 +40,10 @@ message PostBatch {
   bytes public_inputs_hash = 2;
   // 32B `blockhash(N)` for a block-bound batch, or empty for timeless (0).
   bytes l1_block_hash = 3;
+  // Complete physical EIP-4844 blobs in transaction order. Empty for the
+  // legacy calldata profile. The prover derives KZG versioned hashes from
+  // these bytes and never trusts hashes claimed by the Composer.
+  repeated bytes blobs = 4;
 }
 
 message BlockWitness {

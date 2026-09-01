@@ -64,6 +64,12 @@ There's no separate L1 node to run. Cross-chain batches are submitted to
 Chiado's block builder; the L1 block to aim them at is read from the embedded
 L1 once it has caught up to the chain tip.
 
+Chiado is post-Fulu. The deployment therefore posts native EEZ payloads in
+type-3 blob transactions using the EIP-7594 pooled sidecar wrapper. Its
+Lighthouse runs as a PeerDAS supernode and the deriver retrieves full blobs
+through `/eth/v1/beacon/blobs/{block_id}`, with the deprecated pre-Fulu
+sidecar endpoint retained only as a compatibility fallback.
+
 > **One command** (after the one-time setup + `.env`/`.env.chiado`): `bash
 > scripts/chiado-up.sh` deploys the protocol (skipped if already deployed),
 > prepares the datadirs, starts the stack, waits until it's healthy, and
@@ -88,7 +94,7 @@ docker run --rm -v "$PWD/data/chiado-l1:/data" \
 # 3. Shared engine-API JWT for eez-node <-> lighthouse.
 openssl rand -hex 32 > data/jwt.hex
 
-# 4. Chiado consensus config (config.yaml, bootnodes, deploy_block.txt).
+# 4. Current Chiado consensus config (including the activated Fulu epoch).
 git clone https://github.com/gnosischain/configs.git /tmp/gnosis-configs
 mkdir -p configs && cp -r /tmp/gnosis-configs/chiado configs/chiado
 
@@ -125,17 +131,35 @@ opt-in.)
 ### Configure and start
 
 ```bash
-cp .env.chiado.example .env.chiado    # host paths + funded keys + bundler URL
-docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml up
+cp .env.chiado.example .env.chiado    # paths, keys, builder, and blob settings
+bash scripts/chiado-up.sh
 ```
 
 The embedded L1 checkpoint-syncs (lighthouse, ~5 min) and catches up past the
-deploy block; then the L2 sequencer + composer run. Health checks:
+deploy block; then the L2 sequencer + composer run. Startup refuses an implicit
+DA mode, rejects a non-EIP-7594 Chiado blob configuration, probes the builder's
+`eth_sendBundle` method, confirms the synchronized Beacon endpoint identifies
+post-Fulu Chiado and serves the full-blob API, and waits for a new settlement.
+In blob mode it additionally requires that settlement to be type 3 and checks
+that every versioned-hash-selected blob is retrievable. Basic health checks:
 
 ```bash
 cast block-number --rpc-url http://localhost:18645   # embedded chiado L1 climbing
 cast block-number --rpc-url http://localhost:18688   # L2 producing
 ```
+
+The static deployment wiring is also checked in CI and can be validated
+without starting a network:
+
+```bash
+bash scripts/check-chiado-blob-config.sh
+```
+
+The colocated supernode is sufficient for live operation and the normal
+consensus-client retention window. Long-horizon recovery still requires a
+durable archival Beacon source or a protocol snapshot/bootstrap strategy; do
+not describe a Chiado deployment as independently recoverable beyond that
+window until this is provided and tested.
 
 ### Endpoints & cross-chain fronts
 
@@ -158,10 +182,14 @@ cross-chain call to bypass composition. The fronts use the compose env
 mode. The `eez-follower` and `eez-dev-node` binaries do not start them.
 Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
 
-`EEZ_MAX_USER_TXS_PER_BUNDLE` (compose, default `3`) caps how many user
-cross-chain txs ride in one `postBatch` bundle. Raise it only against a builder
-proven to include larger bundles atomically — rbuilder-chiado silently drops the
-excess beyond ~3, which is lost tx inclusion, so measure before bumping.
+`EEZ_MAX_USER_TXS_PER_BUNDLE` caps how many held user cross-chain transactions,
+combined across both directions, the composer offers to one Sync block. The
+in-code fallback and Kurtosis profile use `50`; the Chiado profile overrides it
+to `12` for its smaller L1 gas limit. The composer drains the queue FIFO:
+traffic beyond the cap remains queued for later Sync blocks, and block-gas
+fitting may select fewer than the configured maximum. Treat the value as a
+deployment-specific safety bound, not as a throughput target or an
+unlimited-mode switch.
 
 ### Exercise it
 
@@ -210,6 +238,40 @@ cargo run -p eez-node --bin eez-dev-node -- node \
   --chain "$EEZ_L2_GENESIS_PATH" \
   --datadir "$EEZ_L2_DATADIR"
 ```
+
+### L1/L2 settlement correlation RPC
+
+Composer and follower L2 RPCs expose the exact canonical mapping derived from
+accepted `postAndVerifyBatch` transactions:
+
+```bash
+# L2 number or 32-byte hash -> its L1 posting block/transaction and exact range.
+curl -s http://localhost:18688 \
+  -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eez_getSettlementByL2Block","params":["0xcc"]}'
+
+# L1 number or 32-byte hash -> zero or more settled L2 ranges.
+curl -s http://localhost:18688 \
+  -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"eez_getSettledL2RangesByL1Block","params":["0x23"]}'
+```
+
+Selectors also accept `{"blockNumber":"0xcc"}` or
+`{"blockHash":"0x…"}`. Numbers are Ethereum hex quantities. An unknown L2
+block returns `null`; an L1 block with no accepted batches returns `[]`.
+Responses include every exact L2 block hash, the posting transaction hash and
+index, `canonicalL2`, and `l2Finalized`. A same-height replacement remains
+discoverable by its old hash but is marked non-canonical.
+
+Set `EEZ_L2_DATADIR` to retain the MDBX index under
+`$EEZ_L2_DATADIR/eez-correlations`. On its first run after this feature is
+enabled, the deriver performs one full L1 scan to backfill history. With no
+configured datadir the methods still work for batches observed during that
+process, but their history does not survive restart.
+
+This mapping means “the L1 transaction that published and settled this L2
+block.” It is distinct from an L1-origin field embedded in every L2 header,
+which this protocol does not currently define.
 
 ## Build, test, teardown
 

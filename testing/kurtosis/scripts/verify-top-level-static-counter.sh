@@ -10,7 +10,8 @@ SCENARIO_LOG="${1:?usage: verify-top-level-static-counter.sh <upstream-log> <out
 OUTPUT_JSON="${2:?missing evidence output path}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-for var in L1_RPC L1_FRONT L2_RPC ROLLUPS PK PROTOCOL_COMMIT; do
+for var in L1_RPC L1_FRONT L2_RPC ROLLUPS PK PROTOCOL_COMMIT ROLLUP_ID \
+    BEACON_URL BLOB_VERIFIER; do
     [[ -n "${!var:-}" ]] || { echo "missing $var" >&2; exit 1; }
 done
 for tool in cast jq sed sha256sum; do
@@ -176,10 +177,22 @@ causal_graph="$(jq -cn \
                root_pin_matched_live_registry: true, same_block_order_verified: true,
                no_destination_delivery_required: true}}')"
 
+blob_tmp="$(mktemp -d /tmp/eez-top-level-static-blob.XXXXXX)"
+trap 'rm -rf "$blob_tmp"' EXIT
+blob_evidence_file="$blob_tmp/evidence.json"
+sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
+if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
+    BLOB_VERIFIER="$BLOB_VERIFIER" ROLLUP_ID="$ROLLUP_ID" \
+    bash "$(dirname "$0")/verify-semantic-settlement-blob.sh" \
+        "$post_hash" L1 "$blob_evidence_file" "$sidecars_file" "$tx_hash"; then
+    die "settlement blob semantic verification failed"
+fi
+blob_da="$(jq -c . "$blob_evidence_file")"
+
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"
 jq -n \
-    --argjson schema_version 1 --arg scenario topLevelStaticCounter \
+    --argjson schema_version 2 --arg scenario topLevelStaticCounter \
     --arg scenario_path script/e2e/static/L1_to_L2/topLevelStaticCounter/E2ETopLevelStaticCounter.s.sol \
     --arg protocol_commit "$PROTOCOL_COMMIT" --arg result PASS \
     --arg verification_mode external-view-only-static \
@@ -187,6 +200,7 @@ jq -n \
     --arg cached_return "$predicted" --argjson predicted_value "$predicted_value" \
     --argjson trigger "$trigger_object" --argjson post "$post_object" \
     --argjson causal_graph "$causal_graph" \
+    --argjson blob_da "$blob_da" \
     --arg log "$SCENARIO_LOG" --arg log_sha256 "$log_sha256" \
     '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
@@ -197,11 +211,14 @@ jq -n \
                      rolling_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
                      destination_rollup_id: 1, success: true, return_data: $cached_return},
       causal_graph: $causal_graph,
+      blob_da: $blob_da,
       observations: {predicted_value: $predicted_value, reader_last_read: $predicted_value,
                      reader_counter: 1, producer_counter: $predicted_value,
                      no_tx_staticcall_result: $predicted_value},
       claims: {upstream_stopped_at_known_eventless_phase: true, receipts_revalidated: true,
                causal_coverage_complete: true,
+               blob_kzg_authenticated: true, native_semantics_decoded: true,
+               semantic_trigger_bytes_bound: true,
                exact_posted_static_entry_decoded: true, root_pin_matched_live_registry: true,
                post_batch_preceded_trigger: true, no_destination_delivery_required: true,
                producer_remained_read_only: true},

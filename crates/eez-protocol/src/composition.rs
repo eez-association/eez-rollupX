@@ -309,93 +309,7 @@ impl CompositionBuilder {
                 .into());
             }
         }
-        entries::ensure_materializable_calls(&self.recorded)?;
-        let mut materialized = entries::materialize_batches(&self.recorded, self.entry_rollup_id)?;
-
-        // Sort by rollup ID so identical inputs produce identical target order.
-        let mut plan: Vec<RollupId> = materialized.keys().copied().collect();
-        plan.sort_unstable();
-
-        // Package per-chain target batches. An L2 origin's seed-only source
-        // entries remain in the prefix; callbacks back into that origin are
-        // split below into separate delivery entries.
-        let mut target_compositions = Vec::new();
-        for rollup_id in plan {
-            if rollup_id == self.entry_rollup_id {
-                continue;
-            }
-            let output = materialized
-                .remove(&rollup_id)
-                .expect("rollup id came from materialized outputs");
-            target_compositions.push(TargetComposition {
-                rollup_id,
-                batch: output.batch,
-                entry_traces: output.entry_traces,
-            });
-        }
-
-        let mut source = materialized.remove(&self.entry_rollup_id).ok_or_else(|| {
-            ProtocolErrorKind::InvalidEncoding(
-                "materialization did not produce the entry-rollup table".into(),
-            )
-        })?;
-        if source.source_entry_count > source.batch.entries.len()
-            || source.source_entry_count > source.entry_traces.len()
-        {
-            return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "materialized source prefix {} exceeds entries/traces ({}/{})",
-                source.source_entry_count,
-                source.batch.entries.len(),
-                source.entry_traces.len(),
-            ))
-            .into());
-        }
-        if source.source_callback_counts.len() != source.source_entry_count {
-            return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "materialized source callback counts {} do not match source entries {}",
-                source.source_callback_counts.len(),
-                source.source_entry_count,
-            ))
-            .into());
-        }
-        let callback_entries = source.batch.entries.split_off(source.source_entry_count);
-        let callback_traces = source.entry_traces.split_off(source.source_entry_count);
-        let callback_count = source.source_callback_counts.iter().sum::<usize>();
-        if callback_count != callback_entries.len() {
-            return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "materialized source callback counts total {callback_count}, found {} entries",
-                callback_entries.len(),
-            ))
-            .into());
-        }
-        if !callback_entries.is_empty() {
-            target_compositions.push(TargetComposition {
-                rollup_id: self.entry_rollup_id,
-                batch: crate::EvmBatch {
-                    entries: callback_entries,
-                    ..Default::default()
-                },
-                entry_traces: callback_traces,
-            });
-            target_compositions.sort_unstable_by_key(|target| target.rollup_id);
-        }
-
-        tracing::debug!(
-            name: "composer.finalize.complete",
-            target_count = target_compositions.len(),
-            "composition finalize complete"
-        );
-
-        Ok(Composition {
-            source: SourceComposition {
-                rollup_id: self.entry_rollup_id,
-                batch: source.batch,
-                entry_traces: source.entry_traces,
-                callback_entry_counts: source.source_callback_counts,
-                outbound_event_hashes: source.source_outbound_hashes,
-            },
-            targets: target_compositions,
-        })
+        materialize_actions(self.entry_rollup_id, self.recorded)
     }
 
     /// Convenience entry point: open → execute on the target session
@@ -624,6 +538,117 @@ impl CompositionBuilder {
             "annotated revert span and queued session rollback"
         );
     }
+}
+
+/// Materialize one resolved semantic cross-chain transaction into its source
+/// and target execution tables.
+///
+/// This is the shared inverse used by native blob verification: decoding the
+/// semantic message forest and materializing it here must reproduce the same
+/// tables as live composition. Call order, parent edges, outcomes, and rollback
+/// spans are therefore checked by the production materializer rather than by a
+/// second table implementation.
+///
+/// # Errors
+///
+/// Returns a composition error when the action list is empty, unresolved, or
+/// outside the execution-table profile supported by this deployment.
+#[allow(clippy::result_large_err)]
+pub fn materialize_actions(
+    entry_rollup_id: RollupId,
+    recorded: Vec<crate::ExecutedAction>,
+) -> CompositionResult<Composition> {
+    if recorded.is_empty() {
+        return Err(ProtocolErrorKind::EmptyCalls.into());
+    }
+    entries::ensure_materializable_calls(&recorded)?;
+    let mut materialized = entries::materialize_batches(&recorded, entry_rollup_id)?;
+
+    // Sort by rollup ID so identical inputs produce identical target order.
+    let mut plan: Vec<RollupId> = materialized.keys().copied().collect();
+    plan.sort_unstable();
+
+    // Package per-chain target batches. An L2 origin's seed-only source
+    // entries remain in the prefix; callbacks back into that origin are split
+    // below into separate delivery entries.
+    let mut target_compositions = Vec::new();
+    for rollup_id in plan {
+        if rollup_id == entry_rollup_id {
+            continue;
+        }
+        let output = materialized
+            .remove(&rollup_id)
+            .expect("rollup id came from materialized outputs");
+        target_compositions.push(TargetComposition {
+            rollup_id,
+            batch: output.batch,
+            entry_traces: output.entry_traces,
+        });
+    }
+
+    let mut source = materialized.remove(&entry_rollup_id).ok_or_else(|| {
+        ProtocolErrorKind::InvalidEncoding(
+            "materialization did not produce the entry-rollup table".into(),
+        )
+    })?;
+    if source.source_entry_count > source.batch.entries.len()
+        || source.source_entry_count > source.entry_traces.len()
+    {
+        return Err(ProtocolErrorKind::InvalidEncoding(format!(
+            "materialized source prefix {} exceeds entries/traces ({}/{})",
+            source.source_entry_count,
+            source.batch.entries.len(),
+            source.entry_traces.len(),
+        ))
+        .into());
+    }
+    if source.source_callback_counts.len() != source.source_entry_count {
+        return Err(ProtocolErrorKind::InvalidEncoding(format!(
+            "materialized source callback counts {} do not match source entries {}",
+            source.source_callback_counts.len(),
+            source.source_entry_count,
+        ))
+        .into());
+    }
+    let callback_entries = source.batch.entries.split_off(source.source_entry_count);
+    let callback_traces = source.entry_traces.split_off(source.source_entry_count);
+    let callback_count = source.source_callback_counts.iter().sum::<usize>();
+    if callback_count != callback_entries.len() {
+        return Err(ProtocolErrorKind::InvalidEncoding(format!(
+            "materialized source callback counts total {callback_count}, found {} entries",
+            callback_entries.len(),
+        ))
+        .into());
+    }
+    if !callback_entries.is_empty() {
+        target_compositions.push(TargetComposition {
+            rollup_id: entry_rollup_id,
+            batch: crate::EvmBatch {
+                entries: callback_entries,
+                ..Default::default()
+            },
+            entry_traces: callback_traces,
+        });
+        target_compositions.sort_unstable_by_key(|target| target.rollup_id);
+    }
+
+    tracing::debug!(
+        name: "composer.finalize.complete",
+        target_count = target_compositions.len(),
+        "composition finalize complete"
+    );
+
+    Ok(Composition {
+        source: SourceComposition {
+            rollup_id: entry_rollup_id,
+            batch: source.batch,
+            entry_traces: source.entry_traces,
+            callback_entry_counts: source.source_callback_counts,
+            outbound_event_hashes: source.source_outbound_hashes,
+        },
+        targets: target_compositions,
+        actions: recorded,
+    })
 }
 
 #[cfg(test)]

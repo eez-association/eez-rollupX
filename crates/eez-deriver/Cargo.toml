@@ -27,6 +27,7 @@ reth-primitives-traits.workspace          = true
 reth-provider.workspace                   = true
 reth-revm.workspace                       = true
 reth-storage-api.workspace                = true
+reth-libmdbx.workspace                    = true
 
 # revm — required by reth-evm's State builder
 revm.workspace = true
@@ -35,11 +36,14 @@ revm.workspace = true
 alloy-consensus.workspace        = true
 alloy-eips.workspace             = true
 alloy-primitives.workspace       = true
+alloy-rlp.workspace              = true
 alloy-rpc-types-engine.workspace = true
 
 # async + diagnostics
 tokio.workspace   = true
 tracing.workspace = true
+postcard.workspace = true
+serde.workspace    = true
 
 [dev-dependencies]
 # Checkpoint tests write real files; atomicity is the point of the code.

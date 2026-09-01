@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/eez-blob-codec",
     "crates/eez-composer",
     "crates/eez-control-rpc",
     "crates/eez-deriver",
@@ -123,6 +124,7 @@ alloy-rpc-types-eth    = { version = "2", default-features = false }
 alloy-signer           = { version = "2", default-features = false }
 alloy-signer-local     = { version = "2", default-features = false }
 alloy-sol-types        = { version = "1", default-features = false }
+c-kzg                  = "=2.1.7"
 fail                   = "0.5"
 k256                   = { version = "0.13", features = ["ecdsa", "arithmetic"] }
 url                    = "2"
@@ -136,6 +138,7 @@ serde_json             = "1"
 jsonrpsee              = { version = "0.26", features = ["server", "macros"] }
 
 # internal crates
+eez-blob-codec    = { path = "crates/eez-blob-codec" }
 eez-composer       = { path = "crates/eez-composer" }
 eez-deriver        = { path = "crates/eez-deriver" }
 eez-driver         = { path = "crates/eez-driver" }

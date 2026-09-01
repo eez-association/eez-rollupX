@@ -57,6 +57,10 @@ For each admitted window, the adapter:
 6. Requires each returned pre-state root to equal the preceding block's
    computed post-state root, so the window telescopes without relying on a
    Composer root claim.
+7. Converts every selected terminal transaction-state checkpoint into a
+   canonical prefix-block hash by independently recomputing all
+   prefix-dependent header fields. The full prefix must equal the validated
+   terminal block hash.
 
 The Stateless output exposes both the validated pre-state root and the
 independently recomputed post-state root. The adapter carries those returned
@@ -72,7 +76,7 @@ vector; it does not authorize an effect position.
 | Output | Contents |
 | --- | --- |
 | `BackendWindowOutput.pre_state_root` | Validated state root from which the first block was replayed |
-| `BackendBlockOutput` | Exact-decoded number, parent hash and transaction count; computed hash; recomputed post-state root; exact receipt outcomes; selected transaction-state checkpoints; and settlement evidence for the same block |
+| `BackendBlockOutput` | Exact-decoded number, parent hash and transaction count; computed hash; recomputed post-state root; exact receipt outcomes; selected prefix-block hash checkpoints; and settlement evidence for the same block |
 | `SettlementBlockEvidence` | Fork-aware system-sender flags and ordered outbound receipt observations derived from that block's accepted execution |
 
 The backend output is not handed directly to settlement.
@@ -92,15 +96,15 @@ execution result. `BackendBlockOutput` first keeps associated results together,
 and `ValidatedWindow` is the only production handoff after shared checks. It:
 
 - separates `preceding_blocks` from the terminal `settling_block`;
-- carries `window_pre_state_root` and `window_post_state_root`;
-- derives `settling_pre_state_root` from the preceding output, or from the
-  window pre-state root for a one-block window;
+- carries `window_pre_block_hash` and `window_post_block_hash`;
+- derives `settling_pre_block_hash` from the terminal block's parent hash;
 - keeps the settling block's receipt outcomes and selected checkpoints beside
   that block; and
 - drops witnesses that execution has already consumed.
 
-The window pre-state root is not automatically a batch anchor. Settlement must
-still bind the leading submitted root update to it. `ValidatedWindow` is an
+The window parent block hash is not automatically a canonical-chain anchor.
+Settlement still binds the leading submitted ABI root update to it.
+`ValidatedWindow` is an
 architectural boundary, not another proof: construction is safe because the
 backend-output contract and admitted input were consumed and checked
 immediately beforehand.

@@ -1,7 +1,7 @@
 use std::num::NonZeroU64;
 
 use alloy_consensus::{Header, SignableTransaction as _, TxLegacy};
-use alloy_primitives::{B256, Bytes, Log, Signature, TxKind, U256, b256};
+use alloy_primitives::{Bytes, Log, Signature, TxKind, U256, b256};
 use reth_ethereum_primitives::TransactionSigned;
 use reth_primitives_traits::SignerRecoverable as _;
 
@@ -39,7 +39,7 @@ fn fixture_input() -> AdmittedBlock {
     }
 }
 
-fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<TransactionStateCheckpoint>) {
+fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<usize>) {
     let rlp = hex::decode(
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -70,13 +70,7 @@ fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<TransactionStateChec
     assert_eq!(indices.len(), roots.len());
     let checkpoints = indices
         .iter()
-        .zip(roots)
-        .map(
-            |(transaction_index, state_root)| TransactionStateCheckpoint {
-                transaction_index: usize::try_from(transaction_index.as_u64().unwrap()).unwrap(),
-                state_root: state_root.as_str().unwrap().parse::<B256>().unwrap(),
-            },
-        )
+        .map(|transaction_index| usize::try_from(transaction_index.as_u64().unwrap()).unwrap())
         .collect();
 
     (
@@ -105,11 +99,85 @@ fn high_s_system_transaction() -> TransactionSigned {
     TransactionSigned::new_unhashed(transaction.into_typed_transaction(), high_s)
 }
 
-fn checkpoint(transaction_index: usize) -> TransactionStateCheckpoint {
-    TransactionStateCheckpoint {
+fn checkpoint(transaction_index: usize) -> ReplayStateCheckpoint {
+    ReplayStateCheckpoint {
         transaction_index,
         state_root: B256::ZERO,
     }
+}
+
+fn prefix_test_block(
+    mutate_body: impl FnOnce(&mut alloy_consensus::BlockBody<TransactionSigned>),
+) -> RecoveredBlock<Block> {
+    let transaction = TxLegacy::default()
+        .into_signed(alloy_primitives::Signature::test_signature())
+        .into();
+    let mut body = alloy_consensus::BlockBody {
+        transactions: vec![transaction],
+        ..Default::default()
+    };
+    mutate_body(&mut body);
+    RecoveredBlock::new_unhashed(Block::new(Header::default(), body), vec![Address::ZERO])
+}
+
+fn assert_prefix_policy_rejection(
+    block: &RecoveredBlock<Block>,
+    has_execution_requests: bool,
+    expected_reason: &str,
+) {
+    let error = derive_prefix_block_hashes(
+        block,
+        &[EthereumReceipt::default()],
+        &[checkpoint(0)],
+        has_execution_requests,
+    )
+    .unwrap_err();
+    let ValidationError::Rejected(reason) = error else {
+        panic!("expected a fail-closed prefix-policy rejection, got {error}");
+    };
+    assert!(
+        reason.contains(expected_reason),
+        "unexpected rejection: {reason}"
+    );
+}
+
+#[test]
+fn prefix_block_hash_rejects_nonempty_consensus_withdrawals() {
+    let block = prefix_test_block(|body| {
+        body.withdrawals = Some(Default::default());
+        body.withdrawals.as_mut().unwrap().push(Default::default());
+    });
+
+    assert_prefix_policy_rejection(&block, false, "has withdrawals");
+}
+
+#[test]
+fn prefix_block_hash_rejects_ommers() {
+    let block = prefix_test_block(|body| body.ommers.push(Header::default()));
+
+    assert_prefix_policy_rejection(&block, false, "has ommers");
+}
+
+#[test]
+fn prefix_block_hash_rejects_nonempty_eip_7685_requests() {
+    let block = prefix_test_block(|_| {});
+
+    assert_prefix_policy_rejection(&block, true, "produces EIP-7685 requests");
+}
+
+#[test]
+fn prefix_policy_is_not_applied_when_no_prefix_is_requested() {
+    let block = prefix_test_block(|body| {
+        body.withdrawals = Some(Default::default());
+        body.withdrawals.as_mut().unwrap().push(Default::default());
+        body.ommers.push(Header::default());
+    });
+
+    assert!(
+        derive_prefix_block_hashes(&block, &[], &[], true)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 fn outbound_log(address: Address, call_hash: B256) -> Log {
@@ -419,7 +487,22 @@ fn selected_checkpoints_flow_through_the_stateless_adapter() {
             .is_empty()
     );
     assert_eq!(block.computed_hash, expected_hash);
-    assert_eq!(block.transaction_state_checkpoints, expected);
+    assert_eq!(
+        block
+            .transaction_state_checkpoints
+            .iter()
+            .map(|checkpoint| checkpoint.transaction_index)
+            .collect::<Vec<_>>(),
+        expected,
+    );
+    assert_eq!(
+        block
+            .transaction_state_checkpoints
+            .last()
+            .unwrap()
+            .block_hash,
+        expected_hash,
+    );
 }
 
 #[test]

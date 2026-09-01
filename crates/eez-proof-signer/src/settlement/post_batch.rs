@@ -5,9 +5,9 @@ use std::num::NonZeroU64;
 use alloy_primitives::{Address, B256, keccak256};
 use alloy_sol_types::SolValue as _;
 use eez_protocol::EvmBatch;
-use eez_protocol::abi::ProofSystemBatchPerVerificationEntriesSol;
+use eez_protocol::abi::{ProofSystemBatchPerVerificationEntriesSol, StaticExecutionEntrySol};
 use eez_protocol::entries::decode_postbatch;
-use eez_protocol::public_inputs::public_inputs_hashes;
+use eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes;
 use thiserror::Error;
 
 use crate::attest::NonZeroProofSystemVkey;
@@ -31,6 +31,13 @@ pub(crate) struct CanonicalPostBatch(EvmBatch);
 impl CanonicalPostBatch {
     pub(super) const fn as_batch(&self) -> &EvmBatch {
         &self.0
+    }
+
+    /// Independently profile-checked static entries used by native semantic
+    /// binding without exposing the rest of the canonical batch outside the
+    /// settlement module.
+    pub(crate) fn static_entries(&self) -> &[StaticExecutionEntrySol] {
+        &self.0.staticEntries
     }
 
     /// Hash one canonical entry for request-local Composer correlation.
@@ -126,9 +133,14 @@ impl<'a> CheckedPublicInputProfile<'a> {
     pub(crate) fn recompute_public_inputs_hash(
         &self,
         proof_system_vkey: NonZeroProofSystemVkey,
+        transaction_blob_hashes: &[B256],
     ) -> Result<RecomputedPublicInputsHash, PublicInputError> {
-        let hashes = public_inputs_hashes(self.canonical_batch.as_batch(), proof_system_vkey.get())
-            .map_err(|error| PublicInputError::Computation(error.to_string()))?;
+        let hashes = public_inputs_hashes_with_blob_hashes(
+            self.canonical_batch.as_batch(),
+            proof_system_vkey.get(),
+            transaction_blob_hashes,
+        )
+        .map_err(|error| PublicInputError::Computation(error.to_string()))?;
         let [hash] = hashes.as_slice() else {
             return Err(PublicInputError::HashCount {
                 actual: hashes.len(),
@@ -159,7 +171,7 @@ pub(crate) fn recompute_public_input_hash(
 ) -> Result<B256, PublicInputError> {
     let canonical = CanonicalPostBatch(batch.clone());
     CheckedPublicInputProfile::new(&canonical, expected_rollup_id, expected_proof_system)?
-        .recompute_public_inputs_hash(proof_system_vkey)
+        .recompute_public_inputs_hash(proof_system_vkey, &[])
         .map(RecomputedPublicInputsHash::into_inner)
 }
 
@@ -266,12 +278,6 @@ fn validate_public_input_structure(
         return Err(invalid_structure(format!(
             "blockNumber must be zero, got {}",
             batch.blockNumber
-        )));
-    }
-    if !batch.blobIndices.is_empty() {
-        return Err(invalid_structure(format!(
-            "blobIndices must be empty, got {}",
-            batch.blobIndices.len()
         )));
     }
     if batch.bindMsgSenderInPublicInput {

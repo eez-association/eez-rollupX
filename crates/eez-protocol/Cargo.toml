@@ -25,6 +25,7 @@ alloy-signer-local.workspace = true
 reth-ethereum-primitives.workspace = true
 # outbound gate: recover the signer of the paired user tx (SignedTransaction)
 reth-primitives-traits.workspace = true
+eez-blob-codec.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

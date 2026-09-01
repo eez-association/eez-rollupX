@@ -8,12 +8,14 @@
 //! 4. DA is checked against the same validated window and the public-input hash
 //!    is recomputed locally.
 
+mod blob_da;
 mod blocks;
 mod da;
 mod effect_binding;
 mod inbound;
 mod outbound;
 mod post_batch;
+mod semantics;
 mod state_chain;
 mod system_transactions;
 
@@ -25,6 +27,7 @@ use da::encoded_bytes_match;
 #[cfg(test)]
 use inbound::inspect_inbound_candidate;
 
+pub(crate) use blob_da::{BlobDaError, verify_da_carrier};
 pub(crate) use blocks::{
     BlockInspectionError, inspect_validated_settling_block, paired_outbound_transaction,
     transaction_hash_at, verify_validated_intermediate_blocks,
@@ -53,6 +56,7 @@ pub(crate) use post_batch::{
     CanonicalPostBatch, CheckedPublicInputProfile, PostBatchDecodeError, PublicInputError,
     RecomputedPublicInputsHash, decode_canonical_post_batch,
 };
+pub(crate) use semantics::{SemanticBindingError, verify_native_semantics};
 pub(crate) use state_chain::{RootUpdateChainError, verify_root_update_chain};
 pub(crate) use system_transactions::{SystemTransactionKey, SystemTransactionReconstructor};
 

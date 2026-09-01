@@ -310,6 +310,8 @@ pub(crate) struct AuthorizedOutboundEffects {
 /// One authorized effect: the preceding system-load position, the user
 /// transaction position, and the complete source entry carried in DA.
 pub(super) struct AuthorizedOutboundEffect {
+    claimed_entry_index: usize,
+    claimed_entry: ExecutionEntrySol,
     load_transaction_index: usize,
     user_transaction_index: usize,
     callback_transaction_indices: Vec<usize>,
@@ -336,6 +338,14 @@ impl AuthorizedOutboundEffects {
 }
 
 impl AuthorizedOutboundEffect {
+    pub(super) const fn claimed_entry_index(&self) -> usize {
+        self.claimed_entry_index
+    }
+
+    pub(super) const fn claimed_entry(&self) -> &ExecutionEntrySol {
+        &self.claimed_entry
+    }
+
     pub(super) const fn load_transaction_index(&self) -> usize {
         self.load_transaction_index
     }
@@ -540,6 +550,8 @@ pub(crate) fn authorize_outbound_effects(
                 {
                     let callback_end = callback_cursor + callback_count;
                     authorized_bindings.push(AuthorizedOutboundEffect {
+                        claimed_entry_index: effect.entry_index(),
+                        claimed_entry: effect.claimed_entry().clone(),
                         load_transaction_index,
                         user_transaction_index: effect.user_transaction_index(),
                         callback_transaction_indices: callback_transaction_indices

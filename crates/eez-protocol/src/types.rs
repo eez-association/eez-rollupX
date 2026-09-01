@@ -192,4 +192,10 @@ pub struct Composition {
     pub source: SourceComposition,
     /// Non-empty target outputs, sorted by rollup ID.
     pub targets: Vec<TargetComposition>,
+    /// Exact preorder call forest retained for native blob semantic emission.
+    ///
+    /// This is the same resolved input from which `source` and `targets` were
+    /// materialized. Keeping it prevents a later table-to-message projection
+    /// from inventing call fields, results, or rollback boundaries.
+    pub actions: Vec<ExecutedAction>,
 }
