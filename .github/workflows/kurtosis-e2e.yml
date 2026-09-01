@@ -23,17 +23,16 @@ jobs:
       EEZ_PROOF_SIGNER_IMAGE: eez-proof-signer:ci-${{ github.sha }}
       EEZ_DEPLOY_IMAGE: eez-deploy:ci-${{ github.sha }}
       EEZ_CI_RESULT_DIR: ${{ github.workspace }}/artifacts/kurtosis-e2e
-      EEZ_PRUNE_BUILD_CACHE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
       - name: Initialize submodules
         run: git submodule update --init --recursive
-      - name: Reclaim runner disk space
+      - name: Reclaim runner filesystem space
+        if: ${{ env.HOMELAB_RUNNER != '1' }}
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
-          docker system prune --all --force
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
