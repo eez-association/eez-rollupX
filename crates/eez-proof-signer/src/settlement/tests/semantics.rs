@@ -138,8 +138,8 @@ fn native_outbound_semantics_reject_tx_data_and_call_mutations() {
     wrong_call.actions[0].data = mutated_call_data.into();
     assert!(matches!(
         verify(wrong_call),
-        Err(SemanticBindingError::OutboundSidecars { .. })
-            | Err(SemanticBindingError::OutboundSettlement { .. })
+        Err(SemanticBindingError::OutboundSidecars { .. }
+            | SemanticBindingError::OutboundSettlement { .. })
     ));
 }
 
@@ -195,7 +195,7 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
             &[],
             expected_rollup_id(),
         ),
-        Err(SemanticBindingError::InboundSettlement) | Err(SemanticBindingError::InboundSidecars)
+        Err(SemanticBindingError::InboundSettlement | SemanticBindingError::InboundSidecars)
     ));
 }
 
@@ -243,8 +243,8 @@ fn native_inbound_semantics_finalize_root_dependent_nested_fields() {
             )
         })
         .collect::<Vec<_>>();
-    for index in 1..actions.len() {
-        actions[index].parent_index = Some(index - 1);
+    for (index, action) in actions.iter_mut().enumerate().skip(1) {
+        action.parent_index = Some(index - 1);
     }
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,

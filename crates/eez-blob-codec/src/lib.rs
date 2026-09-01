@@ -294,7 +294,7 @@ pub fn unpack(blobs: &[Blob]) -> Result<Bytes, Error> {
     let mut stream = Vec::with_capacity(blobs.len().saturating_mul(DATA_BYTES_PER_BLOB));
     for (blob_index, blob) in blobs.iter().enumerate() {
         validate_field_elements(blob_index, blob.as_bytes())?;
-        for element in blob.as_bytes().chunks_exact(FIELD_ELEMENT_BYTES) {
+        for element in blob.as_bytes().as_chunks::<FIELD_ELEMENT_BYTES>().0 {
             stream.extend(element[1..].iter().rev());
         }
     }
@@ -783,7 +783,7 @@ fn read_address(input: &[u8], position: &mut usize) -> Result<Address, Error> {
 }
 
 fn validate_field_elements(blob_index: usize, blob: &[u8]) -> Result<(), Error> {
-    for (element_index, element) in blob.chunks_exact(FIELD_ELEMENT_BYTES).enumerate() {
+    for (element_index, element) in blob.as_chunks::<FIELD_ELEMENT_BYTES>().0.iter().enumerate() {
         if element[0] != 0 {
             return Err(Error::InvalidFieldElement {
                 blob_index,

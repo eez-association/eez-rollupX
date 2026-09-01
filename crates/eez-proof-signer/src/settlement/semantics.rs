@@ -155,7 +155,7 @@ pub(crate) fn verify_native_semantics(
 
     let expected_inbound_entries = inbound_effects
         .iter()
-        .map(|effect| effect.claimed_entry())
+        .map(super::inbound::AuthorizedInboundEffect::claimed_entry)
         .collect::<Vec<_>>();
     let mut expected_inbound_cursor = 0usize;
     let mut expected_inbound_static_cursor = 0usize;
