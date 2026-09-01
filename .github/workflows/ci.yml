@@ -28,8 +28,8 @@ jobs:
           submodules: recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
         with:
           components: rustfmt, clippy
@@ -67,8 +67,8 @@ jobs:
           submodules: recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
       - name: Rust cache
         if: ${{ runner.environment == 'github-hosted' }}
@@ -132,8 +132,8 @@ jobs:
           submodules: recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
       - uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
         with:
@@ -194,8 +194,8 @@ jobs:
           submodules: recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
       - name: Rust cache
         if: ${{ runner.environment == 'github-hosted' }}
@@ -263,8 +263,8 @@ jobs:
           submodules: recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
       - name: Rust cache
         if: ${{ runner.environment == 'github-hosted' }}

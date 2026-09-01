@@ -32,8 +32,8 @@ jobs:
         run: git submodule update --init --recursive
       - name: Initialize Cargo target directory
         run: |
-          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/cargo-target"
+          cargo_target_dir="$(mktemp -d "$RUNNER_TEMP/cargo-target.XXXXXXXXXX")"
+          echo "CARGO_TARGET_DIR=$cargo_target_dir" >> "$GITHUB_ENV"
       - name: Reclaim runner filesystem space
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
