@@ -9,10 +9,10 @@ use alloy_rpc_types_eth::BlockNumberOrTag;
 mod common;
 use common::{
     ANVIL_ADDR, ANVIL_ADDR_3, ANVIL_KEY, ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_3, ANVIL_KEY_4,
-    Harness, NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at, override_env,
-    send_l2_value_transfer, send_l2_value_transfer_confirmed, wait_for, wait_for_latest_height,
-    wait_for_new_attested_safe_block, wait_for_safe_chain_contains,
-    wait_for_safe_prefix_convergence, wait_for_safe_state,
+    ANVIL_KEY_6, Harness, NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at,
+    override_env, safe_block_hash, send_l2_value_transfer, send_l2_value_transfer_confirmed,
+    wait_for, wait_for_latest_height, wait_for_new_attested_safe_block,
+    wait_for_safe_chain_contains, wait_for_safe_prefix_convergence, wait_for_safe_state,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_mins(5);
@@ -519,6 +519,105 @@ async fn happy_case_two_composers_l1_reorg_recovers() {
 
     c1.assert_no_process_death();
     c2.assert_no_process_death();
+}
+
+/// Three composers racing on one L1, with no reorg or injected fault. Each
+/// losing batch is redundant, and every composer must keep converging on block
+/// hashes actually ratified by L1 instead of wedging after an overlap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn multi_composer_steady_state_stays_converged_with_l1() {
+    const COMPOSERS: usize = 3;
+    const SETTLEMENTS: usize = 24;
+
+    let harness = Harness::fresh().await.unwrap();
+    let chain = harness.chain();
+    let cfg = NodeConfig {
+        genesis_path: Some(harness.l2_genesis_path()),
+        ..Default::default()
+    };
+
+    // Distinct posters prevent L1 account nonces from serializing the race.
+    let poster_keys = [ANVIL_KEY, ANVIL_KEY_4, ANVIL_KEY_6];
+    let spam_keys = [ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_3];
+    let mut nodes = Vec::with_capacity(COMPOSERS);
+    for (index, poster) in poster_keys.iter().take(COMPOSERS).enumerate() {
+        let env = harness.env_for(poster, true).await.unwrap();
+        let name: &'static str = ["mc1", "mc2", "mc3"][index];
+        nodes.push((name, NodeHandle::start(name, &cfg, &env).await.unwrap()));
+    }
+    for ((_, node), key) in nodes.iter().zip(spam_keys) {
+        node.run_tx_spammer(key);
+    }
+
+    // Reading L1's current commitment would race with the next settlement.
+    // Instead, every observed safe block hash must appear in L1's complete
+    // execution history, while safe heights must continue advancing.
+    let mut last_safe = vec![0_u64; nodes.len()];
+    let mut advanced = 0_usize;
+    let mut compared = 0_usize;
+    for settled in 1..=SETTLEMENTS {
+        chain
+            .wait_for_batches(settled, DEFAULT_TIMEOUT)
+            .await
+            .unwrap_or_else(|error| {
+                panic!("stalled at settlement {settled} of {SETTLEMENTS}: {error:#}")
+            });
+
+        let recorded = chain.executed_states().await.unwrap();
+        for (index, (name, node)) in nodes.iter().enumerate() {
+            node.assert_no_process_death();
+            let Some((number, _)) =
+                block_number_and_hash_at(&node.l2_rpc_url(), BlockNumberOrTag::Safe)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("{name}: safe block unreadable at {settled}: {error:#}")
+                    })
+            else {
+                continue;
+            };
+            if number == 0 {
+                continue;
+            }
+            let safe_hash = safe_block_hash(&node.l2_rpc_url())
+                .await
+                .unwrap()
+                .unwrap_or_default();
+            compared += 1;
+            assert!(
+                recorded.contains(&safe_hash),
+                "{name} safe block hash {safe_hash} at L2 height {number} was never recorded by \
+                 L1 (settlement {settled}); the composer derived a chain L1 did not ratify",
+            );
+            if number > last_safe[index] {
+                advanced += 1;
+                last_safe[index] = number;
+            }
+        }
+    }
+
+    eprintln!(
+        "multi-composer: block-hash comparisons={compared} l1_recorded_hashes={} \
+         final_safe_heights={last_safe:?}",
+        chain.executed_states().await.unwrap().len(),
+    );
+
+    for (index, (name, _)) in nodes.iter().enumerate() {
+        assert!(
+            last_safe[index] > 0,
+            "{name} never attested a safe block — it never caught up to L1",
+        );
+    }
+    assert!(
+        advanced >= SETTLEMENTS,
+        "safe heads advanced only {advanced} times across {SETTLEMENTS} settlements and \
+         {COMPOSERS} composers — at least one composer stopped tracking L1",
+    );
+    let floor = (SETTLEMENTS - 3) * COMPOSERS;
+    assert!(
+        compared >= floor,
+        "only {compared} block-hash comparisons (floor {floor}) across {SETTLEMENTS} \
+         settlements × {COMPOSERS} composers — the soundness check was mostly skipped",
+    );
 }
 
 async fn spawn_follower(

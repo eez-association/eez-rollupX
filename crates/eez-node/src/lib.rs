@@ -1284,29 +1284,27 @@ async fn wait_for_l1_ready(
 /// The SYSTEM_ADDRESS the pool refuses: `EEZ_L2_SYSTEM_ADDRESS`, else derived
 /// from `EEZ_L2_SYSTEM_KEY`. The role is selected by the executable and only
 /// controls how a missing value is handled.
+///
+/// Both set and disagreeing is fatal: the key signs, so a differing address
+/// would gate a sender that never appears and leave the real one open.
 fn read_l2_system_address(role: PoolRole) -> eyre::Result<Option<Address>> {
+    let from_key = l2_system_key_address()?;
     let configured = match env::var("EEZ_L2_SYSTEM_ADDRESS") {
-        Ok(raw) => Some(
-            Address::from_str(raw.trim())
-                .map_err(|e| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {e}"))?,
-        ),
+        Ok(raw) => {
+            let address = Address::from_str(raw.trim())
+                .map_err(|e| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {e}"))?;
+            eyre::ensure!(
+                from_key.is_none_or(|key_address| key_address == address),
+                "EEZ_L2_SYSTEM_ADDRESS {address} does not match EEZ_L2_SYSTEM_KEY"
+            );
+            Some(address)
+        }
         Err(env::VarError::NotUnicode(_)) => {
             return Err(eyre::eyre!(
                 "EEZ_L2_SYSTEM_ADDRESS contains non-UTF-8 bytes"
             ));
         }
-        Err(env::VarError::NotPresent) => match env::var("EEZ_L2_SYSTEM_KEY") {
-            Ok(raw) => Some(
-                PrivateKeySigner::from_bytes(&B256::from_str(
-                    raw.trim().trim_start_matches("0x"),
-                )?)?
-                .address(),
-            ),
-            Err(env::VarError::NotUnicode(_)) => {
-                return Err(eyre::eyre!("EEZ_L2_SYSTEM_KEY contains non-UTF-8 bytes"));
-            }
-            Err(env::VarError::NotPresent) => None,
-        },
+        Err(env::VarError::NotPresent) => from_key,
     };
 
     match (role, configured) {
@@ -1324,6 +1322,20 @@ fn read_l2_system_address(role: PoolRole) -> eyre::Result<Option<Address>> {
             Ok(None)
         }
         _ => Ok(configured),
+    }
+}
+
+/// Address of `EEZ_L2_SYSTEM_KEY`, if set.
+fn l2_system_key_address() -> eyre::Result<Option<Address>> {
+    match env::var("EEZ_L2_SYSTEM_KEY") {
+        Ok(raw) => Ok(Some(
+            PrivateKeySigner::from_bytes(&B256::from_str(raw.trim().trim_start_matches("0x"))?)?
+                .address(),
+        )),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(eyre::eyre!("EEZ_L2_SYSTEM_KEY contains non-UTF-8 bytes"))
+        }
     }
 }
 
