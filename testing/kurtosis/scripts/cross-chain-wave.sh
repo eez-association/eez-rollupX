@@ -272,19 +272,18 @@ registry_events() { # <event-sig> [from-block]
         "$1" --rpc-url "$L1" --json 2>/dev/null | jq 'length' 2>/dev/null || echo 0
 }
 
-settled_count() { refresh_node_log; strip_ansi <"$NODE_LOG" | grep -c "settled=true" || true; }
-
 wait_for_builder() {
-    local deadline=$(( SECONDS + ${EEZ_BUILDER_WARM_SECS:-600} )) base hits
-    # Baseline first: an earlier mode's settlements are still in the log.
-    base=$(settled_count)
+    local from_block="$1"
+    local deadline=$(( SECONDS + ${EEZ_BUILDER_WARM_SECS:-600} )) hits
     echo "==> waiting for the builder to include a bundle"
     while :; do
-        # `-c` not `-q`: -q exits on first match, SIGPIPEs sed, and pipefail
-        # then reports the successful pipeline as failed.
-        hits=$(settled_count)
-        if (( ${hits:-0} > ${base:-0} )); then
-            echo "    ✓ builder is including bundles ($((hits - base)) new this run)"; return 0
+        # Query the canonical L1 instead of counting a snapshot of service
+        # logs. `kurtosis service logs` returns a rolling 200-line window by
+        # default, so its match count can remain constant while new bundles
+        # are successfully included and older matches leave the window.
+        hits=$(registry_events "BatchPosted(uint256)" "$from_block")
+        if (( ${hits:-0} > 0 )); then
+            echo "    ✓ builder included a bundle on L1"; return 0
         fi
         (( SECONDS < deadline )) || {
             echo "    ✗ no bundle included in ${EEZ_BUILDER_WARM_SECS:-600}s"; return 1
@@ -442,11 +441,13 @@ run_waves() {
     # LAST so the wrapper's value is the expected final Value.value() (both
     # write the same target through the same proxy, in submission order).
     local w
-    # Baseline for the per-run event counts below.
-    # +1: the current head is already mined, so its events predate this run.
-    L1_FIRST_COUNTED_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
+    # Warm-up uses its own L1 baseline. Reset the wave baseline afterwards so
+    # the readiness bundle cannot satisfy the per-wave event assertions.
+    local BUILDER_FIRST_BLOCK
+    BUILDER_FIRST_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
     # Here, not at setup: the helpers it calls are defined above this point.
-    wait_for_builder || return 1
+    wait_for_builder "$BUILDER_FIRST_BLOCK" || return 1
+    L1_FIRST_COUNTED_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
     echo
     echo "==> firing $WAVES wave(s), mode=$MODE"
     for ((w=1; w<=WAVES; w++)); do
