@@ -23,7 +23,8 @@ jq -e '
     .services["eez-node"].environment.EEZ_L1_BEACON_URL == "http://127.0.0.1:6152/" and
     .services["eez-node"].environment.EEZ_L1_BLOB_SIDECAR_ENCODING == "eip7594" and
     .services.lighthouse.image == "sigp/lighthouse:v8.1.3" and
-    (.services.lighthouse.command | index("--supernode") != null) and
+    (.services.lighthouse.command | index("--semi-supernode") != null) and
+    (.services.lighthouse.command | index("--supernode") == null) and
     (.services.lighthouse.command | index("--http-port=6152") != null)
 ' >/dev/null <<<"$config"
 

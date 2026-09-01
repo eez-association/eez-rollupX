@@ -86,7 +86,8 @@ services:
       EEZ_L1_JWT_SECRET: /jwt/jwt.hex
       EEZ_L1_RPC_URL: http://127.0.0.1:18645
       # Chiado is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
-      # derivation reads full blobs from the colocated supernode Lighthouse.
+      # derivation reads full blobs reconstructed by the colocated
+      # semi-supernode Lighthouse.
       # EEZ_DA_MODE is mandatory so an existing calldata deployment cannot
       # silently change its L1 data carrier during a restart.
       EEZ_DA_MODE: "${EEZ_DA_MODE:?set EEZ_DA_MODE to blob or calldata}"
@@ -193,9 +194,10 @@ services:
       - --datadir=/data
       - --checkpoint-sync-url=${LH_CHECKPOINT_URL:-https://checkpoint.chiadochain.net/}
       # Fulu/PeerDAS full-blob retrieval is not available from an ordinary
-      # sampling node. The deriver requires /eth/v1/beacon/blobs/{block_id},
-      # so custody every data column and retain reconstructable blobs locally.
-      - --supernode
+      # sampling node. A semi-supernode custodies half the data columns and
+      # reconstructs full blobs for /eth/v1/beacon/blobs/{block_id}, reducing
+      # resource use compared with custodying every column as a supernode.
+      - --semi-supernode
       # Direct chiado peers — discovery alone is too sparse on a fresh
       # lighthouse DB; without these the beacon head never advances (0
       # peers) and the embedded EL stalls. Copied from docker-compose.chiado.yml.

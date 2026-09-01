@@ -6,6 +6,10 @@ echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
 echo "CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
 echo "RUSTC_WRAPPER=${RUSTC_WRAPPER:-}"
 
+if [[ ! -d "$CARGO_TARGET_DIR" ]]; then
+    echo "::error::Cargo target directory disappeared during the job: $CARGO_TARGET_DIR"
+fi
+
 find "$CARGO_TARGET_DIR/debug/deps" \
     -maxdepth 1 \
     -name 'libversion_check*' \

@@ -131,7 +131,7 @@ if [[ "$EEZ_DA_MODE" == "blob" ]]; then
                 break
             fi
         fi
-        echo "    [$i] waiting for synchronized supernode blob API"
+        echo "    [$i] waiting for synchronized semi-supernode blob API"
         sleep 5
     done
     [[ "$beacon_ready" == 1 ]] || {

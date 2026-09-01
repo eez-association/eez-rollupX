@@ -66,9 +66,10 @@ L1 once it has caught up to the chain tip.
 
 Chiado is post-Fulu. The deployment therefore posts native EEZ payloads in
 type-3 blob transactions using the EIP-7594 pooled sidecar wrapper. Its
-Lighthouse runs as a PeerDAS supernode and the deriver retrieves full blobs
-through `/eth/v1/beacon/blobs/{block_id}`, with the deprecated pre-Fulu
-sidecar endpoint retained only as a compatibility fallback.
+Lighthouse runs as a PeerDAS semi-supernode, custodying half the data columns
+and reconstructing full blobs for the deriver through
+`/eth/v1/beacon/blobs/{block_id}`. The deprecated pre-Fulu sidecar endpoint is
+retained only as a compatibility fallback.
 
 > **One command** (after the one-time setup + `.env`/`.env.chiado`): `bash
 > scripts/chiado-up.sh` deploys the protocol (skipped if already deployed),
@@ -155,11 +156,12 @@ without starting a network:
 bash scripts/check-chiado-blob-config.sh
 ```
 
-The colocated supernode is sufficient for live operation and the normal
-consensus-client retention window. Long-horizon recovery still requires a
-durable archival Beacon source or a protocol snapshot/bootstrap strategy; do
-not describe a Chiado deployment as independently recoverable beyond that
-window until this is provided and tested.
+The colocated semi-supernode is sufficient for live operation and the normal
+consensus-client retention window. It reconstructs full blobs on request, so
+retrieval can be slower than from a supernode. Long-horizon recovery still
+requires a durable archival Beacon source or a protocol snapshot/bootstrap
+strategy; do not describe a Chiado deployment as independently recoverable
+beyond that window until this is provided and tested.
 
 ### Endpoints & cross-chain fronts
 

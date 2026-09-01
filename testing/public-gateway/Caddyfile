@@ -1,0 +1,83 @@
+{$EEZ_DOMAIN:eez.asuscomm.com} {
+	encode zstd gzip
+	log
+	header {
+		Strict-Transport-Security "max-age=604800"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+
+	@l1_rpc path /rpc/l1 /rpc/l1/*
+	handle @l1_rpc {
+		rewrite * /
+		header Cache-Control "no-store"
+		reverse_proxy {$EEZ_L1_RPC_UPSTREAM:el-1-reth-lighthouse:8545}
+	}
+
+	@l2_rpc path /rpc/l2 /rpc/l2/*
+	handle @l2_rpc {
+		rewrite * /
+		header Cache-Control "no-store"
+		reverse_proxy {$EEZ_L2_RPC_UPSTREAM:eez-node:18688}
+	}
+
+	# The standalone UI uses /composer/* while operator tooling historically
+	# used /front/*. Keep both names on the same authenticated ingress path.
+	@l1_front path /composer/l1 /composer/l1/* /front/l1 /front/l1/*
+	handle @l1_front {
+		rewrite * /
+		header Cache-Control "no-store"
+		reverse_proxy {$EEZ_L1_FRONT_UPSTREAM:eez-node:18999}
+	}
+
+	@l2_front path /composer/l2 /composer/l2/* /front/l2 /front/l2/*
+	handle @l2_front {
+		rewrite * /
+		header Cache-Control "no-store"
+		reverse_proxy {$EEZ_L2_FRONT_UPSTREAM:eez-node:18998}
+	}
+
+	@monitor_exact path /monitor
+	redir @monitor_exact /monitor/ 308
+
+	handle_path /monitor/* {
+		reverse_proxy {$EEZ_DASHBOARD_UPSTREAM:eez-monitor:8080}
+	}
+
+	handle {
+		reverse_proxy {$EEZ_UI_UPSTREAM:eez-ui:8080}
+	}
+}
+
+# These applications emit root-relative Next.js asset and navigation URLs, so
+# each receives its own HTTPS origin instead of a path prefix. Using separate
+# ports keeps the existing single dynamic-DNS hostname and certificate.
+https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=604800"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+	reverse_proxy {$EEZ_BLOBSCAN_UPSTREAM:blobscan-web:3000}
+}
+
+https://{$EEZ_DOMAIN:eez.asuscomm.com}:4444 {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=604800"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+	reverse_proxy {$EEZ_L1_EXPLORER_UPSTREAM:l1-blockscout-frontend:3000}
+}
+
+https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=604800"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+	reverse_proxy {$EEZ_L2_EXPLORER_UPSTREAM:l2-blockscout-frontend:3000}
+}
