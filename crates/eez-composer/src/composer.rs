@@ -18,7 +18,7 @@
 //! Each batch is proved by the shared [`Prover`] and sent via the shared
 //! [`Submitter`] bundle relay.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use alloy_eips::Encodable2718;
@@ -715,6 +715,66 @@ fn push_poison_root(
 fn restore_pool_order(mut txs: Vec<(usize, HeldTx)>) -> Vec<HeldTx> {
     txs.sort_by_key(|(idx, _)| *idx);
     txs.into_iter().map(|(_, tx)| tx).collect()
+}
+
+/// Order L1 inbound user transactions so root-mutating calls execute before
+/// static-only calls. Static entries are pinned to the final Sync-block root in
+/// `prepare_post_batch_raw`; executing their trigger before a later mutating
+/// trigger therefore makes the static lookup fail with `ExecutionNotFound` and
+/// rejects the entire atomic bundle.
+///
+/// The partition is stable, and a static-only transaction is left in place if
+/// moving it would cross a later non-static transaction from the same sender.
+/// Ethereum nonces make that ordering dependency stronger than the root-order
+/// preference; such a sequence needs to be split across batches upstream.
+fn ordered_inbound_bundle_txs<'a>(
+    survivors: &'a [HeldTx],
+    compositions: &[(eez_protocol::Composition, B256)],
+) -> (Vec<&'a HeldTx>, usize, usize) {
+    let static_only: HashSet<B256> = compositions
+        .iter()
+        .filter(|(composition, _)| {
+            composition.source.batch.entries.is_empty()
+                && !composition.source.batch.staticEntries.is_empty()
+        })
+        .map(|(_, hash)| *hash)
+        .collect();
+
+    let mut deferred = HashSet::new();
+    let mut nonce_order_blocked = 0usize;
+    for (index, tx) in survivors.iter().enumerate() {
+        if tx.direction != Direction::Inbound || !static_only.contains(&tx.hash) {
+            continue;
+        }
+        let crosses_later_mutation_from_sender = survivors[index + 1..].iter().any(|later| {
+            later.direction == Direction::Inbound
+                && later.sender == tx.sender
+                && !static_only.contains(&later.hash)
+        });
+        if crosses_later_mutation_from_sender {
+            nonce_order_blocked += 1;
+        } else {
+            deferred.insert(tx.hash);
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(
+        survivors
+            .iter()
+            .filter(|tx| tx.direction == Direction::Inbound)
+            .count(),
+    );
+    ordered.extend(
+        survivors
+            .iter()
+            .filter(|tx| tx.direction == Direction::Inbound && !deferred.contains(&tx.hash)),
+    );
+    ordered.extend(
+        survivors
+            .iter()
+            .filter(|tx| tx.direction == Direction::Inbound && deferred.contains(&tx.hash)),
+    );
+    (ordered, deferred.len(), nonce_order_blocked)
 }
 
 /// Everything a transient abort still owes the pool: the failing transaction
@@ -3219,12 +3279,22 @@ where
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
         // Outbound survivors are L2-signed — they run in the L2 Sync block + DA,
         // never the L1 bundle (an L2 tx is invalid on L1).
-        bundle.extend(
-            survivors
-                .iter()
-                .filter(|h| h.direction == Direction::Inbound)
-                .map(|h| h.raw_tx.clone()),
-        );
+        // Static-only entries are pinned to this batch's final Sync-block root,
+        // so their trigger transactions must run after every independent root
+        // mutation in the same atomic bundle.
+        let (ordered_inbound, static_only_deferred, nonce_order_blocked) =
+            ordered_inbound_bundle_txs(&survivors, &survivor_comps);
+        if nonce_order_blocked != 0 {
+            event!(
+                name: "eez.composer.bundle.static_order_nonce_blocked",
+                Level::WARN,
+                rollup_id,
+                sync_height,
+                nonce_order_blocked,
+                "static-only inbound trigger could not move behind a later mutation from the same sender; preserving nonce order",
+            );
+        }
+        bundle.extend(ordered_inbound.into_iter().map(|h| h.raw_tx.clone()));
         event!(
             name: "eez.composer.bundle.dispatched",
             Level::INFO,
@@ -3232,6 +3302,7 @@ where
             sync_height,
             tx_count = bundle.len(),
             entry_count = total_entries,
+            static_only_deferred,
             evicted_poison = poison.len(),
             evicted_stale = stale.len(),
             "rich bundle dispatched to background observer; committing Sync block optimistically",
@@ -4875,6 +4946,89 @@ mod tests {
                 expected
             );
         }
+    }
+
+    fn composition_with_entry_shape(
+        mutable_entries: usize,
+        static_entries: usize,
+    ) -> eez_protocol::Composition {
+        eez_protocol::Composition {
+            actions: Vec::new(),
+            source: eez_protocol::SourceComposition {
+                rollup_id: eez_protocol::RollupId(1),
+                batch: eez_protocol::EvmBatch {
+                    entries: vec![Default::default(); mutable_entries],
+                    staticEntries: vec![Default::default(); static_entries],
+                    ..Default::default()
+                },
+                entry_traces: Vec::new(),
+                callback_entry_counts: Vec::new(),
+                outbound_event_hashes: Vec::new(),
+            },
+            targets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn static_only_inbound_triggers_run_after_root_mutations() {
+        let mutable_a = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0xa);
+        let static_a = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 0xb);
+        let outbound = held(Address::repeat_byte(0xc), Direction::Outbound, 0, 0xc);
+        let mutable_b = held(Address::repeat_byte(0xd), Direction::Inbound, 0, 0xd);
+        let static_b = held(Address::repeat_byte(0xe), Direction::Inbound, 0, 0xe);
+        let survivors = vec![
+            mutable_a.clone(),
+            static_a.clone(),
+            outbound,
+            mutable_b.clone(),
+            static_b.clone(),
+        ];
+        let compositions = vec![
+            (composition_with_entry_shape(1, 0), mutable_a.hash),
+            (composition_with_entry_shape(0, 1), static_a.hash),
+            (composition_with_entry_shape(1, 0), mutable_b.hash),
+            (composition_with_entry_shape(0, 1), static_b.hash),
+        ];
+
+        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
+
+        assert_eq!(
+            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![mutable_a.hash, mutable_b.hash, static_a.hash, static_b.hash]
+        );
+        assert_eq!(deferred, 2);
+        assert_eq!(blocked, 0);
+    }
+
+    #[test]
+    fn static_only_ordering_never_crosses_a_sender_nonce_dependency() {
+        let sender = Address::repeat_byte(0xa);
+        let static_first = held(sender, Direction::Inbound, 0, 0xa);
+        let mutable_second = held(sender, Direction::Inbound, 1, 0xb);
+        let independent_static = held(Address::repeat_byte(0xc), Direction::Inbound, 0, 0xc);
+        let survivors = vec![
+            static_first.clone(),
+            independent_static.clone(),
+            mutable_second.clone(),
+        ];
+        let compositions = vec![
+            (composition_with_entry_shape(0, 1), static_first.hash),
+            (composition_with_entry_shape(0, 1), independent_static.hash),
+            (composition_with_entry_shape(1, 0), mutable_second.hash),
+        ];
+
+        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
+
+        assert_eq!(
+            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![
+                static_first.hash,
+                mutable_second.hash,
+                independent_static.hash
+            ]
+        );
+        assert_eq!(deferred, 1);
+        assert_eq!(blocked, 1);
     }
 
     #[test]
