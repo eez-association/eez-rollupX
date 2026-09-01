@@ -198,9 +198,9 @@ impl Submitter {
         );
         // One bundle, one target block. Atomic bundle semantics:
         // rbuilder either includes the whole bundle in `target_block`
-        // in the specified order, or drops it. Relays without a bundle
-        // API degrade to ordered mempool submission inside
-        // `dispatch_and_observe`.
+        // in the specified order, or drops it. A relay without a bundle API is
+        // accepted only for a lone postBatch; ordered multi-transaction
+        // settlement fails closed inside `dispatch_and_observe`.
         self.inner
             .dispatch_and_observe(
                 raw_txs,
@@ -262,10 +262,9 @@ impl Inner {
 
     /// Submit `raw_txs` (postBatch first) and observe the outcome. Try
     /// the relay's `eth_sendBundle`; if it's a plain execution RPC
-    /// ([`L1Error::BundleRpcUnsupported`]), degrade to ordered mempool
-    /// submission — on dev reth / anvil that lands every tx in the next
-    /// block, postBatch first by priority-fee, minus the all-or-nothing
-    /// guarantee (irrelevant without a competing builder).
+    /// ([`L1Error::BundleRpcUnsupported`]), only a lone postBatch may degrade
+    /// to mempool submission. Multi-transaction settlement is order- and
+    /// all-or-nothing-sensitive, so it fails closed without a bundle relay.
     async fn dispatch_and_observe(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
@@ -300,51 +299,23 @@ impl Inner {
                 .await
             }
             Err(L1Error::BundleRpcUnsupported) => {
-                // A multi-tx bundle needs its order kept: the deferred entries
-                // chain, so a reordered user tx finds no entry and reverts.
-                if raw_txs.len() > 1 {
-                    event!(
-                        name: "eez.submitter.bundle.mempool_fallback",
-                        Level::WARN,
-                        target_block,
-                        tx_count = raw_txs.len(),
-                        "relay has no eth_sendBundle; the mempool does NOT guarantee bundle order, so bundled user txs may revert",
-                    );
-                } else {
-                    event!(
-                        name: "eez.submitter.bundle.mempool_fallback",
-                        Level::INFO,
-                        target_block,
-                        tx_count = raw_txs.len(),
-                        "relay has no eth_sendBundle; submitting the lone postBatch via mempool",
-                    );
-                }
+                require_atomic_relay_or_lone_postbatch(raw_txs.len())?;
+                event!(
+                    name: "eez.submitter.bundle.mempool_fallback",
+                    Level::INFO,
+                    target_block,
+                    tx_count = raw_txs.len(),
+                    "relay has no eth_sendBundle; submitting the lone postBatch via mempool",
+                );
                 let target_provider = self.build_target_provider();
-                for (idx, raw) in raw_txs.iter().enumerate() {
-                    if let Err(err) = alloy_provider::Provider::send_raw_transaction(
-                        &target_provider,
-                        raw.as_ref(),
-                    )
-                    .await
-                    {
-                        // postBatch rejection is fatal for the slot;
-                        // a rejected user_tx (stale nonce after a
-                        // re-push) is logged and skipped — the rest of
-                        // the submission stands on its own.
-                        if idx == 0 {
-                            return Err(L1Error::Submission(format!(
-                                "mempool fallback: postBatch rejected: {err}"
-                            )));
-                        }
-                        event!(
-                            name: "eez.submitter.mempool.user_tx_rejected",
-                            Level::WARN,
-                            tx_idx = idx,
-                            error = %err,
-                            "mempool fallback: user_tx rejected; continuing without it",
-                        );
-                    }
-                }
+                let _pending = alloy_provider::Provider::send_raw_transaction(
+                    &target_provider,
+                    raw_txs[0].as_ref(),
+                )
+                .await
+                .map_err(|error| {
+                    L1Error::Submission(format!("mempool fallback: postBatch rejected: {error}"))
+                })?;
                 // No bundle API, no timestamp pin: these txs can genuinely land
                 // in a later block, so the conservative rule is the only one.
                 self.observe(post_batch_hash, target_block, None, expected_final_state)
@@ -750,11 +721,36 @@ fn dropped(tx_hash: TxHash, target_block: u64, reason: &'static str) -> SendOutc
     }
 }
 
+fn require_atomic_relay_or_lone_postbatch(transaction_count: usize) -> L1Result<()> {
+    if transaction_count == 1 {
+        return Ok(());
+    }
+    Err(L1Error::Submission(format!(
+        "relay has no eth_sendBundle; refusing non-atomic {transaction_count}-transaction settlement"
+    )))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PinnedVerdict, bundle_request, pinned_verdict};
+    use super::{
+        L1Error, PinnedVerdict, bundle_request, pinned_verdict,
+        require_atomic_relay_or_lone_postbatch,
+    };
 
     const PIN: u64 = 1_700_000_012;
+
+    #[test]
+    fn unsupported_bundle_rpc_fails_closed_for_ordered_settlement() {
+        assert!(require_atomic_relay_or_lone_postbatch(1).is_ok());
+        assert!(matches!(
+            require_atomic_relay_or_lone_postbatch(2),
+            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 2-transaction")
+        ));
+        assert!(matches!(
+            require_atomic_relay_or_lone_postbatch(4),
+            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 4-transaction")
+        ));
+    }
 
     #[test]
     fn replay_request_preserves_exact_transactions_target_and_timestamp_pin() {

@@ -28,8 +28,8 @@ const ENV_BUNDLE_CAPTURE_DIR: &str = "EEZ_BUNDLE_CAPTURE_DIR";
 pub struct L1ReaderConfig {
     /// L1 RPC endpoint (HTTP / HTTPS).
     pub rpc_url: Url,
-    /// Optional consensus-layer REST endpoint used to retrieve EIP-4844 blob
-    /// sidecars. Required only when a scanned batch selects `blobIndices`.
+    /// Consensus-layer REST endpoint used to retrieve mandatory native blob
+    /// sidecars. Environment construction always populates this value.
     pub beacon_url: Option<Url>,
     /// Deployed `EEZ` (rollups registry) address.
     pub eez: Address,
@@ -60,7 +60,7 @@ impl L1ReaderConfig {
     pub fn from_env() -> L1Result<Self> {
         Ok(Self {
             rpc_url: parse_url(ENV_RPC_URL)?,
-            beacon_url: optional_url(ENV_BEACON_URL)?,
+            beacon_url: Some(parse_url(ENV_BEACON_URL)?),
             eez: parse_address(ENV_EEZ_ADDRESS)?,
             rollup_id: parse_u64(ENV_ROLLUP_ID)?,
         })
@@ -139,19 +139,6 @@ fn optional_path(name: &str) -> L1Result<Option<PathBuf>> {
     match env::var(name) {
         Ok(raw) if raw.trim().is_empty() => Ok(None),
         Ok(raw) => Ok(Some(PathBuf::from(raw))),
-        Err(env::VarError::NotPresent) => Ok(None),
-        Err(env::VarError::NotUnicode(_)) => {
-            Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))
-        }
-    }
-}
-
-fn optional_url(name: &str) -> L1Result<Option<Url>> {
-    match env::var(name) {
-        Ok(raw) if raw.trim().is_empty() => Ok(None),
-        Ok(raw) => Url::parse(&raw)
-            .map(Some)
-            .map_err(|e| L1Error::Config(format!("{name}: {e}"))),
         Err(env::VarError::NotPresent) => Ok(None),
         Err(env::VarError::NotUnicode(_)) => {
             Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))

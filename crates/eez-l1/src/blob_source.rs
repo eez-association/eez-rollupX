@@ -53,9 +53,8 @@ impl BeaconBlobSource {
         }
     }
 
-    /// Replace each supported blob-backed batch's empty ABI `callData` with
-    /// the authenticated payload carried by its blobs. Calldata batches are
-    /// left byte-for-byte unchanged.
+    /// Populate every batch's authenticated operations payload from its
+    /// mandatory native blobs.
     pub(crate) async fn hydrate_scanned_batches(
         &self,
         provider: &impl Provider,
@@ -73,10 +72,6 @@ impl BeaconBlobSource {
                     ))
                 })?;
             let indices = &posted.batch.blobIndices;
-            if indices.is_empty() {
-                continue;
-            }
-
             validate_blob_profile(
                 scanned.tx_hash,
                 &posted.batch.callData,
@@ -85,8 +80,7 @@ impl BeaconBlobSource {
             )?;
             if self.beacon_url.is_none() {
                 return Err(L1Error::Config(
-                    "EEZ_L1_BEACON_URL is required to derive a batch that selects blobIndices"
-                        .into(),
+                    "EEZ_L1_BEACON_URL is required to derive native blob batches".into(),
                 ));
             }
 
@@ -161,7 +155,7 @@ impl BeaconBlobSource {
                     scanned.tx_hash
                 ))
             })?;
-            scanned.call_data = native.operations;
+            scanned.operations_payload = native.operations;
         }
 
         Ok(())
@@ -239,7 +233,7 @@ impl BeaconBlobSource {
         sidecar_context: Option<(u64, B256, u64)>,
     ) -> L1Result<Value> {
         let base = self.beacon_url.as_ref().ok_or_else(|| {
-            L1Error::Config("EEZ_L1_BEACON_URL is required to retrieve EIP-4844 blobs".into())
+            L1Error::Config("EEZ_L1_BEACON_URL is required to retrieve native blobs".into())
         })?;
         let endpoint = base
             .join(path)
@@ -280,7 +274,7 @@ impl BeaconBlobSource {
         sidecar_context: Option<(u64, B256, u64)>,
     ) -> L1Result<Option<Value>> {
         let base = self.beacon_url.as_ref().ok_or_else(|| {
-            L1Error::Config("EEZ_L1_BEACON_URL is required to retrieve EIP-4844 blobs".into())
+            L1Error::Config("EEZ_L1_BEACON_URL is required to retrieve native blobs".into())
         })?;
         let endpoint = base
             .join(path)
@@ -320,11 +314,11 @@ impl BeaconBlobSource {
 
 fn validate_blob_profile(
     tx_hash: B256,
-    call_data: &Bytes,
+    abi_call_data: &Bytes,
     blob_indices: &[U256],
     transaction_blob_hashes: &[B256],
 ) -> L1Result<()> {
-    if !call_data.is_empty() {
+    if !abi_call_data.is_empty() {
         return Err(L1Error::Decode(format!(
             "blob-backed batch {tx_hash} must have empty callData"
         )));
@@ -477,6 +471,10 @@ mod tests {
             .is_ok()
         );
         assert!(matches!(
+            validate_blob_profile(tx_hash, &Bytes::new(), &[], &[]),
+            Err(L1Error::Decode(_))
+        ));
+        assert!(matches!(
             validate_blob_profile(
                 tx_hash,
                 &Bytes::from_static(b"unexpected"),
@@ -513,9 +511,10 @@ mod tests {
 
     #[test]
     fn sidecar_parser_authenticates_blob_against_commitment() {
-        let blobs = eez_blob_codec::encode_compatibility_payload(
+        let blobs = eez_blob_codec::encode_native_payload(
             7,
             Bytes::from_static(b"authenticated payload"),
+            Vec::new(),
         )
         .unwrap();
         let commitment = eez_blob_codec::blob_kzg_commitments(&blobs)
@@ -548,9 +547,10 @@ mod tests {
 
     #[test]
     fn blobs_parser_recomputes_versioned_hash() {
-        let blobs = eez_blob_codec::encode_compatibility_payload(
+        let blobs = eez_blob_codec::encode_native_payload(
             7,
             Bytes::from_static(b"post-Fulu authenticated payload"),
+            Vec::new(),
         )
         .unwrap();
         let response = serde_json::json!({
@@ -571,7 +571,7 @@ mod tests {
         let rollup_id = 7;
         let expected_payload = Bytes::from_static(b"real derivation payload");
         let blobs =
-            eez_blob_codec::encode_compatibility_payload(rollup_id, expected_payload.clone())
+            eez_blob_codec::encode_native_payload(rollup_id, expected_payload.clone(), Vec::new())
                 .unwrap();
         let versioned_hashes = blob_versioned_hashes(&blobs).unwrap();
         let beacon_blobs = serde_json::json!({
@@ -605,7 +605,7 @@ mod tests {
             tx_hash: B256::repeat_byte(0x55),
             tx_index: 0,
             submitter: alloy_primitives::Address::ZERO,
-            call_data: Bytes::new(),
+            operations_payload: Bytes::new(),
             transaction_blob_hashes: versioned_hashes,
             post_batch_input: post_batch_input.into(),
             state_applied: true,
@@ -618,7 +618,7 @@ mod tests {
             .hydrate_scanned_batches(&provider, rollup_id, &mut scanned)
             .await
             .unwrap();
-        assert_eq!(scanned[0].call_data, expected_payload);
+        assert_eq!(scanned[0].operations_payload, expected_payload);
     }
 
     async fn serve_json_responses(responses: Vec<String>) -> Url {

@@ -41,6 +41,13 @@ def run(plan, args):
             + "(set deterministic test keys in the selected args file)"
         )
 
+    blob_sidecar_encoding = eez.get("blob_sidecar_encoding", "")
+    if blob_sidecar_encoding not in ["eip4844", "eip7594"]:
+        fail(
+            "set eez.blob_sidecar_encoding explicitly to eip4844 or eip7594 "
+            + "for the selected L1 fork"
+        )
+
     # Pair B: canonical L1, validators, and MEV stack.
     eth = ethereum_package.run(plan, eth_args)
 
@@ -170,10 +177,11 @@ def run(plan, args):
         "EEZ_SUBMISSION_SLACK_MS": str(eez.get("submission_slack_ms", 2500)),
         "EEZ_MAX_SPECULATIVE_DEPTH": str(eez.get("max_speculative_depth", 0)),
         "EEZ_MAX_USER_TXS_PER_BUNDLE": str(eez.get("max_user_txs_per_bundle", 50)),
-        "EEZ_COMPOSER_DEBUG_LOGGING": "1" if eez.get("composer_debug_logging", False) else "0",
+        "EEZ_COMPOSER_DEBUG_LOGGING": "1"
+        if eez.get("composer_debug_logging", False)
+        else "0",
         "EEZ_L1_POSTER_KEY": poster_key,
-        "EEZ_DA_MODE": eez.get("da_mode", "calldata"),
-        "EEZ_L1_BLOB_SIDECAR_ENCODING": eez.get("blob_sidecar_encoding", "eip4844"),
+        "EEZ_L1_BLOB_SIDECAR_ENCODING": blob_sidecar_encoding,
         "EEZ_PROVER_URL": "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT),
         "EEZ_WITNESS_DB_PATH": "/data/witnesses",
         "EEZ_L2_DATADIR": "/data/l2",

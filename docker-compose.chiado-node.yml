@@ -88,11 +88,8 @@ services:
       # Chiado is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
       # derivation reads full blobs reconstructed by the colocated
       # semi-supernode Lighthouse.
-      # EEZ_DA_MODE is mandatory so an existing calldata deployment cannot
-      # silently change its L1 data carrier during a restart.
-      EEZ_DA_MODE: "${EEZ_DA_MODE:?set EEZ_DA_MODE to blob or calldata}"
-      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:-}"
-      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:-}"
+      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:?set the mandatory native blob Beacon API}"
+      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:?set the mandatory native blob sidecar encoding}"
       # Forwarded but empty by default - the bundle
       # target-block oracle falls back to the embedded L1. Set it in
       # .env.chiado

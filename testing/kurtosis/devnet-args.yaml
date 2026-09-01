@@ -64,7 +64,6 @@ eez:
   proof_time_ms: 5000
   submission_slack_ms: 500
   max_speculative_depth: 0
-  da_mode: blob
   # The pinned ethereum-package activates Fulu at genesis.
   blob_sidecar_encoding: eip7594
 

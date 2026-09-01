@@ -1,4 +1,4 @@
-//! Independent admission of legacy calldata or native semantic blob DA.
+//! Independent admission of mandatory native semantic blob DA.
 
 use alloy_primitives::{B256, Bytes, U256};
 use eez_blob_codec::{
@@ -11,7 +11,7 @@ use super::CanonicalPostBatch;
 /// Data availability bound to physical blobs and the configured rollup profile.
 pub(crate) struct VerifiedDa {
     payload: Bytes,
-    semantic_transactions: Option<Vec<SemanticTransaction>>,
+    semantic_transactions: Vec<SemanticTransaction>,
     transaction_blob_hashes: Vec<B256>,
 }
 
@@ -24,19 +24,17 @@ impl VerifiedDa {
         &self.transaction_blob_hashes
     }
 
-    /// Native semantic transactions for blob DA, or `None` for the explicitly
-    /// supported legacy calldata carrier.
-    pub(crate) fn semantic_transactions(&self) -> Option<&[SemanticTransaction]> {
-        self.semantic_transactions.as_deref()
+    pub(crate) fn semantic_transactions(&self) -> &[SemanticTransaction] {
+        &self.semantic_transactions
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BlobDaError {
-    #[error("legacy calldata batch declares blobIndices but supplies no physical blobs")]
+    #[error("native blob DA requires at least one physical blob")]
     MissingBlobs,
-    #[error("blob batch must keep batch.callData empty")]
-    MixedCalldataAndBlobs,
+    #[error("native blob batch must keep the ABI batch.callData field empty")]
+    NonEmptyBatchCallData,
     #[error("physical blobs were supplied but batch.blobIndices is empty")]
     UnexpectedBlobs,
     #[error("blob batch supplies {actual} blobs; maximum is {maximum}")]
@@ -52,9 +50,9 @@ pub(crate) enum BlobDaError {
 }
 
 /// Validate the DA carrier and recover the existing `eez-payload-codec`
-/// payload. Blob batches are deliberately restricted to the canonical native
-/// profile and `[0, 1, ...]` blob indices. Legacy calldata has no standardized
-/// semantic stream and is marked explicitly as such.
+/// payload. Batches are deliberately restricted to the canonical native
+/// profile and `[0, 1, ...]` blob indices; `batch.callData` is never an
+/// accepted DA carrier.
 pub(crate) fn verify_da_carrier(
     batch: &CanonicalPostBatch,
     submitted_blobs: &[Vec<u8>],
@@ -62,20 +60,13 @@ pub(crate) fn verify_da_carrier(
 ) -> Result<VerifiedDa, BlobDaError> {
     let batch = batch.as_batch();
     if submitted_blobs.is_empty() {
-        if !batch.blobIndices.is_empty() {
-            return Err(BlobDaError::MissingBlobs);
-        }
-        return Ok(VerifiedDa {
-            payload: batch.callData.clone(),
-            semantic_transactions: None,
-            transaction_blob_hashes: Vec::new(),
-        });
+        return Err(BlobDaError::MissingBlobs);
     }
     if batch.blobIndices.is_empty() {
         return Err(BlobDaError::UnexpectedBlobs);
     }
     if !batch.callData.is_empty() {
-        return Err(BlobDaError::MixedCalldataAndBlobs);
+        return Err(BlobDaError::NonEmptyBatchCallData);
     }
     if submitted_blobs.len() > MAX_BLOBS_PER_TRANSACTION {
         return Err(BlobDaError::TooManyBlobs {
@@ -106,7 +97,7 @@ pub(crate) fn verify_da_carrier(
         blob_versioned_hashes(&blobs).map_err(|error| BlobDaError::Kzg(error.to_string()))?;
     Ok(VerifiedDa {
         payload: native.operations,
-        semantic_transactions: Some(semantic_transactions),
+        semantic_transactions,
         transaction_blob_hashes,
     })
 }

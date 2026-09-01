@@ -54,7 +54,6 @@ eez:
   submission_slack_ms: 500
   max_speculative_depth: 0
   max_user_txs_per_bundle: 3
-  da_mode: blob
   blob_sidecar_encoding: eip7594
   composer_debug_logging: true
 

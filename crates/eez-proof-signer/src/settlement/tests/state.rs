@@ -226,14 +226,17 @@ fn rejects_an_effect_in_the_leading_anchor_position() {
 }
 
 #[test]
-fn rejects_later_anchors_and_invalid_entries() {
+fn root_checkpoints_do_not_count_as_effects_and_invalid_entries_fail() {
     let root = B256::ZERO;
     let settling = settling_with_effect_candidates(vec![0]);
 
     let anchors = state_chain(&[root, root, root]);
     assert_eq!(
         verify_effect_prefix(&anchors, root, &[], &settling).err(),
-        Some(EffectPrefixError::LaterAnchor { entry_index: 1 })
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 0,
+            observed: 1,
+        })
     );
 
     let mut invalid = anchors;
@@ -270,16 +273,19 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
 }
 
 #[test]
-fn leading_failed_effect_checkpoint_is_carried_by_the_anchor() {
+fn failed_effect_is_a_noop_followed_by_a_root_checkpoint() {
     let window_pre = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
     let failed_checkpoint = B256::repeat_byte(0x0c);
     let mut batch = effect_batch(
-        &[window_pre, failed_checkpoint, failed_checkpoint],
+        &[window_pre, pre_settling, pre_settling],
         &[ClaimedEntryShape::Inbound],
     );
     batch.entries[1].success = false;
     batch.entries[1].returnData = Bytes::from_static(b"expected revert");
+    batch
+        .entries
+        .push(state_entry(1, pre_settling, failed_checkpoint));
     let settling = settling_with_system_flags(vec![true]);
     let checkpoints = [checkpoint(0, failed_checkpoint)];
 
@@ -289,7 +295,7 @@ fn leading_failed_effect_checkpoint_is_carried_by_the_anchor() {
 }
 
 #[test]
-fn successful_effect_carries_the_immediately_following_failed_checkpoint() {
+fn successful_and_failed_effects_preserve_fifo_checkpoint_order() {
     let window_pre = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
     let first_checkpoint = B256::repeat_byte(0x0c);
@@ -299,8 +305,8 @@ fn successful_effect_carries_the_immediately_following_failed_checkpoint() {
         &[
             window_pre,
             pre_settling,
-            failed_checkpoint,
-            failed_checkpoint,
+            first_checkpoint,
+            first_checkpoint,
             final_checkpoint,
         ],
         &[
@@ -311,6 +317,13 @@ fn successful_effect_carries_the_immediately_following_failed_checkpoint() {
     );
     batch.entries[2].success = false;
     batch.entries[2].returnData = Bytes::from_static(b"expected revert");
+    batch.entries[3].rootUpdates[0].currentRoot = failed_checkpoint;
+    batch.entries[3].rollingHash =
+        EntryRollingHash::seed_for_l1([(1, failed_checkpoint)], batch.entries[3].proxyEntryHash)
+            .current();
+    batch
+        .entries
+        .insert(3, state_entry(1, first_checkpoint, failed_checkpoint));
     let settling = settling_with_system_flags(vec![true, true, true]);
     let checkpoints = [
         checkpoint(0, first_checkpoint),

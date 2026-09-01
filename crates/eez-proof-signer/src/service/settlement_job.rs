@@ -233,7 +233,6 @@ impl SettlementPipelineError {
                     "validation backend returned invalid output",
                 ),
                 settlement::EffectPrefixError::LeadingEntryNotAnchor { .. }
-                | settlement::EffectPrefixError::LaterAnchor { .. }
                 | settlement::EffectPrefixError::InvalidEntry { .. }
                 | settlement::EffectPrefixError::EffectCountMismatch { .. }
                 | settlement::EffectPrefixError::AnchorRootMismatch { .. }
@@ -255,9 +254,10 @@ impl SettlementPipelineError {
             ),
             Self::DaPayload(error) => match error {
                 settlement::DaPayloadError::Decode { .. }
-                | settlement::DaPayloadError::TrailingBytes { .. } => {
-                    (tonic::Code::InvalidArgument, "invalid batch callData")
-                }
+                | settlement::DaPayloadError::TrailingBytes { .. } => (
+                    tonic::Code::InvalidArgument,
+                    "invalid blob operations payload",
+                ),
                 settlement::DaPayloadError::InvalidBlockRlp { .. }
                 | settlement::DaPayloadError::SystemTransactionReconstruction { .. }
                 | settlement::DaPayloadError::InvalidEffectTransactionLayout => (
@@ -386,16 +386,14 @@ pub(super) fn run_settlement(
         &authorized_inbound_effects,
         system_transaction_reconstructor,
     )?;
-    if let Some(semantic_transactions) = verified_da.semantic_transactions() {
-        settlement::verify_native_semantics(
-            semantic_transactions,
-            validated_window,
-            &authorized_outbound_effects,
-            &authorized_inbound_effects,
-            canonical_batch.static_entries(),
-            expected_rollup_id,
-        )?;
-    }
+    settlement::verify_native_semantics(
+        verified_da.semantic_transactions(),
+        validated_window,
+        &authorized_outbound_effects,
+        &authorized_inbound_effects,
+        &canonical_batch,
+        expected_rollup_id,
+    )?;
 
     let recomputed_public_inputs_hash = checked_public_input_profile
         .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;

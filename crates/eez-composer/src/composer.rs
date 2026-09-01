@@ -18,7 +18,7 @@
 //! Each batch is proved by the shared [`Prover`] and sent via the shared
 //! [`Submitter`] bundle relay.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy_eips::Encodable2718;
@@ -53,15 +53,6 @@ use crate::prover_retry::{
 };
 use crate::rollup::RollupState;
 
-/// Data-availability carrier used for newly posted batches.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DataAvailabilityMode {
-    /// Existing `batch.callData` carrier.
-    Calldata,
-    /// Compatibility-profile blobs with an explicit pool sidecar encoding.
-    Blob(eez_blob_codec::BlobSidecarEncoding),
-}
-
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
 /// cross-chain simulation: the keys and addresses needed to construct and sign
@@ -94,9 +85,9 @@ pub struct CrossChainExecCtx {
     /// `Submitter` is internally `Arc<Inner>`, so `Clone` is cheap.
     /// `compose_sync_slot` hands it `[postBatch, inbound_user_tx_1, …]` via
     /// `Submitter::send_bundle`; outbound user transactions execute in the L2
-    /// Sync block instead. The Submitter owns the transport decision (atomic
-    /// `eth_sendBundle` on supporting relays, ordered mempool submission on
-    /// plain execution RPCs).
+    /// Sync block instead. The Submitter requires atomic `eth_sendBundle` for
+    /// every multi-transaction settlement; only a lone postBatch may fall back
+    /// to a plain execution RPC.
     pub submitter: eez_l1::Submitter,
     /// L1 EOA whose key signs the `postAndVerifyBatch` transaction. Different from
     /// `system_signer` (which is the L2 SYSTEM_ADDRESS). For dev
@@ -111,8 +102,8 @@ pub struct CrossChainExecCtx {
     /// the L1 block. Default: 10 gwei (well above the smoke's
     /// `cast mktx --gas-price 2 gwei` user_tx).
     pub l1_post_batch_priority_fee: u128,
-    /// Explicit DA transport policy for postBatch transactions.
-    pub data_availability: DataAvailabilityMode,
+    /// Physical sidecar encoding for the mandatory native blob DA carrier.
+    pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded
     /// in `batch.proofSystems[0]`; `EEZ.postAndVerifyBatch` iterates
     /// `proofSystems[]` and calls `verify` on each. Deployment registers
@@ -130,7 +121,7 @@ impl std::fmt::Debug for CrossChainExecCtx {
             .field("l2_chain_id", &self.l2_chain_id)
             .field("l2_gas_price", &self.l2_gas_price)
             .field("l2_gas_limit", &self.l2_gas_limit)
-            .field("data_availability", &self.data_availability)
+            .field("blob_sidecar_encoding", &self.blob_sidecar_encoding)
             .finish_non_exhaustive()
     }
 }
@@ -717,64 +708,39 @@ fn restore_pool_order(mut txs: Vec<(usize, HeldTx)>) -> Vec<HeldTx> {
     txs.into_iter().map(|(_, tx)| tx).collect()
 }
 
-/// Order L1 inbound user transactions so root-mutating calls execute before
-/// static-only calls. Static entries are pinned to the final Sync-block root in
-/// `prepare_post_batch_raw`; executing their trigger before a later mutating
-/// trigger therefore makes the static lookup fail with `ExecutionNotFound` and
-/// rejects the entire atomic bundle.
+/// Signed L1 transactions produced for one settlement batch.
 ///
-/// The partition is stable, and a static-only transaction is left in place if
-/// moving it would cross a later non-static transaction from the same sender.
-/// Ethereum nonces make that ordering dependency stronger than the root-order
-/// preference; such a sequence needs to be split across batches upstream.
-fn ordered_inbound_bundle_txs<'a>(
-    survivors: &'a [HeldTx],
-    compositions: &[(eez_protocol::Composition, B256)],
-) -> (Vec<&'a HeldTx>, usize, usize) {
-    let static_only: HashSet<B256> = compositions
-        .iter()
-        .filter(|(composition, _)| {
-            composition.source.batch.entries.is_empty()
-                && !composition.source.batch.staticEntries.is_empty()
-        })
-        .map(|(_, hash)| *hash)
-        .collect();
+/// `inbound_checkpoints` is parallel to the inbound compositions. A populated
+/// slot must execute immediately after that composition's user transaction in
+/// the atomic bundle; it advances the root past trailing failed effects whose
+/// own reverting L1 frames cannot persist a state update.
+struct PreparedPostBatch {
+    raw: Bytes,
+    inbound_checkpoints: Vec<Option<Bytes>>,
+}
 
-    let mut deferred = HashSet::new();
-    let mut nonce_order_blocked = 0usize;
-    for (index, tx) in survivors.iter().enumerate() {
-        if tx.direction != Direction::Inbound || !static_only.contains(&tx.hash) {
-            continue;
-        }
-        let crosses_later_mutation_from_sender = survivors[index + 1..].iter().any(|later| {
-            later.direction == Direction::Inbound
-                && later.sender == tx.sender
-                && !static_only.contains(&later.hash)
-        });
-        if crosses_later_mutation_from_sender {
-            nonce_order_blocked += 1;
-        } else {
-            deferred.insert(tx.hash);
+fn append_inbound_fifo_bundle(
+    bundle: &mut Vec<Bytes>,
+    survivors: &[HeldTx],
+    inbound_checkpoints: Vec<Option<Bytes>>,
+) -> Result<(), String> {
+    let mut checkpoints = inbound_checkpoints.into_iter();
+    for held in survivors
+        .iter()
+        .filter(|held| held.direction == Direction::Inbound)
+    {
+        bundle.push(held.raw_tx.clone());
+        if let Some(checkpoint) = checkpoints
+            .next()
+            .ok_or_else(|| "missing FIFO checkpoint slot for inbound survivor".to_string())?
+        {
+            bundle.push(checkpoint);
         }
     }
-
-    let mut ordered = Vec::with_capacity(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound)
-            .count(),
-    );
-    ordered.extend(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound && !deferred.contains(&tx.hash)),
-    );
-    ordered.extend(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound && deferred.contains(&tx.hash)),
-    );
-    (ordered, deferred.len(), nonce_order_blocked)
+    if checkpoints.next().is_some() {
+        return Err("extra FIFO checkpoint slots after inbound survivors".to_string());
+    }
+    Ok(())
 }
 
 /// Everything a transient abort still owes the pool: the failing transaction
@@ -3096,7 +3062,7 @@ where
             .collect();
         // Per-slot phase: one merge over all survivor compositions, now that
         // the built block hash and per-effect prefix hashes exist.
-        let postbatch_raw = match self
+        let prepared_postbatch = match self
             .prepare_post_batch_raw(
                 ctx,
                 rollup_id,
@@ -3273,28 +3239,25 @@ where
 
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
-        let post_batch_hash = post_batch_transaction_hash(&postbatch_raw)?;
-        let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
-        bundle.push(postbatch_raw);
+        let post_batch_hash = post_batch_transaction_hash(&prepared_postbatch.raw)?;
+        let checkpoint_count = prepared_postbatch
+            .inbound_checkpoints
+            .iter()
+            .filter(|checkpoint| checkpoint.is_some())
+            .count();
+        let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len() + checkpoint_count);
+        bundle.push(prepared_postbatch.raw);
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
         // Outbound survivors are L2-signed — they run in the L2 Sync block + DA,
         // never the L1 bundle (an L2 tx is invalid on L1).
-        // Static-only entries are pinned to this batch's final Sync-block root,
-        // so their trigger transactions must run after every independent root
-        // mutation in the same atomic bundle.
-        let (ordered_inbound, static_only_deferred, nonce_order_blocked) =
-            ordered_inbound_bundle_txs(&survivors, &survivor_comps);
-        if nonce_order_blocked != 0 {
-            event!(
-                name: "eez.composer.bundle.static_order_nonce_blocked",
-                Level::WARN,
-                rollup_id,
-                sync_height,
-                nonce_order_blocked,
-                "static-only inbound trigger could not move behind a later mutation from the same sender; preserving nonce order",
-            );
-        }
-        bundle.extend(ordered_inbound.into_iter().map(|h| h.raw_tx.clone()));
+        // Preserve the held pool's exact FIFO order. Root pins were assigned at
+        // those positions. A root-only checkpoint, when present, is coupled to
+        // its originating transaction and must immediately follow it.
+        append_inbound_fifo_bundle(
+            &mut bundle,
+            &survivors,
+            prepared_postbatch.inbound_checkpoints,
+        )?;
         event!(
             name: "eez.composer.bundle.dispatched",
             Level::INFO,
@@ -3302,7 +3265,7 @@ where
             sync_height,
             tx_count = bundle.len(),
             entry_count = total_entries,
-            static_only_deferred,
+            checkpoint_count,
             evicted_poison = poison.len(),
             evicted_stale = stale.len(),
             "rich bundle dispatched to background observer; committing Sync block optimistically",
@@ -3426,7 +3389,8 @@ where
             }
         };
         let sync_height = empty_built.header.number();
-        let post_batch_hash = post_batch_transaction_hash(&minimal_postbatch_raw)?;
+        debug_assert!(minimal_postbatch_raw.inbound_checkpoints.is_empty());
+        let post_batch_hash = post_batch_transaction_hash(&minimal_postbatch_raw.raw)?;
         event!(
             name: "eez.composer.phase1.bundle.dispatched",
             Level::INFO,
@@ -3444,7 +3408,7 @@ where
             ctx,
             rollup_id,
             sync_height,
-            vec![minimal_postbatch_raw],
+            vec![minimal_postbatch_raw.raw],
             empty_built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
@@ -3564,7 +3528,8 @@ where
                 "settlement backlog exceeds the batch cap; settling a bounded historical chunk",
             );
 
-            let post_batch_hash = post_batch_transaction_hash(&raw)?;
+            debug_assert!(raw.inbound_checkpoints.is_empty());
+            let post_batch_hash = post_batch_transaction_hash(&raw.raw)?;
             rollup
                 .optimistic
                 .begin(boundary, post_batch_hash, boundary_parent, Vec::new());
@@ -3574,7 +3539,7 @@ where
                 ctx,
                 rollup_id,
                 boundary,
-                vec![raw],
+                vec![raw.raw],
                 boundary_header.hash(),
                 Arc::clone(&rollup.optimistic),
                 BundleTarget::NextBlock,
@@ -3714,7 +3679,7 @@ where
         semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
         outbound_target_gas: u64,
         bundle_target: BundleTarget,
-    ) -> Result<Option<Bytes>, PreparePostBatchError> {
+    ) -> Result<Option<PreparedPostBatch>, PreparePostBatchError> {
         use alloy_sol_types::SolCall;
         use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
 
@@ -3923,55 +3888,172 @@ where
             }
         }
 
-        let (anchor_new_root, effect_carrier_roots) =
+        // Outbound effects execute in postBatch's immediate prefix, before any
+        // inbound user transaction. Preserve their established carrier plan:
+        // an immediate success (or the anchor) can persist checkpoints for
+        // failed outbound entries.
+        let outbound_settlement_count = outbound_entries.len();
+        let (anchor_new_root, outbound_carrier_roots) =
             eez_protocol::settlement::settlement_root_carriers(
                 pre_sync_block_hash,
-                effect_block_hashes
+                effect_block_hashes[..outbound_settlement_count]
                     .iter()
                     .copied()
-                    .zip(effect_successes.iter().copied()),
+                    .zip(
+                        effect_successes[..outbound_settlement_count]
+                            .iter()
+                            .copied(),
+                    ),
             );
         batch.entries[0].rootUpdates[0].newRoot = anchor_new_root;
 
-        // Cross-chain entries arrive with EMPTY `rootUpdates`; attach one chained
-        // settlement commitment update to each (the anchor already has its own)
-        // — otherwise `_applyRootUpdates` no-ops and the L2 hash never settles. The net
-        // nested value delta above is attached in settlement-entry order.
-        // Successful entries carry their own final source checkpoint and any
-        // immediately following failed checkpoints. Failed entries use the
-        // already-persisted carrier hash, making their stitched update a no-op
-        // when EEZ.sol intentionally rolls the failed execution back.
-        // `currentRoot` is fixed by the stitch below.
-        let mut effect_k = 0usize;
-        for entry in &mut batch.entries {
-            // Preserve the anchor's existing root update and fill only the
-            // cross-chain effect entries, which arrive empty.
-            if !entry.rootUpdates.is_empty() {
-                continue;
-            }
-            let ether_delta = *effect_ether_deltas.get(effect_k).ok_or_else(|| {
-                format!("settlement stitch: effect entry {effect_k} has no ether delta")
-            })?;
-            let new_root = *effect_carrier_roots.get(effect_k).ok_or_else(|| {
-                format!(
-                    "settlement stitch: entry {effect_k} has no carrier block hash \
-                     (only {} carrier hashes)",
-                    effect_carrier_roots.len(),
-                )
-            })?;
-            entry.rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
+        for (entry_index, new_root) in outbound_carrier_roots.iter().copied().enumerate() {
+            let ether_delta = effect_ether_deltas[entry_index];
+            batch.entries[1 + entry_index].rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
                 rollupId: rollup_id,
                 currentRoot: B256::ZERO,
                 newRoot: new_root,
                 etherDelta: ether_delta,
             }];
-            effect_k += 1;
         }
-        if effect_k != effect_carrier_roots.len() {
+
+        // With no effects the anchor itself carries the terminal block. This
+        // also gives a static-only FIFO transaction the root that is live after
+        // postBatch and before its user transaction executes.
+        if pair_hashes.is_empty() {
+            batch.entries[0].rootUpdates[0].newRoot = sync_block_hash;
+        }
+
+        // Inbound entries execute in user-transaction FIFO order. Static calls
+        // pin the root live at their exact action position; successful mutable
+        // calls advance it to their independently built L2 checkpoint. A failed
+        // call must use a no-op update because its complete L1 frame reverts.
+        // If the transaction ends behind failed effects, append one proven
+        // root-only entry and arrange for executeL2Txs to consume it immediately
+        // after that user transaction in the atomic bundle.
+        let mut live_root = outbound_carrier_roots
+            .last()
+            .copied()
+            .unwrap_or(batch.entries[0].rootUpdates[0].newRoot);
+        let mut mutable_batch_index = 1 + outbound_settlement_count;
+        let mut mutable_effect_index = outbound_settlement_count;
+        let mut pair_hash_index = outbound_effect_count;
+        let mut static_batch_index = 0usize;
+        let mut checkpoint_required = Vec::with_capacity(compositions.len());
+
+        for (composition_index, composition) in compositions.iter().enumerate() {
+            let fifo_actions = eez_protocol::settlement::composition_fifo_actions(composition)
+                .map_err(|error| {
+                    format!("composition {composition_index} FIFO actions: {error}")
+                })?;
+            let mutable_count = composition.source.batch.entries.len();
+            let effect_end = pair_hash_index + mutable_count;
+            let checkpoints = pair_hashes.get(pair_hash_index..effect_end).ok_or_else(|| {
+                format!(
+                    "composition {composition_index} requires pair hashes {pair_hash_index}..{effect_end}, but only {} exist",
+                    pair_hashes.len(),
+                )
+            })?;
+            let plan = eez_protocol::settlement::fifo_transaction_root_plan(
+                live_root,
+                &fifo_actions,
+                checkpoints,
+            )
+            .map_err(|error| format!("composition {composition_index} root plan: {error}"))?;
+
+            for (local_index, new_root) in plan.mutable_new_roots.iter().copied().enumerate() {
+                let entry = batch
+                    .entries
+                    .get_mut(mutable_batch_index + local_index)
+                    .ok_or_else(|| {
+                        format!(
+                            "composition {composition_index} mutable entry {local_index} is missing from merged batch"
+                        )
+                    })?;
+                if !entry.rootUpdates.is_empty() {
+                    return Err(format!(
+                        "composition {composition_index} mutable entry {local_index} unexpectedly carries pre-filled roots"
+                    )
+                    .into());
+                }
+                entry.rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
+                    rollupId: rollup_id,
+                    currentRoot: B256::ZERO,
+                    newRoot: new_root,
+                    etherDelta: effect_ether_deltas[mutable_effect_index + local_index],
+                }];
+            }
+
+            for (local_index, root) in plan.static_roots.iter().copied().enumerate() {
+                let entry = batch
+                    .staticEntries
+                    .get_mut(static_batch_index + local_index)
+                    .ok_or_else(|| {
+                        format!(
+                            "composition {composition_index} static entry {local_index} is missing from merged batch"
+                        )
+                    })?;
+                if entry.destinationRollupId != rollup_id {
+                    return Err(format!(
+                        "static entry destination {} does not match settled rollup {rollup_id}",
+                        entry.destinationRollupId,
+                    )
+                    .into());
+                }
+                if !entry.expectedRoots.is_empty() {
+                    return Err(
+                        "materialized static entry unexpectedly carries pre-filled roots".into(),
+                    );
+                }
+                entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+                    rollupId: rollup_id,
+                    root,
+                }];
+            }
+
+            mutable_batch_index += mutable_count;
+            mutable_effect_index += mutable_count;
+            pair_hash_index = effect_end;
+            static_batch_index += composition.source.batch.staticEntries.len();
+
+            if let Some((current_root, new_root)) = plan.trailing_checkpoint {
+                let checkpoint = eez_protocol::abi::ExecutionEntrySol {
+                    rootUpdates: vec![eez_protocol::abi::RootUpdateSol {
+                        rollupId: rollup_id,
+                        currentRoot: current_root,
+                        newRoot: new_root,
+                        etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
+                    }],
+                    proxyEntryHash: B256::ZERO,
+                    l2ToL1Calls: Vec::new(),
+                    expectedL1ToL2Calls: Vec::new(),
+                    rollingHash: B256::ZERO,
+                    destinationRollupId: rollup_id,
+                    success: true,
+                    returnData: Bytes::new(),
+                };
+                batch.entries.insert(mutable_batch_index, checkpoint);
+                entry_traces.insert(
+                    mutable_batch_index,
+                    eez_protocol::entries::EntryTrace::default(),
+                );
+                mutable_batch_index += 1;
+                checkpoint_required.push(true);
+            } else {
+                checkpoint_required.push(false);
+            }
+            live_root = plan.endpoint;
+        }
+
+        if mutable_effect_index != effect_ether_deltas.len()
+            || pair_hash_index != pair_hashes.len()
+            || static_batch_index != batch.staticEntries.len()
+        {
             return Err(format!(
-                "settlement stitch: {effect_k} effect entries but {} carrier hashes \
-                 (pair-end/entry misalignment)",
-                effect_carrier_roots.len(),
+                "FIFO settlement consumption mismatch: effects {mutable_effect_index}/{}, pair hashes {pair_hash_index}/{}, statics {static_batch_index}/{}",
+                effect_ether_deltas.len(),
+                pair_hashes.len(),
+                batch.staticEntries.len(),
             )
             .into());
         }
@@ -3979,9 +4061,10 @@ where
         // Stitch the per-rollup root-update chain: EEZ.sol `_executeEntry`
         // enforces `config.root == update.currentRoot`, then `_applyRootUpdates` sets it to
         // `newRoot`, so each entry's `currentRoot` must chain to the prior
-        // entry's `newRoot`. Failed entries become `R_k → R_k`; checkpoints
-        // they cannot persist have already been absorbed by the preceding
-        // successful carrier (or the anchor for leading failures).
+        // entry's `newRoot`. Outbound failed checkpoints use the immediate
+        // carrier plan. Inbound failed entries remain `R_k → R_k`; when a
+        // transaction ends on one, its explicit deferred checkpoint advances
+        // the commitment after the reverting user frame.
         let mut running_roots: HashMap<u64, B256> = HashMap::new();
         for entry in &mut batch.entries {
             for update in &mut entry.rootUpdates {
@@ -3989,20 +4072,6 @@ where
                     update.currentRoot = prev_new;
                 }
                 running_roots.insert(update.rollupId, update.newRoot);
-            }
-        }
-
-        // Anchor-only batch (no effects): the immediate is the last entry, so it
-        // must carry the final block hash. With effects, the last effect's
-        // canonical prefix-block hash already is the full Sync-block hash.
-        if pair_hashes.is_empty()
-            && let Some(last) = batch.entries.last_mut()
-        {
-            for update in last.rootUpdates.iter_mut().rev() {
-                if update.rollupId == rollup_id {
-                    update.newRoot = sync_block_hash;
-                    break;
-                }
             }
         }
 
@@ -4018,28 +4087,6 @@ where
                 "settlement chain endpoint {stitched_endpoint:?} does not match Sync-block hash {sync_block_hash}"
             )
             .into());
-        }
-
-        // L1 top-level static entries are persistent, read-only claims. The
-        // destination rollup must be pinned to the exact block hash installed by
-        // this batch; L2's corresponding static pool omits pins entirely.
-        for entry in &mut batch.staticEntries {
-            if entry.destinationRollupId != rollup_id {
-                return Err(format!(
-                    "static entry destination {} does not match settled rollup {rollup_id}",
-                    entry.destinationRollupId,
-                )
-                .into());
-            }
-            if !entry.expectedRoots.is_empty() {
-                return Err(
-                    "materialized static entry unexpectedly carries pre-filled roots".into(),
-                );
-            }
-            entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
-                rollupId: rollup_id,
-                root: sync_block_hash,
-            }];
         }
 
         // The L1 rolling seed commits the finalized ordered root updates, so
@@ -4189,8 +4236,9 @@ where
         block_rlps.push(terminal_rlp);
         // Encoded `ExecutionEntrySol` values let followers reconstruct system
         // transactions. Outbound entries describe L1 settlement and L2 loads;
-        // inbound target batches carry the L2 delivery inputs. Encode both into
-        // `batch.callData`, which enters the public-input preimage as opaque data.
+        // inbound target batches carry the L2 delivery inputs. These operations
+        // and the native semantic stream are carried only by physical blobs;
+        // `batch.callData` remains empty.
         use alloy_sol_types::SolValue as _;
         // The DA sidecar stores the full derivation entry set in canonical
         // order: outbound settlement entries first, then inbound deferred
@@ -4240,48 +4288,38 @@ where
             &outbound_group_sizes,
         )
         .map_err(|e| format!("encode self-contained chain operations: {e}"))?;
-        let mut transaction_blobs = Vec::new();
-        let prepared_blob_sidecar = match ctx.data_availability {
-            DataAvailabilityMode::Calldata => {
-                batch.callData = alloy_primitives::Bytes::from(payload);
-                None
-            }
-            DataAvailabilityMode::Blob(sidecar_encoding) => {
-                let semantic_messages = semantic_transactions
-                    .iter()
-                    .map(eez_protocol::blob_semantics::encode_semantic_transaction)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| format!("encode native cross-chain semantics: {error}"))?
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                transaction_blobs = eez_blob_codec::encode_native_payload(
-                    rollup_id,
-                    alloy_primitives::Bytes::from(payload),
-                    semantic_messages,
-                )
-                .map_err(|error| format!("encode native blob payload: {error}"))?;
-                if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
-                    event!(
-                        name: "eez.composer.emission.candidate_over_blob_limit",
-                        Level::DEBUG,
-                        rollup_id,
-                        from,
-                        to = sync_block_number,
-                        blobs = transaction_blobs.len(),
-                        maximum = eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
-                        "candidate range exceeds the per-transaction blob limit",
-                    );
-                    return Ok(None);
-                }
-                batch.blobIndices = (0..transaction_blobs.len()).map(U256::from).collect();
-                batch.callData = Bytes::new();
-                Some(
-                    eez_blob_codec::prepare_blob_sidecar(&transaction_blobs, sidecar_encoding)
-                        .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?,
-                )
-            }
-        };
+        let semantic_messages = semantic_transactions
+            .iter()
+            .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("encode native cross-chain semantics: {error}"))?
+            .into_iter()
+            .flatten()
+            .collect();
+        let transaction_blobs = eez_blob_codec::encode_native_payload(
+            rollup_id,
+            alloy_primitives::Bytes::from(payload),
+            semantic_messages,
+        )
+        .map_err(|error| format!("encode native blob payload: {error}"))?;
+        if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
+            event!(
+                name: "eez.composer.emission.candidate_over_blob_limit",
+                Level::DEBUG,
+                rollup_id,
+                from,
+                to = sync_block_number,
+                blobs = transaction_blobs.len(),
+                maximum = eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+                "candidate range exceeds the per-transaction blob limit",
+            );
+            return Ok(None);
+        }
+        batch.blobIndices = (0..transaction_blobs.len()).map(U256::from).collect();
+        batch.callData = Bytes::new();
+        let prepared_blob_sidecar =
+            eez_blob_codec::prepare_blob_sidecar(&transaction_blobs, ctx.blob_sidecar_encoding)
+                .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?;
 
         // Priced on the encoded candidate before witnesses and proving; `Ok(None)`
         // is over-budget, not an error, and the caller chooses what to do.
@@ -4431,34 +4469,54 @@ where
             .and_then(|s| s.parse::<Address>().ok())
             .ok_or("EEZ_REGISTRY_ADDRESS missing or not a valid address")?;
 
-        let raw = match prepared_blob_sidecar {
-            Some(sidecar) => {
-                sign_post_batch_blob_tx(
+        let poster = ctx.l1_poster_signer.address();
+        let poster_nonce = ctx
+            .l1_provider
+            .get_transaction_count(poster)
+            .pending()
+            .await
+            .map_err(|error| format!("get_transaction_count({poster}): {error}"))?;
+
+        let raw = sign_post_batch_blob_tx(
+            &ctx.l1_poster_signer,
+            &ctx.l1_provider,
+            eez_address,
+            calldata,
+            ctx.l1_chain_id,
+            ctx.l1_post_batch_priority_fee,
+            self.inner.emission.max_gas,
+            prepared_blob_sidecar,
+            poster_nonce,
+        )
+        .await?;
+        let mut next_nonce = poster_nonce
+            .checked_add(1)
+            .ok_or_else(|| "L1 poster nonce overflow after postBatch".to_string())?;
+        let mut inbound_checkpoints = Vec::with_capacity(checkpoint_required.len());
+        for required in checkpoint_required {
+            if required {
+                let checkpoint = sign_root_checkpoint_tx(
                     &ctx.l1_poster_signer,
                     &ctx.l1_provider,
                     eez_address,
-                    calldata,
+                    rollup_id,
                     ctx.l1_chain_id,
                     ctx.l1_post_batch_priority_fee,
-                    self.inner.emission.max_gas,
-                    sidecar,
+                    next_nonce,
                 )
-                .await?
+                .await?;
+                next_nonce = next_nonce
+                    .checked_add(1)
+                    .ok_or_else(|| "L1 poster nonce overflow after root checkpoint".to_string())?;
+                inbound_checkpoints.push(Some(checkpoint));
+            } else {
+                inbound_checkpoints.push(None);
             }
-            None => {
-                sign_post_batch_tx(
-                    &ctx.l1_poster_signer,
-                    &ctx.l1_provider,
-                    eez_address,
-                    calldata,
-                    ctx.l1_chain_id,
-                    ctx.l1_post_batch_priority_fee,
-                    self.inner.emission.max_gas,
-                )
-                .await?
-            }
-        };
-        Ok(Some(raw))
+        }
+        Ok(Some(PreparedPostBatch {
+            raw,
+            inbound_checkpoints,
+        }))
     }
 }
 
@@ -4594,6 +4652,7 @@ async fn sign_post_batch_tx(
     chain_id: u64,
     priority_fee: u128,
     max_gas: u64,
+    nonce: u64,
 ) -> Result<Bytes, String> {
     use alloy_consensus::TxEip1559;
     use alloy_eips::BlockNumberOrTag;
@@ -4603,12 +4662,6 @@ async fn sign_post_batch_tx(
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
 
     let from = signer.address();
-    let nonce = provider
-        .get_transaction_count(from)
-        .pending()
-        .await
-        .map_err(|e| format!("get_transaction_count({from}): {e}"))?;
-
     // Dev-reth base fee is 0 in practice; pull it anyway so this
     // path stays correct on non-dev chains.
     let latest = provider
@@ -4681,16 +4734,12 @@ async fn sign_post_batch_blob_tx(
     priority_fee: u128,
     max_gas: u64,
     sidecar: eez_blob_codec::PreparedBlobSidecar,
+    nonce: u64,
 ) -> Result<Bytes, String> {
     use alloy_eips::{BlockNumberOrTag, eip2930::AccessList, eip4844::DATA_GAS_PER_BLOB};
     use alloy_provider::Provider as _;
 
     let from = signer.address();
-    let nonce = provider
-        .get_transaction_count(from)
-        .pending()
-        .await
-        .map_err(|error| format!("get_transaction_count({from}): {error}"))?;
     let latest = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await
@@ -4757,6 +4806,40 @@ async fn sign_post_batch_blob_tx(
     Ok(signed.pooled_transaction)
 }
 
+/// Sign the root-only queue-consumption transaction paired with a FIFO source
+/// transaction that ends in failed effects. Its nonce is allocated directly
+/// after postBatch and prior checkpoints so the atomic bundle has one
+/// deterministic poster nonce chain.
+async fn sign_root_checkpoint_tx(
+    signer: &alloy_signer_local::PrivateKeySigner,
+    provider: &alloy_provider::RootProvider,
+    eez_address: Address,
+    rollup_id: u64,
+    chain_id: u64,
+    priority_fee: u128,
+    nonce: u64,
+) -> Result<Bytes, String> {
+    use alloy_sol_types::SolCall as _;
+
+    const ROOT_CHECKPOINT_GAS_LIMIT: u64 = 300_000;
+    let calldata = eez_protocol::abi::executeL2TxsCall {
+        rollupId: rollup_id,
+    }
+    .abi_encode();
+    sign_post_batch_tx(
+        signer,
+        provider,
+        eez_address,
+        calldata,
+        chain_id,
+        priority_fee,
+        ROOT_CHECKPOINT_GAS_LIMIT,
+        nonce,
+    )
+    .await
+    .map_err(|error| format!("sign FIFO root checkpoint: {error}"))
+}
+
 /// Return the canonical Ethereum hash for either a normal typed envelope or a
 /// type-3 transaction-pool wrapper carrying a sidecar.
 fn post_batch_transaction_hash(raw: &[u8]) -> Result<alloy_primitives::TxHash, String> {
@@ -4800,6 +4883,54 @@ mod tests {
             nonce,
             direction,
         }
+    }
+
+    #[test]
+    fn l1_bundle_preserves_inbound_fifo_and_couples_each_checkpoint() {
+        let sender = Address::repeat_byte(0xa);
+        let outbound = held(sender, Direction::Outbound, 0, 0x10);
+        let first = held(sender, Direction::Inbound, 0, 0x11);
+        let second = held(sender, Direction::Inbound, 1, 0x12);
+        let third = held(sender, Direction::Inbound, 2, 0x13);
+        let checkpoint_one = Bytes::from_static(&[0xc1]);
+        let checkpoint_three = Bytes::from_static(&[0xc3]);
+        let mut bundle = vec![Bytes::from_static(&[0xaa])];
+
+        append_inbound_fifo_bundle(
+            &mut bundle,
+            &[outbound, first.clone(), second.clone(), third.clone()],
+            vec![
+                Some(checkpoint_one.clone()),
+                None,
+                Some(checkpoint_three.clone()),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            bundle,
+            vec![
+                Bytes::from_static(&[0xaa]),
+                first.raw_tx,
+                checkpoint_one,
+                second.raw_tx,
+                third.raw_tx,
+                checkpoint_three,
+            ]
+        );
+    }
+
+    #[test]
+    fn l1_bundle_rejects_checkpoint_cardinality_mismatch() {
+        let inbound = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0x11);
+        let mut bundle = vec![Bytes::from_static(&[0xaa])];
+        assert!(
+            append_inbound_fifo_bundle(&mut bundle, std::slice::from_ref(&inbound), vec![])
+                .is_err()
+        );
+
+        let mut bundle = vec![Bytes::from_static(&[0xaa])];
+        assert!(append_inbound_fifo_bundle(&mut bundle, &[inbound], vec![None, None]).is_err());
     }
 
     #[test]
@@ -4946,89 +5077,6 @@ mod tests {
                 expected
             );
         }
-    }
-
-    fn composition_with_entry_shape(
-        mutable_entries: usize,
-        static_entries: usize,
-    ) -> eez_protocol::Composition {
-        eez_protocol::Composition {
-            actions: Vec::new(),
-            source: eez_protocol::SourceComposition {
-                rollup_id: eez_protocol::RollupId(1),
-                batch: eez_protocol::EvmBatch {
-                    entries: vec![Default::default(); mutable_entries],
-                    staticEntries: vec![Default::default(); static_entries],
-                    ..Default::default()
-                },
-                entry_traces: Vec::new(),
-                callback_entry_counts: Vec::new(),
-                outbound_event_hashes: Vec::new(),
-            },
-            targets: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn static_only_inbound_triggers_run_after_root_mutations() {
-        let mutable_a = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0xa);
-        let static_a = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 0xb);
-        let outbound = held(Address::repeat_byte(0xc), Direction::Outbound, 0, 0xc);
-        let mutable_b = held(Address::repeat_byte(0xd), Direction::Inbound, 0, 0xd);
-        let static_b = held(Address::repeat_byte(0xe), Direction::Inbound, 0, 0xe);
-        let survivors = vec![
-            mutable_a.clone(),
-            static_a.clone(),
-            outbound,
-            mutable_b.clone(),
-            static_b.clone(),
-        ];
-        let compositions = vec![
-            (composition_with_entry_shape(1, 0), mutable_a.hash),
-            (composition_with_entry_shape(0, 1), static_a.hash),
-            (composition_with_entry_shape(1, 0), mutable_b.hash),
-            (composition_with_entry_shape(0, 1), static_b.hash),
-        ];
-
-        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
-
-        assert_eq!(
-            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
-            vec![mutable_a.hash, mutable_b.hash, static_a.hash, static_b.hash]
-        );
-        assert_eq!(deferred, 2);
-        assert_eq!(blocked, 0);
-    }
-
-    #[test]
-    fn static_only_ordering_never_crosses_a_sender_nonce_dependency() {
-        let sender = Address::repeat_byte(0xa);
-        let static_first = held(sender, Direction::Inbound, 0, 0xa);
-        let mutable_second = held(sender, Direction::Inbound, 1, 0xb);
-        let independent_static = held(Address::repeat_byte(0xc), Direction::Inbound, 0, 0xc);
-        let survivors = vec![
-            static_first.clone(),
-            independent_static.clone(),
-            mutable_second.clone(),
-        ];
-        let compositions = vec![
-            (composition_with_entry_shape(0, 1), static_first.hash),
-            (composition_with_entry_shape(0, 1), independent_static.hash),
-            (composition_with_entry_shape(1, 0), mutable_second.hash),
-        ];
-
-        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
-
-        assert_eq!(
-            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
-            vec![
-                static_first.hash,
-                mutable_second.hash,
-                independent_static.hash
-            ]
-        );
-        assert_eq!(deferred, 1);
-        assert_eq!(blocked, 1);
     }
 
     #[test]

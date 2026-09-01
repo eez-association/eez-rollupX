@@ -20,8 +20,8 @@ pub(crate) enum ErrorKind {
     /// height to compare against an L1-derived batch).
     L2Provider(String),
     /// `eez-payload-codec::decode` rejected an L1-posted batch's
-    /// `call_data`. Usually indicates a contract that posted a payload
-    /// in a version we don't speak.
+    /// authenticated operations payload. Usually indicates a contract that
+    /// posted a payload in a version we don't speak.
     Codec(eez_payload_codec::CodecError),
     /// L1 catch-up scan failed. Callers can inspect nested typed L1 errors
     /// through helper methods without deriver re-encoding their meaning.

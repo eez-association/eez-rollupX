@@ -302,6 +302,7 @@ fn bindable_inbound_batch(settling: &SettlingBlockObservations) -> CanonicalPost
     let roots = vec![B256::ZERO; observations.len() + 2];
     let kinds = vec![ClaimedEntryShape::Inbound; observations.len()];
     let mut batch = effect_batch(&roots, &kinds);
+    batch.immediateEntryCount = U256::from(1);
     for (entry, observation) in batch.entries.iter_mut().skip(1).zip(observations) {
         entry.proxyEntryHash = observation.recomputed_call_hash;
         entry.returnData = observation.return_data.clone();

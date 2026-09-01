@@ -325,6 +325,7 @@ pub(crate) struct AuthorizedInboundEffects<'settling> {
 
 pub(super) struct AuthorizedInboundEffect<'settling> {
     claimed_entry: ExecutionEntrySol,
+    recomputed_checkpoint: B256,
     transaction_index: usize,
     observation: &'settling InboundObservation,
 }
@@ -346,6 +347,10 @@ impl AuthorizedInboundEffect<'_> {
 
     pub(super) const fn transaction_index(&self) -> usize {
         self.transaction_index
+    }
+
+    pub(super) const fn recomputed_checkpoint(&self) -> B256 {
+        self.recomputed_checkpoint
     }
 
     pub(super) const fn observation(&self) -> &InboundObservation {
@@ -437,6 +442,7 @@ pub(crate) fn authorize_inbound_effects<'settling>(
                 )?;
                 authorized_bindings.push(AuthorizedInboundEffect {
                     claimed_entry: effect.claimed_entry().clone(),
+                    recomputed_checkpoint: effect.recomputed_checkpoint(),
                     transaction_index: effect.transaction_index(),
                     observation,
                 });

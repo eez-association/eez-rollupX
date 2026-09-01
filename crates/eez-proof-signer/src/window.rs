@@ -277,7 +277,7 @@ impl WindowAssembler<false> {
     }
 
     /// Borrow the admitted header so its range can be recorded before identity
-    /// verification. Calldata is deliberately not traced.
+    /// verification. Raw postBatch bytes are deliberately not traced.
     pub(crate) fn header(&self) -> &AdmittedHeader {
         &self.header
     }

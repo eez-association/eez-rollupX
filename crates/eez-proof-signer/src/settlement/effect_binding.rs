@@ -6,7 +6,6 @@ use eez_protocol::abi::{ExecutionEntrySol, RootUpdateSol};
 use eez_protocol::entries::{
     NestedPairDirection, verify_nested_group, verify_static_outbound_pair,
 };
-use eez_protocol::rolling_hash::EntryRollingHash;
 use eez_protocol::system_tx::OutboundSourceEntry;
 use eez_protocol::system_tx::outbound_settlement_root_counts;
 use thiserror::Error;
@@ -63,6 +62,7 @@ pub(super) struct BoundEffect<'batch> {
     kind: EffectKind,
     claimed_entry: &'batch ExecutionEntrySol,
     claimed_root_update: &'batch RootUpdateSol,
+    recomputed_checkpoint: B256,
 }
 
 impl<'batch> BoundEffect<'batch> {
@@ -105,6 +105,10 @@ impl<'batch> BoundEffect<'batch> {
     pub(super) const fn claimed_root_update(&self) -> &'batch RootUpdateSol {
         self.claimed_root_update
     }
+
+    pub(super) const fn recomputed_checkpoint(&self) -> B256 {
+        self.recomputed_checkpoint
+    }
 }
 
 /// Ordered correspondence between claimed batch effects and settling-block
@@ -144,8 +148,6 @@ impl<'batch, 'settling> BoundEffectSequence<'batch, 'settling> {
 pub(crate) enum EffectPrefixError {
     #[error("leading settlement entry is {actual:?}; expected a canonical anchor")]
     LeadingEntryNotAnchor { actual: ClaimedEntryShape },
-    #[error("settlement entry {entry_index} is a second anchor")]
-    LaterAnchor { entry_index: usize },
     #[error("settlement entry {entry_index} has an invalid effect shape")]
     InvalidEntry { entry_index: usize },
     #[error(
@@ -473,10 +475,11 @@ fn derive_effect_positions(
 ///
 /// [`VerifiedRootUpdateChain`] already guarantees a nonempty batch with exactly
 /// one continuous, expected-rollup update per entry. This gate adds effect-shape,
-/// candidate, checkpoint, and block-hash-carrier bindings. A successful entry carries
-/// its checkpoint and those of any immediately following failed entries. The
-/// anchor carries leading failed checkpoints, and failed entries claim no-op
-/// no-op commitment updates because their L1 execution rolls updates back.
+/// candidate, checkpoint, and root bindings. Outbound effects retain their
+/// immediate carrier schedule. Successful inbound entries claim their exact
+/// replayed checkpoint, while failed inbound entries claim a no-op update
+/// because their L1 frame rolls back. Native semantics separately binds any
+/// trailing root-only checkpoint needed after a failed FIFO transaction.
 pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     verified_state_chain: &VerifiedRootUpdateChain<'batch>,
     validated_settling_pre_block_hash: B256,
@@ -485,6 +488,16 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
 ) -> Result<BoundEffectSequence<'batch, 'settling>, EffectPrefixError> {
     let (leading, anchor_update) = verified_state_chain.leading();
     let settled_rollup = verified_state_chain.expected_rollup();
+    // Preserve the specific value-conservation error for an otherwise
+    // canonical anchor. Root-only checkpoint entries elsewhere in the batch
+    // are still classified with the strict zero-delta predicate below.
+    if anchor_update.etherDelta != Default::default()
+        && is_root_only_entry_except_ether_delta(leading, anchor_update, settled_rollup)
+    {
+        return Err(EffectPrefixError::NonZeroAnchorEtherDelta {
+            claimed: I256::from(anchor_update.etherDelta),
+        });
+    }
     let leading_kind = classify_claimed_entry(leading, anchor_update, settled_rollup);
     if leading_kind != ClaimedEntryShape::Anchor {
         return Err(EffectPrefixError::LeadingEntryNotAnchor {
@@ -495,9 +508,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     let mut claimed_effects = Vec::with_capacity(verified_state_chain.trailing_len());
     for (entry_index, entry, update) in verified_state_chain.trailing() {
         match classify_claimed_entry(entry, update, settled_rollup) {
-            ClaimedEntryShape::Anchor => {
-                return Err(EffectPrefixError::LaterAnchor { entry_index });
-            }
+            ClaimedEntryShape::Anchor => {}
             ClaimedEntryShape::Invalid => {
                 return Err(EffectPrefixError::InvalidEntry { entry_index });
             }
@@ -589,12 +600,13 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
         matched_checkpoints.push(checkpoint);
     }
 
-    let (expected_anchor_root, expected_effect_roots) =
+    let (expected_anchor_root, outbound_effect_roots) =
         eez_protocol::settlement::settlement_root_carriers(
             validated_settling_pre_block_hash,
             matched_checkpoints
                 .iter()
                 .zip(&claimed_effects)
+                .take(outbound_count)
                 .map(|(checkpoint, (_, _, entry, _))| (checkpoint.block_hash, entry.success)),
         );
     if anchor_update.newRoot != expected_anchor_root {
@@ -631,7 +643,17 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             });
         }
 
-        let recomputed_checkpoint = expected_effect_roots[effect_index];
+        let recomputed_checkpoint = if effect_index < outbound_count {
+            outbound_effect_roots[effect_index]
+        } else if entry.success {
+            matched_checkpoints[effect_index].block_hash
+        } else {
+            // A failed inbound user frame rolls its state update back. Its
+            // claimed update must consequently be a no-op; native semantics
+            // later verifies the separately proven checkpoint entry (when the
+            // failed effect trails the transaction).
+            update.currentRoot
+        };
         let claimed_block_hash = update.newRoot;
         if claimed_block_hash != recomputed_checkpoint {
             return Err(EffectPrefixError::EffectBlockHashMismatch {
@@ -652,6 +674,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             kind,
             claimed_entry: entry,
             claimed_root_update: update,
+            recomputed_checkpoint: matched_checkpoints[effect_index].block_hash,
         });
     }
 
@@ -665,7 +688,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
 /// kind; the per-kind gates bind that shape to locally recovered evidence.
 fn classify_claimed_entry(
     entry: &ExecutionEntrySol,
-    update: &RootUpdateSol,
+    _update: &RootUpdateSol,
     settled_rollup: u64,
 ) -> ClaimedEntryShape {
     if eez_protocol::system_tx::check_entry_shape(entry, "settlement").is_err() {
@@ -683,20 +706,20 @@ fn classify_claimed_entry(
         };
     }
 
-    if !entry.expectedL1ToL2Calls.is_empty() {
-        return ClaimedEntryShape::Invalid;
-    }
-
-    let expected_anchor_hash =
-        EntryRollingHash::seed_for_l1([(update.rollupId, update.currentRoot)], B256::ZERO)
-            .current();
-    if entry.success
-        && entry.destinationRollupId == settled_rollup
-        && entry.returnData.is_empty()
-        && entry.rollingHash == expected_anchor_hash
-    {
+    if eez_protocol::settlement::is_root_only_entry(entry, settled_rollup) {
         ClaimedEntryShape::Anchor
     } else {
         ClaimedEntryShape::Invalid
     }
+}
+
+fn is_root_only_entry_except_ether_delta(
+    entry: &ExecutionEntrySol,
+    update: &RootUpdateSol,
+    settled_rollup: u64,
+) -> bool {
+    let mut normalized = entry.clone();
+    normalized.rootUpdates[0].etherDelta = Default::default();
+    debug_assert_eq!(normalized.rootUpdates[0].currentRoot, update.currentRoot);
+    eez_protocol::settlement::is_root_only_entry(&normalized, settled_rollup)
 }

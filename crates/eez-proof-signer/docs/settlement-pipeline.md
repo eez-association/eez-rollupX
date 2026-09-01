@@ -88,15 +88,16 @@ positions. DA verification receives opaque authorized effect bindings rather
 than arbitrary entries, so a caller cannot skip semantic authorization and
 still construct a positive-effect payload.
 
-The exact DA comparison closes a separate gap: hashing `callData` commits to
-Composer bytes, but does not by itself prove that those bytes describe the
-blocks Stateless executed. Reconstruction and raw EIP-2718 equality provide
-that binding.
+The exact DA comparison closes a separate gap: binding the blobs' KZG versioned
+hashes commits to Composer bytes, but does not by itself prove that those bytes
+describe the blocks Stateless executed. Reconstruction and raw EIP-2718
+equality provide that binding.
 
 ## Active profile
 
 The accepted sequence is one anchor, followed by supported outbound effects,
-then supported inbound effects. Effects may contain an alternating
+then FIFO inbound effects with only the exact root-only checkpoints required
+after trailing failures. Effects may contain an alternating
 L1/L2 nested or reentrant call tree; flat outbound effects may group multiple
 roots from one L2 user transaction. A terminal nested row may fail with a
 committed reverted rolling hash and no descendants. Canonical, non-overlapping
@@ -122,8 +123,8 @@ for the exact shapes and equations.
 
 ## Attestation boundary
 
-The final signature commits to the complete mutable/static entries, calldata
-or physical blob hashes, and the derived profile terms listed in `SPEC.md`
+The final signature commits to the complete mutable/static entries, physical
+blob hashes, and the derived profile terms listed in `SPEC.md`
 section 12. Other batch carriers,
 including scheduling counts and proof bytes, are constrained only by admission
 and are not direct signature commitments. `RecomputedPublicInputsHash` proves

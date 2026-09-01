@@ -827,33 +827,20 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10_000_000_000);
-        let data_availability = match env::var("EEZ_DA_MODE")
-            .unwrap_or_else(|_| "calldata".to_string())
-            .as_str()
-        {
-            "calldata" => eez_composer::DataAvailabilityMode::Calldata,
-            "blob" => {
-                let encoding = match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
-                    .map_err(|_| {
-                        eyre::eyre!(
-                            "EEZ_L1_BLOB_SIDECAR_ENCODING is required when EEZ_DA_MODE=blob"
-                        )
-                    })?
-                    .as_str()
-                {
-                    "eip4844" => eez_blob_codec::BlobSidecarEncoding::Eip4844,
-                    "eip7594" => eez_blob_codec::BlobSidecarEncoding::Eip7594,
-                    value => {
-                        return Err(eyre::eyre!(
-                            "EEZ_L1_BLOB_SIDECAR_ENCODING must be eip4844 or eip7594, got {value}"
-                        ));
-                    }
-                };
-                eez_composer::DataAvailabilityMode::Blob(encoding)
-            }
+        let blob_sidecar_encoding =
+            match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
+                .map_err(|_| {
+                    eyre::eyre!(
+                        "EEZ_L1_BLOB_SIDECAR_ENCODING is required (eip4844 or eip7594); native blob DA is mandatory"
+                    )
+                })?
+                .as_str()
+            {
+                "eip4844" => eez_blob_codec::BlobSidecarEncoding::Eip4844,
+                "eip7594" => eez_blob_codec::BlobSidecarEncoding::Eip7594,
             value => {
                 return Err(eyre::eyre!(
-                    "EEZ_DA_MODE must be calldata or blob, got {value}"
+                    "EEZ_L1_BLOB_SIDECAR_ENCODING must be eip4844 or eip7594, got {value}"
                 ));
             }
         };
@@ -874,7 +861,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             l1_poster_signer,
             l1_chain_id: l1_submission_chain_id,
             l1_post_batch_priority_fee,
-            data_availability,
+            blob_sidecar_encoding,
             ecdsa_proof_system_address,
         });
         event!(

@@ -1067,12 +1067,12 @@ impl Harness {
         self.env_for(ANVIL_KEY, false).await
     }
 
-    /// Composer environment that posts the compatibility payload as a real
-    /// EIP-4844 transaction and retrieves it through the Beacon REST fixture.
+    /// Composer environment that posts the native operations and semantic
+    /// payload as an EIP-4844 transaction and retrieves it through the Beacon
+    /// REST fixture.
     pub async fn blob_env(&self) -> Result<Vec<(&'static str, String)>> {
         let mut env = self.env().await?;
         env.extend([
-            ("EEZ_DA_MODE", "blob".to_string()),
             ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
             ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
         ]);

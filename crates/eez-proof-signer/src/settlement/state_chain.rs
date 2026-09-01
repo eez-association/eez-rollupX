@@ -81,14 +81,6 @@ pub(crate) enum RootUpdateChainError {
         "root-update chain claims final commitment {claimed}; validated block hash is {validated}"
     )]
     FinalMismatch { validated: B256, claimed: B256 },
-    #[error(
-        "batch static entry {entry_index} pins commitment {claimed}; validated block hash is {validated}"
-    )]
-    StaticRootMismatch {
-        entry_index: usize,
-        validated: B256,
-        claimed: B256,
-    },
 }
 
 /// Require one claimed root update per entry, the expected rollup, and a
@@ -156,23 +148,6 @@ pub(crate) fn verify_root_update_chain(
             validated: validated_window_post_block_hash,
             claimed: previous_claimed_block_hash,
         });
-    }
-
-    for (entry_index, entry) in submitted_batch.staticEntries.iter().enumerate() {
-        let [pin] = entry.expectedRoots.as_slice() else {
-            return Err(RootUpdateChainError::StaticRootMismatch {
-                entry_index,
-                validated: validated_window_post_block_hash,
-                claimed: B256::ZERO,
-            });
-        };
-        if pin.root != validated_window_post_block_hash {
-            return Err(RootUpdateChainError::StaticRootMismatch {
-                entry_index,
-                validated: validated_window_post_block_hash,
-                claimed: pin.root,
-            });
-        }
     }
 
     Ok(VerifiedRootUpdateChain {

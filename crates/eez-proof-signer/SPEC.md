@@ -416,8 +416,8 @@ The decoded batch MUST satisfy all of these profile rules:
 8. `blockNumber == 0`.
 9. `bindMsgSenderInPublicInput == false`.
 
-`blobIndices` is checked together with the physical DA carrier in section 11:
-it is empty for calldata and exactly `[0, 1, ..., blob_count - 1]` for blobs.
+`blobIndices` is checked together with the mandatory physical DA carrier in
+section 11 and MUST equal `[0, 1, ..., blob_count - 1]`.
 
 `proofs` is not inspected and is absent from the public-input hash. The caller
 is responsible for inserting the returned signature into the correct proof
@@ -697,15 +697,12 @@ terminal block.
 
 With no authorized effects, no Sync sequence is reconstructed.
 
-The payload is transported in exactly one of two modes:
+The payload is transported only through native blobs. `batch.callData` MUST be
+empty, one to six physical EIP-4844 blobs MUST be supplied, and
+`batch.blobIndices` MUST be exactly the ordered identity selection
+`[0, 1, ...]`. Missing blobs and calldata-only batches are rejected.
 
-- **calldata:** `batch.blobIndices` is empty, no physical blobs are supplied,
-  and the payload is `batch.callData`;
-- **blob:** `batch.callData` is empty, one to six physical EIP-4844 blobs are
-  supplied, and `batch.blobIndices` is exactly the ordered identity selection
-  `[0, 1, ...]`.
-
-Blob mode MUST decode as the EEZ version-`00` message stream containing exactly
+The blobs MUST decode as the EEZ version-`00` message stream containing exactly
 one leading `ChainOperation(expected_rollup_id, payload)`, zero or more complete
 `InitiateCrossChainTransaction` … `FinishCrossChainTransaction` brackets, then
 exactly one `CloseBlobStream`, with canonical field-element packing and zero
@@ -735,18 +732,29 @@ MUST byte-for-byte reproduce every authorized inbound entry; their L2 target
 sidecars MUST likewise reproduce every authorized inbound delivery, with no
 extra or foreign-chain target. Top-level L1 static transactions have no mutable
 L2 delivery; their materialized L1 static-pool entries receive only the
-independently validated destination-root pins and MUST byte-for-byte reproduce
-`postBatch.staticEntries`. L1 `tx_data` remains an opaque chain-defined sidecar:
+independently validated FIFO-position root pins and MUST byte-for-byte reproduce
+`postBatch.staticEntries`.
+
+For each L1-origin semantic transaction, top-level source actions are projected
+in their original order. A successful mutable action advances the live root to
+its independently replayed transaction checkpoint; a failed mutable action has
+a no-op root update because its L1 frame reverts; and a static action pins the
+root live at that exact position. When the transaction's final mutable action
+failed, the next deferred entry MUST be a canonical root-only checkpoint that
+advances to the transaction's final replayed root. The checkpoint is explicit
+even when both roots are equal. Every deferred entry and static entry MUST be
+consumed exactly once by this schedule, with no reordering or remainder.
+
+L1 `tx_data` remains an opaque chain-defined sidecar:
 this signer validates the `postBatch` transaction and L2 window but does not
 execute the later L1 user transactions in the atomic bundle. Consequently, the
 aggregate effects are exact, but L1 semantic transaction boundaries and the
 relative ordering of transactions that land in different mutable/static pools
 are descriptive rather than independently authenticated by this signer.
 
-Legacy calldata remains supported without a native semantic stream. The signer
-recomputes every KZG versioned hash from physical blobs. Mixed, missing, surplus,
-reordered, malformed, wrong-rollup, semantically unbound, or oversized blob
-carriers MUST be rejected.
+The signer recomputes every KZG versioned hash from physical blobs. Mixed,
+missing, surplus, reordered, malformed, wrong-rollup, semantically unbound, or
+oversized blob carriers MUST be rejected.
 
 ## 12. Public-input recomputation
 
@@ -763,8 +771,8 @@ For the supported profile:
 
 ```text
 staticEntryHashes = ordered staticEntryHash values
-blobHashes        = [] for calldata, otherwise the versioned hashes selected
-                    by the canonical identity blobIndices
+blobHashes        = versioned hashes selected by the canonical identity
+                    blobIndices
 customData        = bytes("")
 customDataHash    = H(abi.encode(uint64(expected_rollup_id), customData))
 customDataHashes  = dynamic bytes32[] containing only customDataHash
@@ -778,7 +786,7 @@ shared = H(
     abi.encode(entryHashes)
  || abi.encode(staticEntryHashes)
  || abi.encode(blobHashes)
- || H(batch.callData)
+ || H(bytes(""))                 // batch.callData is profile-pinned empty
  || abi.encode(customDataHashes)
  || packed_address_20_bytes(boundSender)
 )
@@ -807,8 +815,9 @@ not participate.
 
 ### 12.1 Fields not bound by the digest
 
-The full mutable and static entries, selected physical blob contents through
-their KZG versioned hashes, and `callData` are bound as above. The following
+The full mutable and static entries and selected physical blob contents through
+their KZG versioned hashes are bound as above. Empty `callData` is profile-pinned
+and its empty hash remains part of the on-chain formula. The following
 batch carriers are not directly included in the digest:
 
 - `expectedRootPerRollup`;
