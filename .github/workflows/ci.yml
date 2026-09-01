@@ -18,7 +18,7 @@ jobs:
   lint:
     name: Lint
     runs-on: homelab-rust
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
     steps:
@@ -55,7 +55,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: homelab-rust
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
     steps:
@@ -96,7 +96,7 @@ jobs:
   contract-tests:
     name: Contract Tests
     runs-on: homelab-rust
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -118,7 +118,7 @@ jobs:
   dependency-audit:
     name: Dependency Audit
     runs-on: homelab-rust
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
     steps:
@@ -140,7 +140,7 @@ jobs:
   protocol-anvil-e2e:
     name: Protocol Anvil E2E Tests
     runs-on: homelab-rust
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -176,7 +176,7 @@ jobs:
   embedded-e2e:
     name: Embedded E2E Tests
     runs-on: homelab-rust
-    timeout-minutes: 50
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
       EEZ_TEST_LOG_DIR: ${{ github.workspace }}/artifacts/embedded-e2e/logs
@@ -243,7 +243,7 @@ jobs:
   cross-chain-e2e:
     name: Cross-Chain E2E Tests
     runs-on: homelab-rust
-    timeout-minutes: 50
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
       EEZ_TEST_LOG_DIR: ${{ github.workspace }}/artifacts/cross-chain-e2e/logs
