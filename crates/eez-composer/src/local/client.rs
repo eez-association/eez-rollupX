@@ -241,13 +241,16 @@ impl LocalChainClient {
     /// [`ExecutorErrorKind::Decode`] when the raw tx cannot be decoded or its
     /// signer recovered, [`ExecutorErrorKind::Provider`] when the backing store
     /// fails mid-execution, plus any error a nested dispatch raises.
+    ///
+    /// Returns the source transaction's receipt-level status. A normal EVM
+    /// revert is `Ok(false)`, not an executor error.
     pub fn simulate_source_tx_on(
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
         state: &mut State<StateProviderDatabase<StateProviderBox>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
-    ) -> ExecutorResult<()> {
+    ) -> ExecutorResult<bool> {
         self.source_sim(raw_tx, dispatcher, state, evm_env)
     }
 
@@ -259,7 +262,7 @@ impl LocalChainClient {
         dispatcher: &mut CompositionBuilder,
         state: &mut State<StateProviderDatabase<StateProviderBox>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
-    ) -> ExecutorResult<()> {
+    ) -> ExecutorResult<bool> {
         use alloy_eips::eip2718::Decodable2718;
 
         // Only entry-role clients are authorized to simulate source
@@ -325,7 +328,7 @@ impl LocalChainClient {
         }
 
         tracing::info!(gas_used, success, "source simulation complete");
-        Ok(())
+        Ok(success)
     }
 }
 
@@ -356,5 +359,90 @@ impl ChainClient for LocalChainClient {
             self.overlay_channel.clone(),
         )?;
         Ok(Box::new(session))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_consensus::{Header, TxLegacy};
+    use alloy_eips::eip2718::Encodable2718;
+    use alloy_network::TxSignerSync;
+    use alloy_primitives::{B256, Bytes, TxKind, U256, address, bytes};
+    use alloy_signer_local::PrivateKeySigner;
+    use reth_chainspec::ChainSpecBuilder;
+    use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+
+    use crate::local::L1SlotState;
+
+    const RECIPIENT: Address = address!("000000000000000000000000000000000000b0b0");
+    const REVERTER: Address = address!("000000000000000000000000000000000000bad0");
+
+    fn signer() -> PrivateKeySigner {
+        PrivateKeySigner::from_bytes(&B256::with_last_byte(7)).expect("test key")
+    }
+
+    fn signed_tx(to: Address) -> Vec<u8> {
+        let mut tx = TxLegacy {
+            chain_id: Some(1),
+            nonce: 0,
+            gas_price: 1,
+            gas_limit: 100_000,
+            to: TxKind::Call(to),
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+        let signature = signer()
+            .sign_transaction_sync(&mut tx)
+            .expect("sign test transaction");
+        let signed = TransactionSigned::new_unhashed(
+            reth_ethereum_primitives::Transaction::Legacy(tx),
+            signature,
+        );
+        let mut raw = Vec::new();
+        signed.encode_2718(&mut raw);
+        raw
+    }
+
+    fn fixture() -> Arc<LocalChainClient> {
+        let provider: MockEthProvider = MockEthProvider::new().with_genesis_block();
+        let header = Header {
+            number: 1,
+            gas_limit: 30_000_000,
+            ..Default::default()
+        };
+        provider.add_header(header.hash_slow(), header);
+        provider.add_account(
+            signer().address(),
+            ExtendedAccount::new(0, U256::from(1_000_000_000_000_000_000_u128)),
+        );
+        provider.add_account(
+            REVERTER,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("63deadbeef6000526004601cfd")),
+        );
+        let evm_config = EthEvmConfig::new(Arc::new(ChainSpecBuilder::mainnet().build()));
+        LocalChainClient::new_entry(
+            provider,
+            evm_config,
+            RollupId::MAINNET,
+            Address::ZERO,
+            eez_protocol::ChainDialect::EvmL1Style,
+        )
+    }
+
+    fn source_status(client: &LocalChainClient, raw_tx: Vec<u8>) -> bool {
+        let slot = L1SlotState::open(client).expect("open source slot");
+        let (mut state, env) = slot.fork_state(client).expect("fork source state");
+        let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+        client
+            .simulate_source_tx_on(raw_tx, &mut dispatcher, &mut state, env)
+            .expect("simulate source transaction")
+    }
+
+    #[test]
+    fn source_simulation_reports_receipt_status() {
+        let client = fixture();
+        assert!(source_status(&client, signed_tx(RECIPIENT)));
+        assert!(!source_status(&client, signed_tx(REVERTER)));
     }
 }

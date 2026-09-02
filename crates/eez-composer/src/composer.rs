@@ -226,9 +226,12 @@ fn compose_crosschain(
 
     let mut builder =
         eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    entry_client
+    let source_success = entry_client
         .simulate_source_tx_on(raw_tx.to_vec(), &mut builder, source_state, source_env)
         .map_err(eez_protocol::CompositionError::from)?;
+    if !source_success {
+        return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
+    }
     let recorded_count = builder.recorded_count();
     let target_gas = builder.recorded_gas_used();
     // Reclaimed before `finalize` consumes the builder — the accepted effects
