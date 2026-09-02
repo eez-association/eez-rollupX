@@ -157,7 +157,7 @@ pub(crate) fn verify_native_semantics(
         }
     }
 
-    let expected_inbound_entries = inbound_effects
+    let expected_inbound_effect_entries = inbound_effects
         .iter()
         .map(super::inbound::AuthorizedInboundEffect::claimed_entry)
         .collect::<Vec<_>>();
@@ -210,7 +210,7 @@ pub(crate) fn verify_native_semantics(
             reason: "last immediate entry has no root update".into(),
         })?;
     let mut deferred_cursor = 0usize;
-    let mut expected_inbound_cursor = 0usize;
+    let mut expected_inbound_effect_cursor = 0usize;
     let mut expected_inbound_static_cursor = 0usize;
     let mut actual_inbound_settlement = Vec::new();
     let mut actual_inbound_static_settlement = Vec::new();
@@ -222,18 +222,28 @@ pub(crate) fn verify_native_semantics(
         let mut composition = materialize(transaction, transaction_index)?;
         require_supported_targets(&composition, transaction_index, rollup_id)?;
         let entry_count = composition.source.batch.entries.len();
-        let expected_end = expected_inbound_cursor.saturating_add(entry_count);
-        let expected_entries = expected_inbound_entries
-            .get(expected_inbound_cursor..expected_end)
-            .ok_or(SemanticBindingError::InboundSettlement)?;
-        let checkpoint_roots = expected_inbound_checkpoints
-            .get(expected_inbound_cursor..expected_end)
+        let deferred_end = deferred_cursor.saturating_add(entry_count);
+        let expected_entries = deferred_entries
+            .get(deferred_cursor..deferred_end)
             .ok_or(SemanticBindingError::InboundSettlement)?;
         let fifo_actions = eez_protocol::settlement::composition_fifo_actions(&composition)
             .map_err(|reason| SemanticBindingError::FifoRootSchedule {
                 transaction: transaction_index,
                 reason,
             })?;
+        let applying_count = fifo_actions
+            .iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    eez_protocol::settlement::FifoSourceAction::Mutable { applies: true }
+                )
+            })
+            .count();
+        let expected_effect_end = expected_inbound_effect_cursor.saturating_add(applying_count);
+        let checkpoint_roots = expected_inbound_checkpoints
+            .get(expected_inbound_effect_cursor..expected_effect_end)
+            .ok_or(SemanticBindingError::InboundSettlement)?;
         let root_plan = eez_protocol::settlement::fifo_transaction_root_plan(
             live_root,
             &fifo_actions,
@@ -257,27 +267,41 @@ pub(crate) fn verify_native_semantics(
                     ),
                 });
             }
-            if deferred_entries
-                .get(deferred_cursor + local_index)
-                .map(ExecutionEntrySol::abi_encode)
-                != Some(entry.abi_encode())
-            {
-                return Err(SemanticBindingError::FifoRootSchedule {
-                    transaction: transaction_index,
-                    reason: format!(
-                        "mutable entry {local_index} is not at deferred FIFO position {}",
-                        deferred_cursor + local_index,
-                    ),
-                });
-            }
         }
-        deferred_cursor += entry_count;
+
+        let mut local_mutable_cursor = 0usize;
+        let mut local_effect_cursor = expected_inbound_effect_cursor;
+        for action in &fifo_actions {
+            let eez_protocol::settlement::FifoSourceAction::Mutable { applies } = action else {
+                continue;
+            };
+            let entry = expected_entries
+                .get(local_mutable_cursor)
+                .ok_or(SemanticBindingError::InboundSettlement)?;
+            local_mutable_cursor += 1;
+            if !*applies {
+                continue;
+            }
+            let expected_effect = expected_inbound_effect_entries
+                .get(local_effect_cursor)
+                .ok_or(SemanticBindingError::InboundSettlement)?;
+            if entry.abi_encode() != expected_effect.abi_encode() {
+                return Err(SemanticBindingError::InboundSettlement);
+            }
+            local_effect_cursor += 1;
+        }
+        if local_mutable_cursor != entry_count || local_effect_cursor != expected_effect_end {
+            return Err(SemanticBindingError::InboundSettlement);
+        }
+
+        let expected_entry_refs = expected_entries.iter().collect::<Vec<_>>();
         actual_inbound_settlement.extend(finalized_source_entries(
             &mut composition,
-            expected_entries,
+            &expected_entry_refs,
             transaction_index,
         )?);
-        expected_inbound_cursor = expected_end;
+        deferred_cursor = deferred_end;
+        expected_inbound_effect_cursor = expected_effect_end;
         let static_entry_count = composition.source.batch.staticEntries.len();
         let expected_static_end = expected_inbound_static_cursor.saturating_add(static_entry_count);
         let expected_static_entries = expected_inbound_static_entries
@@ -306,30 +330,6 @@ pub(crate) fn verify_native_semantics(
         )?);
         expected_inbound_static_cursor = expected_static_end;
 
-        if let Some((current_root, new_root)) = root_plan.trailing_checkpoint {
-            let checkpoint = deferred_entries.get(deferred_cursor).ok_or_else(|| {
-                SemanticBindingError::FifoRootSchedule {
-                    transaction: transaction_index,
-                    reason: "missing trailing root checkpoint".into(),
-                }
-            })?;
-            let [update] = checkpoint.rootUpdates.as_slice() else {
-                return Err(SemanticBindingError::FifoRootSchedule {
-                    transaction: transaction_index,
-                    reason: "trailing root checkpoint must have exactly one update".into(),
-                });
-            };
-            if !eez_protocol::settlement::is_root_only_entry(checkpoint, rollup_id)
-                || update.currentRoot != current_root
-                || update.newRoot != new_root
-            {
-                return Err(SemanticBindingError::FifoRootSchedule {
-                    transaction: transaction_index,
-                    reason: "invalid trailing root checkpoint entry".into(),
-                });
-            }
-            deferred_cursor += 1;
-        }
         live_root = root_plan.endpoint;
         actual_inbound_sidecars.extend(target_entries(
             &composition,
@@ -338,7 +338,7 @@ pub(crate) fn verify_native_semantics(
         )?);
     }
 
-    if expected_inbound_cursor != expected_inbound_entries.len() {
+    if expected_inbound_effect_cursor != expected_inbound_effect_entries.len() {
         return Err(SemanticBindingError::InboundSettlement);
     }
     if expected_inbound_static_cursor != expected_inbound_static_entries.len() {
@@ -353,7 +353,10 @@ pub(crate) fn verify_native_semantics(
             ),
         });
     }
-    let expected_inbound_settlement = encode_entries(&expected_inbound_entries);
+    let expected_inbound_settlement = deferred_entries
+        .iter()
+        .map(ExecutionEntrySol::abi_encode)
+        .collect::<Vec<_>>();
     if actual_inbound_settlement != expected_inbound_settlement {
         return Err(SemanticBindingError::InboundSettlement);
     }

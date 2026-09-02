@@ -21,6 +21,7 @@ pub(crate) enum ClaimedEntryShape {
     Anchor,
     Outbound,
     Inbound,
+    Lookup,
     Invalid,
 }
 
@@ -150,6 +151,8 @@ pub(crate) enum EffectPrefixError {
     LeadingEntryNotAnchor { actual: ClaimedEntryShape },
     #[error("settlement entry {entry_index} has an invalid effect shape")]
     InvalidEntry { entry_index: usize },
+    #[error("settlement entry {entry_index} is a root-only anchor outside the leading position")]
+    LaterAnchor { entry_index: usize },
     #[error(
         "claimed settlement effects number {claimed}, but re-execution observed {observed} effect candidates"
     )]
@@ -476,10 +479,9 @@ fn derive_effect_positions(
 /// [`VerifiedRootUpdateChain`] already guarantees a nonempty batch with exactly
 /// one continuous, expected-rollup update per entry. This gate adds effect-shape,
 /// candidate, checkpoint, and root bindings. Outbound effects retain their
-/// immediate carrier schedule. Successful inbound entries claim their exact
-/// replayed checkpoint, while failed inbound entries claim a no-op update
-/// because their L1 frame rolls back. Native semantics separately binds any
-/// trailing root-only checkpoint needed after a failed FIFO transaction.
+/// immediate carrier schedule. Applying inbound entries claim their exact
+/// replayed checkpoint. Canonical lookup-only inbound entries are retained in
+/// the root-update chain but authorize no effect or transaction checkpoint.
 pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     verified_state_chain: &VerifiedRootUpdateChain<'batch>,
     validated_settling_pre_block_hash: B256,
@@ -508,7 +510,10 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     let mut claimed_effects = Vec::with_capacity(verified_state_chain.trailing_len());
     for (entry_index, entry, update) in verified_state_chain.trailing() {
         match classify_claimed_entry(entry, update, settled_rollup) {
-            ClaimedEntryShape::Anchor => {}
+            ClaimedEntryShape::Anchor => {
+                return Err(EffectPrefixError::LaterAnchor { entry_index });
+            }
+            ClaimedEntryShape::Lookup => {}
             ClaimedEntryShape::Invalid => {
                 return Err(EffectPrefixError::InvalidEntry { entry_index });
             }
@@ -645,14 +650,8 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
 
         let recomputed_checkpoint = if effect_index < outbound_count {
             outbound_effect_roots[effect_index]
-        } else if entry.success {
-            matched_checkpoints[effect_index].block_hash
         } else {
-            // A failed inbound user frame rolls its state update back. Its
-            // claimed update must consequently be a no-op; native semantics
-            // later verifies the separately proven checkpoint entry (when the
-            // failed effect trails the transaction).
-            update.currentRoot
+            matched_checkpoints[effect_index].block_hash
         };
         let claimed_block_hash = update.newRoot;
         if claimed_block_hash != recomputed_checkpoint {
@@ -695,7 +694,13 @@ fn classify_claimed_entry(
         return ClaimedEntryShape::Invalid;
     }
 
+    if eez_protocol::settlement::is_lookup_only_inbound_entry(entry, settled_rollup) {
+        return ClaimedEntryShape::Lookup;
+    }
     if entry.proxyEntryHash != B256::ZERO {
+        if !entry.success {
+            return ClaimedEntryShape::Invalid;
+        }
         return ClaimedEntryShape::Inbound;
     }
     if !entry.l2ToL1Calls.is_empty() {

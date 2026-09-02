@@ -226,17 +226,14 @@ fn rejects_an_effect_in_the_leading_anchor_position() {
 }
 
 #[test]
-fn root_checkpoints_do_not_count_as_effects_and_invalid_entries_fail() {
+fn rejects_root_only_entries_outside_the_leading_anchor() {
     let root = B256::ZERO;
-    let settling = settling_with_effect_candidates(vec![0]);
+    let settling = settling_with_effect_candidates(Vec::new());
 
     let anchors = state_chain(&[root, root, root]);
     assert_eq!(
         verify_effect_prefix(&anchors, root, &[], &settling).err(),
-        Some(EffectPrefixError::EffectCountMismatch {
-            claimed: 0,
-            observed: 1,
-        })
+        Some(EffectPrefixError::LaterAnchor { entry_index: 1 })
     );
 
     let mut invalid = anchors;
@@ -273,33 +270,27 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
 }
 
 #[test]
-fn failed_effect_is_a_noop_followed_by_a_root_checkpoint() {
+fn failed_lookup_is_a_noop_without_an_effect_or_checkpoint() {
     let window_pre = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
-    let failed_checkpoint = B256::repeat_byte(0x0c);
     let mut batch = effect_batch(
         &[window_pre, pre_settling, pre_settling],
         &[ClaimedEntryShape::Inbound],
     );
     batch.entries[1].success = false;
     batch.entries[1].returnData = Bytes::from_static(b"expected revert");
-    batch
-        .entries
-        .push(state_entry(1, pre_settling, failed_checkpoint));
-    let settling = settling_with_system_flags(vec![true]);
-    let checkpoints = [checkpoint(0, failed_checkpoint)];
+    let settling = settling_with_system_flags(Vec::new());
 
-    let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
+    let facts = verify_effect_prefix(&batch, pre_settling, &[], &settling).unwrap();
 
-    assert_eq!((facts.inbound_count(), facts.outbound_count()), (1, 0));
+    assert_eq!((facts.inbound_count(), facts.outbound_count()), (0, 0));
 }
 
 #[test]
-fn successful_and_failed_effects_preserve_fifo_checkpoint_order() {
+fn lookup_between_applied_effects_consumes_no_candidate_or_checkpoint() {
     let window_pre = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
     let first_checkpoint = B256::repeat_byte(0x0c);
-    let failed_checkpoint = B256::repeat_byte(0x0d);
     let final_checkpoint = B256::repeat_byte(0x0e);
     let mut batch = effect_batch(
         &[
@@ -317,23 +308,47 @@ fn successful_and_failed_effects_preserve_fifo_checkpoint_order() {
     );
     batch.entries[2].success = false;
     batch.entries[2].returnData = Bytes::from_static(b"expected revert");
-    batch.entries[3].rootUpdates[0].currentRoot = failed_checkpoint;
-    batch.entries[3].rollingHash =
-        EntryRollingHash::seed_for_l1([(1, failed_checkpoint)], batch.entries[3].proxyEntryHash)
-            .current();
-    batch
-        .entries
-        .insert(3, state_entry(1, first_checkpoint, failed_checkpoint));
-    let settling = settling_with_system_flags(vec![true, true, true]);
+    let settling = settling_with_system_flags(vec![true, true]);
     let checkpoints = [
         checkpoint(0, first_checkpoint),
-        checkpoint(1, failed_checkpoint),
-        checkpoint(2, final_checkpoint),
+        checkpoint(1, final_checkpoint),
     ];
 
     let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
 
-    assert_eq!((facts.inbound_count(), facts.outbound_count()), (3, 0));
+    assert_eq!((facts.inbound_count(), facts.outbound_count()), (2, 0));
+    assert_eq!(
+        facts
+            .effects()
+            .iter()
+            .map(|effect| (effect.entry_index(), effect.transaction_index()))
+            .collect::<Vec<_>>(),
+        [(1, 0), (3, 1)]
+    );
+}
+
+#[test]
+fn failed_non_lookup_inbound_entry_is_rejected() {
+    let window_pre = B256::repeat_byte(0x0a);
+    let pre_settling = B256::repeat_byte(0x0b);
+    let advanced = B256::repeat_byte(0x0c);
+    let mut batch = effect_batch(
+        &[window_pre, pre_settling, advanced],
+        &[ClaimedEntryShape::Inbound],
+    );
+    batch.entries[1].success = false;
+    batch.entries[1].returnData = Bytes::from_static(b"expected revert");
+
+    assert_eq!(
+        verify_effect_prefix(
+            &batch,
+            pre_settling,
+            &[],
+            &settling_with_system_flags(Vec::new()),
+        )
+        .err(),
+        Some(EffectPrefixError::InvalidEntry { entry_index: 1 })
+    );
 }
 
 #[test]
@@ -344,16 +359,21 @@ fn duplicate_roots_cannot_hide_reordered_effect_kinds() {
     let settling = settling_with_system_flags(vec![false, true]);
     let checkpoints = [checkpoint(0, duplicate), checkpoint(1, duplicate)];
 
-    let valid = effect_batch(
+    let mut valid = effect_batch(
         &[anchor, pre_settling, duplicate, duplicate],
         &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Inbound],
     );
+    // The duplicated checkpoint is intentional in this adversarial fixture.
+    // A nonzero delta keeps the second entry effect-shaped rather than the
+    // exact zero-value lookup-only shape.
+    valid.entries[2].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     assert!(verify_effect_prefix(&valid, pre_settling, &checkpoints, &settling).is_ok());
 
-    let reordered = effect_batch(
+    let mut reordered = effect_batch(
         &[anchor, pre_settling, duplicate, duplicate],
         &[ClaimedEntryShape::Inbound, ClaimedEntryShape::Outbound],
     );
+    reordered.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     assert_eq!(
         verify_effect_prefix(&reordered, pre_settling, &checkpoints, &settling,).err(),
         Some(EffectPrefixError::EffectKindMismatch {

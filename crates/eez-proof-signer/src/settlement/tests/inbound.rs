@@ -315,7 +315,7 @@ fn inbound_effect_prefix_rejects_unsupported_target_shapes() {
         Vec::new(),
     );
     let valid = bindable_inbound_batch(&settling);
-    let checkpoints = [checkpoint(0, B256::ZERO)];
+    let checkpoints = [checkpoint(0, valid.entries[1].rootUpdates[0].newRoot)];
     let shape_mutations: [fn(&mut ExecutionEntrySol); 1] = [|entry| {
         entry.success = false;
         entry.expectedL1ToL2Calls.push(expected_call());
@@ -356,7 +356,19 @@ fn inbound_effect_entries_bind_observations_positionally_and_preserve_duplicates
         assert!(verify_inbound_effect_entries(&plan).is_ok());
 
         let mut reordered = batch.clone();
+        let first_updates = reordered.entries[1].rootUpdates.clone();
+        let second_updates = reordered.entries[2].rootUpdates.clone();
         reordered.entries.swap(1, 2);
+        reordered.entries[1].rootUpdates = first_updates;
+        reordered.entries[2].rootUpdates = second_updates;
+        for entry in &mut reordered.entries[1..] {
+            let update = &entry.rootUpdates[0];
+            entry.rollingHash = EntryRollingHash::seed_for_l1(
+                [(update.rollupId, update.currentRoot)],
+                entry.proxyEntryHash,
+            )
+            .current();
+        }
         let reordered_plan = effect_plan(&reordered, &settling);
         assert!(matches!(
             verify_inbound_effect_entries(&reordered_plan),
@@ -407,7 +419,10 @@ fn inbound_effect_entries_handle_mixed_effect_positions_without_authorizing_outb
 #[test]
 fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
     let missing = SettlingBlockObservations::for_test(vec![true], Vec::new(), Vec::new());
-    let inbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    let inbound_batch = effect_batch(
+        &[B256::ZERO, B256::ZERO, B256::repeat_byte(1)],
+        &[ClaimedEntryShape::Inbound],
+    );
     let inbound_plan = effect_plan(&inbound_batch, &missing);
     assert_eq!(
         verify_inbound_effect_entries(&inbound_plan).err(),
@@ -569,7 +584,10 @@ fn inbound_effect_entries_accept_the_int192_maximum_and_reject_the_next_value() 
     let call_hash = observation.recomputed_call_hash;
     let return_data = observation.return_data.clone();
     let settling = SettlingBlockObservations::for_test(vec![true], vec![candidate], Vec::new());
-    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    let mut batch = effect_batch(
+        &[B256::ZERO, B256::ZERO, B256::repeat_byte(1)],
+        &[ClaimedEntryShape::Inbound],
+    );
     batch.entries[1].proxyEntryHash = call_hash;
     batch.entries[1].returnData = return_data;
     let update = &batch.entries[1].rootUpdates[0];

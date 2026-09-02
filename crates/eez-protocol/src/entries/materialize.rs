@@ -67,10 +67,12 @@ pub(crate) struct MaterializedBatch {
 ///
 /// The supported nested profile is mutable execution with terminal failed
 /// top-level calls and terminal failed nested rows whose frames roll back.
-/// Source-frame revert spans are lowered to per-destination-array
-/// `revertNextNCalls` markers. The executing source chain restores its own
-/// rolling-hash branch, while every other chain preserves its execution folds
-/// and rolls back state through the protocol marker.
+/// Nested source-frame revert spans are lowered to per-destination-array
+/// `revertNextNCalls` markers. An L1 root covered by a root-level revert is a
+/// lookup only: its source-visible result is retained, but no L2 delivery is
+/// materialized. The executing source chain restores its own rolling-hash
+/// branch for nested regions, while every other chain preserves its execution
+/// folds and rolls back state through the protocol marker.
 /// Terminal static roots and nested reads are materialized without mutating
 /// the source entry's tagged rolling hash. Static calls with descendants,
 /// explicit call gas, and failed nested rows with descendants remain
@@ -92,6 +94,8 @@ pub(crate) fn materialize_batches(
 
     let source_entry_count;
     if entry_rollup_id.is_mainnet() {
+        let applied_roots = crate::settlement::l1_applied_root_mask(recorded)
+            .map_err(ProtocolErrorKind::InvalidEncoding)?;
         source_entry_count = forest
             .roots
             .iter()
@@ -102,7 +106,6 @@ pub(crate) fn materialize_batches(
                 materializer.push_static_entry(entry_rollup_id, &recorded[root]);
                 continue;
             }
-            materializer.begin_region(root)?;
             let call = recorded[root].clone();
             let entry_index = materializer.open_entry(
                 entry_rollup_id,
@@ -110,9 +113,12 @@ pub(crate) fn materialize_batches(
                 call.target_rollup_id,
                 &call,
             );
-            materializer.execute_call(root)?;
+            if applied_roots[root] {
+                materializer.begin_region(root)?;
+                materializer.execute_call(root)?;
+                materializer.close_region_at_subtree(root)?;
+            }
             materializer.close_entry(entry_rollup_id, entry_index);
-            materializer.close_region_at_subtree(root)?;
         }
     } else {
         // Each source-table cursor slot has one L2 entry. A return from L1 to
@@ -1209,7 +1215,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_inbound_root_replays_failure_on_l1_but_commits_l2_delivery() {
+    fn failed_inbound_root_is_lookup_only_and_has_no_l2_delivery() {
         let l2 = RollupId(1);
         let mut call = action(0, None, RollupId::MAINNET, l2);
         call.outcome = crate::ExecutionOutcome::Resolved {
@@ -1221,7 +1227,6 @@ mod tests {
         let mut batches = materialize_batches(std::slice::from_ref(&call), RollupId::MAINNET)
             .expect("materialize failed inbound root");
         let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
-        let l2_output = batches.remove(&l2).expect("L2 delivery");
         assert!(batches.is_empty());
 
         let l1_entry = &mut l1.batch.entries[0];
@@ -1230,22 +1235,41 @@ mod tests {
         l1_entry.rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
             currentRoot: B256::with_last_byte(0x11),
-            newRoot: B256::with_last_byte(0x12),
+            newRoot: B256::with_last_byte(0x11),
             etherDelta: EtherDeltaSol::ZERO,
         });
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
             .expect("finalize failed inbound root");
-
-        let l2_entry = &l2_output.batch.entries[0];
-        assert!(l2_entry.success, "the system delivery must commit");
-        assert!(l2_entry.returnData.is_empty());
-        crate::entries::verify_nested_pair(
+        assert!(crate::settlement::is_lookup_only_inbound_entry(
             &l1.batch.entries[0],
-            l2_entry,
-            crate::entries::NestedPairDirection::Inbound,
-            l2,
-        )
-        .expect("verify failed inbound root projection");
+            l2.0,
+        ));
+    }
+
+    #[test]
+    fn source_revert_span_makes_the_complete_call_tree_lookup_only() {
+        let l2 = RollupId(1);
+        let mut calls = vec![
+            action(0, None, RollupId::MAINNET, l2),
+            action(1, Some(0), l2, RollupId::MAINNET),
+            action(2, None, RollupId::MAINNET, l2),
+        ];
+        calls[0].revert_span = Some(2);
+
+        let mut batches = materialize_batches(&calls, RollupId::MAINNET)
+            .expect("materialize source-reverted roots");
+        let l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        let l2_output = batches.remove(&l2).expect("surviving L2 delivery");
+        assert!(batches.is_empty());
+
+        assert_eq!(l1.batch.entries.len(), 2);
+        assert!(l1.batch.entries[0].l2ToL1Calls.is_empty());
+        assert!(l1.batch.entries[0].expectedL1ToL2Calls.is_empty());
+        assert_eq!(l2_output.batch.entries.len(), 1);
+        assert_eq!(
+            l2_output.batch.entries[0].proxyEntryHash,
+            destination_call_hash(&calls[2]),
+        );
     }
 
     #[test]

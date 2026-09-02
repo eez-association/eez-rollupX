@@ -1,4 +1,6 @@
-use eez_protocol::blob_semantics::SemanticTransaction;
+use eez_protocol::blob_semantics::{
+    SemanticTransaction, decode_semantic_transactions, encode_semantic_transaction,
+};
 use eez_protocol::{ExecutedAction, ExecutionOutcome};
 
 use super::*;
@@ -220,6 +222,181 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
         ),
         Err(SemanticBindingError::InboundSettlement | SemanticBindingError::InboundSidecars)
     ));
+}
+
+#[test]
+fn native_lookup_semantics_bind_results_without_an_l2_effect() {
+    let root = B256::ZERO;
+    let lookup_cases = [
+        (false, None, Bytes::from_static(b"destination revert")),
+        (true, Some(1), Bytes::from_static(b"source-frame result")),
+    ];
+
+    for (success, revert_span, return_data) in lookup_cases {
+        let mut action = semantic_action(
+            RollupId::MAINNET,
+            RollupId(1),
+            Address::with_last_byte(0x31),
+            Address::with_last_byte(0x41),
+            U256::ZERO,
+            Bytes::from_static(&[0xaa, 0xbb]),
+            return_data.clone(),
+        );
+        action.outcome = ExecutionOutcome::Resolved {
+            return_data: return_data.to_vec(),
+            gas_used: 0,
+            success,
+        };
+        action.revert_span = revert_span;
+        let semantic = SemanticTransaction {
+            origin_chain: RollupId::MAINNET,
+            tx_data: Bytes::from_static(b"chain-defined lookup transaction"),
+            actions: vec![action],
+        };
+
+        let mut materialized = semantic.materialize().expect("materialize lookup");
+        assert!(
+            materialized.targets.is_empty(),
+            "lookup-only semantics must not materialize an L2 delivery"
+        );
+        materialized.source.batch.entries[0].rootUpdates = vec![RootUpdateSol {
+            rollupId: 1,
+            currentRoot: root,
+            newRoot: root,
+            etherDelta: EtherDeltaSol::ZERO,
+        }];
+        eez_protocol::entries::finalize_l1_entry_traces(
+            &mut materialized.source.batch,
+            &materialized.source.entry_traces,
+        )
+        .expect("finalize lookup");
+        let lookup = materialized.source.batch.entries.remove(0);
+        assert!(eez_protocol::settlement::is_lookup_only_inbound_entry(
+            &lookup, 1
+        ));
+
+        let mut batch = state_chain(&[root, root]);
+        batch.entries.push(lookup);
+        batch.immediateEntryCount = U256::from(1);
+        let settling = settling_with_system_flags(Vec::new());
+        let bound = verify_effect_prefix(&batch, root, &[], &settling)
+            .expect("lookup-only batch has no execution effect");
+        assert_eq!((bound.inbound_count(), bound.outbound_count()), (0, 0));
+
+        let window = validated_window(block_rlp(Vec::new()));
+        assert_eq!(
+            verify_native_semantics(
+                std::slice::from_ref(&semantic),
+                &window,
+                &AuthorizedOutboundEffects::default(),
+                &AuthorizedInboundEffects::default(),
+                &batch,
+                expected_rollup_id(),
+            ),
+            Ok(())
+        );
+
+        let mut mutated = semantic;
+        mutated.actions[0].outcome = ExecutionOutcome::Resolved {
+            return_data: b"different result".to_vec(),
+            gas_used: 0,
+            success,
+        };
+        assert_eq!(
+            verify_native_semantics(
+                &[mutated],
+                &window,
+                &AuthorizedOutboundEffects::default(),
+                &AuthorizedInboundEffects::default(),
+                &batch,
+                expected_rollup_id(),
+            ),
+            Err(SemanticBindingError::InboundSettlement)
+        );
+    }
+}
+
+#[test]
+fn source_reverted_lookup_keeps_nested_messages_but_has_no_l2_effect() {
+    let root = B256::ZERO;
+    let mut outer = semantic_action(
+        RollupId::MAINNET,
+        RollupId(1),
+        Address::with_last_byte(0x31),
+        Address::with_last_byte(0x41),
+        U256::from(7),
+        Bytes::from_static(b"outer call"),
+        Bytes::from_static(b"outer result"),
+    );
+    outer.revert_span = Some(2);
+    let mut nested = semantic_action(
+        RollupId(1),
+        RollupId::MAINNET,
+        Address::with_last_byte(0x42),
+        Address::with_last_byte(0x32),
+        U256::from(3),
+        Bytes::from_static(b"nested call"),
+        Bytes::from_static(b"nested result"),
+    );
+    nested.parent_index = Some(0);
+    let semantic = SemanticTransaction {
+        origin_chain: RollupId::MAINNET,
+        tx_data: Bytes::from_static(b"source-reverted L1 transaction"),
+        actions: vec![outer, nested],
+    };
+
+    let messages = encode_semantic_transaction(&semantic).expect("encode nested lookup semantics");
+    let decoded = decode_semantic_transactions(&messages).expect("decode nested lookup semantics");
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].origin_chain, semantic.origin_chain);
+    assert_eq!(decoded[0].tx_data, semantic.tx_data);
+    assert_eq!(decoded[0].actions.len(), 2);
+    assert_eq!(decoded[0].actions[0].revert_span, Some(2));
+    assert_eq!(
+        decoded[0].actions[0].data,
+        Bytes::from_static(b"outer call")
+    );
+    assert_eq!(decoded[0].actions[1].parent_index, Some(0));
+    assert_eq!(
+        decoded[0].actions[1].data,
+        Bytes::from_static(b"nested call")
+    );
+
+    let mut materialized = semantic.materialize().expect("materialize nested lookup");
+    assert!(
+        materialized.targets.is_empty(),
+        "source-reverted nested work must not materialize an L2 delivery"
+    );
+    materialized.source.batch.entries[0].rootUpdates = vec![RootUpdateSol {
+        rollupId: 1,
+        currentRoot: root,
+        newRoot: root,
+        etherDelta: EtherDeltaSol::ZERO,
+    }];
+    eez_protocol::entries::finalize_l1_entry_traces(
+        &mut materialized.source.batch,
+        &materialized.source.entry_traces,
+    )
+    .expect("finalize nested lookup");
+    let lookup = materialized.source.batch.entries.remove(0);
+    assert!(eez_protocol::settlement::is_lookup_only_inbound_entry(
+        &lookup, 1
+    ));
+
+    let mut batch = state_chain(&[root, root]);
+    batch.entries.push(lookup);
+    batch.immediateEntryCount = U256::from(1);
+    assert_eq!(
+        verify_native_semantics(
+            &decoded,
+            &validated_window(block_rlp(Vec::new())),
+            &AuthorizedOutboundEffects::default(),
+            &AuthorizedInboundEffects::default(),
+            &batch,
+            expected_rollup_id(),
+        ),
+        Ok(())
+    );
 }
 
 #[test]

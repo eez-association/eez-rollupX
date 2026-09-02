@@ -32,8 +32,8 @@ pub(crate) fn actionable_held_tx<'a>(
         } => (Direction::Outbound, transaction_hash),
         ActionableProverFailure::Inbound { entry_index, .. } => {
             // PostBatch order is `[anchor | outbound... | inbound transaction
-            // entries, optional root checkpoint, ...]`. Checkpoints are
-            // protocol-generated and have no user transaction to evict.
+            // entries...]`. Every deferred entry belongs to exactly one held
+            // L1 transaction, including lookup-only entries.
             let mut batch_index = 1 + outbound_entry_count;
             let mut owner = None;
             for (composition, held_hash) in inbound_compositions {
@@ -43,24 +43,6 @@ pub(crate) fn actionable_held_tx<'a>(
                     break;
                 }
                 batch_index += entry_count;
-                let has_checkpoint =
-                    eez_protocol::settlement::composition_fifo_actions(composition)
-                        .ok()
-                        .and_then(|actions| {
-                            actions.into_iter().rev().find_map(|action| match action {
-                                eez_protocol::settlement::FifoSourceAction::Mutable { success } => {
-                                    Some(!success)
-                                }
-                                eez_protocol::settlement::FifoSourceAction::Static => None,
-                            })
-                        })
-                        .unwrap_or(false);
-                if has_checkpoint {
-                    if entry_index == batch_index {
-                        return None;
-                    }
-                    batch_index += 1;
-                }
             }
             (Direction::Inbound, owner?)
         }
@@ -370,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn actionable_failures_skip_protocol_generated_fifo_checkpoints() {
+    fn actionable_failures_map_lookup_only_entries_to_their_held_transaction() {
         fn failed_composition() -> eez_protocol::Composition {
             eez_protocol::Composition {
                 actions: vec![eez_protocol::ExecutedAction {
@@ -422,23 +404,10 @@ mod tests {
             (successful_composition(), second.hash),
         ];
 
-        // [anchor, first entry, first checkpoint, second entry]
-        assert!(
-            actionable_held_tx(
-                ActionableProverFailure::Inbound {
-                    entry_index: 2,
-                    entry_hash: B256::repeat_byte(0xee),
-                },
-                &survivors,
-                0,
-                &compositions,
-            )
-            .is_none()
-        );
         assert_eq!(
             actionable_held_tx(
                 ActionableProverFailure::Inbound {
-                    entry_index: 3,
+                    entry_index: 2,
                     entry_hash: B256::repeat_byte(0xee),
                 },
                 &survivors,

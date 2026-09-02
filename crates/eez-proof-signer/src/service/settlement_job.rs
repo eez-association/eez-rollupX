@@ -234,6 +234,7 @@ impl SettlementPipelineError {
                 ),
                 settlement::EffectPrefixError::LeadingEntryNotAnchor { .. }
                 | settlement::EffectPrefixError::InvalidEntry { .. }
+                | settlement::EffectPrefixError::LaterAnchor { .. }
                 | settlement::EffectPrefixError::EffectCountMismatch { .. }
                 | settlement::EffectPrefixError::AnchorRootMismatch { .. }
                 | settlement::EffectPrefixError::EffectKindMismatch { .. }

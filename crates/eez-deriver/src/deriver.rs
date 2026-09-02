@@ -1684,11 +1684,15 @@ where
                 }
                 let mut settlement_outbound = posted.batch.entries[1..immediate_count].to_vec();
                 let mut settlement_inbound = posted.batch.entries[immediate_count..].to_vec();
-                // FIFO trailing-failure checkpoints are L1-only queue entries:
-                // they advance the already-proven commitment via executeL2Txs
-                // but do not represent an L2 delivery or consume a DA sidecar.
+                // Canonical lookup-only entries carry a proven L1-visible
+                // result but authorize no L2 execution and consume no DA
+                // sidecar. Their exact no-op shape is checked fail-closed;
+                // arbitrary root-only deferred entries remain invalid effects.
                 settlement_inbound.retain(|entry| {
-                    !eez_protocol::settlement::is_root_only_entry(entry, cfg.this_rollup_id)
+                    !eez_protocol::settlement::is_lookup_only_inbound_entry(
+                        entry,
+                        cfg.this_rollup_id,
+                    )
                 });
 
                 let (outbound_effects, mut inbound) = if decoded.l2_entries.is_empty() {
