@@ -28,7 +28,8 @@ use async_trait::async_trait;
 use eez_driver::{
     BUILDER_GAS_LIMIT, BlockCommitterHandle, MAX_BLOCKS_PER_BATCH, ParentContext, RollupTiming,
     SyncSlotBlock, SyncSlotComposer, SyncSlotMode,
-    witness::{ExecutionWitnessMode, block_witness},
+    observation::BlockObservation,
+    witness::{ExecutionWitnessMode, block_witness_with_observations},
 };
 use eez_l1::{BundleTarget, L1Event, SendOutcome, Submitter};
 use eez_prover::{ActionableProverFailure, BlockWitness, Prover, ProverError, ProvingContext};
@@ -1172,8 +1173,9 @@ where
     ) -> Option<SyncSlotBlock> {
         // Some(n) → aim L1 block n exactly, pinned to this Sync block's
         // timestamp (a skipped L1 slot then drops the bundle instead of
-        // settling with a drifted L2 timestamp); None → next available
-        // (catch-up, unpinned).
+        // settling with a drifted L2 timestamp); None → let the Submitter
+        // derive a fresh future target from its canonical parent and pin that
+        // target's expected timestamp (catch-up).
         let bundle_target = target_l1_block.map_or(BundleTarget::NextBlock, |block| {
             BundleTarget::Exact { block, timestamp }
         });
@@ -1279,10 +1281,11 @@ where
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
         }
 
-        // Deferred-late: the bundle missed its L1 slot, so suppress PINNED
-        // emission only. Ordered after bounded emission on purpose — a
-        // historical chunk targets NextBlock and carries no pin, so lateness
-        // can't invalidate it; checking first would starve a chronically late
+        // Deferred-late: the bundle missed this Sync block's anchored L1 slot,
+        // so suppress exact-target emission only. Ordered after bounded
+        // emission on purpose — a historical chunk asks the Submitter to
+        // derive and timestamp-pin a fresh future target, so this stale slot
+        // cannot invalidate it. Checking first would starve a chronically late
         // node (slow prover, relay latency) of settlement entirely.
         if matches!(mode, SyncSlotMode::Empty) {
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
@@ -1299,7 +1302,7 @@ where
                     &parent_header,
                     timestamp,
                     suggested_fee_recipient,
-                    bundle_target, // catch-up → NextBlock (unpinned)
+                    bundle_target, // catch-up → derived future timestamp pin
                 )
                 .await
                 .unwrap_or_else(|err| {
@@ -3040,6 +3043,7 @@ where
                 built.header.hash(),
                 Some(&built.block),
                 &pair_hashes,
+                &effect_end_positions,
                 &outbound_entries,
                 &outbound_entry_traces,
                 &pending_out,
@@ -3303,6 +3307,7 @@ where
                 empty_built.header.hash(),
                 Some(&empty_built.block),
                 &[], // no cross-chain effects → no per-effect roots
+                &[], // no cross-chain effects → no effect positions
                 &[], // no outbound entries
                 &[], // no outbound entry traces
                 &[], // no outbound L2 sidecars
@@ -3468,6 +3473,7 @@ where
                     &[],
                     &[],
                     &[],
+                    &[],
                     0, // no inline outbound target calls
                     BundleTarget::NextBlock,
                 )
@@ -3495,8 +3501,9 @@ where
             rollup
                 .optimistic
                 .begin(boundary, post_batch_hash, boundary_parent, Vec::new());
-            // A past terminal can't be pinned to an L1 slot, so the bundle takes
-            // whichever block the relay lands it in.
+            // A past terminal has no matching historical L1 slot. NextBlock
+            // therefore derives and timestamp-pins a fresh future settlement
+            // slot from its canonical parent at dispatch time.
             self.spawn_bundle_observer(
                 ctx,
                 rollup_id,
@@ -3634,6 +3641,7 @@ where
             &reth_primitives_traits::RecoveredBlock<reth_ethereum_primitives::Block>,
         >,
         pair_hashes: &[B256],
+        pair_positions: &[usize],
         outbound_entries: &[eez_protocol::abi::ExecutionEntrySol],
         outbound_entry_traces: &[eez_protocol::entries::EntryTrace],
         outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
@@ -3782,6 +3790,14 @@ where
         if pair_hashes.len() != outbound_effect_count + inbound_effect_count {
             return Err(format!(
                 "pair hashes cover {} effects, expected {outbound_effect_count} outbound + {inbound_effect_count} inbound",
+                pair_hashes.len(),
+            )
+            .into());
+        }
+        if pair_positions.len() != pair_hashes.len() {
+            return Err(format!(
+                "pair positions cover {} effects, but pair hashes cover {}",
+                pair_positions.len(),
                 pair_hashes.len(),
             )
             .into());
@@ -3959,6 +3975,7 @@ where
         let mut mutable_effect_index = outbound_settlement_count;
         let mut pair_hash_index = outbound_effect_count;
         let mut static_batch_index = 0usize;
+        let mut observation_claims = Vec::new();
 
         for (composition_index, (composition, fifo_actions)) in compositions
             .iter()
@@ -3988,6 +4005,11 @@ where
                 checkpoints,
             )
             .map_err(|error| format!("composition {composition_index} root plan: {error}"))?;
+            observation_claims.extend(
+                eez_protocol::settlement::fifo_observation_claims(composition, &plan).map_err(
+                    |error| format!("composition {composition_index} observations: {error}"),
+                )?,
+            );
 
             for (local_index, new_root) in plan.mutable_new_roots.iter().copied().enumerate() {
                 let entry = batch
@@ -4058,6 +4080,57 @@ where
             )
             .into());
         }
+
+        // Assign every lookup/static claim to the exact canonical block prefix
+        // named by its FIFO pin. The terminal witness replays these calls at
+        // those positions and includes every account/code/storage read.
+        let observation_schedule = if observation_claims.is_empty() {
+            Vec::new()
+        } else {
+            let terminal = sync_block.ok_or_else(|| {
+                "lookup/static observations require the freshly built terminal block".to_owned()
+            })?;
+            let transaction_count = terminal.body().transactions.len();
+            let mut schedule = Vec::with_capacity(observation_claims.len());
+            for claim in observation_claims {
+                let after_transactions = if claim.pinned_block_hash == pre_sync_block_hash {
+                    0
+                } else if let Some(index) = pair_hashes
+                    .iter()
+                    .position(|hash| *hash == claim.pinned_block_hash)
+                {
+                    pair_positions[index].checked_add(1).ok_or_else(|| {
+                        "observation transaction position overflows usize".to_owned()
+                    })?
+                } else if claim.pinned_block_hash == sync_block_hash {
+                    transaction_count
+                } else {
+                    return Err(format!(
+                        "lookup/static observation pins unknown Sync-block prefix {}",
+                        claim.pinned_block_hash,
+                    )
+                    .into());
+                };
+                if after_transactions > transaction_count {
+                    return Err(format!(
+                        "lookup/static observation targets prefix {after_transactions} of a {transaction_count}-transaction Sync block"
+                    )
+                    .into());
+                }
+                schedule.push(BlockObservation {
+                    after_transactions,
+                    manager_address: ctx.eezl2_address,
+                    claim,
+                });
+            }
+            if schedule
+                .windows(2)
+                .any(|pair| pair[0].after_transactions > pair[1].after_transactions)
+            {
+                return Err("lookup/static observation schedule is not FIFO".into());
+            }
+            schedule
+        };
 
         // Stitch the per-rollup root-update chain: EEZ.sol `_executeEntry`
         // enforces `config.root == update.currentRoot`, then `_applyRootUpdates` sets it to
@@ -4373,6 +4446,7 @@ where
                 );
                 let evm_config = self.inner.evm_config.clone();
                 let terminal_block = sync_block.cloned();
+                let terminal_observations = observation_schedule;
                 tokio::task::spawn_blocking(move || -> Result<Vec<BlockWitness>, String> {
                     let mut ws = (from..sync_block_number)
                         .map(|n| src.block_witness(n))
@@ -4382,11 +4456,12 @@ where
                         // Just-built: nothing can serve an uncommitted block, and
                         // its parent state is hot, so re-execute in-memory.
                         Some(block) => ws.push(
-                            block_witness(
+                            block_witness_with_observations(
                                 l2_provider.as_ref(),
                                 &evm_config,
                                 &block,
                                 ExecutionWitnessMode::Legacy,
+                                &terminal_observations,
                             )
                             .map_err(|e| {
                                 format!(
@@ -4589,19 +4664,16 @@ async fn observe_bundle_outcome(
     if settled {
         optimistic.mark_settled(sync_height);
     } else {
-        // slot_skipped = the drop was NOT attributable to the bundled txs →
-        // requeue without counting an attempt toward poison-eviction.
+        // `slot_skipped` is the historical ledger name for any failure that
+        // was NOT attributable to the bundled txs: skipped slot, local
+        // submission-window miss, or target reorg. Requeue those without
+        // consuming the bounded poison-eviction budget.
         let slot_skipped = match &outcome {
             // Never reached the relay, so it says nothing about the txs. A
             // relay-side REJECTION is L1Error::Submission and still counts.
             Err(err) if err.is_transport() => true,
-            // Pin unsatisfiable (block ts != pin, or unreadable), not the txs.
-            _ => match target {
-                BundleTarget::Exact { block, timestamp } => {
-                    submitter.block_timestamp(block).await.ok().flatten() != Some(timestamp)
-                }
-                BundleTarget::NextBlock => false,
-            },
+            Ok(SendOutcome::Dropped { reason, .. }) => !reason.counts_toward_attempt_limit(),
+            _ => false,
         };
         optimistic.mark_failed(sync_height, slot_skipped);
     }

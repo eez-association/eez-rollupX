@@ -92,6 +92,12 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
             "outbound_effects",
         ),
         (
+            SettlementPipelineError::ObservationReplay(
+                validate::ObservationValidationError::OutcomeMismatch { index: 0 },
+            ),
+            "observation_replay",
+        ),
+        (
             SettlementPipelineError::DaPayload(crate::settlement::DaPayloadError::BlockCount {
                 expected: 2,
                 actual: 1,

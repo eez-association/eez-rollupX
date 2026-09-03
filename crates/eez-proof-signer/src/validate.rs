@@ -247,6 +247,17 @@ pub(crate) struct ValidatedSettlingBlock {
     receipt_successes: Vec<bool>,
     /// Locally recomputed prefix-block hashes selected for settlement effects.
     transaction_state_checkpoints: Vec<TransactionStateCheckpoint>,
+    /// Exact terminal witness retained after successful validation so later
+    /// lookup/static replay cannot substitute different state data.
+    replay_input: SettlingReplayInput,
+}
+
+/// Authenticated input for a second, observation-only replay of the terminal
+/// block. The normal validation backend already accepted this exact witness.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SettlingReplayInput {
+    pub(crate) pre_state_root: B256,
+    pub(crate) witness: alloy_rpc_types_debug::ExecutionWitness,
 }
 
 impl ValidatedSettlingBlock {
@@ -265,6 +276,11 @@ impl ValidatedSettlingBlock {
         &self.transaction_state_checkpoints
     }
 
+    /// Exact witness and pre-state root accepted for this terminal block.
+    pub(crate) const fn replay_input(&self) -> &SettlingReplayInput {
+        &self.replay_input
+    }
+
     /// Construct explicitly synthetic settling-block evidence for unit tests.
     #[cfg(test)]
     pub(crate) fn for_test(
@@ -276,6 +292,10 @@ impl ValidatedSettlingBlock {
             block,
             receipt_successes,
             transaction_state_checkpoints,
+            replay_input: SettlingReplayInput {
+                pre_state_root: B256::ZERO,
+                witness: alloy_rpc_types_debug::ExecutionWitness::default(),
+            },
         }
     }
 }
@@ -357,6 +377,7 @@ struct CheckedBlock {
 struct CheckedBackendWindowOutput {
     preceding_blocks: Vec<CheckedBlock>,
     settling_block: CheckedBlock,
+    settling_pre_state_root: B256,
 }
 
 /// A validation failure classified for the RPC boundary.
@@ -374,6 +395,22 @@ pub(crate) enum ValidationError {
     /// The request disappeared while a synchronous backend was still active.
     #[error("validation cancelled")]
     Cancelled,
+}
+
+/// A lookup/static claim could not be reproduced from the authenticated
+/// terminal witness at its pinned FIFO state.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub(crate) enum ObservationValidationError {
+    /// The pin is not the parent, a validated transaction checkpoint, or the
+    /// complete terminal block.
+    #[error("observation {index} pins unknown terminal-block prefix {block_hash}")]
+    UnknownPinnedRoot { index: usize, block_hash: B256 },
+    /// Stateless EVM replay failed, including for incomplete witness data.
+    #[error("authenticated observation replay failed: {0}")]
+    Replay(String),
+    /// Execution completed but did not reproduce the claimed result exactly.
+    #[error("observation {index} result differs from authenticated EVM replay")]
+    OutcomeMismatch { index: usize },
 }
 
 /// Validation backend selected at startup.
@@ -464,10 +501,36 @@ impl Validator {
         cancellation: &CancellationToken,
     ) -> Result<ValidatedWindow, ValidationError> {
         let mut blocks = blocks.into_vec();
+        let replay_witness = blocks
+            .last()
+            .map(|block| block.witness.clone())
+            .ok_or_else(|| {
+                ValidationError::Rejected("refusing to validate an empty window".into())
+            })?;
         let output = self.run_backend(&mut blocks, cancellation)?;
         check_backend_window_output(blocks, output)
-            .map(CheckedBackendWindowOutput::into_validated_window)
+            .map(|checked| checked.into_validated_window(replay_witness))
             .map_err(|error| ValidationError::InvalidBackendOutput(error.to_string()))
+    }
+
+    /// Independently replay lookup/static semantic outcomes after the ordinary
+    /// block validation has authenticated their witness and pinned roots.
+    pub(crate) fn verify_observations(
+        &self,
+        window: &ValidatedWindow,
+        claims: &[eez_protocol::settlement::FifoObservationClaim],
+    ) -> Result<(), ObservationValidationError> {
+        if claims.is_empty() {
+            return Ok(());
+        }
+        match self {
+            Self::Stateless(backend) => backend.verify_observations(window, claims),
+            // Service-level tests use synthetic validated windows with no
+            // authenticated trie. Semantic extraction and production replay
+            // are exercised separately by their owning modules.
+            #[cfg(test)]
+            Self::Stub(_) => Ok(()),
+        }
     }
 
     /// Run the selected backend. Its result remains unchecked against the
@@ -506,6 +569,10 @@ fn check_backend_window_output(
     );
 
     let total_blocks = admitted_blocks.len();
+    let settling_pre_state_root = total_blocks
+        .checked_sub(2)
+        .and_then(|index| backend_output.blocks.get(index))
+        .map_or(backend_output.pre_state_root, |block| block.post_state_root);
     let mut checked_blocks = Vec::with_capacity(total_blocks);
     for (position, (admitted, output)) in admitted_blocks
         .into_iter()
@@ -614,13 +681,17 @@ fn check_backend_window_output(
     Ok(CheckedBackendWindowOutput {
         preceding_blocks: checked_blocks,
         settling_block,
+        settling_pre_state_root,
     })
 }
 
 impl CheckedBackendWindowOutput {
     /// Rearrange already checked evidence for settlement without performing
     /// another trust transition.
-    fn into_validated_window(self) -> ValidatedWindow {
+    fn into_validated_window(
+        self,
+        replay_witness: alloy_rpc_types_debug::ExecutionWitness,
+    ) -> ValidatedWindow {
         let window_pre_block_hash = self
             .preceding_blocks
             .first()
@@ -638,7 +709,9 @@ impl CheckedBackendWindowOutput {
                 .into_iter()
                 .map(CheckedBlock::into_validated_block)
                 .collect(),
-            settling_block: self.settling_block.into_validated_settling_block(),
+            settling_block: self
+                .settling_block
+                .into_validated_settling_block(self.settling_pre_state_root, replay_witness),
         }
     }
 }
@@ -654,7 +727,11 @@ impl CheckedBlock {
     }
 
     /// Preserve the settling block's receipt statuses and computed checkpoints.
-    fn into_validated_settling_block(self) -> ValidatedSettlingBlock {
+    fn into_validated_settling_block(
+        self,
+        pre_state_root: B256,
+        witness: alloy_rpc_types_debug::ExecutionWitness,
+    ) -> ValidatedSettlingBlock {
         let BackendBlockOutput {
             decoded_number,
             receipt_successes,
@@ -670,6 +747,10 @@ impl CheckedBlock {
             },
             receipt_successes,
             transaction_state_checkpoints,
+            replay_input: SettlingReplayInput {
+                pre_state_root,
+                witness,
+            },
         }
     }
 }

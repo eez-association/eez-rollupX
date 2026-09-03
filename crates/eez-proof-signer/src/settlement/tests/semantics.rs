@@ -317,7 +317,7 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
 }
 
 #[test]
-fn source_reverted_lookup_keeps_nested_messages_but_has_no_l2_effect() {
+fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
     let root = B256::ZERO;
     let mut outer = semantic_action(
         RollupId::MAINNET,
@@ -386,17 +386,20 @@ fn source_reverted_lookup_keeps_nested_messages_but_has_no_l2_effect() {
     let mut batch = state_chain(&[root, root]);
     batch.entries.push(lookup);
     batch.immediateEntryCount = U256::from(1);
-    assert_eq!(
-        verify_native_semantics(
-            &decoded,
-            &validated_window(block_rlp(Vec::new())),
-            &AuthorizedOutboundEffects::default(),
-            &AuthorizedInboundEffects::default(),
-            &batch,
-            expected_rollup_id(),
-        ),
-        Ok(())
-    );
+    let error = verify_native_semantics(
+        &decoded,
+        &validated_window(block_rlp(Vec::new())),
+        &AuthorizedOutboundEffects::default(),
+        &AuthorizedInboundEffects::default(),
+        &batch,
+        expected_rollup_id(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        SemanticBindingError::FifoRootSchedule { reason, .. }
+            if reason.contains("multi-chain observation replay is unsupported")
+    ));
 }
 
 #[test]

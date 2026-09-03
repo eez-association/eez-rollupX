@@ -6,6 +6,7 @@ use alloy_sol_types::SolValue as _;
 use eez_protocol::abi::{ExecutionEntrySol, StaticExecutionEntrySol};
 use eez_protocol::blob_semantics::SemanticTransaction;
 use eez_protocol::entries::finalize_l1_entry_traces;
+use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::system_tx::OutboundSourceEntry;
 use eez_protocol::{Composition, RollupId};
 use reth_primitives_traits::BlockBody as _;
@@ -91,6 +92,7 @@ pub(crate) enum SemanticBindingError {
 /// Sync block and therefore match exactly. L1-origin `txData` is chain-defined
 /// sidecar data: this pipeline does not execute the later bundled L1 user
 /// transactions, so soundness comes from exact bidirectional table binding.
+#[cfg(test)]
 pub(crate) fn verify_native_semantics(
     transactions: &[SemanticTransaction],
     validated_window: &ValidatedWindow,
@@ -99,6 +101,27 @@ pub(crate) fn verify_native_semantics(
     canonical_batch: &CanonicalPostBatch,
     expected_rollup_id: NonZeroU64,
 ) -> Result<(), SemanticBindingError> {
+    verify_native_semantics_with_observations(
+        transactions,
+        validated_window,
+        outbound_effects,
+        inbound_effects,
+        canonical_batch,
+        expected_rollup_id,
+    )
+    .map(drop)
+}
+
+/// Verify native semantics and return the lookup/static outcomes that still
+/// require authenticated EVM replay at their FIFO-pinned roots.
+pub(crate) fn verify_native_semantics_with_observations(
+    transactions: &[SemanticTransaction],
+    validated_window: &ValidatedWindow,
+    outbound_effects: &AuthorizedOutboundEffects,
+    inbound_effects: &AuthorizedInboundEffects<'_>,
+    canonical_batch: &CanonicalPostBatch,
+    expected_rollup_id: NonZeroU64,
+) -> Result<Vec<FifoObservationClaim>, SemanticBindingError> {
     let outbound_groups = outbound_effects.groups().collect::<Vec<_>>();
     if transactions.len() < outbound_groups.len() {
         return Err(SemanticBindingError::TransactionCount {
@@ -215,6 +238,7 @@ pub(crate) fn verify_native_semantics(
     let mut actual_inbound_settlement = Vec::new();
     let mut actual_inbound_static_settlement = Vec::new();
     let mut actual_inbound_sidecars = Vec::new();
+    let mut observation_claims = Vec::new();
     for (transaction_index, transaction) in
         transactions.iter().enumerate().skip(outbound_groups.len())
     {
@@ -253,6 +277,14 @@ pub(crate) fn verify_native_semantics(
             transaction: transaction_index,
             reason,
         })?;
+        observation_claims.extend(
+            eez_protocol::settlement::fifo_observation_claims(&composition, &root_plan).map_err(
+                |reason| SemanticBindingError::FifoRootSchedule {
+                    transaction: transaction_index,
+                    reason,
+                },
+            )?,
+        );
         for (local_index, (entry, expected_root)) in expected_entries
             .iter()
             .zip(&root_plan.mutable_new_roots)
@@ -374,7 +406,7 @@ pub(crate) fn verify_native_semantics(
     if actual_inbound_sidecars != expected_inbound_sidecars {
         return Err(SemanticBindingError::InboundSidecars);
     }
-    Ok(())
+    Ok(observation_claims)
 }
 
 fn require_origin(
