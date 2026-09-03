@@ -631,7 +631,11 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let rollup_config = RollupConfig::from_env()?;
     let l1_watcher_config = L1WatcherConfig::from_env()?;
 
-    let submitter = Submitter::new(submitter_config);
+    let submitter = Submitter::new(
+        submitter_config,
+        timing.l1_block_time(),
+        timing.submission_slack(),
+    )?;
     // Handle only — polling starts after boot catch-up fixes the
     // seed and every consumer has subscribed.
     let l1_watcher = L1Watcher::new(l1_watcher_config);

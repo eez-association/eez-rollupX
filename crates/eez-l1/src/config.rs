@@ -6,7 +6,7 @@
 //! `eez-composer::RollupConfig` per the S4.2 umbrella extraction. See
 //! `docs/plans/IMPLEMENTATION.md` §5.4.8.
 
-use std::{env, path::PathBuf, str::FromStr};
+use std::{env, path::PathBuf, str::FromStr, time::Duration};
 
 use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
@@ -22,6 +22,13 @@ const ENV_POSTER_KEY: &str = "EEZ_L1_POSTER_KEY";
 const ENV_EEZ_ADDRESS: &str = "EEZ_REGISTRY_ADDRESS";
 const ENV_ROLLUP_ID: &str = "EEZ_ROLLUP_ID";
 const ENV_BUNDLE_CAPTURE_DIR: &str = "EEZ_BUNDLE_CAPTURE_DIR";
+const ENV_BUNDLE_SUBMISSION_LEAD_MS: &str = "EEZ_BUNDLE_SUBMISSION_LEAD_MS";
+
+/// Default earliest-send offset before an L1 target timestamp. The 500 ms
+/// difference from rbuilder's common T-8s gate is deliberate clock/network
+/// margin: a request emitted at T-7.5s reaches a correctly synchronized
+/// builder after its gate has opened.
+pub const DEFAULT_BUNDLE_SUBMISSION_LEAD_MS: u64 = 7_500;
 
 /// Read-only L1 connectivity used by the Deriver's canonical-chain scans.
 #[derive(Clone)]
@@ -76,18 +83,21 @@ pub struct SubmitterConfig {
     /// L1 builder relay accepting `eth_sendBundle`. All postBatch txs
     /// go here; [`L1ReaderConfig::rpc_url`] is used for reads only.
     pub builder_rpc_url: Url,
-    /// Optional RPC used ONLY for `BundleTarget::NextBlock` target-block
-    /// calculation. The embedded L1 can lag the canonical tip by 2-3
-    /// blocks, so `target = local.latest + slack` lands already-past and
-    /// the bundler drops it; point this at a tip-following node to pick
-    /// an unproposed future block. `None` falls back to
-    /// [`L1ReaderConfig::rpc_url`].
+    /// Optional canonical target-chain RPC used for target selection,
+    /// pre-dispatch revalidation, and bundle observation. The embedded L1 can
+    /// lag the canonical tip by 2-3 blocks, so point this at a tip-following
+    /// node when submission goes through an external builder. `None` falls
+    /// back to [`L1ReaderConfig::rpc_url`].
     pub target_rpc_url: Option<Url>,
     /// EOA that signs L1 txs (pays gas).
     pub poster: PrivateKeySigner,
     /// Optional directory for exact `eth_sendBundle` request captures when an
     /// attempt is dropped or rejected. Unset keeps production writes off.
     pub bundle_capture_dir: Option<PathBuf>,
+    /// Do not dispatch a bundle before `target_timestamp - lead`. This avoids
+    /// relays/builders that acknowledge early bundles but discard the only
+    /// candidate produced before their bidding gate opens.
+    pub bundle_submission_lead: Duration,
 }
 
 impl std::fmt::Debug for SubmitterConfig {
@@ -101,6 +111,7 @@ impl std::fmt::Debug for SubmitterConfig {
             )
             .field("poster", &self.poster.address())
             .field("bundle_capture_dir", &self.bundle_capture_dir)
+            .field("bundle_submission_lead", &self.bundle_submission_lead)
             .finish()
     }
 }
@@ -131,6 +142,10 @@ impl SubmitterConfig {
             target_rpc_url,
             poster: parse_key(ENV_POSTER_KEY)?,
             bundle_capture_dir: optional_path(ENV_BUNDLE_CAPTURE_DIR)?,
+            bundle_submission_lead: Duration::from_millis(parse_u64_or(
+                ENV_BUNDLE_SUBMISSION_LEAD_MS,
+                DEFAULT_BUNDLE_SUBMISSION_LEAD_MS,
+            )?),
         })
     }
 }
@@ -168,4 +183,16 @@ fn parse_u64(name: &str) -> L1Result<u64> {
     require(name)?
         .parse::<u64>()
         .map_err(|e| L1Error::Config(format!("{name}: {e}")))
+}
+
+fn parse_u64_or(name: &str, default: u64) -> L1Result<u64> {
+    match env::var(name) {
+        Ok(raw) => raw
+            .parse::<u64>()
+            .map_err(|e| L1Error::Config(format!("{name}: {e}"))),
+        Err(env::VarError::NotPresent) => Ok(default),
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))
+        }
+    }
 }

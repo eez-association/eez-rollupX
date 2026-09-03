@@ -543,10 +543,16 @@ slot time, prefunded accounts, and MEV stack. The `eez` section configures:
 
 - Node, proof-signer, deployment, and follower images.
 - Poster, proof-signer, and L2 system test keys.
-- L1 and L2 block timing, proof time, and submission slack.
+- L1 and L2 block timing, proof time, submission slack, and the earliest
+  builder-dispatch lead (`bundle_submission_lead_ms`, default `7500`).
 - Maximum speculative depth, cross-chain transactions per bundle, and proposer
   fee recipient.
 - L1/L2 explorers and their images.
+
+`bundle_submission_lead_ms` is independent of proof time: it is the earliest
+wall-clock dispatch point before the selected L1 timestamp. It must be greater
+than `submission_slack_ms`, which remains the latest-safe dispatch boundary;
+an empty window is rejected at node startup.
 
 Keep the private-network keys distinct, and never reuse them outside a
 disposable local environment.

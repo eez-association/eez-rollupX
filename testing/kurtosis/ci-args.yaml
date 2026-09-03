@@ -59,6 +59,7 @@ eez:
   l2_block_time_ms: 2000
   proof_time_ms: 5000
   submission_slack_ms: 500
+  bundle_submission_lead_ms: 7500
   max_speculative_depth: 0
   # Fulu is active at genesis, so pooled blob transactions use EIP-7594.
   blob_sidecar_encoding: eip7594
