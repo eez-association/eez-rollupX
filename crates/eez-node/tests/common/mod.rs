@@ -23,7 +23,7 @@ use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{BlockNumHash, BlockNumberOrTag, TransactionReceipt, TransactionRequest};
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue, sol};
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use eez_control_rpc::{
     MAX_MESSAGE_BYTES, encode_prove_failure,
     v1::{
@@ -1690,52 +1690,62 @@ pub enum NodeBinary {
 }
 
 impl NodeBinary {
-    fn path(self) -> PathBuf {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Composer => "eez-composer",
+            Self::Follower => "eez-follower",
+            Self::Dev => "eez-dev-node",
+        }
+    }
+
+    fn path(self) -> Result<PathBuf> {
+        let name = self.name();
         // The CI archive also contains Cargo's test-feature-unified binaries.
         // Composer/follower must instead use the frozen shipping candidate.
         if !matches!(self, Self::Dev) {
             if let Some(directory) = std::env::var_os("EEZ_TEST_RUNTIME_BIN_DIR") {
-                let name = match self {
-                    Self::Composer => "eez-composer",
-                    Self::Follower => "eez-follower",
-                    Self::Dev => unreachable!(),
-                };
                 let path = PathBuf::from(directory).join(name);
-                assert!(
+                ensure!(
                     path.is_file(),
                     "missing release candidate {}",
                     path.display()
                 );
-                return path;
+                return Ok(path);
             }
-            assert!(
+            ensure!(
                 std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
                 "prebuilt tests require EEZ_TEST_RUNTIME_BIN_DIR"
             );
         }
-        let (runtime_key, compiled) = match self {
-            Self::Composer => (
-                "NEXTEST_BIN_EXE_eez_composer",
-                env!("CARGO_BIN_EXE_eez-composer"),
-            ),
-            Self::Follower => (
-                "NEXTEST_BIN_EXE_eez_follower",
-                env!("CARGO_BIN_EXE_eez-follower"),
-            ),
-            Self::Dev => (
-                "NEXTEST_BIN_EXE_eez_dev_node",
-                env!("CARGO_BIN_EXE_eez-dev-node"),
-            ),
-        };
-        std::env::var_os(runtime_key)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                assert!(
-                    std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
-                    "missing {runtime_key} in prebuilt test"
-                );
-                compiled.into()
-            })
+        let nextest_key = format!("NEXTEST_BIN_EXE_{}", name.replace('-', "_"));
+        if let Some(path) = std::env::var_os(&nextest_key) {
+            return Ok(path.into());
+        }
+        ensure!(
+            std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
+            "missing {nextest_key} in prebuilt test"
+        );
+        if let Some(path) = std::env::var_os(format!("CARGO_BIN_EXE_{name}")) {
+            return Ok(path.into());
+        }
+
+        // Resolve at runtime so this harness also works when shared through a
+        // support crate, where Cargo does not expose `CARGO_BIN_EXE_*` to
+        // `env!`. Test executables sit in `<target>/<profile>/deps`, alongside
+        // the role binaries' parent directory.
+        let current = std::env::current_exe().context("current test executable")?;
+        let target_profile = current
+            .parent()
+            .and_then(std::path::Path::parent)
+            .ok_or_else(|| anyhow!("test executable has no target profile directory"))?;
+        let path = target_profile.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+        if path.is_file() {
+            return Ok(path);
+        }
+        bail!(
+            "{name} binary not found next to the test profile at {}; build the role binaries before running the harness",
+            target_profile.display(),
+        )
     }
 }
 
@@ -1792,7 +1802,7 @@ impl NodeHandle {
             .map(|p| p.as_os_str().to_owned())
             .or(env_genesis)
             .unwrap_or_else(|| std::ffi::OsString::from("dev"));
-        let mut cmd = Command::new(cfg.binary.path());
+        let mut cmd = Command::new(cfg.binary.path()?);
         // env_clear alone does not stop dotenv searching parent directories.
         isolate_dotenv(datadir)?;
         cmd.current_dir(datadir)

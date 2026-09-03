@@ -3467,14 +3467,10 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-rpc-types-debug",
- "alloy-signer",
- "alloy-signer-local",
  "async-trait",
  "eez-blob-codec",
  "eez-protocol",
- "futures-util",
  "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]

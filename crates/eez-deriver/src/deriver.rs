@@ -2385,11 +2385,10 @@ where
     /// - `claimed_new_root` (last root update's `newRoot`) vs the local
     ///   block hash at `to_block`.
     ///
-    /// Both ends are checked — the composer chains deltas across
-    /// entries, so checking one would let a crafted chain pass. Matters
-    /// under the mock prover, which can't enforce linearity; halting
-    /// here surfaces the mismatch at its origin rather than at our next
-    /// post's `RootMismatch`.
+    /// Both ends are checked — the composer chains deltas across entries, so
+    /// checking one would let a crafted chain pass. Halting here surfaces a
+    /// mismatch at its origin rather than at our next post's
+    /// `RootMismatch`.
     ///
     /// `entry_root` is [`eez_l1::Settlement::entry_state`], not the claimed chain
     /// head — the claimed head would contradict the cursor guard on a mid-chain resume.

@@ -4730,8 +4730,8 @@ where
                 .await
                 .map_err(|e| format!("witness spawn_blocking join: {e}"))??
             }
-            // Mock mode ignores witnesses, but local observation validation is
-            // still mandatory before the claimed result can enter a bundle.
+            // Tests may use a lightweight prover without a witness source, but
+            // local observation validation still applies to every claimed result.
             None if terminal_observations.is_empty() => (Vec::new(), Vec::new()),
             None => {
                 let l2_provider = Arc::clone(
