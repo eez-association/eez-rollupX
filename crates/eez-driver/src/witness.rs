@@ -35,7 +35,7 @@ use revm::database::State;
 use std::collections::HashSet;
 use tracing::{debug, trace};
 
-use crate::observation::{BlockObservation, replay_block_with_observations};
+use crate::observation::{BlockObservation, ObservedOutcome, replay_block_with_observations};
 // Re-exported so the prover-feed binary can pick a mode without depending on reth-trie.
 pub use reth_trie::ExecutionWitnessMode;
 
@@ -94,26 +94,59 @@ where
 ///
 /// The synthetic calls are executed at their exact transaction prefixes and
 /// never committed. Their reads become part of the authenticated witness while
-/// the block's canonical post-state remains unchanged.
+/// the block's canonical post-state remains unchanged. The independently
+/// replayed outcomes are returned alongside the witness so the caller can
+/// reject claims that already disagree locally.
 pub fn block_witness_with_observations<P>(
     provider: &P,
     evm_config: &EthEvmConfig,
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
     observations: &[BlockObservation],
-) -> eyre::Result<BlockWitness>
+) -> eyre::Result<(BlockWitness, Vec<ObservedOutcome>)>
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
-    let witness =
+    let (witness, outcomes) =
         block_execution_witness_with_observations(provider, evm_config, block, mode, observations)?;
-    Ok(BlockWitness {
-        number: block.header().number(),
-        hash: block.hash(),
-        parent_hash: block.header().parent_hash(),
-        rlp: alloy_rlp::encode(block.clone().into_sealed_block().into_block()).into(),
-        witness,
-    })
+    Ok((
+        BlockWitness {
+            number: block.header().number(),
+            hash: block.hash(),
+            parent_hash: block.header().parent_hash(),
+            rlp: alloy_rlp::encode(block.clone().into_sealed_block().into_block()).into(),
+            witness,
+        },
+        outcomes,
+    ))
+}
+
+/// Replay a terminal block and its observations without constructing a trie
+/// witness. Mock-prover configurations use this path so Composer still checks
+/// source-claimed outcomes locally.
+///
+/// # Errors
+///
+/// Propagates parent-state lookup, block execution, and observation failures.
+pub fn block_observation_outcomes<P>(
+    provider: &P,
+    evm_config: &EthEvmConfig,
+    block: &RecoveredBlock<Block>,
+    observations: &[BlockObservation],
+) -> eyre::Result<Vec<ObservedOutcome>>
+where
+    P: StateProviderFactory + HeaderProvider<Header = Header>,
+{
+    let parent_hash = block.header().parent_hash();
+    let has_bal = block.header().block_access_list_hash().is_some();
+    let mut state = State::builder()
+        .with_database(StateProviderDatabase::new(
+            provider.state_by_block_hash(parent_hash)?,
+        ))
+        .with_bundle_update()
+        .with_bal_builder_if(has_bal)
+        .build();
+    replay_block_with_observations(&mut state, evm_config, block, observations)
 }
 
 pub fn block_execution_witness<P, E>(
@@ -153,7 +186,7 @@ fn block_execution_witness_with_observations<P>(
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
     observations: &[BlockObservation],
-) -> eyre::Result<ExecutionWitness>
+) -> eyre::Result<(ExecutionWitness, Vec<ObservedOutcome>)>
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
@@ -166,8 +199,9 @@ where
         .with_bundle_update()
         .with_bal_builder_if(has_bal)
         .build();
-    replay_block_with_observations(&mut state, evm_config, block, observations)?;
-    execution_witness_from_state(provider, block, mode, &state)
+    let outcomes = replay_block_with_observations(&mut state, evm_config, block, observations)?;
+    let witness = execution_witness_from_state(provider, block, mode, &state)?;
+    Ok((witness, outcomes))
 }
 
 fn execution_witness_from_state<P, DB>(
@@ -452,7 +486,7 @@ mod tests {
         let ordinary =
             block_execution_witness(&provider, &evm_config, &block, ExecutionWitnessMode::Legacy)
                 .unwrap();
-        let augmented = block_execution_witness_with_observations(
+        let (augmented, outcomes) = block_execution_witness_with_observations(
             &provider,
             &evm_config,
             &block,
@@ -465,5 +499,12 @@ mod tests {
         assert!(!ordinary.codes.contains(&target_code));
         assert!(augmented.codes.contains(&manager_code));
         assert!(augmented.codes.contains(&target_code));
+        assert_eq!(
+            outcomes,
+            vec![crate::observation::ObservedOutcome {
+                success: true,
+                output: U256::from(42).to_be_bytes_vec().into(),
+            }]
+        );
     }
 }

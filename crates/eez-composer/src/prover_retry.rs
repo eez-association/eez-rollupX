@@ -52,6 +52,20 @@ pub(crate) fn actionable_held_tx<'a>(
         .find(|tx| tx.direction == direction && tx.hash == held_hash)
 }
 
+/// Resolve a locally replayed observation to the inbound transaction whose
+/// composition produced it. Unlike prover hints, this index is created and
+/// consumed entirely inside the Composer.
+pub(crate) fn observation_held_tx<'a>(
+    composition_index: usize,
+    survivors: &'a [HeldTx],
+    inbound_compositions: &[(eez_protocol::Composition, B256)],
+) -> Option<&'a HeldTx> {
+    let held_hash = inbound_compositions.get(composition_index)?.1;
+    survivors
+        .iter()
+        .find(|tx| tx.direction == Direction::Inbound && tx.hash == held_hash)
+}
+
 pub(crate) fn partition_retryable(
     survivors: Vec<HeldTx>,
     poison: &HeldTx,

@@ -28,8 +28,8 @@ use async_trait::async_trait;
 use eez_driver::{
     BUILDER_GAS_LIMIT, BlockCommitterHandle, MAX_BLOCKS_PER_BATCH, ParentContext, RollupTiming,
     SyncSlotBlock, SyncSlotComposer, SyncSlotMode,
-    observation::BlockObservation,
-    witness::{ExecutionWitnessMode, block_witness_with_observations},
+    observation::{BlockObservation, ObservedOutcome},
+    witness::{ExecutionWitnessMode, block_observation_outcomes, block_witness_with_observations},
 };
 use eez_l1::{BundleTarget, L1Event, SendOutcome, Submitter};
 use eez_prover::{ActionableProverFailure, BlockWitness, Prover, ProverError, ProvingContext};
@@ -50,7 +50,8 @@ use crate::local::{
 };
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
-    actionable_held_tx, partition_retryable, prove_with_retry, validate_actionable_prover_failure,
+    actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
+    validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
 
@@ -521,6 +522,14 @@ enum PreparePostBatchError {
     Prover(#[source] ProverError),
     #[error("prover rejected {0}")]
     Actionable(ActionableProverFailure),
+    #[error(
+        "local observation {observation_index} for inbound composition {composition_index} \
+         does not match its claimed outcome"
+    )]
+    ObservationMismatch {
+        composition_index: usize,
+        observation_index: usize,
+    },
 }
 
 impl From<String> for PreparePostBatchError {
@@ -533,6 +542,26 @@ impl From<&str> for PreparePostBatchError {
     fn from(error: &str) -> Self {
         Self::Build(error.to_owned())
     }
+}
+
+fn first_observation_mismatch(
+    schedule: &[(usize, BlockObservation)],
+    outcomes: &[ObservedOutcome],
+) -> Result<Option<(usize, usize)>, String> {
+    if outcomes.len() != schedule.len() {
+        return Err(format!(
+            "local observation replay returned {} outcomes for {} claims",
+            outcomes.len(),
+            schedule.len(),
+        ));
+    }
+    Ok(schedule.iter().zip(outcomes).enumerate().find_map(
+        |(observation_index, ((composition_index, observation), outcome))| {
+            (observation.claim.expected_success != outcome.success
+                || observation.claim.expected_output != outcome.output)
+                .then_some((*composition_index, observation_index))
+        },
+    ))
 }
 
 /// Both ends are unusable and clamp to the default: above it no tx is valid
@@ -3061,20 +3090,32 @@ where
                 })
             }) {
             Ok(r) => r,
-            Err(PreparePostBatchError::Actionable(failure)) => {
-                let Some(poison) = actionable_held_tx(
-                    failure,
-                    &survivors,
-                    outbound_entries.len(),
-                    &survivor_comps,
-                )
-                .cloned() else {
+            Err(
+                error @ (PreparePostBatchError::Actionable(_)
+                | PreparePostBatchError::ObservationMismatch { .. }),
+            ) => {
+                let poison = match &error {
+                    PreparePostBatchError::Actionable(failure) => actionable_held_tx(
+                        *failure,
+                        &survivors,
+                        outbound_entries.len(),
+                        &survivor_comps,
+                    ),
+                    PreparePostBatchError::ObservationMismatch {
+                        composition_index, ..
+                    } => observation_held_tx(*composition_index, &survivors, &survivor_comps),
+                    PreparePostBatchError::Build(_) | PreparePostBatchError::Prover(_) => {
+                        unreachable!("match arm accepts only attributable failures")
+                    }
+                }
+                .cloned();
+                let Some(poison) = poison else {
                     event!(
                         name: "eez.composer.prover.actionable_unresolved",
                         Level::ERROR,
                         rollup_id,
-                        failure = %failure,
-                        "validated proof failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
+                        failure = %error,
+                        "attributable candidate failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
                     );
                     pool.push_front_batch(survivors);
                     return self
@@ -3095,13 +3136,13 @@ where
                     name: "eez.composer.prover.poison_ejected",
                     Level::WARN,
                     rollup_id,
-                    failure = %failure,
+                    failure = %error,
                     tx_hash = %poison.hash,
                     sender = %poison.sender,
                     direction = ?poison.direction,
                     nonce = poison.nonce,
                     retrying = retry.len(),
-                    "prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
+                    "local replay or prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
                 );
                 for in_flight in &evicted {
                     event!(
@@ -3113,7 +3154,7 @@ where
                         direction = ?in_flight.direction,
                         nonce = in_flight.nonce,
                         gap_at = poison.nonce,
-                        "in-flight transaction belongs to a prover-ejected nonce-chain suffix",
+                        "in-flight transaction belongs to an ejected nonce-chain suffix",
                     );
                 }
                 for queued in
@@ -3128,7 +3169,7 @@ where
                         direction = ?queued.direction,
                         nonce = queued.nonce,
                         gap_at = poison.nonce,
-                        "queued transaction depends on a prover-ejected nonce; evicting suffix",
+                        "queued transaction depends on an ejected nonce; evicting suffix",
                     );
                 }
 
@@ -4006,9 +4047,12 @@ where
             )
             .map_err(|error| format!("composition {composition_index} root plan: {error}"))?;
             observation_claims.extend(
-                eez_protocol::settlement::fifo_observation_claims(composition, &plan).map_err(
-                    |error| format!("composition {composition_index} observations: {error}"),
-                )?,
+                eez_protocol::settlement::fifo_observation_claims(composition, &plan)
+                    .map_err(|error| {
+                        format!("composition {composition_index} observations: {error}")
+                    })?
+                    .into_iter()
+                    .map(|claim| (composition_index, claim)),
             );
 
             for (local_index, new_root) in plan.mutable_new_roots.iter().copied().enumerate() {
@@ -4092,7 +4136,7 @@ where
             })?;
             let transaction_count = terminal.body().transactions.len();
             let mut schedule = Vec::with_capacity(observation_claims.len());
-            for claim in observation_claims {
+            for (composition_index, claim) in observation_claims {
                 let after_transactions = if claim.pinned_block_hash == pre_sync_block_hash {
                     0
                 } else if let Some(index) = pair_hashes
@@ -4117,15 +4161,18 @@ where
                     )
                     .into());
                 }
-                schedule.push(BlockObservation {
-                    after_transactions,
-                    manager_address: ctx.eezl2_address,
-                    claim,
-                });
+                schedule.push((
+                    composition_index,
+                    BlockObservation {
+                        after_transactions,
+                        manager_address: ctx.eezl2_address,
+                        claim,
+                    },
+                ));
             }
             if schedule
                 .windows(2)
-                .any(|pair| pair[0].after_transactions > pair[1].after_transactions)
+                .any(|pair| pair[0].1.after_transactions > pair[1].1.after_transactions)
             {
                 return Err("lookup/static observation schedule is not FIFO".into());
             }
@@ -4426,7 +4473,11 @@ where
         // Prove the assembled window (proofs[] empty — not part of the
         // publicInputsHash). Mock ignores the context; a remote prover re-executes
         // `blocks`. Settlement path, off block production.
-        let block_witnesses = match self.inner.witness_source.as_ref() {
+        let terminal_observations = observation_schedule
+            .iter()
+            .map(|(_, observation)| observation.clone())
+            .collect::<Vec<_>>();
+        let (block_witnesses, observed_outcomes) = match self.inner.witness_source.as_ref() {
             // Remote-prover mode. Intermediate blocks `[from..sync)` are committed
             // (served by the witness store); a freshly-built endpoint isn't, so
             // capture it here from the in-memory block.
@@ -4446,45 +4497,95 @@ where
                 );
                 let evm_config = self.inner.evm_config.clone();
                 let terminal_block = sync_block.cloned();
-                let terminal_observations = observation_schedule;
-                tokio::task::spawn_blocking(move || -> Result<Vec<BlockWitness>, String> {
-                    let mut ws = (from..sync_block_number)
-                        .map(|n| src.block_witness(n))
-                        .collect::<Result<Vec<_>, String>>()
-                        .map_err(|e| format!("witness_source: {e}"))?;
-                    match terminal_block {
-                        // Just-built: nothing can serve an uncommitted block, and
-                        // its parent state is hot, so re-execute in-memory.
-                        Some(block) => ws.push(
-                            block_witness_with_observations(
-                                l2_provider.as_ref(),
-                                &evm_config,
-                                &block,
-                                ExecutionWitnessMode::Legacy,
-                                &terminal_observations,
-                            )
-                            .map_err(|e| {
-                                format!(
-                                    "terminal-block witness (block {}): {e}",
-                                    block.header().number()
+                tokio::task::spawn_blocking(
+                    move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
+                        let mut ws = (from..sync_block_number)
+                            .map(|n| src.block_witness(n))
+                            .collect::<Result<Vec<_>, String>>()
+                            .map_err(|e| format!("witness_source: {e}"))?;
+                        match terminal_block {
+                            // Just-built: nothing can serve an uncommitted block, and
+                            // its parent state is hot, so re-execute in-memory.
+                            Some(block) => {
+                                let (witness, outcomes) = block_witness_with_observations(
+                                    l2_provider.as_ref(),
+                                    &evm_config,
+                                    &block,
+                                    ExecutionWitnessMode::Legacy,
+                                    &terminal_observations,
                                 )
-                            })?,
-                        ),
-                        // Committed (historical chunk): from the store — an
-                        // in-memory capture needs a possibly-pruned parent state.
-                        None => ws.push(
-                            src.block_witness(sync_block_number)
-                                .map_err(|e| format!("witness_source: {e}"))?,
-                        ),
-                    }
-                    Ok(ws)
-                })
+                                .map_err(|e| {
+                                    format!(
+                                        "terminal-block witness (block {}): {e}",
+                                        block.header().number()
+                                    )
+                                })?;
+                                ws.push(witness);
+                                return Ok((ws, outcomes));
+                            }
+                            // Committed (historical chunk): from the store — an
+                            // in-memory capture needs a possibly-pruned parent state.
+                            None => {
+                                if !terminal_observations.is_empty() {
+                                    let error =
+                                        "historical terminal block unexpectedly carries observations";
+                                    return Err(error.to_owned());
+                                }
+                                ws.push(
+                                    src.block_witness(sync_block_number)
+                                        .map_err(|e| format!("witness_source: {e}"))?,
+                                );
+                            }
+                        }
+                        Ok((ws, Vec::new()))
+                    },
+                )
                 .await
                 .map_err(|e| format!("witness spawn_blocking join: {e}"))??
             }
-            // Mock mode: the mock prover ignores per-block witnesses.
-            None => Vec::new(),
+            // Mock mode ignores witnesses, but local observation validation is
+            // still mandatory before the claimed result can enter a bundle.
+            None if terminal_observations.is_empty() => (Vec::new(), Vec::new()),
+            None => {
+                let l2_provider = Arc::clone(
+                    &self
+                        .inner
+                        .rollups
+                        .get(&rollup_id)
+                        .ok_or_else(|| format!("unknown rollup_id {rollup_id}"))?
+                        .l2_provider,
+                );
+                let evm_config = self.inner.evm_config.clone();
+                let terminal_block = sync_block.cloned().ok_or_else(|| {
+                    "lookup/static observations require an in-memory terminal block".to_owned()
+                })?;
+                let outcomes = tokio::task::spawn_blocking(move || {
+                    block_observation_outcomes(
+                        l2_provider.as_ref(),
+                        &evm_config,
+                        &terminal_block,
+                        &terminal_observations,
+                    )
+                    .map_err(|error| {
+                        format!(
+                            "terminal-block observations (block {}): {error}",
+                            terminal_block.header().number()
+                        )
+                    })
+                })
+                .await
+                .map_err(|error| format!("observation spawn_blocking join: {error}"))??;
+                (Vec::new(), outcomes)
+            }
         };
+        if let Some((composition_index, observation_index)) =
+            first_observation_mismatch(&observation_schedule, &observed_outcomes)?
+        {
+            return Err(PreparePostBatchError::ObservationMismatch {
+                composition_index,
+                observation_index,
+            });
+        }
         let proving_ctx = ProvingContext {
             rollup_id,
             from_block: from,
@@ -4947,6 +5048,96 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn local_observation_mismatch_ejects_only_owner_nonce_suffix() {
+        let inbound = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0xa);
+        let suffix = held(inbound.sender, Direction::Inbound, 1, 0xc);
+        let unrelated_outbound = held(Address::repeat_byte(0xb), Direction::Outbound, 0, 0xb);
+        let unrelated_inbound = held(Address::repeat_byte(0xd), Direction::Inbound, 0, 0xd);
+        let composition = eez_protocol::Composition {
+            actions: Vec::new(),
+            source: eez_protocol::SourceComposition {
+                rollup_id: eez_protocol::RollupId::MAINNET,
+                batch: eez_protocol::EvmBatch {
+                    staticEntries: vec![Default::default()],
+                    ..Default::default()
+                },
+                entry_traces: Vec::new(),
+                callback_entry_counts: Vec::new(),
+                outbound_event_hashes: Vec::new(),
+            },
+            targets: Vec::new(),
+        };
+        let survivors = vec![
+            unrelated_outbound.clone(),
+            inbound.clone(),
+            suffix.clone(),
+            unrelated_inbound.clone(),
+        ];
+        let compositions = vec![(composition, inbound.hash)];
+
+        let poison = observation_held_tx(0, &survivors, &compositions)
+            .cloned()
+            .unwrap();
+        assert_eq!(poison.hash, inbound.hash);
+        assert!(observation_held_tx(1, &survivors, &compositions).is_none());
+
+        let (retry, evicted) = partition_retryable(survivors, &poison);
+        assert_eq!(
+            retry.iter().map(|held| held.hash).collect::<Vec<_>>(),
+            vec![unrelated_outbound.hash, unrelated_inbound.hash],
+        );
+        assert_eq!(
+            evicted.iter().map(|held| held.hash).collect::<Vec<_>>(),
+            vec![inbound.hash, suffix.hash],
+        );
+    }
+
+    #[test]
+    fn local_observation_comparison_reports_exact_owner() {
+        let observation = |expected_success, expected_output: Bytes| BlockObservation {
+            after_transactions: 0,
+            manager_address: Address::repeat_byte(0x11),
+            claim: eez_protocol::settlement::FifoObservationClaim {
+                pinned_block_hash: B256::repeat_byte(0x22),
+                call_mode: eez_protocol::CallMode::Static,
+                target_address: Address::repeat_byte(0x33),
+                source_address: Address::repeat_byte(0x44),
+                source_rollup_id: eez_protocol::RollupId::MAINNET,
+                data: Bytes::new(),
+                value: U256::ZERO,
+                expected_success,
+                expected_output,
+            },
+        };
+        let schedule = vec![
+            (3, observation(true, Bytes::from_static(b"first"))),
+            (7, observation(false, Bytes::from_static(b"second"))),
+        ];
+        let matching = vec![
+            ObservedOutcome {
+                success: true,
+                output: Bytes::from_static(b"first"),
+            },
+            ObservedOutcome {
+                success: false,
+                output: Bytes::from_static(b"second"),
+            },
+        ];
+        assert_eq!(
+            first_observation_mismatch(&schedule, &matching).unwrap(),
+            None,
+        );
+
+        let mut mismatching = matching;
+        mismatching[1].output = Bytes::from_static(b"forged");
+        assert_eq!(
+            first_observation_mismatch(&schedule, &mismatching).unwrap(),
+            Some((7, 1)),
+        );
+        assert!(first_observation_mismatch(&schedule, &mismatching[..1]).is_err());
     }
 
     #[test]
