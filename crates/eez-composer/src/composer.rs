@@ -529,6 +529,10 @@ enum PreparePostBatchError {
     ObservationMismatch {
         composition_index: usize,
         observation_index: usize,
+        expected_success: bool,
+        observed_success: bool,
+        expected_output_hash: B256,
+        observed_output_hash: B256,
     },
 }
 
@@ -547,7 +551,7 @@ impl From<&str> for PreparePostBatchError {
 fn first_observation_mismatch(
     schedule: &[(usize, BlockObservation)],
     outcomes: &[ObservedOutcome],
-) -> Result<Option<(usize, usize)>, String> {
+) -> Result<Option<ObservationMismatchDetails>, String> {
     if outcomes.len() != schedule.len() {
         return Err(format!(
             "local observation replay returned {} outcomes for {} claims",
@@ -559,9 +563,28 @@ fn first_observation_mismatch(
         |(observation_index, ((composition_index, observation), outcome))| {
             (observation.claim.expected_success != outcome.success
                 || observation.claim.expected_output != outcome.output)
-                .then_some((*composition_index, observation_index))
+                .then(|| ObservationMismatchDetails {
+                    composition_index: *composition_index,
+                    observation_index,
+                    expected_success: observation.claim.expected_success,
+                    observed_success: outcome.success,
+                    expected_output_hash: alloy_primitives::keccak256(
+                        &observation.claim.expected_output,
+                    ),
+                    observed_output_hash: alloy_primitives::keccak256(&outcome.output),
+                })
         },
     ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ObservationMismatchDetails {
+    composition_index: usize,
+    observation_index: usize,
+    expected_success: bool,
+    observed_success: bool,
+    expected_output_hash: B256,
+    observed_output_hash: B256,
 }
 
 /// Both ends are unusable and clamp to the default: above it no tx is valid
@@ -3094,7 +3117,27 @@ where
                 error @ (PreparePostBatchError::Actionable(_)
                 | PreparePostBatchError::ObservationMismatch { .. }),
             ) => {
-                let poison = match &error {
+                let observation_mismatch = match &error {
+                    PreparePostBatchError::ObservationMismatch {
+                        composition_index,
+                        observation_index,
+                        expected_success,
+                        observed_success,
+                        expected_output_hash,
+                        observed_output_hash,
+                    } => Some(ObservationMismatchDetails {
+                        composition_index: *composition_index,
+                        observation_index: *observation_index,
+                        expected_success: *expected_success,
+                        observed_success: *observed_success,
+                        expected_output_hash: *expected_output_hash,
+                        observed_output_hash: *observed_output_hash,
+                    }),
+                    PreparePostBatchError::Actionable(_)
+                    | PreparePostBatchError::Build(_)
+                    | PreparePostBatchError::Prover(_) => None,
+                };
+                let failed = match &error {
                     PreparePostBatchError::Actionable(failure) => actionable_held_tx(
                         *failure,
                         &survivors,
@@ -3109,14 +3152,30 @@ where
                     }
                 }
                 .cloned();
-                let Some(poison) = poison else {
-                    event!(
-                        name: "eez.composer.prover.actionable_unresolved",
-                        Level::ERROR,
-                        rollup_id,
-                        failure = %error,
-                        "attributable candidate failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
-                    );
+                let Some(failed) = failed else {
+                    if let Some(mismatch) = observation_mismatch {
+                        event!(
+                            name: "eez.composer.observation.mismatch",
+                            Level::ERROR,
+                            rollup_id,
+                            composition_index = mismatch.composition_index,
+                            observation_index = mismatch.observation_index,
+                            expected_success = mismatch.expected_success,
+                            observed_success = mismatch.observed_success,
+                            expected_output_hash = %mismatch.expected_output_hash,
+                            observed_output_hash = %mismatch.observed_output_hash,
+                            resolved_held_tx = false,
+                            "composer simulation and pinned-prefix replay disagree, but the originating held transaction could not be resolved; retaining survivors and degrading to minimal postBatch",
+                        );
+                    } else {
+                        event!(
+                            name: "eez.composer.prover.actionable_unresolved",
+                            Level::ERROR,
+                            rollup_id,
+                            failure = %error,
+                            "attributable prover failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
+                        );
+                    }
                     pool.push_front_batch(survivors);
                     return self
                         .dispatch_minimal_postbatch(
@@ -3131,46 +3190,69 @@ where
                         .await;
                 };
 
-                let (retry, evicted) = partition_retryable(survivors, &poison);
-                event!(
-                    name: "eez.composer.prover.poison_ejected",
-                    Level::WARN,
-                    rollup_id,
-                    failure = %error,
-                    tx_hash = %poison.hash,
-                    sender = %poison.sender,
-                    direction = ?poison.direction,
-                    nonce = poison.nonce,
-                    retrying = retry.len(),
-                    "local replay or prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
-                );
-                for in_flight in &evicted {
+                let (retry, evicted_in_flight) = partition_retryable(survivors, &failed);
+                let evicted_queued =
+                    pool.evict_chain_at_or_above(failed.sender, failed.direction, failed.nonce);
+                if let Some(mismatch) = observation_mismatch {
                     event!(
-                        name: "eez.composer.prover.poison_in_flight_evicted",
+                        name: "eez.composer.observation.mismatch",
                         Level::WARN,
                         rollup_id,
-                        tx_hash = %in_flight.hash,
-                        sender = %in_flight.sender,
-                        direction = ?in_flight.direction,
-                        nonce = in_flight.nonce,
-                        gap_at = poison.nonce,
-                        "in-flight transaction belongs to an ejected nonce-chain suffix",
+                        composition_index = mismatch.composition_index,
+                        observation_index = mismatch.observation_index,
+                        expected_success = mismatch.expected_success,
+                        observed_success = mismatch.observed_success,
+                        expected_output_hash = %mismatch.expected_output_hash,
+                        observed_output_hash = %mismatch.observed_output_hash,
+                        resolved_held_tx = true,
+                        tx_hash = %failed.hash,
+                        sender = %failed.sender,
+                        direction = ?failed.direction,
+                        nonce = failed.nonce,
+                        retrying = retry.len(),
+                        evicted_in_flight = evicted_in_flight.len(),
+                        evicted_queued = evicted_queued.len(),
+                        "composer simulation and pinned-prefix replay disagree; fail-closed eviction of its nonce-chain suffix before rebuilding the batch",
                     );
-                }
-                for queued in
-                    pool.evict_chain_at_or_above(poison.sender, poison.direction, poison.nonce)
-                {
+                } else {
                     event!(
-                        name: "eez.composer.prover.poison_queued_evicted",
+                        name: "eez.composer.prover.poison_ejected",
                         Level::WARN,
                         rollup_id,
-                        tx_hash = %queued.hash,
-                        sender = %queued.sender,
-                        direction = ?queued.direction,
-                        nonce = queued.nonce,
-                        gap_at = poison.nonce,
-                        "queued transaction depends on an ejected nonce; evicting suffix",
+                        failure = %error,
+                        tx_hash = %failed.hash,
+                        sender = %failed.sender,
+                        direction = ?failed.direction,
+                        nonce = failed.nonce,
+                        retrying = retry.len(),
+                        "prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
                     );
+                    for in_flight in &evicted_in_flight {
+                        event!(
+                            name: "eez.composer.prover.poison_in_flight_evicted",
+                            Level::WARN,
+                            rollup_id,
+                            tx_hash = %in_flight.hash,
+                            sender = %in_flight.sender,
+                            direction = ?in_flight.direction,
+                            nonce = in_flight.nonce,
+                            gap_at = failed.nonce,
+                            "in-flight transaction belongs to an ejected nonce-chain suffix",
+                        );
+                    }
+                    for queued in &evicted_queued {
+                        event!(
+                            name: "eez.composer.prover.poison_queued_evicted",
+                            Level::WARN,
+                            rollup_id,
+                            tx_hash = %queued.hash,
+                            sender = %queued.sender,
+                            direction = ?queued.direction,
+                            nonce = queued.nonce,
+                            gap_at = failed.nonce,
+                            "queued transaction depends on an ejected nonce; evicting suffix",
+                        );
+                    }
                 }
 
                 // Each recursive attempt receives strictly fewer held
@@ -4578,12 +4660,16 @@ where
                 (Vec::new(), outcomes)
             }
         };
-        if let Some((composition_index, observation_index)) =
+        if let Some(mismatch) =
             first_observation_mismatch(&observation_schedule, &observed_outcomes)?
         {
             return Err(PreparePostBatchError::ObservationMismatch {
-                composition_index,
-                observation_index,
+                composition_index: mismatch.composition_index,
+                observation_index: mismatch.observation_index,
+                expected_success: mismatch.expected_success,
+                observed_success: mismatch.observed_success,
+                expected_output_hash: mismatch.expected_output_hash,
+                observed_output_hash: mismatch.observed_output_hash,
             });
         }
         let proving_ctx = ProvingContext {
@@ -5135,7 +5221,14 @@ mod tests {
         mismatching[1].output = Bytes::from_static(b"forged");
         assert_eq!(
             first_observation_mismatch(&schedule, &mismatching).unwrap(),
-            Some((7, 1)),
+            Some(ObservationMismatchDetails {
+                composition_index: 7,
+                observation_index: 1,
+                expected_success: false,
+                observed_success: false,
+                expected_output_hash: alloy_primitives::keccak256(b"second"),
+                observed_output_hash: alloy_primitives::keccak256(b"forged"),
+            }),
         );
         assert!(first_observation_mismatch(&schedule, &mismatching[..1]).is_err());
     }
