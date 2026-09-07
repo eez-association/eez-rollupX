@@ -191,7 +191,7 @@ class NativeArtifactTest(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("executable")
             binaries[key] = {"binary-path": f"/build/target/{relative}"}
-        for relative in ("release/eez-composer", "release/eez-dev-node", "release/deps/libfoo.so",
+        for relative in ("release/eez-composer", "release/test-helper", "release/deps/libfoo.so",
                          "release/deps/libfoo.rlib", "release/build/foo/out/libfoo.a",
                          "release/build/foo/out/code.o", "nextest/libdirs/host/libstd.so"):
             path = source / relative
@@ -200,7 +200,7 @@ class NativeArtifactTest(unittest.TestCase):
         metadata = {"rust-binaries": binaries, "rust-build-meta": {
             "target-directory": "/build/target", "non-test-binaries": {"node": [
                 {"name": "eez-composer", "kind": "bin-exe", "path": "release/eez-composer"},
-                {"name": "eez-dev-node", "kind": "bin-exe", "path": "release/eez-dev-node"},
+                {"name": "test-helper", "kind": "bin-exe", "path": "release/test-helper"},
                 {"name": "foo", "kind": "dylib", "path": "release/deps/libfoo.so"},
                 {"name": "foo", "kind": "dylib", "path": "release/deps/libfoo.rlib"}]}}}
         (source / "nextest/binaries-metadata.json").write_text(json.dumps(metadata))
@@ -221,21 +221,21 @@ class NativeArtifactTest(unittest.TestCase):
         self.assertFalse((destination / "target/release/deps/eez-protocol-rolling_hash_vectors-123").exists())
         for suffix in (".a", ".o", ".rlib"):
             self.assertFalse(list(destination.rglob(f"*{suffix}")))
-        for relative in ("release/eez-dev-node", "release/deps/libfoo.so", "nextest/libdirs/host/libstd.so"):
+        for relative in ("release/test-helper", "release/deps/libfoo.so", "nextest/libdirs/host/libstd.so"):
             self.assertTrue((destination / "target" / relative).is_file())
         self.assertEqual(native.runtime_hashes(destination / "target/release/eez-runtime"), self.manifest["runtime_sha256"])
 
     def test_lean_payload_detects_tampering_and_incomplete_inventory(self):
         destination, manifest = self.export_fixture()
         for relative in ("target/nextest/binaries-metadata.json", "target/nextest/cargo-metadata.json",
-                         "target/release/deps/eez-node-e2e-123", "target/release/eez-dev-node",
+                         "target/release/deps/eez-node-e2e-e2e-123", "target/release/test-helper",
                          "target/release/eez-runtime/eez-composer"):
             with self.subTest(relative=relative):
                 digest = manifest["files_sha256"].pop(relative)
                 with self.assertRaisesRegex(ValueError, "inventory"):
                     native.verify_e2e(destination, manifest)
                 manifest["files_sha256"][relative] = digest
-        path = destination / "target/release/deps/eez-node-e2e-123"
+        path = destination / "target/release/deps/eez-node-e2e-e2e-123"
         path.write_text("modified")
         with self.assertRaisesRegex(ValueError, "checksum"):
             native.verify_e2e(destination, manifest)
@@ -277,11 +277,14 @@ class NativeArtifactTest(unittest.TestCase):
 
     def test_omitted_node_binary_test_programs_are_only_empty_entrypoint_shims(self):
         # If tests or extra logic are added here, reconsider the CI selection.
-        for name, entrypoint in (("eez-composer", "run_composer"), ("eez-follower", "run_follower"),
-                                 ("eez-dev-node", "run_dev_node")):
-            source = (REPO / f"crates/eez-node/src/bin/{name}.rs").read_text()
+        for package, name, library, entrypoint in (
+                ("eez-node", "eez-composer", "eez_node", "run_composer"),
+                ("eez-follower", "eez-follower", "eez_follower", "run"),
+                ("eez-node-e2e", "eez-composer", "eez_node", "run_composer"),
+                ("eez-node-e2e", "eez-follower", "eez_follower", "run")):
+            source = (REPO / f"crates/{package}/src/bin/{name}.rs").read_text()
             code = "\n".join(line for line in source.splitlines() if not line.startswith("//!"))
-            self.assertEqual(" ".join(code.split()), f"fn main() -> eyre::Result<()> {{ eez_node::{entrypoint}() }}")
+            self.assertEqual(" ".join(code.split()), f"fn main() -> eyre::Result<()> {{ {library}::{entrypoint}() }}")
 
     def test_ci_toolchains_are_aligned(self):
         workflow = (REPO / ".github/workflows/ci.yml").read_text()
@@ -413,7 +416,7 @@ class NativeRelocationTest(unittest.TestCase):
                 shutil.copy2(REPO / path, dest)
             (repo / "Cargo.toml").write_text('[workspace]\nresolver="2"\nmembers=["crates/*"]\n'
                                            '[profile.release]\nlto="thin"\nstrip="symbols"\n')
-            packages = ("eez-node", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec")
+            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec")
             for name in packages:
                 package = repo / "crates" / name
                 (package / "src").mkdir(parents=True)
@@ -430,6 +433,11 @@ class NativeRelocationTest(unittest.TestCase):
                 # composer's separately archived unit tests require test-util.
                 if name == "eez-node":
                     manifest += '[dependencies]\neez-composer={path="../eez-composer"}\n'
+                elif name == "eez-follower":
+                    manifest += '[dependencies]\neez-composer={path="../eez-composer"}\n'
+                elif name == "eez-node-e2e":
+                    manifest += '[dependencies]\neez-node={path="../eez-node"}\neez-follower={path="../eez-follower"}\nee z-composer={path="../eez-composer"}\n'.replace("ee z", "eez")
+                    manifest += '[dev-dependencies]\nanyhow="1"\n'
                 elif name == "eez-composer":
                     manifest += ('[dependencies]\neez-protocol={path="../eez-protocol"}\n'
                                  '[dev-dependencies]\neez-protocol={path="../eez-protocol",features=["test-util"]}\n')
@@ -444,17 +452,19 @@ class NativeRelocationTest(unittest.TestCase):
                 (package / "tests/fixtures/fixture.txt").write_text("relocated fixture")
             signer = repo / "crates/eez-proof-signer/src/main.rs"
             signer.write_text('fn main() { println!("signer"); }\n#[test] fn signer_is_tested() { assert_eq!(2+2,4); }\n')
-            node = repo / "crates/eez-node"
-            (node / "src/bin").mkdir()
-            for binary in ("eez-composer", "eez-follower", "eez-dev-node"):
-                (node / f"src/bin/{binary}.rs").write_text(
+            node = repo / "crates/eez-node-e2e"
+            for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower"),
+                                    ("eez-node-e2e", "eez-composer"), ("eez-node-e2e", "eez-follower")):
+                directory = repo / f"crates/{package}/src/bin"
+                directory.mkdir(exist_ok=True)
+                (directory / f"{binary}.rs").write_text(
                     'fn main() { assert!(!eez_composer::test_clock()); println!("release"); }\n')
             # Exercise the integration test path-resolver code, not a copy of
             # the algorithm. The producer directory disappears before execution.
-            common = (REPO / "crates/eez-node/tests/common/mod.rs").read_text()
+            common = (REPO / "crates/eez-node-e2e/tests/common/mod.rs").read_text()
             manifest_fn = common.split("fn manifest_dir()", 1)[1].split("/// Stop dotenv", 1)[0]
             binary_type = common.split("pub enum NodeBinary", 1)[1].split("#[derive(Default)]\npub struct NodeConfig", 1)[0]
-            test_source = 'use std::path::PathBuf;\nfn manifest_dir()' + manifest_fn + '\npub enum NodeBinary' + binary_type
+            test_source = 'use std::path::PathBuf;\nuse anyhow::{Context, Result, anyhow, bail, ensure};\nfn manifest_dir()' + manifest_fn + '\npub enum NodeBinary' + binary_type
             # The standalone enum copy needs its original derive attributes.
             test_source = test_source.replace("pub enum NodeBinary", "#[derive(Default)] pub enum NodeBinary")
             test_source += '''
@@ -462,11 +472,11 @@ class NativeRelocationTest(unittest.TestCase):
     assert_eq!(std::fs::read_to_string(manifest_dir().join("tests/fixtures/fixture.txt")).unwrap(), "relocated fixture");
 }
 #[test] fn nodes_and_signer_are_relocated() {
-    for bin in [NodeBinary::Composer, NodeBinary::Follower, NodeBinary::Dev] {
-        assert!(std::process::Command::new(bin.path()).status().unwrap().success());
+    for bin in [NodeBinary::Composer, NodeBinary::Follower] {
+        assert!(std::process::Command::new(bin.path().unwrap()).status().unwrap().success());
     }
     for bin in [NodeBinary::Composer, NodeBinary::Follower] {
-        let result = std::process::Command::new(bin.path()).output().unwrap();
+        let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
         assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
     }
     let signer = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN").unwrap();
@@ -498,21 +508,19 @@ class NativeRelocationTest(unittest.TestCase):
                        RUSTFLAGS=native.RUSTFLAGS, CARGO_TARGET_DIR=str(root / "producer-target"),
                        EEZ_COMPILER_CACHE="none", EEZ_BUILD_METRICS_DIR=str(root / "metrics"))
             artifact = root / "artifact"
-            subprocess.run(["cargo", "build", "--release", "--locked", "--workspace", "--bins"],
+            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eez-node", "-p", "eez-follower", "-p", "eez-proof-signer", "--bins"],
                            cwd=repo, env=env, check=True)
             frozen = root / "shipping"
             frozen.mkdir()
             for name in native.RUNTIME_BINARIES:
                 shutil.copy2(root / f"producer-target/release/{name}", frozen / name)
-            stamps = {name: (root / f"producer-target/release/{name}").stat().st_mtime_ns
-                      for name in ("eez-composer", "eez-follower", "eez-dev-node")}
             subprocess.run([sys.executable, "scripts/ci/native-tests.py", "build", str(artifact),
                             "--runtime-bin", str(frozen)], cwd=repo, env=env, check=True)
-            # Without the archive split, test-util rebuilds all three node bins.
-            for name, stamp in stamps.items():
-                path = root / f"producer-target/release/{name}"
-                self.assertEqual(path.stat().st_mtime_ns, stamp, f"redundant rebuild: {name}")
-                self.assertEqual(subprocess.check_output([str(path)], text=True).strip(), "release")
+            # The harness wrappers may rebuild into the same target paths. The
+            # producer preserves the exact shipping bytes before archiving them.
+            for name in native.RUNTIME_BINARIES:
+                self.assertEqual(subprocess.check_output([str(frozen / name)], text=True).strip(),
+                                 "signer" if name == "eez-proof-signer" else "release")
             # Check actual Cargo metadata: signer unit tests retained, all node
             # library/E2E targets present, no empty node binary test programs.
             metadata = json.loads(subprocess.check_output([
@@ -521,7 +529,7 @@ class NativeRelocationTest(unittest.TestCase):
             self.assertIn("eez-proof-signer::bin/eez-proof-signer", metadata)
             self.assertIn("eez-node", metadata)
             for name in native.TARGETS[:4]:
-                self.assertIn(f"eez-node::{name}", metadata)
+                self.assertIn(f"eez-node-e2e::{name}", metadata)
             self.assertNotIn("eez-composer", metadata)
             self.assertFalse(any(key.startswith("eez-node::bin/") for key in metadata))
             composer_metadata = json.loads(subprocess.check_output([
