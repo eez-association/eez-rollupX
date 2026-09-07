@@ -156,8 +156,7 @@ pub struct ProvingContext {
     /// The authoritative postBatch payload (proof carriers filled, `proofs[]`
     /// empty). The prover recomputes the `publicInputsHash` from this.
     pub batch: EvmBatch,
-    /// Complete physical blobs for the batch's type-3 L1 transaction. Empty
-    /// for the legacy calldata profile.
+    /// Complete physical blobs for the mandatory type-3 L1 transaction.
     pub blobs: Vec<eez_blob_codec::Blob>,
     /// Every window block's RLP + augmented witness, in block order.
     pub blocks: Vec<BlockWitness>,

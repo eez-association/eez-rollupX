@@ -6,12 +6,15 @@ use alloy_sol_types::SolValue as _;
 use eez_protocol::abi::{ExecutionEntrySol, StaticExecutionEntrySol};
 use eez_protocol::blob_semantics::SemanticTransaction;
 use eez_protocol::entries::finalize_l1_entry_traces;
+use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::system_tx::OutboundSourceEntry;
 use eez_protocol::{Composition, RollupId};
 use reth_primitives_traits::BlockBody as _;
 use thiserror::Error;
 
-use super::{AuthorizedInboundEffects, AuthorizedOutboundEffects, EthereumBlock};
+use super::{
+    AuthorizedInboundEffects, AuthorizedOutboundEffects, CanonicalPostBatch, EthereumBlock,
+};
 use crate::validate::ValidatedWindow;
 
 /// A native semantic stream did not reproduce the effects authorized from
@@ -78,6 +81,8 @@ pub(crate) enum SemanticBindingError {
     InboundSidecars,
     #[error("L1-origin semantic transactions do not reproduce the authorized L1 static entries")]
     InboundStaticSettlement,
+    #[error("semantic transaction {transaction} has an invalid FIFO root schedule: {reason}")]
+    FifoRootSchedule { transaction: usize, reason: String },
 }
 
 /// Verify that the native cross-chain message stream is a lossless semantic
@@ -87,14 +92,36 @@ pub(crate) enum SemanticBindingError {
 /// Sync block and therefore match exactly. L1-origin `txData` is chain-defined
 /// sidecar data: this pipeline does not execute the later bundled L1 user
 /// transactions, so soundness comes from exact bidirectional table binding.
+#[cfg(test)]
 pub(crate) fn verify_native_semantics(
     transactions: &[SemanticTransaction],
     validated_window: &ValidatedWindow,
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
-    expected_inbound_static_entries: &[StaticExecutionEntrySol],
+    canonical_batch: &CanonicalPostBatch,
     expected_rollup_id: NonZeroU64,
 ) -> Result<(), SemanticBindingError> {
+    verify_native_semantics_with_observations(
+        transactions,
+        validated_window,
+        outbound_effects,
+        inbound_effects,
+        canonical_batch,
+        expected_rollup_id,
+    )
+    .map(drop)
+}
+
+/// Verify native semantics and return the lookup/static outcomes that still
+/// require authenticated EVM replay at their FIFO-pinned roots.
+pub(crate) fn verify_native_semantics_with_observations(
+    transactions: &[SemanticTransaction],
+    validated_window: &ValidatedWindow,
+    outbound_effects: &AuthorizedOutboundEffects,
+    inbound_effects: &AuthorizedInboundEffects<'_>,
+    canonical_batch: &CanonicalPostBatch,
+    expected_rollup_id: NonZeroU64,
+) -> Result<Vec<FifoObservationClaim>, SemanticBindingError> {
     let outbound_groups = outbound_effects.groups().collect::<Vec<_>>();
     if transactions.len() < outbound_groups.len() {
         return Err(SemanticBindingError::TransactionCount {
@@ -153,15 +180,65 @@ pub(crate) fn verify_native_semantics(
         }
     }
 
-    let expected_inbound_entries = inbound_effects
+    let expected_inbound_effect_entries = inbound_effects
         .iter()
         .map(super::inbound::AuthorizedInboundEffect::claimed_entry)
         .collect::<Vec<_>>();
-    let mut expected_inbound_cursor = 0usize;
+    let expected_inbound_checkpoints = inbound_effects
+        .iter()
+        .map(super::inbound::AuthorizedInboundEffect::recomputed_checkpoint)
+        .collect::<Vec<_>>();
+    let expected_inbound_static_entries = canonical_batch.static_entries();
+    let immediate_count =
+        usize::try_from(canonical_batch.as_batch().immediateEntryCount).map_err(|_| {
+            SemanticBindingError::FifoRootSchedule {
+                transaction: outbound_groups.len(),
+                reason: "immediateEntryCount does not fit usize".into(),
+            }
+        })?;
+    let expected_immediate_count = 1usize.checked_add(outbound_groups.len()).ok_or_else(|| {
+        SemanticBindingError::FifoRootSchedule {
+            transaction: outbound_groups.len(),
+            reason: "immediate settlement entry count overflows usize".into(),
+        }
+    })?;
+    if immediate_count != expected_immediate_count {
+        return Err(SemanticBindingError::FifoRootSchedule {
+            transaction: outbound_groups.len(),
+            reason: format!(
+                "immediateEntryCount is {immediate_count}, expected one anchor plus {} outbound settlement entries ({expected_immediate_count})",
+                outbound_groups.len(),
+            ),
+        });
+    }
+    let entries = &canonical_batch.as_batch().entries;
+    let deferred_entries =
+        entries
+            .get(immediate_count..)
+            .ok_or_else(|| SemanticBindingError::FifoRootSchedule {
+                transaction: outbound_groups.len(),
+                reason: "immediateEntryCount exceeds entries".into(),
+            })?;
+    let mut live_root = entries
+        .get(immediate_count.checked_sub(1).ok_or_else(|| {
+            SemanticBindingError::FifoRootSchedule {
+                transaction: outbound_groups.len(),
+                reason: "batch has no immediate anchor".into(),
+            }
+        })?)
+        .and_then(|entry| entry.rootUpdates.first())
+        .map(|update| update.newRoot)
+        .ok_or_else(|| SemanticBindingError::FifoRootSchedule {
+            transaction: outbound_groups.len(),
+            reason: "last immediate entry has no root update".into(),
+        })?;
+    let mut deferred_cursor = 0usize;
+    let mut expected_inbound_effect_cursor = 0usize;
     let mut expected_inbound_static_cursor = 0usize;
     let mut actual_inbound_settlement = Vec::new();
     let mut actual_inbound_static_settlement = Vec::new();
     let mut actual_inbound_sidecars = Vec::new();
+    let mut observation_claims = Vec::new();
     for (transaction_index, transaction) in
         transactions.iter().enumerate().skip(outbound_groups.len())
     {
@@ -169,27 +246,123 @@ pub(crate) fn verify_native_semantics(
         let mut composition = materialize(transaction, transaction_index)?;
         require_supported_targets(&composition, transaction_index, rollup_id)?;
         let entry_count = composition.source.batch.entries.len();
-        let expected_end = expected_inbound_cursor.saturating_add(entry_count);
-        let expected_entries = expected_inbound_entries
-            .get(expected_inbound_cursor..expected_end)
+        let deferred_end = deferred_cursor.saturating_add(entry_count);
+        let expected_entries = deferred_entries
+            .get(deferred_cursor..deferred_end)
             .ok_or(SemanticBindingError::InboundSettlement)?;
+        let fifo_actions = eez_protocol::settlement::composition_fifo_actions(&composition)
+            .map_err(|reason| SemanticBindingError::FifoRootSchedule {
+                transaction: transaction_index,
+                reason,
+            })?;
+        let applying_count = fifo_actions
+            .iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    eez_protocol::settlement::FifoSourceAction::Mutable { applies: true }
+                )
+            })
+            .count();
+        let expected_effect_end = expected_inbound_effect_cursor.saturating_add(applying_count);
+        let checkpoint_roots = expected_inbound_checkpoints
+            .get(expected_inbound_effect_cursor..expected_effect_end)
+            .ok_or(SemanticBindingError::InboundSettlement)?;
+        let root_plan = eez_protocol::settlement::fifo_transaction_root_plan(
+            live_root,
+            &fifo_actions,
+            checkpoint_roots,
+        )
+        .map_err(|reason| SemanticBindingError::FifoRootSchedule {
+            transaction: transaction_index,
+            reason,
+        })?;
+        observation_claims.extend(
+            eez_protocol::settlement::fifo_observation_claims(&composition, &root_plan).map_err(
+                |reason| SemanticBindingError::FifoRootSchedule {
+                    transaction: transaction_index,
+                    reason,
+                },
+            )?,
+        );
+        for (local_index, (entry, expected_root)) in expected_entries
+            .iter()
+            .zip(&root_plan.mutable_new_roots)
+            .enumerate()
+        {
+            let actual = entry.rootUpdates.first().map(|update| update.newRoot);
+            if actual != Some(*expected_root) {
+                return Err(SemanticBindingError::FifoRootSchedule {
+                    transaction: transaction_index,
+                    reason: format!(
+                        "mutable entry {local_index} claims {actual:?}, expected {expected_root}"
+                    ),
+                });
+            }
+        }
+
+        let mut local_mutable_cursor = 0usize;
+        let mut local_effect_cursor = expected_inbound_effect_cursor;
+        for action in &fifo_actions {
+            let eez_protocol::settlement::FifoSourceAction::Mutable { applies } = action else {
+                continue;
+            };
+            let entry = expected_entries
+                .get(local_mutable_cursor)
+                .ok_or(SemanticBindingError::InboundSettlement)?;
+            local_mutable_cursor += 1;
+            if !*applies {
+                continue;
+            }
+            let expected_effect = expected_inbound_effect_entries
+                .get(local_effect_cursor)
+                .ok_or(SemanticBindingError::InboundSettlement)?;
+            if entry.abi_encode() != expected_effect.abi_encode() {
+                return Err(SemanticBindingError::InboundSettlement);
+            }
+            local_effect_cursor += 1;
+        }
+        if local_mutable_cursor != entry_count || local_effect_cursor != expected_effect_end {
+            return Err(SemanticBindingError::InboundSettlement);
+        }
+
+        let expected_entry_refs = expected_entries.iter().collect::<Vec<_>>();
         actual_inbound_settlement.extend(finalized_source_entries(
             &mut composition,
-            expected_entries,
+            &expected_entry_refs,
             transaction_index,
         )?);
-        expected_inbound_cursor = expected_end;
+        deferred_cursor = deferred_end;
+        expected_inbound_effect_cursor = expected_effect_end;
         let static_entry_count = composition.source.batch.staticEntries.len();
         let expected_static_end = expected_inbound_static_cursor.saturating_add(static_entry_count);
         let expected_static_entries = expected_inbound_static_entries
             .get(expected_inbound_static_cursor..expected_static_end)
             .ok_or(SemanticBindingError::InboundStaticSettlement)?;
+        for (local_index, (entry, expected_root)) in expected_static_entries
+            .iter()
+            .zip(&root_plan.static_roots)
+            .enumerate()
+        {
+            let actual = entry.expectedRoots.first().map(|pin| pin.root);
+            if actual != Some(*expected_root) {
+                return Err(SemanticBindingError::FifoRootSchedule {
+                    transaction: transaction_index,
+                    reason: format!(
+                        "static entry {local_index} pins {actual:?}, expected {expected_root}"
+                    ),
+                });
+            }
+        }
         actual_inbound_static_settlement.extend(finalized_source_static_entries(
             &mut composition,
-            expected_static_entries,
+            &root_plan.static_roots,
+            rollup_id,
             transaction_index,
         )?);
         expected_inbound_static_cursor = expected_static_end;
+
+        live_root = root_plan.endpoint;
         actual_inbound_sidecars.extend(target_entries(
             &composition,
             RollupId(rollup_id),
@@ -197,13 +370,25 @@ pub(crate) fn verify_native_semantics(
         )?);
     }
 
-    if expected_inbound_cursor != expected_inbound_entries.len() {
+    if expected_inbound_effect_cursor != expected_inbound_effect_entries.len() {
         return Err(SemanticBindingError::InboundSettlement);
     }
     if expected_inbound_static_cursor != expected_inbound_static_entries.len() {
         return Err(SemanticBindingError::InboundStaticSettlement);
     }
-    let expected_inbound_settlement = encode_entries(&expected_inbound_entries);
+    if deferred_cursor != deferred_entries.len() {
+        return Err(SemanticBindingError::FifoRootSchedule {
+            transaction: transactions.len(),
+            reason: format!(
+                "{} unbound deferred settlement entries remain",
+                deferred_entries.len() - deferred_cursor,
+            ),
+        });
+    }
+    let expected_inbound_settlement = deferred_entries
+        .iter()
+        .map(ExecutionEntrySol::abi_encode)
+        .collect::<Vec<_>>();
     if actual_inbound_settlement != expected_inbound_settlement {
         return Err(SemanticBindingError::InboundSettlement);
     }
@@ -221,7 +406,7 @@ pub(crate) fn verify_native_semantics(
     if actual_inbound_sidecars != expected_inbound_sidecars {
         return Err(SemanticBindingError::InboundSidecars);
     }
-    Ok(())
+    Ok(observation_claims)
 }
 
 fn require_origin(
@@ -457,25 +642,29 @@ fn finalized_source_entries(
 
 fn finalized_source_static_entries(
     composition: &mut Composition,
-    expected_entries: &[StaticExecutionEntrySol],
+    expected_roots: &[alloy_primitives::B256],
+    expected_rollup_id: u64,
     transaction_index: usize,
 ) -> Result<Vec<Vec<u8>>, SemanticBindingError> {
     let actual = composition.source.batch.staticEntries.len();
-    if actual != expected_entries.len() {
+    if actual != expected_roots.len() {
         return Err(SemanticBindingError::L1StaticEntryCount {
             transaction: transaction_index,
-            expected: expected_entries.len(),
+            expected: expected_roots.len(),
             actual,
         });
     }
-    for (entry, expected) in composition
+    for (entry, expected_root) in composition
         .source
         .batch
         .staticEntries
         .iter_mut()
-        .zip(expected_entries)
+        .zip(expected_roots)
     {
-        entry.expectedRoots.clone_from(&expected.expectedRoots);
+        entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: expected_rollup_id,
+            root: *expected_root,
+        }];
     }
     Ok(composition
         .source

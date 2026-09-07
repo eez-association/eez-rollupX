@@ -59,8 +59,8 @@ eez:
   l2_block_time_ms: 2000
   proof_time_ms: 5000
   submission_slack_ms: 500
+  bundle_submission_lead_ms: 7500
   max_speculative_depth: 0
-  da_mode: blob
   # The pinned ethereum-package activates Fulu at genesis, so blob pool
   # transactions must carry the EIP-7594 cell-proof sidecar wrapper.
   blob_sidecar_encoding: eip7594

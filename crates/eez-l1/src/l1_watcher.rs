@@ -87,10 +87,10 @@ pub enum L1Event {
         new_head_number: u64,
         new_head_hash: B256,
     },
-    /// `EEZ.BatchPosted` log observed. `call_data` is the raw payload
-    /// from the originating tx's `ProofSystemBatch.callData` field; the
-    /// Deriver decodes via `eez-payload-codec`. The Composer typically
-    /// uses only the metadata (`l1_block_number`, `tx_hash`, `submitter`).
+    /// `EEZ.BatchPosted` log observed. `operations_payload` is the authenticated
+    /// operations payload recovered from the originating transaction's native
+    /// blobs; the Deriver decodes it via `eez-payload-codec`. The Composer
+    /// typically uses only the metadata.
     BatchPosted {
         l1_block_number: u64,
         l1_block_hash: B256,
@@ -100,7 +100,7 @@ pub enum L1Event {
         /// Tx originator — the address that sent the postBatch.
         /// Composer uses this to detect external batches (based mode).
         submitter: Address,
-        call_data: Bytes,
+        operations_payload: Bytes,
         /// The originating postBatch tx's full `postAndVerifyBatch` input,
         /// captured from the tx fetched by (block, index) during the scan.
         /// The Deriver's reconcile fallback decodes `batch.entries`
@@ -137,8 +137,8 @@ pub struct L1WatcherConfig {
     /// L1 RPC endpoint (HTTP / HTTPS). Uses the same `EEZ_L1_RPC_URL` as
     /// [`L1ReaderConfig`](crate::L1ReaderConfig).
     pub rpc_url: Url,
-    /// Optional consensus-layer REST endpoint used for EIP-4844 blob
-    /// sidecars. Required only after a blob-backed batch is observed.
+    /// Consensus-layer REST endpoint used for mandatory native blob sidecars.
+    /// Environment construction always populates this value.
     pub beacon_url: Option<Url>,
     /// Deployed `EEZ` (rollups registry) address. Used to filter
     /// `BatchPosted` log events.
@@ -171,18 +171,13 @@ impl L1WatcherConfig {
             .map_err(|_| L1Error::Config("EEZ_L1_RPC_URL is required (see .env.example)".into()))?;
         let rpc_url = Url::parse(&rpc_url_raw)
             .map_err(|e| L1Error::Config(format!("EEZ_L1_RPC_URL: {e}")))?;
-        let beacon_url = match env::var("EEZ_L1_BEACON_URL") {
-            Ok(raw) if raw.trim().is_empty() => None,
-            Ok(raw) => Some(
-                Url::parse(&raw).map_err(|e| L1Error::Config(format!("EEZ_L1_BEACON_URL: {e}")))?,
-            ),
-            Err(env::VarError::NotPresent) => None,
-            Err(env::VarError::NotUnicode(_)) => {
-                return Err(L1Error::Config(
-                    "EEZ_L1_BEACON_URL contains non-UTF-8 bytes".into(),
-                ));
-            }
-        };
+        let beacon_url_raw = env::var("EEZ_L1_BEACON_URL").map_err(|_| {
+            L1Error::Config("EEZ_L1_BEACON_URL is required for native blob DA".into())
+        })?;
+        let beacon_url = Some(
+            Url::parse(&beacon_url_raw)
+                .map_err(|e| L1Error::Config(format!("EEZ_L1_BEACON_URL: {e}")))?,
+        );
 
         let eez_raw = env::var("EEZ_REGISTRY_ADDRESS").map_err(|_| {
             L1Error::Config("EEZ_REGISTRY_ADDRESS is required (see .env.example)".into())
@@ -770,7 +765,7 @@ impl L1Watcher {
                 tx_hash: b.tx_hash,
                 tx_index: b.tx_index,
                 submitter: b.submitter,
-                call_data: b.call_data,
+                operations_payload: b.operations_payload,
                 post_batch_input: b.post_batch_input,
                 state_applied: b.state_applied,
                 settlement: b.settlement,
@@ -1531,7 +1526,7 @@ mod tests {
             tx_hash: B256::with_last_byte(tx),
             tx_index: u64::from(tx),
             submitter: Address::ZERO,
-            call_data: Bytes::new(),
+            operations_payload: Bytes::new(),
             transaction_blob_hashes: Vec::new(),
             post_batch_input: Bytes::new(),
             state_applied: true,

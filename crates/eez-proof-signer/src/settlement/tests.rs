@@ -173,7 +173,7 @@ fn effect_batch(roots: &[B256], kinds: &[ClaimedEntryShape]) -> CanonicalPostBat
                 )
                 .current();
             }
-            ClaimedEntryShape::Anchor | ClaimedEntryShape::Invalid => {
+            ClaimedEntryShape::Anchor | ClaimedEntryShape::Lookup | ClaimedEntryShape::Invalid => {
                 panic!("unsupported test effect kind {kind:?}")
             }
         }
@@ -299,9 +299,18 @@ fn bindable_inbound_batch(settling: &SettlingBlockObservations) -> CanonicalPost
         .iter()
         .map(|candidate| candidate.inspection.as_ref().unwrap())
         .collect::<Vec<_>>();
-    let roots = vec![B256::ZERO; observations.len() + 2];
+    // An applied L2 transaction necessarily produces a distinct block hash.
+    // Keep the leading anchor inert, then give every inbound effect a real
+    // checkpoint so these fixtures cannot be mistaken for lookup-only entries.
+    let mut roots = Vec::with_capacity(observations.len() + 2);
+    roots.extend([B256::ZERO, B256::ZERO]);
+    roots.extend(
+        (1..=observations.len())
+            .map(|index| B256::repeat_byte(u8::try_from(index).expect("small fixture"))),
+    );
     let kinds = vec![ClaimedEntryShape::Inbound; observations.len()];
     let mut batch = effect_batch(&roots, &kinds);
+    batch.immediateEntryCount = U256::from(1);
     for (entry, observation) in batch.entries.iter_mut().skip(1).zip(observations) {
         entry.proxyEntryHash = observation.recomputed_call_hash;
         entry.returnData = observation.return_data.clone();
@@ -320,10 +329,20 @@ fn effect_plan<'batch, 'settling>(
     batch: &'batch CanonicalPostBatch,
     settling: &'settling SettlingBlockObservations,
 ) -> BoundEffectSequence<'batch, 'settling> {
+    let claimed_effect_roots = batch
+        .entries
+        .iter()
+        .skip(1)
+        .filter(|entry| {
+            !eez_protocol::settlement::is_lookup_only_inbound_entry(entry, 1)
+                && (entry.proxyEntryHash != B256::ZERO || !entry.l2ToL1Calls.is_empty())
+        })
+        .map(|entry| entry.rootUpdates[0].newRoot);
     let checkpoints = settling
         .effect_candidate_positions()
         .into_iter()
-        .map(|transaction_index| checkpoint(transaction_index, B256::ZERO))
+        .zip(claimed_effect_roots)
+        .map(|(transaction_index, root)| checkpoint(transaction_index, root))
         .collect::<Vec<_>>();
     let verified_state_chain = verified_state_chain_for_test(batch);
     bind_effects_to_execution(&verified_state_chain, B256::ZERO, &checkpoints, settling).unwrap()

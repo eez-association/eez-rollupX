@@ -5,35 +5,44 @@
 //! Stateless/Reth, checks window continuity, and maps validated execution facts
 //! into associated per-block output.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
 use alloy_consensus::{
-    EthereumReceipt, Transaction as _, TxReceipt as _,
+    BlockHeader as _, EthereumReceipt, Transaction as _, TxReceipt as _,
     proofs::{calculate_receipt_root, calculate_transaction_root},
 };
 #[cfg(test)]
 use alloy_genesis::ChainConfig;
 use alloy_genesis::Genesis;
-use alloy_primitives::{Address, B256, Bloom};
+use alloy_primitives::{Address, B256, Bloom, Bytes, U256, keccak256, map::B256IndexMap};
 use alloy_sol_types::SolEvent as _;
+use eez_driver::observation::{BlockObservation, ObservedOutcome, replay_block_with_observations};
 use eez_protocol::abi::eez_l2_events::CrossChainCallExecuted;
+use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::settlement::{is_system_tx, pair_end_positions};
 use reth_chainspec::{ChainSpec, EthereumHardforks as _};
 use reth_ethereum_primitives::Block;
 use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
+use revm::Database;
+use revm::bytecode::Bytecode;
+use revm::database::State;
+use revm::state::AccountInfo;
 use stateless_reth::validation::StatelessValidationError;
 use stateless_reth::{
     StatelessValidationOutput, stateless_validation_recovered,
     stateless_validation_recovered_with_state_checkpoints,
 };
+use stateless_tries::{WitnessDbError, default::StatelessSparseTrie};
 use tracing::{debug, info, trace};
 
 use super::{
-    BackendBlockOutput, BackendWindowOutput, DecodedOutboundEvent, OutboundEventObservation,
-    SettlementBlockEvidence, TransactionStateCheckpoint, ValidationError,
+    BackendBlockOutput, BackendWindowOutput, DecodedOutboundEvent, ObservationValidationError,
+    OutboundEventObservation, SettlementBlockEvidence, TransactionStateCheckpoint, ValidatedWindow,
+    ValidationError,
 };
 use crate::EEZL2_ADDRESS;
 use crate::cancel::CancellationToken;
@@ -44,6 +53,7 @@ mod chain_config;
 use chain_config::{ChainDocumentKind, load_chain_document};
 
 const DEBUG_PROGRESS_INTERVAL: usize = 100;
+const BLOCKHASH_ANCESTOR_LIMIT: usize = 256;
 
 /// Transaction boundaries at which settlement framing needs replay-state
 /// checkpoints in order to derive canonical prefix-block hashes.
@@ -399,6 +409,209 @@ impl Backend {
             pre_state_root,
             blocks: block_outputs,
         })
+    }
+
+    /// Re-execute every non-applying lookup/static root from the exact witness
+    /// already accepted for the terminal block.
+    pub(super) fn verify_observations(
+        &self,
+        window: &ValidatedWindow,
+        claims: &[FifoObservationClaim],
+    ) -> Result<(), ObservationValidationError> {
+        let outcomes = self.replay_observations(window, claims)?;
+        for (index, (claim, outcome)) in claims.iter().zip(outcomes).enumerate() {
+            if claim.expected_success != outcome.success || claim.expected_output != outcome.output
+            {
+                return Err(ObservationValidationError::OutcomeMismatch { index });
+            }
+        }
+        Ok(())
+    }
+
+    fn replay_observations(
+        &self,
+        window: &ValidatedWindow,
+        claims: &[FifoObservationClaim],
+    ) -> Result<Vec<ObservedOutcome>, ObservationValidationError> {
+        let settling = window.settling_block();
+        let replay = settling.replay_input();
+        let block = alloy_rlp::decode_exact::<Block>(settling.block().rlp())
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
+        let block = recover_block(block, &self.chain_spec)
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
+        let transaction_count = block.body().transactions.len();
+
+        let mut observations = Vec::with_capacity(claims.len());
+        for (index, claim) in claims.iter().cloned().enumerate() {
+            let after_transactions = if claim.pinned_block_hash == window.settling_pre_block_hash()
+            {
+                0
+            } else if let Some(checkpoint) = settling
+                .transaction_state_checkpoints()
+                .iter()
+                .find(|checkpoint| checkpoint.block_hash == claim.pinned_block_hash)
+            {
+                checkpoint.transaction_index + 1
+            } else if claim.pinned_block_hash == window.window_post_block_hash() {
+                transaction_count
+            } else {
+                return Err(ObservationValidationError::UnknownPinnedRoot {
+                    index,
+                    block_hash: claim.pinned_block_hash,
+                });
+            };
+            observations.push(BlockObservation {
+                after_transactions,
+                manager_address: crate::EEZL2_ADDRESS,
+                claim,
+            });
+        }
+        if observations
+            .windows(2)
+            .any(|pair| pair[0].after_transactions > pair[1].after_transactions)
+        {
+            return Err(ObservationValidationError::Replay(
+                "observation pins are not in FIFO prefix order".to_owned(),
+            ));
+        }
+
+        // The ordinary validation pass consumed an identical clone and
+        // accepted its ancestor chain and pre-state commitment. Rebuilding the
+        // sparse trie here authenticates every supplemental observation read;
+        // missing account/code/storage nodes fail closed.
+        let (trie, bytecode) =
+            StatelessSparseTrie::new(replay.witness.clone(), replay.pre_state_root)
+                .map_err(|error| ObservationValidationError::Replay(format!("{error:?}")))?;
+        // Validate the retained header chain again before exposing it through
+        // BLOCKHASH. This is redundant with the first Stateless pass, but it
+        // keeps the observation verifier fail-closed if the retained replay
+        // representation is ever refactored or made mutable.
+        let ancestor_hashes = authenticated_ancestor_hashes(&block, &replay.witness.headers)?;
+        let db = ObservationWitnessDatabase::new(&trie, bytecode, ancestor_hashes);
+        let has_bal = block.sealed_header().block_access_list_hash().is_some();
+        let mut state = State::builder()
+            .with_database(db)
+            .with_bundle_update()
+            .with_bal_builder_if(has_bal)
+            .build();
+        replay_block_with_observations(&mut state, &self.evm_config, &block, &observations)
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))
+    }
+}
+
+/// Decode and authenticate the EVM `BLOCKHASH` window against the exact
+/// terminal block header. Witness headers are ordered oldest-to-newest, so the
+/// parent is checked first by iterating in reverse.
+fn authenticated_ancestor_hashes(
+    block: &RecoveredBlock<Block>,
+    headers: &[Bytes],
+) -> Result<BTreeMap<u64, B256>, ObservationValidationError> {
+    if headers.len() > BLOCKHASH_ANCESTOR_LIMIT {
+        return Err(ObservationValidationError::Replay(format!(
+            "ancestor header count {} exceeds limit {BLOCKHASH_ANCESTOR_LIMIT}",
+            headers.len(),
+        )));
+    }
+    if headers.is_empty() {
+        return Err(ObservationValidationError::Replay(
+            "terminal replay witness has no parent header".to_owned(),
+        ));
+    }
+
+    let decoded = headers
+        .iter()
+        .map(|bytes| {
+            alloy_rlp::decode_exact::<alloy_consensus::Header>(bytes)
+                .map(|header| (header, keccak256(bytes)))
+                .map_err(|error| ObservationValidationError::Replay(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut hashes = BTreeMap::new();
+    let mut child_number = block.header().number;
+    let mut expected_parent_hash = block.header().parent_hash;
+    for (parent, actual_hash) in decoded.iter().rev() {
+        let expected_parent_number = child_number.checked_sub(1).ok_or_else(|| {
+            ObservationValidationError::Replay(
+                "genesis block cannot have an ancestor-header witness".to_owned(),
+            )
+        })?;
+        if parent.number != expected_parent_number {
+            return Err(ObservationValidationError::Replay(format!(
+                "invalid ancestor number: block {child_number} expects parent {expected_parent_number}, got {}",
+                parent.number,
+            )));
+        }
+        if *actual_hash != expected_parent_hash {
+            return Err(ObservationValidationError::Replay(format!(
+                "invalid ancestor hash at block {}: expected {expected_parent_hash}, got {actual_hash}",
+                parent.number,
+            )));
+        }
+        hashes.insert(parent.number, *actual_hash);
+        child_number = parent.number;
+        expected_parent_hash = parent.parent_hash;
+    }
+    Ok(hashes)
+}
+
+/// Minimal witness-backed revm database used only for observation replay.
+/// This mirrors Stateless's private validation adapter while deliberately
+/// keeping account/storage reads fail-closed through `StatelessSparseTrie`.
+#[derive(Debug)]
+struct ObservationWitnessDatabase<'a> {
+    trie: &'a StatelessSparseTrie,
+    bytecode: B256IndexMap<Bytes>,
+    block_hashes: BTreeMap<u64, B256>,
+}
+
+impl<'a> ObservationWitnessDatabase<'a> {
+    const fn new(
+        trie: &'a StatelessSparseTrie,
+        bytecode: B256IndexMap<Bytes>,
+        block_hashes: BTreeMap<u64, B256>,
+    ) -> Self {
+        Self {
+            trie,
+            bytecode,
+            block_hashes,
+        }
+    }
+}
+
+impl Database for ObservationWitnessDatabase<'_> {
+    type Error = WitnessDbError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.trie.account(address).map(|account| {
+            account.map(|account| AccountInfo {
+                balance: account.balance,
+                nonce: account.nonce,
+                code_hash: account.code_hash,
+                code: None,
+                account_id: None,
+            })
+        })
+    }
+
+    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        self.trie.storage(address, slot)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.bytecode
+            .get(&code_hash)
+            .cloned()
+            .map(Bytecode::new_raw)
+            .ok_or_else(|| {
+                WitnessDbError::TrieWitness(format!("bytecode for {code_hash} not found"))
+            })
+    }
+
+    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+        self.block_hashes
+            .get(&block_number)
+            .copied()
+            .ok_or(WitnessDbError::StateNotFound(block_number))
     }
 }
 

@@ -1,7 +1,7 @@
 use super::*;
 
 fn physical_blobs(payload: Bytes) -> Vec<Vec<u8>> {
-    eez_blob_codec::encode_compatibility_payload(expected_rollup_id().get(), payload)
+    eez_blob_codec::encode_native_payload(expected_rollup_id().get(), payload, Vec::new())
         .unwrap()
         .into_iter()
         .map(|blob| blob.into_bytes().into_vec())
@@ -20,15 +20,9 @@ fn physical_native_blobs(
 }
 
 #[test]
-fn legacy_calldata_remains_byte_for_byte_and_rejects_blob_claims() {
-    let payload = Bytes::from_static(b"legacy payload");
+fn nonempty_abi_call_data_and_missing_physical_blobs_are_rejected() {
     let mut batch = carrier_batch();
-    batch.callData = payload.clone();
-    let verified = verify_da_carrier(&batch, &[], expected_rollup_id().get()).unwrap();
-    assert_eq!(verified.payload(), payload.as_ref());
-    assert!(verified.transaction_blob_hashes().is_empty());
-
-    batch.blobIndices = vec![U256::ZERO];
+    batch.callData = Bytes::from_static(b"legacy payload");
     assert!(matches!(
         verify_da_carrier(&batch, &[], expected_rollup_id().get()),
         Err(BlobDaError::MissingBlobs)
@@ -83,7 +77,7 @@ fn native_blob_profile_recovers_cross_chain_semantics() {
     batch.blobIndices = (0..submitted.len()).map(U256::from).collect();
     let verified = verify_da_carrier(&batch, &submitted, expected_rollup_id().get()).unwrap();
     assert_eq!(verified.payload(), payload.as_ref());
-    let [transaction] = verified.semantic_transactions().unwrap() else {
+    let [transaction] = verified.semantic_transactions() else {
         panic!("expected one semantic transaction");
     };
     assert_eq!(transaction.origin_chain, RollupId(1));
@@ -134,7 +128,7 @@ fn blob_profile_rejects_mixed_noncanonical_and_wrong_rollup_carriers() {
     mixed.callData = Bytes::from_static(b"mixed");
     assert!(matches!(
         verify_da_carrier(&mixed, &submitted, expected_rollup_id().get()),
-        Err(BlobDaError::MixedCalldataAndBlobs)
+        Err(BlobDaError::NonEmptyBatchCallData)
     ));
 
     let mut noncanonical = carrier_batch();

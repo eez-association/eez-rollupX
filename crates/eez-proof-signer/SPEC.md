@@ -25,10 +25,10 @@ with witness-backed Stateless/Reth execution, binds one canonical
 `postAndVerifyBatch` payload to the validated execution, recomputes the one
 supported public-input hash, and signs that hash.
 
-The only supported execution-entry sequence is:
+The only supported mutable-entry sequence is:
 
 ```text
-anchor, outbound*, inbound*
+anchor, outbound*, (inbound-effect | inbound-lookup)*
 ```
 
 where:
@@ -40,18 +40,24 @@ where:
   and calls rolled back by a source frame plus a subsequent retry reuse their
   original host;
   and
-- each inbound effect represents one mutable L1-origin call tree, including a
-  terminal top-level destination revert.
+- each inbound effect represents one successful, source-committed mutable
+  L1-origin call tree; and
+- each inbound lookup represents a failed destination call or a call whose L1
+  source frame later reverts. It retains the source-visible outcome but has no
+  L2 effect.
+
+Top-level L1-origin static calls are carried separately in `staticEntries` and
+are pinned at their exact FIFO positions relative to mutable entries.
 
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
 reentrant calls alternating between L1 and that L2, flat multi-root outbound
-transactions, terminal failed top-level calls, and terminal failed nested rows
-with no descendants. Calls
+transactions, terminal failed top-level calls, terminal static calls with no
+descendants, and terminal failed nested rows with no descendants. Calls
 rolled back inside a recovered source-chain frame are represented by canonical,
-non-overlapping `revertNextNCalls` windows. It does not support static entries,
-failed calls with descendants, explicit call gas, overlapping or out-of-bounds
-rollback windows, blobs, L1 block
+non-overlapping `revertNextNCalls` windows. It does not support failed or static
+calls with descendants, explicit call gas, overlapping or out-of-bounds
+rollback windows, L1 block
 binding, sender binding, other L2 targets, or multiple proof systems.
 
 No failed stage may produce a signature. A successful signature authorizes the
@@ -416,8 +422,8 @@ The decoded batch MUST satisfy all of these profile rules:
 8. `blockNumber == 0`.
 9. `bindMsgSenderInPublicInput == false`.
 
-`blobIndices` is checked together with the physical DA carrier in section 11:
-it is empty for calldata and exactly `[0, 1, ..., blob_count - 1]` for blobs.
+`blobIndices` is checked together with the mandatory physical DA carrier in
+section 11 and MUST equal `[0, 1, ..., blob_count - 1]`.
 
 `proofs` is not inspected and is absent from the public-input hash. The caller
 is responsible for inserting the returned signature into the correct proof
@@ -449,7 +455,8 @@ The ABI retains the historical `RootUpdate`, `currentRoot`, and `newRoot`
 names, but these `bytes32` values are block hashes in this profile. The checks
 bind the continuous Composer claim to validated endpoints. Interior `newRoot`
 values are bound to prefix-block hash checkpoints and their persistent
-carriers below. Every static-entry pin MUST equal `window_post_block_hash`.
+carriers below. Every static-entry pin MUST equal the commitment live at that
+call's exact FIFO position.
 
 ### 8.2 Terminal-block framing
 
@@ -466,8 +473,9 @@ In the terminal block:
 - a system-to-EEZL2 transaction beginning with selector `0x9e2d7358` is an
   inbound candidate even when the remainder of its calldata is malformed.
 
-The number of entries after the anchor MUST equal the number of locally derived
-candidate positions `C`. Claims and candidates are joined in order; skipping,
+The number of effect-shaped entries after the anchor MUST equal the number of
+locally derived candidate positions `C`. Lookup-only entries consume no
+candidate. Effect claims and candidates are joined in order; skipping,
 duplicating, or reordering either side MUST fail.
 
 A candidate is classified from execution as:
@@ -481,15 +489,17 @@ The claimed entry at the same position MUST have the same direction.
 
 ### 8.3 Entry classification
 
-Every supported entry MUST be mutable. An outbound entry MUST be successful.
-An inbound entry MAY fail only as a terminal top-level call without nested
-rows. A nested row MAY fail only when its call sub-array is empty and its
+Every item in `entries` MUST be an anchor, a mutable effect, or an exact
+lookup-only inbound entry. An outbound or applying inbound effect MUST be
+successful. A lookup MAY report failure only as a terminal top-level call
+without nested rows. A nested row MAY fail only when its call sub-array is empty and its
 `revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
 reverted hash. Every flat call, including calls in row sub-arrays, MUST have
-`isStatic == false` and `gas == 0`. A call MAY start a rollback window by
-setting `revertNextNCalls` to the number of consecutive calls in that window,
-including itself. The window MUST fit in its current call array and no later
-call inside it may start another window.
+`gas == 0`. A static call MUST carry zero value and no revert span, and its
+complementary semantic call MUST have no descendants. A mutable call MAY start
+a rollback window by setting `revertNextNCalls` to the number of consecutive
+calls in that window, including itself. The window MUST fit in its current call
+array and no later call inside it may start another window.
 
 The leading entry is a canonical anchor only if:
 
@@ -504,11 +514,16 @@ Every later entry MUST be one of:
 
 - **outbound:** `proxyEntryHash == 0` and a nonempty top-level
   `l2ToL1Calls` array; or
-- **inbound:** `proxyEntryHash != 0`.
+- **inbound effect:** `proxyEntryHash != 0`, successful, and exactly bound to a
+  replayed L2 system transaction; or
+- **inbound lookup:** `proxyEntryHash != 0`, empty call arrays, a zero-value
+  no-op root update, and the exact L1 seed for that proxy hash and current root.
 
-Classification deliberately does not infer the nested execution from one
-entry alone. Sections 9 and 10 bind each claimed L1 entry to its exact,
-complementary L2 execution table and reject extra roots, rows, or flat calls.
+Classification deliberately does not infer nested execution from one entry
+alone. Sections 9 and 10 bind every effect to its exact complementary L2
+execution table and reject extra roots, rows, or flat calls. Section 11 binds
+lookup results and any source-reverted nested messages to the signed native
+semantic blob; lookup entries have no complementary L2 execution table.
 
 A second anchor or any other shape MUST be rejected.
 
@@ -516,9 +531,9 @@ The anchor's `etherDelta` MUST be zero. If no effects exist, the anchor alone
 covers the complete window transition.
 
 For every effect at candidate position `C[i]`, the backend checkpoint MUST
-target `C[i]`. Commitment updates MUST then use the following persistent-carrier
-rule, because a failed L1 entry rolls back its root update together with the
-intentionally reverted call:
+target `C[i]`. Immediate outbound commitment updates retain the following
+persistent-carrier rule, because a failed immediate L1 entry would roll back
+its root update together with the intentionally reverted call:
 
 - a leading run of failed effects is carried by the successful anchor, whose
   `newRoot` equals the last checkpoint in that run;
@@ -530,7 +545,8 @@ intentionally reverted call:
 
 With no leading failures, the anchor's `newRoot` equals
 `settling_pre_block_hash`. With no failures, every effect directly carries its
-own computed prefix-block hash.
+own computed prefix-block hash. Inbound lookups are not effects and never
+participate in this carrier rule.
 
 ## 9. Inbound authorization
 
@@ -601,10 +617,12 @@ All outbound effects MUST precede all inbound effects.
 
 An outbound candidate transaction MUST be immediately preceded by a canonical,
 successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
-one or more mutable L2 source entries and no static entries. The claimed
-outbound hosts MUST partition those source entries exactly: each host consumes
-as many consecutive source roots as it carries top-level `l2ToL1Calls`, and no
-source root may be skipped or reused. Every L2-to-L1 call
+one or more L2 source entries. A group is either one static source entry with no
+callbacks or one or more mutable source entries. The claimed outbound hosts
+MUST partition those source entries exactly: each mutable host consumes as many
+consecutive source roots as it carries top-level `l2ToL1Calls`, while a static
+host consumes its single static source entry, and no source root may be skipped
+or reused. Every L2-to-L1 call
 recomputed from the nested pair MUST have one matching current six-field
 `EEZL2.CrossChainCallExecuted` event at the candidate transaction, in execution
 and receipt-log order. Every matching EEZL2 event in the terminal receipts
@@ -697,15 +715,12 @@ terminal block.
 
 With no authorized effects, no Sync sequence is reconstructed.
 
-The payload is transported in exactly one of two modes:
+The payload is transported only through native blobs. `batch.callData` MUST be
+empty, one to six physical EIP-4844 blobs MUST be supplied, and
+`batch.blobIndices` MUST be exactly the ordered identity selection
+`[0, 1, ...]`. Missing blobs and calldata-only batches are rejected.
 
-- **calldata:** `batch.blobIndices` is empty, no physical blobs are supplied,
-  and the payload is `batch.callData`;
-- **blob:** `batch.callData` is empty, one to six physical EIP-4844 blobs are
-  supplied, and `batch.blobIndices` is exactly the ordered identity selection
-  `[0, 1, ...]`.
-
-Blob mode MUST decode as the EEZ version-`00` message stream containing exactly
+The blobs MUST decode as the EEZ version-`00` message stream containing exactly
 one leading `ChainOperation(expected_rollup_id, payload)`, zero or more complete
 `InitiateCrossChainTransaction` … `FinishCrossChainTransaction` brackets, then
 exactly one `CloseBlobStream`, with canonical field-element packing and zero
@@ -735,18 +750,31 @@ MUST byte-for-byte reproduce every authorized inbound entry; their L2 target
 sidecars MUST likewise reproduce every authorized inbound delivery, with no
 extra or foreign-chain target. Top-level L1 static transactions have no mutable
 L2 delivery; their materialized L1 static-pool entries receive only the
-independently validated destination-root pins and MUST byte-for-byte reproduce
-`postBatch.staticEntries`. L1 `tx_data` remains an opaque chain-defined sidecar:
+independently validated FIFO-position root pins and MUST byte-for-byte reproduce
+`postBatch.staticEntries`.
+
+For each L1-origin semantic transaction, top-level source actions are projected
+in their original order. A successful mutable action advances the live root to
+its independently replayed transaction checkpoint only when its source frame
+also commits. A failed destination call, or a call covered by a later source
+frame revert, is lookup-only: it has no L2 delivery, a zero-value no-op root
+update, and retains the signed return or revert data for the L1 caller. A static
+action likewise creates no L2 transaction and pins the root live at its exact
+position. Root-only entries are valid only for the leading anchor; no trailing
+entry may advance the commitment without an executed effect. Every deferred
+entry and static entry MUST be consumed exactly once by this schedule, with no
+reordering or remainder.
+
+L1 `tx_data` remains an opaque chain-defined sidecar:
 this signer validates the `postBatch` transaction and L2 window but does not
 execute the later L1 user transactions in the atomic bundle. Consequently, the
 aggregate effects are exact, but L1 semantic transaction boundaries and the
 relative ordering of transactions that land in different mutable/static pools
 are descriptive rather than independently authenticated by this signer.
 
-Legacy calldata remains supported without a native semantic stream. The signer
-recomputes every KZG versioned hash from physical blobs. Mixed, missing, surplus,
-reordered, malformed, wrong-rollup, semantically unbound, or oversized blob
-carriers MUST be rejected.
+The signer recomputes every KZG versioned hash from physical blobs. Mixed,
+missing, surplus, reordered, malformed, wrong-rollup, semantically unbound, or
+oversized blob carriers MUST be rejected.
 
 ## 12. Public-input recomputation
 
@@ -763,8 +791,8 @@ For the supported profile:
 
 ```text
 staticEntryHashes = ordered staticEntryHash values
-blobHashes        = [] for calldata, otherwise the versioned hashes selected
-                    by the canonical identity blobIndices
+blobHashes        = versioned hashes selected by the canonical identity
+                    blobIndices
 customData        = bytes("")
 customDataHash    = H(abi.encode(uint64(expected_rollup_id), customData))
 customDataHashes  = dynamic bytes32[] containing only customDataHash
@@ -778,7 +806,7 @@ shared = H(
     abi.encode(entryHashes)
  || abi.encode(staticEntryHashes)
  || abi.encode(blobHashes)
- || H(batch.callData)
+ || H(bytes(""))                 // batch.callData is profile-pinned empty
  || abi.encode(customDataHashes)
  || packed_address_20_bytes(boundSender)
 )
@@ -807,8 +835,9 @@ not participate.
 
 ### 12.1 Fields not bound by the digest
 
-The full mutable and static entries, selected physical blob contents through
-their KZG versioned hashes, and `callData` are bound as above. The following
+The full mutable and static entries and selected physical blob contents through
+their KZG versioned hashes are bound as above. Empty `callData` is profile-pinned
+and its empty hash remains part of the on-chain formula. The following
 batch carriers are not directly included in the digest:
 
 - `expectedRootPerRollup`;

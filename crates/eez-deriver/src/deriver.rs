@@ -625,7 +625,7 @@ where
         let mut new_batches: Vec<BatchRecord> = Vec::new();
         let mut total_replayed: u64 = 0;
         for batch in scanned_batches {
-            let decoded = eez_payload_codec::decode(batch.call_data.as_ref())?;
+            let decoded = eez_payload_codec::decode(batch.operations_payload.as_ref())?;
 
             // `settled_count == 0` = nothing applied on L1 (the claimed
             // roots are phantoms). Skip the whole reconcile — no
@@ -1143,7 +1143,7 @@ where
                 tx_hash,
                 tx_index,
                 submitter,
-                call_data,
+                operations_payload,
                 post_batch_input,
                 state_applied,
                 settlement,
@@ -1157,7 +1157,7 @@ where
                     tx_hash,
                     tx_index,
                     submitter,
-                    call_data,
+                    operations_payload,
                     post_batch_input,
                     state_applied,
                     settlement,
@@ -1195,7 +1195,7 @@ where
         tx_hash: B256,
         tx_index: u64,
         submitter: Address,
-        call_data: Bytes,
+        operations_payload: Bytes,
         post_batch_input: Bytes,
         state_applied: bool,
         settlement: eez_l1::Settlement,
@@ -1203,7 +1203,7 @@ where
         claimed_new_root: Option<B256>,
         last_in_l1_block: bool,
     ) -> DeriverResult<()> {
-        let decoded = eez_payload_codec::decode(call_data.as_ref())?;
+        let decoded = eez_payload_codec::decode(operations_payload.as_ref())?;
         let block_count = decoded.block_count() as u64;
         if block_count == 0 {
             return self.flush_deferred_safe(last_in_l1_block).await;
@@ -1684,6 +1684,16 @@ where
                 }
                 let mut settlement_outbound = posted.batch.entries[1..immediate_count].to_vec();
                 let mut settlement_inbound = posted.batch.entries[immediate_count..].to_vec();
+                // Canonical lookup-only entries carry a proven L1-visible
+                // result but authorize no L2 execution and consume no DA
+                // sidecar. Their exact no-op shape is checked fail-closed;
+                // arbitrary root-only deferred entries remain invalid effects.
+                settlement_inbound.retain(|entry| {
+                    !eez_protocol::settlement::is_lookup_only_inbound_entry(
+                        entry,
+                        cfg.this_rollup_id,
+                    )
+                });
 
                 let (outbound_effects, mut inbound) = if decoded.l2_entries.is_empty() {
                     if !settlement_outbound.is_empty() || !settlement_inbound.is_empty() {

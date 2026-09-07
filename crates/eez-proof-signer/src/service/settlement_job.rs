@@ -99,17 +99,26 @@ pub(super) fn validate_and_settle(
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
     }
-    let attestable_public_inputs_hash = run_settlement(SettlementInput {
-        submitted_post_batch_calldata,
-        submitted_blobs: &submitted_blobs,
-        validated_window: &validated_window,
-        expected_rollup_id: state.expected_rollup_id,
-        expected_l2_system_address: state.expected_l2_system_address,
-        proof_system_vkey: state.attester.proof_system_vkey(),
-        expected_proof_system: state.attester.expected_proof_system(),
-        system_transaction_reconstructor: &state.system_transaction_reconstructor,
-        cancellation,
-    })?;
+    let (attestable_public_inputs_hash, observation_claims) =
+        run_settlement_with_observations(SettlementInput {
+            submitted_post_batch_calldata,
+            submitted_blobs: &submitted_blobs,
+            validated_window: &validated_window,
+            expected_rollup_id: state.expected_rollup_id,
+            expected_l2_system_address: state.expected_l2_system_address,
+            proof_system_vkey: state.attester.proof_system_vkey(),
+            expected_proof_system: state.attester.expected_proof_system(),
+            system_transaction_reconstructor: &state.system_transaction_reconstructor,
+            cancellation,
+        })?;
+    ensure_settlement_active(cancellation)?;
+    if Instant::now() >= deadline {
+        return Err(PipelineError::DeadlineBeforeSettlement);
+    }
+    state
+        .validator
+        .verify_observations(&validated_window, &observation_claims)
+        .map_err(SettlementPipelineError::from)?;
 
     Ok(AttestationMaterial {
         attestable_public_inputs: attestable_public_inputs_hash,
@@ -161,6 +170,8 @@ pub(super) enum SettlementPipelineError {
     BlobDa(#[from] settlement::BlobDaError),
     #[error(transparent)]
     BlobSemantics(#[from] settlement::SemanticBindingError),
+    #[error(transparent)]
+    ObservationReplay(#[from] validate::ObservationValidationError),
     #[error("request cancelled")]
     Cancelled,
 }
@@ -179,6 +190,7 @@ impl SettlementPipelineError {
             Self::DaPayload(_) => "da_payload",
             Self::BlobDa(_) => "blob_da",
             Self::BlobSemantics(_) => "blob_semantics",
+            Self::ObservationReplay(_) => "observation_replay",
             Self::Cancelled => "cancellation",
         }
     }
@@ -233,8 +245,8 @@ impl SettlementPipelineError {
                     "validation backend returned invalid output",
                 ),
                 settlement::EffectPrefixError::LeadingEntryNotAnchor { .. }
-                | settlement::EffectPrefixError::LaterAnchor { .. }
                 | settlement::EffectPrefixError::InvalidEntry { .. }
+                | settlement::EffectPrefixError::LaterAnchor { .. }
                 | settlement::EffectPrefixError::EffectCountMismatch { .. }
                 | settlement::EffectPrefixError::AnchorRootMismatch { .. }
                 | settlement::EffectPrefixError::EffectKindMismatch { .. }
@@ -249,15 +261,17 @@ impl SettlementPipelineError {
             | Self::RootUpdateChain(_)
             | Self::InboundEffects(_)
             | Self::OutboundEffects(_)
-            | Self::BlobSemantics(_) => (
+            | Self::BlobSemantics(_)
+            | Self::ObservationReplay(_) => (
                 tonic::Code::FailedPrecondition,
                 "settlement validation rejected",
             ),
             Self::DaPayload(error) => match error {
                 settlement::DaPayloadError::Decode { .. }
-                | settlement::DaPayloadError::TrailingBytes { .. } => {
-                    (tonic::Code::InvalidArgument, "invalid batch callData")
-                }
+                | settlement::DaPayloadError::TrailingBytes { .. } => (
+                    tonic::Code::InvalidArgument,
+                    "invalid blob operations payload",
+                ),
                 settlement::DaPayloadError::InvalidBlockRlp { .. }
                 | settlement::DaPayloadError::SystemTransactionReconstruction { .. }
                 | settlement::DaPayloadError::InvalidEffectTransactionLayout => (
@@ -301,9 +315,15 @@ impl SettlementPipelineError {
 ///
 /// Cancellation is checked before decoding and before `verify_da_payload`;
 /// each settlement gate is synchronous and non-interruptible.
-pub(super) fn run_settlement(
+fn run_settlement_with_observations(
     input: SettlementInput<'_>,
-) -> Result<AttestablePublicInputsHash, SettlementPipelineError> {
+) -> Result<
+    (
+        AttestablePublicInputsHash,
+        Vec<eez_protocol::settlement::FifoObservationClaim>,
+    ),
+    SettlementPipelineError,
+> {
     let SettlementInput {
         submitted_post_batch_calldata,
         submitted_blobs,
@@ -386,20 +406,36 @@ pub(super) fn run_settlement(
         &authorized_inbound_effects,
         system_transaction_reconstructor,
     )?;
-    if let Some(semantic_transactions) = verified_da.semantic_transactions() {
-        settlement::verify_native_semantics(
-            semantic_transactions,
-            validated_window,
-            &authorized_outbound_effects,
-            &authorized_inbound_effects,
-            canonical_batch.static_entries(),
-            expected_rollup_id,
-        )?;
-    }
+    let observation_claims = settlement::verify_native_semantics_with_observations(
+        verified_da.semantic_transactions(),
+        validated_window,
+        &authorized_outbound_effects,
+        &authorized_inbound_effects,
+        &canonical_batch,
+        expected_rollup_id,
+    )?;
 
     let recomputed_public_inputs_hash = checked_public_input_profile
         .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;
-    Ok(AttestablePublicInputsHash(recomputed_public_inputs_hash))
+    Ok((
+        AttestablePublicInputsHash(recomputed_public_inputs_hash),
+        observation_claims,
+    ))
+}
+
+/// Test-only entry point for settlement fixtures that contain no replay-only
+/// lookup/static observations. Production always consumes and executes the
+/// claims returned by `run_settlement_with_observations` before signing.
+#[cfg(test)]
+pub(super) fn run_settlement(
+    input: SettlementInput<'_>,
+) -> Result<AttestablePublicInputsHash, SettlementPipelineError> {
+    let (hash, observations) = run_settlement_with_observations(input)?;
+    assert!(
+        observations.is_empty(),
+        "pipeline fixture with observations must exercise validate_and_settle"
+    );
+    Ok(hash)
 }
 
 fn actionable_block_inspection_failure(

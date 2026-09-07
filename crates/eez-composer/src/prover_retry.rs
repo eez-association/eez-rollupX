@@ -31,16 +31,18 @@ pub(crate) fn actionable_held_tx<'a>(
             transaction_hash, ..
         } => (Direction::Outbound, transaction_hash),
         ActionableProverFailure::Inbound { entry_index, .. } => {
-            // PostBatch order is `[anchor | outbound... | inbound...]`.
-            let mut inbound_index = entry_index.checked_sub(1 + outbound_entry_count)?;
+            // PostBatch order is `[anchor | outbound... | inbound transaction
+            // entries...]`. Every deferred entry belongs to exactly one held
+            // L1 transaction, including lookup-only entries.
+            let mut batch_index = 1 + outbound_entry_count;
             let mut owner = None;
             for (composition, held_hash) in inbound_compositions {
                 let entry_count = composition.source.batch.entries.len();
-                if inbound_index < entry_count {
+                if (batch_index..batch_index + entry_count).contains(&entry_index) {
                     owner = Some(*held_hash);
                     break;
                 }
-                inbound_index -= entry_count;
+                batch_index += entry_count;
             }
             (Direction::Inbound, owner?)
         }
@@ -48,6 +50,20 @@ pub(crate) fn actionable_held_tx<'a>(
     survivors
         .iter()
         .find(|tx| tx.direction == direction && tx.hash == held_hash)
+}
+
+/// Resolve a locally replayed observation to the inbound transaction whose
+/// composition produced it. Unlike prover hints, this index is created and
+/// consumed entirely inside the Composer.
+pub(crate) fn observation_held_tx<'a>(
+    composition_index: usize,
+    survivors: &'a [HeldTx],
+    inbound_compositions: &[(eez_protocol::Composition, B256)],
+) -> Option<&'a HeldTx> {
+    let held_hash = inbound_compositions.get(composition_index)?.1;
+    survivors
+        .iter()
+        .find(|tx| tx.direction == Direction::Inbound && tx.hash == held_hash)
 }
 
 pub(crate) fn partition_retryable(
@@ -346,6 +362,74 @@ mod tests {
                 &inbound_compositions,
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn actionable_failures_map_lookup_only_entries_to_their_held_transaction() {
+        fn failed_composition() -> eez_protocol::Composition {
+            eez_protocol::Composition {
+                actions: vec![eez_protocol::ExecutedAction {
+                    parent_index: None,
+                    call_mode: eez_protocol::CallMode::Mutable,
+                    target_address: Address::repeat_byte(0x22),
+                    target_rollup_id: eez_protocol::RollupId(1),
+                    source_rollup_id: eez_protocol::RollupId::MAINNET,
+                    source_address: Address::repeat_byte(0x11),
+                    data: Bytes::new(),
+                    value: Default::default(),
+                    outcome: eez_protocol::ExecutionOutcome::Resolved {
+                        return_data: Vec::new(),
+                        gas_used: 0,
+                        success: false,
+                    },
+                    revert_span: None,
+                }],
+                source: eez_protocol::SourceComposition {
+                    rollup_id: eez_protocol::RollupId::MAINNET,
+                    batch: eez_protocol::EvmBatch {
+                        entries: vec![Default::default()],
+                        ..Default::default()
+                    },
+                    entry_traces: vec![Default::default()],
+                    callback_entry_counts: vec![0],
+                    outbound_event_hashes: Vec::new(),
+                },
+                targets: Vec::new(),
+            }
+        }
+
+        fn successful_composition() -> eez_protocol::Composition {
+            let mut composition = failed_composition();
+            composition.actions[0].outcome = eez_protocol::ExecutionOutcome::Resolved {
+                return_data: Vec::new(),
+                gas_used: 0,
+                success: true,
+            };
+            composition.source.batch.entries[0].success = true;
+            composition
+        }
+
+        let first = held(Address::repeat_byte(0xa1), Direction::Inbound, 0, 1);
+        let second = held(Address::repeat_byte(0xa2), Direction::Inbound, 0, 2);
+        let survivors = vec![first.clone(), second.clone()];
+        let compositions = vec![
+            (failed_composition(), first.hash),
+            (successful_composition(), second.hash),
+        ];
+
+        assert_eq!(
+            actionable_held_tx(
+                ActionableProverFailure::Inbound {
+                    entry_index: 2,
+                    entry_hash: B256::repeat_byte(0xee),
+                },
+                &survivors,
+                0,
+                &compositions,
+            )
+            .map(|held| held.hash),
+            Some(second.hash),
         );
     }
 

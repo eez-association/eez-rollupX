@@ -328,17 +328,30 @@ struct BundleStub {
 
 impl BundleStub {
     async fn spawn(port: u16, upstream: &str) -> Result<Self> {
+        Self::spawn_with_mode(port, upstream, false).await
+    }
+
+    async fn spawn_passthrough(port: u16, upstream: &str) -> Result<Self> {
+        Self::spawn_with_mode(port, upstream, true).await
+    }
+
+    async fn spawn_with_mode(port: u16, upstream: &str, passthrough: bool) -> Result<Self> {
         let script = repo_root().join("scripts/builder-stub.py");
         let listen = format!("127.0.0.1:{port}");
         let (log_path, log_dir) = test_log_destination("builder-stub")?;
         let capture_dir = tempfile::tempdir().context("builder blob capture tempdir")?;
         let log = std::fs::File::create(&log_path).context("create builder stub log")?;
         let err_log = log.try_clone().context("clone builder stub log")?;
-        let mut child = Command::new("python3")
+        let mut command = Command::new("python3");
+        command
             .arg(script)
             .args(["--listen", &listen, "--upstream", upstream])
             .arg("--capture-dir")
-            .arg(capture_dir.path())
+            .arg(capture_dir.path());
+        if passthrough {
+            command.arg("--passthrough-bundles");
+        }
+        let mut child = command
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log))
             .spawn()
@@ -527,7 +540,7 @@ fn beacon_json_response(
 #[serde(rename_all = "camelCase")]
 struct CapturedBlobTransaction {
     raw: String,
-    transaction_hash: B256,
+    transaction_hash: Option<B256>,
 }
 
 async fn canonical_blob_sidecars(
@@ -554,10 +567,21 @@ async fn canonical_blob_sidecars(
             &std::fs::read(&path).with_context(|| format!("read {}", path.display()))?,
         )
         .with_context(|| format!("decode {}", path.display()))?;
-        let Some(receipt) = provider
-            .get_transaction_receipt(capture.transaction_hash)
-            .await?
-        else {
+        let raw = hex::decode(capture.raw.strip_prefix("0x").unwrap_or(&capture.raw))
+            .with_context(|| format!("decode pooled blob tx in {}", path.display()))?;
+        let envelope = PooledBlobEnvelope::decode_2718(&mut raw.as_slice())
+            .with_context(|| format!("decode pooled blob envelope in {}", path.display()))?;
+        let transaction_hash = *envelope.tx_hash();
+        if capture
+            .transaction_hash
+            .is_some_and(|captured| captured != transaction_hash)
+        {
+            bail!(
+                "captured blob transaction hash does not match envelope in {}",
+                path.display()
+            );
+        }
+        let Some(receipt) = provider.get_transaction_receipt(transaction_hash).await? else {
             continue;
         };
         let Some(block_hash) = receipt.block_hash else {
@@ -575,10 +599,6 @@ async fn canonical_blob_sidecars(
             continue;
         }
 
-        let raw = hex::decode(capture.raw.strip_prefix("0x").unwrap_or(&capture.raw))
-            .with_context(|| format!("decode pooled blob tx {}", capture.transaction_hash))?;
-        let envelope = PooledBlobEnvelope::decode_2718(&mut raw.as_slice())
-            .with_context(|| format!("decode pooled blob envelope {}", capture.transaction_hash))?;
         let signed = envelope
             .as_eip4844()
             .ok_or_else(|| anyhow!("captured transaction is not EIP-4844"))?;
@@ -1067,16 +1087,11 @@ impl Harness {
         self.env_for(ANVIL_KEY, false).await
     }
 
-    /// Composer environment that posts the compatibility payload as a real
-    /// EIP-4844 transaction and retrieves it through the Beacon REST fixture.
+    /// Composer environment that posts the native operations and semantic
+    /// payload as an EIP-4844 transaction and retrieves it through the Beacon
+    /// REST fixture.
     pub async fn blob_env(&self) -> Result<Vec<(&'static str, String)>> {
-        let mut env = self.env().await?;
-        env.extend([
-            ("EEZ_DA_MODE", "blob".to_string()),
-            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
-            ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
-        ]);
-        Ok(env)
+        self.env().await
     }
 
     pub async fn env_for(
@@ -1140,6 +1155,8 @@ impl Harness {
         let mut env = vec![
             ("EEZ_L1_CHAIN_PATH", "dev".to_string()),
             ("EEZ_L1_RPC_URL", self.anvil.rpc_url.clone()),
+            ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
+            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_CHAIN", "testing".to_string()),
             ("EEZ_L2_SYSTEM_KEY", L2_SYSTEM_KEY.to_string()),
@@ -2323,9 +2340,14 @@ pub async fn assert_latest_batch_signature(
         .proofs
         .first()
         .ok_or_else(|| anyhow!("posted batch has no proof"))?;
-    let public_inputs_hash = eez_protocol::public_inputs::public_inputs_hashes(
+    let transaction_blob_hashes = transaction
+        .inner
+        .blob_versioned_hashes()
+        .map_or_else(Vec::new, <[B256]>::to_vec);
+    let public_inputs_hash = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &call.batch,
         expected_attester.into_word(),
+        &transaction_blob_hashes,
     )?
     .into_iter()
     .next()
@@ -2942,6 +2964,7 @@ pub struct CrossChainConfig {
     pub rollup_manager_address: Address,
     pub rollup_id: u64,
     pub initial_state: B256,
+    pub genesis_time: u64,
     /// Kept separate from the poster key for deterministic CREATE addresses.
     pub deployer_key: &'static str,
     pub poster_key: &'static str,
@@ -2975,6 +2998,7 @@ impl CrossChainConfig {
             rollup_manager_address,
             rollup_id: FIRST_ROLLUP_ID,
             initial_state,
+            genesis_time: ts,
             deployer_key,
             poster_key,
             l1_genesis: write_l1_dev_genesis_at(ts)?,
@@ -2994,13 +3018,15 @@ impl CrossChainConfig {
         format!("http://127.0.0.1:{}", self.l2_xchain_port)
     }
 
-    fn env(&self) -> Vec<(&'static str, String)> {
+    fn env(&self, builder_rpc_url: &str, beacon_url: &str) -> Vec<(&'static str, String)> {
         vec![
             ("EEZ_L1_CHAIN", "testing".to_string()),
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_RPC_URL", self.l1_rpc_url()),
+            ("EEZ_L1_BEACON_URL", beacon_url.to_string()),
+            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
             ("EEZ_L1_TARGET_RPC_URL", self.l1_rpc_url()),
-            ("EEZ_L1_BUILDER_RPC_URL", self.l1_rpc_url()),
+            ("EEZ_L1_BUILDER_RPC_URL", builder_rpc_url.to_string()),
             ("EEZ_L1_XCHAIN_PORT", self.l1_xchain_port.to_string()),
             ("EEZ_L2_XCHAIN_PORT", self.l2_xchain_port.to_string()),
             ("EEZ_L1_HTTP_PORT", self.l1_http_port.to_string()),
@@ -3079,6 +3105,8 @@ pub struct CrossChainWorld {
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
+    _builder_stub: BundleStub,
+    _beacon: BeaconStub,
     _witness_dir: tempfile::TempDir,
     _datadir: CrossChainDatadir,
 }
@@ -3200,7 +3228,14 @@ async fn setup_cross_chain_inner(
     let attester = attester_override.unwrap_or(signer_attester);
     let witness_dir = tempfile::tempdir().context("witness DB tempdir")?;
     let datadir = CrossChainDatadir::new()?;
-    let mut env = cfg.env();
+    let builder_stub = BundleStub::spawn_passthrough(free_port(), &cfg.l1_rpc_url()).await?;
+    let beacon = BeaconStub::spawn(
+        cfg.l1_rpc_url(),
+        builder_stub.capture_dir().to_path_buf(),
+        cfg.genesis_time,
+    )
+    .await?;
+    let mut env = cfg.env(&builder_stub.url, beacon.endpoint());
     env.extend([
         ("EEZ_PROVER_URL", prover_url.to_string()),
         ("EEZ_ATTESTER_ADDRESS", format!("{attester:#x}")),
@@ -3311,6 +3346,8 @@ async fn setup_cross_chain_inner(
         outbound_wrapper,
         prover_proxy,
         proof_signer,
+        _builder_stub: builder_stub,
+        _beacon: beacon,
         _witness_dir: witness_dir,
         _datadir: datadir,
     })

@@ -15,6 +15,8 @@ use eez_control_rpc::v1::{
     prove_failure,
 };
 use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
+use eez_protocol::blob_semantics::SemanticTransaction;
+use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
 use reth_primitives_traits::BlockBody as _;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
@@ -354,10 +356,14 @@ fn single_block_settlement_window(
     batch: eez_protocol::EvmBatch,
     block_rlp: Vec<u8>,
 ) -> Vec<ProveChunk> {
+    let semantic_transactions = fixture_semantics(&batch, &block_rlp);
     let mut block = block_chunk(5, 0x04, 0x05);
     block_mut(&mut block).rlp = block_rlp;
     let mut window = vec![header_chunk(5, 5), block];
-    replace_post_batch(&mut window, public_input_post_batch_for(batch));
+    replace_post_batch(
+        &mut window,
+        public_input_post_batch_for_semantics(batch, &semantic_transactions),
+    );
     window
 }
 
@@ -385,8 +391,35 @@ fn public_input_post_batch() -> PostBatch {
 }
 
 fn public_input_post_batch_for(batch: eez_protocol::EvmBatch) -> PostBatch {
+    public_input_post_batch_for_semantics(batch, &[])
+}
+
+fn public_input_post_batch_for_semantics(
+    mut batch: eez_protocol::EvmBatch,
+    semantic_transactions: &[SemanticTransaction],
+) -> PostBatch {
+    let rollup_id = batch
+        .rollupIdsWithProofSystems
+        .first()
+        .map_or(1, |assignment| assignment.rollupId);
+    let operations = std::mem::take(&mut batch.callData);
+    let semantic_messages = semantic_transactions
+        .iter()
+        .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .into_iter()
+        .flatten()
+        .collect();
+    let blobs =
+        eez_blob_codec::encode_native_payload(rollup_id, operations, semantic_messages).unwrap();
+    batch.blobIndices = (0..blobs.len()).map(U256::from).collect();
     PostBatch {
         abi_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        blobs: blobs
+            .into_iter()
+            .map(|blob| blob.into_bytes().into_vec())
+            .collect(),
         ..PostBatch::default()
     }
 }
@@ -417,14 +450,117 @@ fn bind_anchor_commitments(batch: &mut eez_protocol::EvmBatch, block_count: usiz
     eez_protocol::entries::finalize_l1_rolling_hashes(batch).unwrap();
 }
 
-fn recompute_test_public_inputs_hash(batch: &eez_protocol::EvmBatch) -> B256 {
-    settlement::recompute_public_input_hash(
-        batch,
-        test_proof_system_vkey(),
-        expected_rollup_id(1),
-        test_proof_system(),
-    )
-    .unwrap()
+fn recompute_test_public_inputs_hash(post_batch: &PostBatch) -> B256 {
+    let batch = settlement::decode_canonical_post_batch(post_batch.abi_calldata.clone()).unwrap();
+    let verified_da = settlement::verify_da_carrier(&batch, &post_batch.blobs, 1).unwrap();
+    settlement::CheckedPublicInputProfile::new(&batch, expected_rollup_id(1), test_proof_system())
+        .unwrap()
+        .recompute_public_inputs_hash(
+            test_proof_system_vkey(),
+            verified_da.transaction_blob_hashes(),
+        )
+        .unwrap()
+        .into_inner()
+}
+
+fn recompute_window_public_inputs_hash(window: &[ProveChunk]) -> B256 {
+    let Some(prove_chunk::Kind::Header(header)) = &window[0].kind else {
+        unreachable!("fixture starts with a header")
+    };
+    recompute_test_public_inputs_hash(header.post_batch.as_ref().unwrap())
+}
+
+fn fixture_action(
+    source_rollup_id: RollupId,
+    target_rollup_id: RollupId,
+    source_address: Address,
+    target_address: Address,
+    value: U256,
+    data: Bytes,
+    return_data: Bytes,
+    success: bool,
+) -> ExecutedAction {
+    ExecutedAction {
+        parent_index: None,
+        call_mode: CallMode::Mutable,
+        target_address,
+        target_rollup_id,
+        source_rollup_id,
+        source_address,
+        data,
+        value,
+        outcome: ExecutionOutcome::Resolved {
+            return_data: return_data.to_vec(),
+            gas_used: 0,
+            success,
+        },
+        revert_span: None,
+    }
+}
+
+fn fixture_semantics(batch: &eez_protocol::EvmBatch, block_rlp: &[u8]) -> Vec<SemanticTransaction> {
+    let block: reth_ethereum_primitives::Block = alloy_rlp::decode_exact(block_rlp).unwrap();
+    let encoded_transactions = block
+        .body
+        .encoded_2718_transactions_iter()
+        .collect::<Vec<_>>();
+    let immediate_count = usize::try_from(batch.immediateEntryCount).unwrap();
+    let outbound_entries = batch.entries[1..immediate_count]
+        .iter()
+        .filter(|entry| !entry.l2ToL1Calls.is_empty())
+        .collect::<Vec<_>>();
+    assert!(
+        outbound_entries.len() <= 1,
+        "service fixture synthesizer supports one outbound transaction"
+    );
+
+    let mut semantic = Vec::new();
+    if let Some(entry) = outbound_entries.first() {
+        let raw_user = encoded_transactions
+            .get(1)
+            .expect("outbound fixture has [load, user]");
+        semantic.push(SemanticTransaction {
+            origin_chain: RollupId(1),
+            tx_data: Bytes::copy_from_slice(raw_user),
+            actions: entry
+                .l2ToL1Calls
+                .iter()
+                .map(|call| {
+                    fixture_action(
+                        RollupId(call.sourceRollupId),
+                        RollupId::MAINNET,
+                        call.sourceAddress,
+                        call.targetAddress,
+                        call.value,
+                        call.data.clone(),
+                        entry.returnData.clone(),
+                        entry.success,
+                    )
+                })
+                .collect(),
+        });
+    }
+
+    for transaction in &block.body.transactions {
+        let Some(decoded) = eez_protocol::entries::decode_inbound(transaction.input()) else {
+            continue;
+        };
+        semantic.push(SemanticTransaction {
+            origin_chain: RollupId::MAINNET,
+            tx_data: Bytes::new(),
+            actions: vec![fixture_action(
+                RollupId::MAINNET,
+                RollupId(1),
+                decoded.source,
+                decoded.target,
+                decoded.value,
+                decoded.data,
+                decoded.return_data,
+                decoded.success,
+            )],
+        });
+    }
+    semantic
 }
 
 #[track_caller]

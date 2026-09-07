@@ -88,11 +88,8 @@ services:
       # Chiado is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
       # derivation reads full blobs reconstructed by the colocated
       # semi-supernode Lighthouse.
-      # EEZ_DA_MODE is mandatory so an existing calldata deployment cannot
-      # silently change its L1 data carrier during a restart.
-      EEZ_DA_MODE: "${EEZ_DA_MODE:?set EEZ_DA_MODE to blob or calldata}"
-      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:-}"
-      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:-}"
+      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:?set the mandatory native blob Beacon API}"
+      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:?set the mandatory native blob sidecar encoding}"
       # Forwarded but empty by default - the bundle
       # target-block oracle falls back to the embedded L1. Set it in
       # .env.chiado
@@ -123,11 +120,13 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Reserve time for remote stateless validation. The 2500ms proof budget
-      # plus 1300ms slack stays within the 4000ms schedulable L2 window — if
-      # either is raised, keep their sum at or below 4000ms.
-      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-2500}"
-      EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-1300}"
+      # Reserve time for remote stateless validation and relay submission while
+      # leaving ~800ms before the proof cutoff to prepare a full 12-tx bundle.
+      # For other values, preserve measured preparation headroom before the next
+      # whole L2-second boundary; an exact boundary leaves no headroom at all.
+      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-1500}"
+      EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
+      EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
       # Don't freeze the sequencer when chiado bundles are slow to land.
       EEZ_MAX_SPECULATIVE_DEPTH: "0"
       # Multi-composer: tolerate + adopt batches posted by the competing

@@ -34,6 +34,7 @@ pub const BUILDER_GAS_LIMIT: u64 = 30_000_000;
 
 pub mod block_committer;
 pub mod error;
+pub mod observation;
 pub mod sequencer;
 pub mod slot;
 pub mod timing;

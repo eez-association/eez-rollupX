@@ -39,7 +39,7 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
     assert_eq!(da_payload.gate(), "da_payload");
     let status = da_payload.status();
     assert_eq!(status.code(), Code::InvalidArgument);
-    assert_eq!(status.message(), "invalid batch callData");
+    assert_eq!(status.message(), "invalid blob operations payload");
 
     let gate_failures = [
         (
@@ -90,6 +90,12 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
                 },
             ),
             "outbound_effects",
+        ),
+        (
+            SettlementPipelineError::ObservationReplay(
+                validate::ObservationValidationError::OutcomeMismatch { index: 0 },
+            ),
+            "observation_replay",
         ),
         (
             SettlementPipelineError::DaPayload(crate::settlement::DaPayloadError::BlockCount {
@@ -319,8 +325,24 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     });
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     batch.callData = settlement::encode_da_payload(&[Vec::new()], &[sidecar.abi_encode()]).into();
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
-    let calldata = eez_protocol::entries::encode_postbatch(&batch);
+    let inbound_call = &sidecar.l2ToL1Calls[0];
+    let semantic = SemanticTransaction {
+        origin_chain: RollupId::MAINNET,
+        tx_data: Bytes::new(),
+        actions: vec![fixture_action(
+            RollupId::MAINNET,
+            RollupId(1),
+            inbound_call.sourceAddress,
+            inbound_call.targetAddress,
+            inbound_call.value,
+            inbound_call.data.clone(),
+            batch.entries[1].returnData.clone(),
+            true,
+        )],
+    };
+    let post_batch = public_input_post_batch_for_semantics(batch.clone(), &[semantic]);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let calldata = post_batch.abi_calldata.clone();
     let statuses = [true];
     let checkpoints = [checkpoint(0, B256::repeat_byte(0x05))];
     let validated = validated_single_block(settling_block, statuses.to_vec(), checkpoints.to_vec());
@@ -330,7 +352,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
 
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata.clone(),
-        submitted_blobs: &[],
+        submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -350,7 +372,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata,
-        submitted_blobs: &[],
+        submitted_blobs: &post_batch.blobs,
         validated_window: &reverted,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -514,8 +536,25 @@ fn a_fully_bound_outbound_effect_is_authorized() {
             )],
         ),
     );
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
-    let calldata = eez_protocol::entries::encode_postbatch(&batch);
+    let call = &batch.entries[1].l2ToL1Calls[0];
+    let semantic = SemanticTransaction {
+        origin_chain: RollupId(1),
+        tx_data: Bytes::copy_from_slice(&user),
+        actions: vec![fixture_action(
+            RollupId(1),
+            RollupId::MAINNET,
+            call.sourceAddress,
+            call.targetAddress,
+            call.value,
+            call.data.clone(),
+            batch.entries[1].returnData.clone(),
+            true,
+        )],
+    };
+    let post_batch =
+        public_input_post_batch_for_semantics(batch.clone(), std::slice::from_ref(&semantic));
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let calldata = post_batch.abi_calldata.clone();
     let statuses = [true, true];
     let checkpoints = [checkpoint(1, B256::repeat_byte(0x05))];
     let validated = validated_single_block(settling_block, statuses.to_vec(), checkpoints.to_vec());
@@ -525,7 +564,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
 
     let run = run_settlement(SettlementInput {
         submitted_post_batch_calldata: calldata,
-        submitted_blobs: &[],
+        submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,
@@ -541,10 +580,10 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     mismatched_da.callData =
         settlement::encode_da_payload(&[vec![user]], &[mismatched_da.entries[1].abi_encode()])
             .into();
-    let mismatched_calldata = eez_protocol::entries::encode_postbatch(&mismatched_da);
+    let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
-        submitted_post_batch_calldata: mismatched_calldata,
-        submitted_blobs: &[],
+        submitted_post_batch_calldata: mismatched_post_batch.abi_calldata,
+        submitted_blobs: &mismatched_post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
         expected_l2_system_address: TEST_SYSTEM_ADDRESS,

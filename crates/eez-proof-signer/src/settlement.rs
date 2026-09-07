@@ -56,7 +56,9 @@ pub(crate) use post_batch::{
     CanonicalPostBatch, CheckedPublicInputProfile, PostBatchDecodeError, PublicInputError,
     RecomputedPublicInputsHash, decode_canonical_post_batch,
 };
-pub(crate) use semantics::{SemanticBindingError, verify_native_semantics};
+#[cfg(test)]
+pub(crate) use semantics::verify_native_semantics;
+pub(crate) use semantics::{SemanticBindingError, verify_native_semantics_with_observations};
 pub(crate) use state_chain::{RootUpdateChainError, verify_root_update_chain};
 pub(crate) use system_transactions::{SystemTransactionKey, SystemTransactionReconstructor};
 

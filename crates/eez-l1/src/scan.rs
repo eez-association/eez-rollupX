@@ -43,7 +43,6 @@ struct DecodedBatchLog {
     submitter: Address,
     /// This batch lists our rollup, so it wiped our queue — a window boundary.
     verifies_our_rollup: bool,
-    call_data: Bytes,
     transaction_blob_hashes: Vec<B256>,
     post_batch_input: Bytes,
     claimed_current_root: Option<B256>,
@@ -100,11 +99,13 @@ pub struct ScannedBatch {
     /// `l1_block_number` this gives a stable total order for same-block batches.
     pub tx_index: u64,
     pub submitter: Address,
-    pub call_data: Bytes,
+    /// Authenticated operations payload decoded from this transaction's native
+    /// blobs. The initial log scan leaves this empty; blob hydration fills it
+    /// before the batch leaves `eez-l1`.
+    pub operations_payload: Bytes,
     /// EIP-4844 versioned hashes committed by the originating transaction.
-    /// Internal derivation metadata; the beacon retrieval path replaces
-    /// `call_data` with the authenticated decoded blob payload before this
-    /// value leaves `eez-l1`.
+    /// Internal derivation metadata used by the beacon retrieval path before
+    /// this value leaves `eez-l1`.
     pub(crate) transaction_blob_hashes: Vec<B256>,
     /// The originating postBatch tx's full input (the `postAndVerifyBatch`
     /// calldata), captured from the tx fetched by (block, index). Carried
@@ -363,9 +364,9 @@ pub(crate) async fn scan_next_batch_log_chunk(
 /// Fetch every `BatchPosted` log in `[from_block, to_block]` and cross-
 /// reference each against `L2ExecutionPerformed` for our rollup — present
 /// ⇔ this batch's commitment delta applied (winner; losers emit `BatchPosted`
-/// only). For each, decode the originating tx for the submitter, callData
-/// and our rollup's claimed block hashes. The contract retains the legacy
-/// `currentRoot` / `newRoot` field names.
+/// only). For each, decode the originating tx for the submitter and our
+/// rollup's claimed block hashes. The contract retains the legacy `currentRoot`
+/// / `newRoot` field names.
 pub(crate) async fn scan_batch_logs_range(
     provider: &impl Provider,
     eez: Address,
@@ -532,7 +533,6 @@ pub(crate) async fn scan_batch_logs_range(
                 .rollupIdsWithProofSystems
                 .iter()
                 .any(|r| r.rollupId == rollup_id),
-            call_data: decoded.batch.callData,
             transaction_blob_hashes: tx
                 .inner
                 .blob_versioned_hashes()
@@ -598,7 +598,7 @@ pub(crate) async fn scan_batch_logs_range(
                 tx_hash: b.tx_hash,
                 tx_index: b.tx_index,
                 submitter: b.submitter,
-                call_data: b.call_data,
+                operations_payload: Bytes::new(),
                 transaction_blob_hashes: b.transaction_blob_hashes,
                 post_batch_input: b.post_batch_input,
                 state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
@@ -959,7 +959,7 @@ mod tests {
                 tx_hash: B256::repeat_byte(tx_byte),
                 tx_index,
                 submitter: Address::ZERO,
-                call_data: Bytes::new(),
+                operations_payload: Bytes::new(),
                 transaction_blob_hashes: Vec::new(),
                 post_batch_input: Bytes::new(),
                 state_applied: settled,

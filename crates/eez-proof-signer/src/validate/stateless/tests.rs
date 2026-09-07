@@ -1,7 +1,10 @@
 use std::num::NonZeroU64;
 
 use alloy_consensus::{Header, SignableTransaction as _, TxLegacy};
-use alloy_primitives::{Bytes, Log, Signature, TxKind, U256, b256};
+use alloy_primitives::{Log, Signature, TxKind, b256};
+use alloy_sol_types::SolCall as _;
+use eez_protocol::CallMode;
+use eez_protocol::abi::computeCrossChainProxyAddressCall;
 use reth_ethereum_primitives::TransactionSigned;
 use reth_primitives_traits::SignerRecoverable as _;
 
@@ -9,6 +12,7 @@ use super::*;
 use crate::settlement::inspect_validated_settling_block;
 use crate::testkit::{SYSTEM_TX, TEST_SYSTEM_ADDRESS};
 use crate::validate::ValidatedBlock;
+use crate::validate::Validator;
 
 fn fixture_chain_config() -> ChainConfig {
     serde_json::from_str(include_str!(concat!(
@@ -84,6 +88,63 @@ fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<usize>) {
         chain_config,
         checkpoints,
     )
+}
+
+fn observation_fixture() -> (AdmittedBlock, ChainConfig) {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/stateless-observation-26382/block-witness-26382.json"
+    )))
+    .unwrap();
+    let chain_config = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/stateless-observation-26382/chain-config.json"
+    )))
+    .unwrap();
+    let rlp = hex::decode(fixture["rlp"].as_str().unwrap()).unwrap();
+    let witness = serde_json::from_value(fixture["witness"].clone()).unwrap();
+    (
+        AdmittedBlock {
+            declared_number: fixture["declared_number"].as_u64().unwrap(),
+            claimed_hash: serde_json::from_value(fixture["claimed_hash"].clone()).unwrap(),
+            claimed_parent_hash: serde_json::from_value(fixture["claimed_parent_hash"].clone())
+                .unwrap(),
+            rlp,
+            witness,
+        },
+        chain_config,
+    )
+}
+
+fn observation_claim(
+    pinned_block_hash: B256,
+    call_mode: CallMode,
+    data: Bytes,
+) -> FifoObservationClaim {
+    FifoObservationClaim {
+        pinned_block_hash,
+        call_mode,
+        // The captured block witness contains this account and the
+        // authenticated `authorizedProxies[target]` lookup made by the
+        // composition inspector. Observation-only reads are covered by the
+        // separate Composer witness-generation regression in eez-driver.
+        target_address: alloy_primitives::address!("91bcb16fadf29d28e6ab93ddef681b2afa54434b"),
+        // This proxy was exercised by the captured block, so the original
+        // execution witness contains its authenticated account proof.
+        source_address: alloy_primitives::address!("44554d844465037c0e0c26a4ef97a5d3a692642c"),
+        source_rollup_id: eez_protocol::RollupId::MAINNET,
+        data,
+        value: U256::ZERO,
+        expected_success: false,
+        expected_output: Bytes::new(),
+    }
+}
+
+fn validated_observation_fixture() -> (Validator, ValidatedWindow) {
+    let (input, chain_config) = observation_fixture();
+    let validator = Validator::stateless_for_test(chain_config, TEST_SYSTEM_ADDRESS);
+    let window = validator.validate(&[input]).unwrap();
+    (validator, window)
 }
 
 fn high_s_system_transaction() -> TransactionSigned {
@@ -503,6 +564,236 @@ fn selected_checkpoints_flow_through_the_stateless_adapter() {
             .block_hash,
         expected_hash,
     );
+}
+
+#[test]
+fn authenticated_observation_replay_accepts_exact_static_result() {
+    let (validator, window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let calldata: Bytes = computeCrossChainProxyAddressCall {
+        originalAddress: Address::repeat_byte(0x55),
+        originalRollupId: 9,
+    }
+    .abi_encode()
+    .into();
+    let mut claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+    let outcome = backend
+        .replay_observations(&window, std::slice::from_ref(&claim))
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert!(outcome.success);
+    assert!(outcome.output.is_empty());
+    claim.expected_success = outcome.success;
+    claim.expected_output = outcome.output;
+
+    backend.verify_observations(&window, &[claim]).unwrap();
+}
+
+#[test]
+fn authenticated_observation_replay_accepts_each_fifo_prefix() {
+    let (validator, window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let calldata: Bytes = computeCrossChainProxyAddressCall {
+        originalAddress: Address::repeat_byte(0x66),
+        originalRollupId: 11,
+    }
+    .abi_encode()
+    .into();
+    let mut pins = vec![window.settling_pre_block_hash()];
+    pins.extend(
+        window
+            .settling_block()
+            .transaction_state_checkpoints()
+            .iter()
+            .map(|checkpoint| checkpoint.block_hash),
+    );
+    if pins.last().copied() != Some(window.window_post_block_hash()) {
+        pins.push(window.window_post_block_hash());
+    }
+    let mut accepted = Vec::new();
+    let mut rejected_cross_chain = 0usize;
+    for pin in pins {
+        let mut claim = observation_claim(pin, CallMode::Static, calldata.clone());
+        match backend.replay_observations(&window, std::slice::from_ref(&claim)) {
+            Ok(mut outcomes) => {
+                let outcome = outcomes.pop().unwrap();
+                claim.expected_success = outcome.success;
+                claim.expected_output = outcome.output;
+                accepted.push(claim);
+            }
+            Err(ObservationValidationError::Replay(reason))
+                if reason.contains("unsupported nested cross-chain call") =>
+            {
+                // This address is registered as a proxy by a canonical tx in
+                // the fixture. Later prefixes must reject it independently,
+                // which also proves the live prefix state is being used.
+                rejected_cross_chain += 1;
+            }
+            Err(error) => panic!("recognized FIFO pin failed unexpectedly: {error}"),
+        }
+    }
+    assert!(!accepted.is_empty());
+    assert!(rejected_cross_chain > 0);
+
+    backend.verify_observations(&window, &accepted).unwrap();
+}
+
+#[test]
+fn authenticated_observation_replay_rejects_forged_success_and_output() {
+    let (validator, window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let calldata: Bytes = computeCrossChainProxyAddressCall {
+        originalAddress: Address::repeat_byte(0x55),
+        originalRollupId: 9,
+    }
+    .abi_encode()
+    .into();
+    let mut claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+    let outcome = backend
+        .replay_observations(&window, std::slice::from_ref(&claim))
+        .unwrap()
+        .pop()
+        .unwrap();
+    claim.expected_success = !outcome.success;
+    claim.expected_output = outcome.output.clone();
+    assert_eq!(
+        backend.verify_observations(&window, std::slice::from_ref(&claim)),
+        Err(ObservationValidationError::OutcomeMismatch { index: 0 })
+    );
+
+    claim.expected_success = outcome.success;
+    let mut forged_output = outcome.output.to_vec();
+    forged_output.push(0xff);
+    claim.expected_output = forged_output.into();
+    assert_eq!(
+        backend.verify_observations(&window, &[claim]),
+        Err(ObservationValidationError::OutcomeMismatch { index: 0 })
+    );
+}
+
+#[test]
+fn authenticated_observation_replay_binds_mutable_lookup_output() {
+    let (validator, window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let mut claim = observation_claim(
+        window.settling_pre_block_hash(),
+        CallMode::Mutable,
+        Bytes::from_static(&[0xde, 0xad, 0xbe, 0xef]),
+    );
+    let outcome = backend
+        .replay_observations(&window, std::slice::from_ref(&claim))
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert!(outcome.success);
+    claim.expected_success = true;
+    claim.expected_output = outcome.output;
+    backend
+        .verify_observations(&window, std::slice::from_ref(&claim))
+        .unwrap();
+
+    let mut forged_output = claim.expected_output.to_vec();
+    forged_output.push(0x01);
+    claim.expected_output = forged_output.into();
+    assert_eq!(
+        backend.verify_observations(&window, &[claim]),
+        Err(ObservationValidationError::OutcomeMismatch { index: 0 })
+    );
+}
+
+#[test]
+fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
+    let (validator, mut window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let calldata: Bytes = computeCrossChainProxyAddressCall {
+        originalAddress: Address::repeat_byte(0x55),
+        originalRollupId: 9,
+    }
+    .abi_encode()
+    .into();
+    let unknown = observation_claim(B256::repeat_byte(0xfe), CallMode::Static, calldata.clone());
+    assert_eq!(
+        backend.verify_observations(&window, &[unknown]),
+        Err(ObservationValidationError::UnknownPinnedRoot {
+            index: 0,
+            block_hash: B256::repeat_byte(0xfe),
+        })
+    );
+
+    let claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+
+    let mut missing_account = claim.clone();
+    missing_account.source_address = Address::repeat_byte(0x77);
+    let error = backend
+        .verify_observations(&window, &[missing_account])
+        .unwrap_err();
+    assert!(matches!(error, ObservationValidationError::Replay(_)));
+
+    window.settling_block.replay_input.witness.codes.clear();
+    let error = backend.verify_observations(&window, &[claim]).unwrap_err();
+    assert!(matches!(error, ObservationValidationError::Replay(_)));
+}
+
+#[test]
+fn authenticated_observation_replay_rejects_non_fifo_pins() {
+    let (validator, window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let checkpoint = window
+        .settling_block()
+        .transaction_state_checkpoints()
+        .first()
+        .expect("fixture must expose a transaction checkpoint")
+        .block_hash;
+    let claims = [
+        observation_claim(checkpoint, CallMode::Static, Bytes::new()),
+        observation_claim(
+            window.settling_pre_block_hash(),
+            CallMode::Static,
+            Bytes::new(),
+        ),
+    ];
+
+    let error = backend.verify_observations(&window, &claims).unwrap_err();
+    assert!(matches!(error, ObservationValidationError::Replay(_)));
+}
+
+#[test]
+fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
+    let (validator, mut window) = validated_observation_fixture();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let claim = observation_claim(
+        window.settling_pre_block_hash(),
+        CallMode::Static,
+        Bytes::new(),
+    );
+    let encoded_parent = window
+        .settling_block
+        .replay_input
+        .witness
+        .headers
+        .last_mut()
+        .expect("fixture must include the terminal block's parent");
+    let mut parent = alloy_rlp::decode_exact::<Header>(encoded_parent.as_ref()).unwrap();
+    parent.gas_limit ^= 1;
+    *encoded_parent = alloy_rlp::encode(parent).into();
+
+    let error = backend.verify_observations(&window, &[claim]).unwrap_err();
+    assert!(matches!(error, ObservationValidationError::Replay(_)));
 }
 
 #[test]

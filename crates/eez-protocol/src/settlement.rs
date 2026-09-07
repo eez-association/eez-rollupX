@@ -1,7 +1,429 @@
 //! Settlement transaction-framing helpers shared by the composer and proof
 //! signer.
 
-use alloy_primitives::{Address, B256};
+use alloy_primitives::{Address, B256, Bytes, U256};
+
+use crate::abi::{EtherDeltaSol, ExecutionEntrySol};
+use crate::{CallMode, Composition, EntryRollingHash, ExecutedAction, ExecutionOutcome};
+
+/// Whether an entry is the canonical inert shape used for the leading anchor.
+///
+/// This shape can advance only the settled rollup's commitment. It cannot
+/// transfer value, execute a call, return data, or smuggle an unrelated
+/// rolling trace.
+#[must_use]
+pub fn is_root_only_entry(entry: &ExecutionEntrySol, settled_rollup: u64) -> bool {
+    let [update] = entry.rootUpdates.as_slice() else {
+        return false;
+    };
+    entry.proxyEntryHash == B256::ZERO
+        && entry.l2ToL1Calls.is_empty()
+        && entry.expectedL1ToL2Calls.is_empty()
+        && entry.success
+        && entry.returnData.is_empty()
+        && entry.destinationRollupId == settled_rollup
+        && update.rollupId == settled_rollup
+        && update.etherDelta == EtherDeltaSol::ZERO
+        && entry.rollingHash
+            == EntryRollingHash::seed_for_l1([(settled_rollup, update.currentRoot)], B256::ZERO)
+                .current()
+}
+
+/// Whether a deferred entry is a canonical L1-origin lookup that changes no L2
+/// state.
+///
+/// Lookup-only entries retain a nonzero proxy hash plus the source-visible
+/// outcome, but contain no destination execution trace and a zero-value no-op
+/// root update. Recomputing the rolling seed makes the classification exact;
+/// an arbitrary deferred entry cannot opt out of execution merely by setting
+/// `currentRoot == newRoot`.
+#[must_use]
+pub fn is_lookup_only_inbound_entry(entry: &ExecutionEntrySol, settled_rollup: u64) -> bool {
+    let [update] = entry.rootUpdates.as_slice() else {
+        return false;
+    };
+    entry.proxyEntryHash != B256::ZERO
+        && entry.l2ToL1Calls.is_empty()
+        && entry.expectedL1ToL2Calls.is_empty()
+        && entry.destinationRollupId == settled_rollup
+        && update.rollupId == settled_rollup
+        && update.currentRoot == update.newRoot
+        && update.etherDelta == EtherDeltaSol::ZERO
+        && entry.rollingHash
+            == EntryRollingHash::seed_for_l1(
+                [(settled_rollup, update.currentRoot)],
+                entry.proxyEntryHash,
+            )
+            .current()
+}
+
+/// Mark the L1-origin root actions whose destination execution may be applied
+/// to L2.
+///
+/// A mutable root applies only when its target call succeeded and its source
+/// frame was not later reverted. Static roots, failed target calls, and every
+/// root covered by a root-level revert span are lookups: their result remains
+/// in the semantic stream and source entry, but they authorize no L2 state
+/// transition.
+///
+/// The input must be the validated contiguous preorder action stream used by
+/// materialization. The returned vector is parallel to `actions` and is false
+/// for nested actions.
+///
+/// # Errors
+///
+/// Returns an error if a root-level revert span overflows or exceeds the action
+/// stream. Full forest-shape validation remains the materializer's job.
+pub fn l1_applied_root_mask(actions: &[ExecutedAction]) -> Result<Vec<bool>, String> {
+    let mut applied = vec![false; actions.len()];
+    let mut reverted_until = 0usize;
+
+    for (index, action) in actions.iter().enumerate() {
+        if action.parent_index.is_some() {
+            continue;
+        }
+
+        let own_revert_end = action
+            .revert_span
+            .map(|span| {
+                index
+                    .checked_add(span as usize)
+                    .filter(|end| *end <= actions.len())
+                    .ok_or_else(|| {
+                        format!(
+                            "root action {index} revert span {span} exceeds {} actions",
+                            actions.len()
+                        )
+                    })
+            })
+            .transpose()?;
+        let source_frame_reverted = index < reverted_until || own_revert_end.is_some();
+        if let Some(end) = own_revert_end {
+            reverted_until = reverted_until.max(end);
+        }
+
+        applied[index] = action.call_mode == CallMode::Mutable
+            && action.outcome.is_success()
+            && !source_frame_reverted;
+    }
+
+    Ok(applied)
+}
+
+/// One top-level source-chain action in the order in which its originating
+/// transaction executes it.
+///
+/// Applying mutable actions have a corresponding settling-block checkpoint.
+/// Lookup-only mutable and static actions do not create an L2 transaction;
+/// they observe the commitment live at their exact FIFO position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FifoSourceAction {
+    /// A mutable cross-chain call.
+    Mutable {
+        /// Whether destination execution is authorized to change L2 state.
+        applies: bool,
+    },
+    /// A top-level static cross-chain read.
+    Static,
+}
+
+/// One source-visible call result that does not have a canonical L2
+/// transaction and must therefore be re-executed by the proof signer.
+///
+/// `pinned_block_hash` identifies the exact Sync-block prefix at which the
+/// call was observed. The remaining fields are the complete synthetic EVM
+/// input and the exact result committed by native blob semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FifoObservationClaim {
+    /// Canonical block hash naming the L2 state observed by this call.
+    pub pinned_block_hash: B256,
+    /// Mutable lookup or static observation.
+    pub call_mode: CallMode,
+    /// Destination contract on this rollup.
+    pub target_address: Address,
+    /// Original L1 caller used to derive the destination proxy address.
+    pub source_address: Address,
+    /// Chain on which `source_address` made the intercepted call.
+    pub source_rollup_id: crate::RollupId,
+    /// Target calldata.
+    pub data: Bytes,
+    /// Native value for a mutable lookup. Static observations always carry zero.
+    pub value: U256,
+    /// Independently reproducible success bit.
+    pub expected_success: bool,
+    /// Exact return data on success or revert data on failure.
+    pub expected_output: Bytes,
+}
+
+/// Recover the top-level source actions that must execute in FIFO order.
+///
+/// Native semantics retain the exact call forest. Only root actions emitted by
+/// the composition's source transaction belong to its L1 execution frame;
+/// nested calls execute inside their parent entry and therefore do not get a
+/// separate root pin. This projection also cross-checks the materialized source
+/// arrays so a malformed semantic payload cannot silently change action kind,
+/// outcome, or cardinality.
+///
+/// # Errors
+///
+/// Returns an error when native actions and materialized source entries do not
+/// describe the same ordered mutable/static actions.
+pub fn composition_fifo_actions(
+    composition: &Composition,
+) -> Result<Vec<FifoSourceAction>, String> {
+    composition_fifo_action_indices(composition)
+        .map(|actions| actions.into_iter().map(|(_, action)| action).collect())
+}
+
+/// Recover the absolute semantic-action index for every FIFO source action.
+///
+/// This is the indexed form of [`composition_fifo_actions`]. Keeping the
+/// projection and materialized-table cross-check in one place prevents
+/// observation verification from binding a different action order.
+fn composition_fifo_action_indices(
+    composition: &Composition,
+) -> Result<Vec<(usize, FifoSourceAction)>, String> {
+    let applied = l1_applied_root_mask(&composition.actions)?;
+    let mut actions = Vec::new();
+    let mut mutable_cursor = 0usize;
+    let mut static_cursor = 0usize;
+
+    for (action_index, action) in composition
+        .actions
+        .iter()
+        .enumerate()
+        .filter(|(_, action)| {
+            action.parent_index.is_none() && action.source_rollup_id == composition.source.rollup_id
+        })
+    {
+        let semantic_success = action.outcome.is_success();
+        match action.call_mode {
+            CallMode::Mutable => {
+                let Some(entry) = composition.source.batch.entries.get(mutable_cursor) else {
+                    return Err(format!(
+                        "native semantics contain mutable source action {mutable_cursor} without a materialized entry"
+                    ));
+                };
+                if entry.success != semantic_success {
+                    return Err(format!(
+                        "mutable source action {mutable_cursor} outcome differs from its materialized entry"
+                    ));
+                }
+                actions.push((
+                    action_index,
+                    FifoSourceAction::Mutable {
+                        applies: applied[action_index],
+                    },
+                ));
+                mutable_cursor += 1;
+            }
+            CallMode::Static => {
+                let Some(entry) = composition.source.batch.staticEntries.get(static_cursor) else {
+                    return Err(format!(
+                        "native semantics contain static source action {static_cursor} without a materialized entry"
+                    ));
+                };
+                if entry.success != semantic_success {
+                    return Err(format!(
+                        "static source action {static_cursor} outcome differs from its materialized entry"
+                    ));
+                }
+                actions.push((action_index, FifoSourceAction::Static));
+                static_cursor += 1;
+            }
+        }
+    }
+
+    if mutable_cursor != composition.source.batch.entries.len()
+        || static_cursor != composition.source.batch.staticEntries.len()
+    {
+        return Err(format!(
+            "native FIFO source actions materialize as {mutable_cursor} mutable/{static_cursor} static entries, expected {}/{}",
+            composition.source.batch.entries.len(),
+            composition.source.batch.staticEntries.len(),
+        ));
+    }
+
+    Ok(actions)
+}
+
+/// Root assignments for one FIFO source transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FifoTransactionRootPlan {
+    /// `newRoot` for each mutable source entry, in mutable-entry order.
+    pub mutable_new_roots: Vec<B256>,
+    /// Root pin for each top-level static entry, in static-entry order.
+    pub static_roots: Vec<B256>,
+    /// Root live after the complete transaction.
+    pub endpoint: B256,
+}
+
+/// Bind every lookup/static root action to its pinned state and claimed
+/// result.
+///
+/// Applying mutable actions are omitted because their canonical system
+/// transaction is already re-executed by the signer. A lookup/static action
+/// with a semantic cross-chain descendant is rejected: proving such a child
+/// can require another chain's authenticated state, so accepting it from the
+/// Composer would recreate the unchecked-oracle gap this capability closes.
+/// Local EVM subcalls do not appear as semantic descendants and are replayed
+/// normally.
+///
+/// # Errors
+///
+/// Returns an error if `plan` does not cover the exact FIFO projection, an
+/// observation outcome is unresolved, or a non-applying root contains a
+/// cross-chain descendant that this single-rollup proof cannot authenticate.
+pub fn fifo_observation_claims(
+    composition: &Composition,
+    plan: &FifoTransactionRootPlan,
+) -> Result<Vec<FifoObservationClaim>, String> {
+    let indexed = composition_fifo_action_indices(composition)?;
+    let mutable_count = indexed
+        .iter()
+        .filter(|(_, action)| matches!(action, FifoSourceAction::Mutable { .. }))
+        .count();
+    let static_count = indexed
+        .iter()
+        .filter(|(_, action)| matches!(action, FifoSourceAction::Static))
+        .count();
+    if plan.mutable_new_roots.len() != mutable_count || plan.static_roots.len() != static_count {
+        return Err(format!(
+            "FIFO observation plan covers {}/{} mutable/static roots, expected {mutable_count}/{static_count}",
+            plan.mutable_new_roots.len(),
+            plan.static_roots.len(),
+        ));
+    }
+
+    let mut claims = Vec::new();
+    let mut mutable_cursor = 0usize;
+    let mut static_cursor = 0usize;
+    for (action_index, fifo_action) in indexed {
+        let (observe, pinned_block_hash) = match fifo_action {
+            FifoSourceAction::Mutable { applies } => {
+                let root = plan.mutable_new_roots[mutable_cursor];
+                mutable_cursor += 1;
+                (!applies, root)
+            }
+            FifoSourceAction::Static => {
+                let root = plan.static_roots[static_cursor];
+                static_cursor += 1;
+                (true, root)
+            }
+        };
+        if !observe {
+            continue;
+        }
+        let action = &composition.actions[action_index];
+
+        // Strict preorder means an immediately following nested action belongs
+        // to this root's subtree. Its target may be another chain, whose state
+        // is not authenticated by this rollup's execution witness.
+        if composition
+            .actions
+            .get(action_index + 1)
+            .is_some_and(|next| next.parent_index.is_some())
+        {
+            return Err(format!(
+                "lookup/static source action {action_index} has cross-chain descendants; multi-chain observation replay is unsupported"
+            ));
+        }
+
+        // More than one semantic call inside a reverted source frame can
+        // observe transient writes from an earlier call even though every
+        // call pins the same canonical root. The current proof format carries
+        // canonical prefix roots only, so it cannot reproduce that transient
+        // ordering without an additional checkpoint/group commitment.
+        if action.revert_span.is_some_and(|span| span > 1) {
+            return Err(format!(
+                "lookup/static source action {action_index} begins a multi-action rollback region; transient observation checkpoints are unsupported"
+            ));
+        }
+
+        if action.call_mode == CallMode::Static && action.value != U256::ZERO {
+            return Err(format!(
+                "static source action {action_index} carries nonzero value"
+            ));
+        }
+        let ExecutionOutcome::Resolved {
+            return_data,
+            success,
+            ..
+        } = &action.outcome
+        else {
+            return Err(format!(
+                "lookup/static source action {action_index} has an unresolved outcome"
+            ));
+        };
+        claims.push(FifoObservationClaim {
+            pinned_block_hash,
+            call_mode: action.call_mode,
+            target_address: action.target_address,
+            source_address: action.source_address,
+            source_rollup_id: action.source_rollup_id,
+            data: action.data.clone(),
+            value: action.value,
+            expected_success: *success,
+            expected_output: Bytes::copy_from_slice(return_data),
+        });
+    }
+    Ok(claims)
+}
+
+/// Build the canonical root schedule for one inbound source transaction.
+///
+/// Applying mutable entries advance the commitment at their FIFO position.
+/// Lookup-only mutable entries receive a no-op update and static entries pin
+/// the root that is consequently live at their position. There is no trailing
+/// root checkpoint: a lookup cannot move the L2 commitment.
+///
+/// # Errors
+///
+/// Returns an error if the number of applying mutable actions differs from the
+/// number of independently derived effect checkpoints.
+pub fn fifo_transaction_root_plan(
+    start_root: B256,
+    actions: &[FifoSourceAction],
+    effect_checkpoints: &[B256],
+) -> Result<FifoTransactionRootPlan, String> {
+    let mutable_count = actions
+        .iter()
+        .filter(|action| matches!(action, FifoSourceAction::Mutable { .. }))
+        .count();
+    let applying_count = actions
+        .iter()
+        .filter(|action| matches!(action, FifoSourceAction::Mutable { applies: true }))
+        .count();
+    if applying_count != effect_checkpoints.len() {
+        return Err(format!(
+            "FIFO root plan has {applying_count} applying mutable actions but {} effect checkpoints",
+            effect_checkpoints.len(),
+        ));
+    }
+
+    let mut live_root = start_root;
+    let mut mutable_cursor = 0usize;
+    let mut mutable_new_roots = Vec::with_capacity(mutable_count);
+    let mut static_roots = Vec::new();
+    for action in actions {
+        match *action {
+            FifoSourceAction::Mutable { applies } => {
+                if applies {
+                    live_root = effect_checkpoints[mutable_cursor];
+                    mutable_cursor += 1;
+                }
+                mutable_new_roots.push(live_root);
+            }
+            FifoSourceAction::Static => static_roots.push(live_root),
+        }
+    }
+
+    Ok(FifoTransactionRootPlan {
+        mutable_new_roots,
+        static_roots,
+        endpoint: live_root,
+    })
+}
 
 /// A sync-block transaction is a system transaction iff its recovered signer
 /// matches the deployment's system address and it targets `EEZL2`.
@@ -83,9 +505,70 @@ pub fn settlement_root_carriers(
 mod tests {
     use alloy_primitives::address;
 
-    use alloy_primitives::B256;
+    use alloy_primitives::{Address, B256, Bytes, U256};
 
-    use super::{is_system_tx, pair_end_positions, settlement_root_carriers};
+    use super::{
+        FifoSourceAction, FifoTransactionRootPlan, fifo_observation_claims,
+        fifo_transaction_root_plan, is_lookup_only_inbound_entry, is_root_only_entry, is_system_tx,
+        l1_applied_root_mask, pair_end_positions, settlement_root_carriers,
+    };
+    use crate::abi::{
+        EtherDeltaSol, ExecutionEntrySol, ExpectedL1ToL2CallSol, RootUpdateSol,
+        StaticExecutionEntrySol,
+    };
+    use crate::rolling_hash::EntryRollingHash;
+    use crate::{
+        CallMode, Composition, EvmBatch, ExecutedAction, ExecutionOutcome, RollupId,
+        SourceComposition,
+    };
+
+    fn action(parent_index: Option<usize>, call_mode: CallMode, success: bool) -> ExecutedAction {
+        ExecutedAction {
+            parent_index,
+            call_mode,
+            target_address: Address::repeat_byte(0x11),
+            target_rollup_id: RollupId(1),
+            source_rollup_id: RollupId::MAINNET,
+            source_address: Address::repeat_byte(0x22),
+            data: Bytes::new(),
+            value: U256::ZERO,
+            outcome: ExecutionOutcome::Resolved {
+                return_data: Vec::new(),
+                gas_used: 0,
+                success,
+            },
+            revert_span: None,
+        }
+    }
+
+    fn composition(actions: Vec<ExecutedAction>) -> Composition {
+        let mut batch = EvmBatch::default();
+        for action in actions.iter().filter(|action| {
+            action.parent_index.is_none() && action.source_rollup_id == RollupId::MAINNET
+        }) {
+            match action.call_mode {
+                CallMode::Mutable => batch.entries.push(ExecutionEntrySol {
+                    success: action.outcome.is_success(),
+                    ..Default::default()
+                }),
+                CallMode::Static => batch.staticEntries.push(StaticExecutionEntrySol {
+                    success: action.outcome.is_success(),
+                    ..Default::default()
+                }),
+            }
+        }
+        Composition {
+            source: SourceComposition {
+                rollup_id: RollupId::MAINNET,
+                callback_entry_counts: vec![0; batch.entries.len()],
+                batch,
+                entry_traces: Vec::new(),
+                outbound_event_hashes: Vec::new(),
+            },
+            targets: Vec::new(),
+            actions,
+        }
+    }
 
     #[test]
     fn system_transaction_identity_uses_deployment_addresses() {
@@ -110,6 +593,107 @@ mod tests {
             system_address,
             eezl2_address,
         ));
+    }
+
+    #[test]
+    fn root_only_entry_shape_is_exact_and_fail_closed() {
+        let rollup_id = 7;
+        let current = B256::repeat_byte(0x11);
+        let mut entry = ExecutionEntrySol {
+            rootUpdates: vec![RootUpdateSol {
+                rollupId: rollup_id,
+                currentRoot: current,
+                newRoot: B256::repeat_byte(0x22),
+                etherDelta: EtherDeltaSol::ZERO,
+            }],
+            destinationRollupId: rollup_id,
+            success: true,
+            rollingHash: EntryRollingHash::seed_for_l1([(rollup_id, current)], B256::ZERO)
+                .current(),
+            ..Default::default()
+        };
+        assert!(is_root_only_entry(&entry, rollup_id));
+
+        entry.returnData = vec![1].into();
+        assert!(!is_root_only_entry(&entry, rollup_id));
+        entry.returnData = Default::default();
+        entry.rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
+        assert!(!is_root_only_entry(&entry, rollup_id));
+        entry.rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+        entry.rollingHash = B256::ZERO;
+        assert!(!is_root_only_entry(&entry, rollup_id));
+    }
+
+    #[test]
+    fn lookup_only_entry_shape_is_exact_and_fail_closed() {
+        let rollup_id = 7;
+        let root = B256::repeat_byte(0x11);
+        let proxy = B256::repeat_byte(0x22);
+        let mut entry = ExecutionEntrySol {
+            rootUpdates: vec![RootUpdateSol {
+                rollupId: rollup_id,
+                currentRoot: root,
+                newRoot: root,
+                etherDelta: EtherDeltaSol::ZERO,
+            }],
+            proxyEntryHash: proxy,
+            destinationRollupId: rollup_id,
+            success: false,
+            returnData: vec![0xde, 0xad].into(),
+            rollingHash: EntryRollingHash::seed_for_l1([(rollup_id, root)], proxy).current(),
+            ..Default::default()
+        };
+        assert!(is_lookup_only_inbound_entry(&entry, rollup_id));
+
+        entry.rootUpdates[0].newRoot = B256::repeat_byte(0x33);
+        assert!(!is_lookup_only_inbound_entry(&entry, rollup_id));
+        entry.rootUpdates[0].newRoot = root;
+        entry.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::ZERO,
+            l2ToL1Calls: Vec::new(),
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: Default::default(),
+        });
+        assert!(!is_lookup_only_inbound_entry(&entry, rollup_id));
+    }
+
+    #[test]
+    fn applied_root_mask_requires_mutable_success_without_source_revert() {
+        let actions = [
+            action(None, CallMode::Mutable, true),
+            action(None, CallMode::Mutable, false),
+            action(None, CallMode::Static, true),
+        ];
+
+        assert_eq!(
+            l1_applied_root_mask(&actions).unwrap(),
+            [true, false, false]
+        );
+    }
+
+    #[test]
+    fn applied_root_mask_excludes_every_root_in_a_source_revert_span() {
+        let mut actions = [
+            action(None, CallMode::Mutable, true),
+            action(Some(0), CallMode::Mutable, true),
+            action(None, CallMode::Mutable, true),
+            action(None, CallMode::Mutable, true),
+        ];
+        actions[0].revert_span = Some(3);
+
+        assert_eq!(
+            l1_applied_root_mask(&actions).unwrap(),
+            [false, false, false, true]
+        );
+    }
+
+    #[test]
+    fn applied_root_mask_rejects_out_of_bounds_source_revert_span() {
+        let mut actions = [action(None, CallMode::Mutable, true)];
+        actions[0].revert_span = Some(2);
+
+        assert!(l1_applied_root_mask(&actions).is_err());
     }
 
     /// A pair ends at every user (non-system) tx, at a system tx followed by a
@@ -157,5 +741,221 @@ mod tests {
 
         assert_eq!(anchor, pre);
         assert_eq!(entries, [first, second]);
+    }
+
+    #[test]
+    fn fifo_plan_pins_statics_at_their_exact_success_positions() {
+        let r0 = B256::repeat_byte(0x10);
+        let r1 = B256::repeat_byte(0x11);
+        let r2 = B256::repeat_byte(0x12);
+        let plan = fifo_transaction_root_plan(
+            r0,
+            &[
+                FifoSourceAction::Static,
+                FifoSourceAction::Mutable { applies: true },
+                FifoSourceAction::Static,
+                FifoSourceAction::Mutable { applies: true },
+                FifoSourceAction::Static,
+            ],
+            &[r1, r2],
+        )
+        .unwrap();
+
+        assert_eq!(plan.mutable_new_roots, [r1, r2]);
+        assert_eq!(plan.static_roots, [r0, r1, r2]);
+        assert_eq!(plan.endpoint, r2);
+    }
+
+    #[test]
+    fn fifo_plan_keeps_failed_effects_behind_earlier_static_reads() {
+        let r0 = B256::repeat_byte(0x20);
+        let plan = fifo_transaction_root_plan(
+            r0,
+            &[
+                FifoSourceAction::Static,
+                FifoSourceAction::Mutable { applies: false },
+                FifoSourceAction::Static,
+            ],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(plan.mutable_new_roots, [r0]);
+        assert_eq!(plan.static_roots, [r0, r0]);
+        assert_eq!(plan.endpoint, r0);
+    }
+
+    #[test]
+    fn fifo_plan_advances_a_later_success_over_prior_failures() {
+        let r0 = B256::repeat_byte(0x30);
+        let success = B256::repeat_byte(0x32);
+        let plan = fifo_transaction_root_plan(
+            r0,
+            &[
+                FifoSourceAction::Mutable { applies: false },
+                FifoSourceAction::Static,
+                FifoSourceAction::Mutable { applies: true },
+            ],
+            &[success],
+        )
+        .unwrap();
+
+        assert_eq!(plan.mutable_new_roots, [r0, success]);
+        assert_eq!(plan.static_roots, [r0]);
+        assert_eq!(plan.endpoint, success);
+    }
+
+    #[test]
+    fn fifo_plan_rejects_action_checkpoint_count_mismatch() {
+        let root = B256::ZERO;
+        assert!(
+            fifo_transaction_root_plan(root, &[FifoSourceAction::Mutable { applies: true }], &[],)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn fifo_plan_keeps_a_lookup_only_tail_at_the_live_root() {
+        let root = B256::repeat_byte(0x41);
+        let plan =
+            fifo_transaction_root_plan(root, &[FifoSourceAction::Mutable { applies: false }], &[])
+                .unwrap();
+
+        assert_eq!(plan.mutable_new_roots, [root]);
+        assert_eq!(plan.endpoint, root);
+    }
+
+    #[test]
+    fn observation_claims_bind_exact_fifo_pins_inputs_and_outputs() {
+        let static_root = B256::repeat_byte(0x41);
+        let success_root = B256::repeat_byte(0x42);
+        let mut static_action = action(None, CallMode::Static, true);
+        static_action.target_address = Address::repeat_byte(0x31);
+        static_action.source_address = Address::repeat_byte(0x32);
+        static_action.data = Bytes::from_static(b"static input");
+        static_action.outcome = ExecutionOutcome::Resolved {
+            return_data: b"static output".to_vec(),
+            gas_used: 17,
+            success: true,
+        };
+        let mut lookup_action = action(None, CallMode::Mutable, false);
+        lookup_action.target_address = Address::repeat_byte(0x33);
+        lookup_action.source_address = Address::repeat_byte(0x34);
+        lookup_action.data = Bytes::from_static(b"lookup input");
+        lookup_action.value = U256::from(9);
+        lookup_action.outcome = ExecutionOutcome::Resolved {
+            return_data: b"lookup revert".to_vec(),
+            gas_used: 23,
+            success: false,
+        };
+        let applying_action = action(None, CallMode::Mutable, true);
+        let composition = composition(vec![static_action, lookup_action, applying_action]);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: vec![static_root, success_root],
+            static_roots: vec![static_root],
+            endpoint: success_root,
+        };
+
+        let claims = fifo_observation_claims(&composition, &plan).unwrap();
+
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].pinned_block_hash, static_root);
+        assert_eq!(claims[0].call_mode, CallMode::Static);
+        assert_eq!(claims[0].target_address, Address::repeat_byte(0x31));
+        assert_eq!(claims[0].source_address, Address::repeat_byte(0x32));
+        assert_eq!(claims[0].data, Bytes::from_static(b"static input"));
+        assert!(claims[0].expected_success);
+        assert_eq!(
+            claims[0].expected_output,
+            Bytes::from_static(b"static output")
+        );
+        assert_eq!(claims[1].pinned_block_hash, static_root);
+        assert_eq!(claims[1].call_mode, CallMode::Mutable);
+        assert_eq!(claims[1].value, U256::from(9));
+        assert!(!claims[1].expected_success);
+        assert_eq!(
+            claims[1].expected_output,
+            Bytes::from_static(b"lookup revert")
+        );
+    }
+
+    #[test]
+    fn observation_claims_reject_cross_chain_descendants_without_multichain_witnesses() {
+        let root = action(None, CallMode::Static, true);
+        let mut child = action(Some(0), CallMode::Mutable, true);
+        child.source_rollup_id = RollupId(1);
+        child.target_rollup_id = RollupId(2);
+        let composition = composition(vec![root, child]);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: Vec::new(),
+            static_roots: vec![B256::repeat_byte(0x51)],
+            endpoint: B256::repeat_byte(0x51),
+        };
+
+        let error = fifo_observation_claims(&composition, &plan).unwrap_err();
+
+        assert!(error.contains("multi-chain observation replay is unsupported"));
+    }
+
+    #[test]
+    fn observation_claims_reject_multi_action_rollback_regions() {
+        let mut first = action(None, CallMode::Mutable, true);
+        first.revert_span = Some(2);
+        let second = action(None, CallMode::Mutable, true);
+        let composition = composition(vec![first, second]);
+        let root = B256::repeat_byte(0x52);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: vec![root, root],
+            static_roots: Vec::new(),
+            endpoint: root,
+        };
+
+        let error = fifo_observation_claims(&composition, &plan).unwrap_err();
+
+        assert!(error.contains("transient observation checkpoints are unsupported"));
+    }
+
+    #[test]
+    fn observation_claims_accept_single_action_rollback_regions() {
+        let mut action = action(None, CallMode::Mutable, true);
+        action.revert_span = Some(1);
+        action.outcome = ExecutionOutcome::Resolved {
+            return_data: b"rolled back".to_vec(),
+            gas_used: 31,
+            success: true,
+        };
+        let composition = composition(vec![action]);
+        let root = B256::repeat_byte(0x53);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: vec![root],
+            static_roots: Vec::new(),
+            endpoint: root,
+        };
+
+        let claims = fifo_observation_claims(&composition, &plan).unwrap();
+
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].pinned_block_hash, root);
+        assert!(claims[0].expected_success);
+        assert_eq!(
+            claims[0].expected_output,
+            Bytes::from_static(b"rolled back")
+        );
+    }
+
+    #[test]
+    fn observation_claims_reject_value_on_static_calls() {
+        let mut static_action = action(None, CallMode::Static, true);
+        static_action.value = U256::ONE;
+        let composition = composition(vec![static_action]);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: Vec::new(),
+            static_roots: vec![B256::repeat_byte(0x61)],
+            endpoint: B256::repeat_byte(0x61),
+        };
+
+        let error = fifo_observation_claims(&composition, &plan).unwrap_err();
+
+        assert!(error.contains("carries nonzero value"));
     }
 }

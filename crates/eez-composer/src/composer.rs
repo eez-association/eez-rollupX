@@ -18,7 +18,7 @@
 //! Each batch is proved by the shared [`Prover`] and sent via the shared
 //! [`Submitter`] bundle relay.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy_eips::Encodable2718;
@@ -28,7 +28,8 @@ use async_trait::async_trait;
 use eez_driver::{
     BUILDER_GAS_LIMIT, BlockCommitterHandle, MAX_BLOCKS_PER_BATCH, ParentContext, RollupTiming,
     SyncSlotBlock, SyncSlotComposer, SyncSlotMode,
-    witness::{ExecutionWitnessMode, block_witness},
+    observation::{BlockObservation, ObservedOutcome},
+    witness::{ExecutionWitnessMode, block_observation_outcomes, block_witness_with_observations},
 };
 use eez_l1::{BundleTarget, L1Event, SendOutcome, Submitter};
 use eez_prover::{ActionableProverFailure, BlockWitness, Prover, ProverError, ProvingContext};
@@ -49,18 +50,10 @@ use crate::local::{
 };
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
-    actionable_held_tx, partition_retryable, prove_with_retry, validate_actionable_prover_failure,
+    actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
+    validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
-
-/// Data-availability carrier used for newly posted batches.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DataAvailabilityMode {
-    /// Existing `batch.callData` carrier.
-    Calldata,
-    /// Compatibility-profile blobs with an explicit pool sidecar encoding.
-    Blob(eez_blob_codec::BlobSidecarEncoding),
-}
 
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
@@ -94,9 +87,9 @@ pub struct CrossChainExecCtx {
     /// `Submitter` is internally `Arc<Inner>`, so `Clone` is cheap.
     /// `compose_sync_slot` hands it `[postBatch, inbound_user_tx_1, …]` via
     /// `Submitter::send_bundle`; outbound user transactions execute in the L2
-    /// Sync block instead. The Submitter owns the transport decision (atomic
-    /// `eth_sendBundle` on supporting relays, ordered mempool submission on
-    /// plain execution RPCs).
+    /// Sync block instead. The Submitter requires atomic `eth_sendBundle` for
+    /// every multi-transaction settlement; only a lone postBatch may fall back
+    /// to a plain execution RPC.
     pub submitter: eez_l1::Submitter,
     /// L1 EOA whose key signs the `postAndVerifyBatch` transaction. Different from
     /// `system_signer` (which is the L2 SYSTEM_ADDRESS). For dev
@@ -111,8 +104,8 @@ pub struct CrossChainExecCtx {
     /// the L1 block. Default: 10 gwei (well above the smoke's
     /// `cast mktx --gas-price 2 gwei` user_tx).
     pub l1_post_batch_priority_fee: u128,
-    /// Explicit DA transport policy for postBatch transactions.
-    pub data_availability: DataAvailabilityMode,
+    /// Physical sidecar encoding for the mandatory native blob DA carrier.
+    pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded
     /// in `batch.proofSystems[0]`; `EEZ.postAndVerifyBatch` iterates
     /// `proofSystems[]` and calls `verify` on each. Deployment registers
@@ -130,7 +123,7 @@ impl std::fmt::Debug for CrossChainExecCtx {
             .field("l2_chain_id", &self.l2_chain_id)
             .field("l2_gas_price", &self.l2_gas_price)
             .field("l2_gas_limit", &self.l2_gas_limit)
-            .field("data_availability", &self.data_availability)
+            .field("blob_sidecar_encoding", &self.blob_sidecar_encoding)
             .finish_non_exhaustive()
     }
 }
@@ -235,9 +228,12 @@ fn compose_crosschain(
 
     let mut builder =
         eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    entry_client
+    let source_success = entry_client
         .simulate_source_tx_on(raw_tx.to_vec(), &mut builder, source_state, source_env)
         .map_err(eez_protocol::CompositionError::from)?;
+    if !source_success {
+        return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
+    }
     let recorded_count = builder.recorded_count();
     let target_gas = builder.recorded_gas_used();
     // Reclaimed before `finalize` consumes the builder — the accepted effects
@@ -335,7 +331,8 @@ fn calldata_gas(bytes: &[u8]) -> u64 {
 }
 
 /// Whole-postBatch gas on EIP-7623's standard branch: tx base, calldata, pins,
-/// probed target calls. The floor branch is checked in `sign_post_batch_tx`.
+/// probed target calls. The floor branch is checked in
+/// `sign_post_batch_blob_tx`.
 fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas: u64) -> u64 {
     21_000_u64
         .saturating_add(POSTBATCH_BASE_GAS_PIN)
@@ -525,6 +522,18 @@ enum PreparePostBatchError {
     Prover(#[source] ProverError),
     #[error("prover rejected {0}")]
     Actionable(ActionableProverFailure),
+    #[error(
+        "local observation {observation_index} for inbound composition {composition_index} \
+         does not match its claimed outcome"
+    )]
+    ObservationMismatch {
+        composition_index: usize,
+        observation_index: usize,
+        expected_success: bool,
+        observed_success: bool,
+        expected_output_hash: B256,
+        observed_output_hash: B256,
+    },
 }
 
 impl From<String> for PreparePostBatchError {
@@ -537,6 +546,45 @@ impl From<&str> for PreparePostBatchError {
     fn from(error: &str) -> Self {
         Self::Build(error.to_owned())
     }
+}
+
+fn first_observation_mismatch(
+    schedule: &[(usize, BlockObservation)],
+    outcomes: &[ObservedOutcome],
+) -> Result<Option<ObservationMismatchDetails>, String> {
+    if outcomes.len() != schedule.len() {
+        return Err(format!(
+            "local observation replay returned {} outcomes for {} claims",
+            outcomes.len(),
+            schedule.len(),
+        ));
+    }
+    Ok(schedule.iter().zip(outcomes).enumerate().find_map(
+        |(observation_index, ((composition_index, observation), outcome))| {
+            (observation.claim.expected_success != outcome.success
+                || observation.claim.expected_output != outcome.output)
+                .then(|| ObservationMismatchDetails {
+                    composition_index: *composition_index,
+                    observation_index,
+                    expected_success: observation.claim.expected_success,
+                    observed_success: outcome.success,
+                    expected_output_hash: alloy_primitives::keccak256(
+                        &observation.claim.expected_output,
+                    ),
+                    observed_output_hash: alloy_primitives::keccak256(&outcome.output),
+                })
+        },
+    ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ObservationMismatchDetails {
+    composition_index: usize,
+    observation_index: usize,
+    expected_success: bool,
+    observed_success: bool,
+    expected_output_hash: B256,
+    observed_output_hash: B256,
 }
 
 /// Both ends are unusable and clamp to the default: above it no tx is valid
@@ -715,66 +763,6 @@ fn push_poison_root(
 fn restore_pool_order(mut txs: Vec<(usize, HeldTx)>) -> Vec<HeldTx> {
     txs.sort_by_key(|(idx, _)| *idx);
     txs.into_iter().map(|(_, tx)| tx).collect()
-}
-
-/// Order L1 inbound user transactions so root-mutating calls execute before
-/// static-only calls. Static entries are pinned to the final Sync-block root in
-/// `prepare_post_batch_raw`; executing their trigger before a later mutating
-/// trigger therefore makes the static lookup fail with `ExecutionNotFound` and
-/// rejects the entire atomic bundle.
-///
-/// The partition is stable, and a static-only transaction is left in place if
-/// moving it would cross a later non-static transaction from the same sender.
-/// Ethereum nonces make that ordering dependency stronger than the root-order
-/// preference; such a sequence needs to be split across batches upstream.
-fn ordered_inbound_bundle_txs<'a>(
-    survivors: &'a [HeldTx],
-    compositions: &[(eez_protocol::Composition, B256)],
-) -> (Vec<&'a HeldTx>, usize, usize) {
-    let static_only: HashSet<B256> = compositions
-        .iter()
-        .filter(|(composition, _)| {
-            composition.source.batch.entries.is_empty()
-                && !composition.source.batch.staticEntries.is_empty()
-        })
-        .map(|(_, hash)| *hash)
-        .collect();
-
-    let mut deferred = HashSet::new();
-    let mut nonce_order_blocked = 0usize;
-    for (index, tx) in survivors.iter().enumerate() {
-        if tx.direction != Direction::Inbound || !static_only.contains(&tx.hash) {
-            continue;
-        }
-        let crosses_later_mutation_from_sender = survivors[index + 1..].iter().any(|later| {
-            later.direction == Direction::Inbound
-                && later.sender == tx.sender
-                && !static_only.contains(&later.hash)
-        });
-        if crosses_later_mutation_from_sender {
-            nonce_order_blocked += 1;
-        } else {
-            deferred.insert(tx.hash);
-        }
-    }
-
-    let mut ordered = Vec::with_capacity(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound)
-            .count(),
-    );
-    ordered.extend(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound && !deferred.contains(&tx.hash)),
-    );
-    ordered.extend(
-        survivors
-            .iter()
-            .filter(|tx| tx.direction == Direction::Inbound && deferred.contains(&tx.hash)),
-    );
-    (ordered, deferred.len(), nonce_order_blocked)
 }
 
 /// Everything a transient abort still owes the pool: the failing transaction
@@ -1237,8 +1225,9 @@ where
     ) -> Option<SyncSlotBlock> {
         // Some(n) → aim L1 block n exactly, pinned to this Sync block's
         // timestamp (a skipped L1 slot then drops the bundle instead of
-        // settling with a drifted L2 timestamp); None → next available
-        // (catch-up, unpinned).
+        // settling with a drifted L2 timestamp); None → let the Submitter
+        // derive a fresh future target from its canonical parent and pin that
+        // target's expected timestamp (catch-up).
         let bundle_target = target_l1_block.map_or(BundleTarget::NextBlock, |block| {
             BundleTarget::Exact { block, timestamp }
         });
@@ -1344,10 +1333,11 @@ where
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
         }
 
-        // Deferred-late: the bundle missed its L1 slot, so suppress PINNED
-        // emission only. Ordered after bounded emission on purpose — a
-        // historical chunk targets NextBlock and carries no pin, so lateness
-        // can't invalidate it; checking first would starve a chronically late
+        // Deferred-late: the bundle missed this Sync block's anchored L1 slot,
+        // so suppress exact-target emission only. Ordered after bounded
+        // emission on purpose — a historical chunk asks the Submitter to
+        // derive and timestamp-pin a fresh future target, so this stale slot
+        // cannot invalidate it. Checking first would starve a chronically late
         // node (slow prover, relay latency) of settlement entirely.
         if matches!(mode, SyncSlotMode::Empty) {
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
@@ -1364,7 +1354,7 @@ where
                     &parent_header,
                     timestamp,
                     suggested_fee_recipient,
-                    bundle_target, // catch-up → NextBlock (unpinned)
+                    bundle_target, // catch-up → derived future timestamp pin
                 )
                 .await
                 .unwrap_or_else(|err| {
@@ -3096,7 +3086,7 @@ where
             .collect();
         // Per-slot phase: one merge over all survivor compositions, now that
         // the built block hash and per-effect prefix hashes exist.
-        let postbatch_raw = match self
+        let prepared_postbatch = match self
             .prepare_post_batch_raw(
                 ctx,
                 rollup_id,
@@ -3105,6 +3095,7 @@ where
                 built.header.hash(),
                 Some(&built.block),
                 &pair_hashes,
+                &effect_end_positions,
                 &outbound_entries,
                 &outbound_entry_traces,
                 &pending_out,
@@ -3122,21 +3113,69 @@ where
                 })
             }) {
             Ok(r) => r,
-            Err(PreparePostBatchError::Actionable(failure)) => {
-                let Some(poison) = actionable_held_tx(
-                    failure,
-                    &survivors,
-                    outbound_entries.len(),
-                    &survivor_comps,
-                )
-                .cloned() else {
-                    event!(
-                        name: "eez.composer.prover.actionable_unresolved",
-                        Level::ERROR,
-                        rollup_id,
-                        failure = %failure,
-                        "validated proof failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
-                    );
+            Err(
+                error @ (PreparePostBatchError::Actionable(_)
+                | PreparePostBatchError::ObservationMismatch { .. }),
+            ) => {
+                let observation_mismatch = match &error {
+                    PreparePostBatchError::ObservationMismatch {
+                        composition_index,
+                        observation_index,
+                        expected_success,
+                        observed_success,
+                        expected_output_hash,
+                        observed_output_hash,
+                    } => Some(ObservationMismatchDetails {
+                        composition_index: *composition_index,
+                        observation_index: *observation_index,
+                        expected_success: *expected_success,
+                        observed_success: *observed_success,
+                        expected_output_hash: *expected_output_hash,
+                        observed_output_hash: *observed_output_hash,
+                    }),
+                    PreparePostBatchError::Actionable(_)
+                    | PreparePostBatchError::Build(_)
+                    | PreparePostBatchError::Prover(_) => None,
+                };
+                let failed = match &error {
+                    PreparePostBatchError::Actionable(failure) => actionable_held_tx(
+                        *failure,
+                        &survivors,
+                        outbound_entries.len(),
+                        &survivor_comps,
+                    ),
+                    PreparePostBatchError::ObservationMismatch {
+                        composition_index, ..
+                    } => observation_held_tx(*composition_index, &survivors, &survivor_comps),
+                    PreparePostBatchError::Build(_) | PreparePostBatchError::Prover(_) => {
+                        unreachable!("match arm accepts only attributable failures")
+                    }
+                }
+                .cloned();
+                let Some(failed) = failed else {
+                    if let Some(mismatch) = observation_mismatch {
+                        event!(
+                            name: "eez.composer.observation.mismatch",
+                            Level::ERROR,
+                            rollup_id,
+                            composition_index = mismatch.composition_index,
+                            observation_index = mismatch.observation_index,
+                            expected_success = mismatch.expected_success,
+                            observed_success = mismatch.observed_success,
+                            expected_output_hash = %mismatch.expected_output_hash,
+                            observed_output_hash = %mismatch.observed_output_hash,
+                            resolved_held_tx = false,
+                            "composer simulation and pinned-prefix replay disagree, but the originating held transaction could not be resolved; retaining survivors and degrading to minimal postBatch",
+                        );
+                    } else {
+                        event!(
+                            name: "eez.composer.prover.actionable_unresolved",
+                            Level::ERROR,
+                            rollup_id,
+                            failure = %error,
+                            "attributable prover failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
+                        );
+                    }
                     pool.push_front_batch(survivors);
                     return self
                         .dispatch_minimal_postbatch(
@@ -3151,46 +3190,69 @@ where
                         .await;
                 };
 
-                let (retry, evicted) = partition_retryable(survivors, &poison);
-                event!(
-                    name: "eez.composer.prover.poison_ejected",
-                    Level::WARN,
-                    rollup_id,
-                    failure = %failure,
-                    tx_hash = %poison.hash,
-                    sender = %poison.sender,
-                    direction = ?poison.direction,
-                    nonce = poison.nonce,
-                    retrying = retry.len(),
-                    "prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
-                );
-                for in_flight in &evicted {
+                let (retry, evicted_in_flight) = partition_retryable(survivors, &failed);
+                let evicted_queued =
+                    pool.evict_chain_at_or_above(failed.sender, failed.direction, failed.nonce);
+                if let Some(mismatch) = observation_mismatch {
                     event!(
-                        name: "eez.composer.prover.poison_in_flight_evicted",
+                        name: "eez.composer.observation.mismatch",
                         Level::WARN,
                         rollup_id,
-                        tx_hash = %in_flight.hash,
-                        sender = %in_flight.sender,
-                        direction = ?in_flight.direction,
-                        nonce = in_flight.nonce,
-                        gap_at = poison.nonce,
-                        "in-flight transaction belongs to a prover-ejected nonce-chain suffix",
+                        composition_index = mismatch.composition_index,
+                        observation_index = mismatch.observation_index,
+                        expected_success = mismatch.expected_success,
+                        observed_success = mismatch.observed_success,
+                        expected_output_hash = %mismatch.expected_output_hash,
+                        observed_output_hash = %mismatch.observed_output_hash,
+                        resolved_held_tx = true,
+                        tx_hash = %failed.hash,
+                        sender = %failed.sender,
+                        direction = ?failed.direction,
+                        nonce = failed.nonce,
+                        retrying = retry.len(),
+                        evicted_in_flight = evicted_in_flight.len(),
+                        evicted_queued = evicted_queued.len(),
+                        "composer simulation and pinned-prefix replay disagree; fail-closed eviction of its nonce-chain suffix before rebuilding the batch",
                     );
-                }
-                for queued in
-                    pool.evict_chain_at_or_above(poison.sender, poison.direction, poison.nonce)
-                {
+                } else {
                     event!(
-                        name: "eez.composer.prover.poison_queued_evicted",
+                        name: "eez.composer.prover.poison_ejected",
                         Level::WARN,
                         rollup_id,
-                        tx_hash = %queued.hash,
-                        sender = %queued.sender,
-                        direction = ?queued.direction,
-                        nonce = queued.nonce,
-                        gap_at = poison.nonce,
-                        "queued transaction depends on a prover-ejected nonce; evicting suffix",
+                        failure = %error,
+                        tx_hash = %failed.hash,
+                        sender = %failed.sender,
+                        direction = ?failed.direction,
+                        nonce = failed.nonce,
+                        retrying = retry.len(),
+                        "prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
                     );
+                    for in_flight in &evicted_in_flight {
+                        event!(
+                            name: "eez.composer.prover.poison_in_flight_evicted",
+                            Level::WARN,
+                            rollup_id,
+                            tx_hash = %in_flight.hash,
+                            sender = %in_flight.sender,
+                            direction = ?in_flight.direction,
+                            nonce = in_flight.nonce,
+                            gap_at = failed.nonce,
+                            "in-flight transaction belongs to an ejected nonce-chain suffix",
+                        );
+                    }
+                    for queued in &evicted_queued {
+                        event!(
+                            name: "eez.composer.prover.poison_queued_evicted",
+                            Level::WARN,
+                            rollup_id,
+                            tx_hash = %queued.hash,
+                            sender = %queued.sender,
+                            direction = ?queued.direction,
+                            nonce = queued.nonce,
+                            gap_at = failed.nonce,
+                            "queued transaction depends on an ejected nonce; evicting suffix",
+                        );
+                    }
                 }
 
                 // Each recursive attempt receives strictly fewer held
@@ -3273,28 +3335,21 @@ where
 
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
-        let post_batch_hash = post_batch_transaction_hash(&postbatch_raw)?;
+        let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
-        bundle.push(postbatch_raw);
+        bundle.push(prepared_postbatch);
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
         // Outbound survivors are L2-signed — they run in the L2 Sync block + DA,
         // never the L1 bundle (an L2 tx is invalid on L1).
-        // Static-only entries are pinned to this batch's final Sync-block root,
-        // so their trigger transactions must run after every independent root
-        // mutation in the same atomic bundle.
-        let (ordered_inbound, static_only_deferred, nonce_order_blocked) =
-            ordered_inbound_bundle_txs(&survivors, &survivor_comps);
-        if nonce_order_blocked != 0 {
-            event!(
-                name: "eez.composer.bundle.static_order_nonce_blocked",
-                Level::WARN,
-                rollup_id,
-                sync_height,
-                nonce_order_blocked,
-                "static-only inbound trigger could not move behind a later mutation from the same sender; preserving nonce order",
-            );
-        }
-        bundle.extend(ordered_inbound.into_iter().map(|h| h.raw_tx.clone()));
+        // Preserve the held pool's exact FIFO order. Root pins were assigned at
+        // those positions. Lookup-only transactions remain in this bundle so
+        // L1 can return their proven result, but have no L2 system transaction.
+        bundle.extend(
+            survivors
+                .iter()
+                .filter(|held| held.direction == Direction::Inbound)
+                .map(|held| held.raw_tx.clone()),
+        );
         event!(
             name: "eez.composer.bundle.dispatched",
             Level::INFO,
@@ -3302,7 +3357,6 @@ where
             sync_height,
             tx_count = bundle.len(),
             entry_count = total_entries,
-            static_only_deferred,
             evicted_poison = poison.len(),
             evicted_stale = stale.len(),
             "rich bundle dispatched to background observer; committing Sync block optimistically",
@@ -3376,6 +3430,7 @@ where
                 empty_built.header.hash(),
                 Some(&empty_built.block),
                 &[], // no cross-chain effects → no per-effect roots
+                &[], // no cross-chain effects → no effect positions
                 &[], // no outbound entries
                 &[], // no outbound entry traces
                 &[], // no outbound L2 sidecars
@@ -3426,7 +3481,7 @@ where
             }
         };
         let sync_height = empty_built.header.number();
-        let post_batch_hash = post_batch_transaction_hash(&minimal_postbatch_raw)?;
+        let post_batch_hash = post_batch_blob_transaction_hash(&minimal_postbatch_raw)?;
         event!(
             name: "eez.composer.phase1.bundle.dispatched",
             Level::INFO,
@@ -3541,6 +3596,7 @@ where
                     &[],
                     &[],
                     &[],
+                    &[],
                     0, // no inline outbound target calls
                     BundleTarget::NextBlock,
                 )
@@ -3564,12 +3620,13 @@ where
                 "settlement backlog exceeds the batch cap; settling a bounded historical chunk",
             );
 
-            let post_batch_hash = post_batch_transaction_hash(&raw)?;
+            let post_batch_hash = post_batch_blob_transaction_hash(&raw)?;
             rollup
                 .optimistic
                 .begin(boundary, post_batch_hash, boundary_parent, Vec::new());
-            // A past terminal can't be pinned to an L1 slot, so the bundle takes
-            // whichever block the relay lands it in.
+            // A past terminal has no matching historical L1 slot. NextBlock
+            // therefore derives and timestamp-pins a fresh future settlement
+            // slot from its canonical parent at dispatch time.
             self.spawn_bundle_observer(
                 ctx,
                 rollup_id,
@@ -3679,12 +3736,11 @@ where
     /// stitches the merged entries so `entries[k].currentRoot ==
     /// entries[k-1].newRoot` per rollup; EEZ.sol's `_applyRootUpdates`
     /// enforces the chain on L1 (`RootMismatch` revert) regardless of
-    /// proof system. Successful settlement entries carry their final covered
-    /// source checkpoint plus any immediately following failed checkpoints.
-    /// Leading failures are carried by the anchor, while every failed entry
-    /// receives a no-op update because its L1 execution rolls state back. The
-    /// proof signer independently derives and verifies the same carrier plan;
-    /// the last carrier is the final Sync-block hash.
+    /// proof system. Immediate outbound settlement entries retain their
+    /// established carrier plan. Applying inbound entries carry their exact L2
+    /// checkpoint; lookup-only inbound entries receive a no-op update and no
+    /// L2 transaction. The proof signer independently derives and verifies the
+    /// same schedule; the last carrier is the final Sync-block hash.
     /// `sync_block_hash` is the required settlement-chain endpoint.
     ///
     /// `sync_block` is the terminal, `Some` only while freshly built; `None`
@@ -3708,6 +3764,7 @@ where
             &reth_primitives_traits::RecoveredBlock<reth_ethereum_primitives::Block>,
         >,
         pair_hashes: &[B256],
+        pair_positions: &[usize],
         outbound_entries: &[eez_protocol::abi::ExecutionEntrySol],
         outbound_entry_traces: &[eez_protocol::entries::EntryTrace],
         outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
@@ -3834,10 +3891,25 @@ where
             .iter()
             .flat_map(|group| group.effects.iter())
             .collect::<Vec<_>>();
-        let inbound_effect_count = compositions
+        let fifo_actions_by_composition = compositions
             .iter()
-            .map(|composition| composition.source.batch.entries.len())
-            .sum::<usize>();
+            .enumerate()
+            .map(|(composition_index, composition)| {
+                eez_protocol::settlement::composition_fifo_actions(composition).map_err(|error| {
+                    format!("composition {composition_index} FIFO actions: {error}")
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let inbound_effect_count = fifo_actions_by_composition
+            .iter()
+            .flatten()
+            .filter(|action| {
+                matches!(
+                    action,
+                    eez_protocol::settlement::FifoSourceAction::Mutable { applies: true }
+                )
+            })
+            .count();
         if pair_hashes.len() != outbound_effect_count + inbound_effect_count {
             return Err(format!(
                 "pair hashes cover {} effects, expected {outbound_effect_count} outbound + {inbound_effect_count} inbound",
@@ -3845,12 +3917,22 @@ where
             )
             .into());
         }
+        if pair_positions.len() != pair_hashes.len() {
+            return Err(format!(
+                "pair positions cover {} effects, but pair hashes cover {}",
+                pair_positions.len(),
+                pair_hashes.len(),
+            )
+            .into());
+        }
+        let inbound_entry_count = compositions
+            .iter()
+            .map(|composition| composition.source.batch.entries.len())
+            .sum::<usize>();
         let mut effect_ether_deltas =
-            Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
-        let mut effect_block_hashes =
-            Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
-        let mut effect_successes =
-            Vec::with_capacity(outbound_entries.len() + inbound_effect_count);
+            Vec::with_capacity(outbound_entries.len() + inbound_entry_count);
+        let mut effect_block_hashes = Vec::with_capacity(outbound_entries.len());
+        let mut effect_successes = Vec::with_capacity(outbound_entries.len());
         let mut outbound_effect_cursor = 0usize;
         for (settlement, root_count) in outbound_entries.iter().zip(outbound_settlement_root_counts)
         {
@@ -3888,23 +3970,60 @@ where
             effect_successes.push(settlement.success);
             outbound_effect_cursor = effect_end;
         }
-        let mut inbound_effect_cursor = outbound_effect_count;
-        for composition in compositions {
+        for (composition_index, (composition, fifo_actions)) in compositions
+            .iter()
+            .zip(&fifo_actions_by_composition)
+            .enumerate()
+        {
             let sidecars = composition
                 .targets
                 .iter()
                 .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
                 .flat_map(|target| target.batch.entries.iter())
                 .collect::<Vec<_>>();
-            if composition.source.batch.entries.len() != sidecars.len() {
+            let applying_count = fifo_actions
+                .iter()
+                .filter(|action| {
+                    matches!(
+                        action,
+                        eez_protocol::settlement::FifoSourceAction::Mutable { applies: true }
+                    )
+                })
+                .count();
+            if applying_count != sidecars.len() {
                 return Err(format!(
-                    "inbound settlement/sidecar count mismatch: {} != {}",
-                    composition.source.batch.entries.len(),
+                    "composition {composition_index} applying inbound/sidecar count mismatch: {applying_count} != {}",
                     sidecars.len(),
                 )
                 .into());
             }
-            for (source_entry, sidecar) in composition.source.batch.entries.iter().zip(sidecars) {
+            let mut source_cursor = 0usize;
+            let mut sidecar_cursor = 0usize;
+            for action in fifo_actions {
+                let eez_protocol::settlement::FifoSourceAction::Mutable { applies } = action else {
+                    continue;
+                };
+                let source_entry = composition
+                    .source
+                    .batch
+                    .entries
+                    .get(source_cursor)
+                    .ok_or_else(|| {
+                        format!(
+                            "composition {composition_index} is missing mutable source entry {source_cursor}"
+                        )
+                    })?;
+                source_cursor += 1;
+                if !*applies {
+                    effect_ether_deltas.push(eez_protocol::abi::EtherDeltaSol::ZERO);
+                    continue;
+                }
+                let sidecar = sidecars.get(sidecar_cursor).ok_or_else(|| {
+                    format!(
+                        "composition {composition_index} is missing applying sidecar {sidecar_cursor}"
+                    )
+                })?;
+                sidecar_cursor += 1;
                 if source_entry.proxyEntryHash != sidecar.proxyEntryHash {
                     return Err(format!(
                         "inbound settlement/sidecar proxy hash mismatch: {} != {}",
@@ -3917,71 +4036,237 @@ where
                 let inflow = eez_protocol::entries::entry_flat_value_sum(sidecar)
                     .ok_or_else(|| "invalid inbound L2 sidecar value shape".to_string())?;
                 effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
-                effect_block_hashes.push(pair_hashes[inbound_effect_cursor]);
-                effect_successes.push(source_entry.success);
-                inbound_effect_cursor += 1;
+            }
+            if source_cursor != composition.source.batch.entries.len()
+                || sidecar_cursor != sidecars.len()
+            {
+                return Err(format!(
+                    "composition {composition_index} FIFO consumption mismatch: source {source_cursor}/{}, sidecars {sidecar_cursor}/{}",
+                    composition.source.batch.entries.len(),
+                    sidecars.len(),
+                )
+                .into());
             }
         }
 
-        let (anchor_new_root, effect_carrier_roots) =
+        // Outbound effects execute in postBatch's immediate prefix, before any
+        // inbound user transaction. Preserve their established carrier plan:
+        // an immediate success (or the anchor) can persist checkpoints for
+        // failed outbound entries.
+        let outbound_settlement_count = outbound_entries.len();
+        let (anchor_new_root, outbound_carrier_roots) =
             eez_protocol::settlement::settlement_root_carriers(
                 pre_sync_block_hash,
-                effect_block_hashes
+                effect_block_hashes[..outbound_settlement_count]
                     .iter()
                     .copied()
-                    .zip(effect_successes.iter().copied()),
+                    .zip(
+                        effect_successes[..outbound_settlement_count]
+                            .iter()
+                            .copied(),
+                    ),
             );
         batch.entries[0].rootUpdates[0].newRoot = anchor_new_root;
 
-        // Cross-chain entries arrive with EMPTY `rootUpdates`; attach one chained
-        // settlement commitment update to each (the anchor already has its own)
-        // — otherwise `_applyRootUpdates` no-ops and the L2 hash never settles. The net
-        // nested value delta above is attached in settlement-entry order.
-        // Successful entries carry their own final source checkpoint and any
-        // immediately following failed checkpoints. Failed entries use the
-        // already-persisted carrier hash, making their stitched update a no-op
-        // when EEZ.sol intentionally rolls the failed execution back.
-        // `currentRoot` is fixed by the stitch below.
-        let mut effect_k = 0usize;
-        for entry in &mut batch.entries {
-            // Preserve the anchor's existing root update and fill only the
-            // cross-chain effect entries, which arrive empty.
-            if !entry.rootUpdates.is_empty() {
-                continue;
-            }
-            let ether_delta = *effect_ether_deltas.get(effect_k).ok_or_else(|| {
-                format!("settlement stitch: effect entry {effect_k} has no ether delta")
-            })?;
-            let new_root = *effect_carrier_roots.get(effect_k).ok_or_else(|| {
-                format!(
-                    "settlement stitch: entry {effect_k} has no carrier block hash \
-                     (only {} carrier hashes)",
-                    effect_carrier_roots.len(),
-                )
-            })?;
-            entry.rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
+        for (entry_index, new_root) in outbound_carrier_roots.iter().copied().enumerate() {
+            let ether_delta = effect_ether_deltas[entry_index];
+            batch.entries[1 + entry_index].rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
                 rollupId: rollup_id,
                 currentRoot: B256::ZERO,
                 newRoot: new_root,
                 etherDelta: ether_delta,
             }];
-            effect_k += 1;
         }
-        if effect_k != effect_carrier_roots.len() {
+
+        // With no effects the anchor itself carries the terminal block. This
+        // also gives a static-only FIFO transaction the root that is live after
+        // postBatch and before its user transaction executes.
+        if pair_hashes.is_empty() {
+            batch.entries[0].rootUpdates[0].newRoot = sync_block_hash;
+        }
+
+        // Inbound entries execute in user-transaction FIFO order. Static calls
+        // pin the root live at their exact action position; applying mutable
+        // calls advance it to their independently built L2 checkpoint. Failed
+        // calls and roots later reverted by their source frame are lookup-only:
+        // they use a no-op update and have no L2 system transaction.
+        let mut live_root = outbound_carrier_roots
+            .last()
+            .copied()
+            .unwrap_or(batch.entries[0].rootUpdates[0].newRoot);
+        let mut mutable_batch_index = 1 + outbound_settlement_count;
+        let mut mutable_effect_index = outbound_settlement_count;
+        let mut pair_hash_index = outbound_effect_count;
+        let mut static_batch_index = 0usize;
+        let mut observation_claims = Vec::new();
+
+        for (composition_index, (composition, fifo_actions)) in compositions
+            .iter()
+            .zip(&fifo_actions_by_composition)
+            .enumerate()
+        {
+            let mutable_count = composition.source.batch.entries.len();
+            let applying_count = fifo_actions
+                .iter()
+                .filter(|action| {
+                    matches!(
+                        action,
+                        eez_protocol::settlement::FifoSourceAction::Mutable { applies: true }
+                    )
+                })
+                .count();
+            let effect_end = pair_hash_index + applying_count;
+            let checkpoints = pair_hashes.get(pair_hash_index..effect_end).ok_or_else(|| {
+                format!(
+                    "composition {composition_index} requires pair hashes {pair_hash_index}..{effect_end}, but only {} exist",
+                    pair_hashes.len(),
+                )
+            })?;
+            let plan = eez_protocol::settlement::fifo_transaction_root_plan(
+                live_root,
+                fifo_actions,
+                checkpoints,
+            )
+            .map_err(|error| format!("composition {composition_index} root plan: {error}"))?;
+            observation_claims.extend(
+                eez_protocol::settlement::fifo_observation_claims(composition, &plan)
+                    .map_err(|error| {
+                        format!("composition {composition_index} observations: {error}")
+                    })?
+                    .into_iter()
+                    .map(|claim| (composition_index, claim)),
+            );
+
+            for (local_index, new_root) in plan.mutable_new_roots.iter().copied().enumerate() {
+                let entry = batch
+                    .entries
+                    .get_mut(mutable_batch_index + local_index)
+                    .ok_or_else(|| {
+                        format!(
+                            "composition {composition_index} mutable entry {local_index} is missing from merged batch"
+                        )
+                    })?;
+                if !entry.rootUpdates.is_empty() {
+                    return Err(format!(
+                        "composition {composition_index} mutable entry {local_index} unexpectedly carries pre-filled roots"
+                    )
+                    .into());
+                }
+                entry.rootUpdates = vec![eez_protocol::abi::RootUpdateSol {
+                    rollupId: rollup_id,
+                    currentRoot: B256::ZERO,
+                    newRoot: new_root,
+                    etherDelta: effect_ether_deltas[mutable_effect_index + local_index],
+                }];
+            }
+
+            for (local_index, root) in plan.static_roots.iter().copied().enumerate() {
+                let entry = batch
+                    .staticEntries
+                    .get_mut(static_batch_index + local_index)
+                    .ok_or_else(|| {
+                        format!(
+                            "composition {composition_index} static entry {local_index} is missing from merged batch"
+                        )
+                    })?;
+                if entry.destinationRollupId != rollup_id {
+                    return Err(format!(
+                        "static entry destination {} does not match settled rollup {rollup_id}",
+                        entry.destinationRollupId,
+                    )
+                    .into());
+                }
+                if !entry.expectedRoots.is_empty() {
+                    return Err(
+                        "materialized static entry unexpectedly carries pre-filled roots".into(),
+                    );
+                }
+                entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+                    rollupId: rollup_id,
+                    root,
+                }];
+            }
+
+            mutable_batch_index += mutable_count;
+            mutable_effect_index += mutable_count;
+            pair_hash_index = effect_end;
+            static_batch_index += composition.source.batch.staticEntries.len();
+            live_root = plan.endpoint;
+        }
+
+        if mutable_effect_index != effect_ether_deltas.len()
+            || pair_hash_index != pair_hashes.len()
+            || static_batch_index != batch.staticEntries.len()
+        {
             return Err(format!(
-                "settlement stitch: {effect_k} effect entries but {} carrier hashes \
-                 (pair-end/entry misalignment)",
-                effect_carrier_roots.len(),
+                "FIFO settlement consumption mismatch: effects {mutable_effect_index}/{}, pair hashes {pair_hash_index}/{}, statics {static_batch_index}/{}",
+                effect_ether_deltas.len(),
+                pair_hashes.len(),
+                batch.staticEntries.len(),
             )
             .into());
         }
 
+        // Assign every lookup/static claim to the exact canonical block prefix
+        // named by its FIFO pin. The terminal witness replays these calls at
+        // those positions and includes every account/code/storage read.
+        let observation_schedule = if observation_claims.is_empty() {
+            Vec::new()
+        } else {
+            let terminal = sync_block.ok_or_else(|| {
+                "lookup/static observations require the freshly built terminal block".to_owned()
+            })?;
+            let transaction_count = terminal.body().transactions.len();
+            let mut schedule = Vec::with_capacity(observation_claims.len());
+            for (composition_index, claim) in observation_claims {
+                let after_transactions = if claim.pinned_block_hash == pre_sync_block_hash {
+                    0
+                } else if let Some(index) = pair_hashes
+                    .iter()
+                    .position(|hash| *hash == claim.pinned_block_hash)
+                {
+                    pair_positions[index].checked_add(1).ok_or_else(|| {
+                        "observation transaction position overflows usize".to_owned()
+                    })?
+                } else if claim.pinned_block_hash == sync_block_hash {
+                    transaction_count
+                } else {
+                    return Err(format!(
+                        "lookup/static observation pins unknown Sync-block prefix {}",
+                        claim.pinned_block_hash,
+                    )
+                    .into());
+                };
+                if after_transactions > transaction_count {
+                    return Err(format!(
+                        "lookup/static observation targets prefix {after_transactions} of a {transaction_count}-transaction Sync block"
+                    )
+                    .into());
+                }
+                schedule.push((
+                    composition_index,
+                    BlockObservation {
+                        after_transactions,
+                        manager_address: ctx.eezl2_address,
+                        claim,
+                    },
+                ));
+            }
+            if schedule
+                .windows(2)
+                .any(|pair| pair[0].1.after_transactions > pair[1].1.after_transactions)
+            {
+                return Err("lookup/static observation schedule is not FIFO".into());
+            }
+            schedule
+        };
+
         // Stitch the per-rollup root-update chain: EEZ.sol `_executeEntry`
         // enforces `config.root == update.currentRoot`, then `_applyRootUpdates` sets it to
         // `newRoot`, so each entry's `currentRoot` must chain to the prior
-        // entry's `newRoot`. Failed entries become `R_k → R_k`; checkpoints
-        // they cannot persist have already been absorbed by the preceding
-        // successful carrier (or the anchor for leading failures).
+        // entry's `newRoot`. Outbound failed checkpoints use the immediate
+        // carrier plan. Lookup-only inbound entries remain `R_k → R_k` and do
+        // not advance the commitment.
         let mut running_roots: HashMap<u64, B256> = HashMap::new();
         for entry in &mut batch.entries {
             for update in &mut entry.rootUpdates {
@@ -3989,20 +4274,6 @@ where
                     update.currentRoot = prev_new;
                 }
                 running_roots.insert(update.rollupId, update.newRoot);
-            }
-        }
-
-        // Anchor-only batch (no effects): the immediate is the last entry, so it
-        // must carry the final block hash. With effects, the last effect's
-        // canonical prefix-block hash already is the full Sync-block hash.
-        if pair_hashes.is_empty()
-            && let Some(last) = batch.entries.last_mut()
-        {
-            for update in last.rootUpdates.iter_mut().rev() {
-                if update.rollupId == rollup_id {
-                    update.newRoot = sync_block_hash;
-                    break;
-                }
             }
         }
 
@@ -4018,28 +4289,6 @@ where
                 "settlement chain endpoint {stitched_endpoint:?} does not match Sync-block hash {sync_block_hash}"
             )
             .into());
-        }
-
-        // L1 top-level static entries are persistent, read-only claims. The
-        // destination rollup must be pinned to the exact block hash installed by
-        // this batch; L2's corresponding static pool omits pins entirely.
-        for entry in &mut batch.staticEntries {
-            if entry.destinationRollupId != rollup_id {
-                return Err(format!(
-                    "static entry destination {} does not match settled rollup {rollup_id}",
-                    entry.destinationRollupId,
-                )
-                .into());
-            }
-            if !entry.expectedRoots.is_empty() {
-                return Err(
-                    "materialized static entry unexpectedly carries pre-filled roots".into(),
-                );
-            }
-            entry.expectedRoots = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
-                rollupId: rollup_id,
-                root: sync_block_hash,
-            }];
         }
 
         // The L1 rolling seed commits the finalized ordered root updates, so
@@ -4189,8 +4438,9 @@ where
         block_rlps.push(terminal_rlp);
         // Encoded `ExecutionEntrySol` values let followers reconstruct system
         // transactions. Outbound entries describe L1 settlement and L2 loads;
-        // inbound target batches carry the L2 delivery inputs. Encode both into
-        // `batch.callData`, which enters the public-input preimage as opaque data.
+        // inbound target batches carry the L2 delivery inputs. These operations
+        // and the native semantic stream are carried only by physical blobs;
+        // `batch.callData` remains empty.
         use alloy_sol_types::SolValue as _;
         // The DA sidecar stores the full derivation entry set in canonical
         // order: outbound settlement entries first, then inbound deferred
@@ -4240,48 +4490,38 @@ where
             &outbound_group_sizes,
         )
         .map_err(|e| format!("encode self-contained chain operations: {e}"))?;
-        let mut transaction_blobs = Vec::new();
-        let prepared_blob_sidecar = match ctx.data_availability {
-            DataAvailabilityMode::Calldata => {
-                batch.callData = alloy_primitives::Bytes::from(payload);
-                None
-            }
-            DataAvailabilityMode::Blob(sidecar_encoding) => {
-                let semantic_messages = semantic_transactions
-                    .iter()
-                    .map(eez_protocol::blob_semantics::encode_semantic_transaction)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| format!("encode native cross-chain semantics: {error}"))?
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                transaction_blobs = eez_blob_codec::encode_native_payload(
-                    rollup_id,
-                    alloy_primitives::Bytes::from(payload),
-                    semantic_messages,
-                )
-                .map_err(|error| format!("encode native blob payload: {error}"))?;
-                if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
-                    event!(
-                        name: "eez.composer.emission.candidate_over_blob_limit",
-                        Level::DEBUG,
-                        rollup_id,
-                        from,
-                        to = sync_block_number,
-                        blobs = transaction_blobs.len(),
-                        maximum = eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
-                        "candidate range exceeds the per-transaction blob limit",
-                    );
-                    return Ok(None);
-                }
-                batch.blobIndices = (0..transaction_blobs.len()).map(U256::from).collect();
-                batch.callData = Bytes::new();
-                Some(
-                    eez_blob_codec::prepare_blob_sidecar(&transaction_blobs, sidecar_encoding)
-                        .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?,
-                )
-            }
-        };
+        let semantic_messages = semantic_transactions
+            .iter()
+            .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("encode native cross-chain semantics: {error}"))?
+            .into_iter()
+            .flatten()
+            .collect();
+        let transaction_blobs = eez_blob_codec::encode_native_payload(
+            rollup_id,
+            alloy_primitives::Bytes::from(payload),
+            semantic_messages,
+        )
+        .map_err(|error| format!("encode native blob payload: {error}"))?;
+        if transaction_blobs.len() > eez_blob_codec::MAX_BLOBS_PER_TRANSACTION {
+            event!(
+                name: "eez.composer.emission.candidate_over_blob_limit",
+                Level::DEBUG,
+                rollup_id,
+                from,
+                to = sync_block_number,
+                blobs = transaction_blobs.len(),
+                maximum = eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+                "candidate range exceeds the per-transaction blob limit",
+            );
+            return Ok(None);
+        }
+        batch.blobIndices = (0..transaction_blobs.len()).map(U256::from).collect();
+        batch.callData = Bytes::new();
+        let prepared_blob_sidecar =
+            eez_blob_codec::prepare_blob_sidecar(&transaction_blobs, ctx.blob_sidecar_encoding)
+                .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?;
 
         // Priced on the encoded candidate before witnesses and proving; `Ok(None)`
         // is over-budget, not an error, and the caller chooses what to do.
@@ -4315,7 +4555,11 @@ where
         // Prove the assembled window (proofs[] empty — not part of the
         // publicInputsHash). Mock ignores the context; a remote prover re-executes
         // `blocks`. Settlement path, off block production.
-        let block_witnesses = match self.inner.witness_source.as_ref() {
+        let terminal_observations = observation_schedule
+            .iter()
+            .map(|(_, observation)| observation.clone())
+            .collect::<Vec<_>>();
+        let (block_witnesses, observed_outcomes) = match self.inner.witness_source.as_ref() {
             // Remote-prover mode. Intermediate blocks `[from..sync)` are committed
             // (served by the witness store); a freshly-built endpoint isn't, so
             // capture it here from the in-memory block.
@@ -4335,43 +4579,99 @@ where
                 );
                 let evm_config = self.inner.evm_config.clone();
                 let terminal_block = sync_block.cloned();
-                tokio::task::spawn_blocking(move || -> Result<Vec<BlockWitness>, String> {
-                    let mut ws = (from..sync_block_number)
-                        .map(|n| src.block_witness(n))
-                        .collect::<Result<Vec<_>, String>>()
-                        .map_err(|e| format!("witness_source: {e}"))?;
-                    match terminal_block {
-                        // Just-built: nothing can serve an uncommitted block, and
-                        // its parent state is hot, so re-execute in-memory.
-                        Some(block) => ws.push(
-                            block_witness(
-                                l2_provider.as_ref(),
-                                &evm_config,
-                                &block,
-                                ExecutionWitnessMode::Legacy,
-                            )
-                            .map_err(|e| {
-                                format!(
-                                    "terminal-block witness (block {}): {e}",
-                                    block.header().number()
+                tokio::task::spawn_blocking(
+                    move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
+                        let mut ws = (from..sync_block_number)
+                            .map(|n| src.block_witness(n))
+                            .collect::<Result<Vec<_>, String>>()
+                            .map_err(|e| format!("witness_source: {e}"))?;
+                        match terminal_block {
+                            // Just-built: nothing can serve an uncommitted block, and
+                            // its parent state is hot, so re-execute in-memory.
+                            Some(block) => {
+                                let (witness, outcomes) = block_witness_with_observations(
+                                    l2_provider.as_ref(),
+                                    &evm_config,
+                                    &block,
+                                    ExecutionWitnessMode::Legacy,
+                                    &terminal_observations,
                                 )
-                            })?,
-                        ),
-                        // Committed (historical chunk): from the store — an
-                        // in-memory capture needs a possibly-pruned parent state.
-                        None => ws.push(
-                            src.block_witness(sync_block_number)
-                                .map_err(|e| format!("witness_source: {e}"))?,
-                        ),
-                    }
-                    Ok(ws)
-                })
+                                .map_err(|e| {
+                                    format!(
+                                        "terminal-block witness (block {}): {e}",
+                                        block.header().number()
+                                    )
+                                })?;
+                                ws.push(witness);
+                                return Ok((ws, outcomes));
+                            }
+                            // Committed (historical chunk): from the store — an
+                            // in-memory capture needs a possibly-pruned parent state.
+                            None => {
+                                if !terminal_observations.is_empty() {
+                                    let error =
+                                        "historical terminal block unexpectedly carries observations";
+                                    return Err(error.to_owned());
+                                }
+                                ws.push(
+                                    src.block_witness(sync_block_number)
+                                        .map_err(|e| format!("witness_source: {e}"))?,
+                                );
+                            }
+                        }
+                        Ok((ws, Vec::new()))
+                    },
+                )
                 .await
                 .map_err(|e| format!("witness spawn_blocking join: {e}"))??
             }
-            // Mock mode: the mock prover ignores per-block witnesses.
-            None => Vec::new(),
+            // Mock mode ignores witnesses, but local observation validation is
+            // still mandatory before the claimed result can enter a bundle.
+            None if terminal_observations.is_empty() => (Vec::new(), Vec::new()),
+            None => {
+                let l2_provider = Arc::clone(
+                    &self
+                        .inner
+                        .rollups
+                        .get(&rollup_id)
+                        .ok_or_else(|| format!("unknown rollup_id {rollup_id}"))?
+                        .l2_provider,
+                );
+                let evm_config = self.inner.evm_config.clone();
+                let terminal_block = sync_block.cloned().ok_or_else(|| {
+                    "lookup/static observations require an in-memory terminal block".to_owned()
+                })?;
+                let outcomes = tokio::task::spawn_blocking(move || {
+                    block_observation_outcomes(
+                        l2_provider.as_ref(),
+                        &evm_config,
+                        &terminal_block,
+                        &terminal_observations,
+                    )
+                    .map_err(|error| {
+                        format!(
+                            "terminal-block observations (block {}): {error}",
+                            terminal_block.header().number()
+                        )
+                    })
+                })
+                .await
+                .map_err(|error| format!("observation spawn_blocking join: {error}"))??;
+                (Vec::new(), outcomes)
+            }
         };
+        if let Some(mismatch) =
+            first_observation_mismatch(&observation_schedule, &observed_outcomes)?
+        {
+            return Err(PreparePostBatchError::ObservationMismatch {
+                composition_index: mismatch.composition_index,
+                observation_index: mismatch.observation_index,
+                expected_success: mismatch.expected_success,
+                observed_success: mismatch.observed_success,
+                expected_output_hash: mismatch.expected_output_hash,
+                observed_output_hash: mismatch.observed_output_hash,
+            });
+        }
         let proving_ctx = ProvingContext {
             rollup_id,
             from_block: from,
@@ -4431,33 +4731,26 @@ where
             .and_then(|s| s.parse::<Address>().ok())
             .ok_or("EEZ_REGISTRY_ADDRESS missing or not a valid address")?;
 
-        let raw = match prepared_blob_sidecar {
-            Some(sidecar) => {
-                sign_post_batch_blob_tx(
-                    &ctx.l1_poster_signer,
-                    &ctx.l1_provider,
-                    eez_address,
-                    calldata,
-                    ctx.l1_chain_id,
-                    ctx.l1_post_batch_priority_fee,
-                    self.inner.emission.max_gas,
-                    sidecar,
-                )
-                .await?
-            }
-            None => {
-                sign_post_batch_tx(
-                    &ctx.l1_poster_signer,
-                    &ctx.l1_provider,
-                    eez_address,
-                    calldata,
-                    ctx.l1_chain_id,
-                    ctx.l1_post_batch_priority_fee,
-                    self.inner.emission.max_gas,
-                )
-                .await?
-            }
-        };
+        let poster = ctx.l1_poster_signer.address();
+        let poster_nonce = ctx
+            .l1_provider
+            .get_transaction_count(poster)
+            .pending()
+            .await
+            .map_err(|error| format!("get_transaction_count({poster}): {error}"))?;
+
+        let raw = sign_post_batch_blob_tx(
+            &ctx.l1_poster_signer,
+            &ctx.l1_provider,
+            eez_address,
+            calldata,
+            ctx.l1_chain_id,
+            ctx.l1_post_batch_priority_fee,
+            self.inner.emission.max_gas,
+            prepared_blob_sidecar,
+            poster_nonce,
+        )
+        .await?;
         Ok(Some(raw))
     }
 }
@@ -4558,117 +4851,19 @@ async fn observe_bundle_outcome(
     if settled {
         optimistic.mark_settled(sync_height);
     } else {
-        // slot_skipped = the drop was NOT attributable to the bundled txs →
-        // requeue without counting an attempt toward poison-eviction.
+        // `slot_skipped` is the historical ledger name for any failure that
+        // was NOT attributable to the bundled txs: skipped slot, local
+        // submission-window miss, or target reorg. Requeue those without
+        // consuming the bounded poison-eviction budget.
         let slot_skipped = match &outcome {
             // Never reached the relay, so it says nothing about the txs. A
             // relay-side REJECTION is L1Error::Submission and still counts.
             Err(err) if err.is_transport() => true,
-            // Pin unsatisfiable (block ts != pin, or unreadable), not the txs.
-            _ => match target {
-                BundleTarget::Exact { block, timestamp } => {
-                    submitter.block_timestamp(block).await.ok().flatten() != Some(timestamp)
-                }
-                BundleTarget::NextBlock => false,
-            },
+            Ok(SendOutcome::Dropped { reason, .. }) => !reason.counts_toward_attempt_limit(),
+            _ => false,
         };
         optimistic.mark_failed(sync_height, slot_skipped);
     }
-}
-
-/// Sign an EIP-1559 L1 transaction used for `postAndVerifyBatch` submission.
-///
-/// Sets `max_priority_fee_per_gas` from the caller (so we can order
-/// the postBatch ahead of the held user_tx) and `max_fee_per_gas` to
-/// `2 * base_fee + priority_fee` per the standard EIP-1559 formula.
-///
-/// # Errors
-///
-/// Returns a `String` error if the pending-nonce or latest-block RPC fails, or
-/// if transaction signing fails.
-async fn sign_post_batch_tx(
-    signer: &alloy_signer_local::PrivateKeySigner,
-    provider: &alloy_provider::RootProvider,
-    eez_address: Address,
-    calldata: Vec<u8>,
-    chain_id: u64,
-    priority_fee: u128,
-    max_gas: u64,
-) -> Result<Bytes, String> {
-    use alloy_consensus::TxEip1559;
-    use alloy_eips::BlockNumberOrTag;
-    use alloy_network::TxSignerSync;
-    use alloy_primitives::TxKind;
-    use alloy_provider::Provider as _;
-    use reth_ethereum_primitives::{Transaction, TransactionSigned};
-
-    let from = signer.address();
-    let nonce = provider
-        .get_transaction_count(from)
-        .pending()
-        .await
-        .map_err(|e| format!("get_transaction_count({from}): {e}"))?;
-
-    // Dev-reth base fee is 0 in practice; pull it anyway so this
-    // path stays correct on non-dev chains.
-    let latest = provider
-        .get_block_by_number(BlockNumberOrTag::Latest)
-        .await
-        .map_err(|e| format!("get_block latest: {e}"))?
-        .ok_or_else(|| "get_block latest: None".to_string())?;
-    let base_fee = u128::from(latest.header.base_fee_per_gas.unwrap_or(0));
-    let max_fee_per_gas = base_fee.saturating_mul(2).saturating_add(priority_fee);
-
-    // Only gas USED is charged, so sign at the ceiling and let the drain's
-    // projection bound the batch.
-    let gas_limit = max_gas;
-    // A calldata floor over the cap is invalid at ANY gas limit. Refusing means
-    // no emission this slot; bounded chunks cover the range later.
-    let floor_gas = calldata_floor_gas(&calldata);
-    if floor_gas > max_gas {
-        return Err(format!(
-            "postBatch calldata floor {floor_gas} exceeds EEZ_MAX_POSTBATCH_GAS {max_gas} \
-             ({} calldata bytes); refusing emission — bounded chunks cover the range",
-            calldata.len(),
-        ));
-    }
-
-    // Diagnostic only — from the outside a drained poster looks exactly like a
-    // dead relay. Don't abort; the tx still lands if the base fee settles.
-    let required = U256::from(gas_limit).saturating_mul(U256::from(max_fee_per_gas));
-    if let Ok(balance) = provider.get_balance(from).await
-        && balance < required
-    {
-        event!(
-            name: "eez.composer.postbatch.poster_underfunded",
-            Level::ERROR,
-            poster = %from,
-            balance = %balance,
-            required = %required,
-            gas_limit,
-            max_fee_per_gas,
-            "poster balance below postBatch gas reserve; fund the poster or the batch will not be included",
-        );
-    }
-
-    let mut tx = TxEip1559 {
-        chain_id,
-        nonce,
-        gas_limit,
-        max_fee_per_gas,
-        max_priority_fee_per_gas: priority_fee,
-        to: TxKind::Call(eez_address),
-        value: U256::ZERO,
-        access_list: alloy_eips::eip2930::AccessList::default(),
-        input: calldata.into(),
-    };
-    let sig = signer
-        .sign_transaction_sync(&mut tx)
-        .map_err(|e| format!("sign postBatch tx: {e}"))?;
-    let signed = TransactionSigned::new_unhashed(Transaction::Eip1559(tx), sig);
-    let mut buf = Vec::with_capacity(512);
-    signed.encode_2718(&mut buf);
-    Ok(Bytes::from(buf))
 }
 
 /// Sign a type-3 postBatch transaction with a precomputed, validated sidecar.
@@ -4681,16 +4876,12 @@ async fn sign_post_batch_blob_tx(
     priority_fee: u128,
     max_gas: u64,
     sidecar: eez_blob_codec::PreparedBlobSidecar,
+    nonce: u64,
 ) -> Result<Bytes, String> {
     use alloy_eips::{BlockNumberOrTag, eip2930::AccessList, eip4844::DATA_GAS_PER_BLOB};
     use alloy_provider::Provider as _;
 
     let from = signer.address();
-    let nonce = provider
-        .get_transaction_count(from)
-        .pending()
-        .await
-        .map_err(|error| format!("get_transaction_count({from}): {error}"))?;
     let latest = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await
@@ -4757,14 +4948,11 @@ async fn sign_post_batch_blob_tx(
     Ok(signed.pooled_transaction)
 }
 
-/// Return the canonical Ethereum hash for either a normal typed envelope or a
-/// type-3 transaction-pool wrapper carrying a sidecar.
-fn post_batch_transaction_hash(raw: &[u8]) -> Result<alloy_primitives::TxHash, String> {
-    if raw.first() == Some(&3) {
-        return eez_blob_codec::pooled_blob_transaction_hash(raw)
-            .map_err(|error| format!("decode signed postBatch blob transaction: {error}"));
-    }
-    Ok(alloy_primitives::keccak256(raw))
+/// Return the canonical Ethereum hash for a type-3 transaction-pool wrapper
+/// carrying the mandatory postBatch blob sidecar.
+fn post_batch_blob_transaction_hash(raw: &[u8]) -> Result<alloy_primitives::TxHash, String> {
+    eez_blob_codec::pooled_blob_transaction_hash(raw)
+        .map_err(|error| format!("decode signed postBatch blob transaction: {error}"))
 }
 
 #[cfg(test)]
@@ -4948,17 +5136,18 @@ mod tests {
         }
     }
 
-    fn composition_with_entry_shape(
-        mutable_entries: usize,
-        static_entries: usize,
-    ) -> eez_protocol::Composition {
-        eez_protocol::Composition {
+    #[test]
+    fn local_observation_mismatch_ejects_only_owner_nonce_suffix() {
+        let inbound = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0xa);
+        let suffix = held(inbound.sender, Direction::Inbound, 1, 0xc);
+        let unrelated_outbound = held(Address::repeat_byte(0xb), Direction::Outbound, 0, 0xb);
+        let unrelated_inbound = held(Address::repeat_byte(0xd), Direction::Inbound, 0, 0xd);
+        let composition = eez_protocol::Composition {
             actions: Vec::new(),
             source: eez_protocol::SourceComposition {
-                rollup_id: eez_protocol::RollupId(1),
+                rollup_id: eez_protocol::RollupId::MAINNET,
                 batch: eez_protocol::EvmBatch {
-                    entries: vec![Default::default(); mutable_entries],
-                    staticEntries: vec![Default::default(); static_entries],
+                    staticEntries: vec![Default::default()],
                     ..Default::default()
                 },
                 entry_traces: Vec::new(),
@@ -4966,69 +5155,82 @@ mod tests {
                 outbound_event_hashes: Vec::new(),
             },
             targets: Vec::new(),
-        }
+        };
+        let survivors = vec![
+            unrelated_outbound.clone(),
+            inbound.clone(),
+            suffix.clone(),
+            unrelated_inbound.clone(),
+        ];
+        let compositions = vec![(composition, inbound.hash)];
+
+        let poison = observation_held_tx(0, &survivors, &compositions)
+            .cloned()
+            .unwrap();
+        assert_eq!(poison.hash, inbound.hash);
+        assert!(observation_held_tx(1, &survivors, &compositions).is_none());
+
+        let (retry, evicted) = partition_retryable(survivors, &poison);
+        assert_eq!(
+            retry.iter().map(|held| held.hash).collect::<Vec<_>>(),
+            vec![unrelated_outbound.hash, unrelated_inbound.hash],
+        );
+        assert_eq!(
+            evicted.iter().map(|held| held.hash).collect::<Vec<_>>(),
+            vec![inbound.hash, suffix.hash],
+        );
     }
 
     #[test]
-    fn static_only_inbound_triggers_run_after_root_mutations() {
-        let mutable_a = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 0xa);
-        let static_a = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 0xb);
-        let outbound = held(Address::repeat_byte(0xc), Direction::Outbound, 0, 0xc);
-        let mutable_b = held(Address::repeat_byte(0xd), Direction::Inbound, 0, 0xd);
-        let static_b = held(Address::repeat_byte(0xe), Direction::Inbound, 0, 0xe);
-        let survivors = vec![
-            mutable_a.clone(),
-            static_a.clone(),
-            outbound,
-            mutable_b.clone(),
-            static_b.clone(),
+    fn local_observation_comparison_reports_exact_owner() {
+        let observation = |expected_success, expected_output: Bytes| BlockObservation {
+            after_transactions: 0,
+            manager_address: Address::repeat_byte(0x11),
+            claim: eez_protocol::settlement::FifoObservationClaim {
+                pinned_block_hash: B256::repeat_byte(0x22),
+                call_mode: eez_protocol::CallMode::Static,
+                target_address: Address::repeat_byte(0x33),
+                source_address: Address::repeat_byte(0x44),
+                source_rollup_id: eez_protocol::RollupId::MAINNET,
+                data: Bytes::new(),
+                value: U256::ZERO,
+                expected_success,
+                expected_output,
+            },
+        };
+        let schedule = vec![
+            (3, observation(true, Bytes::from_static(b"first"))),
+            (7, observation(false, Bytes::from_static(b"second"))),
         ];
-        let compositions = vec![
-            (composition_with_entry_shape(1, 0), mutable_a.hash),
-            (composition_with_entry_shape(0, 1), static_a.hash),
-            (composition_with_entry_shape(1, 0), mutable_b.hash),
-            (composition_with_entry_shape(0, 1), static_b.hash),
+        let matching = vec![
+            ObservedOutcome {
+                success: true,
+                output: Bytes::from_static(b"first"),
+            },
+            ObservedOutcome {
+                success: false,
+                output: Bytes::from_static(b"second"),
+            },
         ];
-
-        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
-
         assert_eq!(
-            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
-            vec![mutable_a.hash, mutable_b.hash, static_a.hash, static_b.hash]
+            first_observation_mismatch(&schedule, &matching).unwrap(),
+            None,
         );
-        assert_eq!(deferred, 2);
-        assert_eq!(blocked, 0);
-    }
 
-    #[test]
-    fn static_only_ordering_never_crosses_a_sender_nonce_dependency() {
-        let sender = Address::repeat_byte(0xa);
-        let static_first = held(sender, Direction::Inbound, 0, 0xa);
-        let mutable_second = held(sender, Direction::Inbound, 1, 0xb);
-        let independent_static = held(Address::repeat_byte(0xc), Direction::Inbound, 0, 0xc);
-        let survivors = vec![
-            static_first.clone(),
-            independent_static.clone(),
-            mutable_second.clone(),
-        ];
-        let compositions = vec![
-            (composition_with_entry_shape(0, 1), static_first.hash),
-            (composition_with_entry_shape(0, 1), independent_static.hash),
-            (composition_with_entry_shape(1, 0), mutable_second.hash),
-        ];
-
-        let (ordered, deferred, blocked) = ordered_inbound_bundle_txs(&survivors, &compositions);
-
+        let mut mismatching = matching;
+        mismatching[1].output = Bytes::from_static(b"forged");
         assert_eq!(
-            ordered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
-            vec![
-                static_first.hash,
-                mutable_second.hash,
-                independent_static.hash
-            ]
+            first_observation_mismatch(&schedule, &mismatching).unwrap(),
+            Some(ObservationMismatchDetails {
+                composition_index: 7,
+                observation_index: 1,
+                expected_success: false,
+                observed_success: false,
+                expected_output_hash: alloy_primitives::keccak256(b"second"),
+                observed_output_hash: alloy_primitives::keccak256(b"forged"),
+            }),
         );
-        assert_eq!(deferred, 1);
-        assert_eq!(blocked, 1);
+        assert!(first_observation_mismatch(&schedule, &mismatching[..1]).is_err());
     }
 
     #[test]

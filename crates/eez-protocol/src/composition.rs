@@ -1347,12 +1347,10 @@ mod tests {
         assert!(!source.success);
         assert_eq!(source.returnData.as_ref(), b"revert");
         assert!(source.l2ToL1Calls.is_empty());
-
-        let target = &composition.targets[0].batch.entries[0];
-        assert!(target.success, "the L2 delivery itself must commit");
-        assert!(target.returnData.is_empty());
-        assert_eq!(target.l2ToL1Calls.len(), 1);
-        assert!(target.expectedL1ToL2Calls.is_empty());
+        assert!(
+            composition.targets.is_empty(),
+            "a failed lookup must not materialize an L2 delivery"
+        );
     }
 
     #[test]
@@ -1647,7 +1645,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_drains_a_terminal_revert_and_emits_the_protocol_marker() {
+    fn finalize_drains_a_terminal_revert_without_an_l2_delivery() {
         let rollbacks = Arc::new(AtomicUsize::new(0));
         let mut rollups = HashMap::new();
         rollups.insert(RollupId(0), entry_rollup([0u8; 32]));
@@ -1669,11 +1667,9 @@ mod tests {
 
         let composition = builder.finalize().expect("finalize reverted root");
         assert_eq!(rollbacks.load(Ordering::SeqCst), 1);
-        let target = composition
-            .targets
-            .iter()
-            .find(|target| target.rollup_id == RollupId(1))
-            .expect("L2 target");
-        assert_eq!(target.batch.entries[0].l2ToL1Calls[0].revertNextNCalls, 1);
+        assert!(
+            composition.targets.is_empty(),
+            "a source-reverted root must not materialize an L2 delivery"
+        );
     }
 }

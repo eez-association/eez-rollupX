@@ -75,6 +75,10 @@ pub enum ProtocolErrorKind {
     /// Composition was attempted with no cross-chain calls to include.
     #[error("no cross-chain calls to compose")]
     EmptyCalls,
+    /// The source transaction reverted or failed validation and therefore
+    /// cannot be included in the composer's atomic L1 bundle.
+    #[error("source transaction does not execute successfully")]
+    SourceTransactionFailed,
     /// A recorded call references an unregistered rollup.
     #[error("recorded call targets rollup {got}, which has no registered target plan")]
     UnknownTarget {

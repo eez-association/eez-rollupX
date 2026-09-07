@@ -13,6 +13,7 @@ eez-blob-codec.workspace = true
 eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
 eez-protocol.workspace = true
+eez-driver.workspace = true
 
 alloy-consensus.workspace = true
 alloy-genesis.workspace = true
@@ -28,9 +29,11 @@ reth-chainspec.workspace = true
 reth-ethereum-primitives.workspace = true
 reth-evm-ethereum.workspace = true
 reth-primitives-traits.workspace = true
+revm.workspace = true
 # The EEZ fork exposes the roots and transaction checkpoints consumed by the
 # validator while sharing the workspace's Reth revision.
 stateless-reth.workspace = true
+stateless-tries.workspace = true
 
 clap = { workspace = true, features = ["env"] }
 eyre.workspace = true

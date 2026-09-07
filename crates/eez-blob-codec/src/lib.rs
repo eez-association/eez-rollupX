@@ -307,54 +307,6 @@ pub fn decode_blobs(blobs: &[Blob], call_data_tail: &[u8]) -> Result<Vec<Message
     decode(&blob_portion, call_data_tail)
 }
 
-/// Encode the compatibility DA profile used during the calldata-to-blob
-/// migration.
-///
-/// The existing `eez-payload-codec` bytes remain byte-for-byte unchanged and
-/// are carried as the opaque payload of exactly one `ChainOperation`, followed
-/// by `CloseBlobStream`. This profile deliberately does not reinterpret the
-/// payload as semantic cross-chain messages.
-pub fn encode_compatibility_payload(chain_id: u64, payload: Bytes) -> Result<Vec<Blob>, Error> {
-    let encoded = encode(&[
-        Message::ChainOperation {
-            chain_id,
-            operations: payload,
-        },
-        Message::CloseBlobStream,
-    ])?;
-    debug_assert!(encoded.call_data_tail.is_empty());
-    pack(&encoded.blob_portion)
-}
-
-/// Decode and validate the compatibility DA profile.
-///
-/// Besides the version-`00` stream rules, this requires exactly one
-/// `ChainOperation` for `expected_chain_id`, one close marker, and no calldata
-/// tail. A structurally valid stream with any other message shape is rejected.
-pub fn decode_compatibility_payload(
-    blobs: &[Blob],
-    expected_chain_id: u64,
-) -> Result<Bytes, CompatibilityProfileError> {
-    let messages = decode_blobs(blobs, &[])?;
-    let [
-        Message::ChainOperation {
-            chain_id,
-            operations,
-        },
-        Message::CloseBlobStream,
-    ] = messages.as_slice()
-    else {
-        return Err(CompatibilityProfileError::UnexpectedMessages);
-    };
-    if *chain_id != expected_chain_id {
-        return Err(CompatibilityProfileError::ChainIdMismatch {
-            expected: expected_chain_id,
-            actual: *chain_id,
-        });
-    }
-    Ok(operations.clone())
-}
-
 /// One native EEZ blob payload: chain-local synchronization data plus the
 /// standardized cross-chain semantic messages that authorize its effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -452,20 +404,6 @@ pub enum NativeProfileError {
     )]
     UnexpectedMessages,
     /// The opaque synchronization payload belongs to another rollup.
-    #[error("ChainOperation chain id {actual} does not match expected rollup {expected}")]
-    ChainIdMismatch { expected: u64, actual: u64 },
-}
-
-/// Compatibility-profile decoding failure.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum CompatibilityProfileError {
-    /// The underlying blob stream is malformed.
-    #[error(transparent)]
-    Codec(#[from] Error),
-    /// The stream is valid version `00`, but is not the compatibility profile.
-    #[error("blob stream must contain exactly one ChainOperation followed by CloseBlobStream")]
-    UnexpectedMessages,
-    /// The opaque payload belongs to another rollup.
     #[error("ChainOperation chain id {actual} does not match expected rollup {expected}")]
     ChainIdMismatch { expected: u64, actual: u64 },
 }

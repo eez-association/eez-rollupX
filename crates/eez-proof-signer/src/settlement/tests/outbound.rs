@@ -461,10 +461,11 @@ fn outbound_bindings_require_a_preceding_load_and_outbound_first_order() {
         })
     );
 
-    let mixed_batch = effect_batch(
+    let mut mixed_batch = effect_batch(
         &[B256::ZERO; 4],
         &[ClaimedEntryShape::Inbound, ClaimedEntryShape::Outbound],
     );
+    mixed_batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     let mut inbound_first = settling_with_system_flags(vec![true, true, false]);
     inbound_first
         .outbound_event_candidates_mut_for_test()
@@ -569,7 +570,8 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
         })
     );
 
-    let inbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    let mut inbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    inbound_batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
     let mut inbound = settling_with_system_flags(vec![true]);
     inbound
         .outbound_event_candidates_mut_for_test()

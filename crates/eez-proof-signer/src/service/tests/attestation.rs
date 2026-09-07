@@ -5,7 +5,6 @@ use super::*;
 #[tokio::test]
 async fn a_stubbed_canonical_outbound_window_returns_a_recoverable_attestation() {
     let (batch, block_rlp, _user, call_hash) = canonical_outbound_case();
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
     // Receipt extraction has dedicated adapter and golden tests; this stub
     // isolates the settlement-to-signature path.
     let validator = Validator::stub_with_settlement_evidence(
@@ -13,10 +12,10 @@ async fn a_stubbed_canonical_outbound_window_returns_a_recoverable_attestation()
         vec![outbound_evidence(call_hash)],
     );
     let server = TestServer::new(inner(validator)).await;
+    let window = single_block_settlement_window(batch, block_rlp);
+    let expected_hash = recompute_window_public_inputs_hash(&window);
 
-    let response = server
-        .attest(single_block_settlement_window(batch, block_rlp))
-        .await;
+    let response = server.attest(window).await;
 
     assert_attestation(&response, expected_hash, test_attester().address());
 }
@@ -24,16 +23,15 @@ async fn a_stubbed_canonical_outbound_window_returns_a_recoverable_attestation()
 #[tokio::test]
 async fn a_stubbed_mixed_outbound_then_inbound_window_returns_an_attestation() {
     let (batch, block_rlp, outbound_call_hash) = mixed_outbound_inbound_case();
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
     let validator = Validator::stub_with_settlement_evidence(
         mixed_backend_output(),
         vec![mixed_evidence(outbound_call_hash)],
     );
     let server = TestServer::new(inner(validator)).await;
+    let window = single_block_settlement_window(batch, block_rlp);
+    let expected_hash = recompute_window_public_inputs_hash(&window);
 
-    let response = server
-        .attest(single_block_settlement_window(batch, block_rlp))
-        .await;
+    let response = server.attest(window).await;
 
     assert_attestation(&response, expected_hash, test_attester().address());
 }
@@ -42,16 +40,15 @@ async fn a_stubbed_mixed_outbound_then_inbound_window_returns_an_attestation() {
 async fn a_stubbed_value_bearing_outbound_window_returns_an_attestation() {
     let value = U256::from(1);
     let (batch, block_rlp, _user, call_hash) = outbound_case(value);
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
     let validator = Validator::stub_with_settlement_evidence(
         outbound_backend_output(),
         vec![outbound_evidence(call_hash)],
     );
     let server = TestServer::new(inner(validator)).await;
+    let window = single_block_settlement_window(batch, block_rlp);
+    let expected_hash = recompute_window_public_inputs_hash(&window);
 
-    let response = server
-        .attest(single_block_settlement_window(batch, block_rlp))
-        .await;
+    let response = server.attest(window).await;
 
     assert_attestation(&response, expected_hash, test_attester().address());
 }
@@ -60,14 +57,7 @@ async fn a_stubbed_value_bearing_outbound_window_returns_an_attestation() {
 async fn a_valid_anchor_only_window_returns_a_recoverable_attestation() {
     let server = TestServer::new(one_accepting_validator()).await;
     let window = happy_window();
-    let Some(prove_chunk::Kind::Header(header)) = &window[0].kind else {
-        unreachable!();
-    };
-    let batch = settlement::decode_canonical_post_batch(
-        header.post_batch.as_ref().unwrap().abi_calldata.clone(),
-    )
-    .expect("test batch must decode");
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
+    let expected_hash = recompute_window_public_inputs_hash(&window);
 
     let response = server.attest(window).await;
 
@@ -381,8 +371,7 @@ async fn the_composer_public_input_hash_cannot_control_the_attestation() {
     ))])))
     .await;
     let mut post_batch = public_input_post_batch();
-    let batch = settlement::decode_canonical_post_batch(post_batch.abi_calldata.clone()).unwrap();
-    let expected_hash = recompute_test_public_inputs_hash(&batch);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
     let composer_claim = vec![0x99; 32];
     post_batch.public_inputs_hash.clone_from(&composer_claim);
     let mut window = happy_window();
@@ -594,7 +583,7 @@ async fn malformed_or_trailing_da_payload_is_an_invalid_argument() {
         let status = server.prove(window).await;
 
         assert_eq!(status.code(), Code::InvalidArgument, "{status:?}");
-        assert_eq!(status.message(), "invalid batch callData");
+        assert_eq!(status.message(), "invalid blob operations payload");
     }
     assert_eq!(inner.validator.stub_remaining(), 0);
 }
