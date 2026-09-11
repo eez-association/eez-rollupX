@@ -449,6 +449,8 @@ async fn failure_poster_funds_recovery() {
 
 /// A proof accepted by the composer but signed by an attester unauthorized
 /// by the deployed L1 proof system reaches L1 and reverts with InvalidProof.
+/// Composer and signer deliberately agree on the wrong authority and vkey;
+/// the mismatch is against the actual registry, after local hash preflight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failure_prover_signer_mismatch() {
     let harness = Harness::fresh().await.unwrap();
