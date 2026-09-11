@@ -1,11 +1,11 @@
 //! Resumed-batch settlement (`settlement.start > 0`): L1 skips leading entries
 //! a competitor already applied and settles only the new suffix.
 //!
-//! No other suite deterministically reaches this path, since a composer
-//! produces one only when a peer settles a strict prefix of the same chain.
-//! This test therefore extends a real batch read back from L1 and recomputes
-//! its attestation. Every commitment used by the extension is an actual L2
-//! block hash.
+//! Extend a real blob-backed batch to exercise L1's skipped-prefix/new-suffix
+//! behavior. The extra root-only steps deliberately have no derivation
+//! sidecars: the defensive fork must reject them during derivation, even though
+//! its trusted test attester authorized them on L1. Reorg that invalid batch
+//! away and verify the node resumes healthy settlement.
 
 use std::time::Duration;
 
@@ -24,8 +24,8 @@ use eez_protocol::abi::{
 use eez_protocol::signer::EcdsaProofSigner;
 
 use eez_testkit::{
-    ANVIL_ADDR, ANVIL_ATTESTER_KEY, ANVIL_KEY_1, Harness, NodeConfig, NodeHandle, wait_for,
-    wait_for_latest_height,
+    ANVIL_ADDR, ANVIL_ATTESTER_KEY, ANVIL_KEY_1, FATAL_SIGNALS, Harness, NodeConfig, NodeHandle,
+    safe_block_hash, signals, wait_for, wait_for_latest_height,
 };
 
 const TIMEOUT: Duration = Duration::from_mins(5);
@@ -166,8 +166,9 @@ fn transition_immediate(rollup_id: u64, from: B256, to: B256) -> ExecutionEntryS
 /// Reposting a landed batch with extra immediates appended must settle only
 /// the suffix: the original entries are stale, so L1 skips them.
 ///
-/// This asserts that the prefix is skipped, the transaction does not unwind
-/// with `AllImmediateL2TxsFailed`, and derivation continues settling afterward.
+/// The transaction must not unwind with `AllImmediateL2TxsFailed`. Its missing
+/// derivation sidecars must still be rejected, and removing that invalid L1
+/// block must restore healthy settlement without weakening the data gate.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resumed_batch_settles_only_its_new_suffix() {
     let harness = Harness::fresh().await.unwrap();
@@ -179,6 +180,8 @@ async fn resumed_batch_settles_only_its_new_suffix() {
 
     chain.wait_for_batches(3, TIMEOUT).await.unwrap();
     wait_for_latest_height(&node, 1, TIMEOUT).await.unwrap();
+    node.assert_no_process_death();
+    let fault_cursor = node.signal_cursor().unwrap();
 
     // Freeze before reading the batch as well as the live commitment, so they
     // refer to the same head even when the next composer batch is already queued.
@@ -267,6 +270,41 @@ async fn resumed_batch_settles_only_its_new_suffix() {
         "the round-trip suffix must preserve the live block-hash commitment",
     );
 
+    let expected_error = format!(
+        "postBatch({transaction_hash}) carries cross-chain effects without L2 derivation sidecars"
+    );
+    wait_for(TIMEOUT, || async {
+        Ok(node
+            .signals_since(fault_cursor)?
+            .iter()
+            .any(|record| {
+                record.name == signals::DERIVER_RESYNC_FAILED
+                    && record
+                        .fields
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|error| error.contains(&expected_error))
+            })
+            .then_some(()))
+    })
+    .await
+    .expect("deriver accepted the synthetic suffix without its required sidecars");
+    // Keep mining paused while removing exactly the injected block and its
+    // transaction. A reorg may return removed transactions to the pool.
+    harness.anvil.reorg(1).await.unwrap();
+    let _: Option<B256> = provider
+        .client()
+        .request("anvil_dropTransaction", (transaction_hash,))
+        .await
+        .unwrap();
+    assert!(
+        provider
+            .get_transaction_receipt(transaction_hash)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    node.wait_for_reorg_seen(TIMEOUT).await.unwrap();
     harness
         .anvil
         .set_balance(ANVIL_ADDR, poster_balance)
@@ -276,12 +314,59 @@ async fn resumed_batch_settles_only_its_new_suffix() {
         .set_interval_mining(eez_testkit::Chain::block_time_secs())
         .await
         .unwrap();
-    node.assert_no_divergence_failure_logs();
     let batches_now = chain.batches_posted().await.unwrap();
     chain
         .wait_for_batches(batches_now + 2, TIMEOUT)
         .await
-        .expect("composer stopped settling after observing a resumed batch");
-    node.assert_no_divergence_failure_logs();
-    node.assert_no_process_death();
+        .expect("composer stopped settling after the invalid resumed batch was removed");
+    wait_for(TIMEOUT, || async {
+        let committed = chain.state_root().await?;
+        Ok(safe_block_hash(&node.l2_rpc_url())
+            .await?
+            .filter(|hash| *hash == committed))
+    })
+    .await
+    .expect("safe head did not recover after the invalid batch's L1 reorg");
+
+    // Only the deliberately injected missing-sidecar failure is permitted.
+    // Every other panic, lifecycle failure, or state divergence remains fatal.
+    for record in node.signals_since(fault_cursor).unwrap() {
+        if FATAL_SIGNALS.contains(&record.name.as_str()) {
+            assert_eq!(record.name, signals::DERIVER_RESYNC_FAILED);
+            assert!(
+                record
+                    .fields
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|error| error.contains(&expected_error)),
+                "{record:?}"
+            );
+        }
+    }
+    let recovered_cursor = node.signal_cursor().unwrap();
+    let recovered_batches = chain.batches_posted().await.unwrap();
+    chain
+        .wait_for_batches(recovered_batches + 2, TIMEOUT)
+        .await
+        .unwrap();
+    assert!(
+        node.signals_since(recovered_cursor)
+            .unwrap()
+            .iter()
+            .all(|record| !FATAL_SIGNALS.contains(&record.name.as_str()))
+    );
+    assert!(
+        node.exit_status().is_none(),
+        "node exited after resumed-batch recovery"
+    );
+    assert_eq!(
+        node.log_count_matching(&[
+            "Fatal",
+            "UnexpectedStaticFile",
+            "engine rejected safe/finalized FCU",
+            "payload builder returned no payload",
+        ])
+        .unwrap(),
+        0
+    );
 }
