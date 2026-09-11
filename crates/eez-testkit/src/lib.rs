@@ -2756,7 +2756,9 @@ pub async fn all_l2_execution_states(
 struct L2ExecutionEvent {
     state: B256,
     block_number: u64,
+    block_hash: B256,
     transaction_hash: B256,
+    transaction_index: u64,
     log_index: u64,
 }
 
@@ -2789,7 +2791,13 @@ async fn all_l2_execution_events(
             Ok(L2ExecutionEvent {
                 state: decoded.newRoot,
                 block_number,
+                block_hash: log
+                    .block_hash
+                    .ok_or_else(|| anyhow!("L2ExecutionPerformed log is missing block_hash"))?,
                 transaction_hash,
+                transaction_index: log.transaction_index.ok_or_else(|| {
+                    anyhow!("L2ExecutionPerformed log is missing transaction_index")
+                })?,
                 log_index,
             })
         })
@@ -4327,18 +4335,19 @@ impl StandardOracleSnapshot {
                 continue;
             }
 
-            let events_through_endpoint = execution_events
-                .iter()
-                .filter(|event| {
-                    event.block_number == l1_block_number && event.log_index <= endpoint.log_index
-                })
-                .count();
-            if events_through_endpoint < applied {
-                bail!(
-                    "{scenario_name}: batch {batch_tx_hash} reported {applied} applied entries, but its endpoint is only event {events_through_endpoint} in L1 block {l1_block_number} (emitted by {})",
-                    endpoint.transaction_hash,
-                );
-            }
+            assert_batch_settlement_events(
+                &l1_rpc,
+                world.cfg.eez_address,
+                world.cfg.rollup_id,
+                batch_tx_hash,
+                applied,
+                endpoint,
+                &execution_events,
+            )
+            .await
+            .with_context(|| {
+                format!("{scenario_name}: batch {batch_tx_hash} settlement evidence")
+            })?;
         }
         if safe.is_some() && expect_settled {
             let committed = state_root(&l1_rpc, world.cfg.eez_address, world.cfg.rollup_id).await?;
@@ -4356,6 +4365,150 @@ impl StandardOracleSnapshot {
         }
         Ok(())
     }
+}
+
+/// Bind the signal to the batch's immutable transaction window. Failed entry
+/// frames roll back their events, although their authenticated outcomes still
+/// contribute to the deriver's virtual applied-step count.
+async fn assert_batch_settlement_events(
+    l1_rpc: &str,
+    eez: Address,
+    rollup_id: u64,
+    batch_tx_hash: B256,
+    applied: usize,
+    endpoint: &L2ExecutionEvent,
+    events: &[L2ExecutionEvent],
+) -> Result<()> {
+    use alloy_rpc_types_eth::Filter;
+    use eez_protocol::abi::{BatchPosted, L2TxSkipped, postAndVerifyBatchCall};
+
+    let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
+    let transaction = provider
+        .get_transaction_by_hash(batch_tx_hash)
+        .await?
+        .ok_or_else(|| anyhow!("postBatch transaction is missing"))?;
+    ensure!(
+        transaction.block_hash == Some(endpoint.block_hash),
+        "batch and endpoint belong to different L1 blocks"
+    );
+    let batch_index = transaction
+        .transaction_index
+        .context("batch has no transaction index")?;
+    let call = postAndVerifyBatchCall::abi_decode(transaction.inner.input())?;
+    let receipt = provider
+        .get_transaction_receipt(batch_tx_hash)
+        .await?
+        .ok_or_else(|| anyhow!("postBatch receipt is missing"))?;
+    ensure!(
+        receipt.status() && receipt.block_hash == Some(endpoint.block_hash),
+        "batch receipt is unsuccessful or belongs to another block"
+    );
+    let mut skipped = HashSet::new();
+    for log in receipt.inner.logs() {
+        if log.address() == eez && log.topic0() == Some(&L2TxSkipped::SIGNATURE_HASH) {
+            let event = L2TxSkipped::decode_log(&log.inner)?;
+            skipped.insert(usize::try_from(event.transientIdx)?);
+        }
+    }
+
+    // A later postBatch for this rollup replaces its deferred queue. Its events
+    // must never supply evidence for the earlier batch, even if roots repeat.
+    let posted = provider
+        .get_logs(
+            &Filter::new()
+                .address(eez)
+                .event_signature(BatchPosted::SIGNATURE_HASH)
+                .at_block_hash(endpoint.block_hash),
+        )
+        .await?;
+    let mut window_end = u64::MAX;
+    for log in posted {
+        let index = log
+            .transaction_index
+            .context("BatchPosted has no transaction index")?;
+        if index <= batch_index || index >= window_end {
+            continue;
+        }
+        let hash = log
+            .transaction_hash
+            .context("BatchPosted has no transaction hash")?;
+        let next = provider
+            .get_transaction_by_hash(hash)
+            .await?
+            .context("later postBatch transaction is missing")?;
+        ensure!(
+            next.block_hash == Some(endpoint.block_hash),
+            "later batch belongs to another L1 block"
+        );
+        let next = postAndVerifyBatchCall::abi_decode(next.inner.input())?;
+        if next
+            .batch
+            .rollupIdsWithProofSystems
+            .iter()
+            .any(|rollup| rollup.rollupId == rollup_id)
+        {
+            window_end = index;
+        }
+    }
+    let observed: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.block_hash == endpoint.block_hash
+                && event.transaction_index >= batch_index
+                && event.transaction_index < window_end
+        })
+        .map(|event| event.state)
+        .collect();
+    ensure!(
+        observed.last() == Some(&endpoint.state),
+        "settlement endpoint is not the last event in this batch's window"
+    );
+    let claimed: Vec<_> = call
+        .batch
+        .entries
+        .iter()
+        .enumerate()
+        .flat_map(|(index, entry)| {
+            let emits = entry.success && !skipped.contains(&index);
+            entry
+                .rootUpdates
+                .iter()
+                .filter(move |update| update.rollupId == rollup_id)
+                .map(move |update| (update.newRoot, emits))
+        })
+        .collect();
+    assert_applied_step_events(&claimed, applied, &observed)
+}
+
+fn assert_applied_step_events(
+    claimed: &[(B256, bool)],
+    applied: usize,
+    observed: &[B256],
+) -> Result<()> {
+    ensure!(
+        applied > 0 && applied <= claimed.len(),
+        "invalid applied-step count {applied} for {} claims",
+        claimed.len()
+    );
+    // Match a contiguous applied range, retaining duplicate roots and order.
+    // A successful carrier includes the failed steps immediately after it;
+    // neither boundary may cut those outcomes away from their carrier.
+    let matches = claimed.windows(applied).enumerate().any(|(start, steps)| {
+        steps[0].1
+            && claimed
+                .get(start + applied)
+                .is_none_or(|(_, success)| *success)
+            && steps
+                .iter()
+                .filter(|(_, success)| *success)
+                .map(|(root, _)| root)
+                .eq(observed.iter())
+    });
+    ensure!(
+        matches,
+        "{applied} applied steps have no matching ordered L1 event sequence: {observed:?}"
+    );
+    Ok(())
 }
 
 fn assert_sync_grid(
@@ -4583,11 +4736,40 @@ impl Scenario {
         }
 
         if self.expect_settled {
+            let l2_provider = ProviderBuilder::new().connect_http(l2_rpc.parse()?);
             wait_for(SETTLE_TIMEOUT, || async {
                 let committed =
                     state_root(&l1_rpc, world.cfg.eez_address, world.cfg.rollup_id).await?;
-                let safe = safe_block_hash(&l2_rpc).await?;
-                Ok(safe.filter(|root| *root == committed).map(|_| ()))
+                let Some((safe_height, safe_hash)) =
+                    block_number_and_hash_at(&l2_rpc, BlockNumberOrTag::Safe).await?
+                else {
+                    return Ok(None);
+                };
+                if safe_hash != committed {
+                    return Ok(None);
+                }
+                // Equal heads may still be the pre-action heads. An outbound
+                // receipt first appears on the optimistic chain; wait until
+                // this exact transaction is included in canonical safe history.
+                for action in &actions {
+                    if !matches!(action.direction, ScenarioDirection::Outbound) {
+                        continue;
+                    }
+                    let Some(receipt) = l2_provider.get_transaction_receipt(action.hash).await?
+                    else {
+                        return Ok(None);
+                    };
+                    let Some(height) = receipt.block_number.filter(|height| *height <= safe_height)
+                    else {
+                        return Ok(None);
+                    };
+                    let canonical =
+                        block_number_and_hash_at(&l2_rpc, BlockNumberOrTag::Number(height)).await?;
+                    if !receipt.status() || canonical.map(|(_, hash)| hash) != receipt.block_hash {
+                        return Ok(None);
+                    }
+                }
+                Ok(Some(()))
             })
             .await
             .with_context(|| {
@@ -4976,6 +5158,34 @@ mod mined_revert_tests {
 #[cfg(test)]
 mod framework_tests {
     use super::*;
+
+    #[test]
+    fn settlement_oracle_requires_ordered_events_for_successful_carriers() {
+        let a = B256::repeat_byte(1);
+        let b = B256::repeat_byte(2);
+        let c = B256::repeat_byte(3);
+        let claimed = [(a, true), (a, false), (b, true), (b, false), (c, true)];
+        assert_applied_step_events(&claimed, 2, &[a]).unwrap();
+        assert_applied_step_events(&claimed, 4, &[a, b]).unwrap();
+        assert_applied_step_events(&claimed, 3, &[b, c]).unwrap();
+        assert_applied_step_events(&claimed, 5, &[a, b, c]).unwrap();
+        for (applied, observed) in [
+            (0, vec![]),
+            (6, vec![a, b, c]),
+            (1, vec![a]),          // drops the failed outcome carried by this anchor
+            (3, vec![a, b]),       // cuts the next carrier away from its failed step
+            (5, vec![a, c]),       // missing a successful event
+            (5, vec![b, a, c]),    // wrong order
+            (5, vec![a, a, b, c]), // extra event
+            (5, vec![]),
+        ] {
+            assert!(assert_applied_step_events(&claimed, applied, &observed).is_err());
+        }
+        // Successful no-op updates still emit: equal roots must not collapse.
+        let duplicate_roots = [(a, true), (a, true)];
+        assert_applied_step_events(&duplicate_roots, 2, &[a, a]).unwrap();
+        assert!(assert_applied_step_events(&duplicate_roots, 2, &[a]).is_err());
+    }
 
     #[test]
     fn l2_genesis_fixture_is_resolvable_after_testkit_extraction() {
