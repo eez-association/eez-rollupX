@@ -17,6 +17,7 @@ pub mod checkpoint;
 pub mod correlation;
 pub mod deriver;
 pub mod error;
+mod l1_catch_up;
 
 #[doc(inline)]
 pub use checkpoint::ReconcileCheckpoint;

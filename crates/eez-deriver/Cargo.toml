@@ -48,6 +48,7 @@ serde.workspace    = true
 [dev-dependencies]
 # Checkpoint tests write real files; atomicity is the point of the code.
 tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

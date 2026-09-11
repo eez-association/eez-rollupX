@@ -9,7 +9,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, B256, Bytes};
@@ -214,13 +213,17 @@ where
     /// Bounded wait for the L1 head to reach `block`. Best effort: on timeout
     /// the caller reads whatever L1 serves and the usual validation decides.
     async fn await_l1_head(&self, block: u64) {
-        const POLL: Duration = Duration::from_secs(2);
-        const POLLS: u32 = 30;
-        for _ in 0..POLLS {
-            match self.inner.l1_reader.readiness().await {
-                Ok(state) if state.head_block_number >= block => return,
-                _ => tokio::time::sleep(POLL).await,
-            }
+        if crate::l1_catch_up::wait_for_head(block, || async {
+            self.inner
+                .l1_reader
+                .readiness()
+                .await
+                .ok()
+                .map(|state| state.head_block_number)
+        })
+        .await
+        {
+            return;
         }
         event!(
             name: "eez.deriver.checkpoint.l1_behind",
