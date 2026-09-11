@@ -73,16 +73,14 @@ async fn post_batch(
         .as_eip4844()
         .expect("the original batch must be type-3")
         .tx()
-        .sidecar()
-        .as_eip4844()
-        .expect("Anvil uses EIP-4844 sidecars");
+        .sidecar();
     let blobs = sidecar
-        .blobs
+        .blobs()
         .iter()
         .enumerate()
         .map(|(i, blob)| Blob::try_from_slice(i, blob.as_slice()))
         .collect::<Result<Vec<_>, _>>()?;
-    let sidecar = prepare_blob_sidecar(&blobs, BlobSidecarEncoding::Eip4844)?;
+    let sidecar = prepare_blob_sidecar(&blobs, BlobSidecarEncoding::Eip7594)?;
     assert!(
         !batch.blobIndices.is_empty(),
         "must exercise blob-backed resumption"

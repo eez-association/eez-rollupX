@@ -161,6 +161,8 @@ impl Anvil {
             &DEV_CHAIN_ID.to_string(),
             "--block-time",
             &cfg.block_time_secs.to_string(),
+            "--hardfork",
+            "osaka",
             "--silent",
         ]);
         cmd.args(["--gas-limit", &cfg.gas_limit.to_string()]);
@@ -550,11 +552,23 @@ async fn canonical_blob_sidecars(
         let signed = envelope
             .as_eip4844()
             .ok_or_else(|| anyhow!("captured transaction is not EIP-4844"))?;
-        let sidecar = signed
-            .tx()
-            .sidecar()
-            .as_eip4844()
-            .ok_or_else(|| anyhow!("blob reorg fixture requires EIP-4844 sidecar encoding"))?;
+        let captured = signed.tx().sidecar();
+        // The legacy Beacon endpoint requires whole-blob proofs, while Osaka
+        // propagation carries cell proofs. Derive the former from the exact
+        // captured blobs and retain their authenticated commitment identity.
+        let sidecar = match captured.as_eip4844() {
+            Some(sidecar) => std::borrow::Cow::Borrowed(sidecar),
+            None => std::borrow::Cow::Owned(
+                alloy_eips::eip4844::BlobTransactionSidecar::try_from_blobs(
+                    captured.blobs().to_vec(),
+                )
+                .context("derive legacy Beacon proofs for Osaka blobs")?,
+            ),
+        };
+        ensure!(
+            sidecar.commitments.as_slice() == captured.commitments(),
+            "captured blob commitments do not match physical blobs"
+        );
         for ((blob, commitment), proof) in sidecar
             .blobs
             .iter()
@@ -1171,7 +1185,7 @@ impl Harness {
             ("EEZ_L1_CHAIN_PATH", "dev".to_string()),
             ("EEZ_L1_RPC_URL", self.anvil.rpc_url.clone()),
             ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
-            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
+            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip7594".to_string()),
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_CHAIN", "testing".to_string()),
             ("EEZ_L2_SYSTEM_KEY", L2_SYSTEM_KEY.to_string()),
@@ -3701,7 +3715,7 @@ impl CrossChainConfig {
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_RPC_URL", self.l1_rpc_url()),
             ("EEZ_L1_BEACON_URL", beacon_url.to_string()),
-            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip4844".to_string()),
+            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip7594".to_string()),
             ("EEZ_L1_TARGET_RPC_URL", self.l1_rpc_url()),
             ("EEZ_L1_BUILDER_RPC_URL", builder_rpc_url.to_string()),
             ("EEZ_L1_XCHAIN_PORT", self.l1_xchain_port.to_string()),
