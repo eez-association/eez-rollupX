@@ -292,7 +292,7 @@ def run(directory, suite):
                    "--target-dir-remap", str(extracted), "--workspace-remap", str(REPO),
                    "--no-fail-fast", "-E", SUITES[suite]]
         if suite != "unit":
-            command.extend(["--test-threads=1", "--retries", "1", "--color=never"])
+            command.extend(["--profile", "ci", "--test-threads=1", "--color=never"])
         print(f"==> {suite}: {name}", flush=True)
         try:
             subprocess.run(command, cwd=REPO, env=env, check=True)

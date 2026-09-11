@@ -23,8 +23,7 @@ use eez_protocol::abi::{
 };
 use eez_protocol::signer::EcdsaProofSigner;
 
-mod common;
-use common::{
+use eez_testkit::{
     ANVIL_ADDR, ANVIL_ATTESTER_KEY, ANVIL_KEY_1, Harness, NodeConfig, NodeHandle, wait_for,
     wait_for_latest_height,
 };
@@ -276,7 +275,7 @@ async fn resumed_batch_settles_only_its_new_suffix() {
         .await
         .unwrap();
     chain
-        .set_interval_mining(common::Chain::block_time_secs())
+        .set_interval_mining(eez_testkit::Chain::block_time_secs())
         .await
         .unwrap();
     node.assert_no_divergence_failure_logs();

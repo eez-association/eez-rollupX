@@ -3458,6 +3458,7 @@ dependencies = [
  "eez-follower",
  "eez-node",
  "eez-protocol",
+ "eez-testkit",
  "eyre",
  "http-body-util",
  "hyper",
@@ -3570,6 +3571,36 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tracing",
+]
+
+[[package]]
+name = "eez-testkit"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-contract",
+ "alloy-eips 2.0.5",
+ "alloy-genesis",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-types-eth",
+ "alloy-signer-local",
+ "alloy-sol-types",
+ "anyhow",
+ "eez-blob-codec",
+ "eez-control-rpc",
+ "eez-protocol",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "reth-chainspec 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]

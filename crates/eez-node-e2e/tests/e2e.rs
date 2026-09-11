@@ -6,13 +6,13 @@ use alloy_primitives::{B256, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::BlockNumberOrTag;
 
-mod common;
-use common::{
+use eez_testkit::signals;
+use eez_testkit::{
     ANVIL_ADDR, ANVIL_ADDR_3, ANVIL_KEY, ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_3, ANVIL_KEY_4,
-    ANVIL_KEY_6, Harness, L2_SYSTEM_KEY, NodeBinary, NodeConfig, NodeHandle,
-    block_number_and_hash_at, override_env, safe_block_hash, send_l2_value_transfer,
-    send_l2_value_transfer_confirmed, wait_for, wait_for_latest_height,
-    wait_for_new_attested_safe_block, wait_for_safe_chain_contains,
+    ANVIL_KEY_6, Harness, INVALID_PROOF_SELECTOR, INVALID_PROOF_SYSTEM_CONFIG_SELECTOR,
+    L2_SYSTEM_KEY, NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at, override_env,
+    safe_block_hash, send_l2_value_transfer, send_l2_value_transfer_confirmed, wait_for,
+    wait_for_latest_height, wait_for_new_attested_safe_block, wait_for_safe_chain_contains,
     wait_for_safe_prefix_convergence, wait_for_safe_state,
 };
 
@@ -93,7 +93,7 @@ async fn anvil_reorg_preserves_wall_clock() {
 /// A follower replaces the full divergent suffix of an intra-batch fork.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn multi_composer_intra_batch_suffix_replay_converges() {
-    let harness = Harness::for_reorg().await.unwrap();
+    let harness = Harness::fresh().await.unwrap();
     let chain = harness.chain();
     let genesis = harness.l2_genesis_path();
     let composer_cfg = NodeConfig {
@@ -253,26 +253,19 @@ async fn happy_case_composer_sustained() {
         )
         .await
         .expect("pre-restart state transition was not attested");
-        n_before = chain.wait_for_batches(3, DEFAULT_TIMEOUT).await.unwrap();
+        chain.wait_for_batches(3, DEFAULT_TIMEOUT).await.unwrap();
         pre_restart_latest = wait_for_latest_height(&node_before_restart, 1, DEFAULT_TIMEOUT)
             .await
             .expect("pre-restart node did not produce L2 blocks");
+        let before = chain.snapshot().await.unwrap();
+        n_before = before.batches_posted;
+        assert_eq!(before.executions_performed, n_before, "lockstep");
+        assert_eq!(before.entries_skipped, 0, "no entry should revert");
+        assert_ne!(before.state_root, harness.l2_genesis_block_hash().unwrap());
         assert_eq!(
-            chain.executions_performed().await.unwrap(),
-            n_before,
-            "lockstep"
-        );
-        assert_eq!(
-            chain.entries_skipped().await.unwrap(),
-            0,
-            "no entry should revert"
-        );
-        let root_before = chain.state_root().await.unwrap();
-        assert_ne!(root_before, harness.l2_genesis_block_hash().unwrap());
-        assert_eq!(
-            chain.latest_execution_state().await.unwrap().unwrap(),
-            root_before,
-            "latest event's newRoot == on-chain stateRoot",
+            before.latest_execution_state.unwrap(),
+            before.state_root,
+            "latest event's newState == on-chain stateRoot",
         );
     }
 
@@ -308,10 +301,12 @@ async fn happy_case_composer_sustained() {
         "restarted composer did not seed its L1 scan from the persistent correlation index",
     );
 
-    let n_after = chain
+    chain
         .wait_for_batches(n_before + 1, DEFAULT_TIMEOUT)
         .await
         .expect("composer didn't post any new batch after restart");
+    let after = chain.snapshot().await.unwrap();
+    let n_after = after.batches_posted;
     assert!(
         n_after > n_before,
         "BatchPosted grew ({n_before} → {n_after})"
@@ -320,19 +315,11 @@ async fn happy_case_composer_sustained() {
     wait_for_latest_height(&node, post_restart_target_height, DEFAULT_TIMEOUT)
         .await
         .expect("restarted node did not advance L2 height after restart");
+    assert_eq!(after.executions_performed, n_after, "no replay");
+    assert_eq!(after.entries_skipped, 0, "no skipped entries after restart");
     assert_eq!(
-        chain.executions_performed().await.unwrap(),
-        n_after,
-        "no replay"
-    );
-    assert_eq!(
-        chain.entries_skipped().await.unwrap(),
-        0,
-        "no skipped entries after restart"
-    );
-    assert_eq!(
-        chain.latest_execution_state().await.unwrap().unwrap(),
-        chain.state_root().await.unwrap(),
+        after.latest_execution_state.unwrap(),
+        after.state_root,
         "event-state consistency holds across restart",
     );
 
@@ -344,9 +331,14 @@ async fn happy_case_composer_sustained() {
     let follower = NodeHandle::start("follower", &follower_cfg, &follower_env)
         .await
         .unwrap();
-    wait_for_safe_state(&follower, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("follower did not catch up via L1 replay");
+    wait_for_safe_state(
+        &follower,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("follower did not catch up via L1 replay");
     wait_for_safe_prefix_convergence(
         &[&node, &follower],
         post_restart_target_height,
@@ -386,14 +378,15 @@ async fn failure_wrong_rollup_id() {
         .unwrap();
 
     chain
-        .assert_failed_post_and_verify_batch(999, common::INVALID_PROOF_SYSTEM_CONFIG_SELECTOR)
+        .assert_failed_post_and_verify_batch(999, INVALID_PROOF_SYSTEM_CONFIG_SELECTOR)
         .await
         .expect("wrong-rollup batch did not reach L1 structural validation");
 
-    assert_eq!(chain.batches_posted().await.unwrap(), 0);
-    assert_eq!(chain.executions_performed().await.unwrap(), 0);
+    let snapshot = chain.snapshot().await.unwrap();
+    assert_eq!(snapshot.batches_posted, 0);
+    assert_eq!(snapshot.executions_performed, 0);
     assert_eq!(
-        chain.state_root().await.unwrap(),
+        snapshot.state_root,
         harness.l2_genesis_block_hash().unwrap()
     );
     node.assert_no_process_death();
@@ -414,7 +407,7 @@ async fn failure_poster_funds_recovery() {
     .await
     .unwrap();
 
-    let n_before = chain
+    chain
         .wait_for_batches(2, Duration::from_mins(1))
         .await
         .unwrap();
@@ -424,13 +417,20 @@ async fn failure_poster_funds_recovery() {
         .set_balance(ANVIL_ADDR, U256::ZERO)
         .await
         .unwrap();
+    // Let work submitted before the balance change either land or fail before
+    // measuring the outage interval.
+    chain
+        .wait_for_l1_blocks(1, Duration::from_secs(15))
+        .await
+        .unwrap();
+    let outage_baseline = chain.batches_posted().await.unwrap();
     chain
         .wait_for_l1_blocks(5, Duration::from_secs(30))
         .await
         .unwrap();
     assert_eq!(
         chain.batches_posted().await.unwrap(),
-        n_before,
+        outage_baseline,
         "no progress during outage"
     );
 
@@ -441,7 +441,7 @@ async fn failure_poster_funds_recovery() {
         .await
         .unwrap();
     chain
-        .wait_for_batches(n_before + 1, Duration::from_mins(1))
+        .wait_for_batches(outage_baseline + 1, Duration::from_mins(1))
         .await
         .expect("composer did not recover after balance restored");
     node.assert_no_process_death();
@@ -476,14 +476,15 @@ async fn failure_prover_signer_mismatch() {
         .unwrap();
 
     chain
-        .assert_failed_post_and_verify_batch(harness.dep.rollup_id, common::INVALID_PROOF_SELECTOR)
+        .assert_failed_post_and_verify_batch(harness.dep.rollup_id, INVALID_PROOF_SELECTOR)
         .await
         .expect("unauthorized-attester batch did not reach L1 proof verification");
 
-    assert_eq!(chain.batches_posted().await.unwrap(), 0);
-    assert_eq!(chain.executions_performed().await.unwrap(), 0);
+    let snapshot = chain.snapshot().await.unwrap();
+    assert_eq!(snapshot.batches_posted, 0);
+    assert_eq!(snapshot.executions_performed, 0);
     assert_eq!(
-        chain.state_root().await.unwrap(),
+        snapshot.state_root,
         harness.l2_genesis_block_hash().unwrap()
     );
     node.assert_no_process_death();
@@ -493,7 +494,7 @@ async fn failure_prover_signer_mismatch() {
 /// They must produce newly attested work before old-prefix agreement can pass.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn happy_case_two_composers_l1_reorg_recovers() {
-    let harness = Harness::for_reorg().await.unwrap();
+    let harness = Harness::fresh().await.unwrap();
     let chain = harness.chain();
     let genesis = harness.l2_genesis_path();
     let cfg = NodeConfig {
@@ -537,7 +538,7 @@ async fn happy_case_two_composers_l1_reorg_recovers() {
 
     // Require post-reorg progress before accepting convergence.
     chain
-        .wait_for_batches(pre_batches + 1, DEFAULT_TIMEOUT)
+        .wait_for_batches_or_node_failure(pre_batches + 1, &[&c1, &c2], DEFAULT_TIMEOUT)
         .await
         .expect("no batches landed after reorg");
     tokio::try_join!(
@@ -724,9 +725,14 @@ async fn happy_case_follower_l1_derived() {
         .expect("sequencer landed batches");
 
     let follower = spawn_follower("follower", &harness, None).await.unwrap();
-    wait_for_safe_state(&follower, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("follower did not catch up via L1 replay");
+    wait_for_safe_state(
+        &follower,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("follower did not catch up via L1 replay");
     wait_for_safe_prefix_convergence(&[&seq, &follower], 1, DEFAULT_TIMEOUT)
         .await
         .expect("follower safe chain did not converge with the sequencer");
@@ -762,24 +768,29 @@ async fn happy_case_follower_sequencer_rpc() {
         .wait_for_batches(2, DEFAULT_TIMEOUT)
         .await
         .expect("sequencer landed batches");
-    wait_for_safe_state(&follower, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("follower did not catch up via L1 replay");
+    wait_for_safe_state(
+        &follower,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("follower did not catch up via L1 replay");
 
     wait_for_safe_prefix_convergence(&[&seq, &follower], 1, DEFAULT_TIMEOUT)
         .await
         .expect("follower safe block never matched the sequencer chain");
 
-    let unsafe_head_patterns = [
-        "follower advanced unsafe head to sequencer block",
-        "reth accepted sequencer head as a sync target",
+    let follower_head_signals = [
+        signals::FOLLOWER_HEAD_ADVANCED,
+        signals::FOLLOWER_HEAD_SYNCING,
     ];
-    let unsafe_head_events_before = follower.log_count_matching(&unsafe_head_patterns).unwrap();
+    let unsafe_head_events_before = follower.count_signals(&follower_head_signals).unwrap();
     seq.run_tx_spammer(ANVIL_KEY_1);
-    common::wait_for(DEFAULT_TIMEOUT, || {
+    wait_for(DEFAULT_TIMEOUT, || {
         std::future::ready(
             follower
-                .log_count_matching(&unsafe_head_patterns)
+                .count_signals(&follower_head_signals)
                 .map(|n| (n > unsafe_head_events_before).then_some(())),
         )
     })
@@ -794,7 +805,7 @@ async fn happy_case_follower_sequencer_rpc() {
 /// with the composer after an L1 reorg.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn happy_case_follower_l1_reorg_recovers() {
-    let harness = Harness::for_reorg().await.unwrap();
+    let harness = Harness::fresh().await.unwrap();
     let chain = harness.chain();
     let genesis = harness.l2_genesis_path();
     let seq_cfg = NodeConfig {
@@ -830,7 +841,7 @@ async fn happy_case_follower_l1_reorg_recovers() {
     .await
     .expect("post-reorg L2 tx did not land on sequencer");
     chain
-        .wait_for_batches(pre_batches + 1, DEFAULT_TIMEOUT)
+        .wait_for_batches_or_node_failure(pre_batches + 1, &[&seq, &follower], DEFAULT_TIMEOUT)
         .await
         .expect("no batches landed after reorg");
     let (post_reorg_safe_number, _) =
@@ -1131,12 +1142,22 @@ async fn happy_case_follower_cross_safe_parity() {
         spawn_follower("f_seq", &harness, Some(&seq_rpc)),
     )
     .unwrap();
-    wait_for_safe_state(&f_l1, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("f_l1 did not catch up");
-    wait_for_safe_state(&f_seq, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("f_seq did not catch up");
+    wait_for_safe_state(
+        &f_l1,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("f_l1 did not catch up");
+    wait_for_safe_state(
+        &f_seq,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("f_seq did not catch up");
 
     wait_for_safe_prefix_convergence(&[&seq, &f_l1, &f_seq], 1, DEFAULT_TIMEOUT)
         .await
@@ -1148,10 +1169,10 @@ async fn happy_case_follower_cross_safe_parity() {
 }
 
 /// A rogue unsafe source cannot move the follower's L1-derived safe head.
-/// A log assertion separately proves the follower actually polled the rogue source.
+/// A structured signal proves the follower polled the rogue source.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn happy_case_follower_rogue_sequencer_safe_head_holds() {
-    let harness = Harness::for_reorg().await.unwrap();
+    let harness = Harness::fresh().await.unwrap();
     let chain = harness.chain();
     let genesis = harness.l2_genesis_path();
 
@@ -1264,9 +1285,14 @@ async fn happy_case_follower_deep_backfill_late_join() {
 
     let follower = spawn_follower("follower", &harness, None).await.unwrap();
 
-    wait_for_safe_state(&follower, &chain, B256::ZERO, DEFAULT_TIMEOUT)
-        .await
-        .expect("late-joining follower did not backfill into an attested stateRoot");
+    wait_for_safe_state(
+        &follower,
+        &chain,
+        harness.l2_genesis_block_hash().unwrap(),
+        DEFAULT_TIMEOUT,
+    )
+    .await
+    .expect("late-joining follower did not backfill into an attested stateRoot");
 
     wait_for_safe_chain_contains(&follower, backlog_depth, backlog_hash, DEFAULT_TIMEOUT)
         .await

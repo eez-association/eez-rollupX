@@ -32,6 +32,7 @@ alloy-sol-types.workspace = true
 anyhow = "1"
 eez-control-rpc.workspace = true
 eez-protocol.workspace = true
+eez-testkit.workspace = true
 reth-chainspec.workspace = true
 serde_json = "1"
 tempfile = "3"

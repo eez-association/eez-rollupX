@@ -565,6 +565,7 @@ where
             event!(
                 name: "eez.deriver.l1.reorg.retreated",
                 Level::WARN,
+                event_name = "eez.deriver.l1.reorg.retreated",
                 l1_block = tail.l1_block,
                 indexed_hash = %tail.l1_block_hash,
                 canonical_hash = %canonical,
@@ -1077,6 +1078,7 @@ where
             event!(
                 name: "eez.deriver.resync.failed",
                 Level::ERROR,
+                event_name = "eez.deriver.resync.failed",
                 error = %err,
                 "post-subscribe resync failed; deriver may have a gap",
             );
@@ -1096,6 +1098,7 @@ where
                             event!(
                                 name: "eez.deriver.committer.closed",
                                 Level::ERROR,
+                                event_name = "eez.deriver.committer.closed",
                                 error = %err,
                                 "block committer gone; deriver exiting",
                             );
@@ -1156,6 +1159,7 @@ where
                 event!(
                     name: "eez.deriver.committer.closed",
                     Level::ERROR,
+                    event_name = "eez.deriver.committer.closed",
                     error = %err,
                     "block committer gone; deriver exiting",
                 );
@@ -1165,6 +1169,7 @@ where
                 event!(
                     name: "eez.deriver.resync.failed",
                     Level::ERROR,
+                    event_name = "eez.deriver.resync.failed",
                     error = %err,
                     "resync failed; will retry after the next L1 event",
                 );
@@ -1411,6 +1416,7 @@ where
             .put(&correlation)
             .map_err(DeriverError::l2_provider)?;
 
+        let l1_settled_root = settlement.final_state.unwrap_or_default();
         // Index first: the safe advance reads this cursor, and a replayed batch
         // must stay indexed even if the FCU fails. Use L1's real endpoint.
         self.inner.l1_head.append(BatchRecord {
@@ -1440,15 +1446,23 @@ where
         let Some(new_safe_hash) = self.sync_safe_to_cursor().await? else {
             return Ok(());
         };
+        let l2_safe_state_root = self
+            .l2_sealed_header_at(self.inner.l1_head.last_indexed_l2())?
+            .state_root();
         event!(
             name: "eez.deriver.safe.advanced",
             Level::INFO,
+            event_name = "eez.deriver.safe.advanced",
             from_block,
             to_block,
+            applied_entries = settlement.len,
+            l1_settled_root = %l1_settled_root,
             l1_block_number,
             tx_hash = %tx_hash,
             submitter = %submitter,
             new_safe_hash = %new_safe_hash,
+            l2_safe_block_hash = %new_safe_hash,
+            l2_safe_state_root = %l2_safe_state_root,
             "advanced L2 safe head from L1-confirmed batch",
         );
         Ok(())
@@ -1506,6 +1520,7 @@ where
             event!(
                 name: "eez.deriver.l1.reorg.noop",
                 Level::WARN,
+                event_name = "eez.deriver.l1.reorg.noop",
                 common_ancestor_number,
                 old_head_hash = %old_head_hash,
                 new_head_number,
@@ -1522,6 +1537,7 @@ where
         event!(
             name: "eez.deriver.l1.reorg.retreated",
             Level::WARN,
+            event_name = "eez.deriver.l1.reorg.retreated",
             common_ancestor_number,
             old_head_hash = %old_head_hash,
             new_head_number,
@@ -1531,6 +1547,7 @@ where
             dropped_batches = dropped,
             removed_correlations,
             new_safe_hash = %new_safe_hash,
+            l2_safe_block_hash = %new_safe_hash,
             "L1 reorg rolled out confirmed batches; L2 head retreated to the surviving safe cursor",
         );
         Ok(())
@@ -1584,6 +1601,7 @@ where
         event!(
             name: "eez.deriver.finalized.advanced",
             Level::INFO,
+            event_name = "eez.deriver.finalized.advanced",
             l1_finalized_block,
             l2_finalized = bounded,
             "advanced L2 finalized head from L1 finality",
@@ -2167,7 +2185,9 @@ where
                 event!(
                     name: "eez.deriver.reconcile.sync_block_built",
                     Level::INFO,
+                    event_name = "eez.deriver.reconcile.sync_block_built",
                     tx_hash = %tx_hash,
+                    sync_height = from_block + decoded.block_tx_counts.len().saturating_sub(1) as u64,
                     outbound = outbound.len(),
                     inbound = inbound.len(),
                     sync_block_txs = full.len(),
@@ -2461,6 +2481,7 @@ where
                 event!(
                     name: "eez.deriver.state.diverged_pre",
                     Level::ERROR,
+                    event_name = "eez.deriver.state.diverged_pre",
                     l1_block_number,
                     tx_hash = %tx_hash,
                     pre_block = pre,
@@ -2524,6 +2545,7 @@ where
                 event!(
                     name: "eez.deriver.state.diverged_post",
                     Level::ERROR,
+                    event_name = "eez.deriver.state.diverged_post",
                     l1_block_number,
                     tx_hash = %tx_hash,
                     to_block,

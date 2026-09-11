@@ -78,7 +78,7 @@ class NativeArtifactTest(unittest.TestCase):
         self.assertEqual(args.kwargs["env"]["EEZ_TEST_RUNTIME_BIN_DIR"],
                          str(self.target / "native-tests/target/release/eez-runtime"))
         self.assertIn("--test-threads=1", command)
-        self.assertIn("--retries", command)
+        self.assertEqual(command[command.index("--profile") + 1], "ci")
 
     def test_wrong_revision_profile_lock_or_toolchain_fails_closed(self):
         for key in self.identity:
@@ -436,7 +436,7 @@ class NativeRelocationTest(unittest.TestCase):
                 elif name == "eez-follower":
                     manifest += '[dependencies]\neez-composer={path="../eez-composer"}\n'
                 elif name == "eez-node-e2e":
-                    manifest += '[dependencies]\neez-node={path="../eez-node"}\neez-follower={path="../eez-follower"}\nee z-composer={path="../eez-composer"}\n'.replace("ee z", "eez")
+                    manifest += '[dependencies]\neez-node={path="../eez-node"}\neez-follower={path="../eez-follower"}\neez-composer={path="../eez-composer"}\n'
                     manifest += '[dev-dependencies]\nanyhow="1"\n'
                 elif name == "eez-composer":
                     manifest += ('[dependencies]\neez-protocol={path="../eez-protocol"}\n'
@@ -461,7 +461,7 @@ class NativeRelocationTest(unittest.TestCase):
                     'fn main() { assert!(!eez_composer::test_clock()); println!("release"); }\n')
             # Exercise the integration test path-resolver code, not a copy of
             # the algorithm. The producer directory disappears before execution.
-            common = (REPO / "crates/eez-node-e2e/tests/common/mod.rs").read_text()
+            common = (REPO / "crates/eez-testkit/src/lib.rs").read_text()
             manifest_fn = common.split("fn manifest_dir()", 1)[1].split("/// Stop dotenv", 1)[0]
             binary_type = common.split("pub enum NodeBinary", 1)[1].split("#[derive(Default)]\npub struct NodeConfig", 1)[0]
             test_source = 'use std::path::PathBuf;\nuse anyhow::{Context, Result, anyhow, bail, ensure};\nfn manifest_dir()' + manifest_fn + '\npub enum NodeBinary' + binary_type
