@@ -1,5 +1,8 @@
 # Upstream backport audit and porting plan
 
+**Implementation completed:** [completion ledger and validation](completion.md).
+The historical snapshot below records the pre-port state and remains the source inventory.
+
 Audit snapshot: **2026-09-11, 13:36 UTC**. **The fork has not backported everything.**
 
 There are **12 mainline upstream changes** after the common base: **5 have
