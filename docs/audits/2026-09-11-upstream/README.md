@@ -1,6 +1,7 @@
 # Upstream backport audit and porting plan
 
 **Implementation completed:** [completion ledger and validation](completion.md).
+**Production follow-up:** [regression review, timeout correction, and release gates](production-review.md).
 The historical snapshot below records the pre-port state and remains the source inventory.
 
 Audit snapshot: **2026-09-11, 13:36 UTC**. **The fork has not backported everything.**

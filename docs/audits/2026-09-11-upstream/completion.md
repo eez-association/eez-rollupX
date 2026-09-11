@@ -1,5 +1,11 @@
 # Upstream backport completion
 
+**Historical backport snapshot; production readiness is not established.** The subsequent
+[production review](production-review.md) reproduced and fixed an unbounded L1
+restart/read wait. The integration results below predate that correction and
+must not be presented as validation of the updated runtime. The review records
+its own checks and the remaining release gates.
+
 The code ports cover all **12 upstream mainline units, 43 source commits, and
 217 file-change records** in the frozen [inventory](inventory.json). All **44
 native integration cases** now have passing evidence. The implementation and
@@ -121,7 +127,8 @@ Recheck the coverage ledgers with:
 ```bash
 python3 docs/audits/2026-09-11-upstream/verify.py \
   --repo . --protocol-repo eez-core-protocol
-python3 docs/audits/2026-09-11-upstream/verify_completion.py --repo .
+python3 docs/audits/2026-09-11-upstream/verify_completion.py \
+  --repo . --revision 401a2dc90961d3cbe020f9a6adfc11d012422845
 ```
 
 The original verifier needs the historical protocol Git objects recorded in the

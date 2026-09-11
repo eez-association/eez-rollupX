@@ -16,6 +16,10 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument(
+        "--revision", default="HEAD",
+        help="Revision to compare with the frozen audit; select an older commit explicitly to verify historical evidence.",
+    )
     args = parser.parse_args()
     directory = Path(__file__).parent
     inventory_bytes = (directory / "inventory.json").read_bytes()
@@ -32,19 +36,25 @@ def main():
             raise SystemExit("FAIL: " + message)
 
     code = completion["code_revision"]
+    tip = git("rev-parse", args.revision)
     require(
         hashlib.sha256(inventory_bytes).hexdigest() == completion["frozen_inventory_sha256"],
         "frozen source inventory changed",
     )
     require(completion["upstream_main"] == inventory["refs"]["upstream_main"], "upstream revision")
-    require(git("merge-base", code, "HEAD") == code, "code revision absent from HEAD")
+    require(git("merge-base", code, tip) == code, "code revision absent from selected revision")
     base = completion["integration_base"]
     require(git("merge-base", base, code) == base, "integration baseline absent from code")
     require(git("rev-parse", code + ":eez-core-protocol") == completion["protocol_pin"], "protocol pin")
     require(
-        not git("diff", "--name-only", code, "HEAD", "--", ".", ":(exclude)docs/audits"),
+        not git("diff", "--name-only", code, tip, "--", ".", ":(exclude)docs/audits"),
         "code changed after the recorded validation revision; update the completion audit",
     )
+    if args.revision == "HEAD":
+        require(
+            not git("diff", "--name-only", "HEAD", "--", ".", ":(exclude)docs/audits"),
+            "working-tree code differs from HEAD; frozen validation does not cover these changes",
+        )
     tree = {
         row.split("\t", 1)[1]: row.split("\t", 1)[0].split()[2]
         for row in git("ls-tree", "-r", code).splitlines()
@@ -143,7 +153,8 @@ def main():
         f"PASS: {len(units)} units, {commit_count} commits, {file_count} file records, "
         f"{len(mapped_tests)} test mappings; code {code[:12]}"
     )
-    print("Coverage and code identities verified; see completion.md for observed checks and limits.")
+    print(f"Snapshot coverage verified through {tip[:12]}; later code is not covered by this evidence.")
+    print("See completion.md for observed checks and limits.")
 
 
 if __name__ == "__main__":
