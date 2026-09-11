@@ -1,0 +1,15 @@
+**
+!Cargo.toml
+!Cargo.lock
+!crates/
+!crates/**
+!scripts/
+!scripts/ci/
+!scripts/ci/install-sccache.sh
+!scripts/ci/with-compiler-cache.sh
+!scripts/ci/install-nextest.sh
+!scripts/ci/native-tests.py
+!.config/
+!.config/nextest.toml
+**/target/
+**/.cargo-target.*/

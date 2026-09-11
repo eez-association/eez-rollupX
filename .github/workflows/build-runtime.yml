@@ -1,0 +1,171 @@
+name: Build runtime artifacts
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+    outputs:
+      runtime-ref:
+        description: Immutable GHCR runtime payload digest
+        value: ${{ jobs.build.outputs.runtime-ref }}
+      tests-ref:
+        description: Immutable GHCR E2E payload digest (units already passed)
+        value: ${{ jobs.build.outputs.tests-ref }}
+      published:
+        description: Whether the images were published to GHCR
+        value: ${{ jobs.build.outputs.published }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    # No-write events execute all suites here without a registry/artifact handoff.
+    timeout-minutes: 180
+    env:
+      # Optional registry layer cache; compiler caching is configured separately.
+      EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}
+      EEZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    outputs:
+      runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
+      tests-ref: ${{ steps.payloads.outputs.tests-ref }}
+      published: ${{ steps.init.outputs.published }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Verify Docker daemon
+        timeout-minutes: 2
+        run: bash scripts/ci/check-docker.sh
+      - name: Initialize isolated build outputs and registry credentials
+        id: init
+        env:
+          PUBLISH: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          output_dir="$(mktemp -d "$RUNNER_TEMP/eez-runtime-artifacts.XXXXXXXX")"
+          test_output_dir="$(mktemp -d "$RUNNER_TEMP/eez-test-artifacts.XXXXXXXX")"
+          docker_config="$(mktemp -d "$RUNNER_TEMP/eez-docker-config.XXXXXXXX")"
+          echo "EEZ_RUNTIME_OUTPUT_DIR=$output_dir" >> "$GITHUB_ENV"
+          echo "EEZ_NATIVE_TEST_OUTPUT_DIR=$test_output_dir" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$docker_config" >> "$GITHUB_ENV"
+          echo "EEZ_PUBLISH_IMAGES=$PUBLISH" >> "$GITHUB_ENV"
+          echo "published=$PUBLISH" >> "$GITHUB_OUTPUT"
+      - name: Reclaim hosted runner filesystem space
+        run: bash scripts/ci/prepare-hosted-runner.sh
+      - name: Check optional hosted registry-cache support
+        id: docker-cache
+        env:
+          EEZ_HOSTED_CONTAINERD: ${{ vars.CI_HOSTED_CONTAINERD != 'false' }}
+        run: bash scripts/ci/hosted-docker-cache.sh prepare
+      - name: Start job-private Docker with containerd image store
+        id: cache-docker
+        if: ${{ runner.environment == 'github-hosted' && steps.docker-cache.outputs.configure == 'true' }}
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4.7.0
+        with:
+          # Keep the VM's Docker version; only change the image-store feature.
+          version: ${{ steps.docker-cache.outputs.version }}
+          set-host: true
+          daemon-config: '{"features":{"containerd-snapshotter":true}}'
+      - name: Select build daemon or fall back before compilation
+        if: ${{ steps.docker-cache.outputs.configure == 'true' }}
+        env:
+          EEZ_DOCKER_SETUP_OUTCOME: ${{ steps.cache-docker.outcome }}
+          EEZ_CACHE_DOCKER_HOST: ${{ steps.cache-docker.outputs.sock }}
+          EEZ_ORIGINAL_DOCKER_HOST: ${{ steps.docker-cache.outputs.original-host }}
+        run: bash scripts/ci/hosted-docker-cache.sh select
+      - uses: ./.github/actions/compiler-cache
+        with:
+          mode: docker
+          enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
+      - name: Log in to GHCR
+        id: ghcr-login
+        if: ${{ steps.init.outputs.published == 'true' }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build release candidate and tests in one isolated target
+        run: bash scripts/ci/build-runtime-artifacts.sh
+      - uses: ./.github/actions/native-test-tools
+      - name: Initialize isolated unit test execution directory
+        run: bash scripts/ci/init-cargo-target.sh
+      - name: Run all release unit tests and protocol vectors
+        run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Export E2E execution inputs only
+        id: e2e-export
+        run: |
+          e2e_dir="$(mktemp -d "$RUNNER_TEMP/eez-e2e-export.XXXXXXXX")"
+          python3 scripts/ci/native-tests.py export-e2e "$EEZ_NATIVE_TEST_OUTPUT_DIR" --output-dir "$e2e_dir"
+          echo "EEZ_NATIVE_TEST_DIR=$e2e_dir" >> "$GITHUB_ENV"
+      - name: Publish immutable CI payloads
+        id: payloads
+        if: ${{ steps.init.outputs.published == 'true' }}
+        run: |
+          bash scripts/ci/ci-payload.sh publish runtime "$EEZ_RUNTIME_OUTPUT_DIR"
+          bash scripts/ci/ci-payload.sh publish tests "$EEZ_NATIVE_TEST_DIR"
+      - name: Install Foundry for no-publication validation
+        id: local-foundry
+        if: ${{ steps.init.outputs.published == 'false' }}
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.7.1
+      - name: Embedded E2E without publishing
+        if: ${{ success() && steps.init.outputs.published == 'false' }}
+        id: local-embedded
+        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
+      - name: Cross-chain E2E without publishing
+        if: ${{ !cancelled() && steps.local-foundry.outcome == 'success' && steps.e2e-export.outcome == 'success' && steps.init.outputs.published == 'false' }}
+        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
+      - name: Prepare local runtime candidate
+        id: local-runtime
+        if: ${{ !cancelled() && steps.local-foundry.outcome == 'success' && steps.e2e-export.outcome == 'success' && steps.init.outputs.published == 'false' }}
+        env:
+          EEZ_EXPECT_PUBLISHED: "false"
+        run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_OUTPUT_DIR"
+      - name: Install Kurtosis for no-publication validation
+        if: ${{ !cancelled() && steps.local-runtime.outcome == 'success' }}
+        id: local-kurtosis
+        run: bash scripts/ci/install-kurtosis.sh
+      - name: Kurtosis E2E without publishing
+        if: ${{ !cancelled() && steps.local-kurtosis.outcome == 'success' }}
+        env:
+          KURTOSIS_ENCLAVE: eez-ci
+          KURTOSIS_RESOURCE_CHECK: "true"
+          EEZ_PROTOCOL_MAX_PARALLEL: "all"
+        run: bash testing/kurtosis/run-ci.sh
+      - name: Upload local E2E failure diagnostics
+        if: ${{ failure() && steps.init.outputs.published == 'false' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: local-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/embedded-e2e
+            artifacts/cross-chain-e2e
+            artifacts/kurtosis-e2e
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Upload failed build metadata
+        if: ${{ failure() && steps.init.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Separate from consumable runtime artifacts; never upload credentials.
+          name: runtime-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.EEZ_RUNTIME_OUTPUT_DIR }}/*-build.json
+            ${{ env.EEZ_RUNTIME_OUTPUT_DIR }}/cargo-timing.html
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Runner failure diagnostics
+        if: failure()
+        run: bash scripts/ci/cargo-failure-diagnostics.sh
+      - name: Log out of GHCR
+        if: ${{ always() && steps.ghcr-login.outcome == 'success' }}
+        run: docker logout ghcr.io

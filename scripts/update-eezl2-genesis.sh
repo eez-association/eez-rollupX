@@ -15,8 +15,8 @@ DEFAULT_SYSTEM_BALANCE="0xd3c21bcecceda1000000"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
 EXPECTED_PROXY_SALT="0x7c432a8c413604983b9f189bb5b6650220b6b9b038267802fef07276a796e168"
-EXPECTED_PROXY_INIT_CODE_HASH="0xc93c92703d4b478a5f23ac91f8a23e249b65c23a9f13876d0b56aaf5a1fa04f9"
-EXPECTED_PROXY_ADDRESS="0xeeccd7ec2745c8e8743be2fc399a610b21613f03"
+EXPECTED_PROXY_INIT_CODE_HASH="0x5addcadf82b61611ae356c8088422f9e84cb800e6936ced26f0de29665c2468f"
+EXPECTED_PROXY_ADDRESS="0x15ea912b805e733b3899149409acead6f56f0e16"
 
 usage() {
     cat >&2 <<'EOF'
@@ -87,6 +87,14 @@ while (( $# > 0 )); do
             ;;
     esac
 done
+
+# Resolve once: CI must consume the producer's verified executable, never
+# silently start an unconfigured second Rust build in a contract-only job.
+genesis_tool="$(command -v eez-genesis-state-root || true)"
+if [[ "${GITHUB_ACTIONS:-false}" == true && ( -z "$genesis_tool" || ! -x "$genesis_tool" ) ]]; then
+    echo "CI requires the verified eez-genesis-state-root tool; refusing Cargo fallback" >&2
+    exit 1
+fi
 
 if [[ "$mode" == "render" ]]; then
     [[ -n "$rollup_id" && -n "$system_address" && -n "$output" ]] || {
@@ -298,8 +306,8 @@ runtime_hash="$(cast keccak "$runtime")"
 
 genesis_state_root() {
     local genesis="$1"
-    if command -v eez-genesis-state-root >/dev/null 2>&1; then
-        eez-genesis-state-root "$genesis"
+    if [[ -n "$genesis_tool" ]]; then
+        "$genesis_tool" "$genesis"
     else
         (
             cd "$REPO"

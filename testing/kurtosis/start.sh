@@ -6,6 +6,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 ARGS_FILE="${1:-$HERE/ci-args.yaml}"
+resource_check="${KURTOSIS_RESOURCE_CHECK:-true}"
+[[ "$resource_check" == true || "$resource_check" == false ]] || {
+    echo "KURTOSIS_RESOURCE_CHECK must be true or false" >&2
+    exit 1
+}
 
 command -v kurtosis >/dev/null || { echo "kurtosis not found in PATH" >&2; exit 1; }
 command -v docker   >/dev/null || { echo "docker not found in PATH" >&2; exit 1; }
@@ -121,7 +126,9 @@ if [[ "${EEZ_PRUNE_BUILD_CACHE:-0}" == "1" ]]; then
 fi
 
 echo "==> kurtosis run (enclave: $ENCLAVE)"
-kurtosis_flags=()
+# Runtime candidates are built locally or pre-pulled by authenticated CI. Keep
+# them local; the Kurtosis API container does not hold the runner's GHCR token.
+kurtosis_flags=(--image-download missing "--resource-check=$resource_check")
 # The included topology runs without privileged package execution. Keep this
 # opt-in for custom argument files or future package changes that require it.
 if [[ "${KURTOSIS_PRIVILEGED:-0}" == "1" ]]; then

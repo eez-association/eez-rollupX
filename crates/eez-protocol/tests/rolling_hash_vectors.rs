@@ -31,8 +31,10 @@ struct Vectors {
 }
 
 fn load_vectors() -> Vectors {
-    let path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rolling_hash_vectors.json");
+    let path = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").into()),
+    )
+    .join("tests/fixtures/rolling_hash_vectors.json");
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let vectors: Vectors = serde_json::from_str(&raw).expect("valid rolling-hash vector fixture");

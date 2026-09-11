@@ -84,8 +84,10 @@ fn parse_bytes(value: &str) -> Bytes {
 }
 
 fn load_vectors() -> Vec<Vector> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/public_inputs_hash_vectors.json");
+    let path = PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").into()),
+    )
+    .join("tests/fixtures/public_inputs_hash_vectors.json");
     let raw = fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
     let fixture: Fixture = serde_json::from_str(&raw).expect("valid public-input vector fixture");

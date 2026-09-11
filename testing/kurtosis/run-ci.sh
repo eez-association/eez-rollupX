@@ -17,6 +17,10 @@ mkdir -p "$RESULT_DIR"
 export EEZ_CI_RESULT_DIR="$RESULT_DIR"
 rm -f "$RESULT_DIR/result.json"
 
+# Validate genesis with the verified release tool from the candidate.
+echo "==> verify generated EEZL2 genesis artifacts with the release candidate"
+bash "$REPO/scripts/update-eezl2-genesis.sh" --check
+
 ARGS_TEMPLATE="${KURTOSIS_ARGS_FILE:-$HERE/ci-args.yaml}"
 export EEZ_NODE_IMAGE="${EEZ_NODE_IMAGE:-eez-node:ci-${GITHUB_SHA:-local}}"
 export EEZ_PROOF_SIGNER_IMAGE="${EEZ_PROOF_SIGNER_IMAGE:-eez-proof-signer:ci-${GITHUB_SHA:-local}}"
@@ -32,7 +36,9 @@ REMOTE_ATTESTATION_EVENT='event_name="eez.prover_client.attested"'
 
 capture_service_log() {
     local service="$1"
-    timeout 30s kurtosis service logs "$KURTOSIS_ENCLAVE" "$service" \
+    # Kurtosis defaults to only 200 lines, losing the scenario that failed
+    # earlier in a long suite. Keep full artifacts but bounded console tails.
+    timeout 30s kurtosis service logs --all "$KURTOSIS_ENCLAVE" "$service" \
         >"$RESULT_DIR/$service.log" 2>&1
 }
 
@@ -120,27 +126,24 @@ verify_real_proof_path() {
 cleanup() {
     local status=$?
     trap - EXIT
-    kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >"$RESULT_DIR/enclave.txt" 2>&1 || true
-    for service in \
-        eez-node \
-        eez-proof-signer \
-        "$KURTOSIS_BUILDER_SERVICE" \
-        mev-relay-api \
-        mev-relay-housekeeper
-    do
-        capture_service_log "$service" || true
-    done
-    refresh_proof_counts
+    # Successful proof-path assertions already consumed the two required logs.
+    # Fetch the full diagnostic set only on failure, before removing the enclave.
+    if (( status == 0 )) && [[ ! -f "$RESULT_DIR/result.json" ]]; then
+        status=1
+        echo "CI completed without producing a result" >&2
+    fi
     if (( status != 0 )); then
+        kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >"$RESULT_DIR/enclave.txt" 2>&1 || true
+        for service in eez-node eez-proof-signer "$KURTOSIS_BUILDER_SERVICE" \
+            mev-relay-api mev-relay-housekeeper; do
+            capture_service_log "$service" || true
+        done
+        refresh_proof_counts
         write_result fail "$status" || true
         echo "==> candidate node log tail (failure diagnostics)" >&2
         tail -n 200 "$RESULT_DIR/eez-node.log" >&2 || true
         echo "==> proof signer log tail (failure diagnostics)" >&2
         tail -n 200 "$RESULT_DIR/eez-proof-signer.log" >&2 || true
-    elif [[ ! -f "$RESULT_DIR/result.json" ]]; then
-        status=1
-        write_result fail "$status" || true
-        echo "CI completed without producing a result" >&2
     fi
     bash "$HERE/stop.sh" || true
     exit "$status"

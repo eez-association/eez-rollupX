@@ -8,6 +8,22 @@ BACKEND_PORT = 4000
 FRONTEND_PORT = 3000
 DEFAULT_FAVICON_URL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIiB2aWV3Qm94PSIwIDAgMTgwIDE4MCI+PHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSIzMiIgZmlsbD0iIzFhMjAyYyIvPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik00MiA0Mmg5NnYyMkg2NnYxNmg2MHYyMkg2NnYxNmg3MnYyMkg0MnoiLz48L3N2Zz4="
 
+# The public HTTPS gateway routes both /api and /socket to the backend.
+# Override only the browser configuration: the Next.js server and local HTTP
+# frontend still use the in-enclave API and its HTTP proxy. Blockscout builds
+# WebSocket URLs separately, so NEXT_PUBLIC_USE_NEXT_JS_PROXY cannot fix them.
+HTTPS_BROWSER_CONFIG = """
+if (window.location.protocol === "https:") {
+  Object.assign(window.__envs, {
+    NEXT_PUBLIC_API_PROTOCOL: "https",
+    NEXT_PUBLIC_API_HOST: window.location.hostname,
+    NEXT_PUBLIC_API_PORT: window.location.port,
+    NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: "wss",
+    NEXT_PUBLIC_USE_NEXT_JS_PROXY: "false"
+  });
+}
+"""
+
 
 def launch(plan, prefix, network_name, chain_id, rpc_url, params={}):
     postgres_name = prefix + "-blockscout-postgres"
@@ -82,6 +98,7 @@ def launch(plan, prefix, network_name, chain_id, rpc_url, params={}):
             '"$env_file";',
             "grep -q 'NEXT_PUBLIC_APP_HOST: window.location.hostname,' \"$env_file\";",
             "grep -q 'NEXT_PUBLIC_APP_PORT: window.location.port,' \"$env_file\";",
+            "printf '\\n%s\\n' '{}' >> \"$env_file\";".format(HTTPS_BROWSER_CONFIG),
             "exec node server.js",
         ]
     )

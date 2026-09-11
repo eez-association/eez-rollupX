@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Run eez-core-protocol scenarios against the CI enclave and produce a strict,
-# machine-readable evidence bundle. The default discovers and runs every
-# upstream E2E script at the pinned submodule commit.
+# Run every pinned upstream scenario against the CI enclave and independently
+# verify its receipts, cross-chain calls, and blob contents.
 set -euo pipefail
 
 KURTOSIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,9 +9,11 @@ PROTOCOL="$REPO/eez-core-protocol"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}/protocol-e2e"
 
-UNSUPPORTED_TARGETS=()
+# Bound each Forge/cast thread pool while scenarios run concurrently.
+export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}"
+export TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
 
-for tool in bash bc cargo cast curl find forge git jq kurtosis sha256sum; do
+for tool in bash bc cast curl find flock forge git jq kurtosis python3 sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
@@ -25,22 +26,15 @@ if [[ -z "$expected_protocol" || "$actual_protocol" != "$expected_protocol" ]]; 
     exit 1
 fi
 
-causal_target_dir="${CARGO_TARGET_DIR:-$REPO/target}"
-[[ "$causal_target_dir" == /* ]] || causal_target_dir="$REPO/$causal_target_dir"
-env CARGO_TARGET_DIR="$causal_target_dir" \
-    cargo build --manifest-path "$REPO/Cargo.toml" -p eez-protocol --example e2e-causal-verify
-CAUSAL_VERIFIER="$causal_target_dir/debug/examples/e2e-causal-verify"
-[[ -x "$CAUSAL_VERIFIER" ]] || {
-    echo "causal verifier was not built at $CAUSAL_VERIFIER" >&2
-    exit 1
-}
-env CARGO_TARGET_DIR="$causal_target_dir" \
-    cargo build --manifest-path "$REPO/Cargo.toml" -p eez-l1 --example verify_blob_evidence
-BLOB_VERIFIER="$causal_target_dir/debug/examples/verify_blob_evidence"
-[[ -x "$BLOB_VERIFIER" ]] || {
-    echo "blob verifier was not built at $BLOB_VERIFIER" >&2
-    exit 1
-}
+# One orchestrator/evidence collector per checkout. Do not race the upstream
+# wallet pool, funding account or Foundry outputs during a local rerun.
+mkdir -p "$PROTOCOL/tmp"
+exec {protocol_lock}>"$PROTOCOL/tmp/.eez-network-e2e.lock"
+flock -n "$protocol_lock" || { echo "protocol network suite already running in this checkout" >&2; exit 1; }
+
+source "$KURTOSIS_DIR/scripts/runtime-tools.sh"
+CAUSAL_VERIFIER="$(resolve_runtime_tool eez-protocol e2e-causal-verify "${EEZ_CAUSAL_VERIFIER_BIN:-}")"
+BLOB_VERIFIER="$(resolve_runtime_tool eez-l1 verify_blob_evidence "${EEZ_BLOB_VERIFIER_BIN:-}")"
 
 source "$KURTOSIS_DIR/ports.sh" >/dev/null
 L1_RPC="${L1_RPC:-$EEZ_DEVNET_L1_RPC}"
@@ -230,21 +224,20 @@ rm -f "$RESULT_DIR/summary.json" "$RESULT_DIR/manifest.json"
 jq -n --arg protocol_commit "$actual_protocol" --argjson scenarios "$manifest_json" \
     '{protocol_commit: $protocol_commit, scenarios: $scenarios}' >"$RESULT_DIR/manifest.json"
 
-run_log="$RESULT_DIR/network-sequential.log"
-rm -rf "$PROTOCOL/tmp/e2e-network"
+# A fresh artifact directory prevents stale logs from satisfying evidence on a
+# rerun. Only scenario logs are copied; upstream wallet/faucet keys stay private.
+network_dir="$(mktemp -d "$RESULT_DIR/network.XXXXXXXX")"
+run_log="$network_dir/runner.log"
 status=0
-(
-    cd "$PROTOCOL"
-    DEVNET_ENV="$env_file" \
-        bash script/e2e/run/network-sequential.sh "${targets[@]}"
-) >"$run_log" 2>&1 || status=$?
+SOURCE_PK="$PK" python3 "$REPO/scripts/ci/run-protocol-network.py" \
+    --protocol-dir "$PROTOCOL" --env-file "$env_file" --log-dir "$network_dir" \
+    --max-parallel "${EEZ_PROTOCOL_MAX_PARALLEL:-all}" \
+    --suite-timeout "${EEZ_PROTOCOL_SUITE_TIMEOUT:-2400}" \
+    "${selected_names[@]}" >"$run_log" 2>&1 || status=$?
 cat "$run_log"
-if [[ -d "$PROTOCOL/tmp/e2e-network" ]]; then
-    cp -R "$PROTOCOL/tmp/e2e-network/." "$RESULT_DIR/"
-fi
 
-# Parse the raw upstream result stream once. Later compatibility verification
-# updates an in-memory verdict; it never appends a second RESULT line.
+# Parse the raw upstream result stream once. Independent verification can
+# reject a PASS, but must never turn an upstream failure into a success.
 declare -A result_count=()
 declare -A raw_verdict=()
 declare -A final_verdict=()
@@ -302,61 +295,9 @@ if (( ${#unexpected_results[@]} > 0 )); then
     accounting_ok=false
 fi
 
-compat_overrides=0
-accept_static_counter_l2_static_pool() {
-    local name=staticCounterL2
-    local log="$RESULT_DIR/$name.log"
-    local compat_log="$RESULT_DIR/$name.compat.log"
-    local evidence="$evidence_dir/$name.json"
-
-    [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
-    if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
-        ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
-        BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
-        bash "$KURTOSIS_DIR/scripts/verify-static-counter-l2.sh" "$log" "$evidence" \
-        >"$compat_log" 2>&1; then
-        cat "$compat_log" >&2
-        return 1
-    fi
-    cat "$compat_log" | tee -a "$run_log"
-    echo "COMPAT $name: PASS — strict static-only pool evidence written to $evidence" | tee -a "$run_log"
-    final_verdict["$name"]=PASS
-    verification_mode["$name"]=external-static-pool
-    compat_overrides=$((compat_overrides + 1))
-}
-
-accept_top_level_static_counter() {
-    local name=topLevelStaticCounter
-    local log="$RESULT_DIR/$name.log"
-    local compat_log="$RESULT_DIR/$name.compat.log"
-    local evidence="$evidence_dir/$name.json"
-
-    [[ "${result_count[$name]:-0}" == 1 && "${raw_verdict[$name]:-}" == FAIL ]] || return 1
-    if ! L1_RPC="$L1_RPC" L1_FRONT="$L1_FRONT" L2_RPC="$L2_RPC" \
-        ROLLUPS="$ROLLUPS" PK="$PK" PROTOCOL_COMMIT="$actual_protocol" \
-        ROLLUP_ID="$ROLLUP_ID" BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
-        bash "$KURTOSIS_DIR/scripts/verify-top-level-static-counter.sh" "$log" "$evidence" \
-        >"$compat_log" 2>&1; then
-        cat "$compat_log" >&2
-        return 1
-    fi
-    cat "$compat_log" | tee -a "$run_log"
-    echo "COMPAT $name: PASS — strict view-only static evidence written to $evidence" | tee -a "$run_log"
-    final_verdict["$name"]=PASS
-    verification_mode["$name"]=external-view-only-static
-    compat_overrides=$((compat_overrides + 1))
-}
-
-if [[ -n "${selected_path_by_name[staticCounterL2]+x}" ]]; then
-    accept_static_counter_l2_static_pool || true
-fi
-if [[ -n "${selected_path_by_name[topLevelStaticCounter]+x}" ]]; then
-    accept_top_level_static_counter || true
-fi
-
 write_non_pass_evidence() {
     local name="$1" result="$2" mode="$3" message="$4"
-    local path="${selected_path_by_name[$name]}" log="$RESULT_DIR/$name.log"
+    local path="${selected_path_by_name[$name]}" log="$network_dir/$name.log"
     local log_sha256=""
     [[ -f "$log" ]] && log_sha256="$(sha256sum "$log" | awk '{print $1}')"
     jq -n --argjson schema_version 1 --arg scenario "$name" --arg scenario_path "$path" \
@@ -371,16 +312,30 @@ write_non_pass_evidence() {
 
 # A direct upstream PASS is necessary but not sufficient: independently query
 # all user, settlement, and table-load receipts and bind them to the source log.
+verify_names=()
+for name in "${selected_names[@]}"; do
+    if [[ "${final_verdict[$name]}" == PASS && "${verification_mode[$name]}" == upstream-direct ]]; then
+        verify_names+=("$name")
+    fi
+done
+if (( ${#verify_names[@]} > 0 )); then
+    L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
+        ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
+        BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
+        python3 "$REPO/scripts/ci/collect-protocol-evidence.py" \
+            --manifest "$RESULT_DIR/manifest.json" --log-dir "$network_dir" --output-dir "$evidence_dir" \
+            --workers "${EEZ_PROTOCOL_VERIFY_WORKERS:-4}" --timeout "${EEZ_PROTOCOL_VERIFY_TIMEOUT:-600}" \
+            "${verify_names[@]}" || true
+    # Per-worker exit codes below are authoritative. Missing scheduler output
+    # (including interruption) fails every affected scenario, never a silent PASS.
+fi
 for name in "${selected_names[@]}"; do
     if [[ "${final_verdict[$name]}" == PASS && "${verification_mode[$name]}" == upstream-direct ]]; then
         evidence_log="$evidence_dir/$name.collect.log"
-        if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
-            ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
-            BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
-            bash "$KURTOSIS_DIR/scripts/collect-protocol-e2e-evidence.sh" \
-                "$name" "$PROTOCOL/${selected_path_by_name[$name]}" "$RESULT_DIR/$name.log" \
-                "$evidence_dir/$name.json" >"$evidence_log" 2>&1; then
-            cat "$evidence_log" >&2
+        if ! jq -e --arg name "$name" \
+            '[.scenarios[] | select(.scenario == $name)] | length == 1 and .[0].exit_code == 0' \
+            "$evidence_dir/execution.json" >/dev/null 2>&1; then
+            [[ ! -f "$evidence_log" ]] || cat "$evidence_log" >&2
             final_verdict["$name"]=FAIL
             verification_mode["$name"]=evidence-invalid
             write_non_pass_evidence "$name" FAIL evidence-invalid \
@@ -394,123 +349,66 @@ for name in "${selected_names[@]}"; do
     fi
 done
 
-passed=()
-failed=()
-skipped=()
-for name in "${selected_names[@]}"; do
-    case "${final_verdict[$name]}" in
-        PASS) passed+=("$name") ;;
-        FAIL) failed+=("$name") ;;
-        SKIP) skipped+=("$name") ;;
-    esac
-done
-
 evidence_index="$evidence_dir/index.json"
 {
     for name in "${selected_names[@]}"; do
         jq -c . "$evidence_dir/$name.json"
     done
 } | jq -s . >"$evidence_index"
-all_evidence_complete=false
-if [[ "$(jq '[.[] | select(.result == "PASS")] | length' "$evidence_index")" \
-    == "${#selected_names[@]}" ]]; then
-    all_evidence_complete=true
-fi
-causally_paired="$(jq '[.[] | select(
-    .result == "PASS" and .causal_graph.verified == true and
-    ((.claims.no_destination_delivery_required // false) == false)
-) | .scenario]' "$evidence_index")"
-causal_no_destination="$(jq '[.[] | select(
-    .result == "PASS" and .causal_graph.verified == true and
-    (.claims.no_destination_delivery_required == true)
-) | .scenario]' "$evidence_index")"
-causal_missing="$(jq '[.[] | select(
-    .result != "PASS" or .causal_graph.verified != true
-) | .scenario]' "$evidence_index")"
-causal_coverage_complete=false
-[[ "$(jq 'length' <<<"$causal_missing")" == 0 ]] && causal_coverage_complete=true
-semantic_authenticated="$(jq '[.[] | select(
-    .result == "PASS" and .blob_da.verified == true and
-    .claims.blob_kzg_authenticated == true and
-    .claims.native_semantics_decoded == true and
-    .claims.semantic_trigger_bytes_bound == true
-) | .scenario]' "$evidence_index")"
-semantic_missing="$(jq '[.[] | select(
-    .result != "PASS" or .blob_da.verified != true or
-    .claims.blob_kzg_authenticated != true or
-    .claims.native_semantics_decoded != true or
-    .claims.semantic_trigger_bytes_bound != true
-) | .scenario]' "$evidence_index")"
-semantic_coverage_complete=false
-[[ "$(jq 'length' <<<"$semantic_missing")" == 0 ]] && semantic_coverage_complete=true
-
-jq -n \
-    --argjson schema_version 4 \
+jq \
     --arg protocol_commit "$actual_protocol" \
     --argjson discovered_count "${#all_scenario_names[@]}" \
     --argjson selected_count "${#selected_names[@]}" \
     --argjson suite_complete "$suite_complete" \
     --argjson accounting_ok "$accounting_ok" \
-    --argjson all_evidence_complete "$all_evidence_complete" \
-    --argjson causal_coverage_complete "$causal_coverage_complete" \
-    --argjson causally_paired "$causally_paired" \
-    --argjson causal_no_destination "$causal_no_destination" \
-    --argjson causal_missing "$causal_missing" \
-    --argjson semantic_coverage_complete "$semantic_coverage_complete" \
-    --argjson semantic_authenticated "$semantic_authenticated" \
-    --argjson semantic_missing "$semantic_missing" \
     --argjson upstream_exit_status "$status" \
-    --argjson compat_overrides "$compat_overrides" \
-    --argjson passed "$(json_array ${passed[@]+"${passed[@]}"})" \
-    --argjson failed "$(json_array ${failed[@]+"${failed[@]}"})" \
-    --argjson skipped "$(json_array ${skipped[@]+"${skipped[@]}"})" \
     --argjson targets "$(json_array ${targets[@]+"${targets[@]}"})" \
     --argjson missing_results "$(json_array ${missing_results[@]+"${missing_results[@]}"})" \
     --argjson duplicate_results "$(json_array ${duplicate_results[@]+"${duplicate_results[@]}"})" \
     --argjson unexpected_results "$(json_array ${unexpected_results[@]+"${unexpected_results[@]}"})" \
-    --argjson unsupported "$(json_array ${UNSUPPORTED_TARGETS[@]+"${UNSUPPORTED_TARGETS[@]}"})" \
-    --slurpfile scenarios "$evidence_index" \
-    '{schema_version: $schema_version, protocol_commit: $protocol_commit,
-      targets: $targets,
+    --slurpfile execution "$network_dir/execution.json" \
+    'def causal_ok: .result == "PASS" and .causal_graph.verified == true;
+     def semantic_ok: .result == "PASS" and .blob_da.verified == true and
+       .claims.blob_kzg_authenticated == true and .claims.native_semantics_decoded == true and
+       .claims.semantic_trigger_bytes_bound == true;
+     [.[] | select(causal_ok | not) | .scenario] as $causal_missing |
+     [.[] | select(semantic_ok | not) | .scenario] as $semantic_missing |
+     [.[] | select(.result == "PASS") | .scenario] as $passed |
+     {schema_version: 5, protocol_commit: $protocol_commit,
+      targets: $targets, execution: $execution[0],
       suite: {discovered: $discovered_count, selected: $selected_count, complete: $suite_complete},
       accounting: {valid: $accounting_ok, missing: $missing_results,
                    duplicates: $duplicate_results, unexpected: $unexpected_results},
-      upstream_exit_status: $upstream_exit_status, compatibility_overrides: $compat_overrides,
-      evidence_complete: $all_evidence_complete,
-      causal_coverage: {complete: $causal_coverage_complete, paired: $causally_paired,
-                        no_destination_required: $causal_no_destination,
-                        missing: $causal_missing},
-      semantic_blob_coverage: {complete: $semantic_coverage_complete,
-                               authenticated: $semantic_authenticated,
-                               missing: $semantic_missing},
-      passed: $passed, failed: $failed, skipped: $skipped, unsupported: $unsupported,
-      scenarios: $scenarios[0]}' >"$RESULT_DIR/summary.json"
+      upstream_exit_status: $upstream_exit_status,
+      evidence_complete: (($passed | length) == $selected_count),
+      causal_coverage: {
+        complete: ($causal_missing | length == 0), missing: $causal_missing,
+        paired: [.[] | select(causal_ok and (.claims.no_destination_delivery_required != true)) | .scenario],
+        no_destination_required: [.[] | select(causal_ok and .claims.no_destination_delivery_required == true) | .scenario]},
+      semantic_blob_coverage: {
+        complete: ($semantic_missing | length == 0), missing: $semantic_missing,
+        authenticated: [.[] | select(semantic_ok) | .scenario]},
+      passed: $passed,
+      failed: [.[] | select(.result == "FAIL") | .scenario],
+      skipped: [.[] | select(.result == "SKIP") | .scenario],
+      scenarios: .}' "$evidence_index" >"$RESULT_DIR/summary.json"
 
-echo "==> protocol E2E result: ${#passed[@]} passed, ${#failed[@]} failed, ${#skipped[@]} skipped"
-echo "    suite accounting: complete=$suite_complete valid=$accounting_ok evidence=$all_evidence_complete"
-echo "    causal coverage: complete=$causal_coverage_complete paired=$(jq 'length' <<<"$causally_paired") no-destination=$(jq 'length' <<<"$causal_no_destination")"
-echo "    semantic blobs:  complete=$semantic_coverage_complete authenticated=$(jq 'length' <<<"$semantic_authenticated")"
-echo "    summary: $RESULT_DIR/summary.json"
+jq -r '"Protocol E2E: \(.passed | length) passed, \(.failed | length) failed, \(.skipped | length) skipped",
+       "Suite complete: \(.suite.complete); accounting valid: \(.accounting.valid)",
+       "Evidence complete: \(.evidence_complete); causal coverage: \(.causal_coverage.complete); semantic blobs: \(.semantic_blob_coverage.complete)"' \
+    "$RESULT_DIR/summary.json"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
         echo "### Protocol network E2E"
         echo
-        echo "- Upstream scenarios: ${#all_scenario_names[@]} discovered / ${#selected_names[@]} selected"
-        echo "- Complete suite: $suite_complete"
-        echo "- Result accounting valid: $accounting_ok"
-        echo "- Complete evidence bundles: $all_evidence_complete"
-        echo "- Complete causal coverage: $causal_coverage_complete"
-        echo "- Complete authenticated semantic-blob coverage: $semantic_coverage_complete"
-        echo "- Causally paired scenarios: $(jq 'length' <<<"$causally_paired")"
-        echo "- View-only/no-destination scenarios: $(jq 'length' <<<"$causal_no_destination")"
-        echo "- Passed: ${#passed[@]}"
-        echo "- Failed: ${#failed[@]}"
-        echo "- Skipped: ${#skipped[@]}"
+        jq -r '"- Scenarios: \(.suite.selected)/\(.suite.discovered) selected",
+               "- Results: \(.passed | length) passed, \(.failed | length) failed, \(.skipped | length) skipped",
+               "- Valid accounting: \(.accounting.valid)",
+               "- Complete receipt / causal / semantic-blob checks: \(.evidence_complete) / \(.causal_coverage.complete) / \(.semantic_blob_coverage.complete)"' \
+            "$RESULT_DIR/summary.json"
     } >>"$GITHUB_STEP_SUMMARY"
 fi
 
-[[ "$accounting_ok" == true ]]
-[[ "$all_evidence_complete" == true ]]
-[[ "$causal_coverage_complete" == true ]]
-[[ "$semantic_coverage_complete" == true ]]
-(( ${#failed[@]} == 0 && ${#skipped[@]} == 0 ))
+jq -e '.accounting.valid and .evidence_complete and .causal_coverage.complete and
+       .semantic_blob_coverage.complete and (.failed | length == 0) and (.skipped | length == 0)' \
+    "$RESULT_DIR/summary.json" >/dev/null

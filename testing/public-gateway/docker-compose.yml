@@ -22,6 +22,8 @@ services:
       EEZ_BLOBSCAN_UPSTREAM: "${EEZ_BLOBSCAN_UPSTREAM:-blobscan-web:3000}"
       EEZ_L1_EXPLORER_UPSTREAM: "${EEZ_L1_EXPLORER_UPSTREAM:-l1-blockscout-frontend:3000}"
       EEZ_L2_EXPLORER_UPSTREAM: "${EEZ_L2_EXPLORER_UPSTREAM:-l2-blockscout-frontend:3000}"
+      EEZ_L1_EXPLORER_API_UPSTREAM: "${EEZ_L1_EXPLORER_API_UPSTREAM:-l1-blockscout:4000}"
+      EEZ_L2_EXPLORER_API_UPSTREAM: "${EEZ_L2_EXPLORER_API_UPSTREAM:-l2-blockscout:4000}"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

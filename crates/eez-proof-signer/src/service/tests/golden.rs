@@ -18,7 +18,9 @@ fn fixture_hex(value: &str) -> Vec<u8> {
 }
 
 fn fixture(dir: &str, name: &str) -> String {
-    let path = format!("{}/tests/fixtures/{dir}/{name}", env!("CARGO_MANIFEST_DIR"));
+    let manifest = std::env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
+    let path = format!("{manifest}/tests/fixtures/{dir}/{name}");
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("cannot read fixture {path}: {error}"))
 }

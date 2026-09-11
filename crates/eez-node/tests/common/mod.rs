@@ -76,10 +76,27 @@ static ASSIGNED_PORTS: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::n
 static WORKSPACE_BUILD_LOCK: Mutex<()> = Mutex::new(());
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    manifest_dir()
         .join("../..")
         .canonicalize()
         .expect("repo root")
+}
+
+fn manifest_dir() -> PathBuf {
+    // nextest remaps this at runtime when executing an archive on another runner.
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").into())
+}
+
+/// Stop dotenv's parent-directory search, including when TMPDIR or retained
+/// test datadirs live below a checkout containing real deployment settings.
+fn isolate_dotenv(directory: &std::path::Path) -> Result<()> {
+    for name in [".env", "deployments.env"] {
+        std::fs::write(directory.join(name), "")
+            .with_context(|| format!("isolate test {name} in {}", directory.display()))?;
+    }
+    Ok(())
 }
 
 fn anvil_bin() -> String {
@@ -297,6 +314,26 @@ impl Anvil {
             .request("anvil_reorg", (depth, Vec::<serde_json::Value>::new()))
             .await
             .context("anvil_reorg")?;
+        // Anvil rewinds its wall-clock offset to the common ancestor when it
+        // reorgs. Without restoring it, all future blocks stay depth * cadence
+        // seconds behind real time and the composer's submission windows expire
+        // before their parent exists. A real L1 reorg does not rewind the clock.
+        // Preserve monotonicity even if a test explicitly mined into the future.
+        let head = provider
+            .get_block_by_number(BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| anyhow!("missing Anvil head after reorg"))?;
+        let wall_time_ms = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis(),
+        )?;
+        let timestamp_ms = wall_time_ms.max(head.header.timestamp * 1000);
+        let _: serde_json::Value = provider
+            .client()
+            .request("evm_setTime", (timestamp_ms,))
+            .await
+            .context("restore Anvil wall clock after reorg")?;
         Ok(())
     }
 }
@@ -543,12 +580,33 @@ struct CapturedBlobTransaction {
     transaction_hash: Option<B256>,
 }
 
+type PooledBlobEnvelope = EthereumTxEnvelope<TxEip4844WithSidecar>;
+
+fn read_captured_blob_transaction(path: &std::path::Path) -> Result<PooledBlobEnvelope> {
+    let capture: CapturedBlobTransaction = serde_json::from_slice(
+        &std::fs::read(path).with_context(|| format!("read {}", path.display()))?,
+    )
+    .with_context(|| format!("decode {}", path.display()))?;
+    let raw = hex::decode(capture.raw.strip_prefix("0x").unwrap_or(&capture.raw))
+        .with_context(|| format!("decode pooled blob tx in {}", path.display()))?;
+    let envelope = PooledBlobEnvelope::decode_2718(&mut raw.as_slice())
+        .with_context(|| format!("decode pooled blob envelope in {}", path.display()))?;
+    if capture
+        .transaction_hash
+        .is_some_and(|captured| captured != *envelope.tx_hash())
+    {
+        bail!(
+            "captured blob transaction hash does not match envelope in {}",
+            path.display()
+        );
+    }
+    Ok(envelope)
+}
+
 async fn canonical_blob_sidecars(
     state: &BeaconFixtureState,
     requested_slot: u64,
 ) -> Result<Vec<serde_json::Value>> {
-    type PooledBlobEnvelope = EthereumTxEnvelope<TxEip4844WithSidecar>;
-
     let provider = ProviderBuilder::new().connect_http(state.anvil_rpc.parse()?);
     let mut captures = std::fs::read_dir(&state.capture_dir)
         .with_context(|| format!("read blob captures at {}", state.capture_dir.display()))?
@@ -563,24 +621,8 @@ async fn canonical_blob_sidecars(
 
     let mut sidecars = Vec::new();
     for path in captures {
-        let capture: CapturedBlobTransaction = serde_json::from_slice(
-            &std::fs::read(&path).with_context(|| format!("read {}", path.display()))?,
-        )
-        .with_context(|| format!("decode {}", path.display()))?;
-        let raw = hex::decode(capture.raw.strip_prefix("0x").unwrap_or(&capture.raw))
-            .with_context(|| format!("decode pooled blob tx in {}", path.display()))?;
-        let envelope = PooledBlobEnvelope::decode_2718(&mut raw.as_slice())
-            .with_context(|| format!("decode pooled blob envelope in {}", path.display()))?;
+        let envelope = read_captured_blob_transaction(&path)?;
         let transaction_hash = *envelope.tx_hash();
-        if capture
-            .transaction_hash
-            .is_some_and(|captured| captured != transaction_hash)
-        {
-            bail!(
-                "captured blob transaction hash does not match envelope in {}",
-                path.display()
-            );
-        }
         let Some(receipt) = provider.get_transaction_receipt(transaction_hash).await? else {
             continue;
         };
@@ -639,7 +681,16 @@ fn test_log_destination(name: &str) -> Result<(PathBuf, Option<tempfile::TempDir
 
 fn proof_signer_binary() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN") {
-        return Ok(path.into());
+        let path = PathBuf::from(path);
+        anyhow::ensure!(
+            path.is_file(),
+            "configured proof signer is missing: {}",
+            path.display()
+        );
+        return Ok(path);
+    }
+    if std::env::var_os("EEZ_TEST_PREBUILT").is_some() {
+        bail!("prebuilt tests require EEZ_TEST_PROOF_SIGNER_BIN; refusing to compile");
     }
     let current = std::env::current_exe().context("current test executable")?;
     let target_profile = current
@@ -649,7 +700,7 @@ fn proof_signer_binary() -> Result<PathBuf> {
     let path = target_profile.join(format!("eez-proof-signer{}", std::env::consts::EXE_SUFFIX));
 
     // Keep concurrent test fns from racing the build. Do not treat an existing
-    // binary as current: `cargo test` builds the signer's test harness, not the
+    // binary as current: `cargo test` builds the signer's test executable, not the
     // un-hashed executable launched below, so an ABI change can otherwise
     // leave these integration tests running a stale signer indefinitely.
     let _build_guard = WORKSPACE_BUILD_LOCK
@@ -709,6 +760,7 @@ impl ProofSignerHandle {
         let l2_system_address = signer_address(L2_SYSTEM_KEY)?;
         let (log_path, log_dir) = test_log_destination("eez-proof-signer")?;
         let working_dir = tempfile::tempdir().context("proof signer working directory")?;
+        isolate_dotenv(working_dir.path())?;
         let log = std::fs::File::create(&log_path).context("create proof signer log")?;
         let err_log = log.try_clone().context("clone proof signer log")?;
         let mut child = Command::new(proof_signer_binary()?)
@@ -1043,6 +1095,24 @@ impl Harness {
         Chain::new(&self.anvil, &self.dep)
     }
 
+    /// Read the actual type-3 payload captured by the builder/Beacon fixture.
+    pub fn captured_blob_transaction(&self, hash: B256) -> Result<PooledBlobEnvelope> {
+        for entry in std::fs::read_dir(self.stub.capture_dir())? {
+            let path = entry?.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                let envelope = read_captured_blob_transaction(&path)?;
+                if *envelope.tx_hash() == hash {
+                    return Ok(envelope);
+                }
+            }
+        }
+        bail!("no captured blob transaction for {hash}")
+    }
+
+    pub fn builder_rpc_url(&self) -> &str {
+        &self.stub.url
+    }
+
     /// Stages a local chain that can later restart as a composer or follower.
     pub fn standalone_env(&self) -> Vec<(&'static str, String)> {
         vec![
@@ -1307,7 +1377,7 @@ fn write_dev_genesis_at(ts: u64) -> Result<(PathBuf, tempfile::TempDir)> {
 
 /// L2 genesis fixture used by reorg scenarios.
 fn reorg_genesis_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/genesis.json")
+    manifest_dir().join("tests/fixtures/genesis.json")
 }
 
 /// Canonical genesis header hash for the exact JSON passed to the L2 node.
@@ -1563,12 +1633,52 @@ pub enum NodeBinary {
 }
 
 impl NodeBinary {
-    fn path(self) -> &'static str {
-        match self {
-            Self::Composer => env!("CARGO_BIN_EXE_eez-composer"),
-            Self::Follower => env!("CARGO_BIN_EXE_eez-follower"),
-            Self::Dev => env!("CARGO_BIN_EXE_eez-dev-node"),
+    fn path(self) -> PathBuf {
+        // The CI archive also contains Cargo's test-feature-unified binaries.
+        // Composer/follower must instead use the frozen shipping candidate.
+        if !matches!(self, Self::Dev) {
+            if let Some(directory) = std::env::var_os("EEZ_TEST_RUNTIME_BIN_DIR") {
+                let name = match self {
+                    Self::Composer => "eez-composer",
+                    Self::Follower => "eez-follower",
+                    Self::Dev => unreachable!(),
+                };
+                let path = PathBuf::from(directory).join(name);
+                assert!(
+                    path.is_file(),
+                    "missing release candidate {}",
+                    path.display()
+                );
+                return path;
+            }
+            assert!(
+                std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
+                "prebuilt tests require EEZ_TEST_RUNTIME_BIN_DIR"
+            );
         }
+        let (runtime_key, compiled) = match self {
+            Self::Composer => (
+                "NEXTEST_BIN_EXE_eez_composer",
+                env!("CARGO_BIN_EXE_eez-composer"),
+            ),
+            Self::Follower => (
+                "NEXTEST_BIN_EXE_eez_follower",
+                env!("CARGO_BIN_EXE_eez-follower"),
+            ),
+            Self::Dev => (
+                "NEXTEST_BIN_EXE_eez_dev_node",
+                env!("CARGO_BIN_EXE_eez-dev-node"),
+            ),
+        };
+        std::env::var_os(runtime_key)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                assert!(
+                    std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
+                    "missing {runtime_key} in prebuilt test"
+                );
+                compiled.into()
+            })
     }
 }
 
@@ -1626,9 +1736,8 @@ impl NodeHandle {
             .or(env_genesis)
             .unwrap_or_else(|| std::ffi::OsString::from("dev"));
         let mut cmd = Command::new(cfg.binary.path());
-        // Each role binary loads dotenv files from its working directory. Running from
-        // the datadir prevents repository settings from changing the explicit
-        // test configuration or redirecting L1 traffic to a developer endpoint.
+        // env_clear alone does not stop dotenv searching parent directories.
+        isolate_dotenv(datadir)?;
         cmd.current_dir(datadir)
             .args(["node", "--chain"])
             .arg(&chain_arg)
@@ -2043,6 +2152,31 @@ where
     bail!("timed out after {timeout:?}");
 }
 
+/// Only the root call's error and return data are evidence of the mined revert.
+/// Do not match text in error messages, nested calls or ABI arguments.
+#[derive(Debug, serde::Deserialize)]
+struct MinedRevertTrace {
+    error: Option<String>,
+    #[serde(default)]
+    output: alloy_primitives::Bytes,
+}
+
+impl MinedRevertTrace {
+    fn assert_selector(&self, expected: [u8; 4]) -> Result<()> {
+        if self.error.as_deref() != Some("execution reverted")
+            || !self.output.starts_with(&expected)
+        {
+            bail!(
+                "mined postAndVerifyBatch trace returned error {:?}, output {}; expected revert 0x{}",
+                self.error,
+                self.output,
+                hex::encode(expected),
+            );
+        }
+        Ok(())
+    }
+}
+
 pub struct Chain<'a> {
     rpc_url: &'a str,
     eez_address: Address,
@@ -2180,8 +2314,9 @@ impl<'a> Chain<'a> {
     }
 
     /// Assert that a submitted `postAndVerifyBatch` for `expected_rollup_id`
-    /// was mined, reverted, and reproduces `expected_revert_selector` via
-    /// `eth_call` against the resulting chain state.
+    /// was mined and reverted with `expected_revert_selector`.
+    /// Trace the original transaction, including its blob hashes and exact
+    /// pre-transaction state; a reconstructed eth_call can fail differently.
     pub async fn assert_failed_post_and_verify_batch(
         &self,
         expected_rollup_id: u64,
@@ -2230,27 +2365,21 @@ impl<'a> Chain<'a> {
                     );
                 }
 
-                let replay = TransactionRequest::default()
-                    .from(transaction.inner.signer())
-                    .to(self.eez_address)
-                    .input(transaction.inner.input().clone().into());
-                let err = provider
-                    .call(replay)
+                let trace: MinedRevertTrace = provider
+                    .client()
+                    .request(
+                        "debug_traceTransaction",
+                        (
+                            tx_hash,
+                            serde_json::json!({
+                                "tracer": "callTracer",
+                                "tracerConfig": { "onlyTopCall": true },
+                            }),
+                        ),
+                    )
                     .await
-                    .expect_err("failed postAndVerifyBatch replay unexpectedly succeeded");
-                let expected = format!("0x{}", hex::encode(expected_revert_selector));
-                let error_response = err.as_error_resp().ok_or_else(|| {
-                    anyhow!("postAndVerifyBatch replay returned non-RPC error: {err}")
-                })?;
-                let observed = error_response.data.as_ref().map_or_else(
-                    || error_response.message.to_string(),
-                    |data| format!("{} {}", error_response.message, data.get()),
-                );
-                if !observed.contains(&expected) {
-                    bail!(
-                        "postAndVerifyBatch replay returned {observed}, expected selector {expected}"
-                    );
-                }
+                    .with_context(|| format!("trace mined postAndVerifyBatch {tx_hash}"))?;
+                trace.assert_selector(expected_revert_selector)?;
                 return Ok(());
             }
         }
@@ -3351,4 +3480,39 @@ async fn setup_cross_chain_inner(
         _witness_dir: witness_dir,
         _datadir: datadir,
     })
+}
+
+#[cfg(test)]
+mod mined_revert_tests {
+    use super::{INVALID_PROOF_SELECTOR, MinedRevertTrace};
+    use serde_json::json;
+
+    #[test]
+    fn accepts_only_the_top_level_revert_selector() {
+        let trace: MinedRevertTrace = serde_json::from_value(json!({
+            "error": "execution reverted", "output": "0x09bde33900000000",
+        }))
+        .unwrap();
+        trace.assert_selector(INVALID_PROOF_SELECTOR).unwrap();
+    }
+
+    #[test]
+    fn rejects_missing_wrong_or_nested_revert_evidence() {
+        for value in [
+            json!({"output": "0x09bde339"}),
+            json!({"error": "out of gas", "output": "0x09bde339"}),
+            json!({"error": "execution reverted"}),
+            json!({"error": "execution reverted", "output": "0x09bd"}),
+            json!({"error": "execution reverted", "output": "0x91d5f57109bde339"}),
+            json!({"error": "execution reverted: 0x09bde339", "output": "0x91d5f571"}),
+            json!({"error": "execution reverted", "output": "0x91d5f571",
+                   "calls": [{"error": "execution reverted", "output": "0x09bde339"}]}),
+        ] {
+            let trace: MinedRevertTrace = serde_json::from_value(value.clone()).unwrap();
+            assert!(
+                trace.assert_selector(INVALID_PROOF_SELECTOR).is_err(),
+                "{value}"
+            );
+        }
+    }
 }

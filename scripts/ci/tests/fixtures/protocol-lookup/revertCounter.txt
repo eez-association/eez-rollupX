@@ -1,0 +1,53 @@
+====== Deploy ======
+--- DeployL2 (L2) ---
+REV_COUNTER_L2=0xa9CA52Ef69b5360FEb1FD5478a870D8442662355
+--- Deploy (L1) ---
+COUNTER_PROXY=0x6CF75a4bB12c819A28eB9cF7ebe89d0A57c33F61
+SAFE_CALLER=0xB225FE48f50Fd1e2Ee406D4B6F9dd589CE8aB806
+
+====== Create Signed Transaction ======
+target: 0xB225FE48f50Fd1e2Ee406D4B6F9dd589CE8aB806
+calldata: 0x2bf21647
+value: 0
+gas limit: 1000000
+nonce: 55 (rpc=55 front=55)
+
+====== Compute Expected Entries ======
+L1 expected calls:
+L2 table expected: []
+L2 calls expected: []
+L1 expected table: 736 bytes (field-level checks ON)
+NOTE: no EXPECTED_L2_TABLE printed - L2 field-level checks OFF (hash-only)
+L2 absent keys (must leave NO trace on L2 - lookup): [0xe573ed1ba608b187626c9e2e08fafbe43dce919dc17b43f532dac12b38b9c165]
+
+====== Execute L1 (user tx) ======
+tx: 0xae8d7391016e092fd7362e49ac3e0b93601476f725fd1f294ec8459fd4ef8ed3
+block: 0x7e (status: 0x1)
+settlement correlation RPC: available on http://127.0.0.1:32796
+
+====== Verify L1 Batch (block 126) ======
+  PASS: 1 settlement tx(s) with BatchPosted in range
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx) ======
+Matched settlement tx 0x229091ba23afcce446caf44eb8e8dc692500c9c1c9718a7c08f3595b2813637e
+  Posted batch decoded from calldata: 2 entries, 0 static entries
+  NOTE: no EXPECTED_L1_STEPS - posted rolling hashes not replay-verified
+  PASS: rollup 1 live root == simulated committed cursor
+  PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)
+
+====== Verify L2 Table ======
+No L2 entry events expected (lookup, terminal revert, or an eventless static pool)
+settlement tx 0x229091ba23afcce446caf44eb8e8dc692500c9c1c9718a7c08f3595b2813637e proved L2 blocks up to 750 - a delivery would have landed there
+
+====== Verify L2 Absent (keys must not appear in blocks 744..752) ======
+  PASS: none of 1 absent key(s) appears on L2 in blocks 744..752
+
+====== Verify L2 Calls ======
+SKIP: no L2 calls expected
+
+====== Summary ======
+
+User tx:        0xae8d7391016e092fd7362e49ac3e0b93601476f725fd1f294ec8459fd4ef8ed3  (block 126)
+L1 postBatch:   0x229091ba23afcce446caf44eb8e8dc692500c9c1c9718a7c08f3595b2813637e  (block 126)
+
+====== Done ======

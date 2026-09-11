@@ -12,7 +12,7 @@
 #   outbound → L2 front  ($L2F, enclave port l2-xchain)  (held Outbound, effect on L1)
 # Pure-L2 txs go to the normal L2 RPC mempool ($L2).
 #
-# Requires cast, forge, jq, curl, kurtosis, and openssl.
+# Requires cast, forge, jq, curl, kurtosis, openssl, and python3.
 
 set -euo pipefail
 export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
@@ -26,7 +26,7 @@ mkdir -p "$LOG_DIR"
 MODE="${EEZ_WAVE_MODE:-mixed}"
 WAVES="${EEZ_WAVE_COUNT:-3}"
 
-for t in cast forge jq curl kurtosis openssl; do command -v "$t" >/dev/null || { echo "$t not in PATH"; exit 1; }; done
+for t in cast forge jq curl kurtosis openssl python3; do command -v "$t" >/dev/null || { echo "$t not in PATH"; exit 1; }; done
 
 # L1 is the canonical shared chain; fronts are published by eez-node.
 _port() { kurtosis port print "$ENCLAVE" "$1" "$2" 2>/dev/null || true; }
@@ -202,22 +202,32 @@ create_l1_proxy() { # <target_on_L2> → proxy addr
 # L2 proxy = computeCrossChainProxyAddress(target_on_L1, MAINNET) then
 # createCrossChainProxy on the L2 CCM (a PURE L2 tx → normal L2 RPC).
 create_l2_proxy() { # <target_on_L1> → proxy addr
-    local tgt="$1" p code nonce raw
-    p=$(cast call "$EEZL2_ADDRESS" 'computeCrossChainProxyAddress(address,uint64)(address)' "$tgt" "$MAINNET_RID" --rpc-url "$L2" | tr -d '[:space:]')
-    code=$(cast code "$p" --rpc-url "$L2" 2>/dev/null || echo 0x)
+    local tgt="$1" p code nonce gas_price receipt
+    p=$(cast call "$EEZL2_ADDRESS" 'computeCrossChainProxyAddress(address,uint64)(address)' "$tgt" "$MAINNET_RID" --rpc-url "$L2" | tr -d '[:space:]') || return 1
+    code=$(cast code "$p" --rpc-url "$L2") || return 1
     if [[ "$code" == "0x" || -z "$code" ]]; then
-        nonce=$(cast nonce "$HH_KEY_2_ADDR" --rpc-url "$L2")
-        raw=$(cast mktx --rpc-url "$L2" --chain-id "$L2_CHAIN_ID" --private-key "$HH_KEY_2" --nonce "$nonce" \
-            --gas-limit 1500000 --gas-price "$(gas_price_for "$L2")" \
-            "$EEZL2_ADDRESS" 'createCrossChainProxy(address,uint64)' "$tgt" "$MAINNET_RID")
-        curl -s -X POST "$L2" -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$raw\"],\"id\":1}" >/dev/null
-        for _ in $(seq 1 30); do
-            code=$(cast code "$p" --rpc-url "$L2" 2>/dev/null || echo 0x)
-            [[ "$code" != "0x" && -n "$code" ]] && break
-            sleep 1
-        done
+        nonce=$(cast nonce "$HH_KEY_2_ADDR" --rpc-url "$L2") || return 1
+        gas_price=$(gas_price_for "$L2") || return 1
+        # Use the same explicit tip as the other setup transactions. An
+        # estimated tip can exceed our fee cap after the L2 base fee falls.
+        if ! receipt=$(cast send --rpc-url "$L2" --chain-id "$L2_CHAIN_ID" \
+            --private-key "$HH_KEY_2" --nonce "$nonce" --gas-limit 1500000 \
+            --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+            --timeout 30 --json \
+            "$EEZL2_ADDRESS" 'createCrossChainProxy(address,uint64)' "$tgt" "$MAINNET_RID"); then
+            echo "L2 proxy creation failed: target=$tgt proxy=$p nonce=$nonce" >&2
+            return 1
+        fi
+        if ! jq -e '.status == "0x1"' <<<"$receipt" >/dev/null; then
+            echo "L2 proxy creation did not succeed: proxy=$p receipt=$receipt" >&2
+            return 1
+        fi
+        code=$(cast code "$p" --rpc-url "$L2") || return 1
     fi
+    [[ "$code" =~ ^0x([[:xdigit:]]{2})+$ ]] || {
+        echo "L2 proxy has no deployed bytecode: target=$tgt proxy=$p" >&2
+        return 1
+    }
     echo "$p"
 }
 
@@ -261,9 +271,6 @@ refresh_node_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-node >"$NO
 refresh_signer_log() { timeout 30s kurtosis service logs "$ENCLAVE" eez-proof-signer >"$SIGNER_LOG" 2>&1 || true; }
 strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
-# The relay needs a few L1 slots before it includes anything. Firing into that
-# window burns MAX_BUNDLE_ATTEMPTS and evicts the ops as poison — a harness
-# artifact that looks exactly like a node bug.
 # Count a registry event from a block. Baselined per run: several modes share
 # one enclave, so counting from the deploy block would count their events too.
 registry_events() { # <event-sig> [from-block]
@@ -273,6 +280,7 @@ registry_events() { # <event-sig> [from-block]
 }
 
 wait_for_builder() {
+    # Require a canonical settlement before sending the measured workload.
     local from_block="$1"
     local deadline=$(( SECONDS + ${EEZ_BUILDER_WARM_SECS:-600} )) hits
     echo "==> waiting for the builder to include a bundle"
@@ -360,7 +368,7 @@ run_waves() {
     fi
     local IN_WAVE_TARGET=0 OUT_WAVE_TARGET=0
 
-    # Per-tx metadata for the confirmed-view tally: "hash|side|kind|arg".
+    # Per-tx metadata for the expected destination state: "hash|side|kind|arg".
     # side=in|out; kind=set|noret|wrap|dep|wd.
     local TX_META=()
     local IN_HASHES=() OUT_HASHES=()
@@ -410,6 +418,7 @@ run_waves() {
         esac
         [[ "$raw" =~ ^0x[0-9a-fA-F]+$ ]] || { echo "    ✗ mktx failed ($side:$kind): $raw"; exit 1; }
         hash=$(cast keccak "$raw")
+        echo "    tx side=$side kind=$kind arg=$arg hash=$hash"
         if [[ "$side" == in ]]; then
             send_front "$L1F" "$raw" || exit 1
             if [[ "$kind" == rev ]]; then REV_IN_HASHES+=("$hash"); REV_IN_NONCE=$((REV_IN_NONCE + 1));
@@ -479,7 +488,11 @@ run_waves() {
                 wait_nonce_at_least "$L2" "$HH_ADDR_OUT" "$OUT_WAVE_TARGET" "outbound sender" || exit 1
             fi
         fi
-        sleep "$WAVE_GAP_SECS"
+        # Preserve spacing between waves, but start observing the final wave
+        # immediately. Its settlement is checked explicitly below.
+        if (( w < WAVES )); then
+            sleep "$WAVE_GAP_SECS"
+        fi
     done
 
     # ── Wait for inclusion ─────────────────────────────────────────────
@@ -487,26 +500,28 @@ run_waves() {
     local total=$(( ${#IN_HASHES[@]} + ${#OUT_HASHES[@]} ))
     echo
     echo "==> waiting up to ${RECEIPT_WAIT_SECS}s for $total cross-chain inclusions"
-    local wait_end=$(( SECONDS + RECEIPT_WAIT_SECS )) confirmed evicted h last_line=""
+    local wait_end=$(( SECONDS + RECEIPT_WAIT_SECS )) confirmed h last_line=""
     while (( SECONDS < wait_end )); do
         confirmed=0
         for h in "${IN_HASHES[@]:-}";  do [[ -n "$h" && "$(receipt_status "$h" "$L1")" == "1" ]] && confirmed=$((confirmed+1)); done
         for h in "${OUT_HASHES[@]:-}"; do [[ -n "$h" && "$(receipt_status "$h" "$L2")" == "1" ]] && confirmed=$((confirmed+1)); done
-        refresh_node_log
-        evicted=$(grep -c "evicted" "$NODE_LOG" 2>/dev/null || true); evicted=${evicted:-0}
-        local line="    progress: $confirmed/$total confirmed, $evicted eviction log line(s) (elapsed ${SECONDS}s)"
+        local line="    progress: $confirmed/$total confirmed (elapsed ${SECONDS}s)"
         [[ "$line" != "$last_line" ]] && { echo "$line"; last_line="$line"; }
         (( confirmed >= total )) && { echo "    all confirmed"; break; }
         sleep 5
     done
     if (( confirmed != total )); then
+        local m mh mside mkind marg rpc
+        for m in "${TX_META[@]}"; do
+            IFS='|' read -r mh mside mkind marg <<<"$m"
+            rpc="$L2"; [[ "$mside" == in ]] && rpc="$L1"
+            echo "    tx side=$mside kind=$mkind hash=$mh status=$(receipt_status "$mh" "$rpc")" >&2
+        done
         echo "    ✗ only $confirmed/$total cross-chain transactions succeeded" >&2
         exit 1
     fi
-    echo "    settling 15s..."; sleep 15
-    refresh_node_log
-
-    # ── Confirmed view (only receipt-confirmed ops count) ──────────────
+    # Expected state includes EVERY submitted operation. Never silently lower
+    # the expectation if a receipt disappears between polling and verification.
     local m mh mside mkind marg
     local IN_LAST_VALUE="" IN_LAST_NORET="" IN_DEP_SUM=0
     local OUT_LAST_VALUE="" OUT_LAST_NORET="" OUT_WD_SUM=0
@@ -514,14 +529,12 @@ run_waves() {
         [[ -n "$m" ]] || continue
         IFS='|' read -r mh mside mkind marg <<<"$m"
         if [[ "$mside" == in ]]; then
-            [[ "$(receipt_status "$mh" "$L1")" == "1" ]] || continue
             case "$mkind" in
                 set|wrap) IN_LAST_VALUE="$marg" ;;
                 noret)    IN_LAST_NORET="$marg" ;;
                 dep)      IN_DEP_SUM=$((IN_DEP_SUM + marg)) ;;
             esac
         else
-            [[ "$(receipt_status "$mh" "$L2")" == "1" ]] || continue
             case "$mkind" in
                 set|wrap) OUT_LAST_VALUE="$marg" ;;
                 noret)    OUT_LAST_NORET="$marg" ;;
@@ -529,6 +542,37 @@ run_waves() {
             esac
         fi
     done
+
+    # A receipt may point to an orphan or unsafe L2 block. Check canonical
+    # receipts, destination state and the L1/L2 safe commitment within a deadline.
+    # Decimal expectations stay strings so jq cannot round uint256 balances.
+    local checks='[]' value_call rollup_call
+    value_call=$(cast calldata 'value()')
+    rollup_call=$(cast calldata 'rollups(uint64)' "$EEZ_ROLLUP_ID")
+    add_state_checks() {
+        checks=$(jq -c --arg chain "$1" --arg value_addr "$2" --arg noret_addr "$3" \
+            --arg recipient "$4" --arg value "$5" --arg noret "$6" --arg balance "$7" \
+            --arg data "$value_call" '. + [
+              {chain: $chain, method: "eth_call", argument: {to: $value_addr, data: $data}, expected: $value},
+              {chain: $chain, method: "eth_call", argument: {to: $noret_addr, data: $data}, expected: $noret},
+              {chain: $chain, method: "eth_getBalance", argument: $recipient, expected: $balance}
+            ]' <<<"$checks")
+    }
+    if (( do_in )); then
+        add_state_checks l2 "$L2_VALUE" "$L2_VALUE_NORET" "$L2_DEP_RECIPIENT" \
+            "$IN_LAST_VALUE" "$IN_LAST_NORET" "$((DEP_BEFORE + IN_DEP_SUM))"
+    fi
+    if (( do_out )); then
+        add_state_checks l1 "$L1_VALUE" "$L1_VALUE_NORET" "$L1_WD_RECIPIENT" \
+            "$OUT_LAST_VALUE" "$OUT_LAST_NORET" "$((WD_BEFORE + OUT_WD_SUM))"
+    fi
+    jq -n --arg l1 "$L1" --arg l2 "$L2" --arg registry "$EEZ_REGISTRY_ADDRESS" \
+        --arg rollup_call "$rollup_call" --arg inbound "${IN_HASHES[*]}" --arg outbound "${OUT_HASHES[*]}" \
+        --argjson checks "$checks" '{rpc: {l1: $l1, l2: $l2}, registry: $registry, rollup_call: $rollup_call,
+          receipts: {l1: ($inbound | split(" ") | map(select(length > 0))),
+                     l2: ($outbound | split(" ") | map(select(length > 0)))}, checks: $checks}' \
+        | python3 "$REPO/scripts/ci/wait-wave-settlement.py" --timeout "${EEZ_WAVE_SETTLEMENT_WAIT_SECS:-60}"
+    refresh_node_log
 
     # ── Assertions ──────────────────────────────────────────────────────
     echo

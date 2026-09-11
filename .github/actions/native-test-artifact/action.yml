@@ -1,0 +1,29 @@
+name: Native E2E payload
+description: Pull exact-revision test executables; no compiler or artifact quota needed
+inputs:
+  payload-ref:
+    description: Immutable GHCR digest from the producer (also works for consumer reruns)
+    required: true
+  github-token:
+    description: Read-only package access
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Verify Docker daemon
+      shell: bash
+      run: bash scripts/ci/check-docker.sh
+    - uses: ./.github/actions/native-test-tools
+    - name: Pull immutable E2E payload
+      shell: bash
+      env:
+        PAYLOAD_REF: ${{ inputs.payload-ref }}
+        GHCR_TOKEN: ${{ inputs.github-token }}
+      run: |
+        export DOCKER_CONFIG
+        DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/eez-payload-auth.XXXXXXXX")"
+        trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+        payload_dir="$(mktemp -d "$RUNNER_TEMP/eez-e2e-payload.XXXXXXXX")"
+        bash scripts/ci/ci-payload.sh fetch tests "$PAYLOAD_REF" "$payload_dir"
+        echo "EEZ_NATIVE_TEST_DIR=$payload_dir" >> "$GITHUB_ENV"

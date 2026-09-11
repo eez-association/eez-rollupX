@@ -1,0 +1,57 @@
+====== Deploy ======
+--- DeployL2 (L2) ---
+COUNTER_L2=0xa77f9D88c149383f45A261316CcE04A5f4F0a4ce
+PREDICTED_STATIC_RESULT=0x0000000000000000000000000000000000000000000000000000000000000001
+--- Deploy (L1) ---
+COUNTER_PROXY=0xbA047D878Ed523798df428752Ba007d37BD5062E
+READER_L1=0xEaBA534c124dd434d8f8388283D1d8Dcaf532b81
+
+====== Create Signed Transaction ======
+target: 0xEaBA534c124dd434d8f8388283D1d8Dcaf532b81
+calldata: 0xd09de08a
+value: 0
+gas limit: 1000000
+nonce: 72 (rpc=72 front=72)
+
+====== Compute Expected Entries ======
+L1 expected calls: []
+L1 expected entries: []
+L2 table expected: []
+L2 calls expected: []
+L1 expected static table: 512 bytes (posted static entries matched from calldata)
+NOTE: no EXPECTED_L1_TABLE printed - L1 field-level checks OFF (hash-only)
+NOTE: no EXPECTED_L2_TABLE printed - L2 field-level checks OFF (hash-only)
+L2 absent keys (must leave NO trace on L2 - lookup): [0x23a6638b9742aaeef86a2e9c192523567a4f5f27065222d84673e2846fcf21ba]
+
+====== Execute L1 (user tx) ======
+tx: 0xf9eba8a1fe1a6db9e8c4a301ec5c295e644fe392aacbe0e90cc61b97f53cfcbc
+block: 0x97 (status: 0x1)
+settlement correlation RPC: available on http://127.0.0.1:32796
+
+====== Verify L1 Batch (block 151) ======
+  PASS: 1 settlement tx(s) with BatchPosted in range
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx) ======
+Matched settlement tx 0x0c4fb8bd4a114ab8a8ac76e26596798787ad54ec410d0f4ac47536099c51d8ec
+  Posted batch decoded from calldata: 1 entries, 1 static entries
+  PASS: posted batch static entries match expected static table (1 entries, root pins neutralized)
+
+====== Verify L2 Table ======
+No L2 entry events expected (lookup, terminal revert, or an eventless static pool)
+settlement tx 0x0c4fb8bd4a114ab8a8ac76e26596798787ad54ec410d0f4ac47536099c51d8ec proved L2 blocks up to 900 - a delivery would have landed there
+
+====== Verify L2 Absent (keys must not appear in blocks 894..902) ======
+  PASS: none of 1 absent key(s) appears on L2 in blocks 894..902
+
+====== Verify L2 Calls ======
+SKIP: no L2 calls expected
+
+====== Scenario Self-Verification (VerifyNetwork, L1) ======
+  VERIFY_PASS reader.lastRead=1 reader.counter=1 (predicted 1)
+
+====== Summary ======
+
+User tx:        0xf9eba8a1fe1a6db9e8c4a301ec5c295e644fe392aacbe0e90cc61b97f53cfcbc  (block 151)
+L1 postBatch:   0x0c4fb8bd4a114ab8a8ac76e26596798787ad54ec410d0f4ac47536099c51d8ec  (block 151)
+
+====== Done ======
