@@ -10,3 +10,9 @@ test-group = "integration"
 
 [test-groups]
 integration = { max-threads = 1 }
+
+# Include the exact shipping binaries required by CI E2E tests.
+[profile.ci-archive]
+archive.include = [
+    { path = "release/eez-runtime", relative-to = "target", on-missing = "error" },
+]

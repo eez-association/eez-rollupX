@@ -1,67 +1,90 @@
 name: Kurtosis E2E
 
 on:
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      runtime-ref:
+        required: true
+        type: string
 
 permissions:
   contents: read
-
-concurrency:
-  group: kurtosis-e2e-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  packages: read
 
 jobs:
   kurtosis-e2e:
     name: Kurtosis E2E
-    runs-on: homelab-rust
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 150
     env:
       CARGO_INCREMENTAL: "0"
       KURTOSIS_ENCLAVE: eez-ci
-      EEZ_NODE_IMAGE: eez-node:ci-${{ github.sha }}
-      EEZ_PROOF_SIGNER_IMAGE: eez-proof-signer:ci-${{ github.sha }}
-      EEZ_DEPLOY_IMAGE: eez-deploy:ci-${{ github.sha }}
       EEZ_CI_RESULT_DIR: ${{ github.workspace }}/artifacts/kurtosis-e2e
+      # One worker per discovered scenario.
+      EEZ_PROTOCOL_MAX_PARALLEL: "all"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
+      - name: Verify Docker daemon
+        timeout-minutes: 2
+        run: bash scripts/ci/check-docker.sh
       - name: Initialize submodules
         run: git submodule update --init --recursive
-      - name: Initialize Cargo target directory
-        run: bash scripts/ci/init-cargo-target.sh
       - name: Reclaim runner filesystem space
-        if: ${{ runner.environment == 'github-hosted' }}
+        run: bash scripts/ci/prepare-hosted-runner.sh
+      - name: Initialize isolated runtime download and registry credentials
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          artifact_dir="$(mktemp -d "$RUNNER_TEMP/eez-runtime-download.XXXXXXXX")"
+          docker_config="$(mktemp -d "$RUNNER_TEMP/eez-docker-config.XXXXXXXX")"
+          echo "EEZ_RUNTIME_ARTIFACT_DIR=$artifact_dir" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$docker_config" >> "$GITHUB_ENV"
+      - name: Log in to GHCR
+        id: ghcr-login
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Pull immutable runtime payload
+        env:
+          RUNTIME_REF: ${{ inputs.runtime-ref }}
+        run: bash scripts/ci/ci-payload.sh fetch runtime "$RUNTIME_REF" "$EEZ_RUNTIME_ARTIFACT_DIR"
+      - name: Verify and prepare exact runtime candidate
+        env:
+          EEZ_EXPECT_PUBLISHED: "true"
+        run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_ARTIFACT_DIR"
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
       - name: Install Kurtosis
-        run: |
-          echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-          sudo apt-get update
-          sudo apt-get install -y bc kurtosis-cli jq openssl
-          kurtosis engine start
+        id: kurtosis
+        run: bash scripts/ci/install-kurtosis.sh
       - name: Run Enclave
+        env:
+          # ci-args sets MEV reservations/limits that also fit a 2-CPU VM.
+          KURTOSIS_RESOURCE_CHECK: "true"
         run: bash testing/kurtosis/run-ci.sh
-      - name: Cargo failure diagnostics
+      - name: Runner failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
       - name: Stop kurtosis enclave
-        if: always()
+        if: ${{ always() && steps.kurtosis.outcome == 'success' }}
         run: bash testing/kurtosis/stop.sh
       - name: Upload kurtosis e2e diagnostics
-        if: always()
+        if: ${{ failure() && steps.kurtosis.outcome == 'success' }}
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kurtosis-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/kurtosis-e2e
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
       - name: Remove candidate images
-        if: always()
+        if: ${{ always() && steps.kurtosis.outcome == 'success' }}
         run: docker image rm "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE" "$EEZ_DEPLOY_IMAGE" || true
+      - name: Log out of GHCR
+        if: ${{ always() && steps.ghcr-login.outcome == 'success' }}
+        run: docker logout ghcr.io

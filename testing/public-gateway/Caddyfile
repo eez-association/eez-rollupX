@@ -69,7 +69,13 @@ https://{$EEZ_DOMAIN:eez.asuscomm.com}:4444 {
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "same-origin"
 	}
-	reverse_proxy {$EEZ_L1_EXPLORER_UPSTREAM:l1-blockscout-frontend:3000}
+	@backend path /api /api/* /socket /socket/*
+	handle @backend {
+		reverse_proxy {$EEZ_L1_EXPLORER_API_UPSTREAM:l1-blockscout:4000}
+	}
+	handle {
+		reverse_proxy {$EEZ_L1_EXPLORER_UPSTREAM:l1-blockscout-frontend:3000}
+	}
 }
 
 https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
@@ -79,5 +85,11 @@ https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "same-origin"
 	}
-	reverse_proxy {$EEZ_L2_EXPLORER_UPSTREAM:l2-blockscout-frontend:3000}
+	@backend path /api /api/* /socket /socket/*
+	handle @backend {
+		reverse_proxy {$EEZ_L2_EXPLORER_API_UPSTREAM:l2-blockscout:4000}
+	}
+	handle {
+		reverse_proxy {$EEZ_L2_EXPLORER_UPSTREAM:l2-blockscout-frontend:3000}
+	}
 }

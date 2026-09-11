@@ -6,6 +6,7 @@ set -euo pipefail
 : "${GITHUB_ENV:?GITHUB_ENV must be set by GitHub Actions}"
 : "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must be set by GitHub Actions}"
 
-cargo_target_dir="$(mktemp -d "$GITHUB_WORKSPACE/.cargo-target.XXXXXXXXXX")"
-printf 'CARGO_TARGET_DIR=%s\n' "$cargo_target_dir" >> "$GITHUB_ENV"
-printf 'Initialized CARGO_TARGET_DIR=%s\n' "$cargo_target_dir"
+CARGO_TARGET_DIR="$(mktemp -d "$GITHUB_WORKSPACE/.cargo-target.XXXXXXXXXX")"
+export CARGO_TARGET_DIR
+printf 'CARGO_TARGET_DIR=%s\n' "$CARGO_TARGET_DIR" >> "$GITHUB_ENV"
+printf 'Initialized CARGO_TARGET_DIR=%s\n' "$CARGO_TARGET_DIR"

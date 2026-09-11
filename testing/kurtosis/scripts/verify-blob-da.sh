@@ -12,7 +12,7 @@ TIMEOUT="${EEZ_BLOB_SMOKE_TIMEOUT:-600}"
 RESULT_ROOT="${EEZ_BLOB_RESULT_DIR:-$REPO/artifacts/kurtosis-blob}"
 PK="${PK:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}"
 
-for tool in cargo cast curl forge jq kurtosis; do
+for tool in cast curl forge jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 [[ "$ROLLUP_ID" =~ ^[0-9]+$ ]] || { echo "EEZ_ROLLUP_ID must be a decimal u64" >&2; exit 1; }
@@ -45,12 +45,8 @@ source "$temp_dir/deployments/deployments.env"
 set +a
 ROLLUPS="${ROLLUPS:-$EEZ_REGISTRY_ADDRESS}"
 
-target_dir="${CARGO_TARGET_DIR:-$REPO/target}"
-[[ "$target_dir" == /* ]] || target_dir="$REPO/$target_dir"
-env CARGO_TARGET_DIR="$target_dir" \
-    cargo build --manifest-path "$REPO/Cargo.toml" -p eez-l1 --example verify_blob_evidence
-VERIFIER="$target_dir/debug/examples/verify_blob_evidence"
-[[ -x "$VERIFIER" ]] || { echo "blob verifier was not built at $VERIFIER" >&2; exit 1; }
+source "$KURTOSIS_DIR/scripts/runtime-tools.sh"
+VERIFIER="$(resolve_runtime_tool eez-l1 verify_blob_evidence "${EEZ_BLOB_VERIFIER_BIN:-}")"
 
 # Build before recording the L1 starting block so compilation latency cannot
 # move the test transactions across more composer windows than necessary.

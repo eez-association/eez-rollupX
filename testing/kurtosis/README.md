@@ -377,7 +377,7 @@ cast send 0x1111111111111111111111111111111111111111 \
 ```
 
 This account is public and insecure. Use it only on this disposable local
-network. The workload harness also uses it for L2 setup and filler
+network. The workload generator also uses it for L2 setup and filler
 transactions, so avoid sending manual transactions from it while a workload is
 running.
 
@@ -513,6 +513,32 @@ export EEZ_CI_RESULT_DIR="$PWD/artifacts"
 bash testing/kurtosis/scripts/run-protocol-e2e.sh
 ```
 
+The suite uses the pinned upstream `network-parallel.sh`, with a fresh funded
+wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
+and ARC runners) starts one worker per discovered scenario, including
+`revertCounter` and `staticCounterL2`. Foundry artifacts are warmed before workers
+start. Set a positive integer to bound concurrency, or `1` to run serially with
+the same assertions. No scenarios need a separate scheduling mode.
+
+`EEZ_PROTOCOL_SUITE_TIMEOUT` bounds the upstream phase (default 2400 seconds);
+a timeout stops its process group and fails the suite. Do not run another
+orchestrator against the same enclave concurrently. The wrapper rejects
+concurrent invocations in the same checkout; each CI job must own its enclave.
+
+`protocol-e2e/summary.json` records `execution.phases` with scenario lists, exit
+codes and elapsed seconds. Logs live in a fresh `protocol-e2e/network.*` directory
+per invocation, with raw phase output and normalized per-scenario logs; wallet
+CSV files and private keys are not copied into artifacts. Compare protocol-phase
+duration and full Kurtosis time at different worker caps, requiring complete
+passing evidence in each run.
+
+Parallel scenarios can share settlement and delivery blocks. The collector
+therefore selects table transactions by runtime entry hashes recomputed from
+canonical L2 calldata, not the upstream summary's first load/all-calls hints.
+Missing or duplicate occurrences fail, and full selected receipts/calldata
+still go through the causal verifier. Job-local `*.causal-input.json` files
+allow those checks to be reproduced offline from retained failure diagnostics.
+
 For every passing scenario, the evidence collector re-reads canonical user,
 settlement, and L2 delivery receipts; verifies the causal execution tables;
 downloads the exact Beacon blob responses; recomputes their KZG versioned hashes;
@@ -522,6 +548,30 @@ only when suite accounting, receipt evidence, causal coverage, and authenticated
 semantic-blob coverage are all complete. `protocol-e2e/summary.json` is the
 machine-readable index, and each scenario retains its decoded evidence and raw
 Beacon blob response under `protocol-e2e/evidence/`.
+
+Upstream failures are never overridden. `staticCounterL2` is verified through
+its static-pool calldata and persisted reader state. `topLevelStaticCounter`
+and `revertCounter` are lookup-only: their L1 result is bound to the signed
+blob semantics, and the collector actively checks that the lookup key is
+absent from L2 manager activity over the authenticated settlement window.
+Missing or orphaned L2 blocks fail verification; they do not count as absence.
+
+Shared lookup tables are matched by one exact scenario key, not by total table
+size. The L1 lookup verifiers require a canonical call trace proving the exact
+proxy/registry call and returned or reverted bytes. Intermediate L2 pins are
+reconstructed from transaction-prefix headers and anchored to the blob's
+terminal block. These CI-only, RPC-backed checks require L1
+`debug_traceTransaction` and L2 `debug_getRawBlock`, `debug_getRawReceipts` and
+`debug_intermediateRoots` (already available in the test topology). Replay state
+roots come from the test node; this is integration evidence, not a separate
+stateless proof. Do not expose debug APIs publicly for this purpose. Raw trace,
+prefix input and selected-root evidence are retained for diagnosis.
+
+After updating the protocol pin, regenerate the committed genesis artifacts
+with `bash scripts/update-eezl2-genesis.sh` and verify them with `--check`.
+Solidity metadata changes can also change the proxy CREATE2 vector, even when
+the ABI is unchanged. Existing enclaves keep their deployed contracts; use a
+fresh, separately named enclave to validate a new pin without removing the devnet.
 
 ## Customize the network
 
@@ -634,6 +684,17 @@ Kurtosis assigns different host ports automatically. Remember that
 
 ## Troubleshooting
 
+- **Docker rejects a 3-CPU limit on a 2-CPU runner:** the pinned Ethereum
+  package hard-codes this limit for four MEV services. `ci-args.yaml` sets
+  `eez.mev_relay_cpu: {min: 100, max: 2000}` (millicpus) to override their CPU
+  reservations and limits before creation. Kurtosis resource checks stay on;
+  memory, readiness and protocol assertions are unchanged. Profiles without
+  this setting retain the upstream defaults. The override requires an explicit
+  `ethereum_package.mev_params.mev_relay_image`; recheck the service names and
+  Redis image in `resources.star` when updating the Ethereum package pin.
+- **A CI scenario fails after earlier scenarios passed:** download the
+  `kurtosis-e2e` artifact. The lane captures full service logs with `--all`,
+  not Kurtosis's default last 200 lines. Console output remains tail-limited.
 - **The submodule is missing or stale:** run
   `git submodule update --init --recursive eez-core-protocol`.
 - **The enclave name already exists:** inspect it before deciding whether to

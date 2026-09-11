@@ -1,0 +1,28 @@
+name: Compiler cache
+description: Optional ARC Redis or GitHub-hosted compiler caching; never caches Cargo targets
+inputs:
+  mode:
+    description: native or docker (Docker installs its own portable sccache binary)
+    default: native
+  enabled:
+    description: Set false to run without compiler caching
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Expose hosted cache credentials to subsequent steps
+      if: ${{ inputs.enabled == 'true' && runner.environment == 'github-hosted' }}
+      continue-on-error: true
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      with:
+        script: |
+          const token = process.env.ACTIONS_RUNTIME_TOKEN || '';
+          if (token) core.setSecret(token);
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', token);
+          core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+    - name: Select available compiler cache
+      shell: bash
+      env:
+        EEZ_COMPILER_CACHE_ENABLED: ${{ inputs.enabled }}
+        EEZ_COMPILER_CACHE_MODE: ${{ inputs.mode }}
+      run: bash scripts/ci/setup-compiler-cache.sh

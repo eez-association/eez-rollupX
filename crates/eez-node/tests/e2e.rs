@@ -17,6 +17,78 @@ use common::{
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_mins(5);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_fixture_ignores_parent_dotenv() {
+    let harness = Harness::fresh().await.unwrap();
+    let env = harness.env().await.unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    // Either file would make startup fail if loaded from the parent directory.
+    for name in [".env", "deployments.env"] {
+        std::fs::write(
+            parent.path().join(name),
+            "EEZ_L2_SYSTEM_ADDRESS=not-an-address\n",
+        )
+        .unwrap();
+    }
+    let datadir = parent.path().join("node");
+    std::fs::create_dir(&datadir).unwrap();
+    let node =
+        NodeHandle::start_with_datadir("isolated-env", &datadir, &NodeConfig::default(), &env)
+            .await
+            .expect("node must not read parent deployment files");
+    harness
+        .chain()
+        .wait_for_batches(1, DEFAULT_TIMEOUT)
+        .await
+        .unwrap();
+    node.assert_no_process_death();
+}
+
+/// A fixture reorg must replace history without shifting future submission
+/// windows into the past. This needs no composer or proof signer to reproduce.
+#[tokio::test]
+async fn anvil_reorg_preserves_wall_clock() {
+    let harness = Harness::for_reorg().await.unwrap();
+    let chain = harness.chain();
+    chain.set_interval_mining(0).await.unwrap();
+    let provider = ProviderBuilder::new().connect_http(chain.rpc_url().parse().unwrap());
+    let before = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        before.header.number >= 3,
+        "fixture must have reorgable history"
+    );
+    let wall_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    harness.anvil.reorg(3).await.unwrap();
+    let replacement = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(replacement.header.number, before.header.number);
+    assert_ne!(replacement.header.hash, before.header.hash);
+    chain.mine().await.unwrap();
+    let next = provider
+        .get_block_by_number(BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.header.number, before.header.number + 1);
+    assert!(next.header.timestamp > replacement.header.timestamp);
+    assert!(
+        next.header.timestamp >= wall_time,
+        "Anvil's reorg left future blocks behind wall time: {} < {wall_time}",
+        next.header.timestamp,
+    );
+}
+
 /// A follower replaces the full divergent suffix of an intra-batch fork.
 /// Replaying only the transaction block is insufficient because later blocks descend from it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

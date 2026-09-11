@@ -6,18 +6,57 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner pool (use GitHub-hosted when the homelab is unavailable)
+        type: choice
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - homelab-rust
 
 permissions:
   contents: read
 
+# Share a group only within a PR. Unique run IDs keep main/manual runs independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Clippy does not need debug symbols. Executable tests use the release producer.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
+  build-runtime:
+    name: Build runtime artifacts
+    uses: ./.github/workflows/build-runtime.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      runner: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+
+  kurtosis-e2e:
+    name: Kurtosis E2E
+    needs: build-runtime
+    if: ${{ needs.build-runtime.outputs.published == 'true' }}
+    uses: ./.github/workflows/kurtosis-e2e.yml
+    permissions:
+      contents: read
+      packages: read
+    with:
+      runner: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+      runtime-ref: ${{ needs.build-runtime.outputs.runtime-ref }}
+
   lint:
     name: Lint
-    runs-on: homelab-rust
+    # Optional placement keeps these lanes off the integration pool. A manual
+    # runner choice overrides both pools, including an all-hosted fallback.
+    runs-on: ${{ inputs.runner || vars.CI_AUX_RUNNER || vars.CI_RUNNER || 'homelab-rust' }}
     timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
@@ -26,17 +65,27 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Prepare hosted runner disk
+        run: bash scripts/ci/prepare-hosted-runner.sh
       - name: Initialize Cargo target directory
         run: bash scripts/ci/init-cargo-target.sh
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
         with:
+          toolchain: "1.94.0"
           components: rustfmt, clippy
-      - name: Rust cache
+      - name: Rust source cache
         if: ${{ runner.environment == 'github-hosted' }}
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-targets: "false"
           cache-on-failure: "false"
+          cache-bin: "false"
+          add-rust-environment-hash-key: "false"
+          shared-key: registry
+          key: ${{ hashFiles('**/Cargo.lock') }}
+      - uses: ./.github/actions/compiler-cache
+        with:
+          enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
@@ -44,59 +93,40 @@ jobs:
           sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
       - name: Format
         run: cargo fmt --all --check
+      - name: Install dependency audit tools
+        uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
+        with:
+          tool: cargo-deny,cargo-audit
+      - name: Check dependency policy
+        run: cargo deny check advisories bans sources
+      - name: Check known vulnerabilities
+        run: cargo audit
+      - name: Test CI scripts
+        run: python3 -m unittest discover -s scripts/ci/tests -v
       - name: Validate post-Fulu Chiado blob configuration
         run: bash scripts/check-chiado-blob-config.sh
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: bash scripts/ci/with-compiler-cache.sh clippy cargo clippy --locked --timings --workspace --all-targets -- -D warnings
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
-
-  unit-tests:
-    name: Unit Tests
-    runs-on: homelab-rust
-    timeout-minutes: 60
-    env:
-      CARGO_INCREMENTAL: "0"
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Initialize Cargo target directory
-        run: bash scripts/ci/init-cargo-target.sh
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
-      - name: Rust cache
-        if: ${{ runner.environment == 'github-hosted' }}
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-        with:
-          cache-targets: "false"
-          cache-on-failure: "false"
-      - name: Install nextest
-        uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
-        with:
-          tool: nextest
-      - name: Install system dependencies
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libclang-dev pkg-config libssl-dev cmake protobuf-compiler
-      - name: Unit tests (lib + bins, parallel)
-        run: cargo nextest run --workspace --lib --bins --no-fail-fast
-      - name: Protocol integration vectors
-        run: >-
-          cargo nextest run -p eez-protocol
-          --test public_inputs_hash_vectors
-          --test rolling_hash_vectors
-          --no-fail-fast
-      - name: Cargo failure diagnostics
+      - name: Upload build measurements
         if: failure()
-        run: bash scripts/ci/cargo-failure-diagnostics.sh
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lint-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/build-metrics
+            ${{ env.CARGO_TARGET_DIR }}/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 3
 
   contract-tests:
     name: Contract Tests
-    runs-on: homelab-rust
-    timeout-minutes: 60
+    runs-on: ${{ inputs.runner || vars.CI_AUX_RUNNER || vars.CI_RUNNER || 'homelab-rust' }}
+    # Reuse the checkout, Foundry and protocol outputs for the Anvil suite.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -114,42 +144,6 @@ jobs:
         run: >-
           forge test --no-match-path 'script/*'
           --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'
-
-  dependency-audit:
-    name: Dependency Audit
-    runs-on: homelab-rust
-    timeout-minutes: 60
-    env:
-      CARGO_INCREMENTAL: "0"
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Initialize Cargo target directory
-        run: bash scripts/ci/init-cargo-target.sh
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
-      - uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
-        with:
-          tool: cargo-deny,cargo-audit
-      - name: Check dependency policy
-        run: cargo deny check advisories bans sources
-      - name: Check known vulnerabilities
-        run: cargo audit
-
-  protocol-anvil-e2e:
-    name: Protocol Anvil E2E Tests
-    runs-on: homelab-rust
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
-        with:
-          version: v1.7.1
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
@@ -159,148 +153,126 @@ jobs:
         working-directory: eez-core-protocol
         run: forge build
       - name: Run complete protocol Anvil suite
-        working-directory: eez-core-protocol
-        env:
-          # Keep the protocol's same-block harness deterministic.
-          MAX_PARALLEL: "1"
-        run: bash script/e2e/run/local-parallel.sh
+        # Five minutes per scenario and 40 minutes overall leave time to upload
+        # diagnostics. The wrapper runs every upstream scenario without retries.
+        timeout-minutes: 45
+        run: bash scripts/ci/run-protocol-anvil.sh
       - name: Upload protocol Anvil logs
-        if: always()
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: protocol-anvil-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: eez-core-protocol/tmp/e2e-*/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   embedded-e2e:
     name: Embedded E2E Tests
-    runs-on: homelab-rust
-    timeout-minutes: 60
+    needs: build-runtime
+    if: ${{ needs.build-runtime.outputs.published == 'true' }}
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+    # Execution only: the producer owns all Rust compilation.
+    timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
-      EEZ_TEST_LOG_DIR: ${{ github.workspace }}/artifacts/embedded-e2e/logs
-      EEZ_TEST_DATADIR_DIR: ${{ github.workspace }}/artifacts/embedded-e2e/datadirs
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Initialize Cargo target directory
-        run: bash scripts/ci/init-cargo-target.sh
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
-      - name: Rust cache
-        if: ${{ runner.environment == 'github-hosted' }}
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: ./.github/actions/native-test-artifact
         with:
-          cache-targets: "false"
-          cache-on-failure: "false"
+          payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
-      - name: Install nextest
-        uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
-        with:
-          tool: nextest
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
-      - name: Build contracts (artifacts read by harness)
-        working-directory: contracts
-        run: forge build
-      - name: Build proof signer (launched by harness)
-        run: cargo build -p eez-proof-signer --locked
-      - name: Verify generated EEZL2 genesis artifacts
-        run: scripts/update-eezl2-genesis.sh --check
+          sudo apt-get install -y jq
       - name: Integration tests (e2e, serial)
-        run: |
-          mkdir -p artifacts/embedded-e2e
-          set +e
-          cargo nextest run -p eez-node --test e2e --test-threads=1 --retries 2 --no-fail-fast --color=never 2>&1 \
-            | tee artifacts/embedded-e2e/nextest.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if grep -Eq '(^|[[:space:]])(TRY 3|FLAKY 3/3)([[:space:]]|$)' artifacts/embedded-e2e/nextest.log; then
-            echo "a test needed more than one retry; treating it as a flake failure" >&2
-            exit 1
-          fi
-          exit "$status"
+        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
       - name: Upload embedded e2e diagnostics
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: embedded-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/embedded-e2e
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   cross-chain-e2e:
     name: Cross-Chain E2E Tests
-    runs-on: homelab-rust
-    timeout-minutes: 60
+    needs: build-runtime
+    if: ${{ needs.build-runtime.outputs.published == 'true' }}
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+    # Execution only: the producer owns all Rust compilation.
+    timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
-      EEZ_TEST_LOG_DIR: ${{ github.workspace }}/artifacts/cross-chain-e2e/logs
-      EEZ_TEST_DATADIR_DIR: ${{ github.workspace }}/artifacts/cross-chain-e2e/datadirs
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Initialize Cargo target directory
-        run: bash scripts/ci/init-cargo-target.sh
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
-      - name: Rust cache
-        if: ${{ runner.environment == 'github-hosted' }}
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: ./.github/actions/native-test-artifact
         with:
-          cache-targets: "false"
-          cache-on-failure: "false"
+          payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
-      - name: Install nextest
-        uses: taiki-e/install-action@fd2f5e3d644b484055ebf4268f474c565f148f25 # v2
-        with:
-          tool: nextest
-      - name: Install system dependencies
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libclang-dev pkg-config libssl-dev cmake protobuf-compiler
-      - name: Build contracts (artifacts read by harness)
-        working-directory: contracts
-        run: forge build
-      - name: Build proof signer (launched by harness)
-        run: cargo build -p eez-proof-signer --locked
       - name: Integration tests (cross-chain, serial)
-        run: |
-          mkdir -p artifacts/cross-chain-e2e
-          set +e
-          cargo nextest run -p eez-node --test cross_chain --test chained_interstate --test resumption --test-threads=1 --retries 2 --no-fail-fast --color=never 2>&1 \
-            | tee artifacts/cross-chain-e2e/nextest.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if grep -Eq '(^|[[:space:]])(TRY 3|FLAKY 3/3)([[:space:]]|$)' artifacts/cross-chain-e2e/nextest.log; then
-            echo "a test needed more than one retry; treating it as a flake failure" >&2
-            exit 1
-          fi
-          exit "$status"
+        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
       - name: Upload cross-chain e2e diagnostics
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cross-chain-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/cross-chain-e2e
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
+
+  ci-result:
+    name: CI Result
+    if: always()
+    needs: [build-runtime, lint, contract-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation lane
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['RESULTS'])
+          published = jobs['build-runtime']['outputs'].get('published')
+          if published not in ('true', 'false'):
+              raise SystemExit('producer did not report its execution mode')
+          remote = {'embedded-e2e', 'cross-chain-e2e', 'kurtosis-e2e'}
+          for name, job in jobs.items():
+              expected = 'skipped' if name in remote and published == 'false' else 'success'
+              if job['result'] != expected:
+                  raise SystemExit(f"{name}: {job['result']} (expected {expected})")
+          print('All required validation passed for the release candidate.')
+          PY

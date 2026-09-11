@@ -2,9 +2,10 @@
 # Deploy contracts and generate the L2 genesis inside the CI enclave.
 
 ARG EEZ_NODE_IMAGE=eez-node:dev
+ARG RUNTIME_IMAGE=debian:bookworm-slim
 FROM ${EEZ_NODE_IMAGE} AS node-tools
 
-FROM debian:bookworm-slim
+FROM ${RUNTIME_IMAGE}
 
 ARG FOUNDRY_VERSION=v1.7.1
 

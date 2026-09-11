@@ -9,10 +9,17 @@ for tool in docker jq; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
+# Compose v2 validates service env_file paths even with --no-env-resolution.
+# Render against an empty fixture, never the checkout's deployment bindings.
+config_dir="$(mktemp -d)"
+trap 'rm -f -- "$config_dir/deployments.env"; rmdir -- "$config_dir"' EXIT
+touch "$config_dir/deployments.env"
+
 config="$(
     docker compose \
-        --env-file .env.chiado.example \
-        -f docker-compose.chiado-node.yml \
+        --project-directory "$config_dir" \
+        --env-file "$REPO/.env.chiado.example" \
+        -f "$REPO/docker-compose.chiado-node.yml" \
         config --no-env-resolution --format json
 )"
 

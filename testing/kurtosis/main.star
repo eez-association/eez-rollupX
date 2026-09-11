@@ -5,6 +5,7 @@ ethereum_package = import_module(
 )
 blockscout = import_module("./blockscout.star")
 blobscan = import_module("./blobscan.star")
+resources = import_module("./resources.star")
 
 # Pair A fixed ports inside the enclave.
 EMBEDDED_L1_RPC_PORT = 18545
@@ -50,6 +51,7 @@ def run(plan, args):
 
     # Pair B: canonical L1, validators, and MEV stack.
     eth = ethereum_package.run(plan, eth_args)
+    resources.configure_mev_relay_cpu(plan, eth_args, eez.get("mev_relay_cpu", None))
 
     participants = eth.all_participants
     l1_el = participants[0].el_context

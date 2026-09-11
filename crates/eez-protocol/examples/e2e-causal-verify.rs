@@ -93,6 +93,21 @@ fn expected_hashes(input: &Value) -> AnyResult<Vec<B256>> {
         .collect()
 }
 
+fn select_static_entry(
+    entries: &[L2StaticExecutionEntrySol],
+    key: B256,
+) -> AnyResult<(usize, &L2StaticExecutionEntrySol)> {
+    let mut matches = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.proxyEntryHash == key);
+    let selected = matches.next().ok_or("requested static entry is missing")?;
+    if matches.next().is_some() {
+        return fail("requested static entry is duplicated");
+    }
+    Ok(selected)
+}
+
 fn exact_multiset(label: &str, expected: &[B256], actual: &[B256]) -> AnyResult<()> {
     let mut remaining = HashMap::<B256, usize>::new();
     for hash in expected {
@@ -392,10 +407,14 @@ fn main() -> AnyResult<()> {
             }));
         }
         (Direction::Outbound, true) => {
-            if !selected.is_empty() || !expected_l2.is_empty() || loaded_static.len() != 1 {
-                return fail("static outbound evidence requires exactly one static-only L2 entry");
+            if !selected.is_empty() || !expected_l2.is_empty() {
+                return fail("static outbound evidence cannot select mutable entries");
             }
-            let source = lift_static_entry_from_l2(&loaded_static[0], RollupId::MAINNET);
+            // Select from canonical, unmodified shared table calldata. Never
+            // pre-filter the calldata or silently accept a duplicate key.
+            let key = B256::from_str(required_str(&input, "expected_l2_static_key")?)?;
+            let (static_index, selected_static) = select_static_entry(&loaded_static, key)?;
+            let source = lift_static_entry_from_l2(selected_static, RollupId::MAINNET);
             let mut candidates = Vec::new();
             for (l1_index, host) in posted.entries.iter().enumerate() {
                 if verify_static_outbound_pair(host, &source, l2_rollup).is_ok() {
@@ -412,7 +431,7 @@ fn main() -> AnyResult<()> {
                 "kind": "static",
                 "direction": "L2_to_L1",
                 "l1_entry_indices": candidates,
-                "l2_static_entry_indices": [0],
+                "l2_static_entry_indices": [static_index],
                 "proxy_entry_hash": format!("{}", source.proxyEntryHash),
                 "ether_delta": "0",
                 "l2_outbound_hashes": []
@@ -457,6 +476,52 @@ fn main() -> AnyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_selection_accepts_unrelated_entries_but_rejects_missing_and_duplicate_keys() {
+        let selected = L2StaticExecutionEntrySol {
+            proxyEntryHash: B256::repeat_byte(0x11),
+            ..Default::default()
+        };
+        let unrelated = L2StaticExecutionEntrySol {
+            proxyEntryHash: B256::repeat_byte(0x22),
+            ..Default::default()
+        };
+        let entries = [unrelated, selected.clone()];
+        let calldata = loadExecutionTableCall {
+            _entries: vec![Default::default()],
+            _staticEntries: entries.to_vec(),
+        }
+        .abi_encode();
+        let (mutable, decoded_static) = decode_l2_tables(&calldata, RollupId::MAINNET).unwrap();
+        assert_eq!(
+            mutable.len(),
+            1,
+            "unrelated rows must not be stripped from calldata"
+        );
+        assert!(select_entries(&mutable, &[]).unwrap().is_empty());
+        assert_eq!(decoded_static.len(), 2);
+        assert_eq!(
+            select_static_entry(&decoded_static, selected.proxyEntryHash)
+                .unwrap()
+                .0,
+            1
+        );
+        assert_eq!(
+            select_static_entry(&entries, selected.proxyEntryHash)
+                .unwrap()
+                .0,
+            1
+        );
+        assert!(select_static_entry(&entries, B256::ZERO).is_err());
+        assert!(
+            select_static_entry(
+                &[selected.clone(), selected.clone()],
+                selected.proxyEntryHash
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn multiset_preserves_duplicate_multiplicity() {

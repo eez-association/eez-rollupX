@@ -27,6 +27,13 @@ The RPC routes rewrite their path to `/` before proxying, so they work with
 ordinary Ethereum JSON-RPC clients. Use the front URLs for wallet transactions
 and the direct RPC URLs for reads and protocol tooling.
 
+Each public Blockscout origin also routes `/api` and `/socket` to its own
+backend. The Kurtosis launcher configures HTTPS browsers to use that origin,
+including `wss://eez.asuscomm.com:4444/socket/v2/websocket` for L1 and port
+`4445` for L2. This keeps internal Docker hostnames out of browser connections
+and allows live updates over HTTPS. Local HTTP frontend URLs continue to use
+the Next.js HTTP API proxy.
+
 ## Requirements
 
 - The domain A/AAAA records must point to this host. Remove an incorrect AAAA
@@ -68,6 +75,8 @@ EEZ_DASHBOARD_UPSTREAM
 EEZ_BLOBSCAN_UPSTREAM
 EEZ_L1_EXPLORER_UPSTREAM
 EEZ_L2_EXPLORER_UPSTREAM
+EEZ_L1_EXPLORER_API_UPSTREAM
+EEZ_L2_EXPLORER_API_UPSTREAM
 ```
 
 ## Validate and operate

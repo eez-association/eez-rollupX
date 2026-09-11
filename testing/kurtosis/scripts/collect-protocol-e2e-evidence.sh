@@ -9,12 +9,13 @@ SCENARIO_NAME="${1:?usage: collect-protocol-e2e-evidence.sh <name> <scenario-sol
 SCENARIO_SOL="${2:?missing scenario Solidity path}"
 SCENARIO_LOG="${3:?missing scenario log}"
 OUTPUT_JSON="${4:?missing evidence output path}"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER \
     BEACON_URL BLOB_VERIFIER ROLLUP_ID; do
     [[ -n "${!var:-}" ]] || { echo "missing $var" >&2; exit 1; }
 done
-for tool in cast curl jq sed sha256sum; do
+for tool in cast curl jq python3 sed sha256sum; do
     command -v "$tool" >/dev/null || { echo "$tool not found" >&2; exit 1; }
 done
 [[ -f "$SCENARIO_SOL" ]] || { echo "scenario not found: $SCENARIO_SOL" >&2; exit 1; }
@@ -28,6 +29,15 @@ die() {
 
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker is absent"
 ! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream log contains an ERROR"
+case "$SCENARIO_NAME" in
+    staticCounterL2)
+        exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON"
+        ;;
+    topLevelStaticCounter|revertCounter)
+        exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
+            "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
+        ;;
+esac
 grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
     || die "posted L1 table was not field-matched"
 grep -Fq 'PASS: L2 field checks on' "$SCENARIO_LOG" \
@@ -69,12 +79,25 @@ load_row="$(
 
 transaction_evidence() {
     local rpc="$1" chain="$2" role="$3" hash="$4" expected_block="$5"
+    local canonical_tx="${6:-}"
     local receipt tx status block_hex block_number tx_to input reported_block_matches
 
     receipt="$(cast rpc eth_getTransactionReceipt "$hash" --rpc-url "$rpc")" \
         || die "cannot read $role receipt $hash on $chain"
     tx="$(cast rpc eth_getTransactionByHash "$hash" --rpc-url "$rpc")" \
         || die "cannot read $role transaction $hash on $chain"
+    if [[ -n "$canonical_tx" ]]; then
+        jq -en --argjson canonical "$canonical_tx" --argjson tx "$tx" --argjson receipt "$receipt" '
+            $tx.hash == $canonical.hash and $receipt.transactionHash == $canonical.hash
+            and $tx.blockHash == $canonical.blockHash and $receipt.blockHash == $canonical.blockHash
+            and $tx.blockNumber == $canonical.blockNumber and $receipt.blockNumber == $canonical.blockNumber
+            and $tx.transactionIndex == $canonical.transactionIndex
+            and $receipt.transactionIndex == $canonical.transactionIndex
+            and $tx.to == $canonical.to and $tx.input == $canonical.input
+            ' >/dev/null || die "$role transaction/receipt $hash differs from the canonical block"
+        # Feed this exact validated receipt to Rust, not a second RPC snapshot.
+        printf '%s\n' "$receipt" >"$causal_tmp/L2-$hash.receipt.json"
+    fi
     status="$(jq -er '.status' <<<"$receipt")"
     block_hex="$(jq -er '.blockNumber' <<<"$receipt")"
     block_number="$(cast to-dec "$block_hex")"
@@ -120,43 +143,6 @@ post_receipt="$(transaction_evidence "$L1_RPC" L1 settlement "$post_hash" "$post
     || die "postBatch transaction target differs from registry $ROLLUPS"
 
 read -r load_hash load_block <<<"$load_row"
-# An inbound trigger may be split across several L2 delivery transactions.
-# The upstream summary prints those hashes below one `L2 call exec:` label,
-# sometimes repeating a hash when one transaction executes multiple calls.
-# Retain every distinct transaction, in first-seen order. Outbound scenarios
-# instead report their user transaction(s) under that label, so their only
-# system transaction is the separately reported table load.
-system_hashes=("$load_hash")
-if [[ "$trigger_chain" == L1 ]]; then
-    mapfile -t reported_delivery_hashes < <(
-        sed -n '/^L2 call exec:/,/^====== Done/p' "$SCENARIO_LOG" \
-            | awk '{
-                while (match($0, /0x[0-9a-fA-F]{64}/)) {
-                    hash = substr($0, RSTART, RLENGTH)
-                    if (!seen[tolower(hash)]++) print hash
-                    $0 = substr($0, RSTART + RLENGTH)
-                }
-            }'
-    )
-    for hash in "${reported_delivery_hashes[@]}"; do
-        already_present=false
-        for existing_hash in "${system_hashes[@]}"; do
-            [[ "${hash,,}" == "${existing_hash,,}" ]] && already_present=true
-        done
-        [[ "$already_present" == true ]] || system_hashes+=("$hash")
-    done
-fi
-
-system_receipts=()
-for hash in "${system_hashes[@]}"; do
-    evidence="$(transaction_evidence "$L2_RPC" L2 delivery "$hash" "$load_block")"
-    [[ "$(jq -r '.to | ascii_downcase' <<<"$evidence")" == "${MANAGER_L2,,}" ]] \
-        || die "L2 system transaction $hash target differs from manager $MANAGER_L2"
-    system_receipts+=("$evidence")
-done
-system_receipts_json="$(printf '%s\n' "${system_receipts[@]}" | jq -s .)"
-load_receipt="${system_receipts[0]}"
-
 hashes_from_line() {
     local label="$1"
     sed -n "s/^${label}:[[:space:]]*//p" "$SCENARIO_LOG" \
@@ -176,6 +162,46 @@ expected_l1_json="$(hashes_from_line 'L1 expected entries')"
 expected_l2_json="$(hashes_from_line 'L2 table expected')"
 expected_l1_calls_json="$(hashes_from_line 'L1 expected calls')"
 expected_l2_calls_json="$(hashes_from_line 'L2 calls expected')"
+
+# Upstream prints the FIRST load and ALL calls in a block, including other
+# parallel scenarios. Discover the actual scenario tables by runtime entry hash
+# in canonical block calldata. Keep each selected transaction/receipt whole;
+# the unchanged Rust verifier still enforces exact causal/event multiplicity.
+causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
+trap 'rm -rf "$causal_tmp"' EXIT
+if [[ "$trigger_chain" == L2 ]]; then
+    # Revert-only L2 scenarios have no surviving call events and skip the
+    # upstream call search/"blocks to verify" line. Their tables must be in
+    # the same blocks as the actual consuming user transactions.
+    l2_blocks="$(jq '[.[].block_number] | unique' <<<"$user_receipts_json")"
+else
+    l2_blocks="$(sed -n 's/^L2 blocks to verify:[[:space:]]*//p' "$SCENARIO_LOG" | tail -1)"
+fi
+jq -e --argjson first "$load_block" '
+    type == "array" and length > 0 and length == (unique | length)
+    and all(.[]; type == "number" and . >= 0 and . == floor)
+    and index($first) != null' <<<"$l2_blocks" >/dev/null \
+    || die "missing or invalid verified L2 block list"
+while read -r block; do
+    cast block "$block" --full --json --rpc-url "$L2_RPC" >>"$causal_tmp/l2-blocks.jsonl" \
+        || die "cannot read canonical L2 block $block"
+done < <(jq -r '.[]' <<<"$l2_blocks")
+jq -s . "$causal_tmp/l2-blocks.jsonl" >"$causal_tmp/l2-blocks.json"
+selected_systems="$(python3 "$REPO/scripts/ci/select-protocol-l2-transactions.py" \
+    --abi "$REPO/eez-core-protocol/out/EEZL2.sol/EEZL2.json" --manager "$MANAGER_L2" \
+    --expected "$expected_l2_json" <"$causal_tmp/l2-blocks.json")" \
+    || die "cannot select exact scenario table transactions from canonical L2 blocks"
+system_hashes=()
+system_receipts=()
+while read -r canonical_tx; do
+    hash="$(jq -r '.hash' <<<"$canonical_tx")"
+    block="$(cast to-dec "$(jq -r '.blockNumber' <<<"$canonical_tx")")"
+    evidence="$(transaction_evidence "$L2_RPC" L2 delivery "$hash" "$block" "$canonical_tx")"
+    system_hashes+=("$hash")
+    system_receipts+=("$evidence")
+done < <(jq -c '.[]' <<<"$selected_systems")
+system_receipts_json="$(printf '%s\n' "${system_receipts[@]}" | jq -s .)"
+
 log_sha256="$(sha256sum "$SCENARIO_LOG" | awk '{print $1}')"
 rolling_replayed=false
 grep -Fq 'PASS: posted rolling hashes reproduced from posted roots' "$SCENARIO_LOG" \
@@ -191,8 +217,6 @@ summary_blocks_match="$(jq -n \
 # Build a canonical receipt/calldata input for the Rust verifier. It invokes
 # the same independent two-table verifier used by the deriver, then requires
 # exact event multiplicity for the selected trigger flow.
-causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
-trap 'rm -rf "$causal_tmp"' EXIT
 : >"$causal_tmp/l1-receipts.jsonl"
 : >"$causal_tmp/l2-receipts.jsonl"
 for evidence in "${user_receipts[@]}"; do
@@ -208,8 +232,7 @@ done
 cast rpc eth_getTransactionReceipt "$post_hash" --rpc-url "$L1_RPC" | jq -c . \
     >>"$causal_tmp/l1-receipts.jsonl"
 for hash in "${system_hashes[@]}"; do
-    cast rpc eth_getTransactionReceipt "$hash" --rpc-url "$L2_RPC" | jq -c . \
-        >>"$causal_tmp/l2-receipts.jsonl"
+    jq -c . "$causal_tmp/L2-$hash.receipt.json" >>"$causal_tmp/l2-receipts.jsonl"
 done
 jq -s . "$causal_tmp/l1-receipts.jsonl" >"$causal_tmp/l1-receipts.json"
 jq -s . "$causal_tmp/l2-receipts.jsonl" >"$causal_tmp/l2-receipts.json"
@@ -228,6 +251,9 @@ jq -n \
       expected_l2_entry_hashes: $expected_l2_entry_hashes,
       l1_receipts: $l1_receipts[0], l2_receipts: $l2_receipts[0]}' \
     >"$causal_tmp/input.json"
+# Public canonical calldata/receipts permit offline reproduction of failures.
+mkdir -p "$(dirname "$OUTPUT_JSON")"
+cp "$causal_tmp/input.json" "${OUTPUT_JSON%.json}.causal-input.json"
 if ! "$CAUSAL_VERIFIER" "$causal_tmp/input.json" "$causal_tmp/output.json"; then
     die "independent trigger/table/event causal verification failed"
 fi
@@ -262,6 +288,7 @@ jq -n \
     --arg result PASS \
     --arg log "$SCENARIO_LOG" \
     --arg log_sha256 "$log_sha256" \
+    --arg upstream_table_hash "$load_hash" \
     --arg trigger_chain "$trigger_chain" \
     --argjson trigger_transactions "$user_receipts_json" \
     --argjson settlement_transaction "$post_receipt" \
@@ -286,6 +313,7 @@ jq -n \
       causal_graph: $causal_graph,
       blob_da: $blob_da,
       claims: {upstream_completed: true, receipts_revalidated: true,
+               scenario_tables_selected_from_canonical_calldata: true,
                upstream_summary_blocks_match_receipts: $summary_blocks_match,
                causal_graph_bijection: true,
                blob_kzg_authenticated: true, native_semantics_decoded: true,
@@ -294,5 +322,6 @@ jq -n \
                rolling_hashes_replayed: $rolling_replayed, l2_table_field_match: true,
                l2_calls_verified: $l2_calls_verified},
       proof_statements: $proof_statements,
-      source_log: {path: $log, sha256: $log_sha256}}' >"$tmp_output"
+      source_log: {path: $log, sha256: $log_sha256,
+                   upstream_first_table_hash: $upstream_table_hash}}' >"$tmp_output"
 mv "$tmp_output" "$OUTPUT_JSON"

@@ -19,6 +19,9 @@ use serde_json::{Value, json};
 
 const BLOB_GAS_PER_BLOB: u64 = 1 << 17;
 
+#[path = "verify_blob_evidence/prefixes.rs"]
+mod prefixes;
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("blob evidence verification failed: {error}");
@@ -28,14 +31,27 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
-    let input_path = args
+    let first = args
         .next()
-        .ok_or("usage: verify_blob_evidence <evidence-input.json>")?;
+        .ok_or("usage: verify_blob_evidence [--prefixes] <evidence-input.json>")?;
+    let prefix_mode = first == "--prefixes";
+    let input_path = if prefix_mode {
+        args.next().ok_or("missing prefix evidence input")?
+    } else {
+        first
+    };
     if args.next().is_some() {
         return Err("too many arguments".into());
     }
 
     let evidence: Value = serde_json::from_slice(&fs::read(&input_path)?)?;
+    if prefix_mode {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&prefixes::verify(&evidence)?)?
+        );
+        return Ok(());
+    }
     let rollup_id = required_u64(&evidence, "/rollup_id")?;
     let expected_slot = required_u64(&evidence, "/beacon_slot")?;
     let transaction = required(&evidence, "/l1_transaction")?;

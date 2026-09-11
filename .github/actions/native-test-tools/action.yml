@@ -1,0 +1,11 @@
+name: Native test tools
+description: Pinned nextest for compiler-free test execution
+runs:
+  using: composite
+  steps:
+    - name: Install pinned nextest
+      shell: bash
+      run: |
+        nextest_dir="$(mktemp -d "$RUNNER_TEMP/eez-nextest.XXXXXXXX")"
+        bash scripts/ci/install-nextest.sh "$nextest_dir"
+        echo "$nextest_dir" >> "$GITHUB_PATH"

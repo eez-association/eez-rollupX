@@ -7,7 +7,7 @@ K="$(cd "$(dirname "$0")/.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
-EXPECTED_PROXY_ADDRESS="0xeeccd7ec2745c8e8743be2fc399a610b21613f03"
+EXPECTED_PROXY_ADDRESS="0x15ea912b805e733b3899149409acead6f56f0e16"
 
 for tool in cast jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not in PATH" >&2; exit 1; }
