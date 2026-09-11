@@ -27,6 +27,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
+                "contracts/test/PostBatchGasPins.t.sol",
             ):
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +62,16 @@ class RuntimeDockerTest(unittest.TestCase):
                     f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n'
                 )
                 (package / "src/lib.rs").write_text("#[test] fn unit_test() { assert_eq!(2+2,4); }\n")
+                if name == "eez-composer":
+                    # Match the real composer's compile-time dependency on a
+                    # Solidity fixture outside crates/. Both the Docker build
+                    # context and the builder stage must carry this input.
+                    (package / "src/lib.rs").write_text(
+                        '#[test] fn gas_pin_source_is_packaged() {\n'
+                        '    let source = include_str!("../../../contracts/test/PostBatchGasPins.t.sol");\n'
+                        '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
+                        '}\n'
+                    )
                 for test in ({"eez-node-e2e": ("e2e", "cross_chain", "chained_interstate", "resumption"),
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
@@ -72,7 +83,7 @@ class RuntimeDockerTest(unittest.TestCase):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(f'fn main() {{ println!("{output}"); }}\n')
 
-            (repo / "contracts").mkdir()
+            (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
             (repo / "genesis.json").write_text("{}")
             protocol = repo / "eez-core-protocol"

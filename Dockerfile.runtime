@@ -23,6 +23,8 @@ RUN if [ "$EEZ_COMPILER_CACHE" != none ]; then \
     fi
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# Composer unit tests embed the Solidity gas pins at compile time.
+COPY contracts/test/PostBatchGasPins.t.sol ./contracts/test/PostBatchGasPins.t.sol
 COPY .config/nextest.toml ./.config/nextest.toml
 COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh ./scripts/ci/
 # Only source downloads are cache mounts. Compile and remove target in the same

@@ -3,6 +3,9 @@
 !Cargo.lock
 !crates/
 !crates/**
+!contracts/
+!contracts/test/
+!contracts/test/PostBatchGasPins.t.sol
 !scripts/
 !scripts/ci/
 !scripts/ci/install-sccache.sh
