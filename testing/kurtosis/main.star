@@ -211,6 +211,8 @@ def run(plan, args):
             "exec eez-composer node",
             "--chain=/out/l2-genesis.json",
             "--datadir=$EEZ_L2_DATADIR",
+            "--log.stdout.format=json",
+            "--log.file.max-files=0",
             "--http --http.addr=0.0.0.0 --http.port=$EEZ_L2_HTTP_PORT --http.api=eth,net,web3,debug,trace",
             "--authrpc.addr=127.0.0.1 --authrpc.port=$EEZ_L2_AUTH_PORT",
             "--port=$EEZ_L2_P2P_PORT --discovery.port=$EEZ_L2_P2P_PORT",

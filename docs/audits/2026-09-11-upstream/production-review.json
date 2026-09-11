@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "review_utc": "2026-09-11T17:39:02.256197+00:00",
+  "review_base": "401a2dc90961d3cbe020f9a6adfc11d012422845",
+  "correction_revision": "880acab00663127a029ed331240967b8ea934372",
+  "production_ready": false,
+  "finding": "Poll-count-based L1 catch-up was not time-bounded; the existing L1 reader HTTP transport also allowed stalled request/response-body waits.",
+  "fix": {
+    "catch_up_total_timeout_seconds": 60,
+    "l1_reader_request_timeout_seconds": 30,
+    "rpc_error_class": "L1Error::Provider; existing recovery/canonicality decisions retained"
+  },
+  "source_files": [
+    {
+      "path": "crates/eez-deriver/Cargo.toml",
+      "git_blob": "520f7c8aa5567aa1c1028c9184f4cb0242db56e4",
+      "sha256": "d7f02625276a30088a5f7f85a505f466fe1b0c054fcf00097bb566744f619633"
+    },
+    {
+      "path": "crates/eez-deriver/src/deriver.rs",
+      "git_blob": "12424b03c79ad92dde28c5a393ce588463c7b51a",
+      "sha256": "1f331292cc60ddd74ddfe5cd6be79a6a5271fca44f9ab8b795906b880a6343fc"
+    },
+    {
+      "path": "crates/eez-deriver/src/l1_catch_up.rs",
+      "git_blob": "19db49abe1c3b58a237aa904822d96af6339b946",
+      "sha256": "ff677e45e8e05a1552456f3ed3dafef290041215b38ea2b0afcca5abdbf775f4"
+    },
+    {
+      "path": "crates/eez-deriver/src/lib.rs",
+      "git_blob": "bee13586adccbb35de77e66fde23c3370a00f8b9",
+      "sha256": "caa43e8b29b3ad013a414140391fb34974b5257b4cbd6027de331e34e36d2c2a"
+    },
+    {
+      "path": "crates/eez-l1/src/l1_reader.rs",
+      "git_blob": "391d429452c1b2ac6be64802f303559c9c3d5dfb",
+      "sha256": "f6727fecf37938a51558d11dcb78f0e765ee9077a6ca6a958ad2e39e68d1b7a0"
+    }
+  ],
+  "validation": [
+    {
+      "name": "backport-unit-vectors",
+      "scope": "Before the timeout correction, at the review base",
+      "command": "bash /tmp/run-rollup-backport-tests.sh -E \"kind(lib) | kind(bin) | package(eez-protocol) | package(eez-blob-codec)\" --retries 0",
+      "result": "705 passed; no retries",
+      "log": "/tmp/rollup-production-review-unit-unsandboxed.log",
+      "log_sha256": "bc8aae2eae0fe19882789ddad0e5d733c17902abe2a7e2580877bf8398c12bc3"
+    },
+    {
+      "name": "composer-unit",
+      "scope": "Before the timeout correction, at the review base",
+      "command": "cargo nextest run --offline --locked -p eez-composer --lib --build-jobs 1 --test-threads 2 --no-fail-fast --color never",
+      "result": "62 passed",
+      "log": "/tmp/rollup-production-review-composer.log",
+      "log_sha256": "b8f0d3beebe2e087450abaa2b73a3efa0d3c7d08e2fb7c698e484e6a26047d9e"
+    },
+    {
+      "name": "python-ci",
+      "scope": "Before the timeout correction; CI script behavior unchanged",
+      "command": "python3 -m unittest discover -s scripts/ci/tests -q",
+      "result": "174 discovered: 170 passed, 4 opt-in cases skipped",
+      "log": "/tmp/rollup-production-review-python.log",
+      "log_sha256": "c1a68cc569863609d7b3a0b0e9a50340d1ce72fb113a1b96e7c35fff16c34e83"
+    },
+    {
+      "name": "catch-up-regression-before",
+      "scope": "Old poll-count behavior extracted into helper with new tests, before adding overall deadline",
+      "command": "cargo nextest run --offline --locked -p eez-deriver --lib --build-jobs 1 --retries 0 --no-fail-fast --color never -E \"test(l1_catch_up)\"",
+      "result": "2 regression failures reproduced; 2 controls passed",
+      "log": "/tmp/rollup-production-review-deadline-before.log",
+      "log_sha256": "e98a22f99414d74fd076ac43900d9fdd7cc6c3225bdb14c52af83982692be151"
+    },
+    {
+      "name": "http-regression-before",
+      "scope": "Existing HTTP transport with new tests, before enabling request timeout",
+      "command": "cargo nextest run --offline --locked -p eez-l1 --lib --build-jobs 1 --retries 0 --no-fail-fast --color never -E \"test(l1_reader::tests)\"",
+      "result": "2 regression failures reproduced; 1 control passed",
+      "log": "/tmp/rollup-production-review-rpc-before.log",
+      "log_sha256": "0b6b61ac92c8b1f395982324790e202ac41537c00479b7322448c5f9e2f18f09"
+    },
+    {
+      "name": "l1-and-deriver-after",
+      "scope": "880acab00663127a029ed331240967b8ea934372",
+      "command": "cargo nextest run --offline --locked -p eez-deriver -p eez-l1 --lib --build-jobs 1 --test-threads 2 --retries 0 --no-fail-fast --color never",
+      "result": "117 passed, including all 7 new cases; no retries",
+      "log": "/tmp/rollup-production-review-timeouts-final.log",
+      "log_sha256": "9f8bf0f6e6eaf8c1a67bc919b6125c61c3bcb5e28efe27def57321e250447a9d"
+    },
+    {
+      "name": "clippy-rust-1.94",
+      "scope": "Final source content committed in 880acab00663127a029ed331240967b8ea934372",
+      "command": "CARGO_TARGET_DIR=target/backport-rust-1.94 cargo +1.94.0 clippy --workspace --all-targets --offline --locked -j 1 -- -D warnings",
+      "result": "PASS; warnings denied",
+      "log": "/tmp/rollup-production-review-clippy.log",
+      "log_sha256": "a03d094fe38d48fba994404d3327bdc7df815db63f11a74fc39317d48013971d"
+    },
+    {
+      "name": "composer-follower-build",
+      "scope": "Final source content committed in 880acab00663127a029ed331240967b8ea934372",
+      "command": "cargo build --offline --locked --jobs 1 -p eez-node -p eez-follower --bin eez-composer --bin eez-follower --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-follower.opt-level=0'",
+      "result": "PASS",
+      "log": "/tmp/rollup-production-review-runtime-build.log",
+      "log_sha256": "1c986c8a84cfd2ac05990b9ef05a494c0f2c9b29e81ef17a64c1d3220abc8898"
+    },
+    {
+      "name": "signer-build",
+      "scope": "880acab00663127a029ed331240967b8ea934372",
+      "command": "cargo build --offline --locked --jobs 1 -p eez-proof-signer --bin eez-proof-signer",
+      "result": "PASS",
+      "log": "/tmp/rollup-production-review-signer-build.log",
+      "log_sha256": "137e740a72af466864cece7fc29d4c0221f3218b4f009be2feea1630efb10a03"
+    },
+    {
+      "name": "native-follow-up",
+      "scope": "880acab00663127a029ed331240967b8ea934372",
+      "command": "EEZ_TEST_RUNTIME_BIN_DIR=\"$PWD/target/production-review-runtime\" EEZ_TEST_PROOF_SIGNER_BIN=\"$PWD/target/production-review-runtime/eez-proof-signer\" EEZ_TEST_PREBUILT=1 EEZ_TEST_LOG_DIR=\"$PWD/target/production-review-validation/logs\" EEZ_TEST_DATADIR_DIR=\"$PWD/target/production-review-validation/datadirs\" cargo nextest run --offline --locked --build-jobs 1 --config \"profile.dev.package.eez-node.opt-level=0\" --config \"profile.dev.package.eez-follower.opt-level=0\" -p eez-node-e2e --test e2e --profile ci --test-threads 1 --retries 0 --no-fail-fast --color never -E \"test(=happy_case_composer_sustained) | test(=happy_case_blob_l1_reorg_replaces_correlations) | test(=happy_case_follower_l1_derived)\"",
+      "result": "3 passed, no retries; 13 other embedded cases excluded by the explicit filter",
+      "log": "/tmp/rollup-production-review-native.log",
+      "log_sha256": "431ccd8e61b1ffa8b2c88d29369636f2eedb6592fa899e9d4a794da8f0950809"
+    },
+    {
+      "name": "historical-audit",
+      "scope": "401a2dc90961d3cbe020f9a6adfc11d012422845",
+      "command": "python3 docs/audits/2026-09-11-upstream/verify_completion.py --repo . --revision 401a2dc90961d3cbe020f9a6adfc11d012422845",
+      "result": "PASS; historical coverage only",
+      "log": "/tmp/rollup-production-review-historical-audit.log",
+      "log_sha256": "90e7d68986d73d050edb40ee390f3d26e96ae4ace33f6f9f9bb33bdc76bac616"
+    }
+  ],
+  "native_cases": [
+    {
+      "test": "eez-node-e2e::e2e happy_case_blob_l1_reorg_replaces_correlations",
+      "seconds": 53.182,
+      "result": "PASS on first attempt"
+    },
+    {
+      "test": "eez-node-e2e::e2e happy_case_composer_sustained",
+      "seconds": 59.774,
+      "result": "PASS on first attempt"
+    },
+    {
+      "test": "eez-node-e2e::e2e happy_case_follower_l1_derived",
+      "seconds": 39.2,
+      "result": "PASS on first attempt"
+    }
+  ],
+  "runtime": {
+    "rust": "1.96.1",
+    "build_profile": "dev; composer/follower package opt-level=0, jobs=1; signer default dev profile",
+    "directory": "/home/edu/Development/eez-rollup0-fork/target/production-review-runtime",
+    "source_revision": "880acab00663127a029ed331240967b8ea934372",
+    "sha256": {
+      "eez-composer": "f1cb0da61da759b85f8e3b6b307d192ebf698986d2c10eb74fa6e0b9c5d656f9",
+      "eez-follower": "82aa332447a5be825e3d912707cc7b8567c36cca9a02fa6eac302ce7795a5d13",
+      "eez-genesis-state-root": "1b5a6ca44c53aa2988b365bcc6312d9c31c9e48a74c5f6bb50cd48e2f896207a",
+      "eez-proof-signer": "68e8dc6709423d686a107398610a417ff7dea509983e1653828dc27cf9bec474"
+    },
+    "auxiliary_genesis_helper": "eez-genesis-state-root copied from the previous frozen artifact; its source and protocol/genesis inputs are unchanged",
+    "freezing": "Composer, follower, and signer copied before compiling the new E2E test binary"
+  },
+  "additional_checks": [
+    "cargo fmt --all --check: PASS",
+    "git diff --check: PASS",
+    "follower normal dependency graph excludes composer/prover/signer/Stateless/Gnosis: PASS",
+    "frozen audit rejects current changed runtime and uncommitted tracked code: PASS",
+    "original 43-commit/12-unit upstream inventory verifier: PASS at review base"
+  ],
+  "limitations": [
+    "Original 44 integration passes predate this correction; only the 3 listed integration cases were rerun with the corrected runtime.",
+    "No full release build or full Kurtosis network workload was run during this review.",
+    "Positive valid-sidecar resumed execution is still unproven by the synthetic resumption fixture.",
+    "Existing production P0 trust-boundary, durable data/recovery, correctness evidence and independent security-review requirements remain open.",
+    "30-second request timeout requires validating historical scan and peak-load latency on the intended production RPC."
+  ],
+  "sandbox_attempt": {
+    "log": "/tmp/rollup-production-review-unit.log",
+    "log_sha256": "6891474a9974fa7e79f3f3f1b61dde04aa4f6754b6334c6a7a3090d49fbc6a33",
+    "result": "646 passed, 59 failed because local socket creation was denied; rerun with loopback permissions passed all 705 without retries"
+  }
+}

@@ -32,6 +32,10 @@ its settlement effects before signing the recomputed public-input hash.
 a succinct validity proof, but the deployed verifier no longer accepts an
 unbound mock signature.
 
+The [Composer-to-prover gRPC specification](crates/eez-control-rpc/SPEC.md)
+defines request construction, response validation, and settlement recovery for
+the current native-blob profile.
+
 ## Run the local protocol network
 
 The Kurtosis package starts the private L1, L2, protocol contracts, proof
@@ -181,7 +185,7 @@ well, so a wallet can use one front URL per chain. Classification fails closed:
 if tracing is unavailable, the transaction is held rather than allowing a
 cross-chain call to bypass composition. The fronts use the compose env
 `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`; both ports are required in composer
-mode. The `eez-follower` and `eez-dev-node` binaries do not start them.
+mode. The `eez-follower` binary does not start them.
 Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
 
 `EEZ_MAX_USER_TXS_PER_BUNDLE` caps how many held user cross-chain transactions,
@@ -227,16 +231,17 @@ cargo run -p eez-node -- node \
   --datadir "$EEZ_L2_DATADIR"
 ```
 
-Select either non-default role explicitly:
+Select the non-default follower role explicitly. `EEZ_L1_CHAIN_ID` must match
+the numeric chain ID served by `EEZ_L1_RPC_URL`. A follower also requires the
+system signer and L2 execution identity so it can reconstruct Sync blocks:
 
 ```bash
 # L1-derived follower; optionally add `--sequencer-rpc <URL>` after `node`.
-cargo run -p eez-node --bin eez-follower -- node \
-  --chain "$EEZ_L2_GENESIS_PATH" \
-  --datadir "$EEZ_L2_DATADIR"
-
-# Unanchored interval sequencer for local development.
-cargo run -p eez-node --bin eez-dev-node -- node \
+EEZ_L1_CHAIN_ID="<numeric-l1-chain-id>" \
+EEZ_L2_SYSTEM_KEY="<system-private-key>" \
+EEZL2_ADDRESS="<eezl2-contract-address>" \
+EEZ_ROLLUP_ID="<numeric-rollup-id>" \
+cargo run -p eez-follower -- node \
   --chain "$EEZ_L2_GENESIS_PATH" \
   --datadir "$EEZ_L2_DATADIR"
 ```

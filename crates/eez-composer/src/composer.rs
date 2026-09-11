@@ -42,7 +42,7 @@ use reth_storage_api::{
 use tokio::sync::broadcast;
 use tracing::{Level, event};
 
-use crate::held_pool::HeldTx;
+use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
@@ -280,14 +280,11 @@ impl std::fmt::Debug for CrossChainWiring {
     }
 }
 
-/// Relay-drop retries before a held user_tx is evicted as probable
-/// poison. Poison is normally caught at COMPOSE time (a tx whose
-/// chained simulation deterministically fails — e.g. a wrong-proxy
-/// tx → `EmptyCalls`, or a revert — is evicted before it can enter a
-/// bundle). An atomic-relay drop re-queues its transactions; this bound
-/// backstops poison the compose-time simulation missed. After this many
-/// consecutive drops, the transaction and its nonce-dependent suffix are
-/// evicted so they cannot block the FIFO queue indefinitely.
+/// Failed settlement attempts before a held user_tx is evicted as probable
+/// poison. This covers both relay drops and proof requests that still fail
+/// after their retry episode. After this many failures, the transaction and
+/// its nonce-dependent suffix are evicted so they cannot block the FIFO queue
+/// indefinitely.
 ///
 /// Drain-time simulations are chained per chain in canonical order
 /// (`compose_crosschain` over the slot's L1 state and the Sync block under
@@ -316,6 +313,10 @@ const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
 /// deploy for a new sender. Same pin test; measured 334k worst case, 10% slack.
 const POSTBATCH_ENTRY_GAS_PIN: u64 = 370_000;
 
+/// Below this the drain admits nothing and evicts the first held tx as poison.
+const MIN_VIABLE_POSTBATCH_GAS: u64 =
+    projected_postbatch_gas(2, 0, 0).saturating_add(POSTBATCH_DRAIN_MARGIN);
+
 /// EIP-7623 calldata floor — below it the tx is invalid and dies at simulation.
 fn calldata_floor_gas(calldata: &[u8]) -> u64 {
     let nonzero = calldata.iter().filter(|byte| **byte != 0).count() as u64;
@@ -333,7 +334,7 @@ fn calldata_gas(bytes: &[u8]) -> u64 {
 /// Whole-postBatch gas on EIP-7623's standard branch: tx base, calldata, pins,
 /// probed target calls. The floor branch is checked in
 /// `sign_post_batch_blob_tx`.
-fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas: u64) -> u64 {
+const fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas: u64) -> u64 {
     21_000_u64
         .saturating_add(POSTBATCH_BASE_GAS_PIN)
         .saturating_add(POSTBATCH_ENTRY_GAS_PIN.saturating_mul(entry_count))
@@ -536,6 +537,105 @@ enum PreparePostBatchError {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+enum SettlementFailureSource {
+    Prover,
+    Relay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SettlementFailureOutcome {
+    requeued: usize,
+    evicted: usize,
+}
+
+/// Count one failed settlement episode for every candidate, evict transactions
+/// that reach the bound, and cascade each eviction through its sender/direction
+/// nonce suffix. Survivors retain their attempt count and FIFO order.
+fn recover_settlement_failure(
+    pool: &HeldPool,
+    rollup_id: u64,
+    txs: Vec<HeldTx>,
+    source: SettlementFailureSource,
+) -> SettlementFailureOutcome {
+    let mut retry = Vec::with_capacity(txs.len());
+    let mut evicted = Vec::new();
+    let mut evicted_chains: Vec<(Address, Direction, u64)> = Vec::new();
+
+    for mut tx in txs {
+        tx.attempts = tx.attempts.saturating_add(1);
+        if tx.attempts >= MAX_BUNDLE_ATTEMPTS {
+            evicted_chains.push((tx.sender, tx.direction, tx.nonce));
+            event!(
+                name: "eez.composer.recovery.poison_evicted",
+                Level::ERROR,
+                event_name = "eez.composer.recovery.poison_evicted",
+                rollup_id,
+                source = ?source,
+                tx_hash = %tx.hash,
+                sender = %tx.sender,
+                direction = ?tx.direction,
+                nonce = tx.nonce,
+                attempts = tx.attempts,
+                "potentially valid user_tx evicted after MAX_BUNDLE_ATTEMPTS failed settlement episodes to preserve chain liveness; repeated component disagreement requires investigation; resubmit required",
+            );
+            evicted.push(tx);
+        } else {
+            retry.push(tx);
+        }
+    }
+
+    // Without the missing nonce, later transactions cannot execute and would
+    // keep invalidating batches that include them.
+    for (sender, direction, nonce) in evicted_chains {
+        retry.retain(|tx| {
+            let cascade =
+                tx.sender == sender && tx.direction == direction && tx.nonce > nonce;
+            if cascade {
+                event!(
+                    name: "eez.composer.recovery.nonce_chain_evicted",
+                    Level::ERROR,
+                    event_name = "eez.composer.recovery.nonce_chain_evicted",
+                    rollup_id,
+                    source = ?source,
+                    tx_hash = %tx.hash,
+                    sender = %tx.sender,
+                    direction = ?tx.direction,
+                    nonce = tx.nonce,
+                    gap_at = nonce,
+                    "potentially valid same-sender tx depends on an evicted nonce; evicting nonce suffix for liveness (resubmit in order)",
+                );
+                evicted.push(tx.clone());
+            }
+            !cascade
+        });
+        for tx in pool.evict_chain_at_or_above(sender, direction, nonce) {
+            event!(
+                name: "eez.composer.recovery.nonce_chain_evicted",
+                Level::ERROR,
+                event_name = "eez.composer.recovery.nonce_chain_evicted",
+                rollup_id,
+                source = ?source,
+                tx_hash = %tx.hash,
+                sender = %tx.sender,
+                direction = ?tx.direction,
+                nonce = tx.nonce,
+                gap_at = nonce,
+                "potentially valid pooled tx depends on an evicted nonce; evicting nonce suffix for liveness (resubmit in order)",
+            );
+            evicted.push(tx);
+        }
+    }
+
+    let outcome = SettlementFailureOutcome {
+        requeued: retry.len(),
+        evicted: evicted.len(),
+    };
+    pool.release_in_flight_batch(&evicted);
+    pool.push_front_batch(retry);
+    outcome
+}
+
 impl From<String> for PreparePostBatchError {
     fn from(error: String) -> Self {
         Self::Build(error)
@@ -588,11 +688,10 @@ struct ObservationMismatchDetails {
 }
 
 /// Both ends are unusable and clamp to the default: above it no tx is valid
-/// (EIP-7825), and below `MIN_VIABLE` every emission path refuses forever.
+/// (EIP-7825), and below [`MIN_VIABLE_POSTBATCH_GAS`] every emission path
+/// refuses forever.
 fn clamp_max_postbatch_gas(requested: u64) -> u64 {
-    // The cheapest batch there is: the tx base plus one leading immediate entry.
-    let min_viable: u64 = projected_postbatch_gas(1, 0, 0);
-    if (min_viable..=DEFAULT_MAX_POSTBATCH_GAS).contains(&requested) {
+    if (MIN_VIABLE_POSTBATCH_GAS..=DEFAULT_MAX_POSTBATCH_GAS).contains(&requested) {
         return requested;
     }
     event!(
@@ -600,8 +699,8 @@ fn clamp_max_postbatch_gas(requested: u64) -> u64 {
         Level::ERROR,
         requested,
         clamped_to = DEFAULT_MAX_POSTBATCH_GAS,
-        min_viable,
-        "EEZ_MAX_POSTBATCH_GAS is out of range (must leave room above the cheapest batch's execution and stay within the EIP-7825 tx gas cap) — clamping to the default",
+        min_viable = MIN_VIABLE_POSTBATCH_GAS,
+        "EEZ_MAX_POSTBATCH_GAS is out of range (must leave room for the drain margin plus one held tx, and stay within the EIP-7825 tx gas cap) — clamping to the default",
     );
     DEFAULT_MAX_POSTBATCH_GAS
 }
@@ -1234,6 +1333,7 @@ where
         event!(
             name: "eez.composer.sync_slot.invoked",
             Level::INFO,
+            event_name = "eez.composer.sync_slot.invoked",
             rollup_id,
             timestamp,
             mode = ?mode,
@@ -1386,10 +1486,11 @@ where
         // bundle contains only `postBatch` in this path.
         let drained_count = drained.len();
         // Per-slot drain visibility (pool depth vs how many txs this bundle
-        // took) — DEBUG so it doesn't spam the steady-state INFO stream.
+        // took).
         event!(
             name: "eez.composer.sync_slot.drain",
-            Level::DEBUG,
+            Level::INFO,
+            event_name = "eez.composer.sync_slot.drain",
             rollup_id,
             cursor,
             parent_number,
@@ -1671,11 +1772,10 @@ where
             let mut keep: Vec<crate::HeldTx> = Vec::with_capacity(failed.txs.len());
             let mut release: Vec<crate::HeldTx> = Vec::new();
             let mut dropped = 0usize;
-            let mut evicted_chains: Vec<(alloy_primitives::Address, Direction, u64)> = Vec::new();
             // slot_skipped: the drop wasn't the txs' fault (skipped L1 slot or
             // relay transport failure) — re-queue without counting an attempt.
             let slot_skipped = failed.slot_skipped;
-            for mut tx in failed.txs {
+            for tx in failed.txs {
                 if landed.contains(&tx.hash) {
                     dropped += 1;
                     release.push(tx.clone());
@@ -1686,80 +1786,25 @@ where
                         tx_hash = %tx.hash,
                         "user_tx already has an L1 receipt; not re-queueing (user must resubmit)",
                     );
-                } else if slot_skipped {
-                    keep.push(tx);
                 } else {
-                    // A relay drop on a BUILT slot did NOT burn the nonce
-                    // (the tx never executed), so re-queue for a fresh
-                    // attempt. Poison is normally caught at compose
-                    // time; this bounded retry only backstops poison
-                    // the compose-time sim missed (rbuilder sims
-                    // against a slightly different post-postBatch
-                    // state). After MAX_BUNDLE_ATTEMPTS such drops,
-                    // evict loudly (with the nonce-cascade) so a
-                    // residual poison tx can't block the FIFO queue
-                    // forever. User resubmits.
-                    tx.attempts += 1;
-                    if tx.attempts >= MAX_BUNDLE_ATTEMPTS {
-                        dropped += 1;
-                        release.push(tx.clone());
-                        evicted_chains.push((tx.sender, tx.direction, tx.nonce));
-                        event!(
-                            name: "eez.composer.recovery.poison_evicted",
-                            Level::WARN,
-                            rollup_id,
-                            tx_hash = %tx.hash,
-                            sender = %tx.sender,
-                            nonce = tx.nonce,
-                            attempts = tx.attempts,
-                            "user_tx evicted after MAX_BUNDLE_ATTEMPTS relay drops (likely poison the compose-time sim missed); resubmit required",
-                        );
-                    } else {
-                        keep.push(tx);
-                    }
+                    keep.push(tx);
                 }
             }
-            // Evict the same-sender nonce suffix with its root. Without the
-            // missing nonce, later transactions cannot execute and would keep
-            // invalidating batches that include them.
-            for (sender, direction, nonce) in &evicted_chains {
-                keep.retain(|t| {
-                    // The root is already in `release`; remove only its suffix here.
-                    let cascade =
-                        t.sender == *sender && t.direction == *direction && t.nonce > *nonce;
-                    if cascade {
-                        dropped += 1;
-                        release.push(t.clone());
-                        event!(
-                            name: "eez.composer.recovery.nonce_chain_evicted",
-                            Level::WARN,
-                            rollup_id,
-                            tx_hash = %t.hash,
-                            sender = %t.sender,
-                            nonce = t.nonce,
-                            gap_at = nonce,
-                            "same-sender tx above an evicted nonce; gapped chain can never land — evicted (resubmit in order)",
-                        );
-                    }
-                    !cascade
-                });
-                for t in pool.evict_chain_at_or_above(*sender, *direction, *nonce) {
-                    dropped += 1;
-                    event!(
-                        name: "eez.composer.recovery.nonce_chain_evicted",
-                        Level::WARN,
-                        rollup_id,
-                        tx_hash = %t.hash,
-                        sender = %t.sender,
-                        nonce = t.nonce,
-                        gap_at = nonce,
-                        "same-sender pooled tx above an evicted nonce; gapped chain can never land — evicted (resubmit in order)",
-                    );
-                }
-            }
-            let re_pushed = keep.len();
             pool.release_in_flight_batch(&release);
-            pool.push_front_batch(keep);
+            let (re_pushed, settlement_evicted) = if slot_skipped {
+                let re_pushed = keep.len();
+                pool.push_front_batch(keep);
+                (re_pushed, 0)
+            } else {
+                let recovery = recover_settlement_failure(
+                    pool,
+                    rollup_id,
+                    keep,
+                    SettlementFailureSource::Relay,
+                );
+                (recovery.requeued, recovery.evicted)
+            };
+            dropped += settlement_evicted;
             if re_pushed > 0 || dropped > 0 {
                 event!(
                     name: "eez.composer.recovery.re_pushed",
@@ -2036,7 +2081,6 @@ where
                 poison.push(held);
                 continue;
             }
-
             let contexts = L1TargetSession::new(&l1_state, local.l1_entry.clone())
                 .map_err(|e| format!("L1TargetSession::new: {e}"))
                 .and_then(|exec| {
@@ -2136,6 +2180,7 @@ where
                         event!(
                             name: "eez.composer.cc_compose.outbound_root_mismatch",
                             Level::WARN,
+                            event_name = "eez.composer.cc_compose.outbound_root_mismatch",
                             rollup_id,
                             tx_idx = idx,
                             tx_hash = %held.hash,
@@ -2831,7 +2876,19 @@ where
         // a sender's nonce N is evicted, N+1.. can never land.
         for tx in &poison {
             // Inclusive eviction releases the poison root's reservation too.
-            for t in pool.evict_chain_at_or_above(tx.sender, tx.direction, tx.nonce) {
+            let evicted = pool.evict_chain_at_or_above(tx.sender, tx.direction, tx.nonce);
+            event!(
+                name: "eez.composer.cc_compose.poison_eviction_completed",
+                Level::WARN,
+                event_name = "eez.composer.cc_compose.poison_eviction_completed",
+                rollup_id,
+                tx_hash = %tx.hash,
+                sender = %tx.sender,
+                nonce = tx.nonce,
+                direction = ?tx.direction,
+                "poison transaction and its nonce-chain suffix evicted",
+            );
+            for t in evicted {
                 event!(
                     name: "eez.composer.cc_compose.poison_chain_evicted",
                     Level::WARN,
@@ -3167,16 +3224,32 @@ where
                             resolved_held_tx = false,
                             "composer simulation and pinned-prefix replay disagree, but the originating held transaction could not be resolved; retaining survivors and degrading to minimal postBatch",
                         );
+                        // Local observation mismatches are construction failures, not
+                        // failed proving episodes. Keep their existing fallback policy.
+                        pool.push_front_batch(survivors);
                     } else {
                         event!(
                             name: "eez.composer.prover.actionable_unresolved",
                             Level::ERROR,
                             rollup_id,
                             failure = %error,
-                            "attributable prover failure has no matching HeldTx; retaining survivors and degrading to minimal postBatch",
+                            "attributable prover failure has no matching HeldTx; counting one opaque settlement failure and degrading to minimal postBatch",
+                        );
+                        let recovery = recover_settlement_failure(
+                            pool,
+                            rollup_id,
+                            survivors,
+                            SettlementFailureSource::Prover,
+                        );
+                        event!(
+                            name: "eez.composer.prover.failure_recovered",
+                            Level::WARN,
+                            rollup_id,
+                            requeued = recovery.requeued,
+                            evicted = recovery.evicted,
+                            "opaque prover failure recovered with bounded transaction eviction",
                         );
                     }
-                    pool.push_front_batch(survivors);
                     return self
                         .dispatch_minimal_postbatch(
                             ctx,
@@ -3217,7 +3290,7 @@ where
                 } else {
                     event!(
                         name: "eez.composer.prover.poison_ejected",
-                        Level::WARN,
+                        Level::ERROR,
                         rollup_id,
                         failure = %error,
                         tx_hash = %failed.hash,
@@ -3225,32 +3298,32 @@ where
                         direction = ?failed.direction,
                         nonce = failed.nonce,
                         retrying = retry.len(),
-                        "prover identified a poisoned held transaction; evicting its nonce-chain suffix and rebuilding the batch",
+                        "prover attributed the rejection to one held transaction; evicting its nonce-chain suffix for liveness; a valid transaction here indicates a Composer/prover disagreement",
                     );
                     for in_flight in &evicted_in_flight {
                         event!(
                             name: "eez.composer.prover.poison_in_flight_evicted",
-                            Level::WARN,
+                            Level::ERROR,
                             rollup_id,
                             tx_hash = %in_flight.hash,
                             sender = %in_flight.sender,
                             direction = ?in_flight.direction,
                             nonce = in_flight.nonce,
                             gap_at = failed.nonce,
-                            "in-flight transaction belongs to an ejected nonce-chain suffix",
+                            "transaction belongs to a prover-attributed nonce-chain suffix; evicting for liveness",
                         );
                     }
                     for queued in &evicted_queued {
                         event!(
                             name: "eez.composer.prover.poison_queued_evicted",
-                            Level::WARN,
+                            Level::ERROR,
                             rollup_id,
                             tx_hash = %queued.hash,
                             sender = %queued.sender,
                             direction = ?queued.direction,
                             nonce = queued.nonce,
                             gap_at = failed.nonce,
-                            "queued transaction depends on an ejected nonce; evicting suffix",
+                            "queued transaction depends on a prover-attributed nonce; evicting suffix for liveness",
                         );
                     }
                 }
@@ -3309,13 +3382,62 @@ where
                     }
                 };
             }
-            Err(e) => {
+            Err(PreparePostBatchError::Prover(error)) => {
+                let retryable = error.retryable_kind().is_some();
+                if retryable {
+                    event!(
+                        name: "eez.composer.phase2.prepare_failed",
+                        Level::WARN,
+                        rollup_id,
+                        error = %error,
+                        retryable,
+                        failure_class = "expected_transient",
+                        "transient proof episode failed; counting one settlement failure and degrading to minimal postBatch",
+                    );
+                } else {
+                    event!(
+                        name: "eez.composer.phase2.prepare_failed",
+                        Level::ERROR,
+                        rollup_id,
+                        error = %error,
+                        retryable,
+                        failure_class = "unexpected_disagreement",
+                        "unexpected proof rejection; possible Composer/prover disagreement; counting one settlement failure and degrading to minimal postBatch",
+                    );
+                }
+                let recovery = recover_settlement_failure(
+                    pool,
+                    rollup_id,
+                    survivors,
+                    SettlementFailureSource::Prover,
+                );
+                event!(
+                    name: "eez.composer.prover.failure_recovered",
+                    Level::WARN,
+                    rollup_id,
+                    requeued = recovery.requeued,
+                    evicted = recovery.evicted,
+                    "prover failure recovered with bounded transaction eviction",
+                );
+                return self
+                    .dispatch_minimal_postbatch(
+                        ctx,
+                        rollup_id,
+                        rollup,
+                        parent_header,
+                        timestamp,
+                        suggested_fee_recipient,
+                        bundle_target,
+                    )
+                    .await;
+            }
+            Err(PreparePostBatchError::Build(error)) => {
                 event!(
                     name: "eez.composer.phase2.prepare_failed",
                     Level::WARN,
                     rollup_id,
-                    error = %e,
-                    "prepare_post_batch_raw failed; re-queueing survivors, degrading to minimal postBatch",
+                    error,
+                    "postBatch construction failed; re-queueing survivors without charging a settlement attempt and degrading to minimal postBatch",
                 );
                 pool.push_front_batch(survivors);
                 return self
@@ -3353,6 +3475,7 @@ where
         event!(
             name: "eez.composer.bundle.dispatched",
             Level::INFO,
+            event_name = "eez.composer.bundle.dispatched",
             rollup_id,
             sync_height,
             tx_count = bundle.len(),
@@ -3485,6 +3608,7 @@ where
         event!(
             name: "eez.composer.phase1.bundle.dispatched",
             Level::INFO,
+            event_name = "eez.composer.phase1.bundle.dispatched",
             rollup_id,
             sync_height,
             "minimal postBatch dispatched to background observer (leading immediate only)",
@@ -4625,8 +4749,8 @@ where
                 .await
                 .map_err(|e| format!("witness spawn_blocking join: {e}"))??
             }
-            // Mock mode ignores witnesses, but local observation validation is
-            // still mandatory before the claimed result can enter a bundle.
+            // Tests may use a lightweight prover without a witness source, but
+            // local observation validation still applies to every claimed result.
             None if terminal_observations.is_empty() => (Vec::new(), Vec::new()),
             None => {
                 let l2_provider = Arc::clone(
@@ -4694,8 +4818,19 @@ where
                 let Some(failure) = error.actionable_failure() else {
                     return Err(PreparePostBatchError::Prover(error));
                 };
-                validate_actionable_prover_failure(failure, &batch, sync_block)
-                    .map_err(PreparePostBatchError::Build)?;
+                if let Err(validation_error) =
+                    validate_actionable_prover_failure(failure, &batch, sync_block)
+                {
+                    event!(
+                        name: "eez.composer.prover.actionable_invalid",
+                        Level::ERROR,
+                        rollup_id,
+                        failure = %failure,
+                        error = %validation_error,
+                        "prover supplied actionable failure details that do not match the current request; treating the rejection as opaque",
+                    );
+                    return Err(PreparePostBatchError::Prover(error));
+                }
                 return Err(PreparePostBatchError::Actionable(failure));
             }
         };
@@ -4829,6 +4964,31 @@ async fn observe_bundle_outcome(
         })
     );
     match &outcome {
+        Ok(
+            o @ SendOutcome::Included {
+                state_applied: false,
+                ..
+            },
+        ) => event!(
+            name: "eez.composer.bundle.observed",
+            Level::ERROR,
+            event_name = "eez.composer.bundle.observed",
+            rollup_id,
+            sync_height,
+            settled,
+            outcome = ?o,
+            "postBatch was included without the expected state transition; possible Composer/prover/settlement-contract disagreement",
+        ),
+        Ok(o @ SendOutcome::Dropped { .. }) => event!(
+            name: "eez.composer.bundle.observed",
+            Level::WARN,
+            event_name = "eez.composer.bundle.observed",
+            rollup_id,
+            sync_height,
+            settled,
+            outcome = ?o,
+            "bundle was dropped before settlement; re-queueing transactions for recovery",
+        ),
         Ok(o) => event!(
             name: "eez.composer.bundle.observed",
             Level::INFO,
@@ -4958,7 +5118,6 @@ fn post_batch_blob_transaction_hash(raw: &[u8]) -> Result<alloy_primitives::TxHa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::held_pool::HeldPool;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
 
@@ -5026,6 +5185,82 @@ mod tests {
 
         assert_eq!(poison.len(), 2);
         assert_eq!(gaps, vec![(sender, Direction::Inbound, 7)]);
+    }
+
+    #[test]
+    fn settlement_failures_increment_once_per_episode_and_preserve_fifo() {
+        let pool = HeldPool::new();
+        let first = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 1);
+        let second = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 2);
+        pool.push_contiguous(first.clone(), 0).unwrap();
+        pool.push_contiguous(second.clone(), 0).unwrap();
+
+        let first_failure =
+            recover_settlement_failure(&pool, 1, pool.pop_all(), SettlementFailureSource::Prover);
+        assert_eq!(
+            first_failure,
+            SettlementFailureOutcome {
+                requeued: 2,
+                evicted: 0,
+            }
+        );
+        let after_first = pool.pop_all();
+        assert_eq!(
+            after_first.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![first.hash, second.hash]
+        );
+        assert!(after_first.iter().all(|tx| tx.attempts == 1));
+
+        let second_failure =
+            recover_settlement_failure(&pool, 1, after_first, SettlementFailureSource::Relay);
+        assert_eq!(
+            second_failure,
+            SettlementFailureOutcome {
+                requeued: 2,
+                evicted: 0,
+            }
+        );
+        let after_second = pool.pop_all();
+        assert_eq!(
+            after_second.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![first.hash, second.hash]
+        );
+        assert!(after_second.iter().all(|tx| tx.attempts == 2));
+        pool.release_in_flight_batch(&after_second);
+    }
+
+    #[test]
+    fn settlement_failure_limit_evicts_current_and_queued_nonce_suffix() {
+        let pool = HeldPool::new();
+        let sender = Address::repeat_byte(0xa);
+        let mut root = held(sender, Direction::Inbound, 0, 1);
+        root.attempts = MAX_BUNDLE_ATTEMPTS - 1;
+        let in_flight_suffix = held(sender, Direction::Inbound, 1, 2);
+        let queued_suffix = held(sender, Direction::Inbound, 2, 3);
+        let opposite_direction = held(sender, Direction::Outbound, 0, 4);
+        let independent = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 5);
+        pool.push_contiguous(root, 0).unwrap();
+        pool.push_contiguous(in_flight_suffix, 0).unwrap();
+        pool.push_contiguous(queued_suffix, 0).unwrap();
+        let failed = pool.pop_n(2);
+        pool.push_contiguous(opposite_direction.clone(), 0).unwrap();
+        pool.push_contiguous(independent.clone(), 0).unwrap();
+
+        let recovery =
+            recover_settlement_failure(&pool, 1, failed, SettlementFailureSource::Prover);
+        assert_eq!(
+            recovery,
+            SettlementFailureOutcome {
+                requeued: 0,
+                evicted: 3,
+            }
+        );
+        let remaining = pool.pop_all();
+        assert_eq!(
+            remaining.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![opposite_direction.hash, independent.hash]
+        );
+        pool.release_in_flight_batch(&remaining);
     }
 
     #[test]
@@ -5284,11 +5519,12 @@ mod tests {
     fn gas_budget_out_of_range_clamps_to_default() {
         // In range → honoured.
         assert_eq!(clamp_max_postbatch_gas(12_000_000), 12_000_000);
-        // The cheapest batch there is must stand.
-        let min_viable = projected_postbatch_gas(1, 0, 0);
-        assert_eq!(clamp_max_postbatch_gas(min_viable), min_viable);
         assert_eq!(
-            clamp_max_postbatch_gas(min_viable - 1),
+            clamp_max_postbatch_gas(MIN_VIABLE_POSTBATCH_GAS),
+            MIN_VIABLE_POSTBATCH_GAS
+        );
+        assert_eq!(
+            clamp_max_postbatch_gas(MIN_VIABLE_POSTBATCH_GAS - 1),
             DEFAULT_MAX_POSTBATCH_GAS
         );
         assert_eq!(
@@ -5300,6 +5536,50 @@ mod tests {
         assert_eq!(
             clamp_max_postbatch_gas(DEFAULT_MAX_POSTBATCH_GAS + 1),
             DEFAULT_MAX_POSTBATCH_GAS
+        );
+    }
+
+    /// The forge pin test re-declares both constants as literals, so a change
+    /// here would leave it measuring the old value in silence. Bind them.
+    #[test]
+    fn solidity_pin_test_mirrors_the_rust_gas_pins() {
+        let sol = include_str!("../../../contracts/test/PostBatchGasPins.t.sol");
+        for (name, rust) in [
+            ("POSTBATCH_BASE_GAS_PIN", POSTBATCH_BASE_GAS_PIN),
+            ("POSTBATCH_ENTRY_GAS_PIN", POSTBATCH_ENTRY_GAS_PIN),
+        ] {
+            let decl = format!("uint256 private constant {name} = ");
+            let rest = sol
+                .split(&decl)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{name} is not declared in PostBatchGasPins.t.sol"));
+            let literal: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '_')
+                .collect();
+            let sol_value: u64 = literal
+                .replace('_', "")
+                .parse()
+                .unwrap_or_else(|e| panic!("{name} literal {literal:?}: {e}"));
+            assert_eq!(
+                sol_value, rust,
+                "{name} drifted: Solidity pins {sol_value}, Rust projects {rust}",
+            );
+        }
+    }
+
+    /// Any ceiling the clamp accepts must let the drain take at least one tx.
+    #[test]
+    fn the_lowest_accepted_ceiling_still_admits_one_held_tx() {
+        let mut budget = PostBatchGasBudget::new(MIN_VIABLE_POSTBATCH_GAS);
+        assert!(
+            budget.try_accept(TxL1Gas {
+                entries: 1,
+                calldata_gas: 0,
+                target_gas: 0,
+            }),
+            "the lowest accepted ceiling admits no tx — every drain would evict \
+             its first held tx as poison",
         );
     }
 

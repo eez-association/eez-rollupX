@@ -6,40 +6,61 @@ license.workspace      = true
 rust-version.workspace = true
 description            = "Engine-API consumer that drives a reth node to produce blocks on a fixed cadence."
 
+[features]
+default = []
+observation = [
+    "dep:eez-protocol",
+    "dep:eyre",
+    "dep:reth-ethereum-primitives",
+    "dep:reth-evm",
+    "dep:reth-evm-ethereum",
+    "dep:revm",
+    "dep:alloy-sol-types",
+]
+witness = [
+    "observation",
+    "dep:eez-prover",
+    "dep:eyre",
+    "dep:reth-ethereum-primitives",
+    "dep:reth-evm",
+    "dep:reth-revm",
+    "dep:reth-trie",
+    "dep:alloy-rlp",
+    "dep:alloy-rpc-types-debug",
+]
+
 [dependencies]
-# eez — the witness module produces the prover's per-block input type.
-eez-prover.workspace = true
-eez-protocol.workspace = true
+# eez — enabled only for the Composer's per-block proving witness path.
+eez-prover = { workspace = true, optional = true }
+eez-protocol = { workspace = true, optional = true }
 
 eez-l1.workspace = true
 # reth
 reth-chainspec.workspace                  = true
 reth-engine-primitives.workspace          = true
 reth-ethereum-engine-primitives.workspace = true
-reth-ethereum-primitives.workspace        = true
-reth-evm.workspace                        = true
-reth-evm-ethereum.workspace               = true
+reth-ethereum-primitives = { workspace = true, optional = true }
+reth-evm = { workspace = true, optional = true }
+reth-evm-ethereum = { workspace = true, optional = true }
+revm = { workspace = true, optional = true }
 reth-payload-builder.workspace            = true
 reth-payload-primitives.workspace         = true
 reth-primitives-traits.workspace          = true
-# `witness` feature gates ExecutionWitnessRecord::into_execution_witness,
-# used by the per-block witness re-exec (witness.rs).
-reth-revm                                 = { workspace = true, features = ["witness"] }
+reth-revm = { workspace = true, features = ["witness"], optional = true }
 reth-storage-api.workspace                = true
-reth-trie.workspace                       = true
-revm.workspace                            = true
+reth-trie = { workspace = true, optional = true }
 
 # alloy
 alloy-consensus.workspace        = true
 alloy-primitives.workspace       = true
-alloy-rlp.workspace              = true
-alloy-rpc-types-debug.workspace  = true
+alloy-rlp = { workspace = true, optional = true }
+alloy-rpc-types-debug = { workspace = true, optional = true }
 alloy-rpc-types-engine.workspace = true
-alloy-sol-types.workspace        = true
+alloy-sol-types = { workspace = true, optional = true }
 
 # async + diagnostics
 async-trait.workspace = true
-eyre.workspace        = true
+eyre = { workspace = true, optional = true }
 tokio.workspace       = true
 tracing.workspace     = true
 

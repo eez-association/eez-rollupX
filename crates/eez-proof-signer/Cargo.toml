@@ -13,7 +13,7 @@ eez-blob-codec.workspace = true
 eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
 eez-protocol.workspace = true
-eez-driver.workspace = true
+eez-driver = { workspace = true, features = ["observation"] }
 
 alloy-consensus.workspace = true
 alloy-genesis.workspace = true
@@ -43,7 +43,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 # Recorded calldata fixture decoding.

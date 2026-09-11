@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`d0fe87534782f373504628ff994fb62dcc57465a`. Stateless execution uses
+`3c0cdf4955941a5c23639346932b55b33babebbd`. Stateless execution uses
 `eez-association/stateless` at commit
 `4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
 
@@ -17,6 +17,9 @@ defines on-chain behavior. This document defines the additional conditions the
 signer applies before producing an attestation. If the pinned Solidity ABI or
 hash construction changes, the signer, shared Rust mirrors, vectors, and this
 document MUST be updated atomically.
+
+For Composer request construction, response validation, and recovery, see the
+[Composer-to-prover RPC specification](../eez-control-rpc/SPEC.md).
 
 ## 1. Purpose and supported profile
 
@@ -254,8 +257,9 @@ The header is admitted only if:
 - `post_batch.l1_block_hash` is empty.
 
 `post_batch.public_inputs_hash` is a non-authoritative Composer claim and MUST
-be ignored. It is not length-checked and is never signed. Only
-`post_batch.abi_calldata` is retained for settlement.
+be ignored. It is not length-checked and is never signed.
+`post_batch.abi_calldata` and the physical `post_batch.blobs` are retained for
+settlement validation.
 
 ### 5.2 Blocks
 
@@ -401,7 +405,7 @@ with malformed output is an internal failure, not an input rejection.
 
 `PostBatch.abi_calldata` MUST exact-decode as the current
 `postAndVerifyBatch(ProofSystemBatchPerVerificationEntries)` ABI with selector
-`0xcafef125`. Re-encoding the decoded argument MUST reproduce every byte after
+`0xe4a480e4`. Re-encoding the decoded argument MUST reproduce every byte after
 the selector. Alternate, partial, or trailing encodings MUST be rejected.
 
 Canonical decoding establishes byte identity only; every decoded claim remains
@@ -600,7 +604,7 @@ require each row key to equal
 consume every flat call and row exactly once. Both final rolling hashes and
 every nested outcome MUST match. The update's `etherDelta` MUST equal the sum
 of values on all L1-to-L2 calls minus the sum on all L2-to-L1 calls, within the
-`int256` range.
+`int192` range.
 
 Every L2-origin call recomputed from an inbound nested pair MUST have one
 matching current six-field `EEZL2.CrossChainCallExecuted` event in the inbound
@@ -645,7 +649,7 @@ loaded L2 source table with the same recursive inverse execution defined in
 section 9.2. Each L2-origin source hash uses target rollup `0` and zero
 `callGas`; these hashes MUST equal the ordered event hashes. The update's
 `etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
-all roots covered by that host, within the `int256` range.
+all roots covered by that host, within the `int192` range.
 
 ## 11. Data-availability and Sync-block verification
 
@@ -995,9 +999,9 @@ Field order and integer widths are part of the ABI.
 ```solidity
 struct RootUpdate {
     uint64 rollupId;
+    int192 etherDelta;
     bytes32 currentRoot;
     bytes32 newRoot;
-    int256 etherDelta;
 }
 
 struct ExpectedRootPerRollup {
@@ -1129,7 +1133,7 @@ Current selector locks are:
 
 | Function | Selector |
 | --- | --- |
-| `postAndVerifyBatch` | `0xcafef125` |
+| `postAndVerifyBatch` | `0xe4a480e4` |
 | `executeL2Txs` | `0xdc6d11fa` |
 | `staticCrossChainCall` | `0x31344ade` |
 | `loadExecutionTable` | `0xb301bc80` |

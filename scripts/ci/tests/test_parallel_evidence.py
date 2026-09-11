@@ -56,6 +56,23 @@ PY
             return MODULE.collect(names, dict.fromkeys(names, self.root / "source.sol"),
                                   self.root, self.output, workers, timeout)
 
+    def child_is_stopped(self):
+        status = Path(f"/proc/{self.child.read_text()}/stat")
+        try:
+            return status.read_text().split()[2] == "Z"
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+
+    def test_child_can_exit_during_proc_stat_read(self):
+        with patch.object(Path, "read_text", side_effect=[
+            str(os.getpid()), ProcessLookupError(3, "No such process"),
+        ]):
+            self.assertTrue(self.child_is_stopped())
+
+    def test_running_child_is_not_reported_stopped(self):
+        self.child.write_text(str(os.getpid()))
+        self.assertFalse(self.child_is_stopped())
+
     def test_parallel_limit_and_one_result_per_scenario(self):
         names = [f"case-{i}" for i in range(8)]
         records = self.collect(names)
@@ -79,10 +96,8 @@ PY
             records = self.collect(["hang", "ok"], timeout=1)
             self.assertEqual([r["exit_code"] for r in records], [124, 0])
             self.assertIsNone(unrelated.poll())
-            pid = self.child.read_text()
             for _ in range(50):
-                status = Path(f"/proc/{pid}/stat")
-                if not status.exists() or status.read_text().split()[2] == "Z":
+                if self.child_is_stopped():
                     break
                 time.sleep(0.02)
             else:
@@ -119,8 +134,7 @@ module.collect(["hang", "queued"], dict.fromkeys(["hang", "queued"], Path("unuse
             process.terminate()
             self.assertEqual(process.wait(timeout=5), 143)
             self.assertNotIn('"name": "queued"', self.trace.read_text())
-            status = Path(f"/proc/{self.child.read_text()}/stat")
-            self.assertTrue(not status.exists() or status.read_text().split()[2] == "Z")
+            self.assertTrue(self.child_is_stopped())
         finally:
             if process.poll() is None:
                 process.kill()

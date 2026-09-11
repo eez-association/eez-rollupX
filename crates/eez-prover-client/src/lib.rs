@@ -4,7 +4,8 @@
 //! `Arc` is a [`RemoteProver`], the call maps [`ProvingContext`] to a
 //! `prove.v1` client-stream (a header then one chunk per window block), dials
 //! the configured `eez-proof-signer`, awaits the attestation, verifies it recovers
-//! to the registered attester, and returns the 65-byte signature. Stateless:
+//! to the registered attester over the exact request batch and physical blobs,
+//! and returns the 65-byte signature. Stateless:
 //! one round-trip, no feed/cursor/sink.
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
@@ -133,19 +134,33 @@ impl Prover for RemoteProver {
             .map_err(|status| map_rpc_status(ctx.from_block, ctx.to_block, status))?
             .into_inner();
 
-        // Fail-closed: the attestation must recover to the REGISTERED attester
-        // over the hash the prover signed. A wrong prover cannot forge it.
+        // Bind both the signing authority and the signed payload. A signature
+        // from the registered attester over another batch is not our proof.
         let hash = verify_attestation(
             &resp.signature,
             &resp.public_inputs_hash,
             self.inner.attester,
         )?;
+        let from_block = ctx.from_block;
+        let to_block = ctx.to_block;
+        let vkey = self.vkey();
+        // KZG commitment calculation is CPU work; keep it off the async worker.
+        let expected_hash = tokio::task::spawn_blocking(move || request_hash(&ctx, vkey))
+            .await
+            .map_err(|error| {
+                ProverError::Backend(format!("public-input preflight worker: {error}"))
+            })??;
+        if hash != expected_hash {
+            return Err(ProverError::Backend(format!(
+                "attestation publicInputsHash {hash} != request hash {expected_hash}"
+            )));
+        }
         event!(
             name: "eez.prover_client.attested",
             Level::INFO,
             event_name = "eez.prover_client.attested",
-            from = ctx.from_block,
-            to = ctx.to_block,
+            from = from_block,
+            to = to_block,
             blocks = n_blocks,
             %hash,
             "remote prover attested the window",
@@ -156,6 +171,23 @@ impl Prover for RemoteProver {
     fn vkey(&self) -> B256 {
         // Left-zero-pad the 20-byte attester into a B256 (the registry vkey).
         self.inner.attester.into_word()
+    }
+}
+
+/// Recompute the sole proof carrier from the exact request, deriving versioned
+/// hashes from physical blobs instead of accepting a remote hash claim.
+fn request_hash(ctx: &ProvingContext, vkey: B256) -> ProverResult<B256> {
+    let blob_hashes = eez_blob_codec::blob_versioned_hashes(&ctx.blobs)
+        .map_err(|error| ProverError::Backend(format!("request blob commitments: {error}")))?;
+    let hashes =
+        eez_protocol::public_inputs_hashes_with_blob_hashes(&ctx.batch, vkey, &blob_hashes)
+            .map_err(|error| ProverError::Backend(format!("request public inputs: {error}")))?;
+    match hashes.as_slice() {
+        [hash] => Ok(*hash),
+        _ => Err(ProverError::Backend(format!(
+            "request has {} public-input hashes, expected one",
+            hashes.len()
+        ))),
     }
 }
 
@@ -217,7 +249,7 @@ fn exact_hash(bytes: &[u8]) -> Option<B256> {
 /// # Errors
 ///
 /// [`ProverError::Backend`] on a wrong-length signature or hash, a malformed
-/// signature, or a signer that isn't the registered attester.
+/// signature, non-canonical `s` or `v`, or a signer that isn't the registered attester.
 fn verify_attestation(
     signature: &[u8],
     public_inputs_hash: &[u8],
@@ -236,8 +268,18 @@ fn verify_attestation(
         )));
     }
     let hash = B256::from_slice(public_inputs_hash);
+    if !matches!(signature[64], 27 | 28) {
+        return Err(ProverError::Backend(
+            "attestation v must be 27 or 28".into(),
+        ));
+    }
     let sig = Signature::try_from(signature)
         .map_err(|e| ProverError::Backend(format!("malformed attestation signature: {e}")))?;
+    if sig.normalize_s().is_some() {
+        return Err(ProverError::Backend(
+            "attestation must use canonical low-s".into(),
+        ));
+    }
     let recovered = sig
         .recover_address_from_prehash(&hash)
         .map_err(|e| ProverError::Backend(format!("attestation recover failed: {e}")))?;
@@ -337,21 +379,66 @@ mod tests {
         .unwrap()
     }
 
-    /// An attestation that ecrecovers to the REGISTERED attester is accepted and
-    /// returned verbatim (65 bytes).
+    // A batch with one proof carrier and one physical blob for response
+    // preflight tests. Execution validation belongs to the real signer.
+    fn test_context() -> ProvingContext {
+        use eez_protocol::abi::{ExecutionEntrySol, RollupIdWithProofSystemsSol};
+        ProvingContext {
+            rollup_id: 1,
+            from_block: 1,
+            to_block: 1,
+            batch: eez_protocol::EvmBatch {
+                proofSystems: vec![address!("0000000000000000000000000000000000000055")],
+                rollupIdsWithProofSystems: vec![RollupIdWithProofSystemsSol {
+                    rollupId: 1,
+                    proofSystemIndexes: vec![0],
+                }],
+                entries: vec![ExecutionEntrySol::default()],
+                blobIndices: vec![alloy_primitives::U256::ZERO],
+                ..Default::default()
+            },
+            blobs: eez_blob_codec::pack(&[0, 1]).unwrap(),
+            ..Default::default()
+        }
+    }
+
+    /// A registered-attester signature over this request is returned verbatim.
     #[tokio::test]
     async fn attestation_recovering_to_registered_attester_is_accepted() {
         let key = test_key();
         let attester = key.address();
-        let hash = B256::repeat_byte(0x7c);
+        let ctx = test_context();
+        let hash = request_hash(&ctx, attester.into_word()).unwrap();
         let url = spawn_stub(key, hash).await;
 
         let prover = RemoteProver::new(url, attester);
         let proof = prover
-            .prove(ProvingContext::default())
+            .prove(ctx)
             .await
             .expect("attestation recovering to the registered attester must be accepted");
         assert_eq!(proof.len(), 65, "returned proof is the 65-byte r||s||v");
+    }
+
+    #[tokio::test]
+    async fn registered_attester_signature_for_different_batch_or_blob_is_rejected() {
+        let key = test_key();
+        let attester = key.address();
+        let original = test_context();
+        let hash = request_hash(&original, attester.into_word()).unwrap();
+        let prover = RemoteProver::new(spawn_stub(key, hash).await, attester);
+
+        let mut changed_entry = original.clone();
+        changed_entry.batch.entries[0].rollingHash = B256::repeat_byte(0x42);
+        let mut changed_blob = original;
+        changed_blob.blobs = eez_blob_codec::pack(&[0, 2]).unwrap();
+        for ctx in [changed_entry, changed_blob] {
+            let error = prover.prove(ctx).await.unwrap_err();
+            assert!(
+                matches!(error, ProverError::Backend(ref message)
+                if message.contains("!= request hash")),
+                "{error:?}"
+            );
+        }
     }
 
     /// An attestation signed by a DIFFERENT key does not recover to the registered
@@ -435,6 +522,29 @@ mod tests {
         let sig = sign_65(&key, hash);
         let wrong = address!("0x00000000000000000000000000000000000000ff");
         assert!(verify_attestation(&sig, hash.as_slice(), wrong).is_err());
+    }
+
+    #[test]
+    fn verify_attestation_rejects_noncanonical_v_and_high_s() {
+        use alloy_primitives::{U256, uint};
+        let key = test_key();
+        let hash = B256::repeat_byte(0x7c);
+        let canonical = sign_65(&key, hash);
+        for v in [0, 1, 26, 29, 35, 36, 255] {
+            let mut sig = canonical.clone();
+            sig[64] = v;
+            let error = verify_attestation(&sig, hash.as_slice(), key.address()).unwrap_err();
+            assert!(error.to_string().contains("v must be 27 or 28"));
+        }
+
+        let mut high_s = canonical;
+        let order = uint!(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141_U256);
+        let s = order - U256::from_be_slice(&high_s[32..64]);
+        high_s[32..64].copy_from_slice(&s.to_be_bytes::<32>());
+        high_s[64] = if high_s[64] == 27 { 28 } else { 27 };
+        // This is the same recoverable signature, but Solidity requires low-s.
+        let error = verify_attestation(&high_s, hash.as_slice(), key.address()).unwrap_err();
+        assert!(error.to_string().contains("canonical low-s"));
     }
 
     #[test]

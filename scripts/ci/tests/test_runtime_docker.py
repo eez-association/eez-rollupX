@@ -27,6 +27,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
+                "contracts/test/PostBatchGasPins.t.sol",
             ):
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,11 +36,11 @@ class RuntimeDockerTest(unittest.TestCase):
             packages = {
                 "eez-node": {
                     "src/bin/eez-composer.rs": "eez-composer",
-                    "src/bin/eez-follower.rs": "eez-follower",
-                    "src/bin/eez-dev-node.rs": "eez-dev-node",
                     "examples/genesis_state_root.rs": "eez-genesis-state-root",
                     "examples/genesis_block_hash.rs": "eez-genesis-block-hash",
                 },
+                "eez-follower": {"src/bin/eez-follower.rs": "eez-follower"},
+                "eez-node-e2e": {},
                 "eez-proof-signer": {"src/main.rs": "eez-proof-signer"},
                 "eez-protocol": {"examples/e2e-causal-verify.rs": "e2e-causal-verify"},
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
@@ -61,7 +62,17 @@ class RuntimeDockerTest(unittest.TestCase):
                     f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n'
                 )
                 (package / "src/lib.rs").write_text("#[test] fn unit_test() { assert_eq!(2+2,4); }\n")
-                for test in ({"eez-node": ("e2e", "cross_chain", "chained_interstate", "resumption"),
+                if name == "eez-composer":
+                    # Match the real composer's compile-time dependency on a
+                    # Solidity fixture outside crates/. Both the Docker build
+                    # context and the builder stage must carry this input.
+                    (package / "src/lib.rs").write_text(
+                        '#[test] fn gas_pin_source_is_packaged() {\n'
+                        '    let source = include_str!("../../../contracts/test/PostBatchGasPins.t.sol");\n'
+                        '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
+                        '}\n'
+                    )
+                for test in ({"eez-node-e2e": ("e2e", "cross_chain", "chained_interstate", "resumption"),
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)
@@ -72,7 +83,7 @@ class RuntimeDockerTest(unittest.TestCase):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(f'fn main() {{ println!("{output}"); }}\n')
 
-            (repo / "contracts").mkdir()
+            (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
             (repo / "genesis.json").write_text("{}")
             protocol = repo / "eez-core-protocol"
@@ -114,7 +125,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 test_manifest = json.loads((root / "test-artifacts/manifest.json").read_text())
                 self.assertEqual(test_manifest["runtime_archive_sha256"], manifest["binaries_sha256"])
                 self.assertEqual(test_manifest["profile"], "release")
-                self.assertFalse((binary_dir / "eez-dev-node").exists(), "CI helper must not ship")
+                self.assertFalse((binary_dir / "eez-dev-node").exists(), "removed dev node must not ship")
                 # Bookworm-built release tests must execute on the consumer host
                 # without its Cargo/rustc. Install nextest outside CARGO_HOME.
                 tools = root / "consumer-tools"

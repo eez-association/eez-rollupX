@@ -1,6 +1,6 @@
 //! Read-only canonical L1 access for the Deriver.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy_eips::BlockNumberOrTag;
 use alloy_provider::{Provider, ProviderBuilder};
@@ -17,6 +17,9 @@ use crate::scan::{BatchLogChunks, ScannedBatch, scan_next_batch_log_chunk};
 pub struct L1Reader {
     config: Arc<L1ReaderConfig>,
     blob_source: Arc<BeaconBlobSource>,
+    /// Bound the entire HTTP request, including reading the response body, so
+    /// unavailable source data reaches the caller's existing recovery policy.
+    request_timeout: Duration,
 }
 
 /// What the L1 source can currently serve. See [`L1Reader::readiness`].
@@ -32,6 +35,7 @@ impl std::fmt::Debug for L1Reader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("L1Reader")
             .field("config", &self.config)
+            .field("request_timeout", &self.request_timeout)
             .finish()
     }
 }
@@ -44,6 +48,7 @@ impl L1Reader {
         Self {
             config: Arc::new(config),
             blob_source,
+            request_timeout: Duration::from_secs(30),
         }
     }
 
@@ -202,6 +207,113 @@ impl L1Reader {
     fn build_provider(&self) -> impl Provider + use<> {
         ProviderBuilder::new()
             .disable_recommended_fillers()
-            .connect_http(self.config.rpc_url.clone())
+            .with_reqwest(self.config.rpc_url.clone(), |builder| {
+                builder
+                    .timeout(self.request_timeout)
+                    .build()
+                    .expect("L1 reader HTTP client configuration is valid")
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        time::timeout,
+    };
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum Response {
+        StalledHeaders,
+        StalledBody,
+        Complete,
+    }
+
+    // Exercise the real HTTP transport, including a response that stalls after
+    // its headers. A timeout around connection establishment alone is not enough.
+    async fn canonical_read(response: Response) -> L1Result<Option<alloy_primitives::B256>> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let received = Arc::new(AtomicBool::new(false));
+        let server_received = Arc::clone(&received);
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            let json = loop {
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert!(count > 0, "request ended before its JSON body");
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                    && let Ok(json) =
+                        serde_json::from_slice::<serde_json::Value>(&request[end + 4..])
+                {
+                    break json;
+                }
+            };
+            server_received.store(true, Ordering::SeqCst);
+            match response {
+                Response::StalledHeaders => {}
+                Response::StalledBody => {
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                        .await
+                        .unwrap();
+                }
+                Response::Complete => {
+                    let body =
+                        serde_json::json!({"jsonrpc": "2.0", "id": json["id"], "result": null})
+                            .to_string();
+                    let header =
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                    stream.write_all(header.as_bytes()).await.unwrap();
+                    stream.write_all(body.as_bytes()).await.unwrap();
+                    return;
+                }
+            }
+            std::future::pending::<()>().await;
+        });
+        let mut reader = L1Reader::new(L1ReaderConfig {
+            rpc_url: format!("http://{address}").parse().unwrap(),
+            beacon_url: None,
+            eez: alloy_primitives::Address::ZERO,
+            rollup_id: 1,
+            deploy_block: 0,
+        });
+        reader.request_timeout = Duration::from_millis(100);
+        let result = timeout(Duration::from_secs(2), reader.canonical_l1_hash(100)).await;
+        server.abort();
+        assert!(
+            received.load(Ordering::SeqCst),
+            "the fixture must receive the RPC"
+        );
+        result.expect("L1 reader must bound both request and response-body waits")
+    }
+
+    #[tokio::test]
+    async fn canonical_read_times_out_when_server_never_sends_headers() {
+        assert!(matches!(
+            canonical_read(Response::StalledHeaders).await,
+            Err(L1Error::Provider(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn canonical_read_times_out_when_response_body_stalls() {
+        assert!(matches!(
+            canonical_read(Response::StalledBody).await,
+            Err(L1Error::Provider(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn successful_missing_block_response_remains_distinct_from_transport_failure() {
+        assert!(canonical_read(Response::Complete).await.unwrap().is_none());
     }
 }

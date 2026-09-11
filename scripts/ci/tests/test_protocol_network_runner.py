@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -230,7 +231,7 @@ class ProtocolNetworkRunnerTest(unittest.TestCase):
         pid = int(Path(self.env["PID_FILE"]).read_text())
         try:
             state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return
         self.assertEqual(state, "Z", f"worker {pid} survived")
 
@@ -243,6 +244,12 @@ class ProtocolNetworkRunnerTest(unittest.TestCase):
         self.assertNotIn("RESULT revertCounter: PASS", result.stdout)
         self.assertTrue((self.logs / "hang.log").exists())
         self.assert_child_stopped()
+
+    def test_child_can_exit_during_proc_stat_read(self):
+        with patch.object(Path, "read_text", side_effect=[
+            str(os.getpid()), ProcessLookupError(3, "No such process"),
+        ]):
+            self.assert_child_stopped()
 
     def test_cancellation_stops_only_owned_workers_and_preserves_logs(self):
         self.add_scenarios("hang", "revertCounter")

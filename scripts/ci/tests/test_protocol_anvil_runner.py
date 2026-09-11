@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 RUNNER = Path(__file__).resolve().parents[1] / "run-protocol-anvil.sh"
@@ -61,7 +62,8 @@ class ProtocolAnvilRunnerTest(unittest.TestCase):
                 state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
                 if state == "Z":  # Reaping belongs to PID 1, not the scenario wrapper.
                     return
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
+                # Linux may report ESRCH if the child exits after stat opens.
                 return
             time.sleep(0.05)
         self.fail(f"scenario child {pid} is still running")
@@ -76,6 +78,12 @@ class ProtocolAnvilRunnerTest(unittest.TestCase):
         logs = next((self.root / "tmp").glob("e2e-ci-*"))
         self.assertIn("29545 29546 61337 61338 120 30", (logs / "one.log").read_text())
         self.assertIn("29547 29548 61339 61340 120 30", (logs / "two.log").read_text())
+
+    def test_child_can_exit_during_proc_stat_read(self):
+        with patch.object(Path, "read_text", side_effect=[
+            str(os.getpid()), ProcessLookupError(3, "No such process"),
+        ]):
+            self.assert_child_stopped()
 
     def test_failure_does_not_skip_remaining_scenarios_or_pass_the_suite(self):
         self.add_scenario("fail")

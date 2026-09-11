@@ -168,6 +168,17 @@ where
         let Some(tail) = self.inner.l1_head.last_indexed() else {
             return;
         };
+        // A resume seeds only this batch's hash, so an earlier batch in the same
+        // block would replay with the cursor past it; a slow boot beats a wrong one.
+        if self.inner.l1_head.count_at_l1_block(tail.l1_block) > 1 {
+            event!(
+                name: "eez.deriver.checkpoint.multi_batch_block",
+                Level::DEBUG,
+                l1_block = tail.l1_block,
+                "L1 block holds more than one indexed batch; skipping the boot checkpoint",
+            );
+            return;
+        }
         let l2_block_hash = match self.l2_hash_at(tail.last_l2_block) {
             Ok(hash) => hash,
             Err(err) => {
@@ -199,11 +210,40 @@ where
         }
     }
 
+    /// Bounded wait for the L1 head to reach `block`. Best effort: on timeout
+    /// the caller reads whatever L1 serves and the usual validation decides.
+    async fn await_l1_head(&self, block: u64) {
+        if crate::l1_catch_up::wait_for_head(block, || async {
+            self.inner
+                .l1_reader
+                .readiness()
+                .await
+                .ok()
+                .map(|state| state.head_block_number)
+        })
+        .await
+        {
+            return;
+        }
+        event!(
+            name: "eez.deriver.checkpoint.l1_behind",
+            Level::WARN,
+            l1_block = block,
+            "L1 head still below the checkpoint block; validating anyway",
+        );
+    }
+
     /// Checkpoint to seed the boot scan from, or `None` to rescan from the
     /// deploy block. [`ReconcileCheckpoint::usable_with`] decides.
     async fn checkpoint_seed(&self) -> Option<crate::checkpoint::ReconcileCheckpoint> {
         let checkpoint =
             crate::checkpoint::ReconcileCheckpoint::load(self.inner.checkpoint_dir.as_deref()?)?;
+        // The checkpoint names the tip we last indexed. A restart brings the L1
+        // back with us, so for a few seconds its head sits below that block and
+        // every hash read is `None` — discarding the checkpoint then is a
+        // verdict about timing, not canonicality. Once the head is level, a
+        // missing or different hash is real reorg evidence and still rejects.
+        self.await_l1_head(checkpoint.l1_block).await;
         let canonical = self
             .inner
             .l1_reader
@@ -249,6 +289,7 @@ where
             else {
                 return Ok(None);
             };
+            self.await_l1_head(tail.l1_block_number).await;
             let canonical = self
                 .inner
                 .l1_reader
@@ -527,6 +568,7 @@ where
             event!(
                 name: "eez.deriver.l1.reorg.retreated",
                 Level::WARN,
+                event_name = "eez.deriver.l1.reorg.retreated",
                 l1_block = tail.l1_block,
                 indexed_hash = %tail.l1_block_hash,
                 canonical_hash = %canonical,
@@ -1039,6 +1081,7 @@ where
             event!(
                 name: "eez.deriver.resync.failed",
                 Level::ERROR,
+                event_name = "eez.deriver.resync.failed",
                 error = %err,
                 "post-subscribe resync failed; deriver may have a gap",
             );
@@ -1058,6 +1101,7 @@ where
                             event!(
                                 name: "eez.deriver.committer.closed",
                                 Level::ERROR,
+                                event_name = "eez.deriver.committer.closed",
                                 error = %err,
                                 "block committer gone; deriver exiting",
                             );
@@ -1118,6 +1162,7 @@ where
                 event!(
                     name: "eez.deriver.committer.closed",
                     Level::ERROR,
+                    event_name = "eez.deriver.committer.closed",
                     error = %err,
                     "block committer gone; deriver exiting",
                 );
@@ -1127,6 +1172,7 @@ where
                 event!(
                     name: "eez.deriver.resync.failed",
                     Level::ERROR,
+                    event_name = "eez.deriver.resync.failed",
                     error = %err,
                     "resync failed; will retry after the next L1 event",
                 );
@@ -1373,6 +1419,7 @@ where
             .put(&correlation)
             .map_err(DeriverError::l2_provider)?;
 
+        let l1_settled_root = settlement.final_state.unwrap_or_default();
         // Index first: the safe advance reads this cursor, and a replayed batch
         // must stay indexed even if the FCU fails. Use L1's real endpoint.
         self.inner.l1_head.append(BatchRecord {
@@ -1402,15 +1449,23 @@ where
         let Some(new_safe_hash) = self.sync_safe_to_cursor().await? else {
             return Ok(());
         };
+        let l2_safe_state_root = self
+            .l2_sealed_header_at(self.inner.l1_head.last_indexed_l2())?
+            .state_root();
         event!(
             name: "eez.deriver.safe.advanced",
             Level::INFO,
+            event_name = "eez.deriver.safe.advanced",
             from_block,
             to_block,
+            applied_entries = settlement.len,
+            l1_settled_root = %l1_settled_root,
             l1_block_number,
             tx_hash = %tx_hash,
             submitter = %submitter,
             new_safe_hash = %new_safe_hash,
+            l2_safe_block_hash = %new_safe_hash,
+            l2_safe_state_root = %l2_safe_state_root,
             "advanced L2 safe head from L1-confirmed batch",
         );
         Ok(())
@@ -1468,6 +1523,7 @@ where
             event!(
                 name: "eez.deriver.l1.reorg.noop",
                 Level::WARN,
+                event_name = "eez.deriver.l1.reorg.noop",
                 common_ancestor_number,
                 old_head_hash = %old_head_hash,
                 new_head_number,
@@ -1484,6 +1540,7 @@ where
         event!(
             name: "eez.deriver.l1.reorg.retreated",
             Level::WARN,
+            event_name = "eez.deriver.l1.reorg.retreated",
             common_ancestor_number,
             old_head_hash = %old_head_hash,
             new_head_number,
@@ -1493,6 +1550,7 @@ where
             dropped_batches = dropped,
             removed_correlations,
             new_safe_hash = %new_safe_hash,
+            l2_safe_block_hash = %new_safe_hash,
             "L1 reorg rolled out confirmed batches; L2 head retreated to the surviving safe cursor",
         );
         Ok(())
@@ -1546,6 +1604,7 @@ where
         event!(
             name: "eez.deriver.finalized.advanced",
             Level::INFO,
+            event_name = "eez.deriver.finalized.advanced",
             l1_finalized_block,
             l2_finalized = bounded,
             "advanced L2 finalized head from L1 finality",
@@ -2129,7 +2188,9 @@ where
                 event!(
                     name: "eez.deriver.reconcile.sync_block_built",
                     Level::INFO,
+                    event_name = "eez.deriver.reconcile.sync_block_built",
                     tx_hash = %tx_hash,
+                    sync_height = from_block + decoded.block_tx_counts.len().saturating_sub(1) as u64,
                     outbound = outbound.len(),
                     inbound = inbound.len(),
                     sync_block_txs = full.len(),
@@ -2141,10 +2202,11 @@ where
             None => None,
         };
 
-        let mut replayed: u64 = 0;
         // Hash of the Sync block replayed this pass; the gate must read by hash.
         let mut sync_block_hash: Option<B256> = None;
         let stale_boundary = !local_batch_boundary_matches(&self.inner.l2_provider, from_block)?;
+        let mut suffix_replay = SuffixReplay::new(stale_boundary);
+        let mut replayed: u64 = 0;
         let last_index = decoded.block_tx_counts.len().saturating_sub(1);
         let resumed = settlement.start > 0;
         if resumed {
@@ -2266,7 +2328,7 @@ where
                 } else {
                     local_block_matches(&self.inner.l2_provider, l2_block, &block_txs)?
                 };
-                let should_replay = stale_boundary || replayed > 0 || !matched;
+                let should_replay = suffix_replay.required(matched);
                 event!(
                     name: "eez.deriver.reconcile.block",
                     Level::DEBUG,
@@ -2385,11 +2447,10 @@ where
     /// - `claimed_new_root` (last root update's `newRoot`) vs the local
     ///   block hash at `to_block`.
     ///
-    /// Both ends are checked — the composer chains deltas across
-    /// entries, so checking one would let a crafted chain pass. Matters
-    /// under the mock prover, which can't enforce linearity; halting
-    /// here surfaces the mismatch at its origin rather than at our next
-    /// post's `RootMismatch`.
+    /// Both ends are checked — the composer chains deltas across entries, so
+    /// checking one would let a crafted chain pass. Halting here surfaces a
+    /// mismatch at its origin rather than at our next post's
+    /// `RootMismatch`.
     ///
     /// `entry_root` is [`eez_l1::Settlement::entry_state`], not the claimed chain
     /// head — the claimed head would contradict the cursor guard on a mid-chain resume.
@@ -2423,6 +2484,7 @@ where
                 event!(
                     name: "eez.deriver.state.diverged_pre",
                     Level::ERROR,
+                    event_name = "eez.deriver.state.diverged_pre",
                     l1_block_number,
                     tx_hash = %tx_hash,
                     pre_block = pre,
@@ -2486,6 +2548,7 @@ where
                 event!(
                     name: "eez.deriver.state.diverged_post",
                     Level::ERROR,
+                    event_name = "eez.deriver.state.diverged_post",
                     l1_block_number,
                     tx_hash = %tx_hash,
                     to_block,
@@ -2622,6 +2685,52 @@ where
         .hash();
 
     Ok(local_block.header().parent_hash == expected_parent_hash)
+}
+
+/// Once one block in a batch must be replayed, every descendant in that batch
+/// must be rebuilt on the new parent even when its transaction list matches.
+#[derive(Debug, Clone, Copy)]
+struct SuffixReplay {
+    active: bool,
+}
+
+impl SuffixReplay {
+    const fn new(stale_boundary: bool) -> Self {
+        Self {
+            active: stale_boundary,
+        }
+    }
+
+    const fn required(&mut self, local_matches: bool) -> bool {
+        self.active |= !local_matches;
+        self.active
+    }
+}
+
+#[cfg(test)]
+mod suffix_replay_tests {
+    use super::SuffixReplay;
+
+    fn decisions(stale_boundary: bool, local_matches: &[bool]) -> Vec<bool> {
+        let mut suffix = SuffixReplay::new(stale_boundary);
+        local_matches
+            .iter()
+            .map(|matches| suffix.required(*matches))
+            .collect()
+    }
+
+    #[test]
+    fn mismatch_replays_every_later_descendant() {
+        assert_eq!(
+            decisions(false, &[true, false, true, true]),
+            [false, true, true, true],
+        );
+    }
+
+    #[test]
+    fn stale_boundary_replays_the_complete_batch() {
+        assert_eq!(decisions(true, &[true, true, true]), [true, true, true]);
+    }
 }
 
 /// Which producing entries L1 ran, projected onto the partitioned

@@ -243,8 +243,8 @@ if (( do_out )); then OUT_HASHES+=("0x000000000000000000000000000000000000000000
         self.assertNotIn('sleep 15', script)
         self.assertIn('wait-wave-settlement.py', script)
         self.assertNotIn('"$(receipt_status "$mh" "$L1")" == "1" ]] || continue', script)
-        for assertion in ("PB_COUNT >= WAVES", "L2ExecutionPerformed", "diverged from L1-confirmed batch",
-                          "window validated and signed", "ok_all && signer_ok"):
+        for assertion in ("PB_COUNT >= WAVES", "L2ExecutionPerformed", "eez.deriver.state.diverged_",
+                          "eez.proof_signer.window_signed", "ok_all && signer_ok"):
             self.assertIn(assertion, script)
 
 
@@ -252,15 +252,16 @@ class WaveProxySetupTest(unittest.TestCase):
     """Execute the shell helper, including its command-substitution call site."""
 
     def run_setup(self, scenario):
-        script = (REPO / "testing/kurtosis/scripts/cross-chain-wave.sh").read_text()
+        script = (REPO / "testing/kurtosis/scripts/lib.sh").read_text()
         start = script.index("create_l2_proxy() {")
-        end = script.index('\necho "==> creating cross-chain proxies', start)
+        end = len(script)
         setup = r'''
 L2=http://l2.invalid L2_CHAIN_ID=6290
 HH_KEY_2=fixture-key HH_KEY_2_ADDR=0x2222222222222222222222222222222222222222
 EEZL2_ADDRESS=0x4200000000000000000000000000000000000007 MAINNET_RID=0
 PRIORITY_GAS_PRICE=1
 gas_price_for() { echo 15; }
+retry() { "$@"; }
 sleep() { echo sleep >> "$CALLS"; }
 cast() {
     echo "$*" >> "$CALLS"
@@ -269,6 +270,8 @@ cast() {
             [[ "$SCENARIO" != address-error ]] || return 7
             echo 0x1111111111111111111111111111111111111111 ;;
         nonce) echo 8 ;;
+        wallet) echo "$HH_KEY_2_ADDR" ;;
+        chain-id) echo "$L2_CHAIN_ID" ;;
         code)
             [[ "$SCENARIO" != code-error ]] || return 7
             if [[ "$SCENARIO" == existing || ( -f "$SENT" && "$SCENARIO" != no-code ) ]]; then
@@ -297,7 +300,7 @@ curl() {
         with tempfile.TemporaryDirectory(prefix="eez-wave-proxy.") as temporary:
             root = Path(temporary)
             command = setup + script[start:end] + '''
-proxy=$(create_l2_proxy 0x3333333333333333333333333333333333333333)
+proxy=$(create_l2_proxy 0x3333333333333333333333333333333333333333 "$HH_KEY_2" "$MAINNET_RID")
 printf 'READY=%s\n' "$proxy"
 '''
             result = subprocess.run(["bash", "-euo", "pipefail", "-c", command],
