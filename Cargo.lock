@@ -3564,6 +3564,7 @@ dependencies = [
  "alloy-signer-local",
  "alloy-sol-types",
  "async-trait",
+ "eez-blob-codec",
  "eez-control-rpc",
  "eez-protocol",
  "eez-prover",

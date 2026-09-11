@@ -298,8 +298,8 @@ async fn real_signer_rejects_tampered_witness() {
     assert_real_signer_rejects(ProverMutation::Witness, "witness").await;
 }
 
-/// Whether the response is intrinsically opaque (`ResourceExhausted`, including
-/// #120) or becomes opaque because its actionable identity is unsafe, a valid
+/// Whether the response is intrinsically opaque (`ResourceExhausted` when
+/// resource capacity is exceeded) or becomes opaque because its actionable identity is unsafe, a valid
 /// transaction may be sacrificed but must leave the retry loop at the bound.
 async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation: ProverMutation) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();

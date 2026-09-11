@@ -32,6 +32,10 @@ its settlement effects before signing the recomputed public-input hash.
 a succinct validity proof, but the deployed verifier no longer accepts an
 unbound mock signature.
 
+The [Composer-to-prover gRPC specification](crates/eez-control-rpc/SPEC.md)
+defines request construction, response validation, and settlement recovery for
+the current native-blob profile.
+
 ## Run the local protocol network
 
 The Kurtosis package starts the private L1, L2, protocol contracts, proof

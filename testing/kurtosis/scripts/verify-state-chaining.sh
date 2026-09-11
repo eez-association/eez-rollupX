@@ -440,7 +440,7 @@ run_poison_mid_bundle_scenario() {
     poison_hash=$(cast keccak "$poison_raw")
     second_hash=$(cast keccak "$second_raw")
 
-    # The placement is the assertion: valid, deployed non-proxy, valid in one
+    # The placement is the assertion: valid, unauthorized dispatcher call, valid in one
     # drain. A separate poison sender avoids intentionally evicting a survivor.
     wait_for_sync_boundary
     refresh_node_log

@@ -16,9 +16,9 @@ below.
   backups, and a tested recovery procedure.
 - [ ] Add a snapshot/bootstrap format and prove that a fresh node can recover
   from deployment using the snapshot plus the durable blob source.
-- [ ] Remove the implicit `MockEcdsaProver` production fallback. A production
-  node must fail closed when no real prover/signer endpoint is configured; mock
-  mode must require an explicit development-only option.
+- [x] Remove the implicit `MockEcdsaProver` production fallback. Composer startup
+  requires a nonempty prover endpoint and attester address; the legacy mock
+  verifier and deployment script are removed. Test doubles remain in unit tests.
 - [ ] Verify the configured signer, attester key, verifier contract, proof
   system address, and verification-key identity against L1 during production
   startup.

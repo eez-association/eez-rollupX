@@ -36,7 +36,8 @@ message PostBatch {
   // ABI-encoded `EEZ.postAndVerifyBatch` calldata (proof carriers filled,
   // `proofs[]` empty). The prover decodes THIS to recompute publicInputsHash.
   bytes abi_calldata = 1;
-  // 32B — the composer's claimed publicInputsHash; the prover cross-checks it.
+  // Non-authoritative claim, ignored by the current signer; send empty.
+  // Both peers independently recompute the response hash from batch + blobs.
   bytes public_inputs_hash = 2;
   // 32B `blockhash(N)` for a block-bound batch, or empty for timeless (0).
   bytes l1_block_hash = 3;
