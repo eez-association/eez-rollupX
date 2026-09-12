@@ -129,14 +129,26 @@ class SelectionTest(SelectionFixture, unittest.TestCase):
 
 FAKE_CAST = '''#!/usr/bin/env python3
 import json, os, sys
+from pathlib import Path
 f = json.loads(open(os.environ["FIXTURE"]).read())
 a = sys.argv[1:]
-if a[0] == "block": print(json.dumps(f["block"]))
+if a[0] == "block":
+    chain = a[a.index("--rpc-url") + 1]
+    block = f["blocks"][chain][str(int(a[1], 0))]
+    if "--field" in a:
+        print(f.get("recheck_hash", {}).get(chain, block["hash"]))
+    else:
+        print(json.dumps(block))
 elif a[0] == "to-dec": print(int(a[1], 16))
 elif a[0] == "decode-calldata": print(json.dumps(f["inputs"][a[-1]]))
 elif a[0] == "keccak": print(a[1][:66])
 elif a[:2] == ["rpc", "eth_getTransactionByHash"]: print(json.dumps(f["transactions"][a[2]]))
-elif a[:2] == ["rpc", "eth_getTransactionReceipt"]: print(json.dumps(f["receipts"][a[2]]))
+elif a[:2] == ["rpc", "eth_getTransactionReceipt"]:
+    if f.get("single_receipt_read"):
+        marker = Path(os.environ["FIXTURE"]).with_name(a[2] + ".read")
+        if marker.exists(): raise SystemExit("receipt fetched a second time")
+        marker.touch()
+    print(json.dumps(f["receipts"][a[2]]))
 else: raise SystemExit("unexpected cast call: " + repr(a))
 '''
 
@@ -168,24 +180,33 @@ assert actual["l2_calldata"] == [f["wanted"]["input"]], actual
 expected_receipts = [f["receipts"][f["wanted"]["hash"]]]
 if f.get("outbound"): expected_receipts.insert(0, f["receipts"][f["trigger_hash"]])
 assert actual["l2_receipts"] == expected_receipts, actual
+expected_l1 = [f["receipts"][f["post_hash"]]]
+if not f.get("outbound"): expected_l1.insert(0, f["receipts"][f["trigger_hash"]])
+assert actual["l1_receipts"] == expected_l1, actual
 if f.get("causal_failure"): raise SystemExit(1)
 open(sys.argv[2], "w").write('{"verified":true}')
 ''')
             for tool in tools.iterdir():
                 tool.chmod(0o755)
-            (scripts / "verify-semantic-settlement-blob.sh").write_text("echo '{\"verified\":true}' > \"$3\"\n")
+            (scripts / "verify-semantic-settlement-blob.sh").write_text(
+                'jq -e "(.blob_failure // false) | not" "$FIXTURE" >/dev/null || exit 1\n'
+                "echo '{\"verified\":true}' > \"$3\"\n")
             scenario = root / "E2ECounter.s.sol"
             scenario.write_text("contract ExecuteNetwork {}\n")
             other = self.add_tx([9], "22222222")
             wanted = self.add_tx([1], "22222222")
-            trigger = dict(wanted, hash=word(201), to="0x" + "ab" * 20)
-            post = dict(wanted, hash=word(202), to="0x" + "cd" * 20)
+            trigger = dict(wanted, hash=word(201), to="0x" + "ab" * 20,
+                           blockHash=word(116), transactionIndex="0x1")
+            post = dict(wanted, hash=word(202), to="0x" + "cd" * 20,
+                        blockHash=word(116), transactionIndex="0x0")
+            l1_block = dict(number="0x10", hash=word(116), transactions=[post, trigger])
             txs = {tx["hash"]: tx for tx in (other, wanted, trigger, post)}
             receipts = {key: dict(transactionHash=key, status="0x1", blockNumber="0x10",
-                                  blockHash=word(16), transactionIndex=tx["transactionIndex"],
+                                  blockHash=tx["blockHash"], transactionIndex=tx["transactionIndex"],
                                   logs=[dict(marker="keep the entire receipt")]) for key, tx in txs.items()}
-            fixture = dict(block=self.block, inputs=self.inputs, transactions=txs, receipts=receipts,
-                           wanted=wanted, trigger_hash=trigger["hash"])
+            fixture = dict(blocks={"l1": {"16": l1_block}, "l2": {"16": self.block}},
+                           inputs=self.inputs, transactions=txs, receipts=receipts,
+                           wanted=wanted, trigger_hash=trigger["hash"], post_hash=post["hash"])
             fixture_path = root / "fixture.json"
             fixture_path.write_text(json.dumps(fixture))
             log = root / "scenario.log"
@@ -207,30 +228,90 @@ L2 call exec: {other["hash"]}
                        MANAGER_L2=MANAGER, PROTOCOL_COMMIT="a" * 40, ROLLUP_ID="1",
                        CAUSAL_VERIFIER=str(tools / "causal"), BLOB_VERIFIER="unused", BEACON_URL="unused")
             original_log = log.read_text()
-            for case in ("pass", "outbound-without-call-search", "orphan", "causal_failure"):
+            successes = {"pass", "outbound-without-call-search", "outbound-replayed",
+                         "settlement-summary-hint", "outbound-receipt-snapshot"}
+            failures = {
+                "orphan": "differs from the canonical block",
+                "causal_failure": "independent trigger/table/event causal verification failed",
+                "blob_failure": "settlement blob semantic verification failed",
+                "l1-trigger-moved": "moved from reported block 10 to 16",
+                "outbound-orphan-trigger": "is absent from its canonical block",
+                "outbound-missing-trigger": "is absent from its canonical block",
+                "outbound-wrong-index": "is absent from its canonical block",
+                "outbound-wrong-input": "differs from the canonical block",
+                "outbound-reverted": "reverted",
+                "outbound-missing-table": "cannot select exact scenario table transactions",
+                "outbound-reorg-during-collection": "L2 changed during evidence collection",
+                "settlement-orphan": "is absent from its canonical block",
+                "settlement-reorg-during-collection": "L1 changed during evidence collection",
+            }
+            for case in (*sorted(successes), *failures):
                 with self.subTest(case=case):
                     current = copy.deepcopy(fixture)
                     scenario.write_text("contract ExecuteNetwork {}\n")
                     log.write_text(original_log)
-                    if case == "outbound-without-call-search":
+                    if case.startswith("outbound-"):
                         scenario.write_text("contract ExecuteNetworkL2 {}\n")
-                        log.write_text(original_log.replace("L2 blocks to verify: [16]\n", ""))
                         current["outbound"] = True
+                        block = current["blocks"]["l2"]["16"]
+                        user = current["transactions"][trigger["hash"]]
+                        user.update(blockHash=block["hash"], transactionIndex="0x2")
+                        block["transactions"].append(copy.deepcopy(user))
+                        current["receipts"][trigger["hash"]].update(
+                            blockHash=block["hash"], transactionIndex="0x2")
+                    if case == "outbound-without-call-search":
+                        log.write_text(original_log.replace("L2 blocks to verify: [16]\n", ""))
+                    if case == "outbound-receipt-snapshot":
+                        current["single_receipt_read"] = True
+                    if case in ("outbound-replayed", "l1-trigger-moved"):
+                        # The summary retains the first optimistic receipt and
+                        # first block hint; the current table and user are at 16.
+                        log.write_text(original_log.replace("(block 16)", "(block 10)")
+                                       .replace("L2 blocks to verify: [16]", "L2 blocks to verify: [10]"))
+                    if case == "settlement-summary-hint":
+                        log.write_text(original_log.replace(
+                            f'L1 postBatch: {post["hash"]} (block 16)',
+                            f'L1 postBatch: {post["hash"]} (block 10)'))
                     if case == "orphan":
                         current["receipts"][wanted["hash"]]["blockHash"] = word(999)
-                    if case == "causal_failure":
-                        current["causal_failure"] = True
+                    if case in ("causal_failure", "blob_failure"):
+                        current[case] = True
+                    if case == "outbound-orphan-trigger":
+                        current["receipts"][trigger["hash"]]["blockHash"] = word(999)
+                    if case == "outbound-missing-trigger":
+                        current["blocks"]["l2"]["16"]["transactions"].pop()
+                    if case == "outbound-wrong-index":
+                        current["receipts"][trigger["hash"]]["transactionIndex"] = "0x1"
+                    if case == "outbound-wrong-input":
+                        current["transactions"][trigger["hash"]]["input"] = "0xdeadbeef"
+                    if case == "outbound-reverted":
+                        current["receipts"][trigger["hash"]]["status"] = "0x0"
+                    if case == "outbound-missing-table":
+                        current["inputs"][wanted["input"]][0][0][0] = word(8)
+                    if case == "outbound-reorg-during-collection":
+                        current["recheck_hash"] = {"l2": word(999)}
+                    if case == "settlement-orphan":
+                        current["receipts"][post["hash"]]["blockHash"] = word(999)
+                    if case == "settlement-reorg-during-collection":
+                        current["recheck_hash"] = {"l1": word(999)}
                     fixture_path.write_text(json.dumps(current))
                     output = root / (case + ".json")
                     result = subprocess.run(["bash", str(collector), "counter", str(scenario), str(log), str(output)],
                                             env=env, capture_output=True, text=True, timeout=30)
-                    if case in ("pass", "outbound-without-call-search"):
+                    if case in successes:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         evidence = json.loads(output.read_text())
                         self.assertEqual([t["hash"] for t in evidence["system_transactions"]], [wanted["hash"]])
                         self.assertEqual(evidence["source_log"]["upstream_first_table_hash"], other["hash"])
+                        if case == "outbound-replayed":
+                            user = evidence["trigger_transactions"][0]
+                            self.assertEqual(user["reported_block"], 10)
+                            self.assertEqual(user["block_number"], 16)
+                            self.assertFalse(user["reported_block_matches"])
+                            self.assertFalse(evidence["claims"]["upstream_summary_blocks_match_receipts"])
                     else:
                         self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(failures[case], result.stderr)
                         self.assertFalse(output.exists())
 
 

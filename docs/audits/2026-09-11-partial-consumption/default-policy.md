@@ -119,7 +119,39 @@ follow-up checks `eez.deriver.safe.advanced` and updates stale observer/settleme
 matchers in the existing validation scripts. Three readiness regressions and the
 full CI-script suite passed (181 tests, 4 opt-in skips); replaying the failed
 job's actual logs also passed. Shell syntax and diff checks passed. This fix
-changes no Rust source. Full Kurtosis workloads still require the new CI run.
+changes no Rust source.
+
+CI on `f69e208` passed readiness, the cross-chain waves and state-chaining
+workloads. All 28 upstream protocol scenarios passed execution, but the independent
+evidence audit failed `multi-call-twiceL2`: its summary reported the user at L2
+block 804, while its current receipt placed it at 810. The pinned upstream
+`script/e2e/run/network.sh` retains the initial receipt block in its final summary;
+that value can become stale after optimistic recovery. The full Kurtosis lane
+therefore did not pass, and its remaining stages were not reached.
+
+The collector now discovers L2 tables in the current canonical user blocks and
+preserves the original summary discrepancy in its evidence. Every trigger,
+settlement and selected system transaction must match its canonical block body,
+receipt, position, hash and calldata. The collector passes those exact cached
+receipts to the unchanged causal verifier, retains authenticated semantic-blob
+binding, and rechecks canonical block hashes on both chains before reporting
+success. L1 trigger block mismatches still fail. This follows the pinned
+`EEZL2._loadExecutionTable` and `executeCrossChainCall` same-block gate; it does
+not permit a transaction to consume a table loaded in a different block.
+
+Nine focused tests passed, including 18 collector cases covering replayed summary
+hints, orphaned or absent triggers, wrong positions/calldata, reverted receipts,
+missing tables, failed causal/blob verification, cached receipt reuse and reorgs
+during collection. Before the fix, the regression reproduced the stale-summary
+failure and seven missing canonical-evidence checks. The changes affect only
+the evidence harness and its tests. The complete CI-script suite passed (181
+tests, 4 existing opt-in skips), as did shell syntax and diff checks. A separate
+review rechecked canonical transaction identity, receipt snapshot reuse, the
+same-block table gate, unchanged causal/blob verification and rejection of
+reorgs during collection; no further concrete issue was found in this fix.
+A new full Kurtosis run is still required. The failing scenario's complete RPC
+evidence could not be recovered from CI artifacts: its upload exceeded the
+account's storage quota.
 
 The preceding journal-removal revision passed the following checks; they were
 not rerun for the representation cleanup:

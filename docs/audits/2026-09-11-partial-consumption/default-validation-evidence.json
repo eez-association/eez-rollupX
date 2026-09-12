@@ -389,5 +389,61 @@
     ],
     "review": "Final script diff reviewed against the actual event emitters and captured CI log. No remaining concrete finding in the fix.",
     "limits": "The full Kurtosis workloads did not run past readiness in the failed job. New CI results are pending; this is not a claim that the full Kurtosis lane passed."
+  },
+  "ci_canonical_evidence_fix": {
+    "base": "f69e208a82eacde897613aee7715c0567b8ac9d7",
+    "recorded_at_utc": "2026-09-12T19:45:33.946821+00:00",
+    "failed_job": "https://github.com/eduadiez/rollupX/actions/runs/34711034320/job/103604337269",
+    "actual_ci_log_sha256": "2181b6a8f539726df12f4ec9c1b55354b420d03fabbb71a7fab12088af8f40b7",
+    "previous_ci": {
+      "lint": "passed",
+      "contracts": "passed",
+      "runtime_build": "passed",
+      "embedded_e2e": "passed",
+      "cross_chain_e2e": "still running at the last check before this commit",
+      "kurtosis_readiness": "passed",
+      "kurtosis_cross_chain_waves": "passed",
+      "kurtosis_state_chaining": "passed",
+      "protocol_execution_passed": 28,
+      "protocol_evidence_passed": 27,
+      "protocol_evidence_failed": 1,
+      "full_kurtosis": "failed during protocol evidence collection; later stages were not reached"
+    },
+    "failure": {
+      "scenario": "multi-call-twiceL2",
+      "user_transaction": "0x827c220cb04d93f1dfd370115dbf95cc51ffa4d835e3bded80a6076f91c2ea3d",
+      "reported_l2_block": 804,
+      "current_receipt_l2_block": 810,
+      "cause": "The pinned runner retains its first receipt block in the final summary; the collector incorrectly required that optimistic L2 block hint to remain exact."
+    },
+    "fix": "Keep summary hints in evidence, select tables in current canonical L2 user blocks, bind all triggers/settlements/system transactions to canonical block bodies, reuse exact validated receipts, and recheck both canonical chains after causal and blob verification.",
+    "rust_source_changed": false,
+    "protocol_references": [
+      "eez-core-protocol@3c0cdf4955941a5c23639346932b55b33babebbd: script/e2e/run/network.sh receipt capture, block discovery and final summary",
+      "eez-core-protocol@3c0cdf4955941a5c23639346932b55b33babebbd: src/L2/EEZL2.sol _loadExecutionTable and executeCrossChainCall same-block gate",
+      "eez-core-protocol@3c0cdf4955941a5c23639346932b55b33babebbd: docs/CORE_PROTOCOL_SPEC.md L2 table loading and consumption"
+    ],
+    "focused": {
+      "command": "python3 -m unittest scripts.ci.tests.test_protocol_transaction_selection -v",
+      "passed": 9,
+      "collector_cases": 18,
+      "failed": 0,
+      "regression_before_fix": "Eight subcases failed: the stale-summary regression and seven missing canonical identity/reorg checks.",
+      "log_sha256": "cd377762ddb143b826b6a08cbbf9832b908362637f716aabf1b8a6a45ac9dc90"
+    },
+    "python": {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "passed": 181,
+      "skipped": 4,
+      "failed": 0,
+      "duration_seconds": 101.495,
+      "log_sha256": "7c466b5eedba068e6d3d14be5d0999366a3437859b5ee444144bed37e77f3ae1"
+    },
+    "checks": [
+      "bash -n on the collector: passed",
+      "git diff --check: passed"
+    ],
+    "review": "Separately reviewed canonical transaction identity, receipt snapshot reuse, same-block table selection, unchanged complete causal/blob checks and final canonical hash checks. No remaining concrete finding in this fix. Full branch diff inspected; protocol pin and dependency versions unchanged.",
+    "limits": "The regression uses deterministic RPC fixtures with causal/blob verifier boundary assertions. The actual failed scenario RPC evidence was unavailable because CI artifact upload exceeded storage quota. A fresh full Kurtosis CI run remains required; no claim that the full lane passed."
   }
 }
