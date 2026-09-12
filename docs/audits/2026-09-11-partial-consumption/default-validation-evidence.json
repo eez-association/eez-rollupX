@@ -361,5 +361,33 @@
     ],
     "review": "Critically reviewed the final follow-up against 44ed95b and checked the complete PR diff scope against original main. Preserved protocol coordinates, semantic validation, detached snapshots and atomic ownership updates. Fixed the native test reorg-error assertion; no remaining concrete finding.",
     "validation_limits": "Kurtosis, Python, contract and cached advisory results elsewhere in this file belong to the preceding journal-removal revision and were not rerun for this Rust representation cleanup."
+  },
+  "ci_readiness_fix": {
+    "base": "bbe54616ae56a6d10e4bb4a7a86494b41fb70d47",
+    "recorded_at_utc": "2026-09-12T18:21:42.489961+00:00",
+    "failed_job": "https://github.com/eduadiez/rollupX/actions/runs/34707138400/job/103593803223",
+    "cause": "The readiness script required outcome Included, but the observer now logs Ok(Included ...). Canonical replay continued successfully through L2 block 480.",
+    "fix": "Require the canonical safe-head-advanced event. Update stale settlement and observer telemetry matchers in the existing validation scripts.",
+    "rust_source_changed": false,
+    "focused": {
+      "passed": 10,
+      "skipped": 1,
+      "new_readiness_regressions": 3
+    },
+    "python": {
+      "passed": 181,
+      "skipped": 4,
+      "failed": 0,
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v"
+    },
+    "regression_before_fix": "Canonical advancement failed readiness and an old Included observation incorrectly passed it; both failures reproduced before the fix.",
+    "actual_ci_log_replay": "Old predicate exit 1; new readiness loop exit 0. Legacy safe-height extraction returned 480 from captured canonical heights.",
+    "actual_ci_log_sha256": "553c30b6dca05635d53f6f2dd2ebdd88032ae4a6beac81c2c6ad27f9d3efa373",
+    "checks": [
+      "bash -n on all four edited shell scripts: passed",
+      "git diff --check: passed"
+    ],
+    "review": "Final script diff reviewed against the actual event emitters and captured CI log. No remaining concrete finding in the fix.",
+    "limits": "The full Kurtosis workloads did not run past readiness in the failed job. New CI results are pending; this is not a claim that the full Kurtosis lane passed."
   }
 }

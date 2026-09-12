@@ -111,6 +111,16 @@ still required, and unrelated errors still fail. The initial failure is retained
 in the evidence. The remaining cases used the same verified runtime binaries;
 the test fix changed no runtime source.
 
+CI on `bbe5461` passed contracts, lint, the runtime/unit-test build and embedded
+E2E. Its Kurtosis readiness check still matched the old `Included` debug value,
+while the observer now logs `Ok(Included ...)`. The saved job log shows canonical
+safe-head advances through L2 block 480 despite the readiness timeout. The
+follow-up checks `eez.deriver.safe.advanced` and updates stale observer/settlement
+matchers in the existing validation scripts. Three readiness regressions and the
+full CI-script suite passed (181 tests, 4 opt-in skips); replaying the failed
+job's actual logs also passed. Shell syntax and diff checks passed. This fix
+changes no Rust source. Full Kurtosis workloads still require the new CI run.
+
 The preceding journal-removal revision passed the following checks; they were
 not rerun for the representation cleanup:
 

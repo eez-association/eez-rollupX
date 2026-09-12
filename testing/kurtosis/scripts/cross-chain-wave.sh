@@ -626,7 +626,7 @@ run_waves() {
     # Dropped-bundle telemetry.
     local DROPS
     DROPS=$(grep -F '"event_name":"eez.composer.bundle.observed"' "$NODE_LOG" 2>/dev/null \
-        | grep -c '"outcome":"Dropped' || true); DROPS=${DROPS:-0}
+        | grep -cF '"outcome":"Ok(Dropped' || true); DROPS=${DROPS:-0}
     echo "    ℹ dropped-bundle log lines: $DROPS"
 
     # Correlate the composer's accepted attestation with the signer's completed
