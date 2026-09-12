@@ -42,7 +42,9 @@ async fn attempt_event(
 
 async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     let mut world = setup_cross_chain_with_env(&[]).await.unwrap();
-    world.omit_next_bundle_user(omitted).unwrap();
+    world
+        .omit_next_bundle_user(omitted, restart_before_retry)
+        .unwrap();
     // Start the wave only after a completed empty drain, leaving the full
     // next slot for all three users. The relay additionally requires exactly
     // three proved users, so an accidental split cannot satisfy this test.
@@ -92,9 +94,6 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
                 world.settlement_diagnostics()
             )
         });
-    if restart_before_retry {
-        world.hold_next_bundle().unwrap();
-    }
     let request = &fault["original"]["params"][0];
     assert_eq!(request["revertingTxHashes"], serde_json::json!(hashes));
     assert!(request.get("droppingTxHashes").is_none());
@@ -209,6 +208,15 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         )
         .unwrap();
         let old_post = retry.b256("post_batch_hash").unwrap();
+        let held_raw: Bytes = held["params"][0]["txs"][0]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let held_post =
+            EthereumTxEnvelope::<TxEip4844WithSidecar>::decode_2718(&mut held_raw.as_ref())
+                .unwrap();
+        assert_eq!(*held_post.tx_hash(), old_post, "hold the dispatched retry");
         // This fixture embeds L1 in the same process. Advance beyond reth's
         // two-block persistence threshold before killing it, then verify the
         // original receipt survives. The dev chain does not advance finality.

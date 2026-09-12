@@ -108,11 +108,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if self.passthrough_bundles:
                 hold_path = (os.path.join(self.test_control_dir, "hold-next.json")
                              if self.test_control_dir else None)
-                if hold_path and os.path.exists(hold_path):
+                hold_next = False
+                if hold_path:
+                    try:
+                        with open(hold_path) as source:
+                            hold = json.load(source)
+                        if hold.get("transaction") is None or hold["transaction"] in txs:
+                            os.replace(hold_path, hold_path + ".used")
+                            hold_next = True
+                    except FileNotFoundError:
+                        # Another request may have consumed this one-shot control.
+                        pass
+                if hold_next:
                     # A bounded, test-only barrier after proving. The test
                     # supplies valid signed L1 transactions around the exact
                     # original postBatch; this never alters its proof or DA.
-                    os.replace(hold_path, hold_path + ".used")
                     captured = os.path.join(self.test_control_dir, "held-bundle.json")
                     with open(captured + ".new", "w") as output:
                         json.dump(body, output)
@@ -136,11 +146,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # Production request generation is tested against rbuilder.
                 if fault_path and os.path.exists(fault_path) and len(txs) == 4:
                     with open(fault_path) as fault_file:
-                        omitted = json.load(fault_file)["userIndex"]
+                        fault = json.load(fault_file)
+                    omitted = fault["userIndex"]
                     if not isinstance(omitted, int) or not 0 <= omitted < 3:
                         raise ValueError("test omission index must be 0, 1, or 2")
                     os.replace(fault_path, fault_path + ".used")
                     original = json.loads(json.dumps(body))
+                    if fault.get("holdRetry", False):
+                        # Arm before forwarding the omission. Maintenance-only
+                        # posts must not consume the restart test's retry barrier.
+                        with open(hold_path + ".new", "w") as output:
+                            json.dump({"transaction": txs[omitted + 1]}, output)
+                        os.replace(hold_path + ".new", hold_path)
                     params["txs"] = [raw for index, raw in enumerate(txs)
                                      if index != omitted + 1]
                     # The embedded dev endpoint does not interpret allowlists.

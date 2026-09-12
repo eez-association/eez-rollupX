@@ -3945,12 +3945,10 @@ impl CrossChainWorld {
     /// Hold the next proved request until `release_bundle` supplies its L1
     /// execution sequence. The fixture relay times out rather than hanging.
     pub fn hold_next_bundle(&self) -> Result<()> {
-        std::fs::write(
-            self.builder_stub
-                .capture_dir()
-                .join("control/hold-next.json"),
-            b"{}",
-        )?;
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("hold-next.new");
+        std::fs::write(&temporary, b"{}")?;
+        std::fs::rename(temporary, directory.join("hold-next.json"))?;
         Ok(())
     }
 
@@ -3976,13 +3974,17 @@ impl CrossChainWorld {
 
     /// Omit one of three inbound users from the next fully proved bundle.
     /// This controls valid L1 execution; it does not emulate builder policy.
-    pub fn omit_next_bundle_user(&self, user_index: usize) -> Result<()> {
+    /// Optionally hold that exact signed user's retry before it reaches L1.
+    pub fn omit_next_bundle_user(&self, user_index: usize, hold_retry: bool) -> Result<()> {
         ensure!(user_index < 3, "three-user fixture index out of bounds");
         let directory = self.builder_stub.capture_dir().join("control");
         let temporary = directory.join("omit-user.new");
         std::fs::write(
             &temporary,
-            serde_json::to_vec(&serde_json::json!({"userIndex": user_index}))?,
+            serde_json::to_vec(&serde_json::json!({
+                "userIndex": user_index,
+                "holdRetry": hold_retry,
+            }))?,
         )?;
         std::fs::rename(temporary, directory.join("omit-user.json"))?;
         Ok(())
