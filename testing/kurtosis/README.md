@@ -514,7 +514,7 @@ convergence.
 
 Use an isolated enclave and locally built node/signer images tagged
 `eez-node:partial-consumption`, `eez-proof-signer:partial-consumption`, and
-`eez-deploy:partial-consumption`. Every profile uses durable settlement recovery
+`eez-deploy:partial-consumption`. Every profile uses in-memory settlement tracking
 and permits included inbound users to revert. This profile pins the builder image
 and isolates the canary's chain and funding.
 
@@ -534,11 +534,12 @@ python3 testing/kurtosis/scripts/verify-partial-consumption.py \
 
 This private network has chain ID 7331 and deterministic development funding
 keys. The canary creates three fresh source users, waits for their proved
-attempt in the durable journal, and replaces the middle user's nonce before
+attempt's dispatch event, and replaces the middle user's nonce before
 the target block. It requires the replacement, postBatch and two remaining
 source users to land in order in the same builder block. It checks the exact
 partial L2 commitment, `Committed` / `SourceNonceSpent` / `SourceReverted`
-dispositions, zero retry charges, and healthy subsequent settlement.
+dispositions from reconciliation events, source receipts, and healthy subsequent
+settlement.
 
 The profile pins rbuilder to
 `sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308`
@@ -550,7 +551,9 @@ separate from the permission to include an EVM revert. No dropping allowlist
 is sent. The [implementation audit](../../docs/audits/2026-09-11-partial-consumption/completion.md)
 records the checked protocol, source/configuration and actual evidence.
 
-Preserve the journal across restarts and through outstanding attempts.
+Pending transactions and retry counters are held in memory. After a restart,
+clients may need to resubmit unsettled transactions; canonical state is recovered
+from L1.
 
 ### Run all included workloads
 

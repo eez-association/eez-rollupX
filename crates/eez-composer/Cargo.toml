@@ -50,8 +50,6 @@ async-trait.workspace = true
 thiserror.workspace   = true
 tokio.workspace       = true
 tracing.workspace     = true
-serde.workspace       = true
-serde_json.workspace  = true
 
 [dev-dependencies]
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state

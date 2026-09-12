@@ -4,6 +4,9 @@
 based on this plan is tracked in [completion.md](completion.md), including the
 actual branch/base, validation results and rollout limits. Findings and line
 numbers below describe the original audit baseline, before implementation.
+The [current scope](default-policy.md) supersedes the durable-journal requirement
+in P4 and the opt-in policy in P5: tracking is in memory and partial consumption
+is always enabled.
 
 Checked on **2026-09-11 at 20:08 UTC**. Upstream has an open enablement issue and
 related fixes, but I found no PR that completes partial consumption end to end.

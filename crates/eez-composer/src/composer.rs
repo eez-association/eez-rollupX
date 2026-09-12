@@ -1041,7 +1041,7 @@ where
     L2: BlockReader<Header = alloy_consensus::Header> + Send + Sync + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    /// Construct the umbrella with pools restored from their durable journals.
+    /// Construct the umbrella with pools bound to their attempt ledgers.
     ///
     /// # Errors
     ///
@@ -1063,12 +1063,9 @@ where
 
         for rollup in rollups.values() {
             assert!(
-                rollup.held_pool.uses_journal(&rollup.optimistic.journal()),
-                "held pool and optimistic ledger must share their journal"
+                rollup.held_pool.uses_ledger(&rollup.optimistic),
+                "held pool must use the rollup's optimistic ledger"
             );
-            if let Some(from) = rollup.optimistic.recovery_scan_from() {
-                rollup.l1_head.require_recovery_scan_from(from);
-            }
         }
 
         Ok(Self {
@@ -1186,9 +1183,9 @@ where
                     rollup.l1_head.invalidate_scan();
                     if let Err(error) = rollup
                         .held_pool
-                        .invalidate_after_l1(&rollup.optimistic, *common_ancestor_number)
+                        .invalidate_after_l1(*common_ancestor_number)
                     {
-                        event!(Level::ERROR, %error, "cannot journal L1 reorg; retaining transaction ownership");
+                        event!(Level::ERROR, %error, "cannot apply L1 reorg; retaining transaction ownership");
                     }
                 }
             }
@@ -1204,16 +1201,15 @@ where
                             match submitter.canonical_block_hash(block.number).await {
                                 Ok(Some(hash)) if hash == block.hash => {
                                     if let Err(error) = optimistic.forget_finalized(id, block) {
-                                        event!(Level::ERROR, %error, "finality journal write failed; retaining records");
+                                        event!(Level::ERROR, %error, "finality update failed; retaining records");
                                     }
                                 }
                                 Ok(Some(_)) => {
                                     l1_head.invalidate_scan();
-                                    if let Err(error) = held_pool.invalidate_after_l1(
-                                        &optimistic,
-                                        block.number.saturating_sub(1),
-                                    ) {
-                                        event!(Level::ERROR, %error, "finality audit found a reorg; journal invalidation failed");
+                                    if let Err(error) = held_pool
+                                        .invalidate_after_l1(block.number.saturating_sub(1))
+                                    {
+                                        event!(Level::ERROR, %error, "finality audit found a reorg; ownership invalidation failed");
                                     } else if let Err(error) =
                                         optimistic.forget_finalized(id, block)
                                     {
@@ -1224,7 +1220,7 @@ where
                                     }
                                 }
                                 other => event!(Level::WARN, result = ?other,
-                                    "finality audit inconclusive; retaining recovery journal"),
+                                    "finality audit inconclusive; retaining recovery history"),
                             }
                         }
                     });
@@ -1549,8 +1545,7 @@ where
         rollup: &RollupState<L2>,
         attempt: crate::optimistic::PendingAttempt,
     ) -> Result<RecoveryOutcome, String> {
-        use crate::optimistic::SourceOutcome;
-        use crate::settlement_journal::{SubmissionObservation, TerminalReason};
+        use crate::optimistic::{SourceOutcome, SubmissionObservation, TerminalReason};
         let snapshot = rollup.l1_head.settlement_snapshot();
         let (Some(at), Some(endpoint)) = (snapshot.through, snapshot.endpoint) else {
             return Ok(RecoveryOutcome::HeadUnchanged);
@@ -1781,7 +1776,6 @@ where
                 }
             );
         rollup.held_pool.resolve_attempt(
-            &rollup.optimistic,
             attempt.id,
             at,
             &outcomes,
@@ -3491,7 +3485,6 @@ where
             survivors.clone(),
             manifest,
             prepared_postbatch,
-            bundle_target,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -3508,6 +3501,10 @@ where
             event_name = "eez.composer.bundle.dispatched",
             rollup_id,
             sync_height,
+            post_batch_hash = %post_batch_hash,
+            sync_hash = %built.header.hash(),
+            user_hashes = ?survivors.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            attempt_counts = ?survivors.iter().map(|tx| tx.attempts).collect::<Vec<_>>(),
             tx_count = bundle.len(),
             entry_count = total_entries,
             evicted_poison = poison.len(),
@@ -3636,7 +3633,6 @@ where
             Vec::new(),
             SettlementManifest::empty(rollup_id, sync_height, empty_built.header.hash()),
             minimal_postbatch_raw.clone(),
-            bundle_target,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -3653,6 +3649,7 @@ where
             event_name = "eez.composer.phase1.bundle.dispatched",
             rollup_id,
             sync_height,
+            post_batch_hash = %post_batch_hash,
             "minimal postBatch dispatched to background observer (leading immediate only)",
         );
         self.spawn_bundle_observer(
@@ -3788,7 +3785,6 @@ where
                 Vec::new(),
                 SettlementManifest::empty(rollup_id, boundary, boundary_header.hash()),
                 raw.clone(),
-                BundleTarget::NextBlock,
             )?;
             // A past terminal has no matching historical L1 slot. NextBlock
             // therefore derives and timestamp-pins a fresh future settlement
@@ -5004,7 +5000,7 @@ fn validate_attempt_evidence(
     let mut raw = attempt.post_batch.as_ref();
     let signed =
         Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(&mut raw)
-            .map_err(|error| format!("journal postBatch envelope: {error}"))?;
+            .map_err(|error| format!("recorded postBatch envelope: {error}"))?;
     if !raw.is_empty()
         || *signed.tx_hash() != attempt.id.post_batch_hash
         || alloy_primitives::keccak256(signed.tx().input()) != evidence.calldata_hash
@@ -5048,7 +5044,7 @@ async fn observe_bundle_outcome(
     submitter: Submitter,
     target: BundleTarget,
 ) {
-    use crate::settlement_journal::SubmissionObservation;
+    use crate::optimistic::SubmissionObservation;
     let recorder = Arc::clone(&optimistic);
     let outcome = submitter
         .send_bundle_recorded(&bundle, target, move |block, timestamp| {
@@ -5061,7 +5057,7 @@ async fn observe_bundle_outcome(
                     "attempt was superseded before dispatch".into(),
                 )),
                 Err(error) => Err(eez_l1::L1Error::Submission(format!(
-                    "cannot journal dispatch: {error}"
+                    "cannot record dispatch: {error}"
                 ))),
             }
         })
@@ -5092,7 +5088,7 @@ async fn observe_bundle_outcome(
         rollup_id, sync_height, attempt = ?attempt_id, outcome = ?outcome,
         "bundle observed; canonical derivation and source receipts retain ownership authority");
     if let Err(error) = optimistic.observe(attempt_id, observation) {
-        event!(Level::ERROR, rollup_id, %error, "cannot journal observation; retaining attempt");
+        event!(Level::ERROR, rollup_id, %error, "cannot record observation; retaining attempt");
     }
 }
 

@@ -2,21 +2,96 @@
 //! never proof of completion; only canonical derivation plus source outcomes
 //! can resolve an attempt.
 
-use std::path::Path;
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use alloy_primitives::{Address, B256, Bytes};
-use eez_l1::{BundleTarget, L1BlockRef};
+use eez_l1::L1BlockRef;
 use eez_protocol::settlement_manifest::SettlementManifest;
 use reth_primitives_traits::SealedHeader;
 
 use crate::held_pool::HeldTx;
 use crate::ingress::Direction;
-pub use crate::settlement_journal::AttemptId;
-use crate::settlement_journal::{
-    AttemptRecord, JournalState, OwnedUser, SettlementJournal, SubmissionObservation,
-    TerminalReason, UserLocation,
-};
+
+/// Identity carried by asynchronous observers. Height reuse cannot match it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttemptId {
+    pub generation: u64,
+    pub post_batch_hash: B256,
+}
+
+/// Submission observations never prove which users settled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionObservation {
+    /// Prepared before the submitter resolves/dispatches the target.
+    Prepared,
+    /// Recorded at the submitter's last gate, before the network request.
+    Dispatched { block: u64, timestamp: u64 },
+    /// The signed postBatch has a canonical receipt; derivation still decides
+    /// which effects applied.
+    Included { block: L1BlockRef },
+    /// Conclusively not included in this slot.
+    Excluded { block: u64, charge_attempt: bool },
+    /// Network error or incomplete observation. Retain ownership.
+    Uncertain,
+}
+
+/// Explicit terminal user outcomes. Local policy terminations have no L1
+/// dependency; canonical source outcomes must be reconsidered after a reorg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalReason {
+    Committed,
+    SourceReverted,
+    SourceCompletedWithMissingEffects,
+    SourceCompleted,
+    SourceNonceSpent,
+    AttemptsExhausted,
+    NonceGap,
+    PoolDiscarded,
+}
+
+/// Current ownership, independently of historical attempts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserLocation {
+    Queued,
+    /// Drained for recomposition but not externally dispatched.
+    Composing,
+    AwaitingEvidence,
+    Terminal {
+        reason: TerminalReason,
+        canonical: Option<L1BlockRef>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnedUser {
+    pub tx: HeldTx,
+    pub owner: u64,
+    pub fifo_position: usize,
+    pub location: UserLocation,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AttemptRecord {
+    pub id: AttemptId,
+    pub sync_height: u64,
+    pub parent: alloy_consensus::Header,
+    pub txs: Vec<HeldTx>,
+    pub manifest: SettlementManifest,
+    pub post_batch: Bytes,
+    /// Actual resolved target is retained even if observation later fails.
+    pub dispatched_target: Option<(u64, u64)>,
+    pub observation: SubmissionObservation,
+    /// Snapshot against which all currently owned users were classified.
+    pub reconciled_at: Option<L1BlockRef>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AttemptState {
+    pub next_generation: u64,
+    pub attempts: BTreeMap<u64, AttemptRecord>,
+    pub users: BTreeMap<B256, OwnedUser>,
+}
 
 /// Conclusive outcome supplied by canonical source reconciliation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,35 +125,41 @@ pub struct PendingAttempt {
     pub observation: SubmissionObservation,
 }
 
-/// All state changes are journaled before the held pool is updated.
-/// Production construction requires opening a durable journal; only unit tests
-/// can create an in-memory ledger.
-#[derive(Debug)]
-#[cfg_attr(test, derive(Default))]
+/// In-memory ownership of submitted users and unfinalized attempts.
+/// Restart reconstructs canonical state; pending users may need resubmission.
+#[derive(Debug, Default)]
 pub struct OptimisticallyIncluded {
-    journal: Arc<SettlementJournal>,
+    state: Mutex<AttemptState>,
 }
 
 impl OptimisticallyIncluded {
-    #[cfg(test)]
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn open(path: &Path) -> Result<Self, String> {
-        Ok(Self {
-            journal: Arc::new(SettlementJournal::open(path)?),
-        })
+    pub(crate) fn read<T>(&self, f: impl FnOnce(&AttemptState) -> T) -> T {
+        let state = self.state.lock().expect("optimistic ledger mutex poisoned");
+        f(&state)
     }
 
-    #[must_use]
-    pub fn journal(&self) -> Arc<SettlementJournal> {
-        Arc::clone(&self.journal)
+    /// Publish a complete ownership decision or leave the original unchanged.
+    /// No ledger lock is held across an await.
+    pub(crate) fn update<T>(
+        &self,
+        f: impl FnOnce(&mut AttemptState) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "optimistic ledger mutex poisoned")?;
+        let mut next = state.clone();
+        let result = f(&mut next)?;
+        *state = next;
+        Ok(result)
     }
 
-    /// Persist a freshly prepared attempt before handing it to the submitter.
-    #[allow(clippy::too_many_arguments)]
+    /// Register a freshly prepared attempt before handing it to the submitter.
     pub fn begin(
         &self,
         sync_height: u64,
@@ -87,7 +168,6 @@ impl OptimisticallyIncluded {
         txs: Vec<HeldTx>,
         manifest: SettlementManifest,
         post_batch: Bytes,
-        target: BundleTarget,
     ) -> Result<AttemptId, String> {
         if manifest.sync_number != sync_height || manifest.users.len() != txs.len() {
             return Err("attempt manifest does not cover its users and Sync height".into());
@@ -102,7 +182,7 @@ impl OptimisticallyIncluded {
                 return Err("attempt signed-user identity differs from manifest".into());
             }
         }
-        self.journal.update(|state| {
+        self.update(|state| {
             if state
                 .attempts
                 .values()
@@ -138,7 +218,6 @@ impl OptimisticallyIncluded {
                     txs,
                     manifest,
                     post_batch,
-                    requested_target: target,
                     dispatched_target: None,
                     observation: SubmissionObservation::Prepared,
                     reconciled_at: None,
@@ -151,7 +230,7 @@ impl OptimisticallyIncluded {
     /// Lowest unresolved attempt, independently of the scheduling cursor.
     #[must_use]
     pub fn blocking_height(&self) -> Option<u64> {
-        self.journal.read(|state| {
+        self.read(|state| {
             state
                 .attempts
                 .values()
@@ -163,7 +242,7 @@ impl OptimisticallyIncluded {
 
     #[must_use]
     pub fn pending_attempt(&self) -> Option<PendingAttempt> {
-        self.journal.read(|state| {
+        self.read(|state| {
             state
                 .attempts
                 .values()
@@ -187,7 +266,7 @@ impl OptimisticallyIncluded {
         id: AttemptId,
         observation: SubmissionObservation,
     ) -> Result<bool, String> {
-        self.journal.update(|state| {
+        self.update(|state| {
             let Some(attempt) = state
                 .attempts
                 .get_mut(&id.generation)
@@ -208,7 +287,7 @@ impl OptimisticallyIncluded {
         })
     }
 
-    /// Persist the user partition once, retaining the original record for
+    /// Apply the user partition once, retaining the original record for
     /// reorg/finality but transferring only eligible users back to the queue.
     pub fn resolve(
         &self,
@@ -218,7 +297,7 @@ impl OptimisticallyIncluded {
         charge_attempt: bool,
         attempt_limit: u32,
     ) -> Result<Vec<NonceGap>, String> {
-        self.journal.update(|state| {
+        self.update(|state| {
             let Some(attempt) = state
                 .attempts
                 .get(&id.generation)
@@ -293,7 +372,7 @@ impl OptimisticallyIncluded {
     /// Reorgs revoke canonical conclusions, including same-L2-height rewrites.
     /// History whose users are now owned by a retry cannot reclaim them.
     pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
-        self.journal.update(|state| {
+        self.update(|state| {
             for user in state.users.values_mut() {
                 if matches!(user.location, UserLocation::Terminal {
                     canonical: Some(block), ..
@@ -322,7 +401,7 @@ impl OptimisticallyIncluded {
 
     #[must_use]
     pub fn finalization_candidates(&self, finalized_l1: u64) -> Vec<(AttemptId, L1BlockRef)> {
-        self.journal.read(|state| {
+        self.read(|state| {
             state
                 .attempts
                 .values()
@@ -343,7 +422,7 @@ impl OptimisticallyIncluded {
     /// Called only after a conclusive canonical finality audit. Errors or a
     /// reorg retain the record. No held-pool reservation is released here.
     pub fn forget_finalized(&self, id: AttemptId, audited: L1BlockRef) -> Result<(), String> {
-        self.journal.update(|state| {
+        self.update(|state| {
             let eligible =
                 state.attempts.get(&id.generation).is_some_and(|attempt| {
                     attempt.id == id && attempt.reconciled_at == Some(audited)
@@ -358,29 +437,9 @@ impl OptimisticallyIncluded {
             Ok(())
         })
     }
-
-    /// Inclusive recovery scan floor. Prepared NextBlock attempts never
-    /// reached the network; dispatched ones always have an exact target.
-    #[must_use]
-    pub fn recovery_scan_from(&self) -> Option<u64> {
-        self.journal.read(|state| {
-            state
-                .attempts
-                .values()
-                .filter_map(|attempt| {
-                    attempt.dispatched_target.map(|target| target.0).or(
-                        match attempt.requested_target {
-                            BundleTarget::Exact { block, .. } => Some(block),
-                            BundleTarget::NextBlock => None,
-                        },
-                    )
-                })
-                .min()
-        })
-    }
 }
 
-fn needs_resolution(state: &JournalState, attempt: &AttemptRecord) -> bool {
+fn needs_resolution(state: &AttemptState, attempt: &AttemptRecord) -> bool {
     attempt.reconciled_at.is_none()
         && (attempt.txs.is_empty()
             || state.users.values().any(|user| {
@@ -402,7 +461,7 @@ mod tests {
     use eez_protocol::blob_semantics::SemanticTransaction;
     use eez_protocol::settlement_manifest::{ManifestInput, ProposedUser};
     use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
-    use std::sync::Barrier;
+    use std::sync::{Arc, Barrier};
 
     fn tx(tag: u8, nonce: u64) -> HeldTx {
         let signer: PrivateKeySigner = B256::with_last_byte(tag).to_string().parse().unwrap();
@@ -493,10 +552,6 @@ mod tests {
                 txs,
                 manifest,
                 Bytes::new(),
-                BundleTarget::Exact {
-                    block: 100,
-                    timestamp: 1200,
-                },
             )
             .unwrap()
     }
@@ -508,7 +563,7 @@ mod tests {
         AttemptId,
     ) {
         let ledger = Arc::new(OptimisticallyIncluded::new());
-        let pool = Arc::new(HeldPool::new(ledger.journal()));
+        let pool = Arc::new(HeldPool::new(Arc::clone(&ledger)));
         let txs = (1..=3).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
         for tx in &txs {
             pool.push_contiguous(tx.clone(), 0).unwrap();
@@ -530,38 +585,6 @@ mod tests {
             SourceOutcome::Terminal(TerminalReason::Committed),
             SourceOutcome::Retryable { source_nonce: 0 },
         ]
-    }
-
-    #[test]
-    fn pool_rejects_a_different_ledgers_journal_without_changing_ownership() {
-        let (ledger, pool, _, id) = setup();
-        let other = OptimisticallyIncluded::new();
-        let other_pool = HeldPool::new(other.journal());
-        assert!(pool.uses_journal(&ledger.journal()));
-        assert!(!other_pool.uses_journal(&ledger.journal()));
-        let snapshot = || {
-            ledger
-                .journal
-                .read(|data| serde_json::to_value(data).unwrap())
-        };
-        let before = snapshot();
-        assert_eq!(
-            other_pool
-                .resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
-                .unwrap_err(),
-            "held pool and optimistic ledger must share their journal"
-        );
-        assert_eq!(snapshot(), before);
-
-        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
-            .unwrap();
-        let before = snapshot();
-        assert_eq!(
-            other_pool.invalidate_after_l1(&ledger, 99).unwrap_err(),
-            "held pool and optimistic ledger must share their journal"
-        );
-        assert_eq!(snapshot(), before);
-        assert!(other_pool.is_empty());
     }
 
     #[test]
@@ -596,7 +619,7 @@ mod tests {
             // Canonical classification of a partial prefix; a competing
             // confirmed height alone has never opened this gate.
             assert_eq!(ledger.blocking_height(), Some(10));
-            pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+            pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
                 .unwrap();
             if !observer_first {
                 barrier.wait();
@@ -621,7 +644,7 @@ mod tests {
         assert_eq!(pending.txs.len(), 3);
         assert!(pool.is_empty());
         assert_eq!(ledger.blocking_height(), Some(10));
-        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
             .unwrap();
         assert_eq!(pool.pop_all()[0].hash, txs[2].hash);
     }
@@ -629,11 +652,11 @@ mod tests {
     #[test]
     fn duplicate_resolution_does_not_release_a_new_attempt_or_charge_again() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(&ledger, old, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
             .unwrap();
         let retry = pool.pop_all();
         let new = begin(&ledger, retry, 11);
-        pool.resolve_attempt(&ledger, old, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
             .unwrap();
         assert!(
             !ledger
@@ -650,7 +673,6 @@ mod tests {
     fn included_revert_and_caught_failure_spend_nonce_without_retry() {
         let (ledger, pool, _, id) = setup();
         pool.resolve_attempt(
-            &ledger,
             id,
             block(100),
             &[
@@ -665,29 +687,39 @@ mod tests {
         .unwrap();
         assert!(pool.is_empty());
         assert!(ledger.blocking_height().is_none());
-        assert!(
-            ledger
-                .journal
-                .read(|state| state.users.values().all(|u| u.tx.attempts == 0))
-        );
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
     }
 
     #[test]
     fn malformed_partition_and_spent_nonce_retry_are_rejected_without_mutation() {
         let (ledger, pool, _, id) = setup();
         let snapshot = || {
-            ledger
-                .journal
-                .read(|state| serde_json::to_value(state).unwrap())
+            ledger.read(|state| {
+                (
+                    state.next_generation,
+                    state.users.clone(),
+                    state
+                        .attempts
+                        .iter()
+                        .map(|(id, attempt)| {
+                            (
+                                *id,
+                                attempt.reconciled_at,
+                                attempt.observation.clone(),
+                                attempt.dispatched_target,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
         };
         let before = snapshot();
         assert!(
-            pool.resolve_attempt(&ledger, id, block(100), &partial()[..2], true, 3, || true)
+            pool.resolve_attempt(id, block(100), &partial()[..2], true, 3, || true)
                 .is_err()
         );
         assert!(
             pool.resolve_attempt(
-                &ledger,
                 id,
                 block(100),
                 &[SourceOutcome::Retryable { source_nonce: 1 }; 3],
@@ -700,7 +732,6 @@ mod tests {
         // A late invalid outcome must roll back earlier ownership and counter changes.
         assert!(
             pool.resolve_attempt(
-                &ledger,
                 id,
                 block(100),
                 &[
@@ -717,29 +748,20 @@ mod tests {
         assert_eq!(snapshot(), before);
         assert_eq!(ledger.blocking_height(), Some(10));
         assert!(pool.is_empty());
-        assert!(
-            ledger
-                .journal
-                .read(|state| state.users.values().all(|u| u.tx.attempts == 0))
-        );
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
     }
 
     #[test]
     fn reorg_restores_reservations_and_rejects_a_stale_ownership_decision() {
         let (ledger, pool, txs, id) = setup();
         assert!(
-            pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || false)
+            pool.resolve_attempt(id, block(100), &partial(), true, 3, || false)
                 .is_err()
         );
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
         assert!(pool.is_empty());
-        assert!(
-            ledger
-                .journal
-                .read(|state| state.users.values().all(|u| u.tx.attempts == 0))
-        );
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
         pool.resolve_attempt(
-            &ledger,
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
@@ -749,7 +771,7 @@ mod tests {
         )
         .unwrap();
         assert!(ledger.pending_attempt().is_none());
-        pool.invalidate_after_l1(&ledger, 99).unwrap();
+        pool.invalidate_after_l1(99).unwrap();
         // Ingress cannot reuse a reopened user's source nonce while the
         // replacement canonical scan is still incomplete.
         let mut replacement = txs[0].clone();
@@ -758,7 +780,7 @@ mod tests {
         pool.push_contiguous(txs[0].clone(), 0).unwrap(); // exact duplicate is idempotent
         assert!(pool.is_empty());
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
-        pool.resolve_attempt(&ledger, id, block(101), &partial(), false, 3, || true)
+        pool.resolve_attempt(id, block(101), &partial(), false, 3, || true)
             .unwrap();
         assert_eq!(
             pool.pop_all().iter().map(|tx| tx.hash).collect::<Vec<_>>(),
@@ -769,12 +791,12 @@ mod tests {
     #[test]
     fn reorg_at_same_l2_height_reopens_only_canonical_owned_users() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(&ledger, old, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
             .unwrap();
         let new = begin(&ledger, pool.pop_all(), 11);
-        pool.invalidate_after_l1(&ledger, 99).unwrap();
+        pool.invalidate_after_l1(99).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, old);
-        assert!(ledger.journal.read(|state| {
+        assert!(ledger.read(|state| {
             state
                 .users
                 .values()
@@ -784,7 +806,6 @@ mod tests {
         }));
         // The old attempt cannot claim the tail now owned by its retry.
         pool.resolve_attempt(
-            &ledger,
             old,
             block(101),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
@@ -801,7 +822,6 @@ mod tests {
     fn finality_prunes_reorged_history_only_after_ownership_has_transferred() {
         let (ledger, pool, _, old) = setup();
         pool.resolve_attempt(
-            &ledger,
             old,
             block(100),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
@@ -811,10 +831,10 @@ mod tests {
         )
         .unwrap();
         let new = begin(&ledger, pool.pop_all(), 11);
-        pool.invalidate_after_l1(&ledger, 99).unwrap();
+        pool.invalidate_after_l1(99).unwrap();
         ledger.forget_finalized(old, block(100)).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, new);
-        assert!(ledger.journal.read(|state| {
+        assert!(ledger.read(|state| {
             state.attempts.len() == 1
                 && state.users.len() == 3
                 && state.users.values().all(|user| {
@@ -826,9 +846,9 @@ mod tests {
 
         // A reorged canonical completion still owned by this attempt must
         // instead await a fresh source audit, even at the same L2 height.
-        pool.resolve_attempt(&ledger, new, block(101), &partial(), false, 3, || true)
+        pool.resolve_attempt(new, block(101), &partial(), false, 3, || true)
             .unwrap();
-        pool.invalidate_after_l1(&ledger, 100).unwrap();
+        pool.invalidate_after_l1(100).unwrap();
         ledger.forget_finalized(new, block(101)).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, new);
     }
@@ -836,9 +856,9 @@ mod tests {
     #[test]
     fn finality_only_forgets_audited_history_without_touching_retry() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(&ledger, old, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
             .unwrap();
-        assert!(ledger.finalization_candidates(100).is_empty()); // queued retry remains durable
+        assert!(ledger.finalization_candidates(100).is_empty()); // queued retry still owns its history
         let new = begin(&ledger, pool.pop_all(), 11);
         assert_eq!(ledger.finalization_candidates(100), [(old, block(100))]);
         ledger.forget_finalized(old, block(99)).unwrap(); // stale/incorrect audit
@@ -850,9 +870,8 @@ mod tests {
 
     #[test]
     fn retries_preserve_fifo_and_infrastructure_failures_do_not_charge() {
-        let (ledger, pool, txs, id) = setup();
+        let (_, pool, txs, id) = setup();
         pool.resolve_attempt(
-            &ledger,
             id,
             block(100),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
@@ -869,223 +888,10 @@ mod tests {
         assert!(recovered.iter().all(|tx| tx.attempts == 0));
     }
 
-    struct JournalDirectory(std::path::PathBuf);
-
-    impl JournalDirectory {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/settlement-tests")
-                .join(format!(
-                    "{}-{}",
-                    std::process::id(),
-                    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-        fn file(&self) -> std::path::PathBuf {
-            self.0.join("journal.json")
-        }
-    }
-
-    impl Drop for JournalDirectory {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-
-    #[test]
-    fn journal_encoding_preserves_version_one_bytes_and_checksum() {
-        // Keep the original owned envelope as the encoding compatibility oracle.
-        #[derive(serde::Serialize)]
-        struct VersionOneFile {
-            version: u32,
-            checksum: B256,
-            state: JournalState,
-        }
-
-        let directory = JournalDirectory::new();
-        let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-        let pool = HeldPool::new(ledger.journal());
-        let check_encoding = || {
-            let expected = ledger.journal.read(|state| {
-                serde_json::to_vec(&VersionOneFile {
-                    version: 1,
-                    checksum: alloy_primitives::keccak256(serde_json::to_vec(state).unwrap()),
-                    state: state.clone(),
-                })
-                .unwrap()
-            });
-            assert_eq!(std::fs::read(directory.file()).unwrap(), expected);
-        };
-        check_encoding();
-        for tag in 1..=3 {
-            pool.push_contiguous(tx(tag, 0), 0).unwrap();
-        }
-        let id = begin(&ledger, pool.pop_all(), 10);
-        check_encoding();
-        ledger
-            .observe(
-                id,
-                SubmissionObservation::Dispatched {
-                    block: 100,
-                    timestamp: 1200,
-                },
-            )
-            .unwrap();
-        check_encoding();
-        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
-            .unwrap();
-        check_encoding();
-    }
-
-    #[test]
-    fn durable_recovery_survives_dispatch_transfer_composition_and_new_attempt() {
-        let directory = JournalDirectory::new();
-        let original = vec![tx(1, 0), tx(2, 0), tx(3, 0)];
-        let first;
-        {
-            let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new(ledger.journal());
-            for tx in &original {
-                pool.push_contiguous(tx.clone(), 0).unwrap();
-            }
-            first = begin(&ledger, pool.pop_all(), 10);
-            ledger
-                .observe(
-                    first,
-                    SubmissionObservation::Dispatched {
-                        block: 100,
-                        timestamp: 1200,
-                    },
-                )
-                .unwrap();
-            // Crash after journal-before-dispatch; whether the HTTP request
-            // was accepted must be established from canonical evidence.
-        }
-        {
-            let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new(ledger.journal());
-            assert_eq!(ledger.pending_attempt().unwrap().id, first);
-            assert_eq!(
-                ledger.pending_attempt().unwrap().dispatched_target,
-                Some((100, 1200))
-            );
-            assert_eq!(
-                ledger.pending_attempt().unwrap().observation,
-                SubmissionObservation::Uncertain
-            );
-            assert!(
-                ledger
-                    .observe(
-                        first,
-                        SubmissionObservation::Dispatched {
-                            block: 101,
-                            timestamp: 1212
-                        }
-                    )
-                    .is_err()
-            );
-            assert!(pool.is_empty());
-            // Construction must restore every pending reservation before the
-            // first ingress call, without a separate attach/restore phase.
-            for user in &original {
-                let mut replacement = user.clone();
-                replacement.hash = B256::repeat_byte(0xff);
-                assert!(pool.push_contiguous(replacement, 0).is_err());
-                pool.push_contiguous(user.clone(), 0).unwrap();
-            }
-            assert!(pool.is_empty());
-            pool.resolve_attempt(&ledger, first, block(100), &partial(), true, 3, || true)
-                .unwrap();
-            // Crash after the durable ownership transfer.
-        }
-        {
-            let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new(ledger.journal());
-            let retry = pool.pop_all();
-            assert_eq!(retry.len(), 1);
-            assert_eq!(retry[0].raw_tx, original[2].raw_tx);
-            assert_eq!(retry[0].attempts, 1);
-            // Crash during recomposition, before a new attempt exists.
-        }
-        let second;
-        {
-            let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new(ledger.journal());
-            let retry = pool.pop_all();
-            assert_eq!(retry.len(), 1);
-            assert_eq!(retry[0].attempts, 1);
-            second = begin(&ledger, retry, 11);
-        }
-        {
-            let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new(ledger.journal());
-            assert_eq!(ledger.pending_attempt().unwrap().id, second);
-            assert_eq!(
-                ledger.pending_attempt().unwrap().observation,
-                SubmissionObservation::Uncertain
-            );
-            assert_eq!(ledger.pending_attempt().unwrap().txs[0].attempts, 1);
-            ledger.forget_finalized(first, block(100)).unwrap();
-            assert!(pool.is_empty());
-            assert_eq!(ledger.pending_attempt().unwrap().id, second);
-        }
-    }
-
-    #[test]
-    fn journal_excludes_concurrent_writers_and_rejects_corruption() {
-        let directory = JournalDirectory::new();
-        let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-        assert!(OptimisticallyIncluded::open(&directory.file()).is_err());
-        begin(&ledger, vec![tx(1, 0)], 10);
-        drop(ledger);
-        let mut file: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(directory.file()).unwrap()).unwrap();
-        file["state"]["next_generation"] = serde_json::json!(99);
-        std::fs::write(directory.file(), serde_json::to_vec(&file).unwrap()).unwrap();
-        assert!(
-            OptimisticallyIncluded::open(&directory.file())
-                .unwrap_err()
-                .contains("checksum")
-        );
-    }
-
-    #[test]
-    fn journal_write_error_prevents_dispatch_and_all_future_mutations() {
-        let directory = JournalDirectory::new();
-        let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-        let id = begin(&ledger, vec![tx(1, 0)], 10);
-        let staging = directory.file().with_extension("new");
-        std::fs::create_dir(&staging).unwrap();
-        assert!(
-            ledger
-                .observe(
-                    id,
-                    SubmissionObservation::Dispatched {
-                        block: 100,
-                        timestamp: 1200
-                    }
-                )
-                .is_err()
-        );
-        assert_eq!(ledger.pending_attempt().unwrap().dispatched_target, None);
-        std::fs::remove_dir(&staging).unwrap();
-        assert!(
-            ledger
-                .observe(id, SubmissionObservation::Uncertain)
-                .is_err()
-        );
-        drop(ledger);
-        let reopened = OptimisticallyIncluded::open(&directory.file()).unwrap();
-        assert_eq!(reopened.pending_attempt().unwrap().dispatched_target, None);
-    }
-
     #[test]
     fn stale_recomposition_preserves_canonical_reorg_recovery() {
         let (ledger, pool, _, id) = setup();
-        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
             .unwrap();
         let drained = pool.pop_all();
         assert!(pool.recheck_stale_sources(&drained).unwrap());
@@ -1094,7 +900,7 @@ mod tests {
         assert!(pool.is_empty());
         let mut outcomes = partial();
         outcomes[2] = SourceOutcome::Terminal(TerminalReason::SourceNonceSpent);
-        pool.resolve_attempt(&ledger, id, block(101), &outcomes, false, 3, || true)
+        pool.resolve_attempt(id, block(101), &outcomes, false, 3, || true)
             .unwrap();
         ledger.invalidate_after_l1(100).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
@@ -1102,8 +908,8 @@ mod tests {
 
     #[test]
     fn exhausted_unspent_nonce_evicts_only_its_direction_and_sender_suffix_once() {
-        let ledger = OptimisticallyIncluded::new();
-        let pool = HeldPool::new(ledger.journal());
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
         let mut exhausted = tx(1, 0);
         exhausted.attempts = u32::MAX;
         let suffix = tx(1, 1);
@@ -1114,16 +920,16 @@ mod tests {
         }
         let id = begin(&ledger, pool.pop_all(), 10);
         let outcomes = vec![SourceOutcome::Retryable { source_nonce: 0 }; 3];
-        pool.resolve_attempt(&ledger, id, block(100), &outcomes, true, 3, || true)
+        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
             .unwrap();
         // A duplicate callback cannot increment the independent retry again.
-        pool.resolve_attempt(&ledger, id, block(100), &outcomes, true, 3, || true)
+        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
             .unwrap();
         let queued = pool.pop_all();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].hash, independent.hash);
         assert_eq!(queued[0].attempts, 1);
-        ledger.journal.read(|state| {
+        ledger.read(|state| {
             assert_eq!(state.users[&exhausted.hash].tx.attempts, u32::MAX);
             assert!(matches!(
                 state.users[&exhausted.hash].location,

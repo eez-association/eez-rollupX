@@ -1,52 +1,42 @@
 {
-  "base": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
+  "base": "2bb83ebfc21cdfe16476e3750711f522290201a8",
   "binary_sha256": {
-    "eez-proof-signer": "1c09cc15ac50b2788568c860f4b4b44157de845ffb3ff495d7f55f1c5b6ffb65",
-    "eez-follower": "ab1be1bbcbf8b50fd8b7904d1957a11663edaf07b1bdab7b944df30abfe2d4f4",
-    "eez-composer": "ceda3b1e9ebbb608bed29d78c172c9c0ccd2ace0ba9cade73bae102497148f0e"
+    "eez-proof-signer": "5a91d48be597094721c17a08f18c1765ede24d506363033561d449a0eed78fc5",
+    "eez-follower": "3fbb2c0f78118fcbf600d8a9d54fb8f392fca6b7d303f0356b1c7b3019819905",
+    "eez-composer": "f659b78c9ae6c58cc31c7077cd79e71d32c5441323f397e92da4fd211e1bdb92"
   },
   "startup": [
     {
-      "case": "missing_datadir",
-      "expected_error": "a writable EEZ_L2_DATADIR is required",
-      "exit_code": 1,
-      "passed": true
-    },
-    {
-      "case": "unusable_datadir",
-      "expected_error": "a writable EEZ_L2_DATADIR is required",
-      "exit_code": 1,
-      "passed": true
-    },
-    {
-      "case": "corrupt_journal",
-      "expected_error": "invalid settlement journal",
-      "exit_code": 1,
-      "passed": true
-    },
-    {
-      "case": "locked_journal",
-      "expected_error": "settlement journal already in use",
-      "exit_code": 1,
-      "passed": true
-    },
-    {
-      "case": "fresh_journal",
+      "case": "EEZ_L2_DATADIR unset",
       "expected_error": "EEZ_PROVER_URL is required",
-      "exit_code": 1,
       "passed": true
     }
   ],
   "native": [
     {
-      "suite": "partial_consumption",
-      "filters": [],
-      "exit_code": 0,
-      "seconds": 355.65,
-      "summaries": [
-        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 355.64s"
+      "suite": "restart_partial",
+      "filters": [
+        "restart_after_partial_consumption"
       ],
-      "log": "target/reuse-native-partial_consumption.log"
+      "exit_code": 0,
+      "seconds": 112.08,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 112.07s"
+      ],
+      "log": "target/memory-native-restart_partial.log"
+    },
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "--skip",
+        "restart_after_partial_consumption"
+      ],
+      "exit_code": 0,
+      "seconds": 355.08,
+      "summaries": [
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 355.07s"
+      ],
+      "log": "target/memory-native-partial_consumption.log"
     },
     {
       "suite": "l1_reorg",
@@ -54,113 +44,185 @@
         "_l1_reorg_"
       ],
       "exit_code": 0,
-      "seconds": 161.8,
+      "seconds": 166.33,
       "summaries": [
-        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.79s"
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 166.32s"
       ],
-      "log": "target/reuse-native-l1_reorg.log"
+      "log": "target/memory-native-l1_reorg.log"
     },
     {
       "suite": "resumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 90.77,
+      "seconds": 334.86,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 90.76s"
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 334.85s"
       ],
-      "log": "target/reuse-native-resumption.log"
+      "log": "target/memory-native-resumption.log"
+    },
+    {
+      "suite": "restart_sustained",
+      "filters": [
+        "happy_case_composer_sustained"
+      ],
+      "exit_code": 0,
+      "seconds": 63.14,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 63.13s"
+      ],
+      "log": "target/memory-native-restart_sustained.log"
     }
   ],
-  "recorded_at_utc": "2026-09-12T13:45:49.051770+00:00",
+  "recorded_at_utc": "2026-09-12T16:07:16.364817+00:00",
   "branch": "fix/partial-consumption-default",
   "worktree": "/home/edu/Development/eez-rollup0-fork/target/worktrees/partial-consumption-default",
-  "default_policy_base": "d09bc005ec2daa0ded91399749bb47d02ed5b9d5",
   "original_main": "40134955dc3f698ea65571ba82b6521637bf1191",
-  "implementation_diff_sha256": "e28b27966ce998d9ec35c9a8541e70a992a1f899758cc4399c56250679d4c8fd",
-  "implementation_diff_scope": "git diff --binary 1c5aa67467de972fb3d1f271b9da9a0450f5df62 -- crates",
-  "executables": {
-    "eez-proof-signer": {
-      "path": "target/debug/eez-proof-signer",
-      "sha256": "1c09cc15ac50b2788568c860f4b4b44157de845ffb3ff495d7f55f1c5b6ffb65"
-    },
-    "eez-follower": {
-      "path": "target/debug/eez-follower",
-      "sha256": "ab1be1bbcbf8b50fd8b7904d1957a11663edaf07b1bdab7b944df30abfe2d4f4"
-    },
-    "eez-composer": {
-      "path": "target/debug/eez-composer",
-      "sha256": "ceda3b1e9ebbb608bed29d78c172c9c0ccd2ace0ba9cade73bae102497148f0e"
-    },
-    "partial_consumption": {
-      "path": "target/debug/deps/partial_consumption-64bd1c30e8bbe353",
-      "sha256": "da9c049949db781f7ba79be36856c5580570c1602f3f4abaa07539a1c72c99e5"
-    },
-    "resumption": {
-      "path": "target/debug/deps/resumption-80372bcb0796a6e0",
-      "sha256": "5b1c10dba739b9ce0457533dce9424b88f45295bbda134b38f6153bad0e44809"
-    },
-    "e2e": {
-      "path": "target/debug/deps/e2e-e086d792658832c8",
-      "sha256": "0cd3405f3064fdce0ddf8cf5d5409a6d05817a0d4780a0f779936ddb55a0c8b1"
-    }
-  },
+  "scope": "Default partial consumption with in-memory ownership; settlement persistence removed.",
   "protocol": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "openzeppelin": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
   "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
   "clippy_rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
-  "commands": {
-    "focused_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline -p eez-protocol -p eez-l1 --lib",
-    "workspace_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline --workspace --lib",
-    "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
-    "format": "cargo fmt --all --check",
-    "diff": "git diff --check",
-    "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
-    "native_run": "python3 target/run-reuse-validation.py",
-    "production_constructor": "python3 target/check-reuse-constructor.py"
+  "tested_source": {
+    "source_sha256": "8d684749d167374ff89163e6574513cf5fcf72db5a499d67375128cc8c141946",
+    "description": "Tracked files under crates/scripts/testing plus Cargo manifests, .env.example and the new canary parser tests; audit directory and top-level README excluded."
   },
-  "workspace_library_tests": {
-    "suites": 15,
-    "passed": 523,
-    "failed": 0
-  },
-  "focused_library_tests": {
-    "suites": 2,
-    "passed": 255,
-    "failed": 0
-  },
-  "production_journal_constructor": {
-    "durable": {
-      "passed": true,
-      "exit_code": 0,
-      "expected": "compiles"
-    },
-    "in_memory": {
-      "passed": true,
-      "exit_code": 1,
-      "expected": "E0277: Default is not implemented"
-    }
+  "implementation_diff_sha256": "59d79471c9fa57dcb6a317d09311081ccee207920258fbe140ee192f27ceb349",
+  "implementation_diff_scope": "git diff --binary 2bb83eb -- crates",
+  "workspace_libraries_signer_and_vectors": {
+    "suites": 19,
+    "passed": 804,
+    "failed": 0,
+    "ignored": 0
   },
   "clippy_all_targets_warnings_denied": "passed",
-  "initial_clippy_issue": "Removed the reader RPC URL accessor after provider construction made it unused; reran checks successfully.",
-  "manifest_encoding_baseline": {
-    "commit": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
-    "log": "target/reuse-manifest-baseline.log",
-    "algorithm": "keccak256 of serialized manifest JSON",
-    "digests": {
-      "static_lookup": "0x126b16d5b30970c990ab8ed73a495b10debd0327a56ea17f4417336343596a44",
-      "mixed_groups": "0xd2f610174a1452875b7ebdecd0458396fcb507da523158dad7c2cfba12d14f7f",
-      "inbound_fifo": "0xca3492c357cc8a04d6ef204e244a10481f95742fe4e234b8ee7b1dbdef4f12b0"
+  "format_and_diff_checks": "passed",
+  "python": {
+    "passed": 178,
+    "skipped": 4,
+    "failed": 0
+  },
+  "integration_contracts": {
+    "passed": 19,
+    "skipped": 0,
+    "failed": 0
+  },
+  "chiado_post_fulu_configuration": "passed",
+  "dependency_checks": {
+    "cargo_deny": "passed",
+    "cargo_audit": "passed",
+    "allowed_audit_warnings": 14,
+    "cached_advisories": 1243,
+    "online_refresh": false
+  },
+  "kurtosis": {
+    "enclave": "eez-partial-memory",
+    "runtime": "Final locally built optimized dev binaries in an Ubuntu 24.04 validation container; exact hashes verified in the running containers.",
+    "normal_wave": {
+      "cross_chain_operations": 4,
+      "posts": 2,
+      "proof_verification": "passed",
+      "note": "Completed before removal of unused serialization traits; final runtime separately verified by restart and repeated canary."
+    },
+    "restart": {
+      "enclave": "eez-partial-memory",
+      "binary_sha256": {
+        "eez-composer": "f659b78c9ae6c58cc31c7077cd79e71d32c5441323f397e92da4fd211e1bdb92",
+        "eez-follower": "3fbb2c0f78118fcbf600d8a9d54fb8f392fca6b7d303f0356b1c7b3019819905",
+        "eez-proof-signer": "5a91d48be597094721c17a08f18c1765ede24d506363033561d449a0eed78fc5"
+      },
+      "before_safe": {
+        "number": 624,
+        "hash": "0xadb3193f5597090d2f6feadca800bfef4878a43114a7dcbb91e17d35da1e4780"
+      },
+      "after_safe": {
+        "number": 624,
+        "hash": "0xadb3193f5597090d2f6feadca800bfef4878a43114a7dcbb91e17d35da1e4780"
+      },
+      "preserved_partial_height": 318,
+      "preserved_partial_hash": "0x5329f9e849b3d9d7e5a5cbb0c27640cafec9a7f75ee63c5a7bacfd2436cd2cb4",
+      "verification_wait_after_service_start_seconds": 0.0
+    },
+    "final_canary": {
+      "builder_image": "sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308",
+      "post": "0xeaa609cc5ea117464d280ab7d95b211d9a6b075951bc81ff62177ad823b7c70d",
+      "l1_block": "0x2f45d7a9d055d8c101a95e6029c719e4e2ef528f8b13890270950dd21e0a91be",
+      "l1_number": 115,
+      "sync_height": 684,
+      "partial_hash": "0xe5ce769e7aeac32e0fafdff8d0a17f1069d0e0550d9fdc74d06a97c308eb678f",
+      "proposed_full_hash": "0x7cdc56e1041602c34c255c6020d74f9629552b50d40f84c124fc684f5a21f1e5",
+      "users": [
+        "0xbd1dc138a4f10a8023245df116c0bd342c7d17d09f04cbdeaf1122a3b19c6ba1",
+        "0x7e6aa7067b38162004098b490b6ab1ca7741b808cd7a077f08e299c1ac06baf7",
+        "0xa567550c75297ac5e581b26bb5d62ea1e11b06386d76652a80e54baa476920c7"
+      ],
+      "replacement": "0x08c11ce3da469248a16ad484756fa958dde59612ec0fed3094519e9497011843",
+      "dispositions": [
+        "Committed",
+        "SourceNonceSpent",
+        "SourceReverted"
+      ],
+      "attempt_counts": [
+        0,
+        0,
+        0
+      ],
+      "healthy": "0x07bdba6257513317ab47e7088c48c3b9505744a487ef6b93adee10c2fa7268d9",
+      "safe": {
+        "number": 690,
+        "hash": "0xf6dbee5e1c6f683c80e0b9fc49ed56503dc064a43afcf143fafbcba2b957a41a"
+      }
     }
   },
-  "format_and_diff_checks": "passed",
-  "previous_validation": {
-    "commit": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
-    "evidence_path": "docs/audits/2026-09-11-partial-consumption/default-validation-evidence.json",
-    "not_repeated": [
-      "CI Python tests",
-      "integration contracts",
-      "dependency policy and cached audit",
-      "chained-call, bidirectional, repeated-wave and caught-revert native tests"
-    ]
+  "commands": {
+    "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
+    "native": "python3 target/run-memory-validation.py",
+    "workspace": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test --locked --offline --workspace --lib --bin eez-proof-signer --test public_inputs_hash_vectors --test rolling_hash_vectors --test ethereum_kzg_compatibility",
+    "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+    "python": "python3 -m unittest discover -s scripts/ci/tests -v",
+    "contracts": "forge test --root contracts --offline",
+    "deny": "cargo deny --offline check advisories bans sources",
+    "audit": "cargo audit --no-fetch",
+    "configuration": "bash scripts/check-chiado-blob-config.sh",
+    "format": "cargo fmt --all --check",
+    "diff": "git diff --check",
+    "kurtosis_canary": "python3 testing/kurtosis/scripts/verify-partial-consumption.py --enclave eez-partial-memory --proxy <deployed Value proxy> --output target/memory-kurtosis-evidence.json"
   },
-  "kurtosis_rerun_for_this_followup": false
+  "review_findings_fixed": [
+    "Without attempt persistence, an unposted speculative Sync block could block emission after restart. Boot-only catch-up now discards the suffix using existing forkchoice repair.",
+    "The native restart fixture must preserve its embedded L1 prefix. Its finalized tag does not advance; the test waits beyond the pinned reth persistence threshold and verifies the original receipt after restart.",
+    "Removed journal-only serialization and stale mandatory-storage documentation. Fixed lint findings without suppressions.",
+    "Corrected the remaining durability doc comments and mock journal error text; reran all 89 L1 unit tests and workspace Clippy with warnings denied."
+  ],
+  "validation_harness_notes": [
+    "An initial 180-second builder warm-up was too short for the fresh network. The normal wave passed with the repository default allowance.",
+    "Direct Docker restart changed ephemeral host ports without updating Kurtosis metadata. The restart check passed using Kurtosis service stop/start and refreshed endpoints.",
+    "Loopback fixtures and local Cargo cache locks require execution outside the filesystem/network sandbox."
+  ],
+  "limitations": [
+    "Pending users and retry counters are not persisted; unsettled transactions may require client resubmission.",
+    "Serial source RPC reads require a stable canonical generation; high latency and large batches can defer reconciliation.",
+    "Public-mempool submission and transaction replacement remain out of scope.",
+    "The unchanged full protocol Forge and broader state-chaining suites were not rerun for this removal; their earlier results remain in the historical report."
+  ],
+  "final_review": {
+    "source_sha256": "19e76fb4edc981e38e7ad0281148cd71dbdcffd509fad52b16a79cc3f72d428a",
+    "native_tested_source_sha256": "8d684749d167374ff89163e6574513cf5fcf72db5a499d67375128cc8c141946",
+    "production_statement_changes_after_native_validation": false,
+    "post_validation_changes": [
+      "Two submitter documentation lines no longer imply durable storage.",
+      "The mocked dispatch callback error string and its assertion now say dispatch recording failed."
+    ],
+    "digest_format": "Sorted existing tracked crates/scripts/testing files plus Cargo.toml, Cargo.lock, .env.example and the new parser test; hash each UTF-8 relative path, NUL, raw contents, NUL.",
+    "implementation_diff_sha256": "8760271ef0744b85799dccd024e5721ab6aed7a972f8128480d1c13a79648da3",
+    "l1_unit_tests_after_final_review": {
+      "passed": 89,
+      "failed": 0,
+      "ignored": 0,
+      "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test --locked --offline -p eez-l1 --lib",
+      "log": "target/memory-final-l1-tests.log"
+    },
+    "clippy_all_workspace_targets_rerun": "passed",
+    "format_and_diff_checks_rerun": "passed",
+    "remaining_concrete_findings": []
+  }
 }

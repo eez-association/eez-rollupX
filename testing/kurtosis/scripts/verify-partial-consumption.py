@@ -19,7 +19,7 @@ from pathlib import Path
 FUNDER = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
 
 
-def command(*args):
+def command(*args, include_stderr=False):
     try:
         result = subprocess.run(args, text=True, capture_output=True, timeout=45, check=False)
     except subprocess.TimeoutExpired:
@@ -30,7 +30,20 @@ def command(*args):
         if "--private-key" in args:
             error = error.replace(args[args.index("--private-key") + 1], "[private key]")
         raise RuntimeError(f"{args[0]} failed: {error}")
-    return result.stdout.strip()
+    return (result.stdout + ("\n" + result.stderr if include_stderr else "")).strip()
+
+
+def parse_signals(log):
+    records = []
+    for line in log.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        fields = record.get("fields") if isinstance(record, dict) else None
+        if isinstance(fields, dict) and isinstance(fields.get("event_name"), str):
+            records.append(fields)
+    return records
 
 
 def rpc(url, method, *params):
@@ -80,8 +93,8 @@ def main():
     digest = "sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308"
     assert digest in builder, "unexpected builder image"
 
-    def journal():
-        return json.loads(command("docker", "exec", container, "cat", "/data/l2/settlement-journal.json"))["state"]
+    def signals():
+        return parse_signals(command("docker", "logs", container, include_stderr=True))
 
     def signed(key, to, nonce, *, value="0", calldata="0x", priority="1000000000", gas="600000"):
         return command("cast", "mktx", to, calldata, "--private-key", key,
@@ -106,31 +119,32 @@ def main():
     replacement = signed(keys[1], senders[1], 0, gas="21000", priority="500000000000")
     replacement_hash = command("cast", "keccak", replacement).lower()
 
-    # A dispatched empty attempt is a barrier after the current pool drain.
-    generation = journal()["next_generation"]
+    # A new empty dispatch is a barrier after the current pool drain.
+    cursor = len(signals())
 
     def empty_dispatch():
-        state = journal()
-        return any(int(key) >= generation and not attempt["txs"]
-                   and attempt["dispatched_target"] is not None
-                   for key, attempt in state["attempts"].items())
+        return any(event["event_name"] == "eez.composer.phase1.bundle.dispatched"
+                   or (event["event_name"] == "eez.composer.bundle.dispatched"
+                       and event["user_hashes"] == "[]")
+                   for event in signals()[cursor:])
 
     wait_for(empty_dispatch, "empty dispatch before wave")
     for raw, hash_ in zip(users, hashes):
         assert rpc(front, "eth_sendRawTransaction", raw).lower() == hash_
 
     def proved_attempt():
-        for attempt in journal()["attempts"].values():
-            if [tx["hash"].lower() for tx in attempt["txs"]] == hashes:
-                return attempt
+        for event in signals()[cursor:]:
+            if (event["event_name"] == "eez.composer.bundle.dispatched"
+                    and re.findall(r"0x[0-9a-fA-F]{64}", event["user_hashes"].lower()) == hashes):
+                return event
         return None
 
-    attempt = wait_for(proved_attempt, "durably prepared three-user proof")
-    # begin() happens only after successful proof/sidecar construction. The
+    attempt = wait_for(proved_attempt, "prepared three-user proof")
+    # Dispatch is announced only after successful proof/sidecar construction. The
     # much higher replacement fee places it ahead of this bundle for both
     # pinned ordering algorithms; all canonical ordering is checked below.
     assert rpc(l1, "eth_sendRawTransaction", replacement).lower() == replacement_hash
-    post_hash = attempt["id"]["post_batch_hash"]
+    post_hash = attempt["post_batch_hash"]
     post = receipt(post_hash)
     replaced = receipt(replacement_hash)
     first = receipt(hashes[0])
@@ -142,20 +156,27 @@ def main():
     assert rpc(l1, "eth_getTransactionReceipt", hashes[1]) is None
 
     def completed():
-        state = journal()
-        if all("Terminal" in state["users"][hash_]["location"] for hash_ in hashes):
-            return state
-        return None
+        return next((event for event in signals()[cursor:]
+                     if event["event_name"] == "eez.composer.settlement.reconciled"
+                     and event["post_batch_hash"] == post_hash), None)
 
-    state = wait_for(completed, "canonical per-user dispositions")
-    reasons = [state["users"][hash_]["location"]["Terminal"]["reason"] for hash_ in hashes]
+    settled = wait_for(completed, "canonical per-user dispositions")
+    reasons = re.findall(r"Terminal\((\w+)\)", settled["outcomes"])
     assert reasons == ["Committed", "SourceNonceSpent", "SourceReverted"], reasons
-    assert all(state["users"][hash_]["tx"]["attempts"] == 0 for hash_ in hashes)
+    attempt_counts = json.loads(attempt["attempt_counts"])
+    assert attempt_counts == [0, 0, 0]
     height = attempt["sync_height"]
-    prefix = attempt["manifest"]["effects"][0]["block_hash"]
-    full = attempt["manifest"]["sync_hash"]
-    assert prefix != full
-    assert rpc(l2, "eth_getBlockByNumber", hex(height), False)["hash"] == prefix
+    full = attempt["sync_hash"]
+    # The pinned EEZ event contains an indexed rollup ID and one newRoot word.
+    topic = command("cast", "keccak", "L2ExecutionPerformed(uint64,bytes32)")
+    manager = rpc(l1, "eth_getTransactionByHash", post_hash)["to"].lower()
+    roots = [log for log in first["logs"] if log["address"].lower() == manager
+             and log["topics"][0].lower() == topic.lower()]
+    assert len(roots) == 1, "expected exactly one first-user rollup update"
+    prefix = roots[0]["data"]
+    assert len(prefix) == 66 and prefix != full
+    wait_for(lambda: (block := rpc(l2, "eth_getBlockByNumber", hex(height), False)) and block["hash"] == prefix,
+             "canonical partial prefix")
 
     healthy = signed(keys[1], args.proxy, 1, calldata=command("cast", "calldata", "setValue(uint256)", "99"))
     healthy_hash = rpc(front, "eth_sendRawTransaction", healthy)
@@ -166,7 +187,7 @@ def main():
                 "l1_number": int(post["blockNumber"], 16), "sync_height": height,
                 "partial_hash": prefix, "proposed_full_hash": full, "users": hashes,
                 "replacement": replacement_hash, "dispositions": reasons,
-                "attempt_counts": [0, 0, 0], "healthy": healthy_hash,
+                "attempt_counts": attempt_counts, "healthy": healthy_hash,
                 "safe": {"number": int(safe["number"], 16), "hash": safe["hash"]}}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

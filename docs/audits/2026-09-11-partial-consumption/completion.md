@@ -1,7 +1,9 @@
 # Partial consumption implementation and verification
 
-Status: implementation and planned validation complete. Operational limits are
-recorded below.
+Historical implementation and validation report. The
+[current scope and validation](default-policy.md) supersede the journal and
+opt-in policy described below. Partial consumption is always enabled and
+submitted attempts are tracked in memory.
 
 Worktree: `/tmp/eez-partial-consumption`
 

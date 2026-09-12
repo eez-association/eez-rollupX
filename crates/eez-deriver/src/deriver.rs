@@ -424,7 +424,8 @@ where
 
     /// [`Self::catch_up`], additionally returning the `L1Watcher::polling`
     /// seed: the finalized block, kept inside the range this scan read so
-    /// the seed is immutable and always servable. Boot-only.
+    /// the seed is immutable and always servable. Boot-only: discard any
+    /// speculative local suffix whose in-memory ownership was lost on restart.
     ///
     /// # Errors
     ///
@@ -470,6 +471,20 @@ where
                 tx_hash: B256::ZERO,
                 detail: "catch-up seed block reorged during the scan; retry".into(),
             }));
+        }
+        // No attempt ledger survives restart. Keeping an unposted Sync block
+        // would leave a system-transaction barrier that no attempt can recover.
+        // Only boot drops this suffix; live catch-up retains active proposals.
+        let _guard = self.inner.committer.begin_reconcile().await;
+        let cursor = self.inner.l1_head.cursor();
+        if self
+            .inner
+            .l2_provider
+            .best_block_number()
+            .map_err(DeriverError::l2_provider)?
+            > cursor
+        {
+            self.retreat_l2_to_cursor(cursor).await?;
         }
         event!(
             name: "eez.deriver.catch_up.seed",
@@ -597,11 +612,6 @@ where
         from_l1_block: u64,
         cumulative_start: u64,
     ) -> DeriverResult<u64> {
-        let from_l1_block = self
-            .inner
-            .l1_head
-            .recovery_scan_from()
-            .map_or(from_l1_block, |recovery| recovery.min(from_l1_block));
         let local_head = self
             .inner
             .l2_provider
@@ -632,7 +642,6 @@ where
                 "scan completed without replaying any blocks",
             );
             self.finish_scan(to_l1_block, None).await?;
-            self.inner.l1_head.recovery_scan_complete();
             return Ok(to_l1_block);
         }
 
@@ -668,7 +677,6 @@ where
             );
         }
         self.finish_scan(to_l1_block, None).await?;
-        self.inner.l1_head.recovery_scan_complete();
         Ok(to_l1_block)
     }
 

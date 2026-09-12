@@ -43,7 +43,6 @@ pub mod local;
 pub mod optimistic;
 mod prover_retry;
 pub mod rollup;
-pub mod settlement_journal;
 
 #[doc(inline)]
 pub use composer::{Composer, ComposerConfigError, CrossChainExecCtx};

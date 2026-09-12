@@ -248,8 +248,8 @@ cargo run -p eez-follower -- node \
 
 ### Partial consumption and recovery
 
-Partial consumption and durable recovery are always enabled. Configure a writable
-`EEZ_L2_DATADIR` and a timestamp-pinned bundle relay; all submissions use the relay.
+Partial consumption is always enabled. Configure a timestamp-pinned bundle
+relay; all submissions use the relay.
 Only actual signed L1 users following postBatch enter `revertingTxHashes`.
 The required postBatch and its native blob sidecar are preserved. There is no
 submission policy flag or raw-mempool fallback.
@@ -259,14 +259,11 @@ transactions. The [pinned Kurtosis canary](testing/kurtosis/README.md#validate-p
 checks both behaviors against the selected builder image and configuration.
 No `droppingTxHashes` policy is exposed.
 
-The composer records each submitted user's signed bytes and ownership in
-`$EEZ_L2_DATADIR/settlement-journal.json` before dispatch. Recovery combines a
+The composer tracks each submitted user's signed bytes and ownership in memory
+before dispatch. Reconciliation combines a
 complete canonical L1 scan, validated L2 replay groups and canonical source
 receipts/nonces. It preserves the applied prefix, never retries spent source
 nonces, and requeues eligible omissions once with the existing bounded budget.
-Composer startup requires a usable datadir and opens the journal before launching
-either reth instance. A corrupt, locked or unwritable journal stops startup;
-later write failures stop recovery and dispatch without discarding ownership.
 
 Recovery reads source state sequentially and requires the canonical generation
 to remain stable through those reads. With a consistently slow RPC, a large
@@ -274,8 +271,11 @@ batch can keep recovery pending across successive scans. Monitor the settlement
 backlog and reduce `EEZ_MAX_USER_TXS_PER_BUNDLE` (default: 50) or improve RPC
 latency before increasing the load.
 
-Keep the datadir and journal across restarts. The journal does not persist ingress
-that has never entered a submitted attempt. Details are in
+After a restart, the node reconstructs canonical state from L1 and discards the
+local speculative suffix. Pending users and
+retry counters are not persisted; users may need to resubmit transactions that
+have not settled. `EEZ_L2_DATADIR` remains optional for checkpoint and correlation
+caching. Details are in
 [the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission)
 and the [default-behavior validation report](docs/audits/2026-09-11-partial-consumption/default-policy.md).
 

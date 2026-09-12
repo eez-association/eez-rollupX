@@ -12,7 +12,6 @@ use alloy_consensus::transaction::SignerRecoverable;
 use alloy_consensus::{Transaction, TxEnvelope};
 use alloy_eips::Decodable2718;
 use alloy_primitives::{Address, B256, Bytes, keccak256};
-use serde::{Deserialize, Serialize};
 
 use crate::abi::ExecutionEntrySol;
 use crate::blob_semantics::SemanticTransaction;
@@ -55,7 +54,7 @@ pub struct ManifestInput<'a> {
 }
 
 /// One producing virtual effect, with the complete physical replay endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectCheckpoint {
     /// Index into the manifest's FIFO user array.
     pub user: usize,
@@ -68,7 +67,7 @@ pub struct EffectCheckpoint {
 }
 
 /// One top-level source action; nested actions remain in the semantic forest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceActionManifest {
     /// Index in `UserManifest::semantic_actions`.
     pub action: usize,
@@ -85,7 +84,7 @@ pub struct SourceActionManifest {
 }
 
 /// Signed identity and all effect/action boundaries for one accepted user.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct UserManifest {
     /// Hash of the exact signed source envelope.
     pub tx_hash: B256,
@@ -112,7 +111,7 @@ pub struct UserManifest {
 }
 
 /// Local metadata retained until every signed user's ownership is accounted for.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SettlementManifest {
     /// Settling rollup.
     pub rollup_id: u64,
@@ -421,11 +420,6 @@ mod tests {
         }
     }
 
-    /// Pin the complete serialized manifest from before materialization reuse.
-    fn assert_manifest_encoding(manifest: &SettlementManifest, expected: B256) {
-        assert_eq!(keccak256(serde_json::to_vec(manifest).unwrap()), expected);
-    }
-
     #[test]
     fn manifest_keeps_static_and_reverting_lookup_users_without_effects() {
         let users = [SemanticTransaction {
@@ -437,12 +431,6 @@ mod tests {
             ],
         }];
         let manifest = SettlementManifest::build(input(&users, &[0])).unwrap();
-        assert_manifest_encoding(
-            &manifest,
-            alloy_primitives::b256!(
-                "126b16d5b30970c990ab8ed73a495b10debd0327a56ea17f4417336343596a44"
-            ),
-        );
         assert!(manifest.effects.is_empty());
         let user = &manifest.users[0];
         assert_eq!(user.source_chain_id, Some(31337));
@@ -457,10 +445,6 @@ mod tests {
                 .iter()
                 .all(|action| action.effect.is_none())
         );
-        let bytes = serde_json::to_vec(&manifest).unwrap();
-        let restored: SettlementManifest = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(restored.users[0].tx_hash, user.tx_hash);
-        assert_eq!(restored.users[0].source_actions, user.source_actions);
     }
 
     #[test]
@@ -491,12 +475,6 @@ mod tests {
         proposal.checkpoint_positions = &[0, 1, 2];
         proposal.checkpoint_hashes = &hashes;
         let manifest = SettlementManifest::build(proposal).unwrap();
-        assert_manifest_encoding(
-            &manifest,
-            alloy_primitives::b256!(
-                "ca3492c357cc8a04d6ef204e244a10481f95742fe4e234b8ee7b1dbdef4f12b0"
-            ),
-        );
         assert_eq!(manifest.users[0].effects, 0..2);
         assert_eq!(manifest.users[1].effects, 2..3);
         assert_eq!(
@@ -562,12 +540,6 @@ mod tests {
         proposal.checkpoint_positions = &[1, 1, 2];
         proposal.checkpoint_hashes = &hashes;
         let manifest = SettlementManifest::build(proposal).unwrap();
-        assert_manifest_encoding(
-            &manifest,
-            alloy_primitives::b256!(
-                "d2f610174a1452875b7ebdecd0458396fcb507da523158dad7c2cfba12d14f7f"
-            ),
-        );
         assert_eq!(manifest.users[0].source_rollup_id.0, 0);
         assert_eq!(manifest.users[1].outbound_group, Some(0));
         assert_eq!(manifest.effects[0].user, 1);

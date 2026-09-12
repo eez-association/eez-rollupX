@@ -44,8 +44,6 @@ pub struct L1CanonicalHead {
     cursor: AtomicU64,
     finalized_l2: AtomicU64,
     state: Mutex<CanonicalState>,
-    /// Earliest submitted attempt needing recovery evidence after restart.
-    recovery_from_l1: Mutex<Option<u64>>,
 }
 
 impl L1CanonicalHead {
@@ -223,19 +221,6 @@ impl L1CanonicalHead {
         self.state.lock().unwrap().evidence.generation == generation
     }
 
-    pub fn require_recovery_scan_from(&self, block: u64) {
-        let mut from = self.recovery_from_l1.lock().unwrap();
-        *from = Some(from.map_or(block, |old| old.min(block)));
-    }
-
-    pub fn recovery_scan_from(&self) -> Option<u64> {
-        *self.recovery_from_l1.lock().unwrap()
-    }
-
-    pub fn recovery_scan_complete(&self) {
-        *self.recovery_from_l1.lock().unwrap() = None;
-    }
-
     /// Invalidate by canonical L1 identity, including replacements at the
     /// same L2 height. Incomplete scans cannot authorize recovery.
     pub fn retreat_on_l1_reorg(&self, ancestor: u64) -> (u64, u64, usize) {
@@ -394,11 +379,6 @@ mod tests {
         assert_eq!(head.cursor(), 50);
         assert!(head.settlement_snapshot().settlements.is_empty());
         assert!(head.settlement_snapshot().through.is_none());
-        head.require_recovery_scan_from(95);
-        head.require_recovery_scan_from(99);
-        assert_eq!(head.recovery_scan_from(), Some(95));
-        head.recovery_scan_complete();
-        assert_eq!(head.recovery_scan_from(), None);
     }
 
     fn record(l1_block: u64, tx_byte: u8, last_l2_block: u64) -> BatchRecord {

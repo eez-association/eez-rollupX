@@ -118,7 +118,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         json.dump(body, output)
                     os.replace(captured + ".new", captured)
                     released = os.path.join(self.test_control_dir, "released-bundle.json")
-                    deadline = time.monotonic() + 10
+                    # Leave time for restart tests to persist the already
+                    # settled L1 prefix while the next proposal stays unposted.
+                    deadline = time.monotonic() + 60
                     while not os.path.exists(released):
                         if time.monotonic() >= deadline:
                             raise TimeoutError("test did not release held bundle")

@@ -21,8 +21,27 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 
-async fn partial_after_proving(omitted: usize) {
-    let world = setup_cross_chain_with_env(&[]).await.unwrap();
+async fn attempt_event(
+    world: &eez_testkit::CrossChainWorld,
+    name: &str,
+    post_hash: B256,
+) -> signals::NodeSignal {
+    wait_for(TIMEOUT, || async {
+        Ok(world.node.signals_since(0)?.into_iter().find(|event| {
+            event.name == name && event.fields["post_batch_hash"] == serde_json::json!(post_hash)
+        }))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "missing {name} for {post_hash}: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    })
+}
+
+async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
+    let mut world = setup_cross_chain_with_env(&[]).await.unwrap();
     world.omit_next_bundle_user(omitted).unwrap();
     // Start the wave only after a completed empty drain, leaving the full
     // next slot for all three users. The relay additionally requires exactly
@@ -43,13 +62,16 @@ async fn partial_after_proving(omitted: usize) {
     .unwrap();
     let keys = [ANVIL_KEY_2, ANVIL_KEY_4, ANVIL_KEY_1];
     let mut hashes = Vec::new();
+    let mut nonces = Vec::new();
     for (index, key) in keys.iter().enumerate() {
+        let nonce = onchain_nonce(&world.l1_rpc(), key).await.unwrap();
+        nonces.push(nonce);
         hashes.push(
             sign_and_send(
                 &world.l1_xchain(),
                 key,
                 DEV_CHAIN_ID,
-                onchain_nonce(&world.l1_rpc(), key).await.unwrap(),
+                nonce,
                 Some(world.setter_proxy),
                 U256::ZERO,
                 IValue::setValueCall {
@@ -70,6 +92,9 @@ async fn partial_after_proving(omitted: usize) {
                 world.settlement_diagnostics()
             )
         });
+    if restart_before_retry {
+        world.hold_next_bundle().unwrap();
+    }
     let request = &fault["original"]["params"][0];
     assert_eq!(request["revertingTxHashes"], serde_json::json!(hashes));
     assert!(request.get("droppingTxHashes").is_none());
@@ -77,23 +102,26 @@ async fn partial_after_proving(omitted: usize) {
     let raw: Bytes = request["txs"][0].as_str().unwrap().parse().unwrap();
     let post = EthereumTxEnvelope::<TxEip4844WithSidecar>::decode_2718(&mut raw.as_ref()).unwrap();
     let post_hash = *post.tx_hash();
-    let first_attempt = wait_for(TIMEOUT, || async {
-        let journal = world.settlement_journal()?;
-        Ok(journal["state"]["attempts"]
-            .as_object()
-            .unwrap()
-            .values()
-            .find(|attempt| attempt["id"]["post_batch_hash"] == serde_json::json!(post_hash))
-            .cloned())
-    })
-    .await
-    .unwrap();
-    let height = first_attempt["sync_height"].as_u64().unwrap();
-    let full_hash: B256 = first_attempt["manifest"]["sync_hash"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(post.input()).unwrap();
+    let proposed_roots = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .filter(|update| update.rollupId == world.cfg.rollup_id)
+        .map(|update| update.newRoot)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        proposed_roots.len(),
+        4,
+        "anchor and all three users were proved"
+    );
+    let dispatched = attempt_event(&world, signals::COMPOSER_BUNDLE_DISPATCHED, post_hash).await;
+    let height = dispatched.u64("sync_height").unwrap();
+    let full_hash = dispatched.b256("sync_hash").unwrap();
+    assert_eq!(full_hash, *proposed_roots.last().unwrap());
+    assert_eq!(dispatched.fields["user_hashes"], format!("{hashes:?}"));
+    assert_eq!(dispatched.fields["attempt_counts"], "[0, 0, 0]");
 
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let posted = wait_for(TIMEOUT, || async {
@@ -120,17 +148,10 @@ async fn partial_after_proving(omitted: usize) {
             .map(|event| event.inner.data.newRoot)
             .collect::<Vec<_>>()
     };
-    let expected_prefix = if omitted == 0 {
-        *registry_roots(&posted)
-            .last()
-            .expect("successful anchor commitment")
-    } else {
-        first_attempt["manifest"]["effects"][omitted - 1]["block_hash"]
-            .as_str()
-            .unwrap()
-            .parse::<B256>()
-            .unwrap()
-    };
+    let expected_prefix = proposed_roots[omitted];
+    if omitted == 0 {
+        assert_eq!(registry_roots(&posted).last(), Some(&expected_prefix));
+    }
     // Before retrying, users before the omission completed; users after it
     // reverted because their expected prefix is absent. Reverted source logs
     // and nonces must never be mistaken for retryable, dropped users.
@@ -150,42 +171,123 @@ async fn partial_after_proving(omitted: usize) {
             assert_eq!(registry_roots(&receipt).last(), Some(&expected_prefix));
         }
     }
-    let dispositions = wait_for(TIMEOUT, || async {
-        let journal = world.settlement_journal()?;
-        let users = &journal["state"]["users"];
-        Ok(hashes
-            .iter()
-            .all(|hash| {
-                users[hash.to_string()]["location"]
-                    .get("Terminal")
-                    .is_some()
-            })
-            .then_some(journal))
+    let reconciled =
+        attempt_event(&world, signals::COMPOSER_SETTLEMENT_RECONCILED, post_hash).await;
+    let expected = (0..3)
+        .map(|index| match index.cmp(&omitted) {
+            std::cmp::Ordering::Less => "Terminal(Committed)".to_owned(),
+            std::cmp::Ordering::Equal => {
+                format!("Retryable {{ source_nonce: {} }}", nonces[index])
+            }
+            std::cmp::Ordering::Greater => "Terminal(SourceReverted)".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(reconciled.fields["outcomes"], format!("[{expected}]"));
+    assert_eq!(reconciled.fields["charge_attempt"], true);
+    let mut retry = wait_for(TIMEOUT, || async {
+        Ok(world.node.signals_since(cursor)?.into_iter().find(|event| {
+            event.name == signals::COMPOSER_BUNDLE_DISPATCHED
+                && event.fields["user_hashes"] == format!("{:?}", [hashes[omitted]])
+        }))
     })
     .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "unresolved partial ownership: {error:#}{}",
-            world.settlement_diagnostics()
+    .unwrap();
+    assert_eq!(retry.fields["attempt_counts"], "[1]");
+    if restart_before_retry {
+        let held = wait_for(TIMEOUT, || async { world.held_bundle() })
+            .await
+            .unwrap();
+        assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
+        assert_eq!(held["params"][0]["txs"][1], request["txs"][omitted + 1]);
+        let target = u64::from_str_radix(
+            held["params"][0]["blockNumber"]
+                .as_str()
+                .unwrap()
+                .trim_start_matches("0x"),
+            16,
         )
-    });
-    for (index, hash) in hashes.iter().enumerate() {
-        let user = &dispositions["state"]["users"][hash.to_string()];
-        assert_eq!(
-            user["location"]["Terminal"]["reason"],
-            if index <= omitted {
-                "Committed"
-            } else {
-                "SourceReverted"
-            }
-        );
-        assert_eq!(user["tx"]["attempts"], u64::from(index == omitted));
-    }
-    let retried = l1
-        .get_transaction_receipt(hashes[omitted])
-        .await
-        .unwrap()
         .unwrap();
+        let old_post = retry.b256("post_batch_hash").unwrap();
+        // This fixture embeds L1 in the same process. Advance beyond reth's
+        // two-block persistence threshold before killing it, then verify the
+        // original receipt survives. The dev chain does not advance finality.
+        wait_for(TIMEOUT, || async {
+            Ok((l1.get_block_number().await? > inclusion_block + 2).then_some(()))
+        })
+        .await
+        .unwrap();
+        // Leave the old relay request held until its bounded timeout. It must
+        // never reach L1; the restarted composer has no record of that retry.
+        world.restart_composer().await.unwrap();
+        wait_for(TIMEOUT, || async {
+            Ok((l1.get_block_number().await? > target).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            l1.get_transaction_receipt(post_hash)
+                .await
+                .unwrap()
+                .unwrap()
+                .block_hash,
+            posted.block_hash,
+            "the settled partial prefix must survive the fixture's L1 restart"
+        );
+        assert!(
+            l1.get_transaction_receipt(hashes[omitted])
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            l1.get_transaction_receipt(old_post)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let raw: Bytes = request["txs"][omitted + 1]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
+        let resubmitted = wait_for(TIMEOUT, || async {
+            match front.send_raw_transaction(&raw).await {
+                Ok(pending) => Ok(Some(*pending.tx_hash())),
+                Err(error) if error.to_string().contains("eez node is starting up") => Ok(None),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(resubmitted, hashes[omitted]);
+        retry = wait_for(TIMEOUT, || async {
+            Ok(world.node.signals_since(0)?.into_iter().find(|event| {
+                event.name == signals::COMPOSER_BUNDLE_DISPATCHED
+                    && event.fields["user_hashes"] == format!("{:?}", [hashes[omitted]])
+            }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            retry.fields["attempt_counts"], "[0]",
+            "restart does not retain retry counters"
+        );
+        assert_ne!(retry.b256("post_batch_hash").unwrap(), old_post);
+    }
+    let retried = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(hashes[omitted]).await?)
+    })
+    .await
+    .unwrap();
+    let retry_settlement = attempt_event(
+        &world,
+        signals::COMPOSER_SETTLEMENT_RECONCILED,
+        retry.b256("post_batch_hash").unwrap(),
+    )
+    .await;
+    assert_eq!(retry_settlement.fields["outcomes"], "[Terminal(Committed)]");
     assert!(retried.status());
     assert!(retried.block_number.unwrap() > inclusion_block);
     assert_ne!(expected_prefix, full_hash);
@@ -209,7 +311,7 @@ async fn partial_after_proving(omitted: usize) {
         "retry must preserve the confirmed partial prefix"
     );
 
-    // A clean follower has no local proposal, journal or sequencer input.
+    // A clean follower has no local proposal or sequencer input.
     let follower = NodeHandle::start(
         "partial-clean-follower",
         &NodeConfig {
@@ -267,17 +369,22 @@ async fn partial_after_proving(omitted: usize) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn first_user_omission_preserves_anchor_and_retries_only_unspent_source() {
-    partial_after_proving(0).await;
+    partial_after_proving(0, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn middle_user_omission_preserves_prefix_and_spent_source_dispositions() {
-    partial_after_proving(1).await;
+    partial_after_proving(1, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn last_user_omission_preserves_two_user_prefix_and_clean_follower() {
-    partial_after_proving(2).await;
+    partial_after_proving(2, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restart_after_partial_consumption_accepts_resubmission_without_replaying_expired_bundle() {
+    partial_after_proving(1, true).await;
 }
 
 /// Both posts carry the identical proof, calldata and valid blob sidecar. A
@@ -459,47 +566,26 @@ async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
         "only the new middle and last groups"
     );
     let full_hash = *resumed_roots.last().unwrap();
-    let journal = wait_for(TIMEOUT, || async {
-        let journal = world.settlement_journal()?;
-        Ok(users
-            .iter()
-            .all(|hash| {
-                journal["state"]["users"][hash.to_string()]["location"]
-                    .get("Terminal")
-                    .is_some()
-            })
-            .then_some(journal))
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "resumed ownership: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
-    let attempt = journal["state"]["attempts"]
-        .as_object()
-        .unwrap()
-        .values()
-        .find(|attempt| attempt["id"]["post_batch_hash"] == serde_json::json!(original.tx_hash()))
-        .unwrap();
-    let height = attempt["sync_height"].as_u64().unwrap();
+    let dispatched = attempt_event(
+        &world,
+        signals::COMPOSER_BUNDLE_DISPATCHED,
+        *original.tx_hash(),
+    )
+    .await;
+    let height = dispatched.u64("sync_height").unwrap();
+    assert_eq!(dispatched.b256("sync_hash").unwrap(), full_hash);
+    assert_eq!(dispatched.fields["user_hashes"], format!("{users:?}"));
+    assert_eq!(dispatched.fields["attempt_counts"], "[0, 0, 0]");
+    let reconciled = attempt_event(
+        &world,
+        signals::COMPOSER_SETTLEMENT_RECONCILED,
+        *original.tx_hash(),
+    )
+    .await;
     assert_eq!(
-        attempt["manifest"]["sync_hash"],
-        serde_json::json!(full_hash)
+        reconciled.fields["outcomes"],
+        "[Terminal(Committed), Terminal(Committed), Terminal(Committed)]"
     );
-    assert_eq!(
-        attempt["manifest"]["effects"][0]["block_hash"],
-        serde_json::json!(first_roots[1])
-    );
-    for hash in &users {
-        let user = &journal["state"]["users"][hash.to_string()];
-        assert_eq!(user["location"]["Terminal"]["reason"], "Committed");
-        assert_eq!(
-            user["tx"]["attempts"], 0,
-            "a same-block resume requires no retry"
-        );
-    }
     let follower = NodeHandle::start(
         "valid-resume-follower",
         &NodeConfig {

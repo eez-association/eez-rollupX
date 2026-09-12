@@ -126,14 +126,6 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     );
 
     warn_on_deprecated_env();
-    // Every composer must retain submitted users across process restarts.
-    // Open and lock the journal before launching either reth instance.
-    let l2_data_dir = read_checkpoint_dir().ok_or_else(|| {
-        eyre::eyre!("a writable EEZ_L2_DATADIR is required for the settlement journal")
-    })?;
-    let optimistic =
-        eez_composer::OptimisticallyIncluded::open(&l2_data_dir.join("settlement-journal.json"))
-            .map_err(eyre::Report::msg)?;
     // Fail before launching either reth if no usable prover is configured.
     let ComposerProving {
         prover,
@@ -265,7 +257,8 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
     // yield identical headers.
-    let correlations = correlation_store(Some(&l2_data_dir))?;
+    let l2_data_dir = read_checkpoint_dir();
+    let correlations = correlation_store(l2_data_dir.as_deref())?;
     // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
     // Sequencer and correlation RPC read it.
     let l1_head = Arc::new(L1CanonicalHead::default());
@@ -334,13 +327,14 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
         };
         // Share the SAME HeldPool the ingress middleware pushes into.
-        let held_pool = Arc::new(HeldPool::new(optimistic.journal()));
+        let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
+        let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
         let rollup_state = RollupState {
             config: rollup_config.clone(),
             l2_provider: Arc::new(provider.clone()),
             l1_head: Arc::clone(&l1_head),
             held_pool: Arc::clone(&held_pool),
-            optimistic: Arc::new(optimistic),
+            optimistic,
         };
         let mut rollups = HashMap::with_capacity(1);
         rollups.insert(rollup_id, rollup_state);
@@ -681,7 +675,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         Arc::clone(&l1_head),
         Arc::clone(&correlations),
         Some(system_tx_cfg),
-        Some(l2_data_dir),
+        l2_data_dir,
     );
 
     // Bind before the L1 wait so port checks see a live front. Submissions are

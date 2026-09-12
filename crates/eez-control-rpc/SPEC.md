@@ -472,8 +472,8 @@ profile.
 
 A proof authenticates the full proposed execution. It does not promise that
 every source transaction or execution entry will be consumed on L1. The
-Composer MUST retain each submitted signed user until canonical derivation and
-source-chain evidence determine its disposition. A confirmed L2 height or an
+Composer MUST retain each submitted signed user in memory until canonical
+derivation and source-chain evidence determine its disposition. A confirmed L2 height or an
 observed postBatch receipt alone MUST NOT release all users in an attempt.
 
 The reference implementation builds a local settlement manifest from the final
@@ -512,29 +512,29 @@ Eligible omitted users return to the held pool in FIFO order. A conclusive
 settlement failure charges each eligible user's bounded retry policy once.
 Infrastructure-only failures do not charge that policy. Only an exhausted,
 still-unspent source nonce creates a dependent nonce gap. The pool transfers
-durable ownership and reservations under one lock. Historical attempts cannot
+ownership and reservations under one lock. Historical attempts cannot
 release or recover users owned by a newer attempt.
 
-The reference node writes `settlement-journal.json` in `EEZ_L2_DATADIR` before
-dispatch. Version 1 uses an exclusive writer lock, checksum, atomic replacement,
-file fsync and directory fsync. It retains signed source bytes, the exact pooled
-postBatch envelope, target, manifest, retry counters and ownership throughout
-recomposition. Write errors fail closed. This journal covers submitted users;
-it is not a durable general-purpose ingress queue.
+The reference node tracks submitted attempts in memory. It retains signed source
+bytes, the exact pooled postBatch envelope, target, manifest, retry counters and
+ownership throughout reconciliation and recomposition within the process.
+Invalid ownership transitions leave the prior state unchanged.
 
-Restart resumes canonical evidence collection, including batches skipped by a
-boot checkpoint. A dispatch without a surviving observer becomes uncertain;
-the stored target is retained, and an expired postBatch is never resent. Reorg
-invalidation follows L1 identity even when L2 height is unchanged. Inconclusive
-finality audits retain history. Finalization never releases newer reservations.
+On restart, canonical derivation recovers settled state and discards the local
+speculative suffix before new cross-chain submissions are accepted. Pending
+transactions and retry counters are lost; clients may need to resubmit unsettled
+users. Expired postBatch transactions are
+not replayed. Reorg invalidation within the process follows L1 identity even when
+L2 height is unchanged. Inconclusive finality audits retain history.
+Finalization never releases newer reservations.
 
-Partial consumption is always enabled. Every composer requires a durable journal
-and a timestamp-pinned bundle relay. Only actual bundled L1 user hashes may revert.
+Partial consumption is always enabled. Every composer requires a timestamp-pinned
+bundle relay. Only actual bundled L1 user hashes may revert.
 postBatch stays first and required; outbound L2 hashes are excluded.
 Blob sidecars and timestamp pins are preserved. No `droppingTxHashes` field is
 sent. A builder configured with `discard_txs=true` may nevertheless omit an
 allowed transaction that fails transaction validation, so receipt and nonce
 reconciliation remain mandatory. Submission has no raw-mempool fallback.
 
-Preserve the journal across restarts. There is no runtime mode that disables
-partial-consumption recovery.
+There is no runtime mode that disables partial-consumption reconciliation and
+no settlement storage requirement.

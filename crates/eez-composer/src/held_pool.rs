@@ -26,11 +26,11 @@ use alloy_primitives::{Address, Bytes, TxHash};
 use tracing::{Level, event};
 
 use crate::ingress::Direction;
-use crate::settlement_journal::{SettlementJournal, TerminalReason, UserLocation};
+use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
 /// A cross-chain transaction held between submission and Sync-slot
 /// composition.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeldTx {
     /// RLP-encoded source transaction (signed envelope). Handed to
     /// the composer's chained simulation verbatim.
@@ -96,7 +96,7 @@ fn min_replacement_fee(replaced: u128) -> u128 {
 /// nonce reservations can never disagree with each other.
 #[derive(Debug)]
 struct PoolState {
-    journal: Arc<SettlementJournal>,
+    ledger: Arc<OptimisticallyIncluded>,
     /// Queued txs awaiting the next Sync-slot drain, in FIFO order.
     txs: VecDeque<HeldTx>,
     /// Hashes of the queued txs — O(1) duplicate-submission check.
@@ -112,9 +112,9 @@ struct PoolState {
 }
 
 impl PoolState {
-    fn restore_journal(&mut self, gaps: &[crate::optimistic::NonceGap]) {
+    fn apply_resolution(&mut self, gaps: &[crate::optimistic::NonceGap]) {
         let mut users = self
-            .journal
+            .ledger
             .read(|data| data.users.values().cloned().collect::<Vec<_>>());
         users.sort_by_key(|user| (user.owner, user.fifo_position));
         for user in &users {
@@ -150,14 +150,13 @@ impl PoolState {
                 .map(|user| user.tx)
                 .collect(),
         );
-        self.persist_recovery_pool();
+        self.update_recovery_ownership();
     }
 
-    /// Keep only already-submitted users durable as they are recomposed,
-    /// replaced, deferred or evicted. Failure while holding the pool lock
-    /// poisons it, preventing any subsequent dispatch from outrunning disk.
-    fn persist_recovery_pool(&self) {
-        self.journal
+    /// Track submitted users through recomposition, replacement and eviction
+    /// so an old attempt cannot recover a discarded or newly owned user.
+    fn update_recovery_ownership(&self) {
+        self.ledger
             .update(|data| {
                 for user in data.users.values_mut() {
                     if !matches!(
@@ -289,31 +288,28 @@ pub struct HeldPool {
 }
 
 impl HeldPool {
-    /// Restore queued users and in-flight reservations before opening ingress.
+    /// Bind the held pool to its in-memory attempt ledger.
     #[must_use]
-    pub fn new(journal: Arc<SettlementJournal>) -> Self {
-        let mut state = PoolState {
-            journal,
+    pub fn new(ledger: Arc<OptimisticallyIncluded>) -> Self {
+        let state = PoolState {
+            ledger,
             txs: VecDeque::new(),
             by_hash: HashSet::new(),
             in_flight: HashMap::new(),
         };
-        state.restore_journal(&[]);
         Self {
             state: Mutex::new(state),
         }
     }
 
-    pub(crate) fn uses_journal(&self, journal: &Arc<SettlementJournal>) -> bool {
+    pub(crate) fn uses_ledger(&self, ledger: &Arc<OptimisticallyIncluded>) -> bool {
         let state = self.state.lock().expect("held_pool mutex poisoned");
-        Arc::ptr_eq(&state.journal, journal)
+        Arc::ptr_eq(&state.ledger, ledger)
     }
 
-    /// Persist and apply an ownership partition while ingress is excluded.
-    /// This closes the journal-to-queue window as well as release-to-requeue.
+    /// Apply an ownership partition and update reservations while ingress is excluded.
     pub fn resolve_attempt(
         &self,
-        ledger: &crate::optimistic::OptimisticallyIncluded,
         id: crate::optimistic::AttemptId,
         as_of: eez_l1::L1BlockRef,
         outcomes: &[crate::optimistic::SourceOutcome],
@@ -322,30 +318,22 @@ impl HeldPool {
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if !Arc::ptr_eq(&state.journal, &ledger.journal()) {
-            return Err("held pool and optimistic ledger must share their journal".into());
-        }
         if !is_canonical() {
             return Err("canonical settlement changed before ownership transfer".into());
         }
-        let gaps = ledger.resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
-        state.restore_journal(&gaps);
+        let gaps = state
+            .ledger
+            .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
+        state.apply_resolution(&gaps);
         Ok(())
     }
 
     /// Reopen canonical outcomes and restore their reservations atomically
     /// with respect to ingress and a concurrent reconciliation decision.
-    pub fn invalidate_after_l1(
-        &self,
-        ledger: &crate::optimistic::OptimisticallyIncluded,
-        ancestor: u64,
-    ) -> Result<(), String> {
+    pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if !Arc::ptr_eq(&state.journal, &ledger.journal()) {
-            return Err("held pool and optimistic ledger must share their journal".into());
-        }
-        ledger.invalidate_after_l1(ancestor)?;
-        state.restore_journal(&[]);
+        state.ledger.invalidate_after_l1(ancestor)?;
+        state.apply_resolution(&[]);
         Ok(())
     }
 
@@ -354,7 +342,7 @@ impl HeldPool {
     /// of losing their reorg history through an ordinary stale-pool eviction.
     pub fn recheck_stale_sources(&self, txs: &[HeldTx]) -> Result<bool, String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        let reopened = state.journal.update(|data| {
+        let reopened = state.ledger.update(|data| {
             let mut reopened = false;
             for tx in txs {
                 if let Some(user) = data.users.get_mut(&tx.hash).filter(|user| {
@@ -369,8 +357,7 @@ impl HeldPool {
                         .get_mut(&user.owner)
                         .ok_or("missing recovery attempt")?;
                     attempt.reconciled_at = None;
-                    attempt.observation =
-                        crate::settlement_journal::SubmissionObservation::Uncertain;
+                    attempt.observation = crate::optimistic::SubmissionObservation::Uncertain;
                     reopened = true;
                 }
             }
@@ -379,7 +366,7 @@ impl HeldPool {
         for tx in txs {
             state.release_in_flight(tx);
         }
-        state.restore_journal(&[]);
+        state.apply_resolution(&[]);
         Ok(reopened)
     }
 
@@ -432,7 +419,7 @@ impl HeldPool {
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
             state.by_hash.insert(replacement_hash);
-            state.persist_recovery_pool();
+            state.update_recovery_ownership();
             return Ok(());
         }
 
@@ -459,7 +446,7 @@ impl HeldPool {
         }
         state.by_hash.insert(tx.hash);
         state.txs.push_back(tx);
-        state.persist_recovery_pool();
+        state.update_recovery_ownership();
         Ok(())
     }
 
@@ -468,7 +455,7 @@ impl HeldPool {
     pub fn push_front_batch(&self, recovered: Vec<HeldTx>) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.recover_batch(recovered);
-        state.persist_recovery_pool();
+        state.update_recovery_ownership();
     }
 
     /// Release txs that were drained into an optimistic bundle and are now
@@ -478,7 +465,7 @@ impl HeldPool {
         for tx in txs {
             state.release_in_flight(tx);
         }
-        state.persist_recovery_pool();
+        state.update_recovery_ownership();
     }
 
     /// Atomically evict every queued and in-flight reservation at or above
@@ -507,7 +494,7 @@ impl HeldPool {
         state
             .in_flight
             .retain(|_, (s, d, n)| !(*s == sender && *d == direction && *n >= nonce));
-        state.persist_recovery_pool();
+        state.update_recovery_ownership();
         evicted
     }
 
@@ -528,7 +515,7 @@ impl HeldPool {
             state.by_hash.remove(&tx.hash);
             state.mark_in_flight(tx);
         }
-        state.persist_recovery_pool();
+        state.update_recovery_ownership();
         drained
     }
 
@@ -939,9 +926,9 @@ mod tests {
             };
             let untouched_queue = [5, 6, 7, 8, 9, 10, 11];
             let untouched_flight = [0, 1, 2, 3, 4];
-            pool.state.lock().unwrap().restore_journal(&[]);
+            pool.state.lock().unwrap().apply_resolution(&[]);
             check_membership(&untouched_queue, &untouched_flight);
-            pool.state.lock().unwrap().restore_journal(&[NonceGap {
+            pool.state.lock().unwrap().apply_resolution(&[NonceGap {
                 sender: Address::repeat_byte(0xe),
                 direction: Inbound,
                 nonce: 0,
@@ -974,9 +961,9 @@ mod tests {
             if reverse {
                 gaps.reverse();
             }
-            pool.state.lock().unwrap().restore_journal(&gaps);
+            pool.state.lock().unwrap().apply_resolution(&gaps);
             check_membership(&[6, 8, 9, 11], &[0, 2, 4]);
-            pool.state.lock().unwrap().restore_journal(&gaps);
+            pool.state.lock().unwrap().apply_resolution(&gaps);
             check_membership(&[6, 8, 9, 11], &[0, 2, 4]);
         }
     }

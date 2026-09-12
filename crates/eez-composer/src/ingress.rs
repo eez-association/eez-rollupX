@@ -11,7 +11,7 @@
 //! L2's nonce, so the two chains of the same EOA advance independently.
 
 /// The axis of a cross-chain message relative to THIS rollup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     /// L1→L2 (or peer-L2→L2): a call this rollup RECEIVES and re-executes.
     Inbound,

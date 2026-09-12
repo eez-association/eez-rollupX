@@ -71,7 +71,7 @@ fn duration_millis(name: &str, value: Duration) -> L1Result<u64> {
 }
 
 /// Which L1 block the bundle should land in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BundleTarget {
     /// Resolved to `latest + NEXT_BLOCK_SLACK` at send time. The target's
     /// canonical parent supplies an expected slot timestamp; the request is
@@ -470,8 +470,8 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
-    /// Submit only after the caller has durably recorded the exact target.
-    /// The callback runs before external dispatch and may veto it on I/O error.
+    /// Submit only after the caller has recorded the exact target.
+    /// The callback runs before external dispatch and may veto it on error.
     /// Only signed L1 users following the required postBatch may revert.
     /// Observation of postBatch alone never completes individual users.
     pub async fn send_bundle_recorded(
@@ -1299,7 +1299,7 @@ mod tests {
                         assert_eq!((block, pin), (42, timestamp));
                         recorded.store(true, Ordering::SeqCst);
                         if fail_record {
-                            Err(L1Error::Submission("journal write failed".into()))
+                            Err(L1Error::Submission("dispatch recording failed".into()))
                         } else {
                             Ok(())
                         }
@@ -1311,7 +1311,7 @@ mod tests {
             assert!(recorded.load(Ordering::SeqCst));
             if fail_record {
                 assert!(
-                    matches!(result, Err(L1Error::Submission(message)) if message == "journal write failed")
+                    matches!(result, Err(L1Error::Submission(message)) if message == "dispatch recording failed")
                 );
             } else {
                 assert!(

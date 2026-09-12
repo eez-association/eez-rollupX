@@ -1,4 +1,4 @@
-# Isolated partial-consumption validation profile; atomic remains the default elsewhere.
+# Isolated validation of the default partial-consumption behavior.
 ethereum_package:
   participants:
     - el_type: reth

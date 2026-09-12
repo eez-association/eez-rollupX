@@ -3,17 +3,16 @@
 use std::ops::Range;
 
 use alloy_primitives::B256;
-use serde::{Deserialize, Serialize};
 
 /// A canonical L1 block identity, never just a height.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct L1BlockRef {
     pub number: u64,
     pub hash: B256,
 }
 
 /// The exact L2 endpoint validated by derivation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct L2Endpoint {
     pub number: u64,
     pub hash: B256,
@@ -21,7 +20,7 @@ pub struct L2Endpoint {
 
 /// Validated replay coordinates. Outbound groups are indivisible signed users;
 /// inbound indices count producing deliveries, excluding static/lookup actions.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReplaySelection {
     pub outbound_groups: Range<usize>,
     pub inbound_effects: Range<usize>,
@@ -29,7 +28,7 @@ pub struct ReplaySelection {
 
 /// One successfully scanned and reconciled occurrence of a posted batch.
 /// Empty `applied_effects` is conclusive; an absent record is inconclusive.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconciledBatchSettlement {
     pub l1_block: L1BlockRef,
     pub tx_hash: B256,

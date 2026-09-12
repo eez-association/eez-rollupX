@@ -3831,6 +3831,7 @@ pub struct CrossChainWorld {
     beacon: BeaconStub,
     _witness_dir: tempfile::TempDir,
     datadir: FailureDatadir,
+    env: Vec<(&'static str, String)>,
 }
 
 pub struct CrossChainEmptyCallWorld {
@@ -3922,6 +3923,25 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 }
 
 impl CrossChainWorld {
+    /// Crash the composer and reopen the same chain databases with an empty pool.
+    pub async fn restart_composer(&mut self) -> Result<()> {
+        {
+            let mut child = self.node.child.lock().expect("node child mutex poisoned");
+            child.kill().context("stop composer for restart")?;
+            child.wait().context("wait for composer exit")?;
+        }
+        self.node = NodeHandle::start_with_datadir(
+            "restarted-composer",
+            self.datadir.path(),
+            &NodeConfig::default(),
+            &self.env,
+        )
+        .await?;
+        self.node
+            .wait_for_rpc(&self.l1_rpc(), SETUP_TIMEOUT, "restarted embedded L1")
+            .await
+    }
+
     /// Hold the next proved request until `release_bundle` supplies its L1
     /// execution sequence. The fixture relay times out rather than hanging.
     pub fn hold_next_bundle(&self) -> Result<()> {
@@ -3979,13 +3999,6 @@ impl CrossChainWorld {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
-    }
-
-    /// Atomically persisted runtime ownership, independent of log timing.
-    pub fn settlement_journal(&self) -> Result<serde_json::Value> {
-        Ok(serde_json::from_slice(&std::fs::read(
-            self.datadir.path().join("settlement-journal.json"),
-        )?)?)
     }
 
     /// A fresh follower receives only canonical L1 and blob availability.
@@ -5248,6 +5261,7 @@ async fn setup_cross_chain_inner(
         beacon,
         _witness_dir: witness_dir,
         datadir,
+        env,
     })
 }
 
