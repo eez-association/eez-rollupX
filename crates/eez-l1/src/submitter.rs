@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy_eips::{BlockNumberOrTag, Decodable2718};
 use alloy_primitives::{B256, TxHash, hex};
-use alloy_provider::{Provider, ProviderBuilder};
+use alloy_provider::{Provider, ProviderBuilder, RootProvider};
 use tracing::{Level, event};
 
 use crate::config::SubmitterConfig;
@@ -166,7 +166,7 @@ struct Inner {
     config: SubmitterConfig,
     submission_timing: SubmissionTiming,
     reader: L1Reader,
-    request_timeout: Duration,
+    target_provider: RootProvider,
     http: reqwest::Client,
 }
 
@@ -436,12 +436,13 @@ impl Submitter {
             submission_slack,
         )?;
         let request_timeout = Duration::from_secs(30);
+        let target_provider = Inner::build_target_provider(&config, request_timeout);
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 submission_timing,
                 reader,
-                request_timeout,
+                target_provider,
                 // Bound both dispatch and canonical source reads. Timeout is
                 // inconclusive: ownership stays reserved until reconciliation
                 // succeeds. Never substitute an unbounded client on failure.
@@ -502,7 +503,7 @@ impl Submitter {
             })?;
             *post_batch_envelope.tx_hash()
         };
-        let target_provider = self.inner.build_target_provider();
+        let target_provider = &self.inner.target_provider;
         let chain_id = target_provider
             .get_chain_id()
             .await
@@ -510,7 +511,7 @@ impl Submitter {
         let reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
         let clock = SystemClock;
         let prepared = prepare_submission_target(
-            &target_provider,
+            target_provider,
             target,
             self.inner.submission_timing,
             &clock,
@@ -566,7 +567,7 @@ impl Submitter {
     pub async fn canonical_block_hash(&self, number: u64) -> L1Result<Option<B256>> {
         Ok(self
             .inner
-            .build_target_provider()
+            .target_provider
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .await
             .map_err(|error| L1Error::Provider(error.to_string()))?
@@ -577,7 +578,7 @@ impl Submitter {
     pub async fn canonical_block_contains(&self, number: u64, tx_hash: B256) -> L1Result<bool> {
         let block = self
             .inner
-            .build_target_provider()
+            .target_provider
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .hashes()
             .await
@@ -596,7 +597,7 @@ impl Submitter {
         at: crate::L1BlockRef,
     ) -> L1Result<CanonicalSourceState> {
         read_canonical_source(
-            &self.inner.build_target_provider(),
+            &self.inner.target_provider,
             self.inner.reader.eez(),
             self.inner.reader.rollup_id(),
             tx_hash,
@@ -615,8 +616,9 @@ impl Submitter {
     /// [`L1Error::Provider`] on RPC failure.
     pub async fn receipt_exists(&self, tx_hash: TxHash) -> L1Result<bool> {
         // Use the canonical target RPC; the embedded L1 can lag its tip.
-        let provider = self.inner.build_target_provider();
-        Ok(provider
+        Ok(self
+            .inner
+            .target_provider
             .get_transaction_receipt(tx_hash)
             .await
             .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {e}")))?
@@ -712,20 +714,19 @@ async fn require_canonical_block<P: Provider>(
 }
 
 impl Inner {
-    /// Canonical target-chain provider used for scheduling and observation.
+    /// Build the shared canonical provider once, retaining its connection pool.
     /// Falls back to the main RPC when no override URL is set. See
     /// `SubmitterConfig::target_rpc_url`.
-    fn build_target_provider(&self) -> impl Provider + use<> {
-        let url = self
-            .config
+    fn build_target_provider(config: &SubmitterConfig, request_timeout: Duration) -> RootProvider {
+        let url = config
             .target_rpc_url
             .clone()
-            .unwrap_or_else(|| self.reader.rpc_url());
+            .unwrap_or_else(|| config.reader.rpc_url.clone());
         ProviderBuilder::new()
             .disable_recommended_fillers()
             .with_reqwest(url, |builder| {
                 builder
-                    .timeout(self.request_timeout)
+                    .timeout(request_timeout)
                     .build()
                     .expect("canonical source HTTP client configuration is valid")
             })
@@ -857,7 +858,7 @@ impl Inner {
         // `pinned` buys a slot without weakening that: min == max timestamp
         // leaves one satisfiable height, so the block there decides it.
         let start = tokio::time::Instant::now();
-        let target_provider = self.build_target_provider();
+        let target_provider = &self.target_provider;
         let mut slow_logged = false;
         loop {
             // Transient RPC failures are retried, never escalated to a
@@ -872,7 +873,7 @@ impl Inner {
                         L1Error::Provider("receipt present but block_hash missing".into())
                     })?;
                     require_canonical_block(
-                        &target_provider,
+                        target_provider,
                         crate::L1BlockRef {
                             number: l1_block,
                             hash: l1_block_hash,
@@ -886,7 +887,7 @@ impl Inner {
                     });
                 }
                 Ok(None) => {
-                    let verdict = pinned_slot_check(&target_provider, target, tx_hash).await;
+                    let verdict = pinned_slot_check(target_provider, target, tx_hash).await;
                     match verdict {
                         PinnedVerdict::Excluded => {
                             return Ok(dropped(tx_hash, target.block, BundleDropReason::Excluded));
@@ -1202,6 +1203,7 @@ mod tests {
 
     async fn rpc_server(
         responses: Vec<serde_json::Value>,
+        keep_alive: bool,
     ) -> (url::Url, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
@@ -1211,9 +1213,12 @@ mod tests {
             .unwrap();
         let server = tokio::spawn(async move {
             let mut requests = Vec::new();
+            let mut connection = None;
             for mut response in responses {
-                let (stream, _) = listener.accept().await.unwrap();
-                let mut stream = BufReader::new(stream);
+                let mut stream = match connection.take() {
+                    Some(stream) => stream,
+                    None => BufReader::new(listener.accept().await.unwrap().0),
+                };
                 let mut length = None;
                 loop {
                     let mut line = String::new();
@@ -1234,12 +1239,16 @@ mod tests {
                 response["id"] = request["id"].clone();
                 let body = serde_json::to_vec(&response).unwrap();
                 let header = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
                     body.len(),
+                    if keep_alive { "keep-alive" } else { "close" },
                 );
                 stream.get_mut().write_all(header.as_bytes()).await.unwrap();
                 stream.get_mut().write_all(&body).await.unwrap();
                 requests.push(request);
+                if keep_alive {
+                    connection = Some(stream);
+                }
             }
             requests
         });
@@ -1263,7 +1272,7 @@ mod tests {
                     "error": {"code": -32601, "message": "method not found"}
                 }));
             }
-            let (url, server) = rpc_server(responses).await;
+            let (url, server) = rpc_server(responses, false).await;
             let mut submitter = test_submitter(url);
             // Keep this transport test inside the send window without sleeps.
             Arc::get_mut(&mut submitter.inner)
@@ -1384,7 +1393,7 @@ mod tests {
                         serde_json::json!({"result": block}),
                     ]
                 };
-                let (url, server) = rpc_server(responses).await;
+                let (url, server) = rpc_server(responses, false).await;
                 let mut submitter = test_submitter(url.clone());
                 let root = directory.0.join(format!("{outcome}-{capture}"));
                 if capture == "unwritable" {
@@ -1517,7 +1526,7 @@ mod tests {
                 };
                 responses.push(serde_json::json!({"result": block}));
             }
-            let (url, server) = rpc_server(responses).await;
+            let (url, server) = rpc_server(responses, false).await;
             let submitter = test_submitter(url);
             let result = tokio::time::timeout(
                 Duration::from_secs(5),
@@ -1553,6 +1562,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn canonical_provider_reuses_connections_without_caching_chain_state() {
+        for override_target in [false, true] {
+            let first = mock_block(42, PIN, B256::with_last_byte(1));
+            let replacement = mock_block(42, PIN, B256::with_last_byte(2));
+            let (url, server) = rpc_server(
+                vec![
+                    serde_json::json!({"result": first}),
+                    serde_json::json!({"error": {"code": -32000, "message": "unavailable"}}),
+                    serde_json::json!({"result": replacement}),
+                    serde_json::json!({"result": null}),
+                ],
+                true,
+            )
+            .await;
+            let mut config = test_submitter(url.clone()).inner.config.clone();
+            config.target_rpc_url = override_target.then_some(url);
+            if override_target {
+                config.reader.rpc_url = "http://127.0.0.1:0".parse().unwrap();
+            }
+            let submitter =
+                super::Submitter::new(config, Duration::from_secs(12), Duration::from_millis(500))
+                    .unwrap();
+            let shared = submitter.clone();
+            // The server accepts only one connection. Each call must still
+            // make a fresh RPC, including after an error or same-height reorg.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                assert_eq!(
+                    submitter.canonical_block_hash(42).await.unwrap(),
+                    Some(first.header.hash)
+                );
+                assert!(matches!(
+                    shared.canonical_block_hash(42).await,
+                    Err(L1Error::Provider(_))
+                ));
+                assert_eq!(
+                    shared.canonical_block_hash(42).await.unwrap(),
+                    Some(replacement.header.hash)
+                );
+                assert!(!submitter.receipt_exists(B256::ZERO).await.unwrap());
+                let requests = server.await.unwrap();
+                assert_eq!(requests.len(), 4);
+                for request in &requests[..3] {
+                    assert_eq!(request["method"], "eth_getBlockByNumber");
+                    assert_eq!(request["params"][0], "0x2a");
+                }
+                assert_eq!(requests[3]["method"], "eth_getTransactionReceipt");
+            })
+            .await
+            .expect("canonical reads must reuse the live HTTP connection");
+        }
+    }
+
+    #[tokio::test]
     async fn canonical_source_reads_bound_stalled_headers_and_response_bodies() {
         use std::sync::Arc;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1575,8 +1637,9 @@ mod tests {
                 std::future::pending::<()>().await;
             });
             let mut submitter = test_submitter(url);
-            Arc::get_mut(&mut submitter.inner).unwrap().request_timeout =
-                Duration::from_millis(100);
+            let inner = Arc::get_mut(&mut submitter.inner).unwrap();
+            inner.target_provider =
+                super::Inner::build_target_provider(&inner.config, Duration::from_millis(100));
             let result = tokio::time::timeout(
                 Duration::from_secs(2),
                 submitter.source_state_at(

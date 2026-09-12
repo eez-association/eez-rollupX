@@ -1,9 +1,9 @@
 {
-  "base": "a09426d8efcf845e90e3c4da8f112d7e16a0c505",
+  "base": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
   "binary_sha256": {
-    "eez-proof-signer": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a",
-    "eez-follower": "89ef9485ca7bb9a40f6f958972ef7797334c9827af6abf6dff1901a2654e74d0",
-    "eez-composer": "65c97bd185914586acbe2f68710fd898c27e788e5516bb309e38e3b2984c4792"
+    "eez-proof-signer": "1c09cc15ac50b2788568c860f4b4b44157de845ffb3ff495d7f55f1c5b6ffb65",
+    "eez-follower": "ab1be1bbcbf8b50fd8b7904d1957a11663edaf07b1bdab7b944df30abfe2d4f4",
+    "eez-composer": "ceda3b1e9ebbb608bed29d78c172c9c0ccd2ace0ba9cade73bae102497148f0e"
   },
   "startup": [
     {
@@ -42,11 +42,11 @@
       "suite": "partial_consumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 398.32,
+      "seconds": 355.65,
       "summaries": [
-        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 398.31s"
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 355.64s"
       ],
-      "log": "target/journal-native-partial_consumption.log"
+      "log": "target/reuse-native-partial_consumption.log"
     },
     {
       "suite": "l1_reorg",
@@ -54,77 +54,77 @@
         "_l1_reorg_"
       ],
       "exit_code": 0,
-      "seconds": 161.77,
+      "seconds": 161.8,
       "summaries": [
-        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.76s"
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.79s"
       ],
-      "log": "target/journal-native-l1_reorg.log"
+      "log": "target/reuse-native-l1_reorg.log"
     },
     {
       "suite": "resumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 77.37,
+      "seconds": 90.77,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 77.36s"
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 90.76s"
       ],
-      "log": "target/journal-native-resumption.log"
+      "log": "target/reuse-native-resumption.log"
     }
   ],
-  "recorded_at_utc": "2026-09-12T12:54:25.763839+00:00",
+  "recorded_at_utc": "2026-09-12T13:45:49.051770+00:00",
   "branch": "fix/partial-consumption-default",
   "worktree": "/home/edu/Development/eez-rollup0-fork/target/worktrees/partial-consumption-default",
   "default_policy_base": "d09bc005ec2daa0ded91399749bb47d02ed5b9d5",
   "original_main": "40134955dc3f698ea65571ba82b6521637bf1191",
-  "implementation_diff_sha256": "2d4d9c3cf6ad2cca140e6641c7106b01d088d4a0179c18fe01133c3dfefd4d3f",
-  "implementation_diff_scope": "git diff --binary a09426d8efcf845e90e3c4da8f112d7e16a0c505 -- crates",
+  "implementation_diff_sha256": "e28b27966ce998d9ec35c9a8541e70a992a1f899758cc4399c56250679d4c8fd",
+  "implementation_diff_scope": "git diff --binary 1c5aa67467de972fb3d1f271b9da9a0450f5df62 -- crates",
   "executables": {
     "eez-proof-signer": {
       "path": "target/debug/eez-proof-signer",
-      "sha256": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a"
+      "sha256": "1c09cc15ac50b2788568c860f4b4b44157de845ffb3ff495d7f55f1c5b6ffb65"
     },
     "eez-follower": {
       "path": "target/debug/eez-follower",
-      "sha256": "89ef9485ca7bb9a40f6f958972ef7797334c9827af6abf6dff1901a2654e74d0"
+      "sha256": "ab1be1bbcbf8b50fd8b7904d1957a11663edaf07b1bdab7b944df30abfe2d4f4"
     },
     "eez-composer": {
       "path": "target/debug/eez-composer",
-      "sha256": "65c97bd185914586acbe2f68710fd898c27e788e5516bb309e38e3b2984c4792"
+      "sha256": "ceda3b1e9ebbb608bed29d78c172c9c0ccd2ace0ba9cade73bae102497148f0e"
     },
     "partial_consumption": {
       "path": "target/debug/deps/partial_consumption-64bd1c30e8bbe353",
-      "sha256": "8368ced9c7ef8f4294ca41e42e4130c48bb3878a53c926c38d7e6bdf477b2056"
+      "sha256": "da9c049949db781f7ba79be36856c5580570c1602f3f4abaa07539a1c72c99e5"
     },
     "resumption": {
       "path": "target/debug/deps/resumption-80372bcb0796a6e0",
-      "sha256": "bd3979397132f797e1861b36693e1cfe0993efce3bd88290b67af62d5741585c"
+      "sha256": "5b1c10dba739b9ce0457533dce9424b88f45295bbda134b38f6153bad0e44809"
     },
     "e2e": {
       "path": "target/debug/deps/e2e-e086d792658832c8",
-      "sha256": "b11959e4fd1a43569afc9a914605e0627f23209eda7634c2c5bea890fad99c1e"
+      "sha256": "0cd3405f3064fdce0ddf8cf5d5409a6d05817a0d4780a0f779936ddb55a0c8b1"
     }
   },
   "protocol": "3c0cdf4955941a5c23639346932b55b33babebbd",
   "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
   "clippy_rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
   "commands": {
-    "focused_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline -p eez-composer -p eez-node --lib",
+    "focused_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline -p eez-protocol -p eez-l1 --lib",
     "workspace_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline --workspace --lib",
     "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
     "format": "cargo fmt --all --check",
     "diff": "git diff --check",
     "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
-    "native_run": "python3 target/run-journal-validation.py",
-    "production_constructor": "python3 target/check-journal-constructor.py"
+    "native_run": "python3 target/run-reuse-validation.py",
+    "production_constructor": "python3 target/check-reuse-constructor.py"
   },
   "workspace_library_tests": {
     "suites": 15,
-    "passed": 521,
+    "passed": 523,
     "failed": 0
   },
   "focused_library_tests": {
     "suites": 2,
-    "passed": 104,
+    "passed": 255,
     "failed": 0
   },
   "production_journal_constructor": {
@@ -140,9 +140,20 @@
     }
   },
   "clippy_all_targets_warnings_denied": "passed",
+  "initial_clippy_issue": "Removed the reader RPC URL accessor after provider construction made it unused; reran checks successfully.",
+  "manifest_encoding_baseline": {
+    "commit": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
+    "log": "target/reuse-manifest-baseline.log",
+    "algorithm": "keccak256 of serialized manifest JSON",
+    "digests": {
+      "static_lookup": "0x126b16d5b30970c990ab8ed73a495b10debd0327a56ea17f4417336343596a44",
+      "mixed_groups": "0xd2f610174a1452875b7ebdecd0458396fcb507da523158dad7c2cfba12d14f7f",
+      "inbound_fifo": "0xca3492c357cc8a04d6ef204e244a10481f95742fe4e234b8ee7b1dbdef4f12b0"
+    }
+  },
   "format_and_diff_checks": "passed",
   "previous_validation": {
-    "commit": "a09426d8efcf845e90e3c4da8f112d7e16a0c505",
+    "commit": "1c5aa67467de972fb3d1f271b9da9a0450f5df62",
     "evidence_path": "docs/audits/2026-09-11-partial-consumption/default-validation-evidence.json",
     "not_repeated": [
       "CI Python tests",

@@ -180,9 +180,11 @@ impl SettlementManifest {
             {
                 return Err("manifest source identity mismatch".into());
             }
-            // The production materializer validates preorder, rollback spans
-            // and source-table coverage before the forest enters the journal.
-            semantic.materialize().map_err(|error| error.to_string())?;
+            // Outbound forests are validated here. Inbound forests are
+            // materialized and validated below when mapping their FIFO actions.
+            if user.source.0 != 0 {
+                semantic.materialize().map_err(|error| error.to_string())?;
+            }
             users.push(UserManifest {
                 tx_hash: *signed.tx_hash(),
                 source_rollup_id: user.source,
@@ -419,6 +421,11 @@ mod tests {
         }
     }
 
+    /// Pin the complete serialized manifest from before materialization reuse.
+    fn assert_manifest_encoding(manifest: &SettlementManifest, expected: B256) {
+        assert_eq!(keccak256(serde_json::to_vec(manifest).unwrap()), expected);
+    }
+
     #[test]
     fn manifest_keeps_static_and_reverting_lookup_users_without_effects() {
         let users = [SemanticTransaction {
@@ -430,6 +437,12 @@ mod tests {
             ],
         }];
         let manifest = SettlementManifest::build(input(&users, &[0])).unwrap();
+        assert_manifest_encoding(
+            &manifest,
+            alloy_primitives::b256!(
+                "126b16d5b30970c990ab8ed73a495b10debd0327a56ea17f4417336343596a44"
+            ),
+        );
         assert!(manifest.effects.is_empty());
         let user = &manifest.users[0];
         assert_eq!(user.source_chain_id, Some(31337));
@@ -478,6 +491,12 @@ mod tests {
         proposal.checkpoint_positions = &[0, 1, 2];
         proposal.checkpoint_hashes = &hashes;
         let manifest = SettlementManifest::build(proposal).unwrap();
+        assert_manifest_encoding(
+            &manifest,
+            alloy_primitives::b256!(
+                "ca3492c357cc8a04d6ef204e244a10481f95742fe4e234b8ee7b1dbdef4f12b0"
+            ),
+        );
         assert_eq!(manifest.users[0].effects, 0..2);
         assert_eq!(manifest.users[1].effects, 2..3);
         assert_eq!(
@@ -543,6 +562,12 @@ mod tests {
         proposal.checkpoint_positions = &[1, 1, 2];
         proposal.checkpoint_hashes = &hashes;
         let manifest = SettlementManifest::build(proposal).unwrap();
+        assert_manifest_encoding(
+            &manifest,
+            alloy_primitives::b256!(
+                "d2f610174a1452875b7ebdecd0458396fcb507da523158dad7c2cfba12d14f7f"
+            ),
+        );
         assert_eq!(manifest.users[0].source_rollup_id.0, 0);
         assert_eq!(manifest.users[1].outbound_group, Some(0));
         assert_eq!(manifest.effects[0].user, 1);
@@ -566,6 +591,46 @@ mod tests {
                 .unwrap_err()
                 .contains("trailing")
         );
+    }
+
+    #[test]
+    fn manifest_rejects_invalid_semantic_forests_in_both_directions() {
+        for source in [0, 1] {
+            for invalid in ["empty", "pending", "parent", "rollback", "static value"] {
+                let mut call = action(source, CallMode::Mutable, true);
+                match invalid {
+                    "pending" => call.outcome = ExecutionOutcome::Pending,
+                    "parent" => call.parent_index = Some(0),
+                    "rollback" => call.revert_span = Some(2),
+                    "static value" => {
+                        call.call_mode = CallMode::Static;
+                        call.value = U256::from(1);
+                    }
+                    _ => {}
+                }
+                let users = [SemanticTransaction {
+                    origin_chain: RollupId(source),
+                    tx_data: signed(0),
+                    actions: if invalid == "empty" {
+                        vec![]
+                    } else {
+                        vec![call]
+                    },
+                }];
+                let error = SettlementManifest::build(input(&users, &[0])).unwrap_err();
+                assert!(
+                    !error.contains("checkpoint") && !error.contains("outbound"),
+                    "{source}/{invalid} must fail semantic validation: {error}",
+                );
+                assert!(
+                    users[0]
+                        .materialize()
+                        .unwrap_err()
+                        .to_string()
+                        .contains(&error)
+                );
+            }
+        }
     }
 
     #[test]

@@ -12,7 +12,9 @@ The default-policy work starts from `d09bc005ec2daa0ded91399749bb47d02ed5b9d5`.
 The first simplification round starts from
 `fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e`; the second cleanup starts from
 `1c327d4085a9fc26308bc4030f548accd59fdef9`. The journal and recovery cleanup starts
-from `a09426d8efcf845e90e3c4da8f112d7e16a0c505`. All stay on this branch and worktree.
+from `a09426d8efcf845e90e3c4da8f112d7e16a0c505`. The connection and materialization
+cleanup starts from `1c5aa67467de972fb3d1f271b9da9a0450f5df62`.
+All stay on this branch and worktree.
 
 The change removes the submission-policy enum, environment parser, atomic branch,
 unrecorded submission entrypoint, per-attempt relay switch, and raw-mempool
@@ -69,6 +71,18 @@ The journal and recovery cleanup makes three further localized changes:
 The stale atomic-relay comment now describes settlement reconciliation. These
 changes add no dependencies, runtime modes, or migration handling.
 
+The connection and materialization cleanup removes repeated setup and computation:
+
+- Construct the canonical RPC provider once per Submitter, retaining its HTTP
+  connection pool. All canonical reads borrow that provider. The 30-second
+  request timeout, target override/fallback routing, fresh RPC reads and
+  canonical-hash checks remain. Remove the now-unused reader URL accessor.
+- Materialize inbound forests only when mapping their FIFO source actions,
+  using that result for validation and mapping. Outbound forests retain their
+  existing validation. This avoids the discarded first inbound materialization
+  without retaining another collection of compositions. Every accepted forest
+  still passes the production materializer before the manifest can be journaled.
+
 All workspace callers of the adjusted Rust interfaces are updated. Production
 ledger construction requires a durable journal; in-memory ledgers remain limited
 to unit tests. Composer startup opens and locks
@@ -89,6 +103,10 @@ Protocol and implementation sources verified:
 - [Settlement ownership specification](../../../crates/eez-control-rpc/SPEC.md),
   section 8: inclusion alone cannot complete users; canonical evidence and atomic
   ownership transfers remain required.
+- Locked Alloy 2.0.5 and reqwest 0.13.3 sources: the root provider shares its
+  client, canonical reads issue fresh RPC requests, and the HTTP client retains
+  its connection pool. Reusing the provider avoids changing the relay client's
+  separate reqwest 0.12 dependency.
 - The original default-policy work also checked the
   [Flashbots RPC definition](https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint#eth_sendbundle)
   and pinned
@@ -100,8 +118,8 @@ tests use Rust 1.96.1; Clippy uses the CI toolchain, Rust 1.94.0.
 
 | Check | Result |
 | --- | --- |
-| Affected composer and node library tests | 104 passed. |
-| Complete workspace library tests | 521 passed across 15 suites. |
+| Affected protocol and L1 library tests | 255 passed. |
+| Complete workspace library tests | 523 passed across 15 suites. |
 | Workspace Clippy, all targets, warnings denied | Passed. |
 | Production journal construction checks | Durable `open` compiles; in-memory `Default` is rejected with the expected E0277 error. |
 | Composer startup checks | 5 passed: missing, unusable, corrupt, locked, and fresh journal storage. |
@@ -110,16 +128,26 @@ tests use Rust 1.96.1; Clippy uses the CI toolchain, Rust 1.94.0.
 
 Commands, executable hashes, and suite results are retained in
 [default-validation-evidence.json](default-validation-evidence.json). Detailed
-logs are in the worktree's ignored `target/journal-*` artifacts.
+logs are in the worktree's ignored `target/reuse-*` artifacts.
 
 The preceding round at `1c327d4` passed all 17 native cases, CI Python tests
 (174 passed, 4 skipped), 19 integration-contract tests, and offline dependency
 checks (1,243 cached advisories, 14 allowed warnings; no online refresh).
 The additional native scenarios and those auxiliary checks were not rerun for
-this journal and recovery cleanup. Their evidence remains in the same JSON file at that
-commit and in the ignored `target/simplify-*` artifacts.
+this connection and materialization cleanup. Their evidence remains in the same
+JSON file at that commit and in the ignored `target/simplify-*` artifacts.
 
-New regression coverage compares the actual journal file with the original
+New regression coverage requires a single persistent HTTP connection across
+cloned submitters, an RPC error, a same-height block replacement and receipt
+lookup. It checks both explicit target routing and fallback to the reader URL.
+Existing stalled-header/body timeout tests use the same bounded provider factory.
+Three complete serialized manifest digests, captured before changing production
+materialization, remain identical for static/reverting lookups, inbound FIFO
+actions and mixed inbound/outbound multiroot groups. Ten malformed-forest cases
+cover empty or pending actions, invalid parent/rollback structure and nonzero
+static-call value in both directions.
+
+The preceding journal cleanup compares the actual journal file with the original
 version-1 owned envelope for empty, prepared, dispatched, and reconciled states.
 It also checks queue order, hash membership, and in-flight reservations with
 empty, nonmatching, overlapping, reversed, and repeated nonce gaps across senders
@@ -144,18 +172,19 @@ acceptance before capturing a request, and permit only the exact retryable
 missing-block-body error for a deliberately orphaned transaction during recovery.
 Strict checks remain before the injected reorg and after recovery.
 
-The final critical review checked the complete cleanup diff against `a09426d`,
+The final critical review checked the complete cleanup diff against `1c5aa67`,
 the tested-source digest, and the aggregate feature scope against original `main`
-at `4013495`. It checked owned versus borrowed serialization, rollback and fsync
-ordering, production construction, temporary-directory lifetimes, and rebuilding
-the hash index before recovery while holding the pool lock. Earlier reviews
-against `fc5afdd` and `1c327d4` checked canonical evidence authority, observer
-completion, startup restoration, journal identity, deadlines, and capture errors.
-No concrete issues remained. No dependency versions or protocol gitlinks changed
-in these simplification rounds.
+at `4013495`. It checked provider ownership, endpoint routing, fresh reads after
+RPC errors/reorgs, timeout enforcement, validation before journaling and identical
+manifest encoding. Clippy identified the now-unused reader URL accessor; it was
+removed and the affected tests, workspace tests and Clippy were rerun successfully.
+Earlier reviews checked journal serialization and fsync ordering, atomic recovery,
+canonical evidence authority, startup restoration, deadlines and capture errors.
+No concrete issues remained. No dependency versions or protocol gitlinks changed.
 
 Kurtosis was not rerun for this follow-up; the earlier real-builder canary remains
 recorded in the original implementation report. Native tests validate accounting,
 replay, recovery, and follower convergence with controlled inclusion. The existing
-source-RPC latency limitation remains documented in the main README.
+source-RPC latency limitation remains documented in the main README. Connection
+reuse is tested directly; no throughput or remote-RPC latency benchmark was run.
 Public-mempool submission and replacement remain outside this work's scope.
