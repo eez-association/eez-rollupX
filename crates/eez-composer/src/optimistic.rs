@@ -511,8 +511,7 @@ mod tests {
         AttemptId,
     ) {
         let ledger = Arc::new(OptimisticallyIncluded::new());
-        let pool = Arc::new(HeldPool::new());
-        pool.attach_journal(ledger.journal());
+        let pool = Arc::new(HeldPool::new(ledger.journal()));
         let txs = (1..=3).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
         for tx in &txs {
             pool.push_contiguous(tx.clone(), 0).unwrap();
@@ -534,6 +533,38 @@ mod tests {
             SourceOutcome::Terminal(TerminalReason::Committed),
             SourceOutcome::Retryable { source_nonce: 0 },
         ]
+    }
+
+    #[test]
+    fn pool_rejects_a_different_ledgers_journal_without_changing_ownership() {
+        let (ledger, pool, _, id) = setup();
+        let other = OptimisticallyIncluded::new();
+        let other_pool = HeldPool::new(other.journal());
+        assert!(pool.uses_journal(&ledger.journal()));
+        assert!(!other_pool.uses_journal(&ledger.journal()));
+        let snapshot = || {
+            ledger
+                .journal
+                .read(|data| serde_json::to_value(data).unwrap())
+        };
+        let before = snapshot();
+        assert_eq!(
+            other_pool
+                .resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+                .unwrap_err(),
+            "held pool and optimistic ledger must share their journal"
+        );
+        assert_eq!(snapshot(), before);
+
+        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        let before = snapshot();
+        assert_eq!(
+            other_pool.invalidate_after_l1(&ledger, 99).unwrap_err(),
+            "held pool and optimistic ledger must share their journal"
+        );
+        assert_eq!(snapshot(), before);
+        assert!(other_pool.is_empty());
     }
 
     #[test]
@@ -850,8 +881,7 @@ mod tests {
         let first;
         {
             let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new();
-            pool.attach_journal(ledger.journal());
+            let pool = HeldPool::new(ledger.journal());
             for tx in &original {
                 pool.push_contiguous(tx.clone(), 0).unwrap();
             }
@@ -870,8 +900,7 @@ mod tests {
         }
         {
             let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new();
-            pool.attach_journal(ledger.journal());
+            let pool = HeldPool::new(ledger.journal());
             assert_eq!(ledger.pending_attempt().unwrap().id, first);
             assert_eq!(
                 ledger.pending_attempt().unwrap().dispatched_target,
@@ -893,14 +922,22 @@ mod tests {
                     .is_err()
             );
             assert!(pool.is_empty());
+            // Construction must restore every pending reservation before the
+            // first ingress call, without a separate attach/restore phase.
+            for user in &original {
+                let mut replacement = user.clone();
+                replacement.hash = B256::repeat_byte(0xff);
+                assert!(pool.push_contiguous(replacement, 0).is_err());
+                pool.push_contiguous(user.clone(), 0).unwrap();
+            }
+            assert!(pool.is_empty());
             pool.resolve_attempt(&ledger, first, block(100), &partial(), true, 3, || true)
                 .unwrap();
             // Crash after the durable ownership transfer.
         }
         {
             let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new();
-            pool.attach_journal(ledger.journal());
+            let pool = HeldPool::new(ledger.journal());
             let retry = pool.pop_all();
             assert_eq!(retry.len(), 1);
             assert_eq!(retry[0].raw_tx, original[2].raw_tx);
@@ -910,8 +947,7 @@ mod tests {
         let second;
         {
             let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new();
-            pool.attach_journal(ledger.journal());
+            let pool = HeldPool::new(ledger.journal());
             let retry = pool.pop_all();
             assert_eq!(retry.len(), 1);
             assert_eq!(retry[0].attempts, 1);
@@ -919,8 +955,7 @@ mod tests {
         }
         {
             let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
-            let pool = HeldPool::new();
-            pool.attach_journal(ledger.journal());
+            let pool = HeldPool::new(ledger.journal());
             assert_eq!(ledger.pending_attempt().unwrap().id, second);
             assert_eq!(
                 ledger.pending_attempt().unwrap().observation,
@@ -1002,8 +1037,7 @@ mod tests {
     #[test]
     fn exhausted_unspent_nonce_evicts_only_its_direction_and_sender_suffix_once() {
         let ledger = OptimisticallyIncluded::new();
-        let pool = HeldPool::new();
-        pool.attach_journal(ledger.journal());
+        let pool = HeldPool::new(ledger.journal());
         let mut exhausted = tx(1, 0);
         exhausted.attempts = u32::MAX;
         let suffix = tx(1, 1);

@@ -1,9 +1,9 @@
 {
-  "base": "d09bc005ec2daa0ded91399749bb47d02ed5b9d5",
+  "base": "fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e",
   "binary_sha256": {
-    "eez-follower": "0969e950d23ecfaf57e7b30d451c17d76291c7e9bd36a48732e425a4d1c9e90c",
-    "eez-composer": "aee86c4c620bb4bd0e9710cff57798aa1de9309074d9c43d60cd7bb758e39d7b",
-    "eez-proof-signer": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a"
+    "eez-proof-signer": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a",
+    "eez-follower": "4617ab74103a13cff2ba9f72102301a705b71f0322c510a6ab0f3d70e930fc58",
+    "eez-composer": "f8a5facc282ca0aaabca10bb9c6f8ca41ce217334b083247bbda6a2f380a44a5"
   },
   "startup": [
     {
@@ -42,19 +42,21 @@
       "suite": "partial_consumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 354.47,
+      "seconds": 354.31,
       "summaries": [
-        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 354.46s"
-      ]
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 354.29s"
+      ],
+      "log": "target/simplify-native-partial_consumption.log"
     },
     {
       "suite": "chained_interstate",
       "filters": [],
       "exit_code": 0,
-      "seconds": 430.38,
+      "seconds": 428.89,
       "summaries": [
-        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 430.37s"
-      ]
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 428.88s"
+      ],
+      "log": "target/simplify-native-chained_interstate.log"
     },
     {
       "suite": "bidirectional_smoke",
@@ -63,10 +65,11 @@
         "--exact"
       ],
       "exit_code": 0,
-      "seconds": 76.73,
+      "seconds": 67.28,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 76.72s"
-      ]
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 67.26s"
+      ],
+      "log": "target/simplify-native-bidirectional_smoke.log"
     },
     {
       "suite": "repeated_waves",
@@ -75,10 +78,11 @@
         "--exact"
       ],
       "exit_code": 0,
-      "seconds": 107.14,
+      "seconds": 106.93,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 107.13s"
-      ]
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 106.91s"
+      ],
+      "log": "target/simplify-native-repeated_waves.log"
     },
     {
       "suite": "caught_destination_reverts",
@@ -86,10 +90,11 @@
         "reverting_destination_preserves_caught_result"
       ],
       "exit_code": 0,
-      "seconds": 233.93,
+      "seconds": 217.73,
       "summaries": [
-        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 233.92s"
-      ]
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 217.72s"
+      ],
+      "log": "target/simplify-native-caught_destination_reverts.log"
     },
     {
       "suite": "l1_reorg",
@@ -97,119 +102,88 @@
         "_l1_reorg_"
       ],
       "exit_code": 0,
-      "seconds": 161.72,
+      "seconds": 161.59,
       "summaries": [
-        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.71s"
-      ]
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.58s"
+      ],
+      "log": "target/simplify-native-l1_reorg.log"
     },
     {
       "suite": "resumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 75.49,
+      "seconds": 75.53,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.48s"
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.52s"
       ],
-      "log": "target/default-native-resumption-recheck-2.log"
+      "log": "target/simplify-native-resumption.log"
     }
   ],
-  "native_failures_before_fixture_corrections": [
-    {
-      "suite": "resumption",
-      "filters": [],
-      "exit_code": 101,
-      "seconds": 62.69,
-      "summaries": [
-        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 62.68s"
-      ]
-    }
-  ],
-  "resumption_rechecks": [
-    {
-      "suite": "resumption",
-      "filters": [],
-      "exit_code": 0,
-      "seconds": 79.62,
-      "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 79.61s"
-      ],
-      "log": "target/default-native-resumption-recheck-1.log"
-    },
-    {
-      "suite": "resumption",
-      "filters": [],
-      "exit_code": 0,
-      "seconds": 75.49,
-      "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.48s"
-      ],
-      "log": "target/default-native-resumption-recheck-2.log"
-    }
-  ],
-  "recorded_at_utc": "2026-09-12T10:25:50.065163+00:00",
+  "recorded_at_utc": "2026-09-12T11:27:18.482734+00:00",
   "branch": "fix/partial-consumption-default",
   "worktree": "/home/edu/Development/eez-rollup0-fork/target/worktrees/partial-consumption-default",
+  "default_policy_base": "d09bc005ec2daa0ded91399749bb47d02ed5b9d5",
   "original_main": "40134955dc3f698ea65571ba82b6521637bf1191",
-  "implementation_diff_sha256": "bd67617ee911206aa927885b89dc22102a5194067cfdf1dd18aa5d58a28f562e",
+  "implementation_diff_sha256": "ab7096d3c08cd3f21b47db386856c33691cd5dae53dc7ceb06aa479bdf4a306e",
+  "implementation_diff_scope": "git diff --binary fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e -- crates",
   "executables": {
-    "cross_chain": {
-      "path": "target/debug/deps/cross_chain-eb36e2e30a994b51",
-      "sha256": "67b851266442aa8d6b1dda535c4b1bf3e70079ebc7b938210339829d6b6dd0aa"
+    "eez-proof-signer": {
+      "path": "target/debug/eez-proof-signer",
+      "sha256": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a"
+    },
+    "eez-follower": {
+      "path": "target/debug/eez-follower",
+      "sha256": "4617ab74103a13cff2ba9f72102301a705b71f0322c510a6ab0f3d70e930fc58"
+    },
+    "eez-composer": {
+      "path": "target/debug/eez-composer",
+      "sha256": "f8a5facc282ca0aaabca10bb9c6f8ca41ce217334b083247bbda6a2f380a44a5"
     },
     "chained_interstate": {
       "path": "target/debug/deps/chained_interstate-a5668522832d6818",
       "sha256": "c16aafc7b8c525fed8eab14c305a20416cef65945380a3001ff225e41dc82d8b"
     },
-    "eez-composer": {
-      "path": "target/debug/eez-composer",
-      "sha256": "aee86c4c620bb4bd0e9710cff57798aa1de9309074d9c43d60cd7bb758e39d7b"
-    },
-    "eez-proof-signer": {
-      "path": "target/debug/eez-proof-signer",
-      "sha256": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a"
-    },
     "partial_consumption": {
       "path": "target/debug/deps/partial_consumption-64bd1c30e8bbe353",
       "sha256": "8368ced9c7ef8f4294ca41e42e4130c48bb3878a53c926c38d7e6bdf477b2056"
     },
-    "eez-follower": {
-      "path": "target/debug/eez-follower",
-      "sha256": "0969e950d23ecfaf57e7b30d451c17d76291c7e9bd36a48732e425a4d1c9e90c"
-    },
-    "e2e": {
-      "path": "target/debug/deps/e2e-e086d792658832c8",
-      "sha256": "73da3c4a60cd3df3789f7545af073f43eef18e6eee4e2797dedce06016205f5b"
-    },
     "resumption": {
       "path": "target/debug/deps/resumption-80372bcb0796a6e0",
       "sha256": "bd3979397132f797e1861b36693e1cfe0993efce3bd88290b67af62d5741585c"
+    },
+    "cross_chain": {
+      "path": "target/debug/deps/cross_chain-eb36e2e30a994b51",
+      "sha256": "67b851266442aa8d6b1dda535c4b1bf3e70079ebc7b938210339829d6b6dd0aa"
+    },
+    "e2e": {
+      "path": "target/debug/deps/e2e-e086d792658832c8",
+      "sha256": "467a2f13566e931a6fcc3a5f6fc290534f7e4400c4904aa0c5ff571ace49127e"
     }
   },
   "protocol": "3c0cdf4955941a5c23639346932b55b33babebbd",
   "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
   "clippy_rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
   "commands": {
-    "l1_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 cargo test --locked --offline -p eez-l1 --lib",
+    "focused_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline -p eez-l1 -p eez-composer -p eez-node --lib",
     "workspace_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline --workspace --lib",
-    "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+    "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
     "contract": "forge test --root contracts --offline",
     "ci_python": "python3 -m unittest discover -s scripts/ci/tests -v",
     "dependency_policy": "cargo deny --offline check advisories bans sources",
     "advisory": "cargo audit --no-fetch",
     "format": "cargo fmt --all --check",
     "diff": "git diff --check",
-    "blob_configuration": "bash scripts/check-chiado-blob-config.sh",
     "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
-    "native_run": "python3 target/run-default-validation.py",
-    "native_recheck": "python3 target/recheck-default-resumption.py"
+    "native_run": "python3 target/run-simplify-validation.py"
   },
   "workspace_library_tests": {
     "suites": 15,
-    "passed": 516,
+    "passed": 518,
     "failed": 0
   },
-  "focused_l1_tests": {
-    "passed": 86,
+  "focused_library_tests": {
+    "suites": 3,
+    "passed": 189,
     "failed": 0
   },
   "ci_python_tests": {
@@ -223,26 +197,12 @@
   },
   "clippy_all_targets_warnings_denied": "passed",
   "format_and_diff_checks": "passed",
-  "deployment_syntax_and_blob_configuration": "passed (syntax parsing, not live Kurtosis validation)",
-  "dependency_policy": "passed offline",
+  "dependency_policy": "passed offline; sandbox retry needed advisory-cache lock access",
   "cargo_audit": {
     "result": "passed",
     "cached_advisories": 1243,
     "allowed_warnings": 14,
-    "warning_categories": {
-      "unmaintained": 7,
-      "unsound": 5,
-      "yanked": 2
-    },
     "online_refresh": false
   },
-  "focused_resumption_after_barrier_fix": [
-    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 80.98s"
-  ],
-  "initial_failures_corrected": [
-    "Workspace signal catalog retained the removed fallback event; removed the stale signal and assertion, then reran all workspace library tests successfully.",
-    "Native resumption captured the preceding empty bundle; switched its barrier to relay acceptance, then reran the focused case and complete partial-consumption suite successfully.",
-    "Malformed-resumption recovery rejected a retryable missing block body for the deliberately orphaned transaction; scoped the exception to that exact source after the injected reorg and retained strict checks before the reorg and after recovery. The corrected test passed twice."
-  ],
   "kurtosis_rerun_for_this_followup": false
 }

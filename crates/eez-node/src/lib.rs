@@ -334,7 +334,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
         };
         // Share the SAME HeldPool the ingress middleware pushes into.
-        let held_pool = Arc::new(HeldPool::new());
+        let held_pool = Arc::new(HeldPool::new(optimistic.journal()));
         let rollup_state = RollupState {
             config: rollup_config.clone(),
             l2_provider: Arc::new(provider.clone()),

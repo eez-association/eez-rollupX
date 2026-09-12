@@ -1041,7 +1041,7 @@ where
     L2: BlockReader<Header = alloy_consensus::Header> + Send + Sync + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    /// Construct the umbrella and restore durable held-user ownership.
+    /// Construct the umbrella with pools restored from their durable journals.
     ///
     /// # Errors
     ///
@@ -1062,7 +1062,10 @@ where
         ensure_submission_identity(submitter_poster, post_batch_signer)?;
 
         for rollup in rollups.values() {
-            rollup.held_pool.attach_journal(rollup.optimistic.journal());
+            assert!(
+                rollup.held_pool.uses_journal(&rollup.optimistic.journal()),
+                "held pool and optimistic ledger must share their journal"
+            );
             if let Some(from) = rollup.optimistic.recovery_scan_from() {
                 rollup.l1_head.require_recovery_scan_from(from);
             }
@@ -3517,7 +3520,6 @@ where
             sync_height,
             attempt_id,
             bundle,
-            built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3659,7 +3661,6 @@ where
             sync_height,
             attempt_id,
             vec![minimal_postbatch_raw],
-            empty_built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3798,7 +3799,6 @@ where
                 boundary,
                 attempt_id,
                 vec![raw],
-                boundary_header.hash(),
                 Arc::clone(&rollup.optimistic),
                 BundleTarget::NextBlock,
             );
@@ -3871,7 +3871,6 @@ where
         sync_height: u64,
         attempt_id: AttemptId,
         bundle: Vec<Bytes>,
-        expected_final_state: B256,
         optimistic: Arc<OptimisticallyIncluded>,
         target: BundleTarget,
     ) {
@@ -3881,7 +3880,6 @@ where
             sync_height,
             attempt_id,
             bundle,
-            expected_final_state,
             optimistic,
             submitter,
             target,
@@ -5046,7 +5044,6 @@ async fn observe_bundle_outcome(
     sync_height: u64,
     attempt_id: AttemptId,
     bundle: Vec<Bytes>,
-    expected_final_state: B256,
     optimistic: Arc<OptimisticallyIncluded>,
     submitter: Submitter,
     target: BundleTarget,
@@ -5054,11 +5051,8 @@ async fn observe_bundle_outcome(
     use crate::settlement_journal::SubmissionObservation;
     let recorder = Arc::clone(&optimistic);
     let outcome = submitter
-        .send_bundle_recorded(
-            &bundle,
-            target,
-            Some(expected_final_state),
-            move |block, timestamp| match recorder.observe(
+        .send_bundle_recorded(&bundle, target, move |block, timestamp| {
+            match recorder.observe(
                 attempt_id,
                 SubmissionObservation::Dispatched { block, timestamp },
             ) {
@@ -5069,8 +5063,8 @@ async fn observe_bundle_outcome(
                 Err(error) => Err(eez_l1::L1Error::Submission(format!(
                     "cannot journal dispatch: {error}"
                 ))),
-            },
-        )
+            }
+        })
         .await;
     let observation = match &outcome {
         Ok(SendOutcome::Included {
@@ -5308,7 +5302,7 @@ mod tests {
 
     #[test]
     fn settlement_failures_increment_once_per_episode_and_preserve_fifo() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let first = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 1);
         let second = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 2);
         pool.push_contiguous(first.clone(), 0).unwrap();
@@ -5348,7 +5342,7 @@ mod tests {
 
     #[test]
     fn settlement_failure_limit_evicts_current_and_queued_nonce_suffix() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xa);
         let mut root = held(sender, Direction::Inbound, 0, 1);
         root.attempts = MAX_BUNDLE_ATTEMPTS - 1;
@@ -5381,7 +5375,7 @@ mod tests {
 
     #[test]
     fn recursive_error_requeues_only_candidates_remaining_after_prover_eviction() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xc);
         let poison = held(sender, Direction::Inbound, 0, 1);
         let suffix = held(sender, Direction::Inbound, 1, 2);

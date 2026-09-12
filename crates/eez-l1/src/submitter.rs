@@ -90,13 +90,12 @@ pub enum BundleTarget {
 /// caller rebuilds on the next tick.
 #[derive(Debug, Clone)]
 pub enum SendOutcome {
+    /// The postBatch receipt belongs to a canonical L1 block. Canonical
+    /// derivation and source-chain evidence still decide each user's outcome.
     Included {
         tx_hash: TxHash,
         l1_block: u64,
         l1_block_hash: B256,
-        /// Diagnostic: this batch's attributed endpoint matches the requested
-        /// full commitment. The deriver and source receipts decide completion.
-        state_applied: bool,
     },
     Dropped {
         tx_hash: TxHash,
@@ -483,7 +482,6 @@ impl Submitter {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
-        expected_final_state: Option<B256>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
@@ -524,11 +522,7 @@ impl Submitter {
             post_batch_hash,
         )
         .await?;
-        let PreparedTarget {
-            block: target_block,
-            timestamp: pin_timestamp,
-            expected_parent_hash,
-        } = match prepared {
+        let prepared = match prepared {
             TargetPreparation::Ready(target) => target,
             TargetPreparation::Missed {
                 block,
@@ -541,18 +535,18 @@ impl Submitter {
         // deadline again immediately before the HTTP request. We may send
         // after the not-before boundary; we must never knowingly send after
         // the latest-safe boundary and then blame user transactions for it.
-        record_dispatch(target_block, pin_timestamp)?;
+        record_dispatch(prepared.block, prepared.timestamp)?;
         if !matches!(
             submission_window_state(
                 clock.now_unix_ms()?,
-                pin_timestamp,
+                prepared.timestamp,
                 self.inner.submission_timing,
             ),
             SubmissionWindowState::Open
         ) {
             return Ok(dropped(
                 post_batch_hash,
-                target_block,
+                prepared.block,
                 BundleDropReason::SubmissionWindowMissed,
             ));
         }
@@ -563,7 +557,7 @@ impl Submitter {
             name: "eez.submitter.bundle.dispatch",
             Level::INFO,
             tx_hash = %post_batch_hash,
-            target_block,
+            target_block = prepared.block,
             exact = matches!(target, BundleTarget::Exact { .. }),
             tx_count = raw_txs.len(),
             "dispatching bundle to builder",
@@ -571,15 +565,7 @@ impl Submitter {
         // Every bundle uses one timestamp-pinned target and permits only the
         // validated inbound source users to revert. postBatch is always required.
         self.inner
-            .dispatch_and_observe(
-                raw_txs,
-                post_batch_hash,
-                target_block,
-                pin_timestamp,
-                expected_parent_hash,
-                expected_final_state,
-                &reverting_hashes,
-            )
+            .dispatch_and_observe(raw_txs, post_batch_hash, prepared, &reverting_hashes)
             .await
     }
 
@@ -758,10 +744,7 @@ impl Inner {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         post_batch_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: u64,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
+        target: PreparedTarget,
         reverting_hashes: &[B256],
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
@@ -773,8 +756,8 @@ impl Inner {
             &self.http,
             self.config.builder_rpc_url.as_str(),
             &hex_refs,
-            target_block,
-            pin_timestamp,
+            target.block,
+            target.timestamp,
             reverting_hashes,
         )
         .await
@@ -782,14 +765,7 @@ impl Inner {
             Ok(()) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
-                self.observe(
-                    post_batch_hash,
-                    target_block,
-                    pin_timestamp,
-                    expected_parent_hash,
-                    expected_final_state,
-                )
-                .await
+                self.observe(post_batch_hash, target).await
             }
             Err(other) => Err(other),
         };
@@ -797,10 +773,7 @@ impl Inner {
             Ok(SendOutcome::Dropped { reason, .. }) => self.capture_bundle_attempt(
                 &hex_refs,
                 post_batch_hash,
-                target_block,
-                pin_timestamp,
-                expected_parent_hash,
-                expected_final_state,
+                target,
                 "dropped",
                 Some(reason.as_str()),
                 None,
@@ -809,10 +782,7 @@ impl Inner {
             Err(error) => self.capture_bundle_attempt(
                 &hex_refs,
                 post_batch_hash,
-                target_block,
-                pin_timestamp,
-                expected_parent_hash,
-                expected_final_state,
+                target,
                 "submission_error",
                 None,
                 Some(&error.to_string()),
@@ -828,10 +798,7 @@ impl Inner {
         &self,
         raw_tx_hexes: &[&str],
         post_batch_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: u64,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
+        target: PreparedTarget,
         outcome: &str,
         drop_reason: Option<&str>,
         error: Option<&str>,
@@ -840,16 +807,20 @@ impl Inner {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
             return;
         };
-        let attempt = root.join(format!("bundle-{target_block}-{post_batch_hash}"));
-        let request = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
+        let attempt = root.join(format!("bundle-{}-{post_batch_hash}", target.block));
+        let request = bundle_request(
+            raw_tx_hexes,
+            target.block,
+            target.timestamp,
+            reverting_hashes,
+        );
         let metadata = serde_json::json!({
             "version": 1,
             "builderRpcUrl": self.config.builder_rpc_url.as_str(),
             "postBatchHash": post_batch_hash.to_string(),
-            "targetBlock": target_block,
-            "pinnedTimestamp": pin_timestamp,
-            "expectedParentHash": expected_parent_hash.map(|hash| hash.to_string()),
-            "expectedFinalState": expected_final_state.map(|hash| hash.to_string()),
+            "targetBlock": target.block,
+            "pinnedTimestamp": target.timestamp,
+            "expectedParentHash": target.expected_parent_hash.map(|hash| hash.to_string()),
             "outcome": outcome,
             "dropReason": drop_reason,
             "error": error,
@@ -872,7 +843,7 @@ impl Inner {
                 name: "eez.submitter.bundle.capture",
                 Level::WARN,
                 path = %attempt.display(),
-                target_block,
+                target_block = target.block,
                 tx_hash = %post_batch_hash,
                 "captured rejected bundle request for deterministic replay",
             ),
@@ -886,20 +857,9 @@ impl Inner {
         }
     }
 
-    /// Bundle observation, transport-agnostic: poll for the postBatch receipt,
-    /// use the relay timestamp pin to prove when the target is dead, then derive
-    /// `state_applied` from the inclusion block's `L2ExecutionPerformed`
-    /// events via [`Self::settlement_in_block`].
-    ///
-    /// Every submission uses the relay's exact timestamp pin.
-    async fn observe(
-        &self,
-        tx_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: u64,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
-    ) -> L1Result<SendOutcome> {
+    /// Observe the canonical postBatch receipt or use the relay's exact
+    /// timestamp pin to prove exclusion. Settlement belongs to the deriver.
+    async fn observe(&self, tx_hash: TxHash, target: PreparedTarget) -> L1Result<SendOutcome> {
         // Failure must mean PROVABLY DEAD, not merely slow. A bundle is
         // pinned to `target_block` — included in order there or never —
         // so death = the chain passed the target (head > target) without
@@ -907,7 +867,7 @@ impl Inner {
         // verdicts for bundles that later landed: recovery reorged + re-
         // emitted, the original settled anyway, and the two timelines
         // fought forever (RootMismatch, phantom L2 effects).
-        // Receipt, head, and settlement logs all read from the SAME
+        // Receipt, head, and canonical block all read from the SAME
         // tip provider — mixing the lagging embedded L1 for receipts
         // would re-open the false-death window. If the tip later reorgs
         // the bundle in, downstream converges it (Watcher → Deriver →
@@ -938,46 +898,29 @@ impl Inner {
                         },
                     )
                     .await?;
-                    let state_applied = self
-                        .settlement_in_block(
-                            &target_provider,
-                            l1_block,
-                            l1_block_hash,
-                            tx_hash,
-                            expected_final_state,
-                        )
-                        .await?;
                     return Ok(SendOutcome::Included {
                         tx_hash,
                         l1_block,
                         l1_block_hash,
-                        state_applied,
                     });
                 }
                 Ok(None) => {
-                    let verdict = pinned_slot_check(
-                        &target_provider,
-                        target_block,
-                        tx_hash,
-                        pin_timestamp,
-                        expected_parent_hash,
-                    )
-                    .await;
+                    let verdict = pinned_slot_check(&target_provider, target, tx_hash).await;
                     match verdict {
                         PinnedVerdict::Excluded => {
-                            return Ok(dropped(tx_hash, target_block, BundleDropReason::Excluded));
+                            return Ok(dropped(tx_hash, target.block, BundleDropReason::Excluded));
                         }
                         PinnedVerdict::SlotSkipped => {
                             return Ok(dropped(
                                 tx_hash,
-                                target_block,
+                                target.block,
                                 BundleDropReason::SlotSkipped,
                             ));
                         }
                         PinnedVerdict::ParentChanged => {
                             return Ok(dropped(
                                 tx_hash,
-                                target_block,
+                                target.block,
                                 BundleDropReason::TargetChanged,
                             ));
                         }
@@ -985,10 +928,10 @@ impl Inner {
                         // trails it. Poll on, skipping the head rule.
                         PinnedVerdict::Included => {}
                         PinnedVerdict::Pending => match target_provider.get_block_number().await {
-                            Ok(head) if head > target_block => {
+                            Ok(head) if head > target.block => {
                                 return Ok(dropped(
                                     tx_hash,
-                                    target_block,
+                                    target.block,
                                     BundleDropReason::Excluded,
                                 ));
                             }
@@ -1020,49 +963,13 @@ impl Inner {
                     name: "eez.submitter.observe.slow",
                     Level::WARN,
                     tx_hash = %tx_hash,
-                    target_block,
+                    target_block = target.block,
                     elapsed_secs = start.elapsed().as_secs(),
                     "bundle observation exceeding budget; still polling (verdict requires inclusion or target passage)",
                 );
             }
             tokio::time::sleep(TARGET_POLL_INTERVAL).await;
         }
-    }
-
-    /// Diagnostic for this exact batch's canonically attributed settlement.
-    /// `Some(root)` requires its final commitment to match; `None` accepts any
-    /// applied settlement. Neither result determines individual user outcomes.
-    async fn settlement_in_block<P: Provider>(
-        &self,
-        provider: &P,
-        l1_block: u64,
-        l1_block_hash: B256,
-        tx_hash: B256,
-        expected_final_state: Option<alloy_primitives::B256>,
-    ) -> L1Result<bool> {
-        let batches = crate::scan::scan_batch_logs_range(
-            provider,
-            self.reader.eez(),
-            self.reader.rollup_id(),
-            l1_block,
-            l1_block,
-        )
-        .await?;
-        require_canonical_block(
-            provider,
-            crate::L1BlockRef {
-                number: l1_block,
-                hash: l1_block_hash,
-            },
-        )
-        .await?;
-        Ok(batches.iter().any(|batch| {
-            batch.tx_hash == tx_hash
-                && batch.l1_block_hash == l1_block_hash
-                && !batch.settlement.is_empty()
-                && expected_final_state
-                    .is_none_or(|root| batch.settlement.final_state == Some(root))
-        }))
     }
 }
 
@@ -1221,13 +1128,11 @@ fn pinned_verdict(
 /// [`pinned_verdict`]. RPC failures yield `Pending`, never a verdict.
 async fn pinned_slot_check<P: Provider>(
     provider: &P,
-    target_block: u64,
+    target: PreparedTarget,
     tx_hash: TxHash,
-    pin_ts: u64,
-    expected_parent_hash: Option<B256>,
 ) -> PinnedVerdict {
     match provider
-        .get_block_by_number(BlockNumberOrTag::Number(target_block))
+        .get_block_by_number(BlockNumberOrTag::Number(target.block))
         .hashes()
         .await
     {
@@ -1239,15 +1144,15 @@ async fn pinned_slot_check<P: Provider>(
                     b.header.parent_hash,
                 )
             }),
-            pin_ts,
-            expected_parent_hash,
+            target.timestamp,
+            target.expected_parent_hash,
         ),
         Err(err) => {
             event!(
                 name: "eez.submitter.observe.pinned_block_read_failed",
                 Level::WARN,
                 tx_hash = %tx_hash,
-                target_block,
+                target_block = target.block,
                 error = %err,
                 "pinned block read failed during bundle observation; retrying",
             );
@@ -1400,7 +1305,6 @@ mod tests {
                         block: 42,
                         timestamp,
                     },
-                    None,
                     |block, pin| {
                         assert_eq!((block, pin), (42, timestamp));
                         recorded.store(true, Ordering::SeqCst);
@@ -1440,6 +1344,93 @@ mod tests {
                     requests[2],
                     bundle_request(&hex_refs, 42, timestamp, &hashes)
                 );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn observer_requires_canonical_inclusion_without_scanning_settlement() {
+        for case in [
+            "success",
+            "reverted",
+            "missing number",
+            "missing hash",
+            "reorged",
+            "missing block",
+        ] {
+            let tx_hash = B256::with_last_byte(3);
+            let block_hash = B256::with_last_byte(1);
+            let mut receipt = serde_json::json!({
+                "transactionHash": tx_hash, "transactionIndex": "0x2",
+                "blockHash": block_hash, "blockNumber": "0x2a",
+                "from": alloy_primitives::Address::ZERO, "to": alloy_primitives::Address::ZERO,
+                "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "cumulativeGasUsed": "0x5208",
+                "type": "0x2", "status": if case == "reverted" { "0x0" } else { "0x1" },
+                "logs": [], "logsBloom": alloy_primitives::Bloom::ZERO,
+            });
+            let expected_error = match case {
+                "missing number" => {
+                    receipt["blockNumber"] = serde_json::Value::Null;
+                    Some("receipt present but block_number missing")
+                }
+                "missing hash" => {
+                    receipt["blockHash"] = serde_json::Value::Null;
+                    Some("receipt present but block_hash missing")
+                }
+                "reorged" | "missing block" => {
+                    Some("L1 block 42 is missing or no longer canonical")
+                }
+                _ => None,
+            };
+            let mut responses = vec![serde_json::json!({"result": receipt})];
+            if !matches!(case, "missing number" | "missing hash") {
+                let block = if case == "missing block" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::to_value(mock_block(
+                        42,
+                        PIN,
+                        if case == "reorged" {
+                            B256::ZERO
+                        } else {
+                            block_hash
+                        },
+                    ))
+                    .unwrap()
+                };
+                responses.push(serde_json::json!({"result": block}));
+            }
+            let (url, server) = rpc_server(responses).await;
+            let submitter = test_submitter(url);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                submitter.inner.observe(
+                    tx_hash,
+                    PreparedTarget {
+                        block: 42,
+                        timestamp: PIN,
+                        expected_parent_hash: None,
+                    },
+                ),
+            )
+            .await
+            .expect("inclusion observation must not depend on settlement log RPCs");
+            if let Some(expected) = expected_error {
+                assert!(matches!(result, Err(L1Error::Provider(message)) if message == expected));
+            } else {
+                // Even a reverted postBatch is included; only canonical
+                // reconciliation can decide whether any user completed.
+                assert!(matches!(result, Ok(super::SendOutcome::Included {
+                    tx_hash: observed,
+                    l1_block: 42,
+                    l1_block_hash,
+                }) if observed == tx_hash && l1_block_hash == block_hash));
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["method"], "eth_getTransactionReceipt");
+            if requests.len() == 2 {
+                assert_eq!(requests[1]["method"], "eth_getBlockByNumber");
+                assert_eq!(requests[1]["params"][0], "0x2a");
             }
         }
     }

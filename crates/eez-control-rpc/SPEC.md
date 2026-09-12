@@ -473,8 +473,8 @@ profile.
 A proof authenticates the full proposed execution. It does not promise that
 every source transaction or execution entry will be consumed on L1. The
 Composer MUST retain each submitted signed user until canonical derivation and
-source-chain evidence determine its disposition. A confirmed L2 height and an
-observer's full-commitment boolean MUST NOT release all users in an attempt.
+source-chain evidence determine its disposition. A confirmed L2 height or an
+observed postBatch receipt alone MUST NOT release all users in an attempt.
 
 The reference implementation builds a local settlement manifest from the final
 survivor compositions. It records signed identity, direction, nonce, FIFO order,

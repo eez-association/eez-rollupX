@@ -94,9 +94,9 @@ fn min_replacement_fee(replaced: u128) -> u128 {
 
 /// All pool state under one lock, so queue membership, hash dedupe and
 /// nonce reservations can never disagree with each other.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PoolState {
-    journal: Option<Arc<SettlementJournal>>,
+    journal: Arc<SettlementJournal>,
     /// Queued txs awaiting the next Sync-slot drain, in FIFO order.
     txs: VecDeque<HeldTx>,
     /// Hashes of the queued txs — O(1) duplicate-submission check.
@@ -113,10 +113,9 @@ struct PoolState {
 
 impl PoolState {
     fn restore_journal(&mut self, gaps: &[crate::optimistic::NonceGap]) {
-        let Some(journal) = self.journal.clone() else {
-            return;
-        };
-        let mut users = journal.read(|data| data.users.values().cloned().collect::<Vec<_>>());
+        let mut users = self
+            .journal
+            .read(|data| data.users.values().cloned().collect::<Vec<_>>());
         users.sort_by_key(|user| (user.owner, user.fifo_position));
         for user in &users {
             if user.location != UserLocation::Queued {
@@ -157,10 +156,7 @@ impl PoolState {
     /// replaced, deferred or evicted. Failure while holding the pool lock
     /// poisons it, preventing any subsequent dispatch from outrunning disk.
     fn persist_recovery_pool(&self) {
-        let Some(journal) = self.journal.as_ref() else {
-            return;
-        };
-        journal
+        self.journal
             .update(|data| {
                 for user in data.users.values_mut() {
                     if !matches!(
@@ -286,37 +282,30 @@ impl PoolState {
 ///
 /// Every [`RollupState`](crate::RollupState) owned by a composer has one;
 /// follower and development binaries do not construct `RollupState`.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HeldPool {
     state: Mutex<PoolState>,
 }
 
 impl HeldPool {
-    /// Empty pool — no held txs.
+    /// Restore queued users and in-flight reservations before opening ingress.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Attach the node's journal before opening ingress and restore ownership.
-    pub fn attach_journal(&self, journal: Arc<SettlementJournal>) {
-        {
-            let mut state = self.state.lock().expect("held_pool mutex poisoned");
-            assert!(state.journal.is_none(), "held pool already has a journal");
-            assert!(
-                state.txs.is_empty() && state.in_flight.is_empty(),
-                "attach journal before ingress"
-            );
-            state.journal = Some(journal);
+    pub fn new(journal: Arc<SettlementJournal>) -> Self {
+        let mut state = PoolState {
+            journal,
+            txs: VecDeque::new(),
+            by_hash: HashSet::new(),
+            in_flight: HashMap::new(),
+        };
+        state.restore_journal(&[]);
+        Self {
+            state: Mutex::new(state),
         }
-        self.apply_journal(&[]);
     }
 
-    /// Atomically release completed reservations and requeue eligible users.
-    /// Current journal ownership prevents old history from touching a retry.
-    pub fn apply_journal(&self, gaps: &[crate::optimistic::NonceGap]) {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        state.restore_journal(gaps);
+    pub(crate) fn uses_journal(&self, journal: &Arc<SettlementJournal>) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        Arc::ptr_eq(&state.journal, journal)
     }
 
     /// Persist and apply an ownership partition while ingress is excluded.
@@ -332,11 +321,7 @@ impl HeldPool {
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if state
-            .journal
-            .as_ref()
-            .is_none_or(|journal| !Arc::ptr_eq(journal, &ledger.journal()))
-        {
+        if !Arc::ptr_eq(&state.journal, &ledger.journal()) {
             return Err("held pool and optimistic ledger must share their journal".into());
         }
         if !is_canonical() {
@@ -355,11 +340,7 @@ impl HeldPool {
         ancestor: u64,
     ) -> Result<(), String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if state
-            .journal
-            .as_ref()
-            .is_none_or(|journal| !Arc::ptr_eq(journal, &ledger.journal()))
-        {
+        if !Arc::ptr_eq(&state.journal, &ledger.journal()) {
             return Err("held pool and optimistic ledger must share their journal".into());
         }
         ledger.invalidate_after_l1(ancestor)?;
@@ -372,31 +353,28 @@ impl HeldPool {
     /// of losing their reorg history through an ordinary stale-pool eviction.
     pub fn recheck_stale_sources(&self, txs: &[HeldTx]) -> Result<bool, String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        let mut reopened = false;
-        if let Some(journal) = state.journal.as_ref() {
-            reopened = journal.update(|data| {
-                let mut reopened = false;
-                for tx in txs {
-                    if let Some(user) = data.users.get_mut(&tx.hash).filter(|user| {
-                        matches!(
-                            user.location,
-                            UserLocation::Composing | UserLocation::Queued
-                        )
-                    }) {
-                        user.location = UserLocation::AwaitingEvidence;
-                        let attempt = data
-                            .attempts
-                            .get_mut(&user.owner)
-                            .ok_or("missing recovery attempt")?;
-                        attempt.reconciled_at = None;
-                        attempt.observation =
-                            crate::settlement_journal::SubmissionObservation::Uncertain;
-                        reopened = true;
-                    }
+        let reopened = state.journal.update(|data| {
+            let mut reopened = false;
+            for tx in txs {
+                if let Some(user) = data.users.get_mut(&tx.hash).filter(|user| {
+                    matches!(
+                        user.location,
+                        UserLocation::Composing | UserLocation::Queued
+                    )
+                }) {
+                    user.location = UserLocation::AwaitingEvidence;
+                    let attempt = data
+                        .attempts
+                        .get_mut(&user.owner)
+                        .ok_or("missing recovery attempt")?;
+                    attempt.reconciled_at = None;
+                    attempt.observation =
+                        crate::settlement_journal::SubmissionObservation::Uncertain;
+                    reopened = true;
                 }
-                Ok(reopened)
-            })?;
-        }
+            }
+            Ok(reopened)
+        })?;
         for tx in txs {
             state.release_in_flight(tx);
         }
@@ -596,7 +574,7 @@ mod tests {
 
     #[test]
     fn push_then_pop_returns_fifo() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         insert(&pool, tx(1), 1);
         insert(&pool, tx(2), 2);
         insert(&pool, tx(3), 3);
@@ -609,7 +587,7 @@ mod tests {
 
     #[test]
     fn push_dedupes_by_hash() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let original = tx(1);
         insert(&pool, original.clone(), 1);
         pool.push_contiguous(original.clone(), 1).unwrap();
@@ -631,7 +609,7 @@ mod tests {
 
     #[test]
     fn underpriced_replacement_is_rejected() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let mut original = tx(1);
         original.max_fee_per_gas = 100;
         original.priority_fee_per_gas = 10;
@@ -667,7 +645,7 @@ mod tests {
     fn contiguity_is_isolated_per_direction() {
         // Same EOA, two independent nonce chains. Admission / draining one
         // direction must never touch the other.
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(7);
         let mk = |nonce: u64, dir: Direction, h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -707,7 +685,7 @@ mod tests {
 
     #[test]
     fn queued_nonce_replacement_preserves_position_and_suffix() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(9);
         let other_sender = Address::repeat_byte(8);
         let mk = |sender: Address, nonce: u64, direction: Direction, h: u8| HeldTx {
@@ -756,7 +734,7 @@ mod tests {
 
     #[test]
     fn queued_replacement_allows_lower_in_flight_but_not_in_flight_nonce() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(9);
         let mk = |nonce: u64, h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -792,7 +770,7 @@ mod tests {
 
     #[test]
     fn contiguous_push_handles_landed_but_not_derived_reservation() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xa);
         let mk = |nonce: u64, h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -831,7 +809,7 @@ mod tests {
 
     #[test]
     fn max_nonce_can_be_replaced_while_queued_but_not_in_flight() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xd);
         let mk = |h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -859,7 +837,7 @@ mod tests {
 
     #[test]
     fn nonce_chain_eviction_removes_queued_and_in_flight_suffix_atomically() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xe);
         let mk = |nonce: u64, h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -901,7 +879,7 @@ mod tests {
 
     #[test]
     fn recovery_preserves_newer_replacement_and_discards_old_suffix() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xf);
         let mk = |nonce: u64, h: u8| HeldTx {
             raw_tx: Bytes::from(vec![h; 4]),
@@ -933,7 +911,7 @@ mod tests {
 
     #[test]
     fn same_hash_recovery_is_idempotent() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let original = tx(1);
         insert(&pool, original.clone(), 1);
         let drained = pool.pop_n(1);
@@ -949,7 +927,7 @@ mod tests {
 
     #[test]
     fn pop_n_drains_fifo_prefix() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender_a = Address::repeat_byte(0xa);
         let sender_b = Address::repeat_byte(0xb);
         let mk = |sender: Address, nonce: u64, h: u8| HeldTx {
