@@ -10,8 +10,9 @@ Branch: `fix/partial-consumption-default`
 
 The default-policy work starts from `d09bc005ec2daa0ded91399749bb47d02ed5b9d5`.
 The first simplification round starts from
-`fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e`; the final cleanup starts from
-`1c327d4085a9fc26308bc4030f548accd59fdef9`. Both stay on this branch and worktree.
+`fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e`; the second cleanup starts from
+`1c327d4085a9fc26308bc4030f548accd59fdef9`. The journal and recovery cleanup starts
+from `a09426d8efcf845e90e3c4da8f112d7e16a0c505`. All stay on this branch and worktree.
 
 The change removes the submission-policy enum, environment parser, atomic branch,
 unrecorded submission entrypoint, per-attempt relay switch, and raw-mempool
@@ -37,7 +38,7 @@ modules:
   handling, and rejected-bundle capture remain. The unused `expectedFinalState`
   capture field is removed; replay request bytes are unchanged.
 
-The final cleanup removes 22 more Rust lines outside unit-test modules:
+The next cleanup removes 22 more Rust lines outside unit-test modules:
 
 - Remove the unused requested target from the pending-attempt view and timestamp
   from missed-target results. The durable attempt still retains its requested
@@ -50,6 +51,23 @@ The final cleanup removes 22 more Rust lines outside unit-test modules:
   arguments without introducing another outcome type. Successful inclusion writes
   nothing; capture errors cannot replace the submission result. Replay request
   bytes and metadata are unchanged by this cleanup.
+
+The journal and recovery cleanup makes three further localized changes:
+
+- Serialize the existing journal state by reference through the same disk
+  envelope, removing the second full-state clone. Reading still owns the state.
+  The transactional clone in `update`, checksum, version, atomic replacement,
+  writer lock, and both fsync operations remain.
+- Compile the journal's in-memory `Default` implementation only for this crate's
+  unit tests. Fourteen node ingress fixtures now open temporary durable journals
+  using the existing `tempfile` dependency and keep their directories alive for
+  the test. Production startup already used durable storage.
+- Rebuild the held pool's queued-hash index once after applying all nonce gaps,
+  before recovering queued users. Filtering and rebuilding remain under the same
+  pool lock; an empty gap list performs no rebuild.
+
+The stale atomic-relay comment now describes settlement reconciliation. These
+changes add no dependencies, runtime modes, or migration handling.
 
 All workspace callers of the adjusted Rust interfaces are updated. Production
 ledger construction requires a durable journal; in-memory ledgers remain limited
@@ -82,25 +100,33 @@ tests use Rust 1.96.1; Clippy uses the CI toolchain, Rust 1.94.0.
 
 | Check | Result |
 | --- | --- |
-| Affected L1, composer, and node library tests | 190 passed. |
-| Complete workspace library tests | 519 passed across 15 suites. |
+| Affected composer and node library tests | 104 passed. |
+| Complete workspace library tests | 521 passed across 15 suites. |
 | Workspace Clippy, all targets, warnings denied | Passed. |
+| Production journal construction checks | Durable `open` compiles; in-memory `Default` is rejected with the expected E0277 error. |
 | Composer startup checks | 5 passed: missing, unusable, corrupt, locked, and fresh journal storage. |
 | Native tests using freshly rebuilt runtime binaries | 8 passed: 4 partial-consumption/resumption cases, 3 L1 reorg cases, and malformed-resumption rejection/recovery. |
 | Formatting and diff checks | Passed. |
 
 Commands, executable hashes, and suite results are retained in
 [default-validation-evidence.json](default-validation-evidence.json). Detailed
-logs are in the worktree's ignored `target/trim-*` artifacts.
+logs are in the worktree's ignored `target/journal-*` artifacts.
 
 The preceding round at `1c327d4` passed all 17 native cases, CI Python tests
 (174 passed, 4 skipped), 19 integration-contract tests, and offline dependency
 checks (1,243 cached advisories, 14 allowed warnings; no online refresh).
 The additional native scenarios and those auxiliary checks were not rerun for
-this two-file cleanup. Their evidence remains in the same JSON file at that
+this journal and recovery cleanup. Their evidence remains in the same JSON file at that
 commit and in the ignored `target/simplify-*` artifacts.
 
-The final cleanup adds nine transport/capture combinations: included, dropped,
+New regression coverage compares the actual journal file with the original
+version-1 owned envelope for empty, prepared, dispatched, and reconciled states.
+It also checks queue order, hash membership, and in-flight reservations with
+empty, nonmatching, overlapping, reversed, and repeated nonce gaps across senders
+and directions, including an inclusive `u64::MAX` root. Existing corruption,
+writer-lock, rollback, write-failure, and restart tests also passed.
+
+The preceding cleanup added nine transport/capture combinations: included, dropped,
 and relay-error outcomes with capture enabled, disabled, or unwritable. It checks
 unchanged outcomes, exact replay requests and metadata, and no files for success
 or disabled capture. A late invalid source outcome also checks rollback of the
@@ -118,14 +144,15 @@ acceptance before capturing a request, and permit only the exact retryable
 missing-block-body error for a deliberately orphaned transaction during recovery.
 Strict checks remain before the injected reorg and after recovery.
 
-The final critical review checked the complete cleanup diff against `1c327d4`,
+The final critical review checked the complete cleanup diff against `a09426d`,
 the tested-source digest, and the aggregate feature scope against original `main`
-at `4013495`. It checked journal rollback and restart targets, disjoint borrowing,
-unchanged deadline/parent checks, capture bytes and error isolation, fixture
-cleanup, and all changed callers. The preceding review against `fc5afdd` also
-checked canonical evidence authority, observer completion, startup restoration,
-lock ordering, and journal identity. No concrete issues remained. No dependency
-versions or protocol gitlinks changed in either simplification round.
+at `4013495`. It checked owned versus borrowed serialization, rollback and fsync
+ordering, production construction, temporary-directory lifetimes, and rebuilding
+the hash index before recovery while holding the pool lock. Earlier reviews
+against `fc5afdd` and `1c327d4` checked canonical evidence authority, observer
+completion, startup restoration, journal identity, deadlines, and capture errors.
+No concrete issues remained. No dependency versions or protocol gitlinks changed
+in these simplification rounds.
 
 Kurtosis was not rerun for this follow-up; the earlier real-builder canary remains
 recorded in the original implementation report. Native tests validate accounting,

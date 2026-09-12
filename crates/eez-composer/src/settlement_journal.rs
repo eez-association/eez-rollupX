@@ -99,11 +99,12 @@ pub(crate) struct JournalState {
     pub users: BTreeMap<B256, OwnedUser>,
 }
 
+/// Owned state when reading, borrowed state when writing the same encoding.
 #[derive(Debug, Serialize, Deserialize)]
-struct JournalFile {
+struct JournalFile<S = JournalState> {
     version: u32,
     checksum: B256,
-    state: JournalState,
+    state: S,
 }
 
 #[derive(Debug)]
@@ -121,6 +122,7 @@ pub struct SettlementJournal {
     state: Mutex<State>,
 }
 
+#[cfg(test)]
 impl Default for SettlementJournal {
     fn default() -> Self {
         Self {
@@ -246,7 +248,7 @@ impl SettlementJournal {
         let file = JournalFile {
             version: 1,
             checksum: keccak256(body),
-            state: state.clone(),
+            state,
         };
         let encoded = serde_json::to_vec(&file).map_err(|error| error.to_string())?;
         let temporary = path.with_extension("new");

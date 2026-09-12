@@ -1398,8 +1398,8 @@ where
 
         let pool_len_before = pool.len();
         // Caps how many held transactions one bundle attempts and therefore how
-        // many an atomic-relay drop re-queues. L1 block gas remains the hard
-        // protocol constraint, so deployments may need a lower cap.
+        // many users require settlement reconciliation. L1 block gas remains the
+        // hard protocol constraint, so deployments may need a lower cap.
         let max_user_txs = std::env::var("EEZ_MAX_USER_TXS_PER_BUNDLE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())

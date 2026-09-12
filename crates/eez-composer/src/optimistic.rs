@@ -896,6 +896,51 @@ mod tests {
     }
 
     #[test]
+    fn journal_encoding_preserves_version_one_bytes_and_checksum() {
+        // Keep the original owned envelope as the encoding compatibility oracle.
+        #[derive(serde::Serialize)]
+        struct VersionOneFile {
+            version: u32,
+            checksum: B256,
+            state: JournalState,
+        }
+
+        let directory = JournalDirectory::new();
+        let ledger = OptimisticallyIncluded::open(&directory.file()).unwrap();
+        let pool = HeldPool::new(ledger.journal());
+        let check_encoding = || {
+            let expected = ledger.journal.read(|state| {
+                serde_json::to_vec(&VersionOneFile {
+                    version: 1,
+                    checksum: alloy_primitives::keccak256(serde_json::to_vec(state).unwrap()),
+                    state: state.clone(),
+                })
+                .unwrap()
+            });
+            assert_eq!(std::fs::read(directory.file()).unwrap(), expected);
+        };
+        check_encoding();
+        for tag in 1..=3 {
+            pool.push_contiguous(tx(tag, 0), 0).unwrap();
+        }
+        let id = begin(&ledger, pool.pop_all(), 10);
+        check_encoding();
+        ledger
+            .observe(
+                id,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1200,
+                },
+            )
+            .unwrap();
+        check_encoding();
+        pool.resolve_attempt(&ledger, id, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        check_encoding();
+    }
+
+    #[test]
     fn durable_recovery_survives_dispatch_transfer_composition_and_new_attempt() {
         let directory = JournalDirectory::new();
         let original = vec![tx(1, 0), tx(2, 0), tx(3, 0)];

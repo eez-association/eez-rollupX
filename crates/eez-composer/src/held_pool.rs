@@ -136,11 +136,12 @@ impl PoolState {
             self.txs.retain(|tx| {
                 !(tx.sender == gap.sender && tx.direction == gap.direction && tx.nonce >= gap.nonce)
             });
-            let kept = self.txs.iter().map(|tx| tx.hash).collect();
-            self.by_hash = kept;
             self.in_flight.retain(|_, (sender, direction, nonce)| {
                 !(*sender == gap.sender && *direction == gap.direction && *nonce >= gap.nonce)
             });
+        }
+        if !gaps.is_empty() {
+            self.by_hash = self.txs.iter().map(|tx| tx.hash).collect();
         }
         self.recover_batch(
             users
@@ -875,6 +876,109 @@ mod tests {
             "inclusive eviction must release the root's own reservation"
         );
         pool.push_contiguous(mk(1, 5), 0).unwrap();
+    }
+
+    #[test]
+    fn recovery_with_multiple_nonce_gaps_preserves_other_chains_and_fifo() {
+        use crate::optimistic::NonceGap;
+        use Direction::{Inbound, Outbound};
+
+        let a = Address::repeat_byte(0xa);
+        let b = Address::repeat_byte(0xb);
+        let c = Address::repeat_byte(0xc);
+        let d = Address::repeat_byte(0xd);
+        let users = [
+            (a, Inbound, 0),
+            (a, Inbound, 1),
+            (a, Outbound, 0),
+            (b, Inbound, 0),
+            (c, Inbound, 0),
+            (a, Inbound, 2),
+            (a, Outbound, 1),
+            (b, Inbound, 1),
+            (c, Inbound, 1),
+            (c, Outbound, u64::MAX),
+            (d, Inbound, u64::MAX),
+            (d, Outbound, u64::MAX),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (sender, direction, nonce))| HeldTx {
+            sender,
+            nonce,
+            direction,
+            ..tx(u8::try_from(index + 1).unwrap())
+        })
+        .collect::<Vec<_>>();
+
+        for reverse in [false, true] {
+            let pool = HeldPool::new(Default::default());
+            for user in &users {
+                let on_chain = if user.nonce == u64::MAX { u64::MAX } else { 0 };
+                pool.push_contiguous(user.clone(), on_chain).unwrap();
+            }
+            pool.pop_n(5);
+            let check_membership = |queued: &[usize], in_flight: &[usize]| {
+                let state = pool.state.lock().unwrap();
+                let expected_queue = queued.iter().map(|&i| users[i].hash).collect::<Vec<_>>();
+                assert_eq!(
+                    state.txs.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+                    expected_queue,
+                );
+                assert_eq!(state.by_hash, expected_queue.into_iter().collect());
+                assert_eq!(
+                    state.in_flight,
+                    in_flight
+                        .iter()
+                        .map(|&i| {
+                            let tx = &users[i];
+                            (tx.hash, (tx.sender, tx.direction, tx.nonce))
+                        })
+                        .collect(),
+                );
+            };
+            let untouched_queue = [5, 6, 7, 8, 9, 10, 11];
+            let untouched_flight = [0, 1, 2, 3, 4];
+            pool.state.lock().unwrap().restore_journal(&[]);
+            check_membership(&untouched_queue, &untouched_flight);
+            pool.state.lock().unwrap().restore_journal(&[NonceGap {
+                sender: Address::repeat_byte(0xe),
+                direction: Inbound,
+                nonce: 0,
+            }]);
+            check_membership(&untouched_queue, &untouched_flight);
+
+            // Overlapping gaps, independent senders and an inclusive MAX root.
+            let mut gaps = [
+                NonceGap {
+                    sender: a,
+                    direction: Inbound,
+                    nonce: 2,
+                },
+                NonceGap {
+                    sender: b,
+                    direction: Inbound,
+                    nonce: 0,
+                },
+                NonceGap {
+                    sender: a,
+                    direction: Inbound,
+                    nonce: 1,
+                },
+                NonceGap {
+                    sender: d,
+                    direction: Inbound,
+                    nonce: u64::MAX,
+                },
+            ];
+            if reverse {
+                gaps.reverse();
+            }
+            pool.state.lock().unwrap().restore_journal(&gaps);
+            check_membership(&[6, 8, 9, 11], &[0, 2, 4]);
+            pool.state.lock().unwrap().restore_journal(&gaps);
+            check_membership(&[6, 8, 9, 11], &[0, 2, 4]);
+        }
     }
 
     #[test]

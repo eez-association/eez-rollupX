@@ -688,6 +688,15 @@ mod tests {
 
     use super::*;
 
+    fn test_pool() -> (tempfile::TempDir, HeldPool) {
+        let directory = tempfile::tempdir().unwrap();
+        let ledger = eez_composer::OptimisticallyIncluded::open(
+            &directory.path().join("settlement-journal.json"),
+        )
+        .unwrap();
+        (directory, HeldPool::new(ledger.journal()))
+    }
+
     fn test_signer() -> PrivateKeySigner {
         PrivateKeySigner::from_bytes(&B256::with_last_byte(1)).expect("valid signer")
     }
@@ -775,7 +784,7 @@ mod tests {
     #[tokio::test]
     async fn matching_source_chain_id_is_accepted() {
         let (_, envelope, raw) = signed_eip1559(31337, U256::ZERO, 21_000, 1);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
         push_admission_lookups(&asserter, 1_000_000, 0);
@@ -790,7 +799,7 @@ mod tests {
     #[tokio::test]
     async fn wrong_source_chain_id_is_rejected_without_pool_mutation() {
         let (signer, envelope, raw) = signed_eip1559(1, U256::ZERO, 21_000, 1);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
@@ -804,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn missing_source_chain_id_is_rejected() {
         let (signer, envelope, raw) = signed_legacy(None, 1);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
@@ -818,7 +827,7 @@ mod tests {
     #[tokio::test]
     async fn blob_envelope_is_rejected() {
         let (signer, envelope, raw) = signed_blob(31337);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
@@ -834,7 +843,7 @@ mod tests {
         let (_, original, original_raw) = signed_legacy(Some(31337), 100);
         let (_, underpriced, underpriced_raw) = signed_legacy(Some(31337), 105);
         let (_, replacement, replacement_raw) = signed_legacy(Some(31337), 110);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
         for _ in 0..3 {
@@ -900,7 +909,7 @@ mod tests {
         let sig = signer.sign_transaction_sync(&mut tx).expect("tx signs");
         let envelope = TxEnvelope::from(tx.into_signed(sig));
         let raw = Bytes::from(envelope.encoded_2718());
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
@@ -914,7 +923,7 @@ mod tests {
     #[tokio::test]
     async fn upfront_cost_overflow_is_rejected() {
         let (signer, envelope, raw) = signed_eip1559(31337, U256::MAX, 1, 1);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
@@ -1072,7 +1081,7 @@ mod tests {
         let (same_nonce, same_nonce_raw) = signed_transfer(&signer, 0, 2, 2);
         let (next, next_raw) = signed_transfer(&signer, 1, 3, 1);
         let (gapped, gapped_raw) = signed_transfer(&signer, 2, 4, 1);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
 
@@ -1133,7 +1142,7 @@ mod tests {
         let (suffix, suffix_raw) = signed_transfer(&signer, 1, 2, 100);
         let (replacement, replacement_raw) = signed_transfer(&signer, 0, 3, 110);
         let (underpriced, underpriced_raw) = signed_transfer(&signer, 0, 4, 109);
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
 
@@ -1237,7 +1246,8 @@ mod tests {
         let (_, inbound_replacement) = signed_transfer(&inbound_signer, 0, 3, 2);
         let (_, outbound) = signed_transfer(&outbound_signer, 0, 4, 1);
 
-        let pool = Arc::new(HeldPool::new(Default::default()));
+        let (_directory, pool) = test_pool();
+        let pool = Arc::new(pool);
         let inbound_port = free_port();
         let outbound_port = free_port();
 
@@ -1306,7 +1316,8 @@ mod tests {
         let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(3)).unwrap();
         let (_, tx) = signed_transfer(&signer, 0, 1, 1);
 
-        let pool = Arc::new(HeldPool::new(Default::default()));
+        let (_directory, pool) = test_pool();
+        let pool = Arc::new(pool);
         let port = free_port();
         let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -1403,7 +1414,8 @@ mod tests {
         let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(7)).unwrap();
         let raw = signed_creation(&signer);
         let (upstream, seen) = stub_upstream(UPSTREAM_HASH).await;
-        let pool = Arc::new(HeldPool::new(Default::default()));
+        let (_directory, pool) = test_pool();
+        let pool = Arc::new(pool);
         let port = free_port();
         // Empty asserter: the gate must not run a single lookup for a creation.
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
@@ -1444,7 +1456,8 @@ mod tests {
     async fn codeless_target_is_rejected_with_the_remedy_and_pool_untouched() {
         let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(8)).unwrap();
         let (_, raw) = signed_transfer(&signer, 0, 1, 1);
-        let pool = Arc::new(HeldPool::new(Default::default()));
+        let (_directory, pool) = test_pool();
+        let pool = Arc::new(pool);
         let port = free_port();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
@@ -1483,7 +1496,7 @@ mod tests {
         let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(7)).unwrap();
         let raw = signed_creation(&signer);
         let envelope = TxEnvelope::decode_2718(&mut raw.as_ref()).unwrap();
-        let pool = HeldPool::new(Default::default());
+        let (_directory, pool) = test_pool();
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
         let msg = rejection(
