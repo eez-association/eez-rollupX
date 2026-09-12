@@ -9,8 +9,9 @@ Worktree: `/home/edu/Development/eez-rollup0-fork/target/worktrees/partial-consu
 Branch: `fix/partial-consumption-default`
 
 The default-policy work starts from `d09bc005ec2daa0ded91399749bb47d02ed5b9d5`.
-The final simplifications start from `fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e`
-and stay on this same branch and worktree.
+The first simplification round starts from
+`fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e`; the final cleanup starts from
+`1c327d4085a9fc26308bc4030f548accd59fdef9`. Both stay on this branch and worktree.
 
 The change removes the submission-policy enum, environment parser, atomic branch,
 unrecorded submission entrypoint, per-attempt relay switch, and raw-mempool
@@ -18,7 +19,7 @@ fallback. Every request has an exact timestamp pin and permits only its validate
 signed inbound L1 users to revert. postBatch remains required; no dropping list
 is sent. The default configuration is used by the native tests and Kurtosis profiles.
 
-The final three simplifications remove another 123 Rust lines outside unit-test
+The first three simplifications remove another 123 Rust lines outside unit-test
 modules:
 
 - The observer records canonical postBatch inclusion without a second settlement
@@ -35,6 +36,20 @@ modules:
   target values. Exact timestamp pins, catch-up parent checks, receipt-index lag
   handling, and rejected-bundle capture remain. The unused `expectedFinalState`
   capture field is removed; replay request bytes are unchanged.
+
+The final cleanup removes 22 more Rust lines outside unit-test modules:
+
+- Remove the unused requested target from the pending-attempt view and timestamp
+  from missed-target results. The durable attempt still retains its requested
+  target for restart scans, and ready targets keep their timestamp pin.
+- Borrow the attempt's transaction slice during reconciliation instead of cloning
+  it again. The journal's transactional state snapshot remains: validation or
+  persistence failures must not commit partial ownership or counter changes.
+- Pass the existing submission result to rejected-bundle capture and derive its
+  metadata there. This removes duplicate calls and three separate status
+  arguments without introducing another outcome type. Successful inclusion writes
+  nothing; capture errors cannot replace the submission result. Replay request
+  bytes and metadata are unchanged by this cleanup.
 
 All workspace callers of the adjusted Rust interfaces are updated. Production
 ledger construction requires a durable journal; in-memory ledgers remain limited
@@ -67,38 +82,50 @@ tests use Rust 1.96.1; Clippy uses the CI toolchain, Rust 1.94.0.
 
 | Check | Result |
 | --- | --- |
-| Affected L1, composer, and node library tests | 189 passed. |
-| Complete workspace library tests | 518 passed across 15 suites. |
+| Affected L1, composer, and node library tests | 190 passed. |
+| Complete workspace library tests | 519 passed across 15 suites. |
 | Workspace Clippy, all targets, warnings denied | Passed. |
-| CI Python tests | 174 passed, 4 explicitly skipped. |
-| Integration-contract tests | 19 passed. |
 | Composer startup checks | 5 passed: missing, unusable, corrupt, locked, and fresh journal storage. |
-| Native tests using freshly rebuilt runtime binaries | 17 passed: 4 partial-consumption/resumption cases, 5 chained-call cases, bidirectional smoke and repeated waves, 2 caught-revert cases, 3 L1 reorg cases, and malformed-resumption rejection/recovery. |
+| Native tests using freshly rebuilt runtime binaries | 8 passed: 4 partial-consumption/resumption cases, 3 L1 reorg cases, and malformed-resumption rejection/recovery. |
 | Formatting and diff checks | Passed. |
-| Offline dependency policy and cached advisory audit | Passed; 1,243 cached advisories, 14 allowed warnings. No online advisory refresh. |
 
 Commands, executable hashes, and suite results are retained in
 [default-validation-evidence.json](default-validation-evidence.json). Detailed
-logs are in the worktree's ignored `target/simplify-*` artifacts. The sandboxed
-dependency-policy check needed a retry with access to its advisory-cache lock.
+logs are in the worktree's ignored `target/trim-*` artifacts.
 
-New regression coverage checks successful and reverted postBatch receipts without
-settlement-log RPCs, missing receipt block fields, absent/noncanonical blocks,
-journal mismatch without ownership mutation, and reservation restoration before
-ingress after restart. Existing tests cover duplicate observers, stale ownership,
-FIFO retries, spent nonces, nonce boundaries, persistence errors, and reorgs.
+The preceding round at `1c327d4` passed all 17 native cases, CI Python tests
+(174 passed, 4 skipped), 19 integration-contract tests, and offline dependency
+checks (1,243 cached advisories, 14 allowed warnings; no online refresh).
+The additional native scenarios and those auxiliary checks were not rerun for
+this two-file cleanup. Their evidence remains in the same JSON file at that
+commit and in the ignored `target/simplify-*` artifacts.
+
+The final cleanup adds nine transport/capture combinations: included, dropped,
+and relay-error outcomes with capture enabled, disabled, or unwritable. It checks
+unchanged outcomes, exact replay requests and metadata, and no files for success
+or disabled capture. A late invalid source outcome also checks rollback of the
+complete journal after earlier ownership and retry-counter changes.
+
+Earlier regression coverage checks successful and reverted postBatch receipts
+without settlement-log RPCs, missing receipt block fields, absent/noncanonical
+blocks, journal mismatch without ownership mutation, and reservation restoration
+before ingress after restart. Existing tests cover duplicate observers, stale
+ownership, FIFO retries, spent nonces, nonce boundaries, persistence errors, and
+reorgs.
 
 The same-block resumption fixtures retain the prior corrections: wait for relay
 acceptance before capturing a request, and permit only the exact retryable
 missing-block-body error for a deliberately orphaned transaction during recovery.
 Strict checks remain before the injected reorg and after recovery.
 
-The final critical review checked the complete simplification diff against
-`fc5afdd`, the tested-source digest, and the aggregate feature scope against
-original `main` at `4013495`. It checked canonical evidence authority, earlier
-observer completion, startup restoration, lock ordering, journal identity,
-deadlines, target-parent propagation, capture/error paths, and all changed callers.
-No concrete issues remained. No dependency versions or protocol gitlinks changed.
+The final critical review checked the complete cleanup diff against `1c327d4`,
+the tested-source digest, and the aggregate feature scope against original `main`
+at `4013495`. It checked journal rollback and restart targets, disjoint borrowing,
+unchanged deadline/parent checks, capture bytes and error isolation, fixture
+cleanup, and all changed callers. The preceding review against `fc5afdd` also
+checked canonical evidence authority, observer completion, startup restoration,
+lock ordering, and journal identity. No concrete issues remained. No dependency
+versions or protocol gitlinks changed in either simplification round.
 
 Kurtosis was not rerun for this follow-up; the earlier real-builder canary remains
 recorded in the original implementation report. Native tests validate accounting,

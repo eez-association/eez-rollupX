@@ -46,7 +46,6 @@ pub struct PendingAttempt {
     pub txs: Vec<HeldTx>,
     pub manifest: SettlementManifest,
     pub post_batch: Bytes,
-    pub requested_target: BundleTarget,
     pub dispatched_target: Option<(u64, u64)>,
     pub observation: SubmissionObservation,
 }
@@ -176,7 +175,6 @@ impl OptimisticallyIncluded {
                     txs: attempt.txs.clone(),
                     manifest: attempt.manifest.clone(),
                     post_batch: attempt.post_batch.clone(),
-                    requested_target: attempt.requested_target,
                     dispatched_target: attempt.dispatched_target,
                     observation: attempt.observation.clone(),
                 })
@@ -231,9 +229,8 @@ impl OptimisticallyIncluded {
             if outcomes.len() != attempt.txs.len() {
                 return Err("source outcomes do not cover the complete attempt".into());
             }
-            let txs = attempt.txs.clone();
             let mut gaps = Vec::new();
-            for (tx, outcome) in txs.iter().zip(outcomes) {
+            for (tx, outcome) in attempt.txs.iter().zip(outcomes) {
                 let Some(user) = state.users.get_mut(&tx.hash).filter(|user| {
                     user.owner == id.generation && user.location == UserLocation::AwaitingEvidence
                 }) else {
@@ -678,6 +675,12 @@ mod tests {
     #[test]
     fn malformed_partition_and_spent_nonce_retry_are_rejected_without_mutation() {
         let (ledger, pool, _, id) = setup();
+        let snapshot = || {
+            ledger
+                .journal
+                .read(|state| serde_json::to_value(state).unwrap())
+        };
+        let before = snapshot();
         assert!(
             pool.resolve_attempt(&ledger, id, block(100), &partial()[..2], true, 3, || true)
                 .is_err()
@@ -694,6 +697,24 @@ mod tests {
             )
             .is_err()
         );
+        // A late invalid outcome must roll back earlier ownership and counter changes.
+        assert!(
+            pool.resolve_attempt(
+                &ledger,
+                id,
+                block(100),
+                &[
+                    SourceOutcome::Terminal(TerminalReason::Committed),
+                    SourceOutcome::Retryable { source_nonce: 0 },
+                    SourceOutcome::Retryable { source_nonce: 1 },
+                ],
+                true,
+                3,
+                || true,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot(), before);
         assert_eq!(ledger.blocking_height(), Some(10));
         assert!(pool.is_empty());
         assert!(

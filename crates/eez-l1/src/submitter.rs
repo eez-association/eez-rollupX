@@ -208,7 +208,6 @@ enum TargetPreparation {
     Ready(PreparedTarget),
     Missed {
         block: u64,
-        timestamp: u64,
         reason: BundleDropReason,
     },
 }
@@ -349,7 +348,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
         {
             return Ok(TargetPreparation::Missed {
                 block: target_block,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::SubmissionWindowMissed,
             });
         }
@@ -363,7 +361,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
             if canonical_parent.as_ref().map(|block| block.header.hash) != Some(expected_hash) {
                 return Ok(TargetPreparation::Missed {
                     block: target_block,
-                    timestamp: target_timestamp,
                     reason: BundleDropReason::TargetChanged,
                 });
             }
@@ -375,7 +372,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
         if latest.header.number >= target_block {
             return Ok(TargetPreparation::Missed {
                 block: target_block,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::TargetChanged,
             });
         }
@@ -406,7 +402,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
             SubmissionWindowState::Expired => {
                 return Ok(TargetPreparation::Missed {
                     block: target_block,
-                    timestamp: target_timestamp,
                     reason: BundleDropReason::SubmissionWindowMissed,
                 });
             }
@@ -524,11 +519,9 @@ impl Submitter {
         .await?;
         let prepared = match prepared {
             TargetPreparation::Ready(target) => target,
-            TargetPreparation::Missed {
-                block,
-                timestamp: _,
-                reason,
-            } => return Ok(dropped(post_batch_hash, block, reason)),
+            TargetPreparation::Missed { block, reason } => {
+                return Ok(dropped(post_batch_hash, block, reason));
+            }
         };
 
         // Formatting/logging normally takes microseconds, but enforce the
@@ -769,43 +762,31 @@ impl Inner {
             }
             Err(other) => Err(other),
         };
-        match &result {
-            Ok(SendOutcome::Dropped { reason, .. }) => self.capture_bundle_attempt(
-                &hex_refs,
-                post_batch_hash,
-                target,
-                "dropped",
-                Some(reason.as_str()),
-                None,
-                reverting_hashes,
-            ),
-            Err(error) => self.capture_bundle_attempt(
-                &hex_refs,
-                post_batch_hash,
-                target,
-                "submission_error",
-                None,
-                Some(&error.to_string()),
-                reverting_hashes,
-            ),
-            Ok(SendOutcome::Included { .. }) => {}
-        }
+        self.capture_bundle_attempt(
+            &hex_refs,
+            post_batch_hash,
+            target,
+            &result,
+            reverting_hashes,
+        );
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn capture_bundle_attempt(
         &self,
         raw_tx_hexes: &[&str],
         post_batch_hash: TxHash,
         target: PreparedTarget,
-        outcome: &str,
-        drop_reason: Option<&str>,
-        error: Option<&str>,
+        result: &L1Result<SendOutcome>,
         reverting_hashes: &[B256],
     ) {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
             return;
+        };
+        let (outcome, drop_reason, error) = match result {
+            Ok(SendOutcome::Dropped { reason, .. }) => ("dropped", Some(reason.as_str()), None),
+            Err(error) => ("submission_error", None, Some(error.to_string())),
+            Ok(SendOutcome::Included { .. }) => return,
         };
         let attempt = root.join(format!("bundle-{}-{post_batch_hash}", target.block));
         let request = bundle_request(
@@ -1349,6 +1330,142 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatch_capture_preserves_outcomes_and_replay_requests() {
+        struct CaptureDirectory(std::path::PathBuf);
+        impl Drop for CaptureDirectory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "eez-bundle-capture-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let directory = CaptureDirectory(path);
+        let (post, post_hash) = signed_user(1, 0);
+        let (user, user_hash) = signed_user(1, 1);
+        let raw = [post, user];
+        let target = PreparedTarget {
+            block: 42,
+            timestamp: PIN,
+            expected_parent_hash: Some(B256::ZERO),
+        };
+        let block_hash = B256::with_last_byte(1);
+        for outcome in ["included", "dropped", "submission_error"] {
+            for capture in ["enabled", "disabled", "unwritable"] {
+                let responses = if outcome == "submission_error" {
+                    vec![serde_json::json!({
+                        "error": {"code": -32601, "message": "method not found"}
+                    })]
+                } else {
+                    let receipt = if outcome == "included" {
+                        serde_json::json!({
+                            "transactionHash": post_hash, "transactionIndex": "0x0",
+                            "blockHash": block_hash, "blockNumber": "0x2a",
+                            "from": alloy_primitives::Address::ZERO,
+                            "to": alloy_primitives::Address::ZERO,
+                            "gasUsed": "0x5208", "effectiveGasPrice": "0x1",
+                            "cumulativeGasUsed": "0x5208", "type": "0x2", "status": "0x1",
+                            "logs": [], "logsBloom": alloy_primitives::Bloom::ZERO,
+                        })
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    let mut block = serde_json::to_value(mock_block(42, PIN, block_hash)).unwrap();
+                    if outcome == "included" {
+                        block["transactions"] = serde_json::json!([post_hash, user_hash]);
+                    }
+                    vec![
+                        serde_json::json!({"result": null}),
+                        serde_json::json!({"result": receipt}),
+                        serde_json::json!({"result": block}),
+                    ]
+                };
+                let (url, server) = rpc_server(responses).await;
+                let mut submitter = test_submitter(url.clone());
+                let root = directory.0.join(format!("{outcome}-{capture}"));
+                if capture == "unwritable" {
+                    std::fs::write(&root, "not a directory").unwrap();
+                }
+                std::sync::Arc::get_mut(&mut submitter.inner)
+                    .unwrap()
+                    .config
+                    .bundle_capture_dir = (capture != "disabled").then(|| root.clone());
+                let result = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    submitter
+                        .inner
+                        .dispatch_and_observe(&raw, post_hash, target, &[user_hash]),
+                )
+                .await
+                .expect("capture must not interrupt dispatch or observation");
+                match (&result, outcome) {
+                    (
+                        Ok(super::SendOutcome::Included {
+                            tx_hash,
+                            l1_block,
+                            l1_block_hash,
+                        }),
+                        "included",
+                    ) => {
+                        assert_eq!(
+                            (*tx_hash, *l1_block, *l1_block_hash),
+                            (post_hash, 42, block_hash)
+                        );
+                    }
+                    (
+                        Ok(super::SendOutcome::Dropped {
+                            tx_hash,
+                            target_block,
+                            reason,
+                        }),
+                        "dropped",
+                    ) => {
+                        assert_eq!(
+                            (*tx_hash, *target_block, *reason),
+                            (post_hash, 42, BundleDropReason::Excluded)
+                        );
+                    }
+                    (Err(L1Error::BundleRpcUnsupported), "submission_error") => {}
+                    _ => panic!("unexpected result for {outcome}/{capture}: {result:?}"),
+                }
+                let requests = server.await.unwrap();
+                assert_eq!(requests[0]["method"], "eth_sendBundle");
+                if capture == "unwritable" {
+                    assert_eq!(std::fs::read(&root).unwrap(), b"not a directory");
+                } else if capture == "disabled" || outcome == "included" {
+                    assert!(
+                        !root.exists(),
+                        "successful or disabled capture must write nothing"
+                    );
+                } else {
+                    let attempt = root.join(format!("bundle-42-{post_hash}"));
+                    assert_eq!(
+                        std::fs::read(attempt.join("request.json")).unwrap(),
+                        serde_json::to_vec_pretty(&requests[0]).unwrap(),
+                    );
+                    let expected = serde_json::json!({
+                        "version": 1, "builderRpcUrl": url.as_str(),
+                        "postBatchHash": post_hash.to_string(), "targetBlock": 42,
+                        "pinnedTimestamp": PIN, "expectedParentHash": B256::ZERO.to_string(),
+                        "outcome": outcome,
+                        "dropReason": (outcome == "dropped").then_some("excluded"),
+                        "error": (outcome == "submission_error").then_some("builder relay does not support eth_sendBundle"),
+                        "requestFile": "request.json",
+                    });
+                    assert_eq!(
+                        std::fs::read(attempt.join("metadata.json")).unwrap(),
+                        serde_json::to_vec_pretty(&expected).unwrap(),
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn observer_requires_canonical_inclusion_without_scanning_settlement() {
         for case in [
             "success",
@@ -1845,7 +1962,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: 42,
-                timestamp: PIN,
                 reason: BundleDropReason::SubmissionWindowMissed,
             }
         );
@@ -1875,7 +1991,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: 42,
-                timestamp: PIN,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -1950,7 +2065,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: PIN + 24,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -1984,7 +2098,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: PIN + 24,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -2015,7 +2128,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::SubmissionWindowMissed,
             }
         );

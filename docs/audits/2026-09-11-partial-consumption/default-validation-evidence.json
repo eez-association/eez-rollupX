@@ -1,9 +1,9 @@
 {
-  "base": "fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e",
+  "base": "1c327d4085a9fc26308bc4030f548accd59fdef9",
   "binary_sha256": {
     "eez-proof-signer": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a",
-    "eez-follower": "4617ab74103a13cff2ba9f72102301a705b71f0322c510a6ab0f3d70e930fc58",
-    "eez-composer": "f8a5facc282ca0aaabca10bb9c6f8ca41ce217334b083247bbda6a2f380a44a5"
+    "eez-composer": "88cbf37e2c85ea01a7459d489460933932e4bb0641e28971ec3fbd82169c36ed",
+    "eez-follower": "89ef9485ca7bb9a40f6f958972ef7797334c9827af6abf6dff1901a2654e74d0"
   },
   "startup": [
     {
@@ -42,59 +42,11 @@
       "suite": "partial_consumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 354.31,
+      "seconds": 350.17,
       "summaries": [
-        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 354.29s"
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 350.16s"
       ],
-      "log": "target/simplify-native-partial_consumption.log"
-    },
-    {
-      "suite": "chained_interstate",
-      "filters": [],
-      "exit_code": 0,
-      "seconds": 428.89,
-      "summaries": [
-        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 428.88s"
-      ],
-      "log": "target/simplify-native-chained_interstate.log"
-    },
-    {
-      "suite": "bidirectional_smoke",
-      "filters": [
-        "minimal_bidirectional_cross_chain_smoke",
-        "--exact"
-      ],
-      "exit_code": 0,
-      "seconds": 67.28,
-      "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 67.26s"
-      ],
-      "log": "target/simplify-native-bidirectional_smoke.log"
-    },
-    {
-      "suite": "repeated_waves",
-      "filters": [
-        "both_directions_return_value_and_wrapper_success_repeated_waves",
-        "--exact"
-      ],
-      "exit_code": 0,
-      "seconds": 106.93,
-      "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 106.91s"
-      ],
-      "log": "target/simplify-native-repeated_waves.log"
-    },
-    {
-      "suite": "caught_destination_reverts",
-      "filters": [
-        "reverting_destination_preserves_caught_result"
-      ],
-      "exit_code": 0,
-      "seconds": 217.73,
-      "summaries": [
-        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 217.72s"
-      ],
-      "log": "target/simplify-native-caught_destination_reverts.log"
+      "log": "target/trim-native-partial_consumption.log"
     },
     {
       "suite": "l1_reorg",
@@ -102,46 +54,42 @@
         "_l1_reorg_"
       ],
       "exit_code": 0,
-      "seconds": 161.59,
+      "seconds": 165.49,
       "summaries": [
-        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 161.58s"
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 165.47s"
       ],
-      "log": "target/simplify-native-l1_reorg.log"
+      "log": "target/trim-native-l1_reorg.log"
     },
     {
       "suite": "resumption",
       "filters": [],
       "exit_code": 0,
-      "seconds": 75.53,
+      "seconds": 75.52,
       "summaries": [
-        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.52s"
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.51s"
       ],
-      "log": "target/simplify-native-resumption.log"
+      "log": "target/trim-native-resumption.log"
     }
   ],
-  "recorded_at_utc": "2026-09-12T11:27:18.482734+00:00",
+  "recorded_at_utc": "2026-09-12T12:17:36.902778+00:00",
   "branch": "fix/partial-consumption-default",
   "worktree": "/home/edu/Development/eez-rollup0-fork/target/worktrees/partial-consumption-default",
   "default_policy_base": "d09bc005ec2daa0ded91399749bb47d02ed5b9d5",
   "original_main": "40134955dc3f698ea65571ba82b6521637bf1191",
-  "implementation_diff_sha256": "ab7096d3c08cd3f21b47db386856c33691cd5dae53dc7ceb06aa479bdf4a306e",
-  "implementation_diff_scope": "git diff --binary fc5afdd1d17bb82ff16f227a7c32cfca3fb9880e -- crates",
+  "implementation_diff_sha256": "610138562079d046ad176819cad302de6bffbb914c21ec787ee53b1a7c758065",
+  "implementation_diff_scope": "git diff --binary 1c327d4085a9fc26308bc4030f548accd59fdef9 -- crates",
   "executables": {
     "eez-proof-signer": {
       "path": "target/debug/eez-proof-signer",
       "sha256": "49f8f295e6f26d1e9451ece7fe5a8aab118f4f05e9f7076cffeb9d918633813a"
     },
-    "eez-follower": {
-      "path": "target/debug/eez-follower",
-      "sha256": "4617ab74103a13cff2ba9f72102301a705b71f0322c510a6ab0f3d70e930fc58"
-    },
     "eez-composer": {
       "path": "target/debug/eez-composer",
-      "sha256": "f8a5facc282ca0aaabca10bb9c6f8ca41ce217334b083247bbda6a2f380a44a5"
+      "sha256": "88cbf37e2c85ea01a7459d489460933932e4bb0641e28971ec3fbd82169c36ed"
     },
-    "chained_interstate": {
-      "path": "target/debug/deps/chained_interstate-a5668522832d6818",
-      "sha256": "c16aafc7b8c525fed8eab14c305a20416cef65945380a3001ff225e41dc82d8b"
+    "eez-follower": {
+      "path": "target/debug/eez-follower",
+      "sha256": "89ef9485ca7bb9a40f6f958972ef7797334c9827af6abf6dff1901a2654e74d0"
     },
     "partial_consumption": {
       "path": "target/debug/deps/partial_consumption-64bd1c30e8bbe353",
@@ -151,13 +99,9 @@
       "path": "target/debug/deps/resumption-80372bcb0796a6e0",
       "sha256": "bd3979397132f797e1861b36693e1cfe0993efce3bd88290b67af62d5741585c"
     },
-    "cross_chain": {
-      "path": "target/debug/deps/cross_chain-eb36e2e30a994b51",
-      "sha256": "67b851266442aa8d6b1dda535c4b1bf3e70079ebc7b938210339829d6b6dd0aa"
-    },
     "e2e": {
       "path": "target/debug/deps/e2e-e086d792658832c8",
-      "sha256": "467a2f13566e931a6fcc3a5f6fc290534f7e4400c4904aa0c5ff571ace49127e"
+      "sha256": "b11959e4fd1a43569afc9a914605e0627f23209eda7634c2c5bea890fad99c1e"
     }
   },
   "protocol": "3c0cdf4955941a5c23639346932b55b33babebbd",
@@ -167,42 +111,32 @@
     "focused_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline -p eez-l1 -p eez-composer -p eez-node --lib",
     "workspace_unit": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo test --locked --offline --workspace --lib",
     "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
-    "contract": "forge test --root contracts --offline",
-    "ci_python": "python3 -m unittest discover -s scripts/ci/tests -v",
-    "dependency_policy": "cargo deny --offline check advisories bans sources",
-    "advisory": "cargo audit --no-fetch",
     "format": "cargo fmt --all --check",
     "diff": "git diff --check",
     "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
-    "native_run": "python3 target/run-simplify-validation.py"
+    "native_run": "python3 target/run-trim-validation.py"
   },
   "workspace_library_tests": {
     "suites": 15,
-    "passed": 518,
+    "passed": 519,
     "failed": 0
   },
   "focused_library_tests": {
     "suites": 3,
-    "passed": 189,
-    "failed": 0
-  },
-  "ci_python_tests": {
-    "passed": 174,
-    "skipped": 4,
-    "failed": 0
-  },
-  "contract_tests": {
-    "passed": 19,
+    "passed": 190,
     "failed": 0
   },
   "clippy_all_targets_warnings_denied": "passed",
   "format_and_diff_checks": "passed",
-  "dependency_policy": "passed offline; sandbox retry needed advisory-cache lock access",
-  "cargo_audit": {
-    "result": "passed",
-    "cached_advisories": 1243,
-    "allowed_warnings": 14,
-    "online_refresh": false
+  "previous_validation": {
+    "commit": "1c327d4085a9fc26308bc4030f548accd59fdef9",
+    "evidence_path": "docs/audits/2026-09-11-partial-consumption/default-validation-evidence.json",
+    "not_repeated": [
+      "CI Python tests",
+      "integration contracts",
+      "dependency policy and cached audit",
+      "chained-call, bidirectional, repeated-wave and caught-revert native tests"
+    ]
   },
   "kurtosis_rerun_for_this_followup": false
 }
