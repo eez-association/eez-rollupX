@@ -974,11 +974,6 @@ pub struct Composer<L2: BlockReader> {
 /// Invalid composer dependency wiring rejected at construction.
 #[derive(Debug, thiserror::Error)]
 pub enum ComposerConfigError {
-    /// Partial submission may not outlive its recoverable transaction bytes.
-    #[error(
-        "allow-inbound-reverts requires a durable settlement journal (configure the L2 datadir)"
-    )]
-    PartialRequiresJournal,
     /// The submitter observes a different L1 account than the one signing
     /// `postAndVerifyBatch`, so the Composer could misattribute its own batch.
     #[error(
@@ -1067,11 +1062,6 @@ where
         ensure_submission_identity(submitter_poster, post_batch_signer)?;
 
         for rollup in rollups.values() {
-            if submitter.bundle_policy() != eez_l1::BundlePolicy::Atomic
-                && !rollup.optimistic.journal().is_durable()
-            {
-                return Err(ComposerConfigError::PartialRequiresJournal);
-            }
             rollup.held_pool.attach_journal(rollup.optimistic.journal());
             if let Some(from) = rollup.optimistic.recovery_scan_from() {
                 rollup.l1_head.require_recovery_scan_from(from);
@@ -5063,13 +5053,11 @@ async fn observe_bundle_outcome(
 ) {
     use crate::settlement_journal::SubmissionObservation;
     let recorder = Arc::clone(&optimistic);
-    let require_bundle_relay = optimistic.has_users(attempt_id);
     let outcome = submitter
         .send_bundle_recorded(
             &bundle,
             target,
             Some(expected_final_state),
-            require_bundle_relay,
             move |block, timestamp| match recorder.observe(
                 attempt_id,
                 SubmissionObservation::Dispatched { block, timestamp },

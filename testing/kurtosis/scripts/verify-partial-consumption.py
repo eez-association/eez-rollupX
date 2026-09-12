@@ -76,7 +76,6 @@ def main():
     containers = command("docker", "ps", "--filter", f"name=eez-node--{uuid}", "--format", "{{.Names}}").splitlines()
     assert len(containers) == 1, "ambiguous node container"
     container = containers[0]
-    assert command("docker", "exec", container, "printenv", "EEZ_BUNDLE_POLICY") == "allow-inbound-reverts"
     builder = command("kurtosis", "service", "inspect", args.enclave, "el-2-reth-builder-lighthouse")
     digest = "sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308"
     assert digest in builder, "unexpected builder image"

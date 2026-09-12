@@ -33,10 +33,7 @@ pub enum L1Error {
     Submission(String),
     /// The configured builder relay answered `eth_sendBundle` with
     /// JSON-RPC `-32601` (method not found) — it is a plain execution
-    /// RPC, not a bundle relay. [`Submitter::send_bundle`] catches this
-    /// and degrades to ordered mempool submission (dev L1, anvil).
-    ///
-    /// [`Submitter::send_bundle`]: crate::Submitter::send_bundle
+    /// RPC, not the timestamp-pinned bundle relay required for settlement.
     #[error("builder relay does not support eth_sendBundle")]
     BundleRpcUnsupported,
     /// L1 reorg deeper than the configured tolerance — beyond Ethereum

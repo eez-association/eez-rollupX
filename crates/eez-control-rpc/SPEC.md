@@ -528,15 +528,13 @@ the stored target is retained, and an expired postBatch is never resent. Reorg
 invalidation follows L1 identity even when L2 height is unchanged. Inconclusive
 finality audits retain history. Finalization never releases newer reservations.
 
-`EEZ_BUNDLE_POLICY=atomic` is the default. `allow-inbound-reverts` requires a
-durable journal and a bundle relay. It allows only actual bundled L1 user hashes
-to revert. postBatch stays first and required; outbound L2 hashes are excluded.
+Partial consumption is always enabled. Every composer requires a durable journal
+and a timestamp-pinned bundle relay. Only actual bundled L1 user hashes may revert.
+postBatch stays first and required; outbound L2 hashes are excluded.
 Blob sidecars and timestamp pins are preserved. No `droppingTxHashes` field is
 sent. A builder configured with `discard_txs=true` may nevertheless omit an
 allowed transaction that fails transaction validation, so receipt and nonce
-reconciliation remain mandatory. Partial submission has no raw-mempool fallback.
+reconciliation remain mandatory. Submission has no raw-mempool fallback.
 
-Before upgrading an in-memory deployment, drain its outstanding users while the
-old process still owns them. To roll back partial submission, set the policy to
-`atomic`, preserve the journal and continue running the reconciler until all
-previously submitted attempts are accounted for.
+Preserve the journal across restarts. There is no runtime mode that disables
+partial-consumption recovery.

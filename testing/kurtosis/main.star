@@ -178,7 +178,6 @@ def run(plan, args):
         "EEZ_PROOF_TIME_MS": str(eez.get("proof_time_ms", 5000)),
         "EEZ_SUBMISSION_SLACK_MS": str(eez.get("submission_slack_ms", 2500)),
         "EEZ_BUNDLE_SUBMISSION_LEAD_MS": str(eez.get("bundle_submission_lead_ms", 7500)),
-        "EEZ_BUNDLE_POLICY": eez.get("bundle_policy", "atomic"),
         "EEZ_MAX_SPECULATIVE_DEPTH": str(eez.get("max_speculative_depth", 0)),
         "EEZ_MAX_USER_TXS_PER_BUNDLE": str(eez.get("max_user_txs_per_bundle", 50)),
         "EEZ_COMPOSER_DEBUG_LOGGING": "1"

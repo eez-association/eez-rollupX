@@ -207,11 +207,6 @@ impl SettlementJournal {
         Ok(journal)
     }
 
-    #[must_use]
-    pub const fn is_durable(&self) -> bool {
-        self.path.is_some()
-    }
-
     pub(crate) fn read<T>(&self, f: impl FnOnce(&JournalState) -> T) -> T {
         let state = self
             .state

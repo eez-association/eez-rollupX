@@ -52,12 +52,16 @@ pub struct PendingAttempt {
 }
 
 /// All state changes are journaled before the held pool is updated.
-#[derive(Debug, Default)]
+/// Production construction requires opening a durable journal; only unit tests
+/// can create an in-memory ledger.
+#[derive(Debug)]
+#[cfg_attr(test, derive(Default))]
 pub struct OptimisticallyIncluded {
     journal: Arc<SettlementJournal>,
 }
 
 impl OptimisticallyIncluded {
+    #[cfg(test)]
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -72,15 +76,6 @@ impl OptimisticallyIncluded {
     #[must_use]
     pub fn journal(&self) -> Arc<SettlementJournal> {
         Arc::clone(&self.journal)
-    }
-
-    pub(crate) fn has_users(&self, id: AttemptId) -> bool {
-        self.journal.read(|state| {
-            state
-                .attempts
-                .get(&id.generation)
-                .is_some_and(|attempt| attempt.id == id && !attempt.txs.is_empty())
-        })
     }
 
     /// Persist a freshly prepared attempt before handing it to the submitter.

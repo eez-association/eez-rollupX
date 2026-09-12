@@ -248,12 +248,11 @@ cargo run -p eez-follower -- node \
 
 ### Partial consumption and recovery
 
-`EEZ_BUNDLE_POLICY=atomic` is the default. To permit included inbound L1 users
-to revert, explicitly set `EEZ_BUNDLE_POLICY=allow-inbound-reverts` and configure
-a writable `EEZ_L2_DATADIR`. This mode requires a timestamp-pinned bundle relay;
-the node never falls back to raw mempool submission for partial bundles or
-user-bearing attempts. Only bundled L1 user hashes enter `revertingTxHashes`.
-The required postBatch and its native blob sidecar are preserved.
+Partial consumption and durable recovery are always enabled. Configure a writable
+`EEZ_L2_DATADIR` and a timestamp-pinned bundle relay; all submissions use the relay.
+Only actual signed L1 users following postBatch enter `revertingTxHashes`.
+The required postBatch and its native blob sidecar are preserved. There is no
+submission policy flag or raw-mempool fallback.
 
 Permission to revert does not guarantee that a builder will omit invalid-nonce
 transactions. The [pinned Kurtosis canary](testing/kurtosis/README.md#validate-partial-consumption)
@@ -265,22 +264,20 @@ The composer records each submitted user's signed bytes and ownership in
 complete canonical L1 scan, validated L2 replay groups and canonical source
 receipts/nonces. It preserves the applied prefix, never retries spent source
 nonces, and requeues eligible omissions once with the existing bounded budget.
-The journal is required for partial mode; a missing datadir permits only the
-existing in-memory atomic setup. A corrupt or unwritable journal stops recovery
-and dispatch rather than silently discarding ownership.
+Composer startup requires a usable datadir and opens the journal before launching
+either reth instance. A corrupt, locked or unwritable journal stops startup;
+later write failures stop recovery and dispatch without discarding ownership.
 
 Recovery reads source state sequentially and requires the canonical generation
 to remain stable through those reads. With a consistently slow RPC, a large
 batch can keep recovery pending across successive scans. Monitor the settlement
 backlog and reduce `EEZ_MAX_USER_TXS_PER_BUNDLE` (default: 50) or improve RPC
-latency before enabling the partial profile at that load.
+latency before increasing the load.
 
-Drain outstanding attempts before upgrading from the earlier in-memory ledger.
-Keep the datadir and journal across restarts. To roll back the submission policy,
-set `EEZ_BUNDLE_POLICY=atomic` while retaining this version's reconciliation and
-journal: already submitted partial attempts still need their source outcomes
-accounted for. The journal does not persist ingress that has never entered a
-submitted attempt. Details are in [the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
+Keep the datadir and journal across restarts. The journal does not persist ingress
+that has never entered a submitted attempt. Details are in
+[the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission)
+and the [default-behavior validation report](docs/audits/2026-09-11-partial-consumption/default-policy.md).
 
 ### L1/L2 settlement correlation RPC
 

@@ -514,8 +514,9 @@ convergence.
 
 Use an isolated enclave and locally built node/signer images tagged
 `eez-node:partial-consumption`, `eez-proof-signer:partial-consumption`, and
-`eez-deploy:partial-consumption`. The profile enables the durable composer
-journal and `allow-inbound-reverts`; other profiles retain `atomic`.
+`eez-deploy:partial-consumption`. Every profile uses durable settlement recovery
+and permits included inbound users to revert. This profile pins the builder image
+and isolates the canary's chain and funding.
 
 ```bash
 kurtosis run --enclave eez-partial-consumption ./testing/kurtosis \
@@ -549,8 +550,7 @@ separate from the permission to include an EVM revert. No dropping allowlist
 is sent. The [implementation audit](../../docs/audits/2026-09-11-partial-consumption/completion.md)
 records the checked protocol, source/configuration and actual evidence.
 
-Disable new partial requests by restoring `bundle_policy: atomic`. Preserve
-the journal and reconciliation implementation through outstanding attempts.
+Preserve the journal across restarts and through outstanding attempts.
 
 ### Run all included workloads
 

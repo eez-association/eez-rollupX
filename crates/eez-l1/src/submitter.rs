@@ -18,7 +18,7 @@ use alloy_primitives::{B256, TxHash, hex};
 use alloy_provider::{Provider, ProviderBuilder};
 use tracing::{Level, event};
 
-use crate::config::{BundlePolicy, SubmitterConfig};
+use crate::config::SubmitterConfig;
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
@@ -475,37 +475,15 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
-    /// Submit an atomic bundle of signed envelopes with postBatch first.
-    /// Partial mode uses `send_bundle_recorded` with a durable dispatch record.
-    /// Observation of postBatch alone never completes individual users.
-    ///
-    /// # Errors
-    ///
-    /// - [`L1Error::Provider`] on RPC failure (block fetch, log fetch).
-    /// - [`L1Error::Submission`] if the relay rejects the bundle.
-    pub async fn send_bundle(
-        &self,
-        raw_txs: &[alloy_primitives::Bytes],
-        target: BundleTarget,
-        expected_final_state: Option<alloy_primitives::B256>,
-    ) -> L1Result<SendOutcome> {
-        if self.inner.config.bundle_policy != BundlePolicy::Atomic {
-            return Err(L1Error::Config(
-                "partial submission requires recorded dispatch and a durable journal".into(),
-            ));
-        }
-        self.send_bundle_recorded(raw_txs, target, expected_final_state, false, |_, _| Ok(()))
-            .await
-    }
-
     /// Submit only after the caller has durably recorded the exact target.
     /// The callback runs before external dispatch and may veto it on I/O error.
+    /// Only signed L1 users following the required postBatch may revert.
+    /// Observation of postBatch alone never completes individual users.
     pub async fn send_bundle_recorded(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
         expected_final_state: Option<B256>,
-        require_bundle_relay: bool,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
@@ -532,15 +510,11 @@ impl Submitter {
             *post_batch_envelope.tx_hash()
         };
         let target_provider = self.inner.build_target_provider();
-        let reverting_hashes =
-            if self.inner.config.bundle_policy == BundlePolicy::AllowInboundReverts {
-                let chain_id = target_provider.get_chain_id().await.map_err(|error| {
-                    L1Error::Provider(format!("partial bundle source chain: {error}"))
-                })?;
-                inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?
-            } else {
-                Vec::new()
-            };
+        let chain_id = target_provider
+            .get_chain_id()
+            .await
+            .map_err(|error| L1Error::Provider(format!("bundle source chain: {error}")))?;
+        let reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
         let clock = SystemClock;
         let prepared = prepare_submission_target(
             &target_provider,
@@ -594,25 +568,19 @@ impl Submitter {
             tx_count = raw_txs.len(),
             "dispatching bundle to builder",
         );
-        // One bundle, one target. Only the explicit partial policy allows
-        // inbound source reverts; postBatch is always required. User-bearing
-        // or partial submissions require a timestamp-pinned bundle relay.
+        // Every bundle uses one timestamp-pinned target and permits only the
+        // validated inbound source users to revert. postBatch is always required.
         self.inner
             .dispatch_and_observe(
                 raw_txs,
                 post_batch_hash,
                 target_block,
-                Some(pin_timestamp),
+                pin_timestamp,
                 expected_parent_hash,
                 expected_final_state,
                 &reverting_hashes,
-                require_bundle_relay || self.inner.config.bundle_policy != BundlePolicy::Atomic,
             )
             .await
-    }
-
-    pub fn bundle_policy(&self) -> BundlePolicy {
-        self.inner.config.bundle_policy
     }
 
     /// Verify a canonical L1 identity using the same provider as source reads.
@@ -784,21 +752,17 @@ impl Inner {
             })
     }
 
-    /// Submit `raw_txs` (postBatch first) and observe the outcome. Try
-    /// the relay's `eth_sendBundle`; if it's a plain execution RPC
-    /// ([`L1Error::BundleRpcUnsupported`]), only a lone postBatch may degrade
-    /// to mempool submission in atomic mode. User-bearing and partial attempts
-    /// require a relay to preserve transaction order and the timestamp pin.
+    /// Submit `raw_txs` (postBatch first) through the required bundle relay and
+    /// observe the outcome. Preserve transaction order and the timestamp pin.
     async fn dispatch_and_observe(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         post_batch_hash: TxHash,
         target_block: u64,
-        pin_timestamp: Option<u64>,
+        pin_timestamp: u64,
         expected_parent_hash: Option<B256>,
         expected_final_state: Option<alloy_primitives::B256>,
         reverting_hashes: &[B256],
-        require_bundle_relay: bool,
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
             .iter()
@@ -823,39 +787,6 @@ impl Inner {
                     target_block,
                     pin_timestamp,
                     expected_parent_hash,
-                    expected_final_state,
-                )
-                .await
-            }
-            Err(L1Error::BundleRpcUnsupported) => {
-                if require_bundle_relay {
-                    return Err(L1Error::Submission("submitted user recovery requires a timestamp-pinned bundle relay; raw mempool fallback is disabled".into()));
-                }
-                require_atomic_relay_or_lone_postbatch(raw_txs.len())?;
-                event!(
-                    name: "eez.submitter.bundle.mempool_fallback",
-                    Level::INFO,
-                    event_name = "eez.submitter.bundle.mempool_fallback",
-                    target_block,
-                    tx_count = raw_txs.len(),
-                    "relay has no eth_sendBundle; submitting the lone postBatch via mempool",
-                );
-                let target_provider = self.build_target_provider();
-                let _pending = alloy_provider::Provider::send_raw_transaction(
-                    &target_provider,
-                    raw_txs[0].as_ref(),
-                )
-                .await
-                .map_err(|error| {
-                    L1Error::Submission(format!("mempool fallback: postBatch rejected: {error}"))
-                })?;
-                // No bundle API, no timestamp pin: these txs can genuinely land
-                // in a later block, so the conservative rule is the only one.
-                self.observe(
-                    post_batch_hash,
-                    target_block,
-                    None,
-                    None,
                     expected_final_state,
                 )
                 .await
@@ -898,7 +829,7 @@ impl Inner {
         raw_tx_hexes: &[&str],
         post_batch_hash: TxHash,
         target_block: u64,
-        pin_timestamp: Option<u64>,
+        pin_timestamp: u64,
         expected_parent_hash: Option<B256>,
         expected_final_state: Option<alloy_primitives::B256>,
         outcome: &str,
@@ -960,13 +891,12 @@ impl Inner {
     /// `state_applied` from the inclusion block's `L2ExecutionPerformed`
     /// events via [`Self::settlement_in_block`].
     ///
-    /// `pin_timestamp` is set for every relay submission. It is absent only for
-    /// the lone-postBatch mempool fallback, which has no enforceable slot pin.
+    /// Every submission uses the relay's exact timestamp pin.
     async fn observe(
         &self,
         tx_hash: TxHash,
         target_block: u64,
-        pin_timestamp: Option<u64>,
+        pin_timestamp: u64,
         expected_parent_hash: Option<B256>,
         expected_final_state: Option<alloy_primitives::B256>,
     ) -> L1Result<SendOutcome> {
@@ -1025,19 +955,14 @@ impl Inner {
                     });
                 }
                 Ok(None) => {
-                    let verdict = match pin_timestamp {
-                        Some(pin_ts) => {
-                            pinned_slot_check(
-                                &target_provider,
-                                target_block,
-                                tx_hash,
-                                pin_ts,
-                                expected_parent_hash,
-                            )
-                            .await
-                        }
-                        None => PinnedVerdict::Pending,
-                    };
+                    let verdict = pinned_slot_check(
+                        &target_provider,
+                        target_block,
+                        tx_hash,
+                        pin_timestamp,
+                        expected_parent_hash,
+                    )
+                    .await;
                     match verdict {
                         PinnedVerdict::Excluded => {
                             return Ok(dropped(tx_hash, target_block, BundleDropReason::Excluded));
@@ -1161,11 +1086,10 @@ async fn post_bundle(
     builder_rpc_url: &str,
     raw_tx_hexes: &[&str],
     target_block: u64,
-    pin_timestamp: Option<u64>,
+    pin_timestamp: u64,
     reverting_hashes: &[B256],
 ) -> L1Result<()> {
-    // Atomic policy supplies an empty allowlist. Partial policy permits only
-    // the validated signed L1 users to revert; the leading postBatch remains
+    // Permit only the validated signed L1 users to revert; postBatch remains
     // required. Invalid-transaction omission depends on builder configuration,
     // and every user still requires canonical source reconciliation.
     let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
@@ -1191,7 +1115,7 @@ async fn post_bundle(
     if let Some(err) = resp.get("error") {
         // JSON-RPC -32601 = method not found: the configured relay is a
         // plain execution RPC (dev reth, anvil) with no bundle API.
-        // Typed so `send_bundle` can degrade to mempool submission.
+        // Distinguish an unsupported relay from a rejected bundle.
         if err.get("code").and_then(serde_json::Value::as_i64) == Some(-32601) {
             return Err(L1Error::BundleRpcUnsupported);
         }
@@ -1202,7 +1126,7 @@ async fn post_bundle(
 
 /// Revert permission is limited to signed L1 users actually following the
 /// required postBatch. Permission to drop invalid transactions is separate and
-/// is not sent by this profile.
+/// is not requested by this submitter.
 fn inbound_revert_hashes(
     raw_txs: &[alloy_primitives::Bytes],
     chain_id: u64,
@@ -1237,23 +1161,18 @@ fn inbound_revert_hashes(
 fn bundle_request(
     raw_tx_hexes: &[&str],
     target_block: u64,
-    pin_timestamp: Option<u64>,
+    pin_timestamp: u64,
     reverting_hashes: &[B256],
 ) -> serde_json::Value {
+    // Pin inclusion to the exact L1 slot the L2 Sync block anchored to.
     let mut bundle_params = serde_json::json!({
         "txs": raw_tx_hexes,
         "blockNumber": format!("0x{target_block:x}"),
+        "minTimestamp": pin_timestamp,
+        "maxTimestamp": pin_timestamp,
     });
     if !reverting_hashes.is_empty() {
         bundle_params["revertingTxHashes"] = serde_json::json!(reverting_hashes);
-    }
-    if let Some(ts) = pin_timestamp {
-        // Pin inclusion to the exact L1 slot the L2 Sync block anchored
-        // to. The builder enforces min/maxTimestamp against block.timestamp
-        // (verified on chiado), so a skipped slot won't match and the
-        // bundle drops rather than settling with a drifted L2 timestamp.
-        bundle_params["minTimestamp"] = serde_json::json!(ts);
-        bundle_params["maxTimestamp"] = serde_json::json!(ts);
     }
     serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "eth_sendBundle",
@@ -1269,7 +1188,7 @@ enum PinnedVerdict {
     Pending,
     /// Our postBatch is in it; the receipt follows.
     Included,
-    /// Built without us; atomic bundles land in that block or nowhere.
+    /// Built without our required postBatch; the bundle's target has expired.
     Excluded,
     /// Another timestamp filled the height. Timestamps strictly increase, so
     /// no later block can satisfy `minTimestamp == maxTimestamp == pin_ts`.
@@ -1353,15 +1272,6 @@ fn dropped(tx_hash: TxHash, target_block: u64, reason: BundleDropReason) -> Send
     }
 }
 
-fn require_atomic_relay_or_lone_postbatch(transaction_count: usize) -> L1Result<()> {
-    if transaction_count == 1 {
-        return Ok(());
-    }
-    Err(L1Error::Submission(format!(
-        "relay has no eth_sendBundle; refusing non-atomic {transaction_count}-transaction settlement"
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -1377,11 +1287,162 @@ mod tests {
     use super::{
         BundleDropReason, BundleTarget, Clock, L1Error, PinnedVerdict, PreparedTarget,
         SubmissionTiming, SubmissionWindowState, TargetPreparation, bundle_request, pinned_verdict,
-        prepare_submission_target, require_atomic_relay_or_lone_postbatch,
-        submission_window_bounds, submission_window_state,
+        prepare_submission_target, submission_window_bounds, submission_window_state,
     };
 
     const PIN: u64 = 1_700_000_012;
+
+    fn test_submitter(url: url::Url) -> super::Submitter {
+        super::Submitter::new(
+            crate::SubmitterConfig {
+                reader: crate::L1ReaderConfig {
+                    rpc_url: url.clone(),
+                    beacon_url: None,
+                    eez: alloy_primitives::Address::ZERO,
+                    rollup_id: 1,
+                    deploy_block: 0,
+                },
+                builder_rpc_url: url.clone(),
+                target_rpc_url: Some(url),
+                poster: B256::with_last_byte(1).to_string().parse().unwrap(),
+                bundle_capture_dir: None,
+                bundle_submission_lead: Duration::from_millis(DEFAULT_BUNDLE_SUBMISSION_LEAD_MS),
+            },
+            Duration::from_secs(12),
+            Duration::from_millis(500),
+        )
+        .unwrap()
+    }
+
+    async fn rpc_server(
+        responses: Vec<serde_json::Value>,
+    ) -> (url::Url, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for mut response in responses {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut stream = BufReader::new(stream);
+                let mut length = None;
+                loop {
+                    let mut line = String::new();
+                    assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        length = Some(value.trim().parse::<usize>().unwrap());
+                    }
+                }
+                let mut body = vec![0; length.expect("JSON RPC request length")];
+                stream.read_exact(&mut body).await.unwrap();
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                response["jsonrpc"] = serde_json::json!("2.0");
+                response["id"] = request["id"].clone();
+                let body = serde_json::to_vec(&response).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len(),
+                );
+                stream.get_mut().write_all(header.as_bytes()).await.unwrap();
+                stream.get_mut().write_all(&body).await.unwrap();
+                requests.push(request);
+            }
+            requests
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn every_submission_records_dispatch_and_requires_a_relay() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
+
+        for (user_count, fail_record) in [(0, false), (2, false), (2, true)] {
+            let now = super::SystemClock.now_unix_ms().unwrap() / 1_000;
+            let timestamp = now + 30;
+            let mut responses = vec![
+                serde_json::json!({"result": "0x1"}),
+                serde_json::json!({"result": mock_block(41, now, B256::ZERO)}),
+            ];
+            if !fail_record {
+                responses.push(serde_json::json!({
+                    "error": {"code": -32601, "message": "method not found"}
+                }));
+            }
+            let (url, server) = rpc_server(responses).await;
+            let mut submitter = test_submitter(url);
+            // Keep this transport test inside the send window without sleeps.
+            Arc::get_mut(&mut submitter.inner)
+                .unwrap()
+                .submission_timing
+                .lead_ms = 60_000;
+            let signed = (0..=user_count)
+                .map(|nonce| signed_user(1, nonce))
+                .collect::<Vec<_>>();
+            let raw = signed
+                .iter()
+                .map(|(raw, _)| raw.clone())
+                .collect::<Vec<_>>();
+            let recorded = AtomicBool::new(false);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                submitter.send_bundle_recorded(
+                    &raw,
+                    BundleTarget::Exact {
+                        block: 42,
+                        timestamp,
+                    },
+                    None,
+                    |block, pin| {
+                        assert_eq!((block, pin), (42, timestamp));
+                        recorded.store(true, Ordering::SeqCst);
+                        if fail_record {
+                            Err(L1Error::Submission("journal write failed".into()))
+                        } else {
+                            Ok(())
+                        }
+                    },
+                ),
+            )
+            .await
+            .expect("submission must finish without observing or falling back to mempool");
+            assert!(recorded.load(Ordering::SeqCst));
+            if fail_record {
+                assert!(
+                    matches!(result, Err(L1Error::Submission(message)) if message == "journal write failed")
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(L1Error::BundleRpcUnsupported)),
+                    "{result:?}"
+                );
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["method"], "eth_chainId");
+            assert_eq!(requests[1]["method"], "eth_getBlockByNumber");
+            if !fail_record {
+                let hashes = signed
+                    .iter()
+                    .skip(1)
+                    .map(|(_, hash)| *hash)
+                    .collect::<Vec<_>>();
+                let hexes = raw.iter().map(ToString::to_string).collect::<Vec<_>>();
+                let hex_refs = hexes.iter().map(String::as_str).collect::<Vec<_>>();
+                assert_eq!(
+                    requests[2],
+                    bundle_request(&hex_refs, 42, timestamp, &hashes)
+                );
+            }
+        }
+    }
 
     #[tokio::test]
     async fn canonical_source_reads_bound_stalled_headers_and_response_bodies() {
@@ -1405,28 +1466,7 @@ mod tests {
                 }
                 std::future::pending::<()>().await;
             });
-            let mut submitter = super::Submitter::new(
-                crate::SubmitterConfig {
-                    bundle_policy: crate::BundlePolicy::Atomic,
-                    reader: crate::L1ReaderConfig {
-                        rpc_url: url.clone(),
-                        beacon_url: None,
-                        eez: alloy_primitives::Address::ZERO,
-                        rollup_id: 1,
-                        deploy_block: 0,
-                    },
-                    builder_rpc_url: url.clone(),
-                    target_rpc_url: Some(url),
-                    poster: B256::with_last_byte(1).to_string().parse().unwrap(),
-                    bundle_capture_dir: None,
-                    bundle_submission_lead: Duration::from_millis(
-                        DEFAULT_BUNDLE_SUBMISSION_LEAD_MS,
-                    ),
-                },
-                Duration::from_secs(12),
-                Duration::from_millis(500),
-            )
-            .unwrap();
+            let mut submitter = test_submitter(url);
             Arc::get_mut(&mut submitter.inner).unwrap().request_timeout =
                 Duration::from_millis(100);
             let result = tokio::time::timeout(
@@ -1486,7 +1526,7 @@ mod tests {
         assert_eq!(hashes, vec![first_hash, second_hash]);
         let hexes = [post.to_string(), first.to_string(), second.to_string()];
         let raws = hexes.iter().map(String::as_str).collect::<Vec<_>>();
-        let request = bundle_request(&raws, 42, Some(PIN), &hashes);
+        let request = bundle_request(&raws, 42, PIN, &hashes);
         let params = &request["params"][0];
         assert_eq!(
             params["revertingTxHashes"],
@@ -1496,12 +1536,12 @@ mod tests {
         assert_eq!(params["txs"], serde_json::json!(hexes));
         assert_eq!(params["minTimestamp"], PIN);
         assert_eq!(params["maxTimestamp"], PIN);
-        let atomic = bundle_request(&raws, 42, Some(PIN), &[]);
-        assert!(atomic["params"][0].get("revertingTxHashes").is_none());
+        let post_only = bundle_request(&raws[..1], 42, PIN, &[]);
+        assert!(post_only["params"][0].get("revertingTxHashes").is_none());
     }
 
     #[test]
-    fn partial_policy_rejects_wrong_chain_duplicate_and_malformed_users() {
+    fn inbound_revert_allowlist_rejects_wrong_chain_duplicate_and_malformed_users() {
         let (user, hash) = signed_user(1, 0);
         let post = alloy_primitives::Bytes::new();
         assert!(
@@ -2003,21 +2043,8 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_bundle_rpc_fails_closed_for_ordered_settlement() {
-        assert!(require_atomic_relay_or_lone_postbatch(1).is_ok());
-        assert!(matches!(
-            require_atomic_relay_or_lone_postbatch(2),
-            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 2-transaction")
-        ));
-        assert!(matches!(
-            require_atomic_relay_or_lone_postbatch(4),
-            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 4-transaction")
-        ));
-    }
-
-    #[test]
     fn replay_request_preserves_exact_transactions_target_and_timestamp_pin() {
-        let request = bundle_request(&["0x0102", "0x0304"], 42, Some(PIN), &[]);
+        let request = bundle_request(&["0x0102", "0x0304"], 42, PIN, &[]);
         assert_eq!(request["method"], "eth_sendBundle");
         assert_eq!(request["params"][0]["txs"][0], "0x0102");
         assert_eq!(request["params"][0]["txs"][1], "0x0304");

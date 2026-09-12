@@ -27,7 +27,7 @@ pub mod scan;
 pub mod submitter;
 
 #[doc(inline)]
-pub use config::{BundlePolicy, L1ReaderConfig, SubmitterConfig};
+pub use config::{L1ReaderConfig, SubmitterConfig};
 #[doc(inline)]
 pub use error::{L1Error, L1Result};
 #[doc(inline)]

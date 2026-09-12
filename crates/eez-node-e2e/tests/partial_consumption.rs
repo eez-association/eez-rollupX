@@ -22,10 +22,7 @@ use eez_testkit::{
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 async fn partial_after_proving(omitted: usize) {
-    let world =
-        setup_cross_chain_with_env(&[("EEZ_BUNDLE_POLICY", "allow-inbound-reverts".into())])
-            .await
-            .unwrap();
+    let world = setup_cross_chain_with_env(&[]).await.unwrap();
     world.omit_next_bundle_user(omitted).unwrap();
     // Start the wave only after a completed empty drain, leaving the full
     // next slot for all three users. The relay additionally requires exactly
@@ -305,18 +302,16 @@ async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
     let setter_nonce = onchain_nonce(&world.l1_rpc(), TARGET_DEPLOYER)
         .await
         .unwrap();
-    // A complete empty slot is a barrier: the following slot sees all three
-    // signed users and the newly deployed proxy in its parent state.
+    // Wait until the current empty bundle has passed the relay before arming
+    // capture. The composer dispatch event precedes its HTTP request, so it
+    // could capture that empty bundle instead of the following three-user slot.
     let cursor = world.node.signal_cursor().unwrap();
     wait_for(TIMEOUT, || async {
         Ok(world
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == signals::COMPOSER_BUNDLE_DISPATCHED
-                    || event.name == signals::COMPOSER_PHASE1_BUNDLE_DISPATCHED
-            })
+            .any(|event| event.name == signals::BUNDLE_ACCEPTED)
             .then_some(()))
     })
     .await

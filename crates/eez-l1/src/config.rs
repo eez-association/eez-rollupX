@@ -79,35 +79,10 @@ impl L1ReaderConfig {
     }
 }
 
-/// Builder permission for included L1 source transactions. Dropping invalid
-/// transactions is deliberately not implied by permission to revert.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum BundlePolicy {
-    #[default]
-    Atomic,
-    AllowInboundReverts,
-}
-
-impl std::str::FromStr for BundlePolicy {
-    type Err = L1Error;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "atomic" => Ok(Self::Atomic),
-            "allow-inbound-reverts" => Ok(Self::AllowInboundReverts),
-            _ => Err(L1Error::Config(format!(
-                "EEZ_BUNDLE_POLICY: unsupported policy {value:?}"
-            ))),
-        }
-    }
-}
-
 /// Signed submission configuration. Read-side settings are grouped in
 /// [`L1ReaderConfig`]; the remaining fields exist only for posting batches.
 #[derive(Clone)]
 pub struct SubmitterConfig {
-    /// Atomic by default. Partial submission additionally requires a durable
-    /// composer journal and a builder honoring eth_sendBundle revert lists.
-    pub bundle_policy: BundlePolicy,
     /// Canonical L1 source used for reads and as the default target-tip RPC.
     pub reader: L1ReaderConfig,
     /// L1 builder relay accepting `eth_sendBundle`. All postBatch txs
@@ -133,7 +108,6 @@ pub struct SubmitterConfig {
 impl std::fmt::Debug for SubmitterConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SubmitterConfig")
-            .field("bundle_policy", &self.bundle_policy)
             .field("reader", &self.reader)
             .field("builder_rpc_url", &self.builder_rpc_url.as_str())
             .field(
@@ -168,15 +142,6 @@ impl SubmitterConfig {
         // set this to the same value as EEZ_L1_RPC_URL.
         let builder_rpc_url = parse_url(ENV_BUILDER_RPC_URL)?;
         Ok(Self {
-            bundle_policy: match env::var("EEZ_BUNDLE_POLICY") {
-                Ok(value) => value.parse()?,
-                Err(env::VarError::NotPresent) => BundlePolicy::Atomic,
-                Err(_) => {
-                    return Err(L1Error::Config(
-                        "EEZ_BUNDLE_POLICY contains non-UTF-8 bytes".into(),
-                    ));
-                }
-            },
             reader: L1ReaderConfig::from_env()?,
             builder_rpc_url,
             target_rpc_url,
@@ -233,34 +198,6 @@ fn parse_u64_or(name: &str, default: u64) -> L1Result<u64> {
         Err(env::VarError::NotPresent) => Ok(default),
         Err(env::VarError::NotUnicode(_)) => {
             Err(L1Error::Config(format!("{name} contains non-UTF-8 bytes")))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::BundlePolicy;
-
-    #[test]
-    fn partial_submission_is_explicit_and_drop_policy_is_unsupported() {
-        assert_eq!(BundlePolicy::default(), BundlePolicy::Atomic);
-        assert_eq!(
-            "atomic".parse::<BundlePolicy>().unwrap(),
-            BundlePolicy::Atomic
-        );
-        assert_eq!(
-            "allow-inbound-reverts".parse::<BundlePolicy>().unwrap(),
-            BundlePolicy::AllowInboundReverts
-        );
-        for unsupported in [
-            "",
-            "partial",
-            "dropping",
-            "allow-inbound-drops",
-            "all",
-            "Atomic",
-        ] {
-            assert!(unsupported.parse::<BundlePolicy>().is_err());
         }
     }
 }
