@@ -43,7 +43,7 @@ use crate::rollup_id::RollupId;
 ///
 /// Protocol call hashes are derived from these fields during entry
 /// materialization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutedAction {
     /// Index of the cross-chain call whose destination execution emitted this
     /// call. `None` identifies a root call made directly by the source

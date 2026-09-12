@@ -22,11 +22,12 @@ pub mod l1_canonical_head;
 pub mod l1_head_stream;
 pub mod l1_reader;
 pub mod l1_watcher;
+pub mod reconciled_settlement;
 pub mod scan;
 pub mod submitter;
 
 #[doc(inline)]
-pub use config::{L1ReaderConfig, SubmitterConfig};
+pub use config::{BundlePolicy, L1ReaderConfig, SubmitterConfig};
 #[doc(inline)]
 pub use error::{L1Error, L1Result};
 #[doc(inline)]
@@ -37,6 +38,9 @@ pub use l1_head_stream::{L1HeadInfo, L1HeadStream};
 pub use l1_reader::{L1Reader, L1Readiness};
 #[doc(inline)]
 pub use l1_watcher::{L1Event, L1Watcher, L1WatcherConfig};
+pub use reconciled_settlement::{
+    L1BlockRef, L2Endpoint, ReconciledBatchSettlement, ReplaySelection,
+};
 #[doc(inline)]
 pub use scan::{BatchLogChunks, ScannedBatch, Settlement};
 #[doc(inline)]

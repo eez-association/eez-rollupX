@@ -285,6 +285,8 @@ impl BundleStub {
         let listen = format!("127.0.0.1:{port}");
         let (log_path, log_dir) = test_log_destination("builder-stub")?;
         let capture_dir = tempfile::tempdir().context("builder blob capture tempdir")?;
+        let control_dir = capture_dir.path().join("control");
+        std::fs::create_dir(&control_dir)?;
         let log = std::fs::File::create(&log_path).context("create builder stub log")?;
         let err_log = log.try_clone().context("clone builder stub log")?;
         let mut command = Command::new("python3");
@@ -292,7 +294,9 @@ impl BundleStub {
             .arg(script)
             .args(["--listen", &listen, "--upstream", upstream])
             .arg("--capture-dir")
-            .arg(capture_dir.path());
+            .arg(capture_dir.path())
+            .arg("--test-control-dir")
+            .arg(&control_dir);
         if passthrough {
             command.arg("--passthrough-bundles");
         }
@@ -3292,7 +3296,12 @@ pub async fn deploy_protocol_dev(
     })
 }
 
-async fn deploy_value(rpc_url: &str, key: &str, chain_id: u64, initial: U256) -> Result<Address> {
+pub async fn deploy_value(
+    rpc_url: &str,
+    key: &str,
+    chain_id: u64,
+    initial: U256,
+) -> Result<Address> {
     let out = repo_root().join("contracts/out");
     deploy_raw(
         rpc_url,
@@ -3818,10 +3827,10 @@ pub struct CrossChainWorld {
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
-    _builder_stub: BundleStub,
-    _beacon: BeaconStub,
+    builder_stub: BundleStub,
+    beacon: BeaconStub,
     _witness_dir: tempfile::TempDir,
-    _datadir: FailureDatadir,
+    datadir: FailureDatadir,
 }
 
 pub struct CrossChainEmptyCallWorld {
@@ -3913,6 +3922,91 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 }
 
 impl CrossChainWorld {
+    /// Hold the next proved request until `release_bundle` supplies its L1
+    /// execution sequence. The fixture relay times out rather than hanging.
+    pub fn hold_next_bundle(&self) -> Result<()> {
+        std::fs::write(
+            self.builder_stub
+                .capture_dir()
+                .join("control/hold-next.json"),
+            b"{}",
+        )?;
+        Ok(())
+    }
+
+    pub fn held_bundle(&self) -> Result<Option<serde_json::Value>> {
+        match std::fs::read(
+            self.builder_stub
+                .capture_dir()
+                .join("control/held-bundle.json"),
+        ) {
+            Ok(raw) => Ok(Some(serde_json::from_slice(&raw)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn release_bundle(&self, request: &serde_json::Value) -> Result<()> {
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("released-bundle.new");
+        std::fs::write(&temporary, serde_json::to_vec(request)?)?;
+        std::fs::rename(temporary, directory.join("released-bundle.json"))?;
+        Ok(())
+    }
+
+    /// Omit one of three inbound users from the next fully proved bundle.
+    /// This controls valid L1 execution; it does not emulate builder policy.
+    pub fn omit_next_bundle_user(&self, user_index: usize) -> Result<()> {
+        ensure!(user_index < 3, "three-user fixture index out of bounds");
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("omit-user.new");
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec(&serde_json::json!({"userIndex": user_index}))?,
+        )?;
+        std::fs::rename(temporary, directory.join("omit-user.json"))?;
+        Ok(())
+    }
+
+    /// Original signed request and the exact one-time inclusion fault.
+    pub fn bundle_omission(&self) -> Result<Option<serde_json::Value>> {
+        match std::fs::read(
+            self.builder_stub
+                .capture_dir()
+                .join("control/omission.json"),
+        ) {
+            Ok(raw) => Ok(Some(serde_json::from_slice(&raw)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Atomically persisted runtime ownership, independent of log timing.
+    pub fn settlement_journal(&self) -> Result<serde_json::Value> {
+        Ok(serde_json::from_slice(&std::fs::read(
+            self.datadir.path().join("settlement-journal.json"),
+        )?)?)
+    }
+
+    /// A fresh follower receives only canonical L1 and blob availability.
+    pub fn partial_follower_env(&self) -> Vec<(&'static str, String)> {
+        let mut env = self.cfg.env(&self.builder_stub.url, self.beacon.endpoint());
+        env.retain(|(name, _)| {
+            !matches!(
+                *name,
+                "EEZ_L1_POSTER_KEY"
+                    | "EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES"
+                    | "EEZ_L1_HTTP_PORT"
+                    | "EEZ_L1_AUTH_PORT"
+                    | "EEZ_L1_P2P_PORT"
+                    | "EEZ_L1_XCHAIN_PORT"
+                    | "EEZ_L2_XCHAIN_PORT"
+            )
+        });
+        env.push(("EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES", "true".to_owned()));
+        env
+    }
+
     /// Collects node and signer state for settlement timeout failures.
     pub fn settlement_diagnostics(&self) -> String {
         let node_exit = self.node.exit_status();
@@ -4472,18 +4566,30 @@ async fn assert_batch_settlement_events(
         .enumerate()
         .flat_map(|(index, entry)| {
             let emits = entry.success && !skipped.contains(&index);
+            let lookup = eez_protocol::settlement::is_lookup_only_inbound_entry(entry, rollup_id);
             entry
                 .rootUpdates
                 .iter()
                 .filter(move |update| update.rollupId == rollup_id)
-                .map(move |update| (update.newRoot, emits))
+                .map(move |update| ExpectedSettlementStep {
+                    root: update.newRoot,
+                    emits,
+                    lookup,
+                })
         })
         .collect();
     assert_applied_step_events(&claimed, applied, &observed)
 }
 
+#[derive(Clone, Copy)]
+struct ExpectedSettlementStep {
+    root: B256,
+    emits: bool,
+    lookup: bool,
+}
+
 fn assert_applied_step_events(
-    claimed: &[(B256, bool)],
+    claimed: &[ExpectedSettlementStep],
     applied: usize,
     observed: &[B256],
 ) -> Result<()> {
@@ -4492,25 +4598,48 @@ fn assert_applied_step_events(
         "invalid applied-step count {applied} for {} claims",
         claimed.len()
     );
-    // Match a contiguous applied range, retaining duplicate roots and order.
-    // A successful carrier includes the failed steps immediately after it;
-    // neither boundary may cut those outcomes away from their carrier.
-    let matches = claimed.windows(applied).enumerate().any(|(start, steps)| {
-        steps[0].1
-            && claimed
-                .get(start + applied)
-                .is_none_or(|(_, success)| *success)
-            && steps
-                .iter()
-                .filter(|(_, success)| *success)
-                .map(|(root, _)| root)
-                .eq(observed.iter())
+    // Independently enumerate contiguous fixture ranges. The anchor counts as
+    // one applied step; authenticated lookups count as zero. A range cannot
+    // cut away a failed physical checkpoint already covered by its carrier.
+    let matches = (0..claimed.len()).any(|start| {
+        (start + 1..=claimed.len()).any(|end| {
+            let steps = &claimed[start..end];
+            steps.iter().filter(|step| !step.lookup).count() == applied
+                && steps
+                    .iter()
+                    .find(|step| !step.lookup)
+                    .is_some_and(|step| step.emits)
+                && steps
+                    .windows(2)
+                    .all(|pair| pair[1].emits || pair[1].lookup || pair[1].root == pair[0].root)
+                && claimed[end..]
+                    .iter()
+                    .find(|step| !step.lookup)
+                    .is_none_or(|next| next.emits || next.root != steps.last().unwrap().root)
+                && expected_settlement_logs_match(steps, observed)
+        })
     });
     ensure!(
         matches,
         "{applied} applied steps have no matching ordered L1 event sequence: {observed:?}"
     );
     Ok(())
+}
+
+/// Fixture-only oracle: emitting lookups may disappear with a source-frame
+/// revert. Every emitting physical carrier is mandatory and ordered. Keep
+/// this independent of the production scanner's weighted matching algorithm.
+fn expected_settlement_logs_match(steps: &[ExpectedSettlementStep], observed: &[B256]) -> bool {
+    let Some((step, rest)) = steps.split_first() else {
+        return observed.is_empty();
+    };
+    if !step.emits {
+        return expected_settlement_logs_match(rest, observed);
+    }
+    (step.lookup && expected_settlement_logs_match(rest, observed))
+        || observed.split_first().is_some_and(|(root, remaining)| {
+            *root == step.root && expected_settlement_logs_match(rest, remaining)
+        })
 }
 
 fn assert_sync_grid(
@@ -5115,10 +5244,10 @@ async fn setup_cross_chain_inner(
         outbound_wrapper,
         prover_proxy,
         proof_signer,
-        _builder_stub: builder_stub,
-        _beacon: beacon,
+        builder_stub,
+        beacon,
         _witness_dir: witness_dir,
-        _datadir: datadir,
+        datadir,
     })
 }
 
@@ -5166,7 +5295,12 @@ mod framework_tests {
         let a = B256::repeat_byte(1);
         let b = B256::repeat_byte(2);
         let c = B256::repeat_byte(3);
-        let claimed = [(a, true), (a, false), (b, true), (b, false), (c, true)];
+        let physical = |(root, emits)| ExpectedSettlementStep {
+            root,
+            emits,
+            lookup: false,
+        };
+        let claimed = [(a, true), (a, false), (b, true), (b, false), (c, true)].map(physical);
         assert_applied_step_events(&claimed, 2, &[a]).unwrap();
         assert_applied_step_events(&claimed, 4, &[a, b]).unwrap();
         assert_applied_step_events(&claimed, 3, &[b, c]).unwrap();
@@ -5184,9 +5318,63 @@ mod framework_tests {
             assert!(assert_applied_step_events(&claimed, applied, &observed).is_err());
         }
         // Successful no-op updates still emit: equal roots must not collapse.
-        let duplicate_roots = [(a, true), (a, true)];
+        let duplicate_roots = [(a, true), (a, true)].map(physical);
         assert_applied_step_events(&duplicate_roots, 2, &[a, a]).unwrap();
         assert!(assert_applied_step_events(&duplicate_roots, 2, &[a]).is_err());
+    }
+
+    #[test]
+    fn settlement_oracle_excludes_lookups_but_never_skips_physical_carriers() {
+        let a = B256::with_last_byte(1);
+        let b = B256::with_last_byte(2);
+        for emits in [false, true] {
+            let claimed = [
+                ExpectedSettlementStep {
+                    root: a,
+                    emits: true,
+                    lookup: false,
+                },
+                ExpectedSettlementStep {
+                    root: a,
+                    emits,
+                    lookup: true,
+                },
+                ExpectedSettlementStep {
+                    root: b,
+                    emits: true,
+                    lookup: false,
+                },
+                ExpectedSettlementStep {
+                    root: b,
+                    emits,
+                    lookup: true,
+                },
+            ];
+            assert_applied_step_events(&claimed, 1, &[a]).unwrap();
+            assert_applied_step_events(&claimed, 1, &[b]).unwrap();
+            assert_applied_step_events(&claimed, 2, &[a, b]).unwrap();
+            assert!(assert_applied_step_events(&claimed, 3, &[a, b]).is_err());
+            assert!(assert_applied_step_events(&claimed, 2, &[a]).is_err());
+            if emits {
+                assert_applied_step_events(&claimed, 2, &[a, a, b, b]).unwrap();
+                assert_applied_step_events(&claimed, 2, &[a, b, b]).unwrap();
+                assert_applied_step_events(&claimed, 1, &[a, a]).unwrap();
+            }
+        }
+        let skipped = [
+            ExpectedSettlementStep {
+                root: a,
+                emits: true,
+                lookup: false,
+            },
+            ExpectedSettlementStep {
+                root: b,
+                emits: false,
+                lookup: false,
+            },
+        ];
+        assert_applied_step_events(&skipped, 1, &[a]).unwrap();
+        assert!(assert_applied_step_events(&skipped, 2, &[a]).is_err());
     }
 
     #[test]

@@ -20,16 +20,17 @@
 //! are infrequent (per sync slot, per L1 event) and never hot-path.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, Bytes, TxHash};
 use tracing::{Level, event};
 
 use crate::ingress::Direction;
+use crate::settlement_journal::{SettlementJournal, TerminalReason, UserLocation};
 
 /// A cross-chain transaction held between submission and Sync-slot
 /// composition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HeldTx {
     /// RLP-encoded source transaction (signed envelope). Handed to
     /// the composer's chained simulation verbatim.
@@ -95,6 +96,7 @@ fn min_replacement_fee(replaced: u128) -> u128 {
 /// nonce reservations can never disagree with each other.
 #[derive(Debug, Default)]
 struct PoolState {
+    journal: Option<Arc<SettlementJournal>>,
     /// Queued txs awaiting the next Sync-slot drain, in FIFO order.
     txs: VecDeque<HeldTx>,
     /// Hashes of the queued txs — O(1) duplicate-submission check.
@@ -110,6 +112,124 @@ struct PoolState {
 }
 
 impl PoolState {
+    fn restore_journal(&mut self, gaps: &[crate::optimistic::NonceGap]) {
+        let Some(journal) = self.journal.clone() else {
+            return;
+        };
+        let mut users = journal.read(|data| data.users.values().cloned().collect::<Vec<_>>());
+        users.sort_by_key(|user| (user.owner, user.fifo_position));
+        for user in &users {
+            if user.location != UserLocation::Queued {
+                self.txs.retain(|tx| tx.hash != user.tx.hash);
+                self.by_hash.remove(&user.tx.hash);
+                self.in_flight.remove(&user.tx.hash);
+                if matches!(
+                    user.location,
+                    UserLocation::AwaitingEvidence | UserLocation::Composing
+                ) {
+                    self.mark_in_flight(&user.tx);
+                }
+            }
+        }
+        // These gaps come from this resolution's reusable source nonces;
+        // source-included failures never generate a gap.
+        for gap in gaps {
+            self.txs.retain(|tx| {
+                !(tx.sender == gap.sender && tx.direction == gap.direction && tx.nonce >= gap.nonce)
+            });
+            let kept = self.txs.iter().map(|tx| tx.hash).collect();
+            self.by_hash = kept;
+            self.in_flight.retain(|_, (sender, direction, nonce)| {
+                !(*sender == gap.sender && *direction == gap.direction && *nonce >= gap.nonce)
+            });
+        }
+        self.recover_batch(
+            users
+                .into_iter()
+                .filter(|user| user.location == UserLocation::Queued)
+                .map(|user| user.tx)
+                .collect(),
+        );
+        self.persist_recovery_pool();
+    }
+
+    /// Keep only already-submitted users durable as they are recomposed,
+    /// replaced, deferred or evicted. Failure while holding the pool lock
+    /// poisons it, preventing any subsequent dispatch from outrunning disk.
+    fn persist_recovery_pool(&self) {
+        let Some(journal) = self.journal.as_ref() else {
+            return;
+        };
+        journal
+            .update(|data| {
+                for user in data.users.values_mut() {
+                    if !matches!(
+                        user.location,
+                        UserLocation::Queued | UserLocation::Composing
+                    ) {
+                        continue;
+                    }
+                    if let Some(queued) = self.txs.iter().find(|tx| tx.hash == user.tx.hash) {
+                        user.tx = queued.clone();
+                        user.location = UserLocation::Queued;
+                    } else if self.in_flight.contains_key(&user.tx.hash) {
+                        user.location = UserLocation::Composing;
+                    } else {
+                        user.location = UserLocation::Terminal {
+                            reason: TerminalReason::PoolDiscarded,
+                            canonical: None,
+                        };
+                    }
+                }
+                Ok(())
+            })
+            .expect("cannot preserve recovered transaction ownership; held pool stopped");
+    }
+    fn recover_batch(&mut self, recovered: Vec<HeldTx>) {
+        let mut replacement_roots: HashMap<(Address, Direction), (u64, TxHash)> = HashMap::new();
+        for tx in &recovered {
+            let replacement = self.txs.iter().find(|queued| {
+                queued.sender == tx.sender
+                    && queued.direction == tx.direction
+                    && queued.nonce == tx.nonce
+                    && queued.hash != tx.hash
+            });
+            if let Some(replacement) = replacement {
+                replacement_roots
+                    .entry((tx.sender, tx.direction))
+                    .and_modify(|(nonce, hash)| {
+                        if tx.nonce < *nonce {
+                            *nonce = tx.nonce;
+                            *hash = replacement.hash;
+                        }
+                    })
+                    .or_insert((tx.nonce, replacement.hash));
+            }
+        }
+
+        for tx in recovered.into_iter().rev() {
+            if let Some(&(conflict_nonce, replacement_hash)) =
+                replacement_roots.get(&(tx.sender, tx.direction))
+                && tx.nonce >= conflict_nonce
+            {
+                self.release_in_flight(&tx);
+                event!(
+                    name: "eez.held_pool.recovery_conflict",
+                    Level::WARN,
+                    recovered_hash = %tx.hash,
+                    replacement_hash = %replacement_hash,
+                    sender = %tx.sender,
+                    direction = ?tx.direction,
+                    nonce = tx.nonce,
+                    conflict_nonce,
+                    "newer queued replacement wins; discarding recovered nonce-chain suffix",
+                );
+                continue;
+            }
+            self.push_front_recovered(tx);
+        }
+    }
+
     /// Next nonce that keeps the `(sender, direction)` chain contiguous:
     /// one past the highest queued-or-in-flight reservation, or `on_chain`
     /// if there is none. Reservations below `on_chain` already landed and
@@ -178,6 +298,112 @@ impl HeldPool {
         Self::default()
     }
 
+    /// Attach the node's journal before opening ingress and restore ownership.
+    pub fn attach_journal(&self, journal: Arc<SettlementJournal>) {
+        {
+            let mut state = self.state.lock().expect("held_pool mutex poisoned");
+            assert!(state.journal.is_none(), "held pool already has a journal");
+            assert!(
+                state.txs.is_empty() && state.in_flight.is_empty(),
+                "attach journal before ingress"
+            );
+            state.journal = Some(journal);
+        }
+        self.apply_journal(&[]);
+    }
+
+    /// Atomically release completed reservations and requeue eligible users.
+    /// Current journal ownership prevents old history from touching a retry.
+    pub fn apply_journal(&self, gaps: &[crate::optimistic::NonceGap]) {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        state.restore_journal(gaps);
+    }
+
+    /// Persist and apply an ownership partition while ingress is excluded.
+    /// This closes the journal-to-queue window as well as release-to-requeue.
+    pub fn resolve_attempt(
+        &self,
+        ledger: &crate::optimistic::OptimisticallyIncluded,
+        id: crate::optimistic::AttemptId,
+        as_of: eez_l1::L1BlockRef,
+        outcomes: &[crate::optimistic::SourceOutcome],
+        charge_attempt: bool,
+        attempt_limit: u32,
+        is_canonical: impl FnOnce() -> bool,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        if state
+            .journal
+            .as_ref()
+            .is_none_or(|journal| !Arc::ptr_eq(journal, &ledger.journal()))
+        {
+            return Err("held pool and optimistic ledger must share their journal".into());
+        }
+        if !is_canonical() {
+            return Err("canonical settlement changed before ownership transfer".into());
+        }
+        let gaps = ledger.resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
+        state.restore_journal(&gaps);
+        Ok(())
+    }
+
+    /// Reopen canonical outcomes and restore their reservations atomically
+    /// with respect to ingress and a concurrent reconciliation decision.
+    pub fn invalidate_after_l1(
+        &self,
+        ledger: &crate::optimistic::OptimisticallyIncluded,
+        ancestor: u64,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        if state
+            .journal
+            .as_ref()
+            .is_none_or(|journal| !Arc::ptr_eq(journal, &ledger.journal()))
+        {
+            return Err("held pool and optimistic ledger must share their journal".into());
+        }
+        ledger.invalidate_after_l1(ancestor)?;
+        state.restore_journal(&[]);
+        Ok(())
+    }
+
+    /// A recomposition-time nonce check is not finalized settlement evidence.
+    /// Previously submitted users return to canonical reconciliation instead
+    /// of losing their reorg history through an ordinary stale-pool eviction.
+    pub fn recheck_stale_sources(&self, txs: &[HeldTx]) -> Result<bool, String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let mut reopened = false;
+        if let Some(journal) = state.journal.as_ref() {
+            reopened = journal.update(|data| {
+                let mut reopened = false;
+                for tx in txs {
+                    if let Some(user) = data.users.get_mut(&tx.hash).filter(|user| {
+                        matches!(
+                            user.location,
+                            UserLocation::Composing | UserLocation::Queued
+                        )
+                    }) {
+                        user.location = UserLocation::AwaitingEvidence;
+                        let attempt = data
+                            .attempts
+                            .get_mut(&user.owner)
+                            .ok_or("missing recovery attempt")?;
+                        attempt.reconciled_at = None;
+                        attempt.observation =
+                            crate::settlement_journal::SubmissionObservation::Uncertain;
+                        reopened = true;
+                    }
+                }
+                Ok(reopened)
+            })?;
+        }
+        for tx in txs {
+            state.release_in_flight(tx);
+        }
+        state.restore_journal(&[]);
+        Ok(reopened)
+    }
+
     /// Admit `tx` into the contiguous queued + in-flight nonce chain for
     /// `(sender, direction)`. A new hash at an existing queued nonce replaces
     /// that transaction in place, if it bumps `max_fee_per_gas` by
@@ -227,6 +453,7 @@ impl HeldPool {
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
             state.by_hash.insert(replacement_hash);
+            state.persist_recovery_pool();
             return Ok(());
         }
 
@@ -253,6 +480,7 @@ impl HeldPool {
         }
         state.by_hash.insert(tx.hash);
         state.txs.push_back(tx);
+        state.persist_recovery_pool();
         Ok(())
     }
 
@@ -260,48 +488,8 @@ impl HeldPool {
     /// owns that nonce; then discard the recovered root and suffix.
     pub fn push_front_batch(&self, recovered: Vec<HeldTx>) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        let mut replacement_roots: HashMap<(Address, Direction), (u64, TxHash)> = HashMap::new();
-        for tx in &recovered {
-            let replacement = state.txs.iter().find(|queued| {
-                queued.sender == tx.sender
-                    && queued.direction == tx.direction
-                    && queued.nonce == tx.nonce
-                    && queued.hash != tx.hash
-            });
-            if let Some(replacement) = replacement {
-                replacement_roots
-                    .entry((tx.sender, tx.direction))
-                    .and_modify(|(nonce, hash)| {
-                        if tx.nonce < *nonce {
-                            *nonce = tx.nonce;
-                            *hash = replacement.hash;
-                        }
-                    })
-                    .or_insert((tx.nonce, replacement.hash));
-            }
-        }
-
-        for tx in recovered.into_iter().rev() {
-            if let Some(&(conflict_nonce, replacement_hash)) =
-                replacement_roots.get(&(tx.sender, tx.direction))
-                && tx.nonce >= conflict_nonce
-            {
-                state.release_in_flight(&tx);
-                event!(
-                    name: "eez.held_pool.recovery_conflict",
-                    Level::WARN,
-                    recovered_hash = %tx.hash,
-                    replacement_hash = %replacement_hash,
-                    sender = %tx.sender,
-                    direction = ?tx.direction,
-                    nonce = tx.nonce,
-                    conflict_nonce,
-                    "newer queued replacement wins; discarding recovered nonce-chain suffix",
-                );
-                continue;
-            }
-            state.push_front_recovered(tx);
-        }
+        state.recover_batch(recovered);
+        state.persist_recovery_pool();
     }
 
     /// Release txs that were drained into an optimistic bundle and are now
@@ -311,6 +499,7 @@ impl HeldPool {
         for tx in txs {
             state.release_in_flight(tx);
         }
+        state.persist_recovery_pool();
     }
 
     /// Atomically evict every queued and in-flight reservation at or above
@@ -339,6 +528,7 @@ impl HeldPool {
         state
             .in_flight
             .retain(|_, (s, d, n)| !(*s == sender && *d == direction && *n >= nonce));
+        state.persist_recovery_pool();
         evicted
     }
 
@@ -348,9 +538,9 @@ impl HeldPool {
         self.pop_n(usize::MAX)
     }
 
-    /// Drain up to `max` held txs (FIFO). A bundle is all-or-nothing, so one
-    /// un-includable tx drops the whole bundle; capping bounds how many good txs
-    /// that takes down, at the cost of more Sync slots to drain a large pool.
+    /// Drain up to `max` held txs (FIFO). Capping bounds the users affected by
+    /// one failed settlement episode, at the cost of more slots to drain a
+    /// large pool. Per-user reconciliation decides their eventual disposition.
     pub fn pop_n(&self, max: usize) -> Vec<HeldTx> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         let count = max.min(state.txs.len());
@@ -359,6 +549,7 @@ impl HeldPool {
             state.by_hash.remove(&tx.hash);
             state.mark_in_flight(tx);
         }
+        state.persist_recovery_pool();
         drained
     }
 

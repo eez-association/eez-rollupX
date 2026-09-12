@@ -1,201 +1,283 @@
-//! Shared L1-confirmed L2 head: cursor + per-tx batch index + finalized.
-//! Deriver writes, Composer reads `cursor()` for next batch's
-//! `from_block`. Indexed per-L1-tx (not per-L1-block) so competing
-//! batches in the same L1 block don't shadow each other.
+//! Shared L1-confirmed L2 cursor and canonical transaction evidence.
+//!
+//! The cursor is a scheduling hint. Only a snapshot whose scan has completed
+//! can authorize user ownership changes. Publication and reorg invalidation use
+//! one mutex; the deriver also holds the shared engine reconciliation lock.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use alloy_primitives::B256;
 
-/// One winning `BatchPosted` event in the per-tx index. Walked by the
-/// L1-reorg and L1-finality handlers. Losers aren't recorded.
+use crate::{L1BlockRef, L2Endpoint, ReconciledBatchSettlement};
+
+/// One winning batch in the L1/L2 height index.
 #[derive(Debug, Clone, Copy)]
 pub struct BatchRecord {
     pub l1_block: u64,
-    /// Hash of the L1 block the batch landed in. Lets the Deriver's resync
-    /// verify the record is still canonical — survives a missed `L1Event::Reorg`.
     pub l1_block_hash: B256,
     pub tx_hash: B256,
     pub last_l2_block: u64,
 }
 
-/// Shared canonical-head state. See module docs.
+/// Consistent evidence for recovery. An incomplete scan has no `through`.
+#[derive(Debug, Clone, Default)]
+pub struct SettlementSnapshot {
+    pub generation: u64,
+    pub through: Option<L1BlockRef>,
+    pub endpoint: Option<L2Endpoint>,
+    pub settlements: HashMap<B256, ReconciledBatchSettlement>,
+}
+
+#[derive(Debug, Default)]
+struct CanonicalState {
+    batches: Vec<BatchRecord>,
+    evidence: SettlementSnapshot,
+    pending_l1_blocks: HashSet<L1BlockRef>,
+    last_scanned: Option<L1BlockRef>,
+}
+
+/// Deriver-owned canonical state shared with the composer.
 #[derive(Debug, Default)]
 pub struct L1CanonicalHead {
-    /// Highest L2 block any L1-landed batch confirmed.
     cursor: AtomicU64,
-    /// L2 block number reth's `finalized` head was last advanced to via
-    /// `BlockCommitterHandle::advance_safe_finalized`. Used to bound
-    /// subsequent advance/retreat calls so finalized never crosses safe.
     finalized_l2: AtomicU64,
-    /// Per-tx batch index appended on each accepted `BatchPosted` event.
-    /// Walked by the L1-reorg handler to drop entries above the new
-    /// common ancestor, and by the L1-finality handler to find the
-    /// highest L2 block confirmed by an L1-finalized block.
-    batches: Mutex<Vec<BatchRecord>>,
+    state: Mutex<CanonicalState>,
+    /// Earliest submitted attempt needing recovery evidence after restart.
+    recovery_from_l1: Mutex<Option<u64>>,
 }
 
 impl L1CanonicalHead {
-    /// Highest L2 block confirmed on L1 so far.
     pub fn cursor(&self) -> u64 {
         self.cursor.load(Ordering::Acquire)
     }
 
-    /// L2 block number currently mirrored as reth's `finalized` head.
     pub fn finalized_l2(&self) -> u64 {
         self.finalized_l2.load(Ordering::Acquire)
     }
 
-    /// Highest indexed `last_l2_block`, or 0 if empty.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn last_indexed_l2(&self) -> u64 {
-        self.batches
+        self.state
             .lock()
             .unwrap()
+            .batches
             .last()
             .map_or(0, |b| b.last_l2_block)
     }
 
-    /// The most recently indexed batch, or `None` if empty. Anchor for the
-    /// Deriver's resync: its `l1_block_hash` is canonicality-checked and its
-    /// `l1_block` is the scan's lower bound.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn last_indexed(&self) -> Option<BatchRecord> {
-        self.batches.lock().unwrap().last().copied()
+        self.state.lock().unwrap().batches.last().copied()
     }
 
-    /// How many indexed batches share `l1_block`. The boot checkpoint uses
-    /// this: a resume seeds the index with one batch hash, so any earlier
-    /// batch in the same block would be rescanned with the cursor already
-    /// past it.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn count_at_l1_block(&self, l1_block: u64) -> usize {
-        self.batches
+        self.state
             .lock()
             .unwrap()
+            .batches
             .iter()
             .filter(|b| b.l1_block == l1_block)
             .count()
     }
 
-    /// `true` iff `tx_hash` is already indexed. Used by the Deriver
-    /// to dedup live `BatchPosted` events against the catch-up scan.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn contains_l1_tx(&self, tx_hash: &B256) -> bool {
-        self.batches
+        self.state
             .lock()
             .unwrap()
+            .batches
             .iter()
             .any(|b| &b.tx_hash == tx_hash)
     }
 
-    /// Snapshot of indexed tx hashes. Used by `catch_up` to skip
-    /// already-counted batches.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn known_tx_hashes(&self) -> HashSet<B256> {
-        self.batches
+        self.state
             .lock()
             .unwrap()
+            .batches
             .iter()
             .map(|b| b.tx_hash)
             .collect()
     }
 
-    /// Append a `BatchRecord` and bump cursor. No-op if `tx_hash`
-    /// is already indexed.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
+    /// Seed the scheduling index from validated persistent correlations.
+    /// This deliberately does not manufacture user settlement evidence.
     pub fn append(&self, record: BatchRecord) {
-        let mut batches = self.batches.lock().unwrap();
-        if batches.iter().any(|b| b.tx_hash == record.tx_hash) {
-            return;
-        }
-        batches.push(record);
-        if record.last_l2_block > self.cursor.load(Ordering::Acquire) {
-            self.cursor.store(record.last_l2_block, Ordering::Release);
-        }
+        self.append_many([record]);
     }
 
-    /// Append many records in L1 tx-position order; skip already-
-    /// indexed `tx_hash`es. Used by `catch_up` for bulk replay.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
     pub fn append_many(&self, records: impl IntoIterator<Item = BatchRecord>) {
-        let mut batches = self.batches.lock().unwrap();
-        let known: HashSet<B256> = batches.iter().map(|b| b.tx_hash).collect();
-        let mut max_l2 = self.cursor.load(Ordering::Acquire);
-        for r in records {
-            if !known.contains(&r.tx_hash) {
-                batches.push(r);
-                if r.last_l2_block > max_l2 {
-                    max_l2 = r.last_l2_block;
-                }
+        let mut state = self.state.lock().unwrap();
+        let mut known = state
+            .batches
+            .iter()
+            .map(|b| b.tx_hash)
+            .collect::<HashSet<_>>();
+        let mut max_l2 = self.cursor();
+        for record in records {
+            if known.insert(record.tx_hash) {
+                max_l2 = max_l2.max(record.last_l2_block);
+                state.batches.push(record);
             }
         }
         self.cursor.store(max_l2, Ordering::Release);
     }
 
-    /// Drop indexed batches above `common_ancestor_number`; retreat
-    /// `cursor` (and `finalized_l2` if it would cross cursor).
-    /// Returns `(new_cursor, new_finalized, dropped_count)`.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
-    pub fn retreat_on_l1_reorg(&self, common_ancestor_number: u64) -> (u64, u64, usize) {
-        let mut batches = self.batches.lock().unwrap();
-        let original_len = batches.len();
-        batches.retain(|b| b.l1_block <= common_ancestor_number);
-        let dropped = original_len - batches.len();
-        let new_cursor = batches.last().map_or(0, |b| b.last_l2_block);
-        self.cursor.store(new_cursor, Ordering::Release);
-        let old_finalized = self.finalized_l2.load(Ordering::Acquire);
-        let new_finalized = old_finalized.min(new_cursor);
-        if new_finalized != old_finalized {
-            self.finalized_l2.store(new_finalized, Ordering::Release);
+    /// Publish checked batch evidence before exposing its L2 cursor. The
+    /// caller marks the scan complete only after every same-block batch and
+    /// the safe-head update have succeeded.
+    pub fn publish(&self, evidence: ReconciledBatchSettlement) {
+        let mut state = self.state.lock().unwrap();
+        if state.evidence.settlements.get(&evidence.tx_hash) == Some(&evidence) {
+            return;
         }
-        (new_cursor, new_finalized, dropped)
+        state.evidence.generation = state
+            .evidence
+            .generation
+            .checked_add(1)
+            .expect("canonical evidence generation exhausted");
+        state.evidence.through = None;
+        state.pending_l1_blocks.insert(evidence.l1_block);
+        if let Some(endpoint) = evidence.endpoint {
+            if !state.batches.iter().any(|b| b.tx_hash == evidence.tx_hash) {
+                let position = state
+                    .batches
+                    .partition_point(|record| record.l1_block <= evidence.l1_block.number);
+                state.batches.insert(
+                    position,
+                    BatchRecord {
+                        l1_block: evidence.l1_block.number,
+                        l1_block_hash: evidence.l1_block.hash,
+                        tx_hash: evidence.tx_hash,
+                        last_l2_block: endpoint.number,
+                    },
+                );
+            }
+            let cursor = self.cursor().max(endpoint.number);
+            // Insertion precedes the release store while holding the same
+            // lock as snapshots. No reader sees a confirmed height with a
+            // newly missing evidence record.
+            state
+                .evidence
+                .settlements
+                .insert(evidence.tx_hash, evidence);
+            self.cursor.store(cursor, Ordering::Release);
+        } else {
+            state
+                .evidence
+                .settlements
+                .insert(evidence.tx_hash, evidence);
+        }
     }
 
-    /// Highest `last_l2_block` of any batch with `l1_block ≤ bound`.
-    /// Used to map an L1-finalized block to its L2 head.
-    ///
-    /// # Panics
-    ///
-    /// If the `batches` mutex is poisoned.
-    pub fn highest_l2_at_or_below_l1(&self, l1_block_bound: u64) -> Option<u64> {
-        self.batches
+    /// Finish a complete L1 scan after all replay and safe-head operations.
+    pub fn mark_scanned(&self, block: L1BlockRef, endpoint: L2Endpoint) {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            endpoint.number,
+            self.cursor(),
+            "scan endpoint must match cursor"
+        );
+        state.evidence.generation = state
+            .evidence
+            .generation
+            .checked_add(1)
+            .expect("canonical evidence generation exhausted");
+        state.evidence.through = Some(block);
+        state.evidence.endpoint = Some(endpoint);
+        state.last_scanned = Some(block);
+        state.pending_l1_blocks.clear();
+    }
+
+    pub fn pending_l1_blocks(&self) -> Vec<L1BlockRef> {
+        self.state
             .lock()
             .unwrap()
+            .pending_l1_blocks
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    pub fn last_scanned_block(&self) -> Option<L1BlockRef> {
+        self.state.lock().unwrap().last_scanned
+    }
+
+    pub fn invalidate_scan(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.evidence.through = None;
+        state.evidence.generation = state
+            .evidence
+            .generation
+            .checked_add(1)
+            .expect("canonical evidence generation exhausted");
+    }
+
+    pub fn settlement_snapshot(&self) -> SettlementSnapshot {
+        self.state.lock().unwrap().evidence.clone()
+    }
+
+    /// Recheck immediately before changing ownership under the engine
+    /// reconciliation lock. RPC reads made against an older snapshot are
+    /// inconclusive after publication or reorg.
+    pub fn generation_is(&self, generation: u64) -> bool {
+        self.state.lock().unwrap().evidence.generation == generation
+    }
+
+    pub fn require_recovery_scan_from(&self, block: u64) {
+        let mut from = self.recovery_from_l1.lock().unwrap();
+        *from = Some(from.map_or(block, |old| old.min(block)));
+    }
+
+    pub fn recovery_scan_from(&self) -> Option<u64> {
+        *self.recovery_from_l1.lock().unwrap()
+    }
+
+    pub fn recovery_scan_complete(&self) {
+        *self.recovery_from_l1.lock().unwrap() = None;
+    }
+
+    /// Invalidate by canonical L1 identity, including replacements at the
+    /// same L2 height. Incomplete scans cannot authorize recovery.
+    pub fn retreat_on_l1_reorg(&self, ancestor: u64) -> (u64, u64, usize) {
+        let mut state = self.state.lock().unwrap();
+        let original_len = state.batches.len();
+        state.batches.retain(|b| b.l1_block <= ancestor);
+        state
+            .evidence
+            .settlements
+            .retain(|_, s| s.l1_block.number <= ancestor);
+        state.evidence.through = None;
+        state.evidence.endpoint = None;
+        state.pending_l1_blocks.clear();
+        if state
+            .last_scanned
+            .is_some_and(|block| block.number > ancestor)
+        {
+            state.last_scanned = None;
+        }
+        state.evidence.generation = state
+            .evidence
+            .generation
+            .checked_add(1)
+            .expect("canonical evidence generation exhausted");
+        let cursor = state.batches.last().map_or(0, |b| b.last_l2_block);
+        self.cursor.store(cursor, Ordering::Release);
+        let finalized = self.finalized_l2().min(cursor);
+        self.finalized_l2.store(finalized, Ordering::Release);
+        (cursor, finalized, original_len - state.batches.len())
+    }
+
+    pub fn highest_l2_at_or_below_l1(&self, bound: u64) -> Option<u64> {
+        self.state
+            .lock()
+            .unwrap()
+            .batches
             .iter()
             .rev()
-            .find(|b| b.l1_block <= l1_block_bound)
+            .find(|b| b.l1_block <= bound)
             .map(|b| b.last_l2_block)
     }
 
-    /// Update the `finalized_l2` mirror. Caller is responsible for
-    /// keeping it `<= cursor()`.
     pub fn set_finalized_l2(&self, l2_block: u64) {
         self.finalized_l2.store(l2_block, Ordering::Release);
     }
@@ -204,6 +286,120 @@ impl L1CanonicalHead {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn evidence(l1: u64, tx: u8, height: Option<u64>) -> ReconciledBatchSettlement {
+        ReconciledBatchSettlement {
+            l1_block: L1BlockRef {
+                number: l1,
+                hash: B256::with_last_byte(1),
+            },
+            tx_hash: B256::with_last_byte(tx),
+            tx_index: u64::from(tx),
+            calldata_hash: B256::with_last_byte(tx),
+            applied_effects: 0..2,
+            anchor_applied: true,
+            endpoint: height.map(|number| L2Endpoint {
+                number,
+                hash: B256::with_last_byte(tx),
+            }),
+            selection: crate::ReplaySelection::default(),
+        }
+    }
+
+    #[test]
+    fn cursor_publication_is_incomplete_until_entire_block_is_scanned() {
+        let head = L1CanonicalHead::default();
+        let first = evidence(100, 1, Some(50));
+        let second = evidence(100, 2, Some(50));
+        head.publish(first.clone());
+        assert_eq!(head.cursor(), 50);
+        let in_progress = head.settlement_snapshot();
+        assert_eq!(in_progress.through, None);
+        assert_eq!(in_progress.settlements[&first.tx_hash], first);
+        head.publish(second.clone());
+        assert!(!head.generation_is(in_progress.generation));
+        assert!(head.settlement_snapshot().through.is_none());
+        head.mark_scanned(second.l1_block, second.endpoint.unwrap());
+        let complete = head.settlement_snapshot();
+        assert_eq!(complete.through, Some(second.l1_block));
+        assert_eq!(complete.endpoint, second.endpoint);
+        assert_eq!(complete.settlements.len(), 2);
+        assert_eq!(
+            complete.settlements[&first.tx_hash].endpoint,
+            first.endpoint
+        );
+        assert!(head.pending_l1_blocks().is_empty());
+        head.publish(second);
+        assert!(
+            head.generation_is(complete.generation),
+            "duplicate publication is idempotent"
+        );
+    }
+
+    #[test]
+    fn reorg_invalidates_same_height_evidence_and_old_snapshots() {
+        let head = L1CanonicalHead::default();
+        let prior = evidence(99, 1, Some(49));
+        let old = evidence(100, 2, Some(50));
+        head.publish(prior.clone());
+        head.publish(old.clone());
+        head.mark_scanned(old.l1_block, old.endpoint.unwrap());
+        let before = head.settlement_snapshot();
+        assert_eq!(head.retreat_on_l1_reorg(99).0, 49);
+        assert!(!head.generation_is(before.generation));
+        assert!(head.settlement_snapshot().through.is_none());
+        assert!(
+            !head
+                .settlement_snapshot()
+                .settlements
+                .contains_key(&old.tx_hash)
+        );
+        let mut replacement = old;
+        replacement.l1_block.hash = B256::with_last_byte(3);
+        replacement.endpoint.as_mut().unwrap().hash = B256::with_last_byte(4);
+        head.publish(replacement.clone());
+        head.mark_scanned(replacement.l1_block, replacement.endpoint.unwrap());
+        assert_eq!(
+            head.settlement_snapshot().settlements[&replacement.tx_hash],
+            replacement
+        );
+        assert_eq!(head.cursor(), 50);
+    }
+
+    #[test]
+    fn empty_application_is_conclusive_without_advancing_cursor() {
+        let head = L1CanonicalHead::default();
+        let mut empty = evidence(100, 2, None);
+        empty.applied_effects = 0..0;
+        empty.anchor_applied = false;
+        head.publish(empty.clone());
+        assert_eq!(head.cursor(), 0);
+        let genesis = L2Endpoint {
+            number: 0,
+            hash: B256::with_last_byte(10),
+        };
+        head.mark_scanned(empty.l1_block, genesis);
+        let snapshot = head.settlement_snapshot();
+        assert_eq!(snapshot.settlements[&empty.tx_hash], empty);
+        assert_eq!(snapshot.endpoint, Some(genesis));
+        head.invalidate_scan();
+        assert!(!head.generation_is(snapshot.generation));
+        assert!(head.settlement_snapshot().through.is_none());
+    }
+
+    #[test]
+    fn checkpoints_do_not_manufacture_recovery_evidence() {
+        let head = L1CanonicalHead::default();
+        head.append_many([record(100, 1, 50), record(100, 1, 999)]);
+        assert_eq!(head.cursor(), 50);
+        assert!(head.settlement_snapshot().settlements.is_empty());
+        assert!(head.settlement_snapshot().through.is_none());
+        head.require_recovery_scan_from(95);
+        head.require_recovery_scan_from(99);
+        assert_eq!(head.recovery_scan_from(), Some(95));
+        head.recovery_scan_complete();
+        assert_eq!(head.recovery_scan_from(), None);
+    }
 
     fn record(l1_block: u64, tx_byte: u8, last_l2_block: u64) -> BatchRecord {
         BatchRecord {

@@ -14,14 +14,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy_eips::{BlockNumberOrTag, Decodable2718};
-use alloy_primitives::{B256, TxHash, U256, hex};
+use alloy_primitives::{B256, TxHash, hex};
 use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types_eth::Filter;
-use alloy_sol_types::SolEvent;
-use eez_protocol::abi::L2ExecutionPerformed;
 use tracing::{Level, event};
 
-use crate::config::SubmitterConfig;
+use crate::config::{BundlePolicy, SubmitterConfig};
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
@@ -74,7 +71,7 @@ fn duration_millis(name: &str, value: Duration) -> L1Result<u64> {
 }
 
 /// Which L1 block the bundle should land in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BundleTarget {
     /// Resolved to `latest + NEXT_BLOCK_SLACK` at send time. The target's
     /// canonical parent supplies an expected slot timestamp; the request is
@@ -96,8 +93,9 @@ pub enum SendOutcome {
     Included {
         tx_hash: TxHash,
         l1_block: u64,
-        /// Same L1 tx emitted `L2ExecutionPerformed` for our rollup,
-        /// i.e. the contract advanced its block-hash commitment.
+        l1_block_hash: B256,
+        /// Diagnostic: this batch's attributed endpoint matches the requested
+        /// full commitment. The deriver and source receipts decide completion.
         state_applied: bool,
     },
     Dropped {
@@ -142,6 +140,23 @@ impl BundleDropReason {
     }
 }
 
+/// Receipt bound to a checked canonical L1 block.
+#[derive(Debug, Clone)]
+pub struct CanonicalSourceReceipt {
+    pub block: crate::L1BlockRef,
+    pub transaction_index: u64,
+    pub success: bool,
+    /// Persisted mutable queue consumptions in this exact source transaction.
+    pub consumed: Vec<(B256, usize)>,
+}
+
+/// Source nonce and optional receipt read against one immutable L1 state.
+#[derive(Debug, Clone)]
+pub struct CanonicalSourceState {
+    pub nonce: u64,
+    pub receipt: Option<CanonicalSourceReceipt>,
+}
+
 /// Thin L1-interaction primitive. Cheaply [`Clone`]able.
 #[derive(Clone)]
 pub struct Submitter {
@@ -152,6 +167,7 @@ struct Inner {
     config: SubmitterConfig,
     submission_timing: SubmissionTiming,
     reader: L1Reader,
+    request_timeout: Duration,
     http: reqwest::Client,
 }
 
@@ -412,8 +428,8 @@ impl Submitter {
     ///
     /// # Errors
     ///
-    /// Returns [`L1Error::Config`] when the earliest and latest submission
-    /// bounds do not form a non-empty window.
+    /// Returns [`L1Error::Config`] when the submission bounds do not form a
+    /// non-empty window or the bounded HTTP client cannot be initialized.
     pub fn new(
         config: SubmitterConfig,
         l1_block_time: Duration,
@@ -425,21 +441,20 @@ impl Submitter {
             config.bundle_submission_lead,
             submission_slack,
         )?;
+        let request_timeout = Duration::from_secs(30);
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 submission_timing,
                 reader,
-                // Bounded timeout so a hanging/unreachable builder relay cannot
-                // stall the one-in-flight gate forever: a timed-out `eth_sendBundle`
-                // returns Err, which `observe_bundle_outcome` treats as a drop →
-                // the gate reopens and the next slot retries. `Client::new()` has
-                // NO timeout, so a relay that accepts the TCP connection but never
-                // responds freezes posting permanently (cursor stuck at 0).
+                request_timeout,
+                // Bound both dispatch and canonical source reads. Timeout is
+                // inconclusive: ownership stays reserved until reconciliation
+                // succeeds. Never substitute an unbounded client on failure.
                 http: reqwest::Client::builder()
-                    .timeout(Duration::from_secs(30))
+                    .timeout(request_timeout)
                     .build()
-                    .unwrap_or_else(|_| reqwest::Client::new()),
+                    .map_err(|error| L1Error::Config(format!("submitter HTTP client: {error}")))?,
             }),
         })
     }
@@ -460,14 +475,9 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
-    /// Atomically bundle already-signed, 2718-encoded `raw_txs`
-    /// (`[postBatch, user_tx_1, …]`, signed upstream) into one
-    /// `eth_sendBundle` POST. Flashbots ordering: the bundle lands in
-    /// `target_block` as one atomic insert or is dropped — no subset.
-    ///
-    /// Observation is best-effort: only `raw_txs[0]` (the postBatch) is
-    /// checked for inclusion; if it's in, the bundle either succeeded or
-    /// a proposer broke atomicity (their bug, not ours).
+    /// Submit an atomic bundle of signed envelopes with postBatch first.
+    /// Partial mode uses `send_bundle_recorded` with a durable dispatch record.
+    /// Observation of postBatch alone never completes individual users.
     ///
     /// # Errors
     ///
@@ -478,6 +488,25 @@ impl Submitter {
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
         expected_final_state: Option<alloy_primitives::B256>,
+    ) -> L1Result<SendOutcome> {
+        if self.inner.config.bundle_policy != BundlePolicy::Atomic {
+            return Err(L1Error::Config(
+                "partial submission requires recorded dispatch and a durable journal".into(),
+            ));
+        }
+        self.send_bundle_recorded(raw_txs, target, expected_final_state, false, |_, _| Ok(()))
+            .await
+    }
+
+    /// Submit only after the caller has durably recorded the exact target.
+    /// The callback runs before external dispatch and may veto it on I/O error.
+    pub async fn send_bundle_recorded(
+        &self,
+        raw_txs: &[alloy_primitives::Bytes],
+        target: BundleTarget,
+        expected_final_state: Option<B256>,
+        require_bundle_relay: bool,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
             "injected failpoint: submitter::send::start".into()
@@ -503,6 +532,15 @@ impl Submitter {
             *post_batch_envelope.tx_hash()
         };
         let target_provider = self.inner.build_target_provider();
+        let reverting_hashes =
+            if self.inner.config.bundle_policy == BundlePolicy::AllowInboundReverts {
+                let chain_id = target_provider.get_chain_id().await.map_err(|error| {
+                    L1Error::Provider(format!("partial bundle source chain: {error}"))
+                })?;
+                inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?
+            } else {
+                Vec::new()
+            };
         let clock = SystemClock;
         let prepared = prepare_submission_target(
             &target_provider,
@@ -529,6 +567,7 @@ impl Submitter {
         // deadline again immediately before the HTTP request. We may send
         // after the not-before boundary; we must never knowingly send after
         // the latest-safe boundary and then blame user transactions for it.
+        record_dispatch(target_block, pin_timestamp)?;
         if !matches!(
             submission_window_state(
                 clock.now_unix_ms()?,
@@ -555,11 +594,9 @@ impl Submitter {
             tx_count = raw_txs.len(),
             "dispatching bundle to builder",
         );
-        // One bundle, one target block. Atomic bundle semantics:
-        // rbuilder either includes the whole bundle in `target_block`
-        // in the specified order, or drops it. A relay without a bundle API is
-        // accepted only for a lone postBatch; ordered multi-transaction
-        // settlement fails closed inside `dispatch_and_observe`.
+        // One bundle, one target. Only the explicit partial policy allows
+        // inbound source reverts; postBatch is always required. User-bearing
+        // or partial submissions require a timestamp-pinned bundle relay.
         self.inner
             .dispatch_and_observe(
                 raw_txs,
@@ -568,23 +605,69 @@ impl Submitter {
                 Some(pin_timestamp),
                 expected_parent_hash,
                 expected_final_state,
+                &reverting_hashes,
+                require_bundle_relay || self.inner.config.bundle_policy != BundlePolicy::Atomic,
             )
             .await
     }
 
-    /// `true` iff L1 already has a receipt for `tx_hash` (included,
-    /// regardless of status). Used by the composer's bundle-failure
-    /// path to avoid re-queueing user_txs whose nonce was burned by a
-    /// reverted-but-included execution.
+    pub fn bundle_policy(&self) -> BundlePolicy {
+        self.inner.config.bundle_policy
+    }
+
+    /// Verify a canonical L1 identity using the same provider as source reads.
+    pub async fn canonical_block_hash(&self, number: u64) -> L1Result<Option<B256>> {
+        Ok(self
+            .inner
+            .build_target_provider()
+            .get_block_by_number(BlockNumberOrTag::Number(number))
+            .await
+            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .map(|block| block.header.hash))
+    }
+
+    /// Detect a receipt-index lag before treating a target as excluding us.
+    pub async fn canonical_block_contains(&self, number: u64, tx_hash: B256) -> L1Result<bool> {
+        let block = self
+            .inner
+            .build_target_provider()
+            .get_block_by_number(BlockNumberOrTag::Number(number))
+            .hashes()
+            .await
+            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .ok_or_else(|| L1Error::Provider("target block is unavailable".into()))?;
+        Ok(block.transactions.hashes().any(|hash| hash == tx_hash))
+    }
+
+    /// Read a signed source transaction and nonce at the deriver's completed
+    /// L1 snapshot. Pending nonces, future receipts and reorg-straddling reads
+    /// cannot establish exclusion or completion at this snapshot.
+    pub async fn source_state_at(
+        &self,
+        tx_hash: B256,
+        sender: alloy_primitives::Address,
+        at: crate::L1BlockRef,
+    ) -> L1Result<CanonicalSourceState> {
+        read_canonical_source(
+            &self.inner.build_target_provider(),
+            self.inner.reader.eez(),
+            self.inner.reader.rollup_id(),
+            tx_hash,
+            sender,
+            at,
+        )
+        .await
+    }
+
+    /// `true` iff L1 currently has a receipt for `tx_hash`, regardless of
+    /// status. This convenience lookup is not canonical settlement evidence;
+    /// recovery uses `source_state_at` instead.
     ///
     /// # Errors
     ///
     /// [`L1Error::Provider`] on RPC failure.
     pub async fn receipt_exists(&self, tx_hash: TxHash) -> L1Result<bool> {
-        // Target-tip RPC, not the embedded L1 — the embedded node can
-        // lag the canonical tip by 2-3 blocks, and a missed receipt
-        // here re-queues a burned-nonce tx that poisons the next
-        // bundle's simulation.
+        // Use the canonical target RPC; the embedded L1 can lag its tip.
         let provider = self.inner.build_target_provider();
         Ok(provider
             .get_transaction_receipt(tx_hash)
@@ -592,6 +675,93 @@ impl Submitter {
             .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {e}")))?
             .is_some())
     }
+}
+
+/// Keep all nonce/receipt reads inside the same canonical-hash bracket.
+async fn read_canonical_source<P: Provider>(
+    provider: &P,
+    eez: alloy_primitives::Address,
+    rollup_id: u64,
+    tx_hash: B256,
+    sender: alloy_primitives::Address,
+    at: crate::L1BlockRef,
+) -> L1Result<CanonicalSourceState> {
+    require_canonical_block(provider, at).await?;
+    let nonce = provider
+        .get_transaction_count(sender)
+        .block_id(at.hash.into())
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical source nonce: {error}")))?;
+    let receipt = provider
+        .get_transaction_receipt(tx_hash)
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical source receipt: {error}")))?;
+    let receipt = match receipt {
+        Some(receipt) => {
+            let number = receipt
+                .block_number
+                .ok_or_else(|| L1Error::Provider("source receipt lacks block number".into()))?;
+            let hash = receipt
+                .block_hash
+                .ok_or_else(|| L1Error::Provider("source receipt lacks block hash".into()))?;
+            if number > at.number {
+                return Err(L1Error::Provider(
+                    "source receipt is ahead of the completed canonical scan".into(),
+                ));
+            }
+            if receipt.transaction_hash != tx_hash {
+                return Err(L1Error::Provider(
+                    "source receipt has the wrong transaction hash".into(),
+                ));
+            }
+            let block = crate::L1BlockRef { number, hash };
+            require_canonical_block(provider, block).await?;
+            let transaction_index = receipt.transaction_index.ok_or_else(|| {
+                L1Error::Provider("source receipt lacks transaction index".into())
+            })?;
+            let mut consumed = Vec::new();
+            for log in receipt.inner.logs() {
+                if log.address() != eez {
+                    continue;
+                }
+                if let Ok(event) = log.log_decode::<eez_protocol::abi::ExecutionConsumed>()
+                    && event.inner.data.rollupId == rollup_id
+                {
+                    let index =
+                        usize::try_from(event.inner.data.entryQueueIndex).map_err(|error| {
+                            L1Error::Provider(format!("source queue index: {error}"))
+                        })?;
+                    consumed.push((event.inner.data.crossChainCallHash, index));
+                }
+            }
+            Some(CanonicalSourceReceipt {
+                block,
+                transaction_index,
+                success: receipt.status(),
+                consumed,
+            })
+        }
+        None => None,
+    };
+    require_canonical_block(provider, at).await?;
+    Ok(CanonicalSourceState { nonce, receipt })
+}
+
+async fn require_canonical_block<P: Provider>(
+    provider: &P,
+    block: crate::L1BlockRef,
+) -> L1Result<()> {
+    let canonical = provider
+        .get_block_by_number(BlockNumberOrTag::Number(block.number))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical block: {error}")))?;
+    if canonical.is_none_or(|canonical| canonical.header.hash != block.hash) {
+        return Err(L1Error::Provider(format!(
+            "L1 block {} is missing or no longer canonical",
+            block.number
+        )));
+    }
+    Ok(())
 }
 
 impl Inner {
@@ -606,14 +776,19 @@ impl Inner {
             .unwrap_or_else(|| self.reader.rpc_url());
         ProviderBuilder::new()
             .disable_recommended_fillers()
-            .connect_http(url)
+            .with_reqwest(url, |builder| {
+                builder
+                    .timeout(self.request_timeout)
+                    .build()
+                    .expect("canonical source HTTP client configuration is valid")
+            })
     }
 
     /// Submit `raw_txs` (postBatch first) and observe the outcome. Try
     /// the relay's `eth_sendBundle`; if it's a plain execution RPC
     /// ([`L1Error::BundleRpcUnsupported`]), only a lone postBatch may degrade
-    /// to mempool submission. Multi-transaction settlement is order- and
-    /// all-or-nothing-sensitive, so it fails closed without a bundle relay.
+    /// to mempool submission in atomic mode. User-bearing and partial attempts
+    /// require a relay to preserve transaction order and the timestamp pin.
     async fn dispatch_and_observe(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
@@ -622,6 +797,8 @@ impl Inner {
         pin_timestamp: Option<u64>,
         expected_parent_hash: Option<B256>,
         expected_final_state: Option<alloy_primitives::B256>,
+        reverting_hashes: &[B256],
+        require_bundle_relay: bool,
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
             .iter()
@@ -634,6 +811,7 @@ impl Inner {
             &hex_refs,
             target_block,
             pin_timestamp,
+            reverting_hashes,
         )
         .await
         {
@@ -650,6 +828,9 @@ impl Inner {
                 .await
             }
             Err(L1Error::BundleRpcUnsupported) => {
+                if require_bundle_relay {
+                    return Err(L1Error::Submission("submitted user recovery requires a timestamp-pinned bundle relay; raw mempool fallback is disabled".into()));
+                }
                 require_atomic_relay_or_lone_postbatch(raw_txs.len())?;
                 event!(
                     name: "eez.submitter.bundle.mempool_fallback",
@@ -692,6 +873,7 @@ impl Inner {
                 "dropped",
                 Some(reason.as_str()),
                 None,
+                reverting_hashes,
             ),
             Err(error) => self.capture_bundle_attempt(
                 &hex_refs,
@@ -703,6 +885,7 @@ impl Inner {
                 "submission_error",
                 None,
                 Some(&error.to_string()),
+                reverting_hashes,
             ),
             Ok(SendOutcome::Included { .. }) => {}
         }
@@ -721,12 +904,13 @@ impl Inner {
         outcome: &str,
         drop_reason: Option<&str>,
         error: Option<&str>,
+        reverting_hashes: &[B256],
     ) {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
             return;
         };
         let attempt = root.join(format!("bundle-{target_block}-{post_batch_hash}"));
-        let request = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
+        let request = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
         let metadata = serde_json::json!({
             "version": 1,
             "builderRpcUrl": self.config.builder_rpc_url.as_str(),
@@ -813,12 +997,30 @@ impl Inner {
                     let l1_block = receipt.block_number.ok_or_else(|| {
                         L1Error::Provider("receipt present but block_number missing".into())
                     })?;
+                    let l1_block_hash = receipt.block_hash.ok_or_else(|| {
+                        L1Error::Provider("receipt present but block_hash missing".into())
+                    })?;
+                    require_canonical_block(
+                        &target_provider,
+                        crate::L1BlockRef {
+                            number: l1_block,
+                            hash: l1_block_hash,
+                        },
+                    )
+                    .await?;
                     let state_applied = self
-                        .settlement_in_block(&target_provider, l1_block, expected_final_state)
+                        .settlement_in_block(
+                            &target_provider,
+                            l1_block,
+                            l1_block_hash,
+                            tx_hash,
+                            expected_final_state,
+                        )
                         .await?;
                     return Ok(SendOutcome::Included {
                         tx_hash,
                         l1_block,
+                        l1_block_hash,
                         state_applied,
                     });
                 }
@@ -902,38 +1104,40 @@ impl Inner {
         }
     }
 
-    /// Did L1's stored root for our rollup reach the claimed state
-    /// in `l1_block`?
-    ///
-    /// - `Some(root)`: true iff some `L2ExecutionPerformed(rollupId,
-    ///   newRoot)` in the block has `newRoot == root`. The leading
-    ///   immediate entry always emits this event, so matching "any
-    ///   event" would report settled even with every deferred entry
-    ///   unconsumed; requiring the FINAL root means L1 reached exactly
-    ///   the state the Sync block claims.
-    /// - `None`: any event for our rollupId.
+    /// Diagnostic for this exact batch's canonically attributed settlement.
+    /// `Some(root)` requires its final commitment to match; `None` accepts any
+    /// applied settlement. Neither result determines individual user outcomes.
     async fn settlement_in_block<P: Provider>(
         &self,
         provider: &P,
         l1_block: u64,
+        l1_block_hash: B256,
+        tx_hash: B256,
         expected_final_state: Option<alloy_primitives::B256>,
     ) -> L1Result<bool> {
-        let winners = Filter::new()
-            .address(self.reader.eez())
-            .event_signature(L2ExecutionPerformed::SIGNATURE_HASH)
-            .topic1(U256::from(self.reader.rollup_id()))
-            .from_block(l1_block)
-            .to_block(l1_block);
-        let logs = provider
-            .get_logs(&winners)
-            .await
-            .map_err(|e| L1Error::Provider(format!("get_logs(L2ExecutionPerformed): {e}")))?;
-        Ok(match expected_final_state {
-            Some(root) => logs
-                .iter()
-                .any(|l| l.data().data.as_ref() == root.as_slice()),
-            None => !logs.is_empty(),
-        })
+        let batches = crate::scan::scan_batch_logs_range(
+            provider,
+            self.reader.eez(),
+            self.reader.rollup_id(),
+            l1_block,
+            l1_block,
+        )
+        .await?;
+        require_canonical_block(
+            provider,
+            crate::L1BlockRef {
+                number: l1_block,
+                hash: l1_block_hash,
+            },
+        )
+        .await?;
+        Ok(batches.iter().any(|batch| {
+            batch.tx_hash == tx_hash
+                && batch.l1_block_hash == l1_block_hash
+                && !batch.settlement.is_empty()
+                && expected_final_state
+                    .is_none_or(|root| batch.settlement.final_state == Some(root))
+        }))
     }
 }
 
@@ -958,17 +1162,13 @@ async fn post_bundle(
     raw_tx_hexes: &[&str],
     target_block: u64,
     pin_timestamp: Option<u64>,
+    reverting_hashes: &[B256],
 ) -> L1Result<()> {
-    // STRICT all-or-nothing: `revertingTxHashes`/`droppingTxHashes`
-    // empty. Per rbuilder's order commit, txs execute in submitted order
-    // and any revert outside those whitelists fails the WHOLE bundle.
-    // Whitelisting user_txs in `revertingTxHashes` instead lets the
-    // relay silently DROP a reverting one (observed on chiado: block
-    // 21566886 landed postBatch + 2 of 3 user_txs), advancing L1 to a
-    // mid-chain prefix root and desyncing the composer. Sim is in-order
-    // too, so user_txs simulate after the postBatch — no whitelist
-    // needed for a "pre-postBatch state" sim.
-    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
+    // Atomic policy supplies an empty allowlist. Partial policy permits only
+    // the validated signed L1 users to revert; the leading postBatch remains
+    // required. Invalid-transaction omission depends on builder configuration,
+    // and every user still requires canonical source reconciliation.
+    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
     let resp: serde_json::Value = http
         .post(builder_rpc_url)
         .json(&body)
@@ -1000,15 +1200,53 @@ async fn post_bundle(
     Ok(())
 }
 
+/// Revert permission is limited to signed L1 users actually following the
+/// required postBatch. Permission to drop invalid transactions is separate and
+/// is not sent by this profile.
+fn inbound_revert_hashes(
+    raw_txs: &[alloy_primitives::Bytes],
+    chain_id: u64,
+    post_batch_hash: B256,
+) -> L1Result<Vec<B256>> {
+    use alloy_consensus::{Transaction, transaction::SignerRecoverable};
+    let mut seen = std::collections::HashSet::from([post_batch_hash]);
+    let mut hashes = Vec::with_capacity(raw_txs.len().saturating_sub(1));
+    for raw in raw_txs.iter().skip(1) {
+        let mut encoded = raw.as_ref();
+        let tx = alloy_consensus::TxEnvelope::decode_2718(&mut encoded)
+            .map_err(|error| L1Error::Submission(format!("partial inbound envelope: {error}")))?;
+        if !encoded.is_empty() || tx.chain_id() != Some(chain_id) {
+            return Err(L1Error::Submission(
+                "partial bundle user must be an exact signed envelope for the L1 source chain"
+                    .into(),
+            ));
+        }
+        tx.recover_signer()
+            .map_err(|error| L1Error::Submission(format!("partial inbound signature: {error}")))?;
+        let hash = *tx.tx_hash();
+        if !seen.insert(hash) {
+            return Err(L1Error::Submission(
+                "duplicate or required postBatch hash in partial user list".into(),
+            ));
+        }
+        hashes.push(hash);
+    }
+    Ok(hashes)
+}
+
 fn bundle_request(
     raw_tx_hexes: &[&str],
     target_block: u64,
     pin_timestamp: Option<u64>,
+    reverting_hashes: &[B256],
 ) -> serde_json::Value {
     let mut bundle_params = serde_json::json!({
         "txs": raw_tx_hexes,
         "blockNumber": format!("0x{target_block:x}"),
     });
+    if !reverting_hashes.is_empty() {
+        bundle_params["revertingTxHashes"] = serde_json::json!(reverting_hashes);
+    }
     if let Some(ts) = pin_timestamp {
         // Pin inclusion to the exact L1 slot the L2 Sync block anchored
         // to. The builder enforces min/maxTimestamp against block.timestamp
@@ -1145,6 +1383,159 @@ mod tests {
 
     const PIN: u64 = 1_700_000_012;
 
+    #[tokio::test]
+    async fn canonical_source_reads_bound_stalled_headers_and_response_bodies() {
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        for stalled_body in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url: url::Url = format!("http://{}", listener.local_addr().unwrap())
+                .parse()
+                .unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                assert!(stream.read(&mut [0; 1024]).await.unwrap() > 0);
+                if stalled_body {
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                        .await
+                        .unwrap();
+                }
+                std::future::pending::<()>().await;
+            });
+            let mut submitter = super::Submitter::new(
+                crate::SubmitterConfig {
+                    bundle_policy: crate::BundlePolicy::Atomic,
+                    reader: crate::L1ReaderConfig {
+                        rpc_url: url.clone(),
+                        beacon_url: None,
+                        eez: alloy_primitives::Address::ZERO,
+                        rollup_id: 1,
+                        deploy_block: 0,
+                    },
+                    builder_rpc_url: url.clone(),
+                    target_rpc_url: Some(url),
+                    poster: B256::with_last_byte(1).to_string().parse().unwrap(),
+                    bundle_capture_dir: None,
+                    bundle_submission_lead: Duration::from_millis(
+                        DEFAULT_BUNDLE_SUBMISSION_LEAD_MS,
+                    ),
+                },
+                Duration::from_secs(12),
+                Duration::from_millis(500),
+            )
+            .unwrap();
+            Arc::get_mut(&mut submitter.inner).unwrap().request_timeout =
+                Duration::from_millis(100);
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                submitter.source_state_at(
+                    B256::ZERO,
+                    alloy_primitives::Address::ZERO,
+                    crate::L1BlockRef {
+                        number: 100,
+                        hash: B256::with_last_byte(2),
+                    },
+                ),
+            )
+            .await;
+            server.abort();
+            assert!(matches!(
+                result.expect("source reads must use the configured HTTP timeout"),
+                Err(L1Error::Provider(_))
+            ));
+        }
+    }
+
+    fn signed_user(chain_id: u64, nonce: u64) -> (alloy_primitives::Bytes, B256) {
+        use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
+        use alloy_eips::Encodable2718;
+        use alloy_network::TxSignerSync;
+        use alloy_primitives::TxKind;
+        let signer: alloy_signer_local::PrivateKeySigner =
+            B256::with_last_byte(1).to_string().parse().unwrap();
+        let mut tx = TxEip1559 {
+            chain_id,
+            nonce,
+            gas_limit: 100_000,
+            max_fee_per_gas: 10,
+            max_priority_fee_per_gas: 1,
+            to: TxKind::Call(signer.address()),
+            ..Default::default()
+        };
+        let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+        let tx = TxEnvelope::Eip1559(tx.into_signed(signature));
+        (tx.encoded_2718().into(), *tx.tx_hash())
+    }
+
+    #[test]
+    fn partial_request_only_allows_actual_signed_inbound_users_to_revert() {
+        let (first, first_hash) = signed_user(1, 0);
+        let (second, second_hash) = signed_user(1, 1);
+        // The leading postBatch may have a pooled blob sidecar; the allowlist
+        // must leave these bytes alone and hash only the actual L1 users.
+        let post = alloy_primitives::Bytes::from_static(&[3, 0xc0]);
+        let hashes = super::inbound_revert_hashes(
+            &[post.clone(), first.clone(), second.clone()],
+            1,
+            B256::ZERO,
+        )
+        .unwrap();
+        assert_eq!(hashes, vec![first_hash, second_hash]);
+        let hexes = [post.to_string(), first.to_string(), second.to_string()];
+        let raws = hexes.iter().map(String::as_str).collect::<Vec<_>>();
+        let request = bundle_request(&raws, 42, Some(PIN), &hashes);
+        let params = &request["params"][0];
+        assert_eq!(
+            params["revertingTxHashes"],
+            serde_json::json!([first_hash, second_hash])
+        );
+        assert!(params.get("droppingTxHashes").is_none());
+        assert_eq!(params["txs"], serde_json::json!(hexes));
+        assert_eq!(params["minTimestamp"], PIN);
+        assert_eq!(params["maxTimestamp"], PIN);
+        let atomic = bundle_request(&raws, 42, Some(PIN), &[]);
+        assert!(atomic["params"][0].get("revertingTxHashes").is_none());
+    }
+
+    #[test]
+    fn partial_policy_rejects_wrong_chain_duplicate_and_malformed_users() {
+        let (user, hash) = signed_user(1, 0);
+        let post = alloy_primitives::Bytes::new();
+        assert!(
+            super::inbound_revert_hashes(&[post.clone(), user.clone()], 2, B256::ZERO).is_err()
+        );
+        assert!(super::inbound_revert_hashes(&[post.clone(), user.clone()], 1, hash).is_err());
+        assert!(
+            super::inbound_revert_hashes(
+                &[post.clone(), user.clone(), user.clone()],
+                1,
+                B256::ZERO
+            )
+            .is_err()
+        );
+        let mut trailing = user.to_vec();
+        trailing.push(0);
+        assert!(
+            super::inbound_revert_hashes(&[post.clone(), trailing.into()], 1, B256::ZERO).is_err()
+        );
+        assert!(
+            super::inbound_revert_hashes(
+                &[post.clone(), alloy_primitives::Bytes::new()],
+                1,
+                B256::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            super::inbound_revert_hashes(&[post], 1, B256::ZERO)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn production_default_opens_at_seven_and_a_half_seconds() {
         assert_eq!(DEFAULT_BUNDLE_SUBMISSION_LEAD_MS, 7_500);
@@ -1202,6 +1593,112 @@ mod tests {
         block.header.inner.timestamp = timestamp;
         block.header.hash = hash;
         block
+    }
+
+    #[tokio::test]
+    async fn canonical_source_reads_reject_reorgs_and_rpc_errors() {
+        let block = mock_block(42, PIN, B256::with_last_byte(1));
+        let at = crate::L1BlockRef {
+            number: 42,
+            hash: block.header.hash,
+        };
+        for failure in ["initial", "nonce", "receipt", "final"] {
+            let replies = Asserter::new();
+            if failure == "initial" {
+                replies.push_success(&mock_block(42, PIN, B256::with_last_byte(2)));
+            } else {
+                replies.push_success(&block);
+                if failure == "nonce" {
+                    replies.push_failure_msg("source state unavailable");
+                } else {
+                    replies.push_success(&"0x0");
+                    if failure == "receipt" {
+                        replies.push_failure_msg("receipt index unavailable");
+                    } else {
+                        replies.push_success(&serde_json::Value::Null);
+                        replies.push_success(&mock_block(42, PIN, B256::with_last_byte(2)));
+                    }
+                }
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let result = super::read_canonical_source(
+                &provider,
+                Default::default(),
+                1,
+                B256::with_last_byte(3),
+                Default::default(),
+                at,
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "{failure} must retain ownership, not prove omission"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_source_distinguishes_absent_future_and_reverted_receipts() {
+        let block = mock_block(42, PIN, B256::with_last_byte(1));
+        let at = crate::L1BlockRef {
+            number: 42,
+            hash: block.header.hash,
+        };
+        let tx_hash = B256::with_last_byte(3);
+        for kind in [
+            "absent",
+            "future",
+            "reverted",
+            "wrong hash",
+            "missing index",
+        ] {
+            let replies = Asserter::new();
+            replies.push_success(&block);
+            replies.push_success(&"0x1");
+            if kind == "absent" {
+                replies.push_success(&serde_json::Value::Null);
+            } else {
+                replies.push_success(&serde_json::json!({
+                    "transactionHash": if kind == "wrong hash" { B256::ZERO } else { tx_hash },
+                    "transactionIndex": if kind == "missing index" { None } else { Some("0x2") },
+                    "blockHash": at.hash,
+                    "blockNumber": if kind == "future" { "0x2b" } else { "0x2a" },
+                    "from": alloy_primitives::Address::ZERO, "to": alloy_primitives::Address::ZERO,
+                    "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "cumulativeGasUsed": "0x5208",
+                    "type": "0x2", "status": "0x0", "logs": [],
+                    "logsBloom": alloy_primitives::Bloom::ZERO,
+                }));
+                if matches!(kind, "reverted" | "missing index") {
+                    replies.push_success(&block);
+                }
+            }
+            replies.push_success(&block);
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let result = super::read_canonical_source(
+                &provider,
+                Default::default(),
+                1,
+                tx_hash,
+                Default::default(),
+                at,
+            )
+            .await;
+            if matches!(kind, "future" | "wrong hash" | "missing index") {
+                assert!(result.is_err(), "unresolved provenance is inconclusive");
+            } else {
+                let source = result.unwrap();
+                assert_eq!(source.nonce, 1);
+                if kind == "reverted" {
+                    let receipt = source.receipt.unwrap();
+                    assert!(!receipt.success, "included revert spends its nonce");
+                    assert_eq!(receipt.block, at);
+                    assert_eq!(receipt.transaction_index, 2);
+                    assert!(receipt.consumed.is_empty());
+                } else {
+                    assert!(source.receipt.is_none());
+                }
+            }
+        }
     }
 
     #[test]
@@ -1520,7 +2017,7 @@ mod tests {
 
     #[test]
     fn replay_request_preserves_exact_transactions_target_and_timestamp_pin() {
-        let request = bundle_request(&["0x0102", "0x0304"], 42, Some(PIN));
+        let request = bundle_request(&["0x0102", "0x0304"], 42, Some(PIN), &[]);
         assert_eq!(request["method"], "eth_sendBundle");
         assert_eq!(request["params"][0]["txs"][0], "0x0102");
         assert_eq!(request["params"][0]["txs"][1], "0x0304");

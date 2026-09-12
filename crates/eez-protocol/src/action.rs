@@ -9,7 +9,7 @@ use alloy_primitives::{Address, B256, U256, keccak256};
 use alloy_sol_types::SolValue;
 
 /// Execution mode committed by the common cross-chain call hash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CallMode {
     /// Normal call, where state changes are permitted.
     Mutable,

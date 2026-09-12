@@ -328,12 +328,19 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         };
         // Share the SAME HeldPool the ingress middleware pushes into.
         let held_pool = Arc::new(HeldPool::new());
+        let optimistic = match l2_data_dir.as_ref() {
+            Some(directory) => eez_composer::OptimisticallyIncluded::open(
+                &directory.join("settlement-journal.json"),
+            )
+            .map_err(eyre::Report::msg)?,
+            None => eez_composer::OptimisticallyIncluded::new(),
+        };
         let rollup_state = RollupState {
             config: rollup_config.clone(),
             l2_provider: Arc::new(provider.clone()),
             l1_head: Arc::clone(&l1_head),
             held_pool: Arc::clone(&held_pool),
-            optimistic: Arc::new(eez_composer::OptimisticallyIncluded::new()),
+            optimistic: Arc::new(optimistic),
         };
         let mut rollups = HashMap::with_capacity(1);
         rollups.insert(rollup_id, rollup_state);

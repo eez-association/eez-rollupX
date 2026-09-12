@@ -581,9 +581,8 @@ run_waves() {
     local LAST_SETTLED="" L1_TRACKED="" L1_RECHECK="" L2_HASH="" L2_SAFE=0 SAFE_BLOCK=""
     local commitment_deadline=$((SECONDS + ${EEZ_STATE_ROOT_WAIT_SECS:-30})) commitment_matched=0
     LAST_SETTLED=$(strip_ansi <"$NODE_LOG" \
-        | grep -F '"event_name":"eez.composer.bundle.observed"' \
-        | grep -F '"settled":true' \
-        | grep -oE '"sync_height":[0-9]+' | grep -oE '[0-9]+' \
+        | grep -F '"event_name":"eez.deriver.safe.advanced"' \
+        | grep -oE '"to_block":[0-9]+' | grep -oE '[0-9]+' \
         | sort -n | tail -1 || true)
     if [[ -n "$LAST_SETTLED" ]]; then
         while (( SECONDS < commitment_deadline )); do

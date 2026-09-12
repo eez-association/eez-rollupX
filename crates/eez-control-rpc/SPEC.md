@@ -467,3 +467,76 @@ The fork's current positive and negative cases live in
 [`eez-node-e2e`](../eez-node-e2e/tests/cross_chain.rs). Historical captured
 calldata-only requests are not positive fixtures for the mandatory native-blob
 profile.
+
+## 8. Settlement ownership after submission
+
+A proof authenticates the full proposed execution. It does not promise that
+every source transaction or execution entry will be consumed on L1. The
+Composer MUST retain each submitted signed user until canonical derivation and
+source-chain evidence determine its disposition. A confirmed L2 height and an
+observer's full-commitment boolean MUST NOT release all users in an attempt.
+
+The reference implementation builds a local settlement manifest from the final
+survivor compositions. It records signed identity, direction, nonce, FIFO order,
+attempt count, whole outbound groups, inbound source actions, virtual producing
+effects and physical checkpoints including callbacks. Static and reverted lookup
+actions remain represented without inventing L2 deliveries. This manifest is
+local recovery metadata; it does not change the authenticated native-blob format.
+
+The deriver publishes batch evidence before its scheduling cursor and marks a
+canonical scan complete only after all same-block batches and safe-head updates.
+Evidence includes the L1 block hash, postBatch transaction and position, calldata
+hash, applied virtual slice, exact L2 endpoint and selected replay groups. Empty
+application is distinct from incomplete derivation. Recovery MUST recheck the
+canonical generation and block identity before changing ownership.
+
+An immediate entry skipped at runtime does not inherit an earlier carrier's
+checkpoint unless the proven chain assigns the same commitment. Authenticated
+inbound lookups have zero replay weight. Their no-op root logs may persist or
+roll back with the source frame; this must not change the count or ordering of
+producing effects. Same-height
+resumption retains the validated prefix and authorizes only the appended
+transactions against the resumed table. The new suffix still requires exact
+outbound-call coverage; retained prefix events cannot authorize new calls.
+
+Inbound users require source receipts and nonces at the checked canonical L1
+state. Mutable consumption must belong to the correct batch's queue window.
+An included revert or successful source transaction with missing intended calls
+spends its nonce and MUST NOT be retried as identical signed bytes. Static-only
+source completion does not require a root change. Outbound users instead use
+the validated L2 endpoint and its canonical source nonce; optimistic L2 receipts
+are insufficient. A signed outbound user and all its loads/callbacks MUST remain
+one indivisible replay group.
+
+Eligible omitted users return to the held pool in FIFO order. A conclusive
+settlement failure charges each eligible user's bounded retry policy once.
+Infrastructure-only failures do not charge that policy. Only an exhausted,
+still-unspent source nonce creates a dependent nonce gap. The pool transfers
+durable ownership and reservations under one lock. Historical attempts cannot
+release or recover users owned by a newer attempt.
+
+The reference node writes `settlement-journal.json` in `EEZ_L2_DATADIR` before
+dispatch. Version 1 uses an exclusive writer lock, checksum, atomic replacement,
+file fsync and directory fsync. It retains signed source bytes, the exact pooled
+postBatch envelope, target, manifest, retry counters and ownership throughout
+recomposition. Write errors fail closed. This journal covers submitted users;
+it is not a durable general-purpose ingress queue.
+
+Restart resumes canonical evidence collection, including batches skipped by a
+boot checkpoint. A dispatch without a surviving observer becomes uncertain;
+the stored target is retained, and an expired postBatch is never resent. Reorg
+invalidation follows L1 identity even when L2 height is unchanged. Inconclusive
+finality audits retain history. Finalization never releases newer reservations.
+
+`EEZ_BUNDLE_POLICY=atomic` is the default. `allow-inbound-reverts` requires a
+durable journal and a bundle relay. It allows only actual bundled L1 user hashes
+to revert. postBatch stays first and required; outbound L2 hashes are excluded.
+Blob sidecars and timestamp pins are preserved. No `droppingTxHashes` field is
+sent. A builder configured with `discard_txs=true` may nevertheless omit an
+allowed transaction that fails transaction validation, so receipt and nonce
+reconciliation remain mandatory. Partial submission has no raw-mempool fallback.
+
+Before upgrading an in-memory deployment, drain its outstanding users while the
+old process still owns them. To roll back partial submission, set the policy to
+`atomic`, preserve the journal and continue running the reconciler until all
+previously submitted attempts are accounted for.

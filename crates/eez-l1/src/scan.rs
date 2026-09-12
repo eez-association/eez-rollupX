@@ -47,11 +47,15 @@ struct DecodedBatchLog {
     post_batch_input: Bytes,
     claimed_current_root: Option<B256>,
     claimed_chain: Vec<B256>,
-    /// Persisted entry outcome aligned 1:1 with `claimed_chain`. Failed entries
-    /// and immediate entries reported through `L2TxSkipped` do not leave
-    /// `L2ExecutionPerformed` logs, but their L2 checkpoints are carried by the
-    /// preceding successful settlement step.
+    /// Proven entry outcome, adjusted for observed `L2TxSkipped` events,
+    /// aligned 1:1 with `claimed_chain`. Failed entries and skipped immediates do not leave
+    /// `L2ExecutionPerformed` logs. Their checkpoints are carried by the
+    /// preceding step only when the proven root chain assigns the SAME root.
+    /// A dynamically skipped root-changing entry remains an unconsumed boundary.
     claimed_successes: Vec<bool>,
+    /// Physical producing effects, parallel to the chain. The anchor and
+    /// authenticated inbound lookups have zero replay weight.
+    claimed_effects: Vec<bool>,
 }
 
 /// Stateful `BatchPosted` log chunks. Callers own when scanned ranges are
@@ -175,7 +179,7 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
     batches
         .into_iter()
         .enumerate()
-        .filter_map(|(index, batch)| {
+        .filter_map(|(index, mut batch)| {
             if !batch.anchor_only_root_noop || batch.scanned.settlement.is_empty() {
                 return Some(batch.scanned);
             }
@@ -198,7 +202,10 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
                     current_root = %current_root,
                     "ignoring an ambiguous anchor-only root-noop batch in favor of the canonical same-block payload",
                 );
-                None
+                // Preserve conclusive accounting for the posted transaction
+                // without assigning the same L2 range to a second payload.
+                batch.scanned.settlement = Settlement::NONE;
+                Some(batch.scanned)
             } else {
                 Some(batch.scanned)
             }
@@ -208,8 +215,9 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
 
 /// Which of a batch's claimed L2 steps an observed L1 carrier committed. A
 /// successful entry moves the stored block hash and emits `L2ExecutionPerformed`;
-/// failed entries emit nothing because their frames revert, so their L2
-/// checkpoints are assigned to the preceding successful carrier. The expanded
+/// failed outbound entries emit nothing because their frames revert, so their
+/// pre-carried L2 checkpoints belong to the preceding successful carrier.
+/// Authenticated inbound lookups have no physical L2 checkpoint. The expanded
 /// committed run remains contiguous, so `(start, len)` describes it fully in
 /// the virtual `[anchor | producing effects...]` index space.
 ///
@@ -218,7 +226,7 @@ fn canonicalize_root_noops(batches: Vec<AttributedBatch>) -> Vec<ScannedBatch> {
 /// Sync blocks produce identical hashes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Settlement {
-    /// Index into the claimed chain where the applied run starts. Meaningless
+    /// Index into the virtual chain where the applied run starts. Meaningless
     /// when `len == 0`.
     pub start: usize,
     /// How many consecutive steps ran. `0` = nothing settled → skip the batch.
@@ -229,8 +237,8 @@ pub struct Settlement {
     pub final_state: Option<B256>,
     /// The stored block hash the applied run STARTED from — what reconciliation compares
     /// its local cursor against. The claimed `currentRoot` when `start == 0`,
-    /// else `claimed_chain[start - 1]`; using the claimed value on a mid-chain
-    /// resume reports a divergence that isn't one.
+    /// otherwise the root immediately before the first observed carrier;
+    /// using the pre-batch value on a mid-chain resume reports a false divergence.
     pub entry_state: Option<B256>,
 }
 
@@ -518,7 +526,7 @@ pub(crate) async fn scan_batch_logs_range(
             .get(&(l1_block_hash, tx_hash))
             .cloned()
             .unwrap_or_default();
-        let (claimed_current_root, claimed_chain, claimed_successes) =
+        let (claimed_current_root, claimed_chain, claimed_successes, claimed_effects) =
             our_state_chain(&decoded.batch, rollup_id, &skipped_indices);
         decoded_batches.push(DecodedBatchLog {
             l1_block_number,
@@ -541,6 +549,7 @@ pub(crate) async fn scan_batch_logs_range(
             claimed_current_root,
             claimed_chain,
             claimed_successes,
+            claimed_effects,
         });
     }
 
@@ -581,10 +590,11 @@ pub(crate) async fn scan_batch_logs_range(
         let observed: Vec<B256> = block_roots
             .map(|roots| window_roots(roots, b.tx_index, window_end, b.l1_block_hash))
             .unwrap_or_default();
-        let settlement = attribute_settlement_with_successes(
+        let settlement = attribute_settlement_with_effects(
             b.claimed_current_root,
             &b.claimed_chain,
             &b.claimed_successes,
+            &b.claimed_effects,
             &observed,
         );
         let claimed_new_root = b.claimed_chain.last().copied();
@@ -620,13 +630,16 @@ fn our_state_chain(
     batch: &ProofSystemBatchPerVerificationEntriesSol,
     rollup_id: u64,
     skipped_entry_indices: &HashSet<usize>,
-) -> (Option<B256>, Vec<B256>, Vec<bool>) {
+) -> (Option<B256>, Vec<B256>, Vec<bool>, Vec<bool>) {
     let mut first_curr: Option<B256> = None;
     let mut new_roots: Vec<B256> = Vec::new();
     let mut successes: Vec<bool> = Vec::new();
+    let mut effects: Vec<bool> = Vec::new();
     for (entry_index, entry) in batch.entries.iter().enumerate() {
+        let lookup = eez_protocol::settlement::is_lookup_only_inbound_entry(entry, rollup_id);
         for update in &entry.rootUpdates {
             if update.rollupId == rollup_id {
+                effects.push(!new_roots.is_empty() && !lookup);
                 if first_curr.is_none() {
                     first_curr = Some(update.currentRoot);
                 }
@@ -635,7 +648,7 @@ fn our_state_chain(
             }
         }
     }
-    (first_curr, new_roots, successes)
+    (first_curr, new_roots, successes, effects)
 }
 
 /// Commitments settled inside this batch's tx-index window AND on this batch's
@@ -681,71 +694,136 @@ struct SettlementCarrier {
     root: B256,
     effect_start: usize,
     effect_end: usize,
+    /// A successful lookup can still be rolled back by its source frame.
+    /// Its no-op log is optional; producing commitments are not.
+    optional: bool,
 }
 
 /// Collapse the claimed per-entry root chain into the steps that can actually
-/// emit on L1. Entry zero is the successful anchor. Every later successful
-/// entry carries its own L2 checkpoint and the checkpoints of immediately
-/// following failed entries; leading failed entries are carried by the anchor.
+/// emit on L1. A failed entry belongs to the preceding carrier only when its
+/// claimed root equals that carrier's root, as required by the composer's
+/// proven carrier plan. A dynamically skipped root-changing entry does not
+/// move its checkpoint into a previous carrier. Keeping it as a boundary makes
+/// the observed prefix/suffix select only the effects actually committed.
 fn settlement_carriers(
     claimed_chain: &[B256],
     claimed_successes: &[bool],
+    claimed_effects: &[bool],
 ) -> Vec<SettlementCarrier> {
-    if claimed_chain.is_empty() || claimed_chain.len() != claimed_successes.len() {
+    if claimed_chain.is_empty()
+        || claimed_chain.len() != claimed_successes.len()
+        || claimed_chain.len() != claimed_effects.len()
+        || claimed_effects[0]
+    {
         return Vec::new();
     }
 
-    let effect_count = claimed_chain.len() - 1;
-    let successful_effects = claimed_successes[1..]
+    // Keep zero-effect lookup roots in the event chain: a successful lookup
+    // can emit a no-op root, while a reverted lookup's logs roll back. Neither
+    // creates an L2 delivery or expands an outbound carrier's replay range.
+    let mut effect_ends = Vec::with_capacity(claimed_chain.len());
+    let mut effect_count = 0;
+    for produces in claimed_effects {
+        effect_count += usize::from(*produces); // bounded by the slice length
+        effect_ends.push(effect_count);
+    }
+    let carrier_starts = claimed_successes[1..]
         .iter()
         .enumerate()
-        .filter_map(|(effect_index, success)| success.then_some(effect_index))
+        .filter_map(|(effect_index, success)| {
+            (*success || claimed_chain[effect_index + 1] != claimed_chain[effect_index])
+                .then_some(effect_index)
+        })
         .collect::<Vec<_>>();
-    let leading_end = successful_effects.first().copied().unwrap_or(effect_count);
-    let mut carriers = Vec::with_capacity(1 + successful_effects.len());
+    let leading_end = carrier_starts
+        .first()
+        .map_or(effect_count, |index| effect_ends[*index]);
+    let mut carriers = Vec::with_capacity(1 + carrier_starts.len());
     carriers.push(SettlementCarrier {
         claimed_index: 0,
         root: claimed_chain[0],
         effect_start: 0,
         effect_end: leading_end,
+        optional: false,
     });
-    for (position, effect_start) in successful_effects.iter().copied().enumerate() {
-        let effect_end = successful_effects
+    for (position, root_index) in carrier_starts.iter().copied().enumerate() {
+        let effect_start = effect_ends[root_index];
+        let effect_end = carrier_starts
             .get(position + 1)
-            .copied()
-            .unwrap_or(effect_count);
+            .map_or(effect_count, |index| effect_ends[*index]);
         carriers.push(SettlementCarrier {
-            claimed_index: effect_start + 1,
-            root: claimed_chain[effect_start + 1],
+            claimed_index: root_index + 1,
+            root: claimed_chain[root_index + 1],
             effect_start,
             effect_end,
+            optional: !claimed_effects[root_index + 1],
         });
     }
     carriers
 }
 
+#[cfg(test)]
 fn attribute_settlement_with_successes(
     claimed_current: Option<B256>,
     claimed_chain: &[B256],
     claimed_successes: &[bool],
     observed: &[B256],
 ) -> Settlement {
-    let carriers = settlement_carriers(claimed_chain, claimed_successes);
+    let effects = (0..claimed_chain.len())
+        .map(|index| index != 0)
+        .collect::<Vec<_>>();
+    attribute_settlement_with_effects(
+        claimed_current,
+        claimed_chain,
+        claimed_successes,
+        &effects,
+        observed,
+    )
+}
+
+fn attribute_settlement_with_effects(
+    claimed_current: Option<B256>,
+    claimed_chain: &[B256],
+    claimed_successes: &[bool],
+    claimed_effects: &[bool],
+    observed: &[B256],
+) -> Settlement {
+    let carriers = settlement_carriers(claimed_chain, claimed_successes, claimed_effects);
     if observed.is_empty() || carriers.is_empty() {
         return Settlement::NONE;
     }
-    // The run must appear as a consecutive slice of the updates whose L1
-    // frames can persist. Failed entries are absent from `observed` because
-    // their events roll back with the intentional revert.
+    // Producing carriers must remain consecutive. A successful lookup's no-op
+    // log may persist or may roll back with its source frame. Match those logs
+    // optionally without discarding their positions or increasing replay weight.
     if observed.len() > carriers.len() {
         return Settlement::NONE;
     }
-    let Some(carrier_start) = (0..=(carriers.len() - observed.len())).find(|&start| {
-        carriers[start..start + observed.len()]
-            .iter()
-            .map(|carrier| carrier.root)
-            .eq(observed.iter().copied())
-    }) else {
+    // `starts[i]` is the earliest possible start of a run that has consumed
+    // the observed prefix and is about to visit carrier i. Propagating only
+    // through optional carriers retains strict ordering and multiplicity for
+    // physical effects, even when adjacent roots are equal.
+    let mut starts = (0..=carriers.len()).map(Some).collect::<Vec<_>>();
+    for root in observed {
+        let mut next = vec![None; carriers.len() + 1];
+        for (index, carrier) in carriers.iter().enumerate() {
+            let Some(start) = starts[index] else {
+                continue;
+            };
+            if carrier.optional {
+                starts[index + 1] = Some(starts[index + 1].map_or(start, |old| old.min(start)));
+            }
+            if carrier.root == *root {
+                next[index + 1] = Some(start);
+            }
+        }
+        starts = next;
+    }
+    let Some((carrier_start, carrier_end)) = starts
+        .iter()
+        .enumerate()
+        .filter_map(|(end, start)| start.map(|start| (start, end)))
+        .min()
+    else {
         // The window settled block hashes this batch never claimed. Not attributable
         // to it — treat as "nothing of ours applied" and let the caller skip;
         // the cursor guard catches any real misalignment loudly.
@@ -759,7 +837,7 @@ fn attribute_settlement_with_successes(
         return Settlement::NONE;
     };
     let first = carriers[carrier_start];
-    let last = carriers[carrier_start + observed.len() - 1];
+    let last = carriers[carrier_end - 1];
 
     // Preserve Settlement's virtual `[anchor | producing effects...]` index
     // space. A carrier expands to every failed effect checkpoint it commits,
@@ -825,9 +903,10 @@ async fn fetch_log_transaction(
 mod tests {
     use super::{
         AttributedBatch, BatchLogChunks, LOG_SCAN_CHUNK_BLOCKS, ScannedBatch, SettledRoot,
-        Settlement, attribute_settlement, attribute_settlement_with_successes,
-        canonicalize_root_noops, fetch_log_transaction, initial_log_scan_ranges, our_state_chain,
-        scan_batch_logs_range, scan_next_batch_log_chunk, window_roots,
+        Settlement, attribute_settlement, attribute_settlement_with_effects,
+        attribute_settlement_with_successes, canonicalize_root_noops, fetch_log_transaction,
+        initial_log_scan_ranges, our_state_chain, scan_batch_logs_range, scan_next_batch_log_chunk,
+        window_roots,
     };
     use crate::error::L1Error;
     use alloy_consensus::transaction::TxHashRef;
@@ -991,8 +1070,10 @@ mod tests {
             attributed_batch(1, 3, a, a, true, true),
             attributed_batch(2, 7, a, b, true, false),
         ]);
-        assert_eq!(canonical.len(), 1);
-        assert_eq!(canonical[0].tx_hash, B256::repeat_byte(2));
+        assert_eq!(canonical.len(), 2);
+        assert!(canonical[0].settlement.is_empty());
+        assert_eq!(canonical[1].tx_hash, B256::repeat_byte(2));
+        assert!(!canonical[1].settlement.is_empty());
     }
 
     /// Exercise the complete RPC decode, per-window attribution, no-op
@@ -1023,10 +1104,12 @@ mod tests {
         let scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42)
             .await
             .expect("scan succeeds");
-        assert_eq!(scanned.len(), 1);
-        assert_eq!(scanned[0].tx_hash, rich_hash);
-        assert_eq!(scanned[0].claimed_current_root, Some(a));
-        assert_eq!(scanned[0].claimed_new_root, Some(b));
+        assert_eq!(scanned.len(), 2);
+        assert_eq!(scanned[0].tx_hash, noop_hash);
+        assert!(scanned[0].settlement.is_empty());
+        assert_eq!(scanned[1].tx_hash, rich_hash);
+        assert_eq!(scanned[1].claimed_current_root, Some(a));
+        assert_eq!(scanned[1].claimed_new_root, Some(b));
     }
 
     /// An idle chain still needs one no-op batch to advance its derived cursor,
@@ -1038,8 +1121,10 @@ mod tests {
             attributed_batch(2, 7, a, a, true, true),
             attributed_batch(1, 3, a, a, true, true),
         ]);
-        assert_eq!(canonical.len(), 1);
-        assert_eq!(canonical[0].tx_hash, B256::repeat_byte(1));
+        assert_eq!(canonical.len(), 2);
+        assert!(canonical[0].settlement.is_empty());
+        assert_eq!(canonical[1].tx_hash, B256::repeat_byte(1));
+        assert!(!canonical[1].settlement.is_empty());
     }
 
     /// A reverted/unsettled competitor consumes no L2 range and therefore
@@ -1282,11 +1367,111 @@ mod tests {
         assert_eq!(resumed.entry_state, Some(a));
     }
 
-    /// A nominally successful immediate entry can still be skipped by EEZ when
-    /// its destination call reverts. Treating that entry as an event-producing
-    /// carrier leaves the deriver waiting for a root log that cannot exist.
+    /// Caught destination reverts and successful calls rolled back by their
+    /// source frame are authenticated lookups, with no physical L2 delivery.
+    /// Keep their optional logs distinct from the producing prefix/suffix.
     #[test]
-    fn skipped_immediate_entry_is_carried_by_the_preceding_success() {
+    fn inbound_lookups_preserve_event_positions_without_producing_effects() {
+        use eez_protocol::rolling_hash::EntryRollingHash;
+
+        let rollup_id = 17;
+        let [before, anchor, endpoint] = [1, 2, 3].map(B256::with_last_byte);
+        let root_update = |current_root, new_root| RootUpdateSol {
+            rollupId: rollup_id,
+            currentRoot: current_root,
+            newRoot: new_root,
+            etherDelta: EtherDeltaSol::ZERO,
+        };
+        let lookup = |root, success| {
+            let proxy = B256::with_last_byte(0xAB);
+            ExecutionEntrySol {
+                destinationRollupId: rollup_id,
+                proxyEntryHash: proxy,
+                rootUpdates: vec![root_update(root, root)],
+                rollingHash: EntryRollingHash::seed_for_l1([(rollup_id, root)], proxy).current(),
+                success,
+                ..Default::default()
+            }
+        };
+        for lookup_success in [false, true] {
+            let batch = ProofSystemBatchPerVerificationEntriesSol {
+                entries: vec![
+                    ExecutionEntrySol {
+                        success: true,
+                        rootUpdates: vec![root_update(before, anchor)],
+                        ..Default::default()
+                    },
+                    lookup(anchor, lookup_success),
+                    ExecutionEntrySol {
+                        success: true,
+                        rootUpdates: vec![root_update(anchor, endpoint)],
+                        ..Default::default()
+                    },
+                    lookup(endpoint, lookup_success),
+                ],
+                ..Default::default()
+            };
+            let (current, chain, successes, effects) =
+                our_state_chain(&batch, rollup_id, &HashSet::new());
+            assert_eq!(effects, [false, false, true, false]);
+            let attribute = |observed: &[B256]| {
+                attribute_settlement_with_effects(current, &chain, &successes, &effects, observed)
+            };
+            // Both failed entries and successful entries whose source later
+            // reverts leave no lookup logs. Neither may expand the range.
+            let full = attribute(&[anchor, endpoint]);
+            assert_eq!((full.start, full.len), (0, 2));
+            assert_eq!(full.producing_slice(), (0, 1));
+            assert_eq!(full.entry_state, Some(before));
+            assert_eq!(full.final_state, Some(endpoint));
+            assert_eq!(attribute(&[anchor]).producing_slice(), (0, 0));
+            let resumed = attribute(&[endpoint]);
+            assert_eq!((resumed.start, resumed.len), (1, 1));
+            assert_eq!(resumed.entry_state, Some(anchor));
+            if lookup_success {
+                // A lookup log can also persist. Test either optional log,
+                // both, and a prefix ending at the leading lookup.
+                for observed in [
+                    vec![anchor, anchor, endpoint],
+                    vec![anchor, endpoint, endpoint],
+                    vec![anchor, anchor, endpoint, endpoint],
+                ] {
+                    assert_eq!(attribute(&observed), full);
+                }
+                assert_eq!(attribute(&[anchor, anchor]).producing_slice(), (0, 0));
+                assert_eq!(attribute(&[endpoint, endpoint]), resumed);
+                assert_eq!(attribute(&[anchor, anchor, anchor]), Settlement::NONE);
+            }
+        }
+    }
+
+    #[test]
+    fn effect_projection_rejects_invalid_masks_and_keeps_producing_gaps_strict() {
+        let chain = [1, 2, 3, 4].map(B256::with_last_byte);
+        let successes = [true; 4];
+        for effects in [&[false, true][..], &[true; 4][..]] {
+            assert_eq!(
+                attribute_settlement_with_effects(None, &chain, &successes, effects, &chain),
+                Settlement::NONE,
+            );
+        }
+        // Optional no-op matching must never skip a physical carrier.
+        assert_eq!(
+            attribute_settlement_with_effects(
+                None,
+                &chain,
+                &successes,
+                &[false, true, true, true],
+                &[chain[0], chain[2], chain[3]],
+            ),
+            Settlement::NONE,
+        );
+    }
+
+    /// A root-changing immediate skipped after proving leaves its L2 effect
+    /// unconsumed. Only an already-proved equal-root carrier can cover it.
+    #[test]
+    fn skipped_immediate_entry_is_not_carried_without_a_matching_commitment() {
         let rollup_id = 17;
         let current = B256::repeat_byte(0x09);
         let anchor = B256::repeat_byte(0x0A);
@@ -1314,16 +1499,54 @@ mod tests {
         };
         let skipped = HashSet::from([1]);
 
-        let (claimed_current, chain, persisted) = our_state_chain(&batch, rollup_id, &skipped);
+        let (claimed_current, chain, persisted, effects) =
+            our_state_chain(&batch, rollup_id, &skipped);
         assert_eq!(claimed_current, Some(current));
         assert_eq!(chain, vec![anchor, effect]);
         assert_eq!(persisted, vec![true, false]);
+        assert_eq!(effects, vec![false, true]);
 
         let settlement =
             attribute_settlement_with_successes(claimed_current, &chain, &persisted, &[anchor]);
-        assert_eq!((settlement.start, settlement.len), (0, 2));
-        assert_eq!(settlement.producing_slice(), (0, 1));
+        assert_eq!((settlement.start, settlement.len), (0, 1));
+        assert_eq!(settlement.producing_slice(), (0, 0));
         assert_eq!(settlement.final_state, Some(anchor));
+
+        // A legitimately pre-carried reverted outcome repeats the carrier
+        // commitment. This must still emit its valid L2 replay group.
+        let carried = attribute_settlement_with_successes(
+            Some(current),
+            &[anchor, anchor],
+            &persisted,
+            &[anchor],
+        );
+        assert_eq!(carried.producing_slice(), (0, 1));
+    }
+
+    #[test]
+    fn skipped_first_middle_last_outbounds_preserve_prefix_and_resume_boundaries() {
+        let chain = [1, 2, 3, 4].map(B256::with_last_byte);
+        for committed in 0..3 {
+            let persisted = (0..4).map(|index| index <= committed).collect::<Vec<_>>();
+            let prefix = attribute_settlement_with_successes(
+                Some(B256::ZERO),
+                &chain,
+                &persisted,
+                &chain[..=committed],
+            );
+            assert_eq!(prefix.producing_slice(), (0, committed));
+            assert_eq!(prefix.final_state, Some(chain[committed]));
+
+            let resumed = attribute_settlement_with_successes(
+                Some(B256::ZERO),
+                &chain,
+                &(0..4).map(|index| index > committed).collect::<Vec<_>>(),
+                &chain[committed + 1..],
+            );
+            assert_eq!(resumed.producing_slice(), (committed, 3 - committed));
+            assert_eq!(resumed.entry_state, Some(chain[committed]));
+            assert_eq!(resumed.final_state, Some(chain[3]));
+        }
     }
 
     /// Roots this batch never claimed (window contamination) are not attributed.
