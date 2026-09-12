@@ -276,8 +276,7 @@ local speculative suffix. Pending users and
 retry counters are not persisted; users may need to resubmit transactions that
 have not settled. `EEZ_L2_DATADIR` remains optional for checkpoint and correlation
 caching. Details are in
-[the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission)
-and the [default-behavior validation report](docs/audits/2026-09-11-partial-consumption/default-policy.md).
+[the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 
 ### L1/L2 settlement correlation RPC
 

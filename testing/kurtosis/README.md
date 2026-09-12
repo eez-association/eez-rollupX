@@ -548,8 +548,7 @@ The profile pins rbuilder to
 invalid transactions in the revert allowlist to be skipped. The canary fails
 if the image or observed inclusion behavior differs. This builder setting is
 separate from the permission to include an EVM revert. No dropping allowlist
-is sent. The [implementation audit](../../docs/audits/2026-09-11-partial-consumption/completion.md)
-records the checked protocol, source/configuration and actual evidence.
+is sent.
 
 Pending transactions and retry counters are held in memory. After a restart,
 clients may need to resubmit unsettled transactions; canonical state is recovered
