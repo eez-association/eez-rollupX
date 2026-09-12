@@ -71,11 +71,13 @@ pub(crate) struct OwnedUser {
     pub location: UserLocation,
 }
 
+/// Submitted attempt retained for reconciliation and reorg history.
+/// Pending lookups receive a detached clone before asynchronous evidence reads.
 #[derive(Debug, Clone)]
-pub(crate) struct AttemptRecord {
+pub struct AttemptRecord {
     pub id: AttemptId,
     pub sync_height: u64,
-    pub parent: alloy_consensus::Header,
+    pub parent: SealedHeader<alloy_consensus::Header>,
     pub txs: Vec<HeldTx>,
     pub manifest: SettlementManifest,
     pub post_batch: Bytes,
@@ -83,7 +85,7 @@ pub(crate) struct AttemptRecord {
     pub dispatched_target: Option<(u64, u64)>,
     pub observation: SubmissionObservation,
     /// Snapshot against which all currently owned users were classified.
-    pub reconciled_at: Option<L1BlockRef>,
+    pub(crate) reconciled_at: Option<L1BlockRef>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -110,19 +112,6 @@ pub struct NonceGap {
     pub sender: Address,
     pub direction: Direction,
     pub nonce: u64,
-}
-
-/// Read-only copy taken before asynchronous evidence lookups.
-#[derive(Debug, Clone)]
-pub struct PendingAttempt {
-    pub id: AttemptId,
-    pub sync_height: u64,
-    pub parent: SealedHeader<alloy_consensus::Header>,
-    pub txs: Vec<HeldTx>,
-    pub manifest: SettlementManifest,
-    pub post_batch: Bytes,
-    pub dispatched_target: Option<(u64, u64)>,
-    pub observation: SubmissionObservation,
 }
 
 /// In-memory ownership of submitted users and unfinalized attempts.
@@ -214,7 +203,7 @@ impl OptimisticallyIncluded {
                 AttemptRecord {
                     id,
                     sync_height,
-                    parent: parent.unseal(),
+                    parent,
                     txs,
                     manifest,
                     post_batch,
@@ -241,22 +230,13 @@ impl OptimisticallyIncluded {
     }
 
     #[must_use]
-    pub fn pending_attempt(&self) -> Option<PendingAttempt> {
+    pub fn pending_attempt(&self) -> Option<AttemptRecord> {
         self.read(|state| {
             state
                 .attempts
                 .values()
                 .find(|attempt| needs_resolution(state, attempt))
-                .map(|attempt| PendingAttempt {
-                    id: attempt.id,
-                    sync_height: attempt.sync_height,
-                    parent: SealedHeader::seal_slow(attempt.parent.clone()),
-                    txs: attempt.txs.clone(),
-                    manifest: attempt.manifest.clone(),
-                    post_batch: attempt.post_batch.clone(),
-                    dispatched_target: attempt.dispatched_target,
-                    observation: attempt.observation.clone(),
-                })
+                .cloned()
         })
     }
 
@@ -647,6 +627,31 @@ mod tests {
         pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
             .unwrap();
         assert_eq!(pool.pop_all()[0].hash, txs[2].hash);
+    }
+
+    #[test]
+    fn pending_snapshot_retains_sealed_parent_and_is_independent() {
+        let (ledger, _, txs, id) = setup();
+        let mut snapshot = ledger.pending_attempt().unwrap();
+        assert_eq!(snapshot.id, id);
+        assert_eq!(
+            snapshot.parent,
+            SealedHeader::seal_slow(alloy_consensus::Header {
+                number: 9,
+                ..Default::default()
+            })
+        );
+        ledger
+            .observe(id, SubmissionObservation::Uncertain)
+            .unwrap();
+        assert_eq!(snapshot.observation, SubmissionObservation::Prepared);
+        snapshot.txs.clear();
+        snapshot.manifest.users.clear();
+        let current = ledger.pending_attempt().unwrap();
+        assert_eq!(current.observation, SubmissionObservation::Uncertain);
+        assert_eq!(current.txs, txs);
+        assert_eq!(current.manifest.users.len(), txs.len());
+        assert_eq!(current.parent, snapshot.parent);
     }
 
     #[test]

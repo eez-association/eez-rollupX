@@ -1543,7 +1543,7 @@ where
         &self,
         rollup_id: u64,
         rollup: &RollupState<L2>,
-        attempt: crate::optimistic::PendingAttempt,
+        attempt: crate::optimistic::AttemptRecord,
     ) -> Result<RecoveryOutcome, String> {
         use crate::optimistic::{SourceOutcome, SubmissionObservation, TerminalReason};
         let snapshot = rollup.l1_head.settlement_snapshot();
@@ -1646,15 +1646,11 @@ where
                     } else if own_effects_applied
                         && evidence
                             .is_some_and(|settled| source_uses_batch(&receipt, settled, &snapshot))
-                        && user
-                            .source_actions
-                            .iter()
-                            .filter(|action| action.effect.is_some())
-                            .all(|action| {
-                                receipt
-                                    .consumed
-                                    .contains(&(action.call_hash, action.source_index))
-                            })
+                        && user.source_actions.iter().all(|action| {
+                            receipt
+                                .consumed
+                                .contains(&(action.call_hash, action.source_index))
+                        })
                     {
                         TerminalReason::Committed
                     } else {
@@ -3631,7 +3627,7 @@ where
             post_batch_hash,
             parent_header.clone(),
             Vec::new(),
-            SettlementManifest::empty(rollup_id, sync_height, empty_built.header.hash()),
+            SettlementManifest::empty(sync_height, empty_built.header.hash()),
             minimal_postbatch_raw.clone(),
         ) {
             Ok(id) => id,
@@ -3783,7 +3779,7 @@ where
                 post_batch_hash,
                 boundary_parent,
                 Vec::new(),
-                SettlementManifest::empty(rollup_id, boundary, boundary_header.hash()),
+                SettlementManifest::empty(boundary, boundary_header.hash()),
                 raw.clone(),
             )?;
             // A past terminal has no matching historical L1 slot. NextBlock
@@ -4991,7 +4987,7 @@ fn source_uses_batch(
 /// Verify that authoritative replay coordinates belong to this exact local
 /// proposal before using them to classify its signed users.
 fn validate_attempt_evidence(
-    attempt: &crate::optimistic::PendingAttempt,
+    attempt: &crate::optimistic::AttemptRecord,
     evidence: &eez_l1::ReconciledBatchSettlement,
 ) -> Result<(), String> {
     use alloy_consensus::transaction::TxHashRef as _;
@@ -5016,9 +5012,7 @@ fn validate_attempt_evidence(
         let endpoint = evidence
             .endpoint
             .ok_or("producing settlement has no endpoint")?;
-        if endpoint.number != attempt.sync_height
-            || endpoint.hash != effects[applied.end - 1].block_hash
-        {
+        if endpoint.number != attempt.sync_height || endpoint.hash != effects[applied.end - 1] {
             return Err("reconciliation endpoint differs from the manifest checkpoint".into());
         }
     }

@@ -224,5 +224,142 @@
     "clippy_all_workspace_targets_rerun": "passed",
     "format_and_diff_checks_rerun": "passed",
     "remaining_concrete_findings": []
+  },
+  "representation_cleanup": {
+    "base": "44ed95b9017449968d18ddbbfa95b9db24d2e323",
+    "binary_sha256": {
+      "eez-proof-signer": "c3f90c59114b71baa9df7a367c51a616316e96dd90d432440b3678815410ec57",
+      "eez-composer": "d3d087a0a0ddb41159709dbb66f57abd4c0df483fe0af91330e7ea0ec585f6d2",
+      "eez-follower": "978fa6ae558a94117ec38888afc1636ccf3dd3c478480d1c53aef9c46748591a"
+    },
+    "startup": [
+      {
+        "case": "EEZ_L2_DATADIR unset",
+        "expected_error": "EEZ_PROVER_URL is required",
+        "passed": true
+      }
+    ],
+    "native": [
+      {
+        "suite": "restart_partial",
+        "filters": [
+          "restart_after_partial_consumption"
+        ],
+        "exit_code": 0,
+        "seconds": 118.28,
+        "summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 118.27s"
+        ],
+        "log": "target/compact-native-restart_partial.log"
+      },
+      {
+        "suite": "partial_consumption",
+        "filters": [
+          "--skip",
+          "restart_after_partial_consumption"
+        ],
+        "exit_code": 0,
+        "seconds": 354.13,
+        "summaries": [
+          "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 354.11s"
+        ],
+        "log": "target/compact-native-partial_consumption.log"
+      },
+      {
+        "suite": "l1_reorg",
+        "filters": [
+          "_l1_reorg_"
+        ],
+        "exit_code": 0,
+        "seconds": 169.8,
+        "summaries": [
+          "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 169.79s"
+        ],
+        "log": "target/compact-native-l1_reorg.log"
+      },
+      {
+        "suite": "resumption",
+        "filters": [],
+        "exit_code": 0,
+        "seconds": 92.65,
+        "summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 92.64s"
+        ],
+        "log": "target/compact-native-resumption.log"
+      },
+      {
+        "suite": "restart_sustained",
+        "filters": [
+          "happy_case_composer_sustained"
+        ],
+        "exit_code": 0,
+        "seconds": 63.24,
+        "summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 63.23s"
+        ],
+        "log": "target/compact-native-restart_sustained.log"
+      }
+    ],
+    "runtime_directory": "target/compact-runtime",
+    "prior_runs": [
+      {
+        "suite": "resumption",
+        "filters": [],
+        "exit_code": 101,
+        "seconds": 62.72,
+        "summaries": [
+          "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 62.71s"
+        ],
+        "log": "target/compact-resumption-reorg-race.log",
+        "diagnosis": "Rescan crossed the intentional L1 reorg after reading the orphaned block body but before reading its canonical Beacon blob sidecar. The node rejected the malformed sidecar-free suffix and recovered; the assertion allowed only the equivalent missing-block-body error.",
+        "correction": "Allow the exact injected transaction, block and expected blob hashes only in the reorg recovery window; other errors still fail."
+      }
+    ],
+    "source_before_test_only_fix": {
+      "source_sha256": "d44dcedad545a35d1de7473774fe1d836a8396abb0cd583a6d3b276af9343b72",
+      "files": 345,
+      "description": "Sorted existing tracked files under crates/scripts/testing plus Cargo manifests and .env.example; hash each UTF-8 path, NUL, raw contents, NUL."
+    },
+    "recorded_at_utc": "2026-09-12T17:03:40.797287+00:00",
+    "scope": "Trim retained settlement metadata and share one sealed-parent attempt record; canonical checks and ownership transitions unchanged.",
+    "tested_source": {
+      "source_sha256": "5b57108848ff25d28bfd01aace1167fdb82c9faf043906eb0fd5a2542fab28b2",
+      "files": 345,
+      "description": "Sorted existing tracked files under crates/scripts/testing plus Cargo manifests and .env.example; hash each UTF-8 path, NUL, raw contents, NUL."
+    },
+    "implementation_diff_sha256": "db7e7c5c38fbbcd22c1fc50b0f1c1d75b44979beee3194481c682238d0f6af50",
+    "implementation_diff_scope": "git diff --binary 44ed95b -- crates",
+    "workspace": {
+      "passed": 806,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 19
+    },
+    "focused": {
+      "manifest_passed": 7,
+      "composer_passed": 69
+    },
+    "clippy": "workspace all targets, Rust 1.94.0, warnings denied: passed",
+    "format_and_diff_checks": "passed",
+    "protocol_pin": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "commands": {
+      "native_build": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e -p eez-proof-signer --all-targets --message-format=json",
+      "native": "python3 target/run-compact-validation.py; after the narrow resumption assertion fix, python3 target/continue-compact-validation.py",
+      "resumption_rebuild": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=6 cargo build --locked --offline -p eez-node-e2e --test resumption --message-format=json",
+      "workspace": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 cargo test --locked --offline --workspace --lib --bin eez-proof-signer --test public_inputs_hash_vectors --test rolling_hash_vectors --test ethereum_kzg_compatibility",
+      "clippy": "CARGO_TARGET_DIR=target/ci-1.94 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "format": "cargo fmt --all --check",
+      "diff": "git diff --check"
+    },
+    "explicit_edges": [
+      "Lookup-only users retain FIFO identity; reverted mutable entries count toward queue indices, while static entries do not.",
+      "Mixed producing, static and reverting actions preserve exact call hashes and queue positions.",
+      "Whole multiroot outbound groups retain complete endpoint hashes.",
+      "Missing, unordered or unowned checkpoints and malformed semantic forests remain rejected.",
+      "Pending snapshots preserve sealed parents and cannot mutate stored ownership.",
+      "Existing partial prefixes, stale observers, retry counts, reorgs, same-block resumption and restarts remain covered."
+    ],
+    "review": "Critically reviewed the final follow-up against 44ed95b and checked the complete PR diff scope against original main. Preserved protocol coordinates, semantic validation, detached snapshots and atomic ownership updates. Fixed the native test reorg-error assertion; no remaining concrete finding.",
+    "validation_limits": "Kurtosis, Python, contract and cached advisory results elsewhere in this file belong to the preceding journal-removal revision and were not rerun for this Rust representation cleanup."
   }
 }

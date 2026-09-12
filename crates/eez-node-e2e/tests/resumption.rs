@@ -289,11 +289,21 @@ async fn resumed_batch_settles_only_its_new_suffix() {
     })
     .await
     .expect("deriver accepted the synthetic suffix without its required sidecars");
-    let orphaned_source_error = format!(
-        "L1 catch-up scan error: L1 source incomplete at block {}: tx {transaction_hash} unavailable \
-         (execution block body is not available while retrieving blobs)",
-        receipt.block_number.expect("mined injected batch"),
-    );
+    let orphaned_source_error = |detail: &str| {
+        format!(
+            "L1 catch-up scan error: L1 source incomplete at block {}: tx {transaction_hash} unavailable ({detail})",
+            receipt.block_number.expect("mined injected batch"),
+        )
+    };
+    let mut orphaned_source_errors = vec![orphaned_source_error(
+        "execution block body is not available while retrieving blobs",
+    )];
+    let original_blob = harness.captured_blob_transaction(original_hash).unwrap();
+    for hash in original_blob.blob_versioned_hashes().unwrap() {
+        orphaned_source_errors.push(orphaned_source_error(&format!(
+            "beacon blob response does not contain transaction blob {hash}"
+        )));
+    }
     let assert_expected_faults = |cursor, after_reorg: bool| {
         for record in node.signals_since(cursor).unwrap() {
             if FATAL_SIGNALS.contains(&record.name.as_str()) {
@@ -305,7 +315,8 @@ async fn resumed_batch_settles_only_its_new_suffix() {
                         .and_then(serde_json::Value::as_str)
                         .is_some_and(|error| {
                             error.contains(&expected_error)
-                                || (after_reorg && error == orphaned_source_error)
+                                || (after_reorg
+                                    && orphaned_source_errors.iter().any(|known| error == known))
                         }),
                     "{record:?}"
                 );
@@ -355,9 +366,10 @@ async fn resumed_batch_settles_only_its_new_suffix() {
     .await
     .expect("safe head did not recover after the invalid batch's L1 reorg");
 
-    // A rescan already reading the removed batch may lose its block body while
-    // Anvil replaces the branch. Permit only that exact orphaned source during
-    // recovery; unrelated errors and all subsequent fatal signals still fail.
+    // A rescan already reading the removed batch may lose its block body or
+    // canonical Beacon sidecars while Anvil replaces the branch. Permit only
+    // that exact orphaned source and its known blob hashes during recovery;
+    // unrelated errors and all subsequent fatal signals still fail.
     let recovered_cursor = node.signal_cursor().unwrap();
     assert_expected_faults(reorg_cursor, true);
     let recovered_batches = chain.batches_posted().await.unwrap();

@@ -33,6 +33,15 @@ serde_json, and L1 no longer directly needs serde. Serialization derives and
 JSON-format compatibility assertions used only by the journal are removed;
 the manifest's behavioral tests remain.
 
+The final representation cleanup starts from `44ed95b`. It keeps semantic forests
+local to manifest construction, retaining only signed user identity, effect
+ranges, endpoint hashes, outbound group identity and producing inbound call
+coordinates. Static and reverted lookups are still validated, and non-producing
+mutable entries still count toward source queue positions. Checkpoint ordering,
+coverage and whole outbound-group validation remain unchanged. Stored attempts
+and pending snapshots share one record type with an already-sealed parent header;
+snapshots remain detached clones and ownership updates remain transactional.
+
 On restart, the node derives canonical state from L1 before accepting cross-chain
 submissions. Boot catch-up discards any remaining speculative local suffix using
 the existing reconciliation lock and forkchoice repair. Otherwise, an unposted
@@ -71,53 +80,73 @@ invalid-nonce omission checks. The builder pin remains unchanged.
 
 ## Verification
 
-Final verification results and executable hashes are recorded in
-[default-validation-evidence.json](default-validation-evidence.json).
-The final implementation passed:
+Verification results and executable hashes are recorded in
+[default-validation-evidence.json](default-validation-evidence.json). Its
+`representation_cleanup` entry records this follow-up; earlier entries retain the
+journal-removal results separately.
 
-| Check | Result |
+| Check on the representation cleanup | Result |
 | --- | --- |
-| Workspace libraries, proof signer and protocol vectors | 804 passed across 19 suites |
+| Workspace libraries, proof signer and protocol vectors | 806 passed across 19 suites |
+| Focused manifest and Composer tests | 7 and 69 passed |
 | Native partial consumption, restart, reorg and resumption | 10 passed |
+| Workspace Clippy, all targets, Rust 1.94.0 | Passed with warnings denied |
+| Formatting and diff whitespace | Passed |
+
+The focused regressions cover lookup-only users in held-pool order, mutable queue
+positions after static and reverting lookups, complete multiroot outbound-group
+endpoints, inconsistent checkpoint positions, malformed semantic forests, and
+independent pending snapshots with sealed parents. Existing cases cover stale
+observers, retry limits, nonce gaps, atomic rollback, reorg invalidation and
+finality cleanup.
+
+The malformed-resumption native test initially failed its error assertion during
+its deliberate L1 reorg. The node correctly rejected the sidecar-free suffix and
+recovered, but a concurrent rescan read the removed block before the fixture
+stopped serving its canonical blob sidecar. The assertion already allowed the
+same race before block-body retrieval. It now also allows the missing-blob error
+for exactly the injected transaction, block and known blob hashes, only during
+reorg recovery. Rejection before the reorg and healthy settlement afterward are
+still required, and unrelated errors still fail. The initial failure is retained
+in the evidence. The remaining cases used the same verified runtime binaries;
+the test fix changed no runtime source.
+
+The preceding journal-removal revision passed the following checks; they were
+not rerun for the representation cleanup:
+
+| Earlier check | Result |
+| --- | --- |
 | Python CI and canary tests | 178 passed, 4 existing skips |
 | Integration contracts | 19 passed |
-| Workspace Clippy, all targets, Rust 1.94.0 | Passed with warnings denied |
-| Formatting, diff whitespace and Chiado blob configuration | Passed |
+| Chiado blob configuration | Passed |
 | Dependency audit and deny checks | Passed against cached advisories; 14 allowed audit warnings |
 | Kurtosis with the pinned real builder | Restart and nonce-replacement partial-consumption canary passed |
 
-The Kurtosis restart preserved the prior canonical partial prefix and safe-head
+That Kurtosis restart preserved the prior canonical partial prefix and safe-head
 hash. A second canary after restart produced `Committed`, `SourceNonceSpent` and
 `SourceReverted` dispositions, preserved the partial prefix, then settled a fresh
-healthy transaction. All three runtime binaries installed in the running
-containers were matched by SHA-256 to the native build. Follower convergence was
-tested by the native cases. These were locally built
-optimized development binaries in an Ubuntu 24.04 validation container. An
-ordinary four-operation, two-post wave also passed before the final removal of
-unused serialization traits. The temporary validation enclave was stopped after
-its evidence was saved.
+healthy transaction. All three runtime binaries installed in the containers were
+matched by SHA-256 to that native build. These were locally built optimized
+development binaries in an Ubuntu 24.04 validation container. The temporary
+validation enclave was stopped after its evidence was saved. The unchanged full
+protocol Forge and broader state-chaining suites were not rerun for these
+simplifications; their earlier results remain in the historical report.
 
-The new regression crashes the Composer with a retry prepared but unposted,
-reopens the same chain databases, resubmits the omitted user, and checks prefix
-preservation, successful settlement, fresh retry accounting and clean-follower
-convergence. The embedded L1 is allowed to persist the settled prefix before the
-crash so the test isolates loss of local attempt metadata.
+The native restart regression crashes the Composer with a retry prepared but
+unposted, reopens the same chain databases, resubmits the omitted user, and checks
+prefix preservation, successful settlement, fresh retry accounting and
+clean-follower convergence. The embedded L1 persists the settled prefix before
+the crash so the test isolates loss of local attempt metadata. This regression
+originally exposed the speculative Sync-block problem addressed by the boot
+rewind above.
 
-The first restart run exposed an unposted speculative Sync block that blocked
-emission after the attempt ledger was lost. The boot rewind above addresses that
-failure. Other review checks cover lock ordering, rollback after late validation
-errors, stale observers, nonce gaps, newer-attempt ownership, same-height resumes,
-reorg invalidation and finality cleanup.
-
-A separate final review inspected the removal diff and the complete feature diff
-against the original `main`. It found no remaining concrete defect or unrelated
-implementation change. The native-tested source digest and binary hashes are
-recorded in the evidence. The only source edits afterward corrected two stale
-durability doc comments and a mock callback error string; all 89 L1 unit tests
-and workspace Clippy passed again. Protocol gitlinks and dependency versions were
-unchanged. The unchanged full
-protocol Forge and broader state-chaining suites were not rerun for this removal;
-their earlier results remain in the historical report.
+A separate final review checked this follow-up against `44ed95b` and the complete
+PR scope against the original `main`. It rechecked the protocol consumption
+coordinates, materializer/FIFO validation, endpoint coverage, snapshot isolation
+and transactional ownership updates. The test assertion race above was the only
+finding requiring a change. No concrete issue remains in the reviewed cleanup.
+The source digest and tested binary hashes are recorded in the evidence.
+Protocol gitlinks and dependency versions are unchanged.
 
 The existing source-RPC latency limit remains: serial source reads must complete
 within a stable canonical generation. Large batches against a consistently slow

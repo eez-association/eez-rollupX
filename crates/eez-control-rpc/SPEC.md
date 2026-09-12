@@ -477,10 +477,12 @@ derivation and source-chain evidence determine its disposition. A confirmed L2 h
 observed postBatch receipt alone MUST NOT release all users in an attempt.
 
 The reference implementation builds a local settlement manifest from the final
-survivor compositions. It records signed identity, direction, nonce, FIFO order,
-attempt count, whole outbound groups, inbound source actions, virtual producing
-effects and physical checkpoints including callbacks. Static and reverted lookup
-actions remain represented without inventing L2 deliveries. This manifest is
+survivor compositions. It retains signed identity, direction, nonce, FIFO order,
+attempt count, whole outbound groups, producing inbound call coordinates and
+complete endpoint hashes for virtual producing effects, including callbacks.
+Semantic forests, source tables and physical checkpoint positions are validated
+during construction. Static and reverted lookups produce no L2 deliveries; their
+users remain represented even when they have no producing effects. This manifest is
 local recovery metadata; it does not change the authenticated native-blob format.
 
 The deriver publishes batch evidence before its scheduling cursor and marks a
