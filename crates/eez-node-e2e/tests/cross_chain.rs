@@ -783,13 +783,6 @@ async fn both_directions_return_value_and_wrapper_success_repeated_waves() {
         w.node.count_signal(signals::BUNDLE_ACCEPTED).unwrap() > bundles_before,
         "embedded dev L1 eth_sendBundle was exercised by this wave",
     );
-    assert_eq!(
-        w.node
-            .count_signal(signals::BUNDLE_MEMPOOL_FALLBACK)
-            .unwrap(),
-        0,
-        "composer must not fall back to eth_sendRawTransaction",
-    );
     w.node.assert_no_divergence_failure_logs();
 }
 

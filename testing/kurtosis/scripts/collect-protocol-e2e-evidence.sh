@@ -77,42 +77,56 @@ load_row="$(
 [[ "$(wc -l <<<"$load_row" | tr -d '[:space:]')" == "1" && -n "$load_row" ]] \
     || die "expected exactly one L2 loadTable summary row"
 
+causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
+trap 'rm -rf "$causal_tmp"' EXIT
+
 transaction_evidence() {
     local rpc="$1" chain="$2" role="$3" hash="$4" expected_block="$5"
     local canonical_tx="${6:-}"
-    local receipt tx status block_hex block_number tx_to input reported_block_matches
+    local receipt tx status block_hex block_number tx_to input reported_block_matches canonical_block tx_index
 
     receipt="$(cast rpc eth_getTransactionReceipt "$hash" --rpc-url "$rpc")" \
         || die "cannot read $role receipt $hash on $chain"
     tx="$(cast rpc eth_getTransactionByHash "$hash" --rpc-url "$rpc")" \
         || die "cannot read $role transaction $hash on $chain"
-    if [[ -n "$canonical_tx" ]]; then
-        jq -en --argjson canonical "$canonical_tx" --argjson tx "$tx" --argjson receipt "$receipt" '
-            $tx.hash == $canonical.hash and $receipt.transactionHash == $canonical.hash
-            and $tx.blockHash == $canonical.blockHash and $receipt.blockHash == $canonical.blockHash
-            and $tx.blockNumber == $canonical.blockNumber and $receipt.blockNumber == $canonical.blockNumber
-            and $tx.transactionIndex == $canonical.transactionIndex
-            and $receipt.transactionIndex == $canonical.transactionIndex
-            and $tx.to == $canonical.to and $tx.input == $canonical.input
-            ' >/dev/null || die "$role transaction/receipt $hash differs from the canonical block"
-        # Feed this exact validated receipt to Rust, not a second RPC snapshot.
-        printf '%s\n' "$receipt" >"$causal_tmp/L2-$hash.receipt.json"
+    status="$(jq -er '.status' <<<"$receipt")" || die "missing $role receipt status"
+    [[ "$status" == "0x1" ]] || die "$role transaction $hash reverted"
+    block_hex="$(jq -er '.blockNumber' <<<"$receipt")" || die "missing $role receipt block"
+    if [[ -z "$canonical_tx" ]]; then
+        canonical_block="$(cast block "$block_hex" --full --json --rpc-url "$rpc")" \
+            || die "cannot read canonical $chain block $block_hex"
+        tx_index="$(cast to-dec "$(jq -er '.transactionIndex' <<<"$receipt")")" \
+            || die "invalid $role transaction index"
+        canonical_tx="$(jq -ce --arg hash "$hash" --argjson index "$tx_index" --argjson receipt "$receipt" '
+            select(.number == $receipt.blockNumber and .hash == $receipt.blockHash)
+            | . as $block | .transactions[$index]
+            | select(.hash == $hash and .blockHash == $block.hash and .blockNumber == $block.number)
+            ' <<<"$canonical_block")" || die "$role transaction $hash is absent from its canonical block"
     fi
-    status="$(jq -er '.status' <<<"$receipt")"
-    block_hex="$(jq -er '.blockNumber' <<<"$receipt")"
+    jq -en --arg hash "$hash" --argjson canonical "$canonical_tx" --argjson tx "$tx" --argjson receipt "$receipt" '
+        $canonical.hash == $hash and $tx.hash == $hash and $receipt.transactionHash == $hash
+        and $tx.blockHash == $canonical.blockHash and $receipt.blockHash == $canonical.blockHash
+        and $tx.blockNumber == $canonical.blockNumber and $receipt.blockNumber == $canonical.blockNumber
+        and $tx.transactionIndex == $canonical.transactionIndex
+        and $receipt.transactionIndex == $canonical.transactionIndex
+        and $tx.to == $canonical.to and $tx.input == $canonical.input
+        ' >/dev/null || die "$role transaction/receipt $hash differs from the canonical block"
+    # Feed every exact validated receipt to Rust, not a second RPC snapshot.
+    printf '%s\n' "$receipt" >"$causal_tmp/$chain-$hash.receipt.json"
     block_number="$(cast to-dec "$block_hex")"
     tx_to="$(jq -er '.to' <<<"$tx")"
     input="$(jq -er '.input' <<<"$tx")"
 
-    [[ "$status" == "0x1" ]] || die "$role transaction $hash reverted"
     reported_block_matches=false
     [[ "$block_number" == "$expected_block" ]] && reported_block_matches=true
-    # Trigger and L2 table summaries are receipt-derived and must be exact. The
-    # upstream L2-origin settlement summary sometimes prints the scan-start
-    # block rather than the matched candidate's block; retain that discrepancy
-    # in evidence while trusting the canonical receipt.
-    if [[ "$role" != settlement && "$reported_block_matches" != true ]]; then
-        die "$role transaction $hash moved from reported block $expected_block to $block_number"
+    # The runner retains the first optimistic L2 receipt even after replay,
+    # and its settlement summary can print the scan-start block. Keep those
+    # hints in evidence; the current canonical transaction and tables decide.
+    if [[ "$reported_block_matches" != true ]]; then
+        case "$chain:$role" in
+            L2:user_trigger|L1:settlement) ;;
+            *) die "$role transaction $hash moved from reported block $expected_block to $block_number" ;;
+        esac
     fi
 
     jq -cn \
@@ -167,20 +181,19 @@ expected_l2_calls_json="$(hashes_from_line 'L2 calls expected')"
 # parallel scenarios. Discover the actual scenario tables by runtime entry hash
 # in canonical block calldata. Keep each selected transaction/receipt whole;
 # the unchanged Rust verifier still enforces exact causal/event multiplicity.
-causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
-trap 'rm -rf "$causal_tmp"' EXIT
 if [[ "$trigger_chain" == L2 ]]; then
     # Revert-only L2 scenarios have no surviving call events and skip the
     # upstream call search/"blocks to verify" line. Their tables must be in
-    # the same blocks as the actual consuming user transactions.
+    # the same blocks as the actual consuming user transactions. After replay,
+    # the upstream first-load block hint can refer to an old optimistic block.
     l2_blocks="$(jq '[.[].block_number] | unique' <<<"$user_receipts_json")"
 else
     l2_blocks="$(sed -n 's/^L2 blocks to verify:[[:space:]]*//p' "$SCENARIO_LOG" | tail -1)"
 fi
-jq -e --argjson first "$load_block" '
+jq -e --arg chain "$trigger_chain" --argjson first "$load_block" '
     type == "array" and length > 0 and length == (unique | length)
     and all(.[]; type == "number" and . >= 0 and . == floor)
-    and index($first) != null' <<<"$l2_blocks" >/dev/null \
+    and ($chain == "L2" or index($first) != null)' <<<"$l2_blocks" >/dev/null \
     || die "missing or invalid verified L2 block list"
 while read -r block; do
     cast block "$block" --full --json --rpc-url "$L2_RPC" >>"$causal_tmp/l2-blocks.jsonl" \
@@ -221,15 +234,10 @@ summary_blocks_match="$(jq -n \
 : >"$causal_tmp/l2-receipts.jsonl"
 for evidence in "${user_receipts[@]}"; do
     hash="$(jq -r '.hash' <<<"$evidence")"
-    if [[ "$trigger_chain" == L1 ]]; then
-        cast rpc eth_getTransactionReceipt "$hash" --rpc-url "$L1_RPC" | jq -c . \
-            >>"$causal_tmp/l1-receipts.jsonl"
-    else
-        cast rpc eth_getTransactionReceipt "$hash" --rpc-url "$L2_RPC" | jq -c . \
-            >>"$causal_tmp/l2-receipts.jsonl"
-    fi
+    jq -c . "$causal_tmp/$trigger_chain-$hash.receipt.json" \
+        >>"$causal_tmp/${trigger_chain,,}-receipts.jsonl"
 done
-cast rpc eth_getTransactionReceipt "$post_hash" --rpc-url "$L1_RPC" | jq -c . \
+jq -c . "$causal_tmp/L1-$post_hash.receipt.json" \
     >>"$causal_tmp/l1-receipts.jsonl"
 for hash in "${system_hashes[@]}"; do
     jq -c . "$causal_tmp/L2-$hash.receipt.json" >>"$causal_tmp/l2-receipts.jsonl"
@@ -276,6 +284,17 @@ if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
     die "settlement blob semantic verification failed"
 fi
 blob_da="$(jq -c . "$blob_evidence_file")"
+
+# A reorg during RPC collection must not turn individually valid snapshots
+# into evidence for incompatible blocks. Recheck both chains after verification.
+for chain in L1 L2; do
+    rpc="$L1_RPC"
+    [[ "$chain" == L2 ]] && rpc="$L2_RPC"
+    while IFS=$'\t' read -r block hash; do
+        [[ "$(cast block "$block" --field hash --rpc-url "$rpc")" == "$hash" ]] \
+            || die "$chain changed during evidence collection at block $block"
+    done < <(jq -rs 'map([.blockNumber, .blockHash]) | unique[] | @tsv' "$causal_tmp/$chain-"*.receipt.json)
+done
 
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"

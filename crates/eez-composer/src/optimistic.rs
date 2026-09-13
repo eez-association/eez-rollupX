@@ -1,430 +1,955 @@
-//! Per-rollup ledger of cross-chain txs whose Sync block committed to L2
-//! *before* their L1 bundle settled.
-//!
-//! Optimistic composition commits the rich Sync block immediately and
-//! observes the L1 bundle in the background; between commit and
-//! settlement the drained user txs live here, keyed by Sync-block L2
-//! height. Three resolution paths:
-//!
-//! - **Settled**: retained until L1 finality so a reorg can still
-//!   recover the txs ([`OptimisticallyIncluded::take_rolled_out`]); at
-//!   finality the composer audits the postBatch receipt before dropping
-//!   ([`OptimisticallyIncluded::take_finalized`]) — a missed-reorg
-//!   backstop (invariant 7).
-//! - **Failed**: the observer only marks it
-//!   ([`OptimisticallyIncluded::mark_failed`]); recovery (reorg to the parent,
-//!   substitute an empty sibling, re-push unburned txs) runs at the next slot
-//!   event, serialized against the Sequencer and Deriver to close the TOCTOU
-//!   ([`OptimisticallyIncluded::take_failed_for_recovery`]).
-//! - **Cursor-confirmed**: the Deriver's cursor passing the Sync height
-//!   proves settlement independently of the observer
-//!   ([`OptimisticallyIncluded::resolve_below_cursor`]); the
-//!   one-in-flight gate ([`OptimisticallyIncluded::blocking_height`])
-//!   holds emission until then.
-//!
-//! Keyed by L2 heights; the L1⇄L2 map is the Deriver-owned
-//! `L1CanonicalHead` batch index.
+//! Attempt-scoped transaction ownership. A height or an observer verdict is
+//! never proof of completion; only canonical derivation plus source outcomes
+//! can resolve an attempt.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use alloy_primitives::TxHash;
+use alloy_primitives::{Address, B256, Bytes};
+use eez_l1::L1BlockRef;
+use eez_protocol::settlement_manifest::SettlementManifest;
 use reth_primitives_traits::SealedHeader;
 
 use crate::held_pool::HeldTx;
+use crate::ingress::Direction;
 
-/// A failed entry extracted for slot-context recovery.
-///
-/// "Failed" here always means the bundle did not land (postBatch had no
-/// receipt by its target L1 block). Under strict all-or-nothing bundles
-/// a reverting tx is excluded → the whole bundle drops, so the outcome
-/// can't distinguish "relay bad luck" from "a tx would revert" — both
-/// look like a drop. Poison is therefore caught earlier, at compose
-/// time (a tx whose chained simulation deterministically fails is
-/// evicted before it can ever enter a bundle); a drop that reaches
-/// recovery is treated as bad luck and re-queued, with
-/// [`MAX_BUNDLE_ATTEMPTS`](crate::composer::MAX_BUNDLE_ATTEMPTS) as a
-/// backstop for poison the compose-time sim view missed. The same bound covers
-/// proof failures, so one counter follows a transaction across both paths.
-#[derive(Debug)]
-pub struct FailedBatch {
-    /// L2 height of the optimistically-committed Sync block.
-    pub sync_height: u64,
-    /// Hash of the batch's postBatch L1 tx (keccak of the raw
-    /// EIP-2718 envelope) — preserved across reinsert so the finality
-    /// audit can still locate the receipt.
-    pub post_batch_hash: TxHash,
-    /// The Sync block's parent — the reorg target if the block landed.
-    pub parent: SealedHeader<alloy_consensus::Header>,
-    /// The user txs whose effects the block carried.
-    pub txs: Vec<HeldTx>,
-    /// Drop not attributable to the txs (skipped L1 slot, relay transport
-    /// failure) — recovery re-queues without counting toward poison-eviction.
-    pub slot_skipped: bool,
-}
-
-/// Resolution state of one optimistically-committed Sync block's batch.
+/// Identity carried by asynchronous observers. Height reuse cannot match it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Resolution {
-    /// Bundle submitted; outcome not yet known.
-    Pending,
-    /// L1 settled (observer verdict or Deriver cursor confirmation).
-    /// Retained until L1 finality for reorg recovery.
-    Settled,
-    /// Observer verdict: the bundle didn't land. Awaiting slot-context
-    /// recovery (reorg + re-push) via
-    /// [`OptimisticallyIncluded::take_failed_for_recovery`]. The
-    /// Deriver's cursor reaching this height overrides to Settled — the
-    /// cursor is the stronger oracle.
-    Failed,
+pub struct AttemptId {
+    pub generation: u64,
+    pub post_batch_hash: B256,
 }
 
-#[derive(Debug)]
-struct InFlight {
-    txs: Vec<HeldTx>,
-    /// Hash of the bundle's postBatch L1 tx — the finality audit
-    /// checks its receipt before the entry is dropped.
-    post_batch_hash: TxHash,
-    parent: SealedHeader<alloy_consensus::Header>,
-    resolution: Resolution,
-    /// Whether the Deriver cursor has confirmed this entry. This is
-    /// independent from `resolution`: the observer can mark an entry
-    /// Settled first, while cursor confirmation owns the held pool's
-    /// one-time in-flight cleanup.
-    cursor_confirmed: bool,
-    /// Set by `mark_failed` when the drop wasn't the bundled txs' fault.
-    slot_skipped: bool,
+/// Submission observations never prove which users settled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionObservation {
+    /// Prepared before the submitter resolves/dispatches the target.
+    Prepared,
+    /// Recorded at the submitter's last gate, before the network request.
+    Dispatched { block: u64, timestamp: u64 },
+    /// The signed postBatch has a canonical receipt; derivation still decides
+    /// which effects applied.
+    Included { block: L1BlockRef },
+    /// Conclusively not included in this slot.
+    Excluded { block: u64, charge_attempt: bool },
+    /// Network error or incomplete observation. Retain ownership.
+    Uncertain,
 }
 
-/// Ledger of in-flight and settled-but-unfinalized optimistic batches.
-/// One per cross-chain rollup, alongside its `HeldPool`.
+/// Explicit terminal user outcomes. Local policy terminations have no L1
+/// dependency; canonical source outcomes must be reconsidered after a reorg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalReason {
+    Committed,
+    SourceReverted,
+    SourceCompletedWithMissingEffects,
+    SourceCompleted,
+    SourceNonceSpent,
+    AttemptsExhausted,
+    NonceGap,
+    PoolDiscarded,
+}
+
+/// Current ownership, independently of historical attempts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserLocation {
+    Queued,
+    /// Drained for recomposition but not externally dispatched.
+    Composing,
+    AwaitingEvidence,
+    Terminal {
+        reason: TerminalReason,
+        canonical: Option<L1BlockRef>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OwnedUser {
+    pub tx: HeldTx,
+    pub owner: u64,
+    pub fifo_position: usize,
+    pub location: UserLocation,
+}
+
+/// Submitted attempt retained for reconciliation and reorg history.
+/// Pending lookups receive a detached clone before asynchronous evidence reads.
+#[derive(Debug, Clone)]
+pub struct AttemptRecord {
+    pub id: AttemptId,
+    pub sync_height: u64,
+    pub parent: SealedHeader<alloy_consensus::Header>,
+    pub txs: Vec<HeldTx>,
+    pub manifest: SettlementManifest,
+    pub post_batch: Bytes,
+    /// Actual resolved target is retained even if observation later fails.
+    pub dispatched_target: Option<(u64, u64)>,
+    pub observation: SubmissionObservation,
+    /// Snapshot against which all currently owned users were classified.
+    pub(crate) reconciled_at: Option<L1BlockRef>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AttemptState {
+    pub next_generation: u64,
+    pub attempts: BTreeMap<u64, AttemptRecord>,
+    pub users: BTreeMap<B256, OwnedUser>,
+}
+
+/// Conclusive outcome supplied by canonical source reconciliation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceOutcome {
+    Terminal(TerminalReason),
+    /// Canonical source nonce at the checked snapshot, not an optimistic
+    /// receipt or pending nonce.
+    Retryable {
+        source_nonce: u64,
+    },
+}
+
+/// Nonce suffix that cannot progress after a retry budget is exhausted.
+#[derive(Debug, Clone, Copy)]
+pub struct NonceGap {
+    pub sender: Address,
+    pub direction: Direction,
+    pub nonce: u64,
+}
+
+/// In-memory ownership of submitted users and unfinalized attempts.
+/// Restart reconstructs canonical state; pending users may need resubmission.
 #[derive(Debug, Default)]
 pub struct OptimisticallyIncluded {
-    by_sync_height: Mutex<BTreeMap<u64, InFlight>>,
+    state: Mutex<AttemptState>,
 }
 
 impl OptimisticallyIncluded {
-    /// Empty ledger.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Record a freshly-submitted batch: the Sync block at
-    /// `sync_height` carries `txs`' cross-chain effects and its bundle
-    /// — whose postBatch L1 tx hashes to `post_batch_hash` — is now in
-    /// flight. Replaces any stale entry at the same height (a
-    /// failed-then-reorged slot rebuilds at the same height).
+    pub(crate) fn read<T>(&self, f: impl FnOnce(&AttemptState) -> T) -> T {
+        let state = self.state.lock().expect("optimistic ledger mutex poisoned");
+        f(&state)
+    }
+
+    /// Publish a complete ownership decision or leave the original unchanged.
+    /// No ledger lock is held across an await.
+    pub(crate) fn update<T>(
+        &self,
+        f: impl FnOnce(&mut AttemptState) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "optimistic ledger mutex poisoned")?;
+        let mut next = state.clone();
+        let result = f(&mut next)?;
+        *state = next;
+        Ok(result)
+    }
+
+    /// Register a freshly prepared attempt before handing it to the submitter.
     pub fn begin(
         &self,
         sync_height: u64,
-        post_batch_hash: TxHash,
+        post_batch_hash: B256,
         parent: SealedHeader<alloy_consensus::Header>,
         txs: Vec<HeldTx>,
-    ) {
-        let mut map = self.by_sync_height.lock().unwrap();
-        map.insert(
-            sync_height,
-            InFlight {
-                txs,
+        manifest: SettlementManifest,
+        post_batch: Bytes,
+    ) -> Result<AttemptId, String> {
+        if manifest.sync_number != sync_height || manifest.users.len() != txs.len() {
+            return Err("attempt manifest does not cover its users and Sync height".into());
+        }
+        for (tx, user) in txs.iter().zip(&manifest.users) {
+            if tx.hash != user.tx_hash
+                || tx.sender != user.sender
+                || tx.nonce != user.nonce
+                || tx.attempts != user.attempts
+                || (tx.direction == Direction::Inbound) != (user.source_rollup_id.0 == 0)
+            {
+                return Err("attempt signed-user identity differs from manifest".into());
+            }
+        }
+        self.update(|state| {
+            if state
+                .attempts
+                .values()
+                .any(|attempt| needs_resolution(state, attempt))
+            {
+                return Err("another submitted attempt still owns unresolved users".into());
+            }
+            let generation = state.next_generation;
+            state.next_generation = generation
+                .checked_add(1)
+                .ok_or("attempt generation exhausted")?;
+            let id = AttemptId {
+                generation,
                 post_batch_hash,
-                parent,
-                resolution: Resolution::Pending,
-                cursor_confirmed: false,
-                slot_skipped: false,
-            },
-        );
-    }
-
-    /// The lowest entry height above `cursor`, if any — the previous
-    /// postBatch is not yet DERIVER-confirmed and the composer must
-    /// skip emission this slot. Counts Pending, Settled, AND Failed
-    /// entries: an observer settle-verdict is NOT enough to re-open
-    /// the gate — only the Deriver's cursor passing the height proves
-    /// the next bundle would read a fresh `posted` cursor. (Failed
-    /// entries are extracted by `take_failed_for_recovery` before this
-    /// check; one still present means recovery didn't complete — stay
-    /// blocked.) Call after [`Self::resolve_below_cursor`].
-    #[must_use]
-    pub fn blocking_height(&self, cursor: u64) -> Option<u64> {
-        let map = self.by_sync_height.lock().unwrap();
-        map.range(cursor + 1..).next().map(|(h, _)| *h)
-    }
-
-    /// Flip Pending AND Failed entries at or below the Deriver's
-    /// cursor to Settled — the cursor only advances past a batch after
-    /// `check_claimed_state` accepted it, which is a stronger
-    /// settlement proof than the observer's log scan. A Failed verdict
-    /// is overridden here: a false-negative observation must not undo
-    /// a batch the Deriver confirmed. Returns the txs newly resolved so
-    /// the held pool can release their in-flight nonce reservations.
-    pub fn resolve_below_cursor(&self, cursor: u64) -> Vec<HeldTx> {
-        let mut map = self.by_sync_height.lock().unwrap();
-        let mut newly_cursor_confirmed = Vec::new();
-        for (_, entry) in map.range_mut(..=cursor) {
-            if entry.resolution != Resolution::Settled {
-                entry.resolution = Resolution::Settled;
+            };
+            for (fifo_position, tx) in txs.iter().cloned().enumerate() {
+                state.users.insert(
+                    tx.hash,
+                    OwnedUser {
+                        tx,
+                        owner: generation,
+                        fifo_position,
+                        location: UserLocation::AwaitingEvidence,
+                    },
+                );
             }
-            if !entry.cursor_confirmed {
-                newly_cursor_confirmed.extend(entry.txs.iter().cloned());
-                entry.cursor_confirmed = true;
-            }
-        }
-        newly_cursor_confirmed
-    }
-
-    /// Observer verdict: the bundle settled on L1. Entry is retained
-    /// (Settled) until [`Self::take_finalized`].
-    pub fn mark_settled(&self, sync_height: u64) {
-        let mut map = self.by_sync_height.lock().unwrap();
-        if let Some(entry) = map.get_mut(&sync_height) {
-            entry.resolution = Resolution::Settled;
-        }
-    }
-
-    /// Observer verdict: the bundle failed (dropped, or landed without
-    /// reaching the claimed final block hash). Marks the entry Failed;
-    /// the actual recovery (L2 reorg + re-push) happens in slot
-    /// context via [`Self::take_failed_for_recovery`] — the observer
-    /// task never mutates chain state. No-op if the entry is already
-    /// Settled (cursor confirmation wins) or gone. See
-    /// [`FailedBatch::slot_skipped`] for the flag.
-    pub fn mark_failed(&self, sync_height: u64, slot_skipped: bool) {
-        let mut map = self.by_sync_height.lock().unwrap();
-        if let Some(entry) = map.get_mut(&sync_height)
-            && entry.resolution == Resolution::Pending
-        {
-            entry.resolution = Resolution::Failed;
-            entry.slot_skipped = slot_skipped;
-        }
-    }
-
-    /// Extract the Failed entry above `cursor`, if any, for slot-
-    /// context recovery (at most one can exist — the gate blocks new
-    /// emission while any entry is unresolved). The caller performs
-    /// the reorg + re-push; on a recovery error it re-inserts via
-    /// [`Self::reinsert_failed`] so the gate stays closed and the next
-    /// slot retries.
-    #[must_use]
-    pub fn take_failed_for_recovery(&self, cursor: u64) -> Option<FailedBatch> {
-        let mut map = self.by_sync_height.lock().unwrap();
-        let h = map
-            .range(cursor + 1..)
-            .find(|(_, e)| e.resolution == Resolution::Failed)
-            .map(|(h, _)| *h)?;
-        let entry = map.remove(&h)?;
-        Some(FailedBatch {
-            sync_height: h,
-            post_batch_hash: entry.post_batch_hash,
-            parent: entry.parent,
-            txs: entry.txs,
-            slot_skipped: entry.slot_skipped,
+            state.attempts.insert(
+                generation,
+                AttemptRecord {
+                    id,
+                    sync_height,
+                    parent,
+                    txs,
+                    manifest,
+                    post_batch,
+                    dispatched_target: None,
+                    observation: SubmissionObservation::Prepared,
+                    reconciled_at: None,
+                },
+            );
+            Ok(id)
         })
     }
 
-    /// Put a failed entry back after an unsuccessful recovery attempt.
-    pub fn reinsert_failed(&self, batch: FailedBatch) {
-        let mut map = self.by_sync_height.lock().unwrap();
-        map.insert(
-            batch.sync_height,
-            InFlight {
-                txs: batch.txs,
-                post_batch_hash: batch.post_batch_hash,
-                parent: batch.parent,
-                resolution: Resolution::Failed,
-                cursor_confirmed: false,
-                slot_skipped: batch.slot_skipped,
-            },
-        );
+    /// Lowest unresolved attempt, independently of the scheduling cursor.
+    #[must_use]
+    pub fn blocking_height(&self) -> Option<u64> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .filter(|attempt| needs_resolution(state, attempt))
+                .map(|attempt| attempt.sync_height)
+                .min()
+        })
     }
 
-    /// L1 reorg rolled out every SETTLED batch above `new_l2_cursor`
-    /// (the retreated Deriver cursor). Removes and returns their txs
-    /// for re-queueing. Pending entries stay — an L1 reorg does not
-    /// invalidate an in-flight bundle targeting a future L1 block (its
-    /// observer will resolve it); Failed entries stay for the slot
-    /// recovery path.
     #[must_use]
-    pub fn take_rolled_out(&self, new_l2_cursor: u64) -> Vec<HeldTx> {
-        let mut map = self.by_sync_height.lock().unwrap();
-        let heights: Vec<u64> = map
-            .range(new_l2_cursor + 1..)
-            .filter(|(_, e)| e.resolution == Resolution::Settled)
-            .map(|(h, _)| *h)
-            .collect();
-        heights
-            .into_iter()
-            .filter_map(|h| map.remove(&h))
-            .flat_map(|e| e.txs)
-            .collect()
+    pub fn pending_attempt(&self) -> Option<AttemptRecord> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .find(|attempt| needs_resolution(state, attempt))
+                .cloned()
+        })
     }
 
-    /// L1 finality reached `finalized_l2`: extract the Settled entries
-    /// at or below it as `(sync_height, post_batch_hash, txs)` for the
-    /// caller's finality audit. The entries are removed — but NOT
-    /// dropped blind: the caller verifies each postBatch receipt still
-    /// exists on L1 before discarding, catching the
-    /// L1Watcher-missed-a-reorg case where a rolled-out batch would
-    /// otherwise leave phantom effects on L2. Pending and Failed
-    /// entries stay (their own resolution paths own them).
-    #[must_use]
-    pub fn take_finalized(&self, finalized_l2: u64) -> Vec<(u64, TxHash, Vec<HeldTx>)> {
-        let mut map = self.by_sync_height.lock().unwrap();
-        let heights: Vec<u64> = map
-            .range(..=finalized_l2)
-            .filter(|(_, e)| e.resolution == Resolution::Settled)
-            .map(|(h, _)| *h)
-            .collect();
-        heights
-            .into_iter()
-            .filter_map(|h| map.remove(&h).map(|e| (h, e.post_batch_hash, e.txs)))
-            .collect()
+    /// A late callback can update only the exact attempt that created it.
+    pub fn observe(
+        &self,
+        id: AttemptId,
+        observation: SubmissionObservation,
+    ) -> Result<bool, String> {
+        self.update(|state| {
+            let Some(attempt) = state
+                .attempts
+                .get_mut(&id.generation)
+                .filter(|attempt| attempt.id == id && attempt.reconciled_at.is_none())
+            else {
+                return Ok(false);
+            };
+            if let SubmissionObservation::Dispatched { block, timestamp } = observation {
+                if attempt.dispatched_target.is_some() {
+                    return Err(
+                        "attempt already dispatched; expired envelopes must never be resent".into(),
+                    );
+                }
+                attempt.dispatched_target = Some((block, timestamp));
+            }
+            attempt.observation = observation;
+            Ok(true)
+        })
     }
+
+    /// Apply the user partition once, retaining the original record for
+    /// reorg/finality but transferring only eligible users back to the queue.
+    pub fn resolve(
+        &self,
+        id: AttemptId,
+        as_of: L1BlockRef,
+        outcomes: &[SourceOutcome],
+        charge_attempt: bool,
+        attempt_limit: u32,
+    ) -> Result<Vec<NonceGap>, String> {
+        self.update(|state| {
+            let Some(attempt) = state
+                .attempts
+                .get(&id.generation)
+                .filter(|attempt| attempt.id == id && attempt.reconciled_at.is_none())
+            else {
+                return Ok(Vec::new());
+            };
+            if outcomes.len() != attempt.txs.len() {
+                return Err("source outcomes do not cover the complete attempt".into());
+            }
+            let mut gaps = Vec::new();
+            for (tx, outcome) in attempt.txs.iter().zip(outcomes) {
+                let Some(user) = state.users.get_mut(&tx.hash).filter(|user| {
+                    user.owner == id.generation && user.location == UserLocation::AwaitingEvidence
+                }) else {
+                    continue;
+                };
+                user.location = match outcome {
+                    SourceOutcome::Terminal(reason) => UserLocation::Terminal {
+                        reason: *reason,
+                        canonical: Some(as_of),
+                    },
+                    SourceOutcome::Retryable { source_nonce } => {
+                        if *source_nonce > tx.nonce {
+                            return Err("retry requested for a spent source nonce".into());
+                        }
+                        if charge_attempt {
+                            user.tx.attempts = user.tx.attempts.saturating_add(1);
+                        }
+                        if user.tx.attempts >= attempt_limit {
+                            gaps.push(NonceGap {
+                                sender: tx.sender,
+                                direction: tx.direction,
+                                nonce: tx.nonce,
+                            });
+                            UserLocation::Terminal {
+                                reason: TerminalReason::AttemptsExhausted,
+                                canonical: None,
+                            }
+                        } else {
+                            UserLocation::Queued
+                        }
+                    }
+                };
+            }
+            // A source-included revert/completion is terminal but creates no
+            // nonce gap. Only a still-reusable nonce exhausted above cascades.
+            for user in state.users.values_mut() {
+                if matches!(
+                    user.location,
+                    UserLocation::Queued | UserLocation::Composing
+                ) && gaps.iter().any(|gap| {
+                    user.tx.sender == gap.sender
+                        && user.tx.direction == gap.direction
+                        && user.tx.nonce > gap.nonce
+                }) {
+                    user.location = UserLocation::Terminal {
+                        reason: TerminalReason::NonceGap,
+                        canonical: None,
+                    };
+                }
+            }
+            state
+                .attempts
+                .get_mut(&id.generation)
+                .expect("attempt exists")
+                .reconciled_at = Some(as_of);
+            Ok(gaps)
+        })
+    }
+
+    /// Reorgs revoke canonical conclusions, including same-L2-height rewrites.
+    /// History whose users are now owned by a retry cannot reclaim them.
+    pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
+        self.update(|state| {
+            for user in state.users.values_mut() {
+                if matches!(user.location, UserLocation::Terminal {
+                    canonical: Some(block), ..
+                } if block.number > ancestor)
+                {
+                    user.location = UserLocation::AwaitingEvidence;
+                    if let Some(attempt) = state.attempts.get_mut(&user.owner) {
+                        attempt.reconciled_at = None;
+                        attempt.observation = SubmissionObservation::Uncertain;
+                    }
+                }
+            }
+            for attempt in state.attempts.values_mut() {
+                if attempt.txs.is_empty()
+                    && attempt
+                        .reconciled_at
+                        .is_some_and(|block| block.number > ancestor)
+                {
+                    attempt.reconciled_at = None;
+                    attempt.observation = SubmissionObservation::Uncertain;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    #[must_use]
+    pub fn finalization_candidates(&self, finalized_l1: u64) -> Vec<(AttemptId, L1BlockRef)> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .filter_map(|attempt| {
+                    let block = attempt
+                        .reconciled_at
+                        .filter(|block| block.number <= finalized_l1)?;
+                    (!state.users.values().any(|user| {
+                        user.owner == attempt.id.generation
+                            && !matches!(user.location, UserLocation::Terminal { .. })
+                    }))
+                    .then_some((attempt.id, block))
+                })
+                .collect()
+        })
+    }
+
+    /// Called only after a conclusive canonical finality audit. Errors or a
+    /// reorg retain the record. No held-pool reservation is released here.
+    pub fn forget_finalized(&self, id: AttemptId, audited: L1BlockRef) -> Result<(), String> {
+        self.update(|state| {
+            let eligible =
+                state.attempts.get(&id.generation).is_some_and(|attempt| {
+                    attempt.id == id && attempt.reconciled_at == Some(audited)
+                }) && !state.users.values().any(|user| {
+                    user.owner == id.generation
+                        && !matches!(user.location, UserLocation::Terminal { .. })
+                });
+            if eligible {
+                state.attempts.remove(&id.generation);
+                state.users.retain(|_, user| user.owner != id.generation);
+            }
+            Ok(())
+        })
+    }
+}
+
+fn needs_resolution(state: &AttemptState, attempt: &AttemptRecord) -> bool {
+    attempt.reconciled_at.is_none()
+        && (attempt.txs.is_empty()
+            || state.users.values().any(|user| {
+                user.owner == attempt.id.generation
+                    && user.location == UserLocation::AwaitingEvidence
+            }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::{B256, Bytes, keccak256};
+    use crate::HeldPool;
+    use alloy_consensus::transaction::SignerRecoverable;
+    use alloy_consensus::{SignableTransaction, Transaction, TxEip1559, TxEnvelope};
+    use alloy_eips::Encodable2718;
+    use alloy_network::TxSignerSync;
+    use alloy_primitives::{TxKind, U256};
+    use alloy_signer_local::PrivateKeySigner;
+    use eez_protocol::blob_semantics::SemanticTransaction;
+    use eez_protocol::settlement_manifest::{ManifestInput, ProposedUser};
+    use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
+    use std::sync::{Arc, Barrier};
 
-    fn tx(tag: u8) -> HeldTx {
-        let raw = Bytes::from(vec![tag; 4]);
-        let hash = keccak256(raw.as_ref());
+    fn tx(tag: u8, nonce: u64) -> HeldTx {
+        let signer: PrivateKeySigner = B256::with_last_byte(tag).to_string().parse().unwrap();
+        let mut unsigned = TxEip1559 {
+            chain_id: 31337,
+            nonce,
+            gas_limit: 1_000_000,
+            max_fee_per_gas: 100,
+            max_priority_fee_per_gas: 10,
+            to: TxKind::Call(Address::repeat_byte(4)),
+            ..Default::default()
+        };
+        let signature = signer.sign_transaction_sync(&mut unsigned).unwrap();
+        let signed = TxEnvelope::from(unsigned.into_signed(signature));
         HeldTx {
-            raw_tx: raw,
-            hash,
+            raw_tx: Bytes::from(signed.encoded_2718()),
+            hash: *signed.tx_hash(),
             attempts: 0,
-            max_fee_per_gas: u128::from(tag),
-            priority_fee_per_gas: u128::from(tag),
-            sender: alloy_primitives::Address::repeat_byte(tag),
-            nonce: u64::from(tag),
-            direction: crate::ingress::Direction::Inbound,
+            sender: signed.recover_signer().unwrap(),
+            nonce: signed.nonce(),
+            direction: Direction::Inbound,
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 10,
         }
     }
 
-    fn hdr() -> SealedHeader<alloy_consensus::Header> {
-        SealedHeader::new(alloy_consensus::Header::default(), B256::ZERO)
+    fn manifest(txs: &[HeldTx]) -> SettlementManifest {
+        let semantics = txs
+            .iter()
+            .map(|tx| SemanticTransaction {
+                origin_chain: RollupId(0),
+                tx_data: tx.raw_tx.clone(),
+                actions: vec![ExecutedAction {
+                    parent_index: None,
+                    call_mode: CallMode::Mutable,
+                    target_address: Address::repeat_byte(5),
+                    target_rollup_id: RollupId(1),
+                    source_rollup_id: RollupId(0),
+                    source_address: tx.sender,
+                    data: Bytes::new(),
+                    value: U256::ZERO,
+                    outcome: ExecutionOutcome::Resolved {
+                        return_data: vec![],
+                        gas_used: 1,
+                        success: true,
+                    },
+                    revert_span: None,
+                }],
+            })
+            .collect::<Vec<_>>();
+        let positions = (0..txs.len()).collect::<Vec<_>>();
+        let hashes = positions
+            .iter()
+            .map(|i| B256::with_last_byte(u8::try_from(i + 1).unwrap()))
+            .collect::<Vec<_>>();
+        SettlementManifest::build(ManifestInput {
+            rollup_id: 1,
+            sync_number: 10,
+            sync_hash: hashes.last().copied().unwrap_or_default(),
+            users: txs
+                .iter()
+                .map(|tx| ProposedUser {
+                    raw: &tx.raw_tx,
+                    source: RollupId(0),
+                    attempts: tx.attempts,
+                })
+                .collect(),
+            semantics: &semantics,
+            outbound_groups: &[],
+            outbound_hosts: &[],
+            checkpoint_positions: &positions,
+            checkpoint_hashes: &hashes,
+        })
+        .unwrap()
     }
 
-    /// Dummy postBatch tx hash, distinguishable per batch.
-    fn pb_hash(tag: u8) -> TxHash {
-        TxHash::repeat_byte(tag)
+    fn begin(ledger: &OptimisticallyIncluded, txs: Vec<HeldTx>, tag: u8) -> AttemptId {
+        let manifest = manifest(&txs);
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            number: 9,
+            ..Default::default()
+        });
+        ledger
+            .begin(
+                10,
+                B256::repeat_byte(tag),
+                parent,
+                txs,
+                manifest,
+                Bytes::new(),
+            )
+            .unwrap()
     }
 
-    #[test]
-    fn gate_blocks_until_cursor_passes_even_when_settled() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1)]);
-        assert_eq!(pool.blocking_height(5), Some(10));
-        // Observer settle-verdict does NOT re-open the gate…
-        pool.mark_settled(10);
-        assert_eq!(pool.blocking_height(5), Some(10));
-        // …only the Deriver's cursor passing the height does.
-        assert_eq!(pool.blocking_height(10), None);
+    fn setup() -> (
+        Arc<OptimisticallyIncluded>,
+        Arc<HeldPool>,
+        Vec<HeldTx>,
+        AttemptId,
+    ) {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = Arc::new(HeldPool::new(Arc::clone(&ledger)));
+        let txs = (1..=3).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
+        for tx in &txs {
+            pool.push_contiguous(tx.clone(), 0).unwrap();
+        }
+        let id = begin(&ledger, pool.pop_all(), 10);
+        (ledger, pool, txs, id)
     }
 
-    #[test]
-    fn failed_recovery_extracts_once_and_unblocks() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1), tx(2)]);
-        pool.mark_failed(10, false);
-        // Failed entry still blocks until recovered.
-        assert_eq!(pool.blocking_height(0), Some(10));
-        let batch = pool.take_failed_for_recovery(0).expect("failed entry");
-        assert_eq!(batch.sync_height, 10);
-        assert_eq!(batch.post_batch_hash, pb_hash(0xa));
-        assert_eq!(batch.txs.len(), 2);
-        assert!(pool.take_failed_for_recovery(0).is_none());
-        assert_eq!(pool.blocking_height(0), None);
-        // Recovery error path: reinsert keeps the gate closed.
-        pool.reinsert_failed(batch);
-        assert_eq!(pool.blocking_height(0), Some(10));
+    fn block(number: u64) -> L1BlockRef {
+        L1BlockRef {
+            number,
+            hash: B256::with_last_byte(u8::try_from(number).unwrap()),
+        }
     }
 
-    #[test]
-    fn reinserted_failure_preserves_nonce_reservations() {
-        let held_pool = crate::HeldPool::new();
-        let original = tx(1);
-        held_pool.push_contiguous(original.clone(), 1).unwrap();
-        let reserved = held_pool.pop_n(1);
-
-        let optimistic = OptimisticallyIncluded::new();
-        optimistic.begin(10, pb_hash(0xa), hdr(), reserved);
-        optimistic.mark_failed(10, false);
-        let failed = optimistic.take_failed_for_recovery(0).unwrap();
-        optimistic.reinsert_failed(failed);
-
-        let mut replacement = original;
-        replacement.hash = TxHash::repeat_byte(0xff);
-        replacement.raw_tx = alloy_primitives::Bytes::from(vec![0xff; 4]);
-        assert!(held_pool.push_contiguous(replacement, 1).is_err());
-        assert_eq!(optimistic.blocking_height(0), Some(10));
-    }
-
-    #[test]
-    fn failed_recovery_propagates_slot_skipped() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1), tx(2)]);
-        // A skipped-slot drop isn't the tx's fault; the flag must reach
-        // recovery so the caller requeues without poison-eviction.
-        pool.mark_failed(10, true);
-        let batch = pool.take_failed_for_recovery(0).expect("failed entry");
-        assert!(batch.slot_skipped);
-        assert_eq!(batch.txs.len(), 2);
-    }
-
-    #[test]
-    fn cursor_resolution_overrides_false_failure() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1)]);
-        pool.mark_failed(10, false);
-        // Deriver confirmed the batch — false-negative verdict overridden.
-        let released = pool.resolve_below_cursor(10);
-        assert_eq!(released.len(), 1);
-        assert!(pool.take_failed_for_recovery(0).is_none());
-        assert_eq!(pool.blocking_height(10), None);
-    }
-
-    #[test]
-    fn cursor_resolution_releases_observer_settled_once() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1), tx(2)]);
-        pool.mark_settled(10);
-
-        let released = pool.resolve_below_cursor(10);
-        assert_eq!(released.len(), 2);
-        assert!(pool.resolve_below_cursor(10).is_empty());
-    }
-
-    #[test]
-    fn rolled_out_recovers_only_settled() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1)]);
-        pool.mark_settled(10);
-        pool.begin(15, pb_hash(0xb), hdr(), vec![tx(2)]); // Pending — in-flight bundle
-        let recovered = pool.take_rolled_out(8);
-        // Only the settled batch's txs come back; the pending bundle's
-        // observer will resolve it.
-        assert_eq!(recovered.len(), 1);
-        assert_eq!(pool.blocking_height(8), Some(15));
+    fn partial() -> [SourceOutcome; 3] {
+        [
+            SourceOutcome::Terminal(TerminalReason::Committed),
+            SourceOutcome::Terminal(TerminalReason::Committed),
+            SourceOutcome::Retryable { source_nonce: 0 },
+        ]
     }
 
     #[test]
-    fn finalize_extracts_settled_for_audit() {
-        let pool = OptimisticallyIncluded::new();
-        pool.begin(10, pb_hash(0xa), hdr(), vec![tx(1)]);
-        pool.mark_settled(10);
-        pool.begin(15, pb_hash(0xb), hdr(), vec![tx(2)]); // Pending — stays
-        let finalized = pool.take_finalized(12);
-        // The settled entry is returned with its postBatch hash so the
-        // caller can audit the receipt; the pending entry stays.
-        assert_eq!(finalized.len(), 1);
-        let (height, post_batch_hash, txs) = &finalized[0];
-        assert_eq!(*height, 10);
-        assert_eq!(*post_batch_hash, pb_hash(0xa));
-        assert_eq!(txs.len(), 1);
-        assert!(pool.take_finalized(12).is_empty());
-        assert!(pool.take_rolled_out(0).is_empty());
-        assert_eq!(pool.blocking_height(12), Some(15));
+    fn partial_consumption_preserves_tail_in_both_observer_orders() {
+        for observer_first in [true, false] {
+            let (ledger, pool, txs, id) = setup();
+            let barrier = Arc::new(Barrier::new(2));
+            let observer = {
+                let ledger = Arc::clone(&ledger);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    if !observer_first {
+                        barrier.wait();
+                    }
+                    ledger
+                        .observe(
+                            id,
+                            SubmissionObservation::Excluded {
+                                block: 100,
+                                charge_attempt: true,
+                            },
+                        )
+                        .unwrap();
+                    if observer_first {
+                        barrier.wait();
+                    }
+                })
+            };
+            if observer_first {
+                barrier.wait();
+            }
+            // Canonical classification of a partial prefix; a competing
+            // confirmed height alone has never opened this gate.
+            assert_eq!(ledger.blocking_height(), Some(10));
+            pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
+                .unwrap();
+            if !observer_first {
+                barrier.wait();
+            }
+            observer.join().unwrap();
+            assert_eq!(ledger.blocking_height(), None);
+            let recovered = pool.pop_all();
+            assert_eq!(recovered.len(), 1);
+            assert_eq!(recovered[0].hash, txs[2].hash);
+            assert_eq!(recovered[0].attempts, 1);
+        }
+    }
+
+    #[test]
+    fn recovery_entered_before_derivation_retains_all_ownership() {
+        let (ledger, pool, txs, id) = setup();
+        ledger
+            .observe(id, SubmissionObservation::Uncertain)
+            .unwrap();
+        let pending = ledger.pending_attempt().unwrap();
+        assert_eq!(pending.id, id);
+        assert_eq!(pending.txs.len(), 3);
+        assert!(pool.is_empty());
+        assert_eq!(ledger.blocking_height(), Some(10));
+        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        assert_eq!(pool.pop_all()[0].hash, txs[2].hash);
+    }
+
+    #[test]
+    fn pending_snapshot_retains_sealed_parent_and_is_independent() {
+        let (ledger, _, txs, id) = setup();
+        let mut snapshot = ledger.pending_attempt().unwrap();
+        assert_eq!(snapshot.id, id);
+        assert_eq!(
+            snapshot.parent,
+            SealedHeader::seal_slow(alloy_consensus::Header {
+                number: 9,
+                ..Default::default()
+            })
+        );
+        ledger
+            .observe(id, SubmissionObservation::Uncertain)
+            .unwrap();
+        assert_eq!(snapshot.observation, SubmissionObservation::Prepared);
+        snapshot.txs.clear();
+        snapshot.manifest.users.clear();
+        let current = ledger.pending_attempt().unwrap();
+        assert_eq!(current.observation, SubmissionObservation::Uncertain);
+        assert_eq!(current.txs, txs);
+        assert_eq!(current.manifest.users.len(), txs.len());
+        assert_eq!(current.parent, snapshot.parent);
+    }
+
+    #[test]
+    fn duplicate_resolution_does_not_release_a_new_attempt_or_charge_again() {
+        let (ledger, pool, _, old) = setup();
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        let retry = pool.pop_all();
+        let new = begin(&ledger, retry, 11);
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        assert!(
+            !ledger
+                .observe(old, SubmissionObservation::Included { block: block(100) })
+                .unwrap()
+        );
+        assert_eq!(ledger.pending_attempt().unwrap().id, new);
+        assert!(pool.is_empty());
+        assert_eq!(ledger.pending_attempt().unwrap().txs[0].attempts, 1);
+        assert_eq!(ledger.blocking_height(), Some(10));
+    }
+
+    #[test]
+    fn included_revert_and_caught_failure_spend_nonce_without_retry() {
+        let (ledger, pool, _, id) = setup();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[
+                SourceOutcome::Terminal(TerminalReason::SourceReverted),
+                SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects),
+                SourceOutcome::Terminal(TerminalReason::SourceCompleted),
+            ],
+            true,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert!(pool.is_empty());
+        assert!(ledger.blocking_height().is_none());
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
+    }
+
+    #[test]
+    fn malformed_partition_and_spent_nonce_retry_are_rejected_without_mutation() {
+        let (ledger, pool, _, id) = setup();
+        let snapshot = || {
+            ledger.read(|state| {
+                (
+                    state.next_generation,
+                    state.users.clone(),
+                    state
+                        .attempts
+                        .iter()
+                        .map(|(id, attempt)| {
+                            (
+                                *id,
+                                attempt.reconciled_at,
+                                attempt.observation.clone(),
+                                attempt.dispatched_target,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+        };
+        let before = snapshot();
+        assert!(
+            pool.resolve_attempt(id, block(100), &partial()[..2], true, 3, || true)
+                .is_err()
+        );
+        assert!(
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &[SourceOutcome::Retryable { source_nonce: 1 }; 3],
+                true,
+                3,
+                || true
+            )
+            .is_err()
+        );
+        // A late invalid outcome must roll back earlier ownership and counter changes.
+        assert!(
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &[
+                    SourceOutcome::Terminal(TerminalReason::Committed),
+                    SourceOutcome::Retryable { source_nonce: 0 },
+                    SourceOutcome::Retryable { source_nonce: 1 },
+                ],
+                true,
+                3,
+                || true,
+            )
+            .is_err()
+        );
+        assert_eq!(snapshot(), before);
+        assert_eq!(ledger.blocking_height(), Some(10));
+        assert!(pool.is_empty());
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
+    }
+
+    #[test]
+    fn reorg_restores_reservations_and_rejects_a_stale_ownership_decision() {
+        let (ledger, pool, txs, id) = setup();
+        assert!(
+            pool.resolve_attempt(id, block(100), &partial(), true, 3, || false)
+                .is_err()
+        );
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+        assert!(pool.is_empty());
+        assert!(ledger.read(|state| state.users.values().all(|u| u.tx.attempts == 0)));
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert!(ledger.pending_attempt().is_none());
+        pool.invalidate_after_l1(99).unwrap();
+        // Ingress cannot reuse a reopened user's source nonce while the
+        // replacement canonical scan is still incomplete.
+        let mut replacement = txs[0].clone();
+        replacement.hash = B256::repeat_byte(0xff);
+        assert!(pool.push_contiguous(replacement, 0).is_err());
+        pool.push_contiguous(txs[0].clone(), 0).unwrap(); // exact duplicate is idempotent
+        assert!(pool.is_empty());
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+        pool.resolve_attempt(id, block(101), &partial(), false, 3, || true)
+            .unwrap();
+        assert_eq!(
+            pool.pop_all().iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            vec![txs[2].hash]
+        );
+    }
+
+    #[test]
+    fn reorg_at_same_l2_height_reopens_only_canonical_owned_users() {
+        let (ledger, pool, _, old) = setup();
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        let new = begin(&ledger, pool.pop_all(), 11);
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, old);
+        assert!(ledger.read(|state| {
+            state
+                .users
+                .values()
+                .filter(|u| u.owner == new.generation)
+                .count()
+                == 1
+        }));
+        // The old attempt cannot claim the tail now owned by its retry.
+        pool.resolve_attempt(
+            old,
+            block(101),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.len(), 2);
+        assert_eq!(ledger.pending_attempt().unwrap().id, new);
+    }
+
+    #[test]
+    fn finality_prunes_reorged_history_only_after_ownership_has_transferred() {
+        let (ledger, pool, _, old) = setup();
+        pool.resolve_attempt(
+            old,
+            block(100),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            true,
+            3,
+            || true,
+        )
+        .unwrap();
+        let new = begin(&ledger, pool.pop_all(), 11);
+        pool.invalidate_after_l1(99).unwrap();
+        ledger.forget_finalized(old, block(100)).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, new);
+        assert!(ledger.read(|state| {
+            state.attempts.len() == 1
+                && state.users.len() == 3
+                && state.users.values().all(|user| {
+                    user.owner == new.generation
+                        && user.location == UserLocation::AwaitingEvidence
+                        && user.tx.attempts == 1
+                })
+        }));
+
+        // A reorged canonical completion still owned by this attempt must
+        // instead await a fresh source audit, even at the same L2 height.
+        pool.resolve_attempt(new, block(101), &partial(), false, 3, || true)
+            .unwrap();
+        pool.invalidate_after_l1(100).unwrap();
+        ledger.forget_finalized(new, block(101)).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, new);
+    }
+
+    #[test]
+    fn finality_only_forgets_audited_history_without_touching_retry() {
+        let (ledger, pool, _, old) = setup();
+        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        assert!(ledger.finalization_candidates(100).is_empty()); // queued retry still owns its history
+        let new = begin(&ledger, pool.pop_all(), 11);
+        assert_eq!(ledger.finalization_candidates(100), [(old, block(100))]);
+        ledger.forget_finalized(old, block(99)).unwrap(); // stale/incorrect audit
+        assert_eq!(ledger.finalization_candidates(100).len(), 1);
+        ledger.forget_finalized(old, block(100)).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, new);
+        assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn retries_preserve_fifo_and_infrastructure_failures_do_not_charge() {
+        let (_, pool, txs, id) = setup();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        let recovered = pool.pop_all();
+        assert_eq!(
+            recovered.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            txs.iter().map(|tx| tx.hash).collect::<Vec<_>>()
+        );
+        assert!(recovered.iter().all(|tx| tx.attempts == 0));
+    }
+
+    #[test]
+    fn stale_recomposition_preserves_canonical_reorg_recovery() {
+        let (ledger, pool, _, id) = setup();
+        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
+            .unwrap();
+        let drained = pool.pop_all();
+        assert!(pool.recheck_stale_sources(&drained).unwrap());
+        assert_eq!(ledger.blocking_height(), Some(10));
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+        assert!(pool.is_empty());
+        let mut outcomes = partial();
+        outcomes[2] = SourceOutcome::Terminal(TerminalReason::SourceNonceSpent);
+        pool.resolve_attempt(id, block(101), &outcomes, false, 3, || true)
+            .unwrap();
+        ledger.invalidate_after_l1(100).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+    }
+
+    #[test]
+    fn exhausted_unspent_nonce_evicts_only_its_direction_and_sender_suffix_once() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut exhausted = tx(1, 0);
+        exhausted.attempts = u32::MAX;
+        let suffix = tx(1, 1);
+        let independent = tx(2, 0);
+        let users = vec![exhausted.clone(), suffix.clone(), independent.clone()];
+        for user in &users {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let id = begin(&ledger, pool.pop_all(), 10);
+        let outcomes = vec![SourceOutcome::Retryable { source_nonce: 0 }; 3];
+        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
+            .unwrap();
+        // A duplicate callback cannot increment the independent retry again.
+        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
+            .unwrap();
+        let queued = pool.pop_all();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].hash, independent.hash);
+        assert_eq!(queued[0].attempts, 1);
+        ledger.read(|state| {
+            assert_eq!(state.users[&exhausted.hash].tx.attempts, u32::MAX);
+            assert!(matches!(
+                state.users[&exhausted.hash].location,
+                UserLocation::Terminal {
+                    reason: TerminalReason::AttemptsExhausted,
+                    canonical: None
+                }
+            ));
+            assert!(matches!(
+                state.users[&suffix.hash].location,
+                UserLocation::Terminal {
+                    reason: TerminalReason::NonceGap,
+                    canonical: None
+                }
+            ));
+        });
     }
 }

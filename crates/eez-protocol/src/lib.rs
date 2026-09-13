@@ -51,6 +51,7 @@ pub mod public_inputs;
 pub mod rolling_hash;
 pub mod rollup_id;
 pub mod settlement;
+pub mod settlement_manifest;
 pub mod signer;
 pub mod system_tx;
 pub mod types;

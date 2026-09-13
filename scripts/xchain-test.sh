@@ -298,7 +298,7 @@ for l in """$(grep 'dispatching bundle to builder' <<<"$clean")""".splitlines():
     h=re.search(r'tx_hash=(0x[0-9a-f]{64})',l); b=re.search(r'target_block=(\d+)',l)
     if h and b: tgt[h.group(1)]=int(b.group(1))
 hit=chk=0
-for l in """$(grep 'bundle outcome observed' <<<"$clean"|grep Included)""".splitlines():
+for l in """$(grep -F 'eez.composer.bundle.observed' <<<"$clean"|grep Included)""".splitlines():
     h=re.search(r'tx_hash: (0x[0-9a-f]{64})',l); b=re.search(r'l1_block: (\d+)',l)
     if h and b and h.group(1) in tgt: chk+=1; hit+= (int(b.group(1))==tgt[h.group(1)])
 print(f"{hit}/{chk} ({0 if not chk else round(100*hit/chk)}%)")
@@ -307,7 +307,7 @@ PY
 pbb=$(grep -oE 'l1_block: [0-9]+' <<<"$clean"|grep -oE '[0-9]+$'|sort -n|uniq); consec=0 gap=0 prev=""
 for b in $pbb; do [[ -n "$prev" ]] && { [[ $((b-prev)) -eq 1 ]] && consec=$((consec+1)) || gap=$((gap+1)); }; prev=$b; done
 # Count the authoritative outcome, not a message only some drop paths emit.
-drops=$(grep -c 'outcome=Dropped' <<<"$clean")
+drops=$(grep -cF 'outcome=Ok(Dropped' <<<"$clean")
 # Both eviction paths: 3-strike bundle give-up AND deterministic simulation failure.
 evict=$(grep -cE 'evicted after MAX_BUNDLE_ATTEMPTS|fails simulation deterministically; evicting' <<<"$clean")
 div=$(grep -cE 'diverged from L1-confirmed|local L2 block hash' <<<"$clean")

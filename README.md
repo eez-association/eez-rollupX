@@ -246,6 +246,38 @@ cargo run -p eez-follower -- node \
   --datadir "$EEZ_L2_DATADIR"
 ```
 
+### Partial consumption and recovery
+
+Partial consumption is always enabled. Configure a timestamp-pinned bundle
+relay; all submissions use the relay.
+Only actual signed L1 users following postBatch enter `revertingTxHashes`.
+The required postBatch and its native blob sidecar are preserved. There is no
+submission policy flag or raw-mempool fallback.
+
+Permission to revert does not guarantee that a builder will omit invalid-nonce
+transactions. The [pinned Kurtosis canary](testing/kurtosis/README.md#validate-partial-consumption)
+checks both behaviors against the selected builder image and configuration.
+No `droppingTxHashes` policy is exposed.
+
+The composer tracks each submitted user's signed bytes and ownership in memory
+before dispatch. Reconciliation combines a
+complete canonical L1 scan, validated L2 replay groups and canonical source
+receipts/nonces. It preserves the applied prefix, never retries spent source
+nonces, and requeues eligible omissions once with the existing bounded budget.
+
+Recovery reads source state sequentially and requires the canonical generation
+to remain stable through those reads. With a consistently slow RPC, a large
+batch can keep recovery pending across successive scans. Monitor the settlement
+backlog and reduce `EEZ_MAX_USER_TXS_PER_BUNDLE` (default: 50) or improve RPC
+latency before increasing the load.
+
+After a restart, the node reconstructs canonical state from L1 and discards the
+local speculative suffix. Pending users and
+retry counters are not persisted; users may need to resubmit transactions that
+have not settled. `EEZ_L2_DATADIR` remains optional for checkpoint and correlation
+caching. Details are in
+[the composer specification](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
+
 ### L1/L2 settlement correlation RPC
 
 Composer and follower L2 RPCs expose the exact canonical mapping derived from

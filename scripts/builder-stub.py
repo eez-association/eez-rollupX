@@ -28,12 +28,14 @@ import os
 import socketserver
 import tempfile
 import urllib.request
+import time
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     upstream = ""
     capture_dir = None
     passthrough_bundles = False
+    test_control_dir = None
 
     def log_message(self, *_):
         pass
@@ -104,6 +106,70 @@ class Handler(http.server.BaseHTTPRequestHandler):
             params = body["params"][0]
             txs = params.get("txs", [])
             if self.passthrough_bundles:
+                hold_path = (os.path.join(self.test_control_dir, "hold-next.json")
+                             if self.test_control_dir else None)
+                hold_next = False
+                if hold_path:
+                    try:
+                        with open(hold_path) as source:
+                            hold = json.load(source)
+                        if hold.get("transaction") is None or hold["transaction"] in txs:
+                            os.replace(hold_path, hold_path + ".used")
+                            hold_next = True
+                    except FileNotFoundError:
+                        # Another request may have consumed this one-shot control.
+                        pass
+                if hold_next:
+                    # A bounded, test-only barrier after proving. The test
+                    # supplies valid signed L1 transactions around the exact
+                    # original postBatch; this never alters its proof or DA.
+                    captured = os.path.join(self.test_control_dir, "held-bundle.json")
+                    with open(captured + ".new", "w") as output:
+                        json.dump(body, output)
+                    os.replace(captured + ".new", captured)
+                    released = os.path.join(self.test_control_dir, "released-bundle.json")
+                    # Leave time for restart tests to persist the already
+                    # settled L1 prefix while the next proposal stays unposted.
+                    deadline = time.monotonic() + 60
+                    while not os.path.exists(released):
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("test did not release held bundle")
+                        time.sleep(0.01)
+                    with open(released) as source:
+                        body = json.load(source)
+                    params = body["params"][0]
+                    txs = params["txs"]
+                fault_path = (os.path.join(self.test_control_dir, "omit-user.json")
+                              if self.test_control_dir else None)
+                # Native integration fault, after composition/proving. This
+                # deliberately controls L1 inclusion, not builder semantics.
+                # Production request generation is tested against rbuilder.
+                if fault_path and os.path.exists(fault_path) and len(txs) == 4:
+                    with open(fault_path) as fault_file:
+                        fault = json.load(fault_file)
+                    omitted = fault["userIndex"]
+                    if not isinstance(omitted, int) or not 0 <= omitted < 3:
+                        raise ValueError("test omission index must be 0, 1, or 2")
+                    os.replace(fault_path, fault_path + ".used")
+                    original = json.loads(json.dumps(body))
+                    if fault.get("holdRetry", False):
+                        # Arm before forwarding the omission. Maintenance-only
+                        # posts must not consume the restart test's retry barrier.
+                        with open(hold_path + ".new", "w") as output:
+                            json.dump({"transaction": txs[omitted + 1]}, output)
+                        os.replace(hold_path + ".new", hold_path)
+                    params["txs"] = [raw for index, raw in enumerate(txs)
+                                     if index != omitted + 1]
+                    # The embedded dev endpoint does not interpret allowlists.
+                    # Retain the original request for exact membership checks.
+                    record = {"original": original, "forwarded": body,
+                              "omittedUser": omitted}
+                    destination = os.path.join(self.test_control_dir, "omission.json")
+                    with open(destination + ".new", "w") as output:
+                        json.dump(record, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(destination + ".new", destination)
                 resp = urllib.request.urlopen(
                     urllib.request.Request(
                         self.upstream,
@@ -189,11 +255,13 @@ def main():
         action="store_true",
         help="forward eth_sendBundle unchanged instead of adapting it for Anvil",
     )
+    p.add_argument("--test-control-dir", help="native integration fault controls (test-only)")
     args = p.parse_args()
     host, port = args.listen.split(":")
     Handler.upstream = args.upstream
     Handler.capture_dir = args.capture_dir
     Handler.passthrough_bundles = args.passthrough_bundles
+    Handler.test_control_dir = args.test_control_dir
     if Handler.capture_dir is not None:
         os.makedirs(Handler.capture_dir, exist_ok=True)
 

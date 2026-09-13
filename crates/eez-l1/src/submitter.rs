@@ -14,11 +14,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy_eips::{BlockNumberOrTag, Decodable2718};
-use alloy_primitives::{B256, TxHash, U256, hex};
-use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types_eth::Filter;
-use alloy_sol_types::SolEvent;
-use eez_protocol::abi::L2ExecutionPerformed;
+use alloy_primitives::{B256, TxHash, hex};
+use alloy_provider::{Provider, ProviderBuilder, RootProvider};
 use tracing::{Level, event};
 
 use crate::config::SubmitterConfig;
@@ -93,12 +90,12 @@ pub enum BundleTarget {
 /// caller rebuilds on the next tick.
 #[derive(Debug, Clone)]
 pub enum SendOutcome {
+    /// The postBatch receipt belongs to a canonical L1 block. Canonical
+    /// derivation and source-chain evidence still decide each user's outcome.
     Included {
         tx_hash: TxHash,
         l1_block: u64,
-        /// Same L1 tx emitted `L2ExecutionPerformed` for our rollup,
-        /// i.e. the contract advanced its block-hash commitment.
-        state_applied: bool,
+        l1_block_hash: B256,
     },
     Dropped {
         tx_hash: TxHash,
@@ -142,6 +139,23 @@ impl BundleDropReason {
     }
 }
 
+/// Receipt bound to a checked canonical L1 block.
+#[derive(Debug, Clone)]
+pub struct CanonicalSourceReceipt {
+    pub block: crate::L1BlockRef,
+    pub transaction_index: u64,
+    pub success: bool,
+    /// Persisted mutable queue consumptions in this exact source transaction.
+    pub consumed: Vec<(B256, usize)>,
+}
+
+/// Source nonce and optional receipt read against one immutable L1 state.
+#[derive(Debug, Clone)]
+pub struct CanonicalSourceState {
+    pub nonce: u64,
+    pub receipt: Option<CanonicalSourceReceipt>,
+}
+
 /// Thin L1-interaction primitive. Cheaply [`Clone`]able.
 #[derive(Clone)]
 pub struct Submitter {
@@ -152,6 +166,7 @@ struct Inner {
     config: SubmitterConfig,
     submission_timing: SubmissionTiming,
     reader: L1Reader,
+    target_provider: RootProvider,
     http: reqwest::Client,
 }
 
@@ -193,7 +208,6 @@ enum TargetPreparation {
     Ready(PreparedTarget),
     Missed {
         block: u64,
-        timestamp: u64,
         reason: BundleDropReason,
     },
 }
@@ -334,7 +348,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
         {
             return Ok(TargetPreparation::Missed {
                 block: target_block,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::SubmissionWindowMissed,
             });
         }
@@ -348,7 +361,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
             if canonical_parent.as_ref().map(|block| block.header.hash) != Some(expected_hash) {
                 return Ok(TargetPreparation::Missed {
                     block: target_block,
-                    timestamp: target_timestamp,
                     reason: BundleDropReason::TargetChanged,
                 });
             }
@@ -360,7 +372,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
         if latest.header.number >= target_block {
             return Ok(TargetPreparation::Missed {
                 block: target_block,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::TargetChanged,
             });
         }
@@ -391,7 +402,6 @@ async fn prepare_submission_target<P: Provider, C: Clock>(
             SubmissionWindowState::Expired => {
                 return Ok(TargetPreparation::Missed {
                     block: target_block,
-                    timestamp: target_timestamp,
                     reason: BundleDropReason::SubmissionWindowMissed,
                 });
             }
@@ -412,8 +422,8 @@ impl Submitter {
     ///
     /// # Errors
     ///
-    /// Returns [`L1Error::Config`] when the earliest and latest submission
-    /// bounds do not form a non-empty window.
+    /// Returns [`L1Error::Config`] when the submission bounds do not form a
+    /// non-empty window or the bounded HTTP client cannot be initialized.
     pub fn new(
         config: SubmitterConfig,
         l1_block_time: Duration,
@@ -425,21 +435,21 @@ impl Submitter {
             config.bundle_submission_lead,
             submission_slack,
         )?;
+        let request_timeout = Duration::from_secs(30);
+        let target_provider = Inner::build_target_provider(&config, request_timeout);
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 submission_timing,
                 reader,
-                // Bounded timeout so a hanging/unreachable builder relay cannot
-                // stall the one-in-flight gate forever: a timed-out `eth_sendBundle`
-                // returns Err, which `observe_bundle_outcome` treats as a drop →
-                // the gate reopens and the next slot retries. `Client::new()` has
-                // NO timeout, so a relay that accepts the TCP connection but never
-                // responds freezes posting permanently (cursor stuck at 0).
+                target_provider,
+                // Bound both dispatch and canonical source reads. Timeout is
+                // inconclusive: ownership stays reserved until reconciliation
+                // succeeds. Never substitute an unbounded client on failure.
                 http: reqwest::Client::builder()
-                    .timeout(Duration::from_secs(30))
+                    .timeout(request_timeout)
                     .build()
-                    .unwrap_or_else(|_| reqwest::Client::new()),
+                    .map_err(|error| L1Error::Config(format!("submitter HTTP client: {error}")))?,
             }),
         })
     }
@@ -460,24 +470,15 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
-    /// Atomically bundle already-signed, 2718-encoded `raw_txs`
-    /// (`[postBatch, user_tx_1, …]`, signed upstream) into one
-    /// `eth_sendBundle` POST. Flashbots ordering: the bundle lands in
-    /// `target_block` as one atomic insert or is dropped — no subset.
-    ///
-    /// Observation is best-effort: only `raw_txs[0]` (the postBatch) is
-    /// checked for inclusion; if it's in, the bundle either succeeded or
-    /// a proposer broke atomicity (their bug, not ours).
-    ///
-    /// # Errors
-    ///
-    /// - [`L1Error::Provider`] on RPC failure (block fetch, log fetch).
-    /// - [`L1Error::Submission`] if the relay rejects the bundle.
-    pub async fn send_bundle(
+    /// Submit only after the caller has recorded the exact target.
+    /// The callback runs before external dispatch and may veto it on error.
+    /// Only signed L1 users following the required postBatch may revert.
+    /// Observation of postBatch alone never completes individual users.
+    pub async fn send_bundle_recorded(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
-        expected_final_state: Option<alloy_primitives::B256>,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
             "injected failpoint: submitter::send::start".into()
@@ -502,44 +503,44 @@ impl Submitter {
             })?;
             *post_batch_envelope.tx_hash()
         };
-        let target_provider = self.inner.build_target_provider();
+        let target_provider = &self.inner.target_provider;
+        let chain_id = target_provider
+            .get_chain_id()
+            .await
+            .map_err(|error| L1Error::Provider(format!("bundle source chain: {error}")))?;
+        let reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
         let clock = SystemClock;
         let prepared = prepare_submission_target(
-            &target_provider,
+            target_provider,
             target,
             self.inner.submission_timing,
             &clock,
             post_batch_hash,
         )
         .await?;
-        let PreparedTarget {
-            block: target_block,
-            timestamp: pin_timestamp,
-            expected_parent_hash,
-        } = match prepared {
+        let prepared = match prepared {
             TargetPreparation::Ready(target) => target,
-            TargetPreparation::Missed {
-                block,
-                timestamp: _,
-                reason,
-            } => return Ok(dropped(post_batch_hash, block, reason)),
+            TargetPreparation::Missed { block, reason } => {
+                return Ok(dropped(post_batch_hash, block, reason));
+            }
         };
 
         // Formatting/logging normally takes microseconds, but enforce the
         // deadline again immediately before the HTTP request. We may send
         // after the not-before boundary; we must never knowingly send after
         // the latest-safe boundary and then blame user transactions for it.
+        record_dispatch(prepared.block, prepared.timestamp)?;
         if !matches!(
             submission_window_state(
                 clock.now_unix_ms()?,
-                pin_timestamp,
+                prepared.timestamp,
                 self.inner.submission_timing,
             ),
             SubmissionWindowState::Open
         ) {
             return Ok(dropped(
                 post_batch_hash,
-                target_block,
+                prepared.block,
                 BundleDropReason::SubmissionWindowMissed,
             ));
         }
@@ -550,43 +551,74 @@ impl Submitter {
             name: "eez.submitter.bundle.dispatch",
             Level::INFO,
             tx_hash = %post_batch_hash,
-            target_block,
+            target_block = prepared.block,
             exact = matches!(target, BundleTarget::Exact { .. }),
             tx_count = raw_txs.len(),
             "dispatching bundle to builder",
         );
-        // One bundle, one target block. Atomic bundle semantics:
-        // rbuilder either includes the whole bundle in `target_block`
-        // in the specified order, or drops it. A relay without a bundle API is
-        // accepted only for a lone postBatch; ordered multi-transaction
-        // settlement fails closed inside `dispatch_and_observe`.
+        // Every bundle uses one timestamp-pinned target and permits only the
+        // validated inbound source users to revert. postBatch is always required.
         self.inner
-            .dispatch_and_observe(
-                raw_txs,
-                post_batch_hash,
-                target_block,
-                Some(pin_timestamp),
-                expected_parent_hash,
-                expected_final_state,
-            )
+            .dispatch_and_observe(raw_txs, post_batch_hash, prepared, &reverting_hashes)
             .await
     }
 
-    /// `true` iff L1 already has a receipt for `tx_hash` (included,
-    /// regardless of status). Used by the composer's bundle-failure
-    /// path to avoid re-queueing user_txs whose nonce was burned by a
-    /// reverted-but-included execution.
+    /// Verify a canonical L1 identity using the same provider as source reads.
+    pub async fn canonical_block_hash(&self, number: u64) -> L1Result<Option<B256>> {
+        Ok(self
+            .inner
+            .target_provider
+            .get_block_by_number(BlockNumberOrTag::Number(number))
+            .await
+            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .map(|block| block.header.hash))
+    }
+
+    /// Detect a receipt-index lag before treating a target as excluding us.
+    pub async fn canonical_block_contains(&self, number: u64, tx_hash: B256) -> L1Result<bool> {
+        let block = self
+            .inner
+            .target_provider
+            .get_block_by_number(BlockNumberOrTag::Number(number))
+            .hashes()
+            .await
+            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .ok_or_else(|| L1Error::Provider("target block is unavailable".into()))?;
+        Ok(block.transactions.hashes().any(|hash| hash == tx_hash))
+    }
+
+    /// Read a signed source transaction and nonce at the deriver's completed
+    /// L1 snapshot. Pending nonces, future receipts and reorg-straddling reads
+    /// cannot establish exclusion or completion at this snapshot.
+    pub async fn source_state_at(
+        &self,
+        tx_hash: B256,
+        sender: alloy_primitives::Address,
+        at: crate::L1BlockRef,
+    ) -> L1Result<CanonicalSourceState> {
+        read_canonical_source(
+            &self.inner.target_provider,
+            self.inner.reader.eez(),
+            self.inner.reader.rollup_id(),
+            tx_hash,
+            sender,
+            at,
+        )
+        .await
+    }
+
+    /// `true` iff L1 currently has a receipt for `tx_hash`, regardless of
+    /// status. This convenience lookup is not canonical settlement evidence;
+    /// recovery uses `source_state_at` instead.
     ///
     /// # Errors
     ///
     /// [`L1Error::Provider`] on RPC failure.
     pub async fn receipt_exists(&self, tx_hash: TxHash) -> L1Result<bool> {
-        // Target-tip RPC, not the embedded L1 — the embedded node can
-        // lag the canonical tip by 2-3 blocks, and a missed receipt
-        // here re-queues a burned-nonce tx that poisons the next
-        // bundle's simulation.
-        let provider = self.inner.build_target_provider();
-        Ok(provider
+        // Use the canonical target RPC; the embedded L1 can lag its tip.
+        Ok(self
+            .inner
+            .target_provider
             .get_transaction_receipt(tx_hash)
             .await
             .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {e}")))?
@@ -594,34 +626,120 @@ impl Submitter {
     }
 }
 
+/// Keep all nonce/receipt reads inside the same canonical-hash bracket.
+async fn read_canonical_source<P: Provider>(
+    provider: &P,
+    eez: alloy_primitives::Address,
+    rollup_id: u64,
+    tx_hash: B256,
+    sender: alloy_primitives::Address,
+    at: crate::L1BlockRef,
+) -> L1Result<CanonicalSourceState> {
+    require_canonical_block(provider, at).await?;
+    let nonce = provider
+        .get_transaction_count(sender)
+        .block_id(at.hash.into())
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical source nonce: {error}")))?;
+    let receipt = provider
+        .get_transaction_receipt(tx_hash)
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical source receipt: {error}")))?;
+    let receipt = match receipt {
+        Some(receipt) => {
+            let number = receipt
+                .block_number
+                .ok_or_else(|| L1Error::Provider("source receipt lacks block number".into()))?;
+            let hash = receipt
+                .block_hash
+                .ok_or_else(|| L1Error::Provider("source receipt lacks block hash".into()))?;
+            if number > at.number {
+                return Err(L1Error::Provider(
+                    "source receipt is ahead of the completed canonical scan".into(),
+                ));
+            }
+            if receipt.transaction_hash != tx_hash {
+                return Err(L1Error::Provider(
+                    "source receipt has the wrong transaction hash".into(),
+                ));
+            }
+            let block = crate::L1BlockRef { number, hash };
+            require_canonical_block(provider, block).await?;
+            let transaction_index = receipt.transaction_index.ok_or_else(|| {
+                L1Error::Provider("source receipt lacks transaction index".into())
+            })?;
+            let mut consumed = Vec::new();
+            for log in receipt.inner.logs() {
+                if log.address() != eez {
+                    continue;
+                }
+                if let Ok(event) = log.log_decode::<eez_protocol::abi::ExecutionConsumed>()
+                    && event.inner.data.rollupId == rollup_id
+                {
+                    let index =
+                        usize::try_from(event.inner.data.entryQueueIndex).map_err(|error| {
+                            L1Error::Provider(format!("source queue index: {error}"))
+                        })?;
+                    consumed.push((event.inner.data.crossChainCallHash, index));
+                }
+            }
+            Some(CanonicalSourceReceipt {
+                block,
+                transaction_index,
+                success: receipt.status(),
+                consumed,
+            })
+        }
+        None => None,
+    };
+    require_canonical_block(provider, at).await?;
+    Ok(CanonicalSourceState { nonce, receipt })
+}
+
+async fn require_canonical_block<P: Provider>(
+    provider: &P,
+    block: crate::L1BlockRef,
+) -> L1Result<()> {
+    let canonical = provider
+        .get_block_by_number(BlockNumberOrTag::Number(block.number))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical block: {error}")))?;
+    if canonical.is_none_or(|canonical| canonical.header.hash != block.hash) {
+        return Err(L1Error::Provider(format!(
+            "L1 block {} is missing or no longer canonical",
+            block.number
+        )));
+    }
+    Ok(())
+}
+
 impl Inner {
-    /// Canonical target-chain provider used for scheduling and observation.
+    /// Build the shared canonical provider once, retaining its connection pool.
     /// Falls back to the main RPC when no override URL is set. See
     /// `SubmitterConfig::target_rpc_url`.
-    fn build_target_provider(&self) -> impl Provider + use<> {
-        let url = self
-            .config
+    fn build_target_provider(config: &SubmitterConfig, request_timeout: Duration) -> RootProvider {
+        let url = config
             .target_rpc_url
             .clone()
-            .unwrap_or_else(|| self.reader.rpc_url());
+            .unwrap_or_else(|| config.reader.rpc_url.clone());
         ProviderBuilder::new()
             .disable_recommended_fillers()
-            .connect_http(url)
+            .with_reqwest(url, |builder| {
+                builder
+                    .timeout(request_timeout)
+                    .build()
+                    .expect("canonical source HTTP client configuration is valid")
+            })
     }
 
-    /// Submit `raw_txs` (postBatch first) and observe the outcome. Try
-    /// the relay's `eth_sendBundle`; if it's a plain execution RPC
-    /// ([`L1Error::BundleRpcUnsupported`]), only a lone postBatch may degrade
-    /// to mempool submission. Multi-transaction settlement is order- and
-    /// all-or-nothing-sensitive, so it fails closed without a bundle relay.
+    /// Submit `raw_txs` (postBatch first) through the required bundle relay and
+    /// observe the outcome. Preserve transaction order and the timestamp pin.
     async fn dispatch_and_observe(
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         post_batch_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: Option<u64>,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
+        target: PreparedTarget,
+        reverting_hashes: &[B256],
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
             .iter()
@@ -632,109 +750,59 @@ impl Inner {
             &self.http,
             self.config.builder_rpc_url.as_str(),
             &hex_refs,
-            target_block,
-            pin_timestamp,
+            target.block,
+            target.timestamp,
+            reverting_hashes,
         )
         .await
         {
             Ok(()) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
-                self.observe(
-                    post_batch_hash,
-                    target_block,
-                    pin_timestamp,
-                    expected_parent_hash,
-                    expected_final_state,
-                )
-                .await
-            }
-            Err(L1Error::BundleRpcUnsupported) => {
-                require_atomic_relay_or_lone_postbatch(raw_txs.len())?;
-                event!(
-                    name: "eez.submitter.bundle.mempool_fallback",
-                    Level::INFO,
-                    event_name = "eez.submitter.bundle.mempool_fallback",
-                    target_block,
-                    tx_count = raw_txs.len(),
-                    "relay has no eth_sendBundle; submitting the lone postBatch via mempool",
-                );
-                let target_provider = self.build_target_provider();
-                let _pending = alloy_provider::Provider::send_raw_transaction(
-                    &target_provider,
-                    raw_txs[0].as_ref(),
-                )
-                .await
-                .map_err(|error| {
-                    L1Error::Submission(format!("mempool fallback: postBatch rejected: {error}"))
-                })?;
-                // No bundle API, no timestamp pin: these txs can genuinely land
-                // in a later block, so the conservative rule is the only one.
-                self.observe(
-                    post_batch_hash,
-                    target_block,
-                    None,
-                    None,
-                    expected_final_state,
-                )
-                .await
+                self.observe(post_batch_hash, target).await
             }
             Err(other) => Err(other),
         };
-        match &result {
-            Ok(SendOutcome::Dropped { reason, .. }) => self.capture_bundle_attempt(
-                &hex_refs,
-                post_batch_hash,
-                target_block,
-                pin_timestamp,
-                expected_parent_hash,
-                expected_final_state,
-                "dropped",
-                Some(reason.as_str()),
-                None,
-            ),
-            Err(error) => self.capture_bundle_attempt(
-                &hex_refs,
-                post_batch_hash,
-                target_block,
-                pin_timestamp,
-                expected_parent_hash,
-                expected_final_state,
-                "submission_error",
-                None,
-                Some(&error.to_string()),
-            ),
-            Ok(SendOutcome::Included { .. }) => {}
-        }
+        self.capture_bundle_attempt(
+            &hex_refs,
+            post_batch_hash,
+            target,
+            &result,
+            reverting_hashes,
+        );
         result
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn capture_bundle_attempt(
         &self,
         raw_tx_hexes: &[&str],
         post_batch_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: Option<u64>,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
-        outcome: &str,
-        drop_reason: Option<&str>,
-        error: Option<&str>,
+        target: PreparedTarget,
+        result: &L1Result<SendOutcome>,
+        reverting_hashes: &[B256],
     ) {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
             return;
         };
-        let attempt = root.join(format!("bundle-{target_block}-{post_batch_hash}"));
-        let request = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
+        let (outcome, drop_reason, error) = match result {
+            Ok(SendOutcome::Dropped { reason, .. }) => ("dropped", Some(reason.as_str()), None),
+            Err(error) => ("submission_error", None, Some(error.to_string())),
+            Ok(SendOutcome::Included { .. }) => return,
+        };
+        let attempt = root.join(format!("bundle-{}-{post_batch_hash}", target.block));
+        let request = bundle_request(
+            raw_tx_hexes,
+            target.block,
+            target.timestamp,
+            reverting_hashes,
+        );
         let metadata = serde_json::json!({
             "version": 1,
             "builderRpcUrl": self.config.builder_rpc_url.as_str(),
             "postBatchHash": post_batch_hash.to_string(),
-            "targetBlock": target_block,
-            "pinnedTimestamp": pin_timestamp,
-            "expectedParentHash": expected_parent_hash.map(|hash| hash.to_string()),
-            "expectedFinalState": expected_final_state.map(|hash| hash.to_string()),
+            "targetBlock": target.block,
+            "pinnedTimestamp": target.timestamp,
+            "expectedParentHash": target.expected_parent_hash.map(|hash| hash.to_string()),
             "outcome": outcome,
             "dropReason": drop_reason,
             "error": error,
@@ -757,7 +825,7 @@ impl Inner {
                 name: "eez.submitter.bundle.capture",
                 Level::WARN,
                 path = %attempt.display(),
-                target_block,
+                target_block = target.block,
                 tx_hash = %post_batch_hash,
                 "captured rejected bundle request for deterministic replay",
             ),
@@ -771,21 +839,9 @@ impl Inner {
         }
     }
 
-    /// Bundle observation, transport-agnostic: poll for the postBatch receipt,
-    /// use the relay timestamp pin to prove when the target is dead, then derive
-    /// `state_applied` from the inclusion block's `L2ExecutionPerformed`
-    /// events via [`Self::settlement_in_block`].
-    ///
-    /// `pin_timestamp` is set for every relay submission. It is absent only for
-    /// the lone-postBatch mempool fallback, which has no enforceable slot pin.
-    async fn observe(
-        &self,
-        tx_hash: TxHash,
-        target_block: u64,
-        pin_timestamp: Option<u64>,
-        expected_parent_hash: Option<B256>,
-        expected_final_state: Option<alloy_primitives::B256>,
-    ) -> L1Result<SendOutcome> {
+    /// Observe the canonical postBatch receipt or use the relay's exact
+    /// timestamp pin to prove exclusion. Settlement belongs to the deriver.
+    async fn observe(&self, tx_hash: TxHash, target: PreparedTarget) -> L1Result<SendOutcome> {
         // Failure must mean PROVABLY DEAD, not merely slow. A bundle is
         // pinned to `target_block` — included in order there or never —
         // so death = the chain passed the target (head > target) without
@@ -793,7 +849,7 @@ impl Inner {
         // verdicts for bundles that later landed: recovery reorged + re-
         // emitted, the original settled anyway, and the two timelines
         // fought forever (RootMismatch, phantom L2 effects).
-        // Receipt, head, and settlement logs all read from the SAME
+        // Receipt, head, and canonical block all read from the SAME
         // tip provider — mixing the lagging embedded L1 for receipts
         // would re-open the false-death window. If the tip later reorgs
         // the bundle in, downstream converges it (Watcher → Deriver →
@@ -802,7 +858,7 @@ impl Inner {
         // `pinned` buys a slot without weakening that: min == max timestamp
         // leaves one satisfiable height, so the block there decides it.
         let start = tokio::time::Instant::now();
-        let target_provider = self.build_target_provider();
+        let target_provider = &self.target_provider;
         let mut slow_logged = false;
         loop {
             // Transient RPC failures are retried, never escalated to a
@@ -813,44 +869,40 @@ impl Inner {
                     let l1_block = receipt.block_number.ok_or_else(|| {
                         L1Error::Provider("receipt present but block_number missing".into())
                     })?;
-                    let state_applied = self
-                        .settlement_in_block(&target_provider, l1_block, expected_final_state)
-                        .await?;
+                    let l1_block_hash = receipt.block_hash.ok_or_else(|| {
+                        L1Error::Provider("receipt present but block_hash missing".into())
+                    })?;
+                    require_canonical_block(
+                        target_provider,
+                        crate::L1BlockRef {
+                            number: l1_block,
+                            hash: l1_block_hash,
+                        },
+                    )
+                    .await?;
                     return Ok(SendOutcome::Included {
                         tx_hash,
                         l1_block,
-                        state_applied,
+                        l1_block_hash,
                     });
                 }
                 Ok(None) => {
-                    let verdict = match pin_timestamp {
-                        Some(pin_ts) => {
-                            pinned_slot_check(
-                                &target_provider,
-                                target_block,
-                                tx_hash,
-                                pin_ts,
-                                expected_parent_hash,
-                            )
-                            .await
-                        }
-                        None => PinnedVerdict::Pending,
-                    };
+                    let verdict = pinned_slot_check(target_provider, target, tx_hash).await;
                     match verdict {
                         PinnedVerdict::Excluded => {
-                            return Ok(dropped(tx_hash, target_block, BundleDropReason::Excluded));
+                            return Ok(dropped(tx_hash, target.block, BundleDropReason::Excluded));
                         }
                         PinnedVerdict::SlotSkipped => {
                             return Ok(dropped(
                                 tx_hash,
-                                target_block,
+                                target.block,
                                 BundleDropReason::SlotSkipped,
                             ));
                         }
                         PinnedVerdict::ParentChanged => {
                             return Ok(dropped(
                                 tx_hash,
-                                target_block,
+                                target.block,
                                 BundleDropReason::TargetChanged,
                             ));
                         }
@@ -858,10 +910,10 @@ impl Inner {
                         // trails it. Poll on, skipping the head rule.
                         PinnedVerdict::Included => {}
                         PinnedVerdict::Pending => match target_provider.get_block_number().await {
-                            Ok(head) if head > target_block => {
+                            Ok(head) if head > target.block => {
                                 return Ok(dropped(
                                     tx_hash,
-                                    target_block,
+                                    target.block,
                                     BundleDropReason::Excluded,
                                 ));
                             }
@@ -893,47 +945,13 @@ impl Inner {
                     name: "eez.submitter.observe.slow",
                     Level::WARN,
                     tx_hash = %tx_hash,
-                    target_block,
+                    target_block = target.block,
                     elapsed_secs = start.elapsed().as_secs(),
                     "bundle observation exceeding budget; still polling (verdict requires inclusion or target passage)",
                 );
             }
             tokio::time::sleep(TARGET_POLL_INTERVAL).await;
         }
-    }
-
-    /// Did L1's stored root for our rollup reach the claimed state
-    /// in `l1_block`?
-    ///
-    /// - `Some(root)`: true iff some `L2ExecutionPerformed(rollupId,
-    ///   newRoot)` in the block has `newRoot == root`. The leading
-    ///   immediate entry always emits this event, so matching "any
-    ///   event" would report settled even with every deferred entry
-    ///   unconsumed; requiring the FINAL root means L1 reached exactly
-    ///   the state the Sync block claims.
-    /// - `None`: any event for our rollupId.
-    async fn settlement_in_block<P: Provider>(
-        &self,
-        provider: &P,
-        l1_block: u64,
-        expected_final_state: Option<alloy_primitives::B256>,
-    ) -> L1Result<bool> {
-        let winners = Filter::new()
-            .address(self.reader.eez())
-            .event_signature(L2ExecutionPerformed::SIGNATURE_HASH)
-            .topic1(U256::from(self.reader.rollup_id()))
-            .from_block(l1_block)
-            .to_block(l1_block);
-        let logs = provider
-            .get_logs(&winners)
-            .await
-            .map_err(|e| L1Error::Provider(format!("get_logs(L2ExecutionPerformed): {e}")))?;
-        Ok(match expected_final_state {
-            Some(root) => logs
-                .iter()
-                .any(|l| l.data().data.as_ref() == root.as_slice()),
-            None => !logs.is_empty(),
-        })
     }
 }
 
@@ -957,18 +975,13 @@ async fn post_bundle(
     builder_rpc_url: &str,
     raw_tx_hexes: &[&str],
     target_block: u64,
-    pin_timestamp: Option<u64>,
+    pin_timestamp: u64,
+    reverting_hashes: &[B256],
 ) -> L1Result<()> {
-    // STRICT all-or-nothing: `revertingTxHashes`/`droppingTxHashes`
-    // empty. Per rbuilder's order commit, txs execute in submitted order
-    // and any revert outside those whitelists fails the WHOLE bundle.
-    // Whitelisting user_txs in `revertingTxHashes` instead lets the
-    // relay silently DROP a reverting one (observed on chiado: block
-    // 21566886 landed postBatch + 2 of 3 user_txs), advancing L1 to a
-    // mid-chain prefix root and desyncing the composer. Sim is in-order
-    // too, so user_txs simulate after the postBatch — no whitelist
-    // needed for a "pre-postBatch state" sim.
-    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp);
+    // Permit only the validated signed L1 users to revert; postBatch remains
+    // required. Invalid-transaction omission depends on builder configuration,
+    // and every user still requires canonical source reconciliation.
+    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
     let resp: serde_json::Value = http
         .post(builder_rpc_url)
         .json(&body)
@@ -991,7 +1004,7 @@ async fn post_bundle(
     if let Some(err) = resp.get("error") {
         // JSON-RPC -32601 = method not found: the configured relay is a
         // plain execution RPC (dev reth, anvil) with no bundle API.
-        // Typed so `send_bundle` can degrade to mempool submission.
+        // Distinguish an unsupported relay from a rejected bundle.
         if err.get("code").and_then(serde_json::Value::as_i64) == Some(-32601) {
             return Err(L1Error::BundleRpcUnsupported);
         }
@@ -1000,22 +1013,55 @@ async fn post_bundle(
     Ok(())
 }
 
+/// Revert permission is limited to signed L1 users actually following the
+/// required postBatch. Permission to drop invalid transactions is separate and
+/// is not requested by this submitter.
+fn inbound_revert_hashes(
+    raw_txs: &[alloy_primitives::Bytes],
+    chain_id: u64,
+    post_batch_hash: B256,
+) -> L1Result<Vec<B256>> {
+    use alloy_consensus::{Transaction, transaction::SignerRecoverable};
+    let mut seen = std::collections::HashSet::from([post_batch_hash]);
+    let mut hashes = Vec::with_capacity(raw_txs.len().saturating_sub(1));
+    for raw in raw_txs.iter().skip(1) {
+        let mut encoded = raw.as_ref();
+        let tx = alloy_consensus::TxEnvelope::decode_2718(&mut encoded)
+            .map_err(|error| L1Error::Submission(format!("partial inbound envelope: {error}")))?;
+        if !encoded.is_empty() || tx.chain_id() != Some(chain_id) {
+            return Err(L1Error::Submission(
+                "partial bundle user must be an exact signed envelope for the L1 source chain"
+                    .into(),
+            ));
+        }
+        tx.recover_signer()
+            .map_err(|error| L1Error::Submission(format!("partial inbound signature: {error}")))?;
+        let hash = *tx.tx_hash();
+        if !seen.insert(hash) {
+            return Err(L1Error::Submission(
+                "duplicate or required postBatch hash in partial user list".into(),
+            ));
+        }
+        hashes.push(hash);
+    }
+    Ok(hashes)
+}
+
 fn bundle_request(
     raw_tx_hexes: &[&str],
     target_block: u64,
-    pin_timestamp: Option<u64>,
+    pin_timestamp: u64,
+    reverting_hashes: &[B256],
 ) -> serde_json::Value {
+    // Pin inclusion to the exact L1 slot the L2 Sync block anchored to.
     let mut bundle_params = serde_json::json!({
         "txs": raw_tx_hexes,
         "blockNumber": format!("0x{target_block:x}"),
+        "minTimestamp": pin_timestamp,
+        "maxTimestamp": pin_timestamp,
     });
-    if let Some(ts) = pin_timestamp {
-        // Pin inclusion to the exact L1 slot the L2 Sync block anchored
-        // to. The builder enforces min/maxTimestamp against block.timestamp
-        // (verified on chiado), so a skipped slot won't match and the
-        // bundle drops rather than settling with a drifted L2 timestamp.
-        bundle_params["minTimestamp"] = serde_json::json!(ts);
-        bundle_params["maxTimestamp"] = serde_json::json!(ts);
+    if !reverting_hashes.is_empty() {
+        bundle_params["revertingTxHashes"] = serde_json::json!(reverting_hashes);
     }
     serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "eth_sendBundle",
@@ -1031,7 +1077,7 @@ enum PinnedVerdict {
     Pending,
     /// Our postBatch is in it; the receipt follows.
     Included,
-    /// Built without us; atomic bundles land in that block or nowhere.
+    /// Built without our required postBatch; the bundle's target has expired.
     Excluded,
     /// Another timestamp filled the height. Timestamps strictly increase, so
     /// no later block can satisfy `minTimestamp == maxTimestamp == pin_ts`.
@@ -1064,13 +1110,11 @@ fn pinned_verdict(
 /// [`pinned_verdict`]. RPC failures yield `Pending`, never a verdict.
 async fn pinned_slot_check<P: Provider>(
     provider: &P,
-    target_block: u64,
+    target: PreparedTarget,
     tx_hash: TxHash,
-    pin_ts: u64,
-    expected_parent_hash: Option<B256>,
 ) -> PinnedVerdict {
     match provider
-        .get_block_by_number(BlockNumberOrTag::Number(target_block))
+        .get_block_by_number(BlockNumberOrTag::Number(target.block))
         .hashes()
         .await
     {
@@ -1082,15 +1126,15 @@ async fn pinned_slot_check<P: Provider>(
                     b.header.parent_hash,
                 )
             }),
-            pin_ts,
-            expected_parent_hash,
+            target.timestamp,
+            target.expected_parent_hash,
         ),
         Err(err) => {
             event!(
                 name: "eez.submitter.observe.pinned_block_read_failed",
                 Level::WARN,
                 tx_hash = %tx_hash,
-                target_block,
+                target_block = target.block,
                 error = %err,
                 "pinned block read failed during bundle observation; retrying",
             );
@@ -1115,15 +1159,6 @@ fn dropped(tx_hash: TxHash, target_block: u64, reason: BundleDropReason) -> Send
     }
 }
 
-fn require_atomic_relay_or_lone_postbatch(transaction_count: usize) -> L1Result<()> {
-    if transaction_count == 1 {
-        return Ok(());
-    }
-    Err(L1Error::Submission(format!(
-        "relay has no eth_sendBundle; refusing non-atomic {transaction_count}-transaction settlement"
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -1139,11 +1174,578 @@ mod tests {
     use super::{
         BundleDropReason, BundleTarget, Clock, L1Error, PinnedVerdict, PreparedTarget,
         SubmissionTiming, SubmissionWindowState, TargetPreparation, bundle_request, pinned_verdict,
-        prepare_submission_target, require_atomic_relay_or_lone_postbatch,
-        submission_window_bounds, submission_window_state,
+        prepare_submission_target, submission_window_bounds, submission_window_state,
     };
 
     const PIN: u64 = 1_700_000_012;
+
+    fn test_submitter(url: url::Url) -> super::Submitter {
+        super::Submitter::new(
+            crate::SubmitterConfig {
+                reader: crate::L1ReaderConfig {
+                    rpc_url: url.clone(),
+                    beacon_url: None,
+                    eez: alloy_primitives::Address::ZERO,
+                    rollup_id: 1,
+                    deploy_block: 0,
+                },
+                builder_rpc_url: url.clone(),
+                target_rpc_url: Some(url),
+                poster: B256::with_last_byte(1).to_string().parse().unwrap(),
+                bundle_capture_dir: None,
+                bundle_submission_lead: Duration::from_millis(DEFAULT_BUNDLE_SUBMISSION_LEAD_MS),
+            },
+            Duration::from_secs(12),
+            Duration::from_millis(500),
+        )
+        .unwrap()
+    }
+
+    async fn rpc_server(
+        responses: Vec<serde_json::Value>,
+        keep_alive: bool,
+    ) -> (url::Url, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            let mut connection = None;
+            for mut response in responses {
+                let mut stream = match connection.take() {
+                    Some(stream) => stream,
+                    None => BufReader::new(listener.accept().await.unwrap().0),
+                };
+                let mut length = None;
+                loop {
+                    let mut line = String::new();
+                    assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        length = Some(value.trim().parse::<usize>().unwrap());
+                    }
+                }
+                let mut body = vec![0; length.expect("JSON RPC request length")];
+                stream.read_exact(&mut body).await.unwrap();
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                response["jsonrpc"] = serde_json::json!("2.0");
+                response["id"] = request["id"].clone();
+                let body = serde_json::to_vec(&response).unwrap();
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
+                    body.len(),
+                    if keep_alive { "keep-alive" } else { "close" },
+                );
+                stream.get_mut().write_all(header.as_bytes()).await.unwrap();
+                stream.get_mut().write_all(&body).await.unwrap();
+                requests.push(request);
+                if keep_alive {
+                    connection = Some(stream);
+                }
+            }
+            requests
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn every_submission_records_dispatch_and_requires_a_relay() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
+
+        for (user_count, fail_record) in [(0, false), (2, false), (2, true)] {
+            let now = super::SystemClock.now_unix_ms().unwrap() / 1_000;
+            let timestamp = now + 30;
+            let mut responses = vec![
+                serde_json::json!({"result": "0x1"}),
+                serde_json::json!({"result": mock_block(41, now, B256::ZERO)}),
+            ];
+            if !fail_record {
+                responses.push(serde_json::json!({
+                    "error": {"code": -32601, "message": "method not found"}
+                }));
+            }
+            let (url, server) = rpc_server(responses, false).await;
+            let mut submitter = test_submitter(url);
+            // Keep this transport test inside the send window without sleeps.
+            Arc::get_mut(&mut submitter.inner)
+                .unwrap()
+                .submission_timing
+                .lead_ms = 60_000;
+            let signed = (0..=user_count)
+                .map(|nonce| signed_user(1, nonce))
+                .collect::<Vec<_>>();
+            let raw = signed
+                .iter()
+                .map(|(raw, _)| raw.clone())
+                .collect::<Vec<_>>();
+            let recorded = AtomicBool::new(false);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                submitter.send_bundle_recorded(
+                    &raw,
+                    BundleTarget::Exact {
+                        block: 42,
+                        timestamp,
+                    },
+                    |block, pin| {
+                        assert_eq!((block, pin), (42, timestamp));
+                        recorded.store(true, Ordering::SeqCst);
+                        if fail_record {
+                            Err(L1Error::Submission("dispatch recording failed".into()))
+                        } else {
+                            Ok(())
+                        }
+                    },
+                ),
+            )
+            .await
+            .expect("submission must finish without observing or falling back to mempool");
+            assert!(recorded.load(Ordering::SeqCst));
+            if fail_record {
+                assert!(
+                    matches!(result, Err(L1Error::Submission(message)) if message == "dispatch recording failed")
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(L1Error::BundleRpcUnsupported)),
+                    "{result:?}"
+                );
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["method"], "eth_chainId");
+            assert_eq!(requests[1]["method"], "eth_getBlockByNumber");
+            if !fail_record {
+                let hashes = signed
+                    .iter()
+                    .skip(1)
+                    .map(|(_, hash)| *hash)
+                    .collect::<Vec<_>>();
+                let hexes = raw.iter().map(ToString::to_string).collect::<Vec<_>>();
+                let hex_refs = hexes.iter().map(String::as_str).collect::<Vec<_>>();
+                assert_eq!(
+                    requests[2],
+                    bundle_request(&hex_refs, 42, timestamp, &hashes)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_capture_preserves_outcomes_and_replay_requests() {
+        struct CaptureDirectory(std::path::PathBuf);
+        impl Drop for CaptureDirectory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "eez-bundle-capture-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let directory = CaptureDirectory(path);
+        let (post, post_hash) = signed_user(1, 0);
+        let (user, user_hash) = signed_user(1, 1);
+        let raw = [post, user];
+        let target = PreparedTarget {
+            block: 42,
+            timestamp: PIN,
+            expected_parent_hash: Some(B256::ZERO),
+        };
+        let block_hash = B256::with_last_byte(1);
+        for outcome in ["included", "dropped", "submission_error"] {
+            for capture in ["enabled", "disabled", "unwritable"] {
+                let responses = if outcome == "submission_error" {
+                    vec![serde_json::json!({
+                        "error": {"code": -32601, "message": "method not found"}
+                    })]
+                } else {
+                    let receipt = if outcome == "included" {
+                        serde_json::json!({
+                            "transactionHash": post_hash, "transactionIndex": "0x0",
+                            "blockHash": block_hash, "blockNumber": "0x2a",
+                            "from": alloy_primitives::Address::ZERO,
+                            "to": alloy_primitives::Address::ZERO,
+                            "gasUsed": "0x5208", "effectiveGasPrice": "0x1",
+                            "cumulativeGasUsed": "0x5208", "type": "0x2", "status": "0x1",
+                            "logs": [], "logsBloom": alloy_primitives::Bloom::ZERO,
+                        })
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    let mut block = serde_json::to_value(mock_block(42, PIN, block_hash)).unwrap();
+                    if outcome == "included" {
+                        block["transactions"] = serde_json::json!([post_hash, user_hash]);
+                    }
+                    vec![
+                        serde_json::json!({"result": null}),
+                        serde_json::json!({"result": receipt}),
+                        serde_json::json!({"result": block}),
+                    ]
+                };
+                let (url, server) = rpc_server(responses, false).await;
+                let mut submitter = test_submitter(url.clone());
+                let root = directory.0.join(format!("{outcome}-{capture}"));
+                if capture == "unwritable" {
+                    std::fs::write(&root, "not a directory").unwrap();
+                }
+                std::sync::Arc::get_mut(&mut submitter.inner)
+                    .unwrap()
+                    .config
+                    .bundle_capture_dir = (capture != "disabled").then(|| root.clone());
+                let result = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    submitter
+                        .inner
+                        .dispatch_and_observe(&raw, post_hash, target, &[user_hash]),
+                )
+                .await
+                .expect("capture must not interrupt dispatch or observation");
+                match (&result, outcome) {
+                    (
+                        Ok(super::SendOutcome::Included {
+                            tx_hash,
+                            l1_block,
+                            l1_block_hash,
+                        }),
+                        "included",
+                    ) => {
+                        assert_eq!(
+                            (*tx_hash, *l1_block, *l1_block_hash),
+                            (post_hash, 42, block_hash)
+                        );
+                    }
+                    (
+                        Ok(super::SendOutcome::Dropped {
+                            tx_hash,
+                            target_block,
+                            reason,
+                        }),
+                        "dropped",
+                    ) => {
+                        assert_eq!(
+                            (*tx_hash, *target_block, *reason),
+                            (post_hash, 42, BundleDropReason::Excluded)
+                        );
+                    }
+                    (Err(L1Error::BundleRpcUnsupported), "submission_error") => {}
+                    _ => panic!("unexpected result for {outcome}/{capture}: {result:?}"),
+                }
+                let requests = server.await.unwrap();
+                assert_eq!(requests[0]["method"], "eth_sendBundle");
+                if capture == "unwritable" {
+                    assert_eq!(std::fs::read(&root).unwrap(), b"not a directory");
+                } else if capture == "disabled" || outcome == "included" {
+                    assert!(
+                        !root.exists(),
+                        "successful or disabled capture must write nothing"
+                    );
+                } else {
+                    let attempt = root.join(format!("bundle-42-{post_hash}"));
+                    assert_eq!(
+                        std::fs::read(attempt.join("request.json")).unwrap(),
+                        serde_json::to_vec_pretty(&requests[0]).unwrap(),
+                    );
+                    let expected = serde_json::json!({
+                        "version": 1, "builderRpcUrl": url.as_str(),
+                        "postBatchHash": post_hash.to_string(), "targetBlock": 42,
+                        "pinnedTimestamp": PIN, "expectedParentHash": B256::ZERO.to_string(),
+                        "outcome": outcome,
+                        "dropReason": (outcome == "dropped").then_some("excluded"),
+                        "error": (outcome == "submission_error").then_some("builder relay does not support eth_sendBundle"),
+                        "requestFile": "request.json",
+                    });
+                    assert_eq!(
+                        std::fs::read(attempt.join("metadata.json")).unwrap(),
+                        serde_json::to_vec_pretty(&expected).unwrap(),
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn observer_requires_canonical_inclusion_without_scanning_settlement() {
+        for case in [
+            "success",
+            "reverted",
+            "missing number",
+            "missing hash",
+            "reorged",
+            "missing block",
+        ] {
+            let tx_hash = B256::with_last_byte(3);
+            let block_hash = B256::with_last_byte(1);
+            let mut receipt = serde_json::json!({
+                "transactionHash": tx_hash, "transactionIndex": "0x2",
+                "blockHash": block_hash, "blockNumber": "0x2a",
+                "from": alloy_primitives::Address::ZERO, "to": alloy_primitives::Address::ZERO,
+                "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "cumulativeGasUsed": "0x5208",
+                "type": "0x2", "status": if case == "reverted" { "0x0" } else { "0x1" },
+                "logs": [], "logsBloom": alloy_primitives::Bloom::ZERO,
+            });
+            let expected_error = match case {
+                "missing number" => {
+                    receipt["blockNumber"] = serde_json::Value::Null;
+                    Some("receipt present but block_number missing")
+                }
+                "missing hash" => {
+                    receipt["blockHash"] = serde_json::Value::Null;
+                    Some("receipt present but block_hash missing")
+                }
+                "reorged" | "missing block" => {
+                    Some("L1 block 42 is missing or no longer canonical")
+                }
+                _ => None,
+            };
+            let mut responses = vec![serde_json::json!({"result": receipt})];
+            if !matches!(case, "missing number" | "missing hash") {
+                let block = if case == "missing block" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::to_value(mock_block(
+                        42,
+                        PIN,
+                        if case == "reorged" {
+                            B256::ZERO
+                        } else {
+                            block_hash
+                        },
+                    ))
+                    .unwrap()
+                };
+                responses.push(serde_json::json!({"result": block}));
+            }
+            let (url, server) = rpc_server(responses, false).await;
+            let submitter = test_submitter(url);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                submitter.inner.observe(
+                    tx_hash,
+                    PreparedTarget {
+                        block: 42,
+                        timestamp: PIN,
+                        expected_parent_hash: None,
+                    },
+                ),
+            )
+            .await
+            .expect("inclusion observation must not depend on settlement log RPCs");
+            if let Some(expected) = expected_error {
+                assert!(matches!(result, Err(L1Error::Provider(message)) if message == expected));
+            } else {
+                // Even a reverted postBatch is included; only canonical
+                // reconciliation can decide whether any user completed.
+                assert!(matches!(result, Ok(super::SendOutcome::Included {
+                    tx_hash: observed,
+                    l1_block: 42,
+                    l1_block_hash,
+                }) if observed == tx_hash && l1_block_hash == block_hash));
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["method"], "eth_getTransactionReceipt");
+            if requests.len() == 2 {
+                assert_eq!(requests[1]["method"], "eth_getBlockByNumber");
+                assert_eq!(requests[1]["params"][0], "0x2a");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_provider_reuses_connections_without_caching_chain_state() {
+        for override_target in [false, true] {
+            let first = mock_block(42, PIN, B256::with_last_byte(1));
+            let replacement = mock_block(42, PIN, B256::with_last_byte(2));
+            let (url, server) = rpc_server(
+                vec![
+                    serde_json::json!({"result": first}),
+                    serde_json::json!({"error": {"code": -32000, "message": "unavailable"}}),
+                    serde_json::json!({"result": replacement}),
+                    serde_json::json!({"result": null}),
+                ],
+                true,
+            )
+            .await;
+            let mut config = test_submitter(url.clone()).inner.config.clone();
+            config.target_rpc_url = override_target.then_some(url);
+            if override_target {
+                config.reader.rpc_url = "http://127.0.0.1:0".parse().unwrap();
+            }
+            let submitter =
+                super::Submitter::new(config, Duration::from_secs(12), Duration::from_millis(500))
+                    .unwrap();
+            let shared = submitter.clone();
+            // The server accepts only one connection. Each call must still
+            // make a fresh RPC, including after an error or same-height reorg.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                assert_eq!(
+                    submitter.canonical_block_hash(42).await.unwrap(),
+                    Some(first.header.hash)
+                );
+                assert!(matches!(
+                    shared.canonical_block_hash(42).await,
+                    Err(L1Error::Provider(_))
+                ));
+                assert_eq!(
+                    shared.canonical_block_hash(42).await.unwrap(),
+                    Some(replacement.header.hash)
+                );
+                assert!(!submitter.receipt_exists(B256::ZERO).await.unwrap());
+                let requests = server.await.unwrap();
+                assert_eq!(requests.len(), 4);
+                for request in &requests[..3] {
+                    assert_eq!(request["method"], "eth_getBlockByNumber");
+                    assert_eq!(request["params"][0], "0x2a");
+                }
+                assert_eq!(requests[3]["method"], "eth_getTransactionReceipt");
+            })
+            .await
+            .expect("canonical reads must reuse the live HTTP connection");
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_source_reads_bound_stalled_headers_and_response_bodies() {
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        for stalled_body in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url: url::Url = format!("http://{}", listener.local_addr().unwrap())
+                .parse()
+                .unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                assert!(stream.read(&mut [0; 1024]).await.unwrap() > 0);
+                if stalled_body {
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                        .await
+                        .unwrap();
+                }
+                std::future::pending::<()>().await;
+            });
+            let mut submitter = test_submitter(url);
+            let inner = Arc::get_mut(&mut submitter.inner).unwrap();
+            inner.target_provider =
+                super::Inner::build_target_provider(&inner.config, Duration::from_millis(100));
+            let result = tokio::time::timeout(
+                Duration::from_secs(2),
+                submitter.source_state_at(
+                    B256::ZERO,
+                    alloy_primitives::Address::ZERO,
+                    crate::L1BlockRef {
+                        number: 100,
+                        hash: B256::with_last_byte(2),
+                    },
+                ),
+            )
+            .await;
+            server.abort();
+            assert!(matches!(
+                result.expect("source reads must use the configured HTTP timeout"),
+                Err(L1Error::Provider(_))
+            ));
+        }
+    }
+
+    fn signed_user(chain_id: u64, nonce: u64) -> (alloy_primitives::Bytes, B256) {
+        use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
+        use alloy_eips::Encodable2718;
+        use alloy_network::TxSignerSync;
+        use alloy_primitives::TxKind;
+        let signer: alloy_signer_local::PrivateKeySigner =
+            B256::with_last_byte(1).to_string().parse().unwrap();
+        let mut tx = TxEip1559 {
+            chain_id,
+            nonce,
+            gas_limit: 100_000,
+            max_fee_per_gas: 10,
+            max_priority_fee_per_gas: 1,
+            to: TxKind::Call(signer.address()),
+            ..Default::default()
+        };
+        let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+        let tx = TxEnvelope::Eip1559(tx.into_signed(signature));
+        (tx.encoded_2718().into(), *tx.tx_hash())
+    }
+
+    #[test]
+    fn partial_request_only_allows_actual_signed_inbound_users_to_revert() {
+        let (first, first_hash) = signed_user(1, 0);
+        let (second, second_hash) = signed_user(1, 1);
+        // The leading postBatch may have a pooled blob sidecar; the allowlist
+        // must leave these bytes alone and hash only the actual L1 users.
+        let post = alloy_primitives::Bytes::from_static(&[3, 0xc0]);
+        let hashes = super::inbound_revert_hashes(
+            &[post.clone(), first.clone(), second.clone()],
+            1,
+            B256::ZERO,
+        )
+        .unwrap();
+        assert_eq!(hashes, vec![first_hash, second_hash]);
+        let hexes = [post.to_string(), first.to_string(), second.to_string()];
+        let raws = hexes.iter().map(String::as_str).collect::<Vec<_>>();
+        let request = bundle_request(&raws, 42, PIN, &hashes);
+        let params = &request["params"][0];
+        assert_eq!(
+            params["revertingTxHashes"],
+            serde_json::json!([first_hash, second_hash])
+        );
+        assert!(params.get("droppingTxHashes").is_none());
+        assert_eq!(params["txs"], serde_json::json!(hexes));
+        assert_eq!(params["minTimestamp"], PIN);
+        assert_eq!(params["maxTimestamp"], PIN);
+        let post_only = bundle_request(&raws[..1], 42, PIN, &[]);
+        assert!(post_only["params"][0].get("revertingTxHashes").is_none());
+    }
+
+    #[test]
+    fn inbound_revert_allowlist_rejects_wrong_chain_duplicate_and_malformed_users() {
+        let (user, hash) = signed_user(1, 0);
+        let post = alloy_primitives::Bytes::new();
+        assert!(
+            super::inbound_revert_hashes(&[post.clone(), user.clone()], 2, B256::ZERO).is_err()
+        );
+        assert!(super::inbound_revert_hashes(&[post.clone(), user.clone()], 1, hash).is_err());
+        assert!(
+            super::inbound_revert_hashes(
+                &[post.clone(), user.clone(), user.clone()],
+                1,
+                B256::ZERO
+            )
+            .is_err()
+        );
+        let mut trailing = user.to_vec();
+        trailing.push(0);
+        assert!(
+            super::inbound_revert_hashes(&[post.clone(), trailing.into()], 1, B256::ZERO).is_err()
+        );
+        assert!(
+            super::inbound_revert_hashes(
+                &[post.clone(), alloy_primitives::Bytes::new()],
+                1,
+                B256::ZERO
+            )
+            .is_err()
+        );
+        assert!(
+            super::inbound_revert_hashes(&[post], 1, B256::ZERO)
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn production_default_opens_at_seven_and_a_half_seconds() {
@@ -1202,6 +1804,112 @@ mod tests {
         block.header.inner.timestamp = timestamp;
         block.header.hash = hash;
         block
+    }
+
+    #[tokio::test]
+    async fn canonical_source_reads_reject_reorgs_and_rpc_errors() {
+        let block = mock_block(42, PIN, B256::with_last_byte(1));
+        let at = crate::L1BlockRef {
+            number: 42,
+            hash: block.header.hash,
+        };
+        for failure in ["initial", "nonce", "receipt", "final"] {
+            let replies = Asserter::new();
+            if failure == "initial" {
+                replies.push_success(&mock_block(42, PIN, B256::with_last_byte(2)));
+            } else {
+                replies.push_success(&block);
+                if failure == "nonce" {
+                    replies.push_failure_msg("source state unavailable");
+                } else {
+                    replies.push_success(&"0x0");
+                    if failure == "receipt" {
+                        replies.push_failure_msg("receipt index unavailable");
+                    } else {
+                        replies.push_success(&serde_json::Value::Null);
+                        replies.push_success(&mock_block(42, PIN, B256::with_last_byte(2)));
+                    }
+                }
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let result = super::read_canonical_source(
+                &provider,
+                Default::default(),
+                1,
+                B256::with_last_byte(3),
+                Default::default(),
+                at,
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "{failure} must retain ownership, not prove omission"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_source_distinguishes_absent_future_and_reverted_receipts() {
+        let block = mock_block(42, PIN, B256::with_last_byte(1));
+        let at = crate::L1BlockRef {
+            number: 42,
+            hash: block.header.hash,
+        };
+        let tx_hash = B256::with_last_byte(3);
+        for kind in [
+            "absent",
+            "future",
+            "reverted",
+            "wrong hash",
+            "missing index",
+        ] {
+            let replies = Asserter::new();
+            replies.push_success(&block);
+            replies.push_success(&"0x1");
+            if kind == "absent" {
+                replies.push_success(&serde_json::Value::Null);
+            } else {
+                replies.push_success(&serde_json::json!({
+                    "transactionHash": if kind == "wrong hash" { B256::ZERO } else { tx_hash },
+                    "transactionIndex": if kind == "missing index" { None } else { Some("0x2") },
+                    "blockHash": at.hash,
+                    "blockNumber": if kind == "future" { "0x2b" } else { "0x2a" },
+                    "from": alloy_primitives::Address::ZERO, "to": alloy_primitives::Address::ZERO,
+                    "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "cumulativeGasUsed": "0x5208",
+                    "type": "0x2", "status": "0x0", "logs": [],
+                    "logsBloom": alloy_primitives::Bloom::ZERO,
+                }));
+                if matches!(kind, "reverted" | "missing index") {
+                    replies.push_success(&block);
+                }
+            }
+            replies.push_success(&block);
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let result = super::read_canonical_source(
+                &provider,
+                Default::default(),
+                1,
+                tx_hash,
+                Default::default(),
+                at,
+            )
+            .await;
+            if matches!(kind, "future" | "wrong hash" | "missing index") {
+                assert!(result.is_err(), "unresolved provenance is inconclusive");
+            } else {
+                let source = result.unwrap();
+                assert_eq!(source.nonce, 1);
+                if kind == "reverted" {
+                    let receipt = source.receipt.unwrap();
+                    assert!(!receipt.success, "included revert spends its nonce");
+                    assert_eq!(receipt.block, at);
+                    assert_eq!(receipt.transaction_index, 2);
+                    assert!(receipt.consumed.is_empty());
+                } else {
+                    assert!(source.receipt.is_none());
+                }
+            }
+        }
     }
 
     #[test]
@@ -1317,7 +2025,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: 42,
-                timestamp: PIN,
                 reason: BundleDropReason::SubmissionWindowMissed,
             }
         );
@@ -1347,7 +2054,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: 42,
-                timestamp: PIN,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -1422,7 +2128,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: PIN + 24,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -1456,7 +2161,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: PIN + 24,
                 reason: BundleDropReason::TargetChanged,
             }
         );
@@ -1487,7 +2191,6 @@ mod tests {
             result,
             TargetPreparation::Missed {
                 block: base_number + 2,
-                timestamp: target_timestamp,
                 reason: BundleDropReason::SubmissionWindowMissed,
             }
         );
@@ -1506,21 +2209,8 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_bundle_rpc_fails_closed_for_ordered_settlement() {
-        assert!(require_atomic_relay_or_lone_postbatch(1).is_ok());
-        assert!(matches!(
-            require_atomic_relay_or_lone_postbatch(2),
-            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 2-transaction")
-        ));
-        assert!(matches!(
-            require_atomic_relay_or_lone_postbatch(4),
-            Err(L1Error::Submission(message)) if message.contains("refusing non-atomic 4-transaction")
-        ));
-    }
-
-    #[test]
     fn replay_request_preserves_exact_transactions_target_and_timestamp_pin() {
-        let request = bundle_request(&["0x0102", "0x0304"], 42, Some(PIN));
+        let request = bundle_request(&["0x0102", "0x0304"], 42, PIN, &[]);
         assert_eq!(request["method"], "eth_sendBundle");
         assert_eq!(request["params"][0]["txs"][0], "0x0102");
         assert_eq!(request["params"][0]["txs"][1], "0x0304");

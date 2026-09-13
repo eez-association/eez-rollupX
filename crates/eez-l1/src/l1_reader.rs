@@ -192,10 +192,6 @@ impl L1Reader {
             .map(|b| (b.header.number, b.header.hash)))
     }
 
-    pub(crate) fn rpc_url(&self) -> url::Url {
-        self.config.rpc_url.clone()
-    }
-
     pub(crate) fn eez(&self) -> alloy_primitives::Address {
         self.config.eez
     }

@@ -91,6 +91,58 @@ class RelayResourcesTest(unittest.TestCase):
             self.assertEqual(self.calls, [])
 
 
+class SettlementReadinessTest(unittest.TestCase):
+    def run_readiness(self, log, log_status=0):
+        script = (REPO / "testing/kurtosis/run-ci.sh").read_text()
+        start = script.index('while (( SECONDS < deadline )); do\n    node_logs=')
+        end = script.index('\necho "==> running native cross-chain wave suite"', start)
+        setup = r'''
+deadline=$((SECONDS + 60))
+KURTOSIS_ENCLAVE=fixture-ci
+kurtosis() {
+    [[ "$*" == "service logs fixture-ci eez-node" ]] || return 99
+    cat "$READINESS_LOG"
+    return "$READINESS_LOG_STATUS"
+}
+timeout() { shift; "$@"; }
+sleep() { SECONDS=$deadline; }
+'''
+        with tempfile.TemporaryDirectory(prefix="eez-readiness.") as temporary:
+            path = Path(temporary) / "node.log"
+            path.write_text(log)
+            return subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", setup + script[start:end]],
+                env={**os.environ, "READINESS_LOG": str(path),
+                     "READINESS_LOG_STATUS": str(log_status)},
+                capture_output=True, text=True, timeout=10,
+            )
+
+    def test_canonical_safe_advance_makes_the_network_ready(self):
+        log = '\x1b[36m[eez-node]\x1b[0m ' + json.dumps({"fields": {
+            "event_name": "eez.deriver.safe.advanced", "to_block": 480,
+        }}, separators=(",", ":"))
+        result = self.run_readiness(log)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("network ready", result.stdout)
+
+    def test_observer_outcomes_alone_do_not_prove_readiness(self):
+        for outcome in ("Included { ... }", "Ok(Included { ... })",
+                        "Ok(Dropped { ... })", 'Err("RPC unavailable")'):
+            with self.subTest(outcome=outcome):
+                log = json.dumps({"fields": {
+                    "event_name": "eez.composer.bundle.observed", "outcome": outcome,
+                }}, separators=(",", ":"))
+                result = self.run_readiness(log)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("readiness timeout", result.stderr)
+                self.assertNotIn("network ready", result.stdout)
+
+    def test_unavailable_logs_do_not_prove_readiness(self):
+        result = self.run_readiness("", log_status=1)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("readiness timeout", result.stderr)
+
+
 class FailureArtifactsTest(unittest.TestCase):
     def test_full_logs_survive_cleanup_and_failure_is_not_hidden(self):
         with tempfile.TemporaryDirectory(prefix="eez-kurtosis-logs.") as temporary:

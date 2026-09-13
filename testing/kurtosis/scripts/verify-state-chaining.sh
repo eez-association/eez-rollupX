@@ -166,9 +166,8 @@ assert_proof_for_height() {
         refresh_signer_log
         node_evidence=$(sed -n "$((node_baseline + 1)),\$p" "$NODE_LOG" | strip_ansi)
         signer_evidence=$(sed -n "$((signer_baseline + 1)),\$p" "$SIGNER_LOG" | strip_ansi)
-        settled=$(grep -F '"event_name":"eez.composer.bundle.observed"' <<<"$node_evidence" \
-            | grep -F "\"sync_height\":$sync_height," \
-            | grep -F '"settled":true' | tail -1 || true)
+        settled=$(grep -F '"event_name":"eez.deriver.safe.advanced"' <<<"$node_evidence" \
+            | grep -F "\"to_block\":$sync_height," | tail -1 || true)
         attested_hash=$(grep -F '"event_name":"eez.prover_client.attested"' <<<"$node_evidence" \
             | grep -F "\"to\":$sync_height," \
             | grep -oE '"hash":"0x[0-9a-fA-F]{64}"' \
@@ -567,9 +566,9 @@ run_repeated_inbound_source_transaction_scenario() {
     evidence=$(sed -n "$((node_baseline + 1)),\$p" "$NODE_LOG" | strip_ansi)
     rich_bundle=$(grep -F '"event_name":"eez.composer.bundle.dispatched"' <<<"$evidence" \
         | grep -F "\"sync_height\":$sync_height," | grep -F '"tx_count":2' | tail -1 || true)
-    settled_bundle=$(grep -F '"event_name":"eez.composer.bundle.observed"' <<<"$evidence" \
-        | grep -F "\"sync_height\":$sync_height," \
-        | grep -F "l1_block: $source_block_dec" | grep -F '"settled":true' | tail -1 || true)
+    settled_bundle=$(grep -F '"event_name":"eez.deriver.safe.advanced"' <<<"$evidence" \
+        | grep -F "\"to_block\":$sync_height," \
+        | grep -F "\"l1_block_number\":$source_block_dec," | tail -1 || true)
     [[ -n "$rich_bundle" && -n "$settled_bundle" ]] || {
         echo "postBatch and repeated-inbound user transaction were not proven in one atomic L1 bundle" >&2
         return 1

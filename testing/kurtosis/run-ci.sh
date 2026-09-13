@@ -222,18 +222,19 @@ done
     exit 1
 }
 
+# Canonical replay proves readiness; an observer receipt alone does not.
 while (( SECONDS < deadline )); do
     node_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" eez-node 2>/dev/null || true)"
-    if grep -qE '"event_name":"eez.composer.bundle.observed".*"outcome":"Included' <<<"$node_logs"; then
+    if grep -Fq '"event_name":"eez.deriver.safe.advanced"' <<<"$node_logs"; then
         break
     fi
     sleep 5
 done
 (( SECONDS < deadline )) || {
-    echo "no bundle inclusion observed before the readiness timeout" >&2
+    echo "no canonical settlement observed before the readiness timeout" >&2
     exit 1
 }
-echo "==> network ready: bundle inclusion observed"
+echo "==> network ready: canonical settlement observed"
 
 echo "==> running native cross-chain wave suite"
 bash "$HERE/scripts/verify-cross-chain-waves.sh"

@@ -273,8 +273,8 @@ echo "==> L1 commitment vs L2 block-hash reconciliation"
 L1_TRACKED=$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' "$EEZ_ROLLUP_ID" \
     --rpc-url "$L1_RPC" 2>/dev/null | sed -n '2p' | tr -d '[:space:]')
 LAST_SETTLED=$(sed 's/\x1b\[[0-9;]*m//g' "$NODE_LOG" 2>/dev/null \
-    | grep "bundle outcome observed" | grep "settled=true" \
-    | grep -oE "sync_height=[0-9]+" | grep -oE "[0-9]+" | sort -n | tail -1 || true)
+    | grep -F "eez.deriver.safe.advanced" \
+    | grep -oE "to_block=[0-9]+" | grep -oE "[0-9]+" | sort -n | tail -1 || true)
 [[ -z "$LAST_SETTLED" ]] && { [[ ${#SYNC_BLOCKS[@]} -gt 0 ]] && LAST_SETTLED="${SYNC_BLOCKS[-1]}" || LAST_SETTLED=0; }
 L2_AT_LAST_SETTLED=$(cast block "$LAST_SETTLED" --rpc-url "$L2_RPC" --json | jq -r '.hash')
 echo "    L1 rollups($EEZ_ROLLUP_ID) commitment                  = $L1_TRACKED"

@@ -250,7 +250,7 @@ class NativeArtifactTest(unittest.TestCase):
             native.export_e2e(self.root, self.root / "lean")
 
     def test_test_inventory_and_serialism_are_preserved(self):
-        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "chained_interstate", "resumption",
+        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors",
                                          "ethereum_kzg_compatibility"])
         self.assertIn("kind(lib) | kind(bin)", native.SUITES["unit"])
@@ -483,9 +483,9 @@ class NativeRelocationTest(unittest.TestCase):
     assert!(std::process::Command::new(signer).status().unwrap().success());
 }
 '''
-            for target in native.TARGETS[:4]:
+            for target in native.TARGETS[:5]:
                 (node / f"tests/{target}.rs").write_text(test_source)
-            for target in native.TARGETS[4:]:
+            for target in native.TARGETS[5:]:
                 package = "eez-blob-codec" if target == "ethereum_kzg_compatibility" else "eez-protocol"
                 (repo / f"crates/{package}/tests/{target}.rs").write_text('''
 #[test] fn fixture_is_relocated() {
@@ -528,7 +528,7 @@ class NativeRelocationTest(unittest.TestCase):
                 "target/nextest/binaries-metadata.json"], text=True))["rust-binaries"]
             self.assertIn("eez-proof-signer::bin/eez-proof-signer", metadata)
             self.assertIn("eez-node", metadata)
-            for name in native.TARGETS[:4]:
+            for name in native.TARGETS[:5]:
                 self.assertIn(f"eez-node-e2e::{name}", metadata)
             self.assertNotIn("eez-composer", metadata)
             self.assertFalse(any(key.startswith("eez-node::bin/") for key in metadata))

@@ -510,6 +510,50 @@ inbound delivery share the canonical L2 Sync block. Every scenario also
 verifies bundle settlement, proof-signer acceptance, and L1/L2 state-root
 convergence.
 
+### Validate partial consumption
+
+Use an isolated enclave and locally built node/signer images tagged
+`eez-node:partial-consumption`, `eez-proof-signer:partial-consumption`, and
+`eez-deploy:partial-consumption`. Every profile uses in-memory settlement tracking
+and permits included inbound users to revert. This profile pins the builder image
+and isolates the canary's chain and funding.
+
+```bash
+kurtosis run --enclave eez-partial-consumption ./testing/kurtosis \
+  --args-file testing/kurtosis/partial-consumption-args.yaml
+```
+
+Deploy the existing cross-chain Value fixture with `cross-chain-wave.sh` on
+this enclave, then pass its L1 Value proxy to the canary:
+
+```bash
+python3 testing/kurtosis/scripts/verify-partial-consumption.py \
+  --enclave eez-partial-consumption --proxy "$VALUE_PROXY_L1" \
+  --output artifacts/partial-consumption.json
+```
+
+This private network has chain ID 7331 and deterministic development funding
+keys. The canary creates three fresh source users, waits for their proved
+attempt's dispatch event, and replaces the middle user's nonce before
+the target block. It requires the replacement, postBatch and two remaining
+source users to land in order in the same builder block. It checks the exact
+partial L2 commitment, `Committed` / `SourceNonceSpent` / `SourceReverted`
+dispositions from reconciliation events, source receipts, and healthy subsequent
+settlement.
+
+The profile pins rbuilder to
+`sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308`
+(source commit `6037fa728b13bf1806e16fff2586414216f6b8fa`). Its generated
+`mgp-ordering` and `mp-ordering` builders use `discard_txs = true`: this permits
+invalid transactions in the revert allowlist to be skipped. The canary fails
+if the image or observed inclusion behavior differs. This builder setting is
+separate from the permission to include an EVM revert. No dropping allowlist
+is sent.
+
+Pending transactions and retry counters are held in memory. After a restart,
+clients may need to resubmit unsettled transactions; canonical state is recovered
+from L1.
+
 ### Run all included workloads
 
 The suite requires an output directory:

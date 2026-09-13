@@ -48,12 +48,14 @@ use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
     build_sync_block, sync_block_hashes_at_positions,
 };
+use crate::optimistic::AttemptId;
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
     actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
     validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
+use eez_protocol::settlement_manifest::{ManifestInput, ProposedUser, SettlementManifest};
 
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
@@ -537,12 +539,6 @@ enum PreparePostBatchError {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SettlementFailureSource {
-    Prover,
-    Relay,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SettlementFailureOutcome {
     requeued: usize,
@@ -556,7 +552,6 @@ fn recover_settlement_failure(
     pool: &HeldPool,
     rollup_id: u64,
     txs: Vec<HeldTx>,
-    source: SettlementFailureSource,
 ) -> SettlementFailureOutcome {
     let mut retry = Vec::with_capacity(txs.len());
     let mut evicted = Vec::new();
@@ -571,7 +566,7 @@ fn recover_settlement_failure(
                 Level::ERROR,
                 event_name = "eez.composer.recovery.poison_evicted",
                 rollup_id,
-                source = ?source,
+                source = "Prover",
                 tx_hash = %tx.hash,
                 sender = %tx.sender,
                 direction = ?tx.direction,
@@ -597,7 +592,7 @@ fn recover_settlement_failure(
                     Level::ERROR,
                     event_name = "eez.composer.recovery.nonce_chain_evicted",
                     rollup_id,
-                    source = ?source,
+                    source = "Prover",
                     tx_hash = %tx.hash,
                     sender = %tx.sender,
                     direction = ?tx.direction,
@@ -615,7 +610,7 @@ fn recover_settlement_failure(
                 Level::ERROR,
                 event_name = "eez.composer.recovery.nonce_chain_evicted",
                 rollup_id,
-                source = ?source,
+                source = "Prover",
                 tx_hash = %tx.hash,
                 sender = %tx.sender,
                 direction = ?tx.direction,
@@ -1046,7 +1041,7 @@ where
     L2: BlockReader<Header = alloy_consensus::Header> + Send + Sync + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    /// Constructs the umbrella. Synchronous — does no I/O.
+    /// Construct the umbrella with pools bound to their attempt ledgers.
     ///
     /// # Errors
     ///
@@ -1065,6 +1060,13 @@ where
         let submitter_poster = submitter.poster_address();
         let post_batch_signer = cross_chain.exec_ctx.l1_poster_signer.address();
         ensure_submission_identity(submitter_poster, post_batch_signer)?;
+
+        for rollup in rollups.values() {
+            assert!(
+                rollup.held_pool.uses_ledger(&rollup.optimistic),
+                "held pool must use the rollup's optimistic ledger"
+            );
+        }
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -1177,100 +1179,48 @@ where
                 common_ancestor_number,
                 ..
             }) => {
-                // L1 rolled out blocks. Any optimistic batch above the
-                // retreated cursor lost its L1 backing — recover its
-                // txs into the held pool for re-composition. The
-                // Deriver independently retreats the cursor and the L2
-                // head; `highest_l2_at_or_below_l1` reads the same
-                // batch index it prunes, so this is order-independent.
-                for (rollup_id, rollup) in &self.rollups {
-                    let new_cursor = rollup
-                        .l1_head
-                        .highest_l2_at_or_below_l1(*common_ancestor_number)
-                        .unwrap_or(0);
-                    let txs = rollup.optimistic.take_rolled_out(new_cursor);
-                    if txs.is_empty() {
-                        continue;
+                for rollup in self.rollups.values() {
+                    rollup.l1_head.invalidate_scan();
+                    if let Err(error) = rollup
+                        .held_pool
+                        .invalidate_after_l1(*common_ancestor_number)
+                    {
+                        event!(Level::ERROR, %error, "cannot apply L1 reorg; retaining transaction ownership");
                     }
-                    event!(
-                        name: "eez.composer.optimistic.l1_reorg_recovery",
-                        Level::WARN,
-                        rollup_id,
-                        common_ancestor = common_ancestor_number,
-                        new_cursor,
-                        tx_count = txs.len(),
-                        "L1 reorg rolled out optimistic batches; re-queueing their user_txs",
-                    );
-                    rollup.held_pool.push_front_batch(txs);
                 }
             }
             Ok(L1Event::Finalized { block_number, .. }) => {
-                // Settled batches at or below L1 finality can never be
-                // rolled out — but "Settled" is the observer's/cursor's
-                // belief. Finality audit backstop: before discarding
-                // each ledger entry, verify its postBatch receipt still
-                // exists on L1. A missing receipt means a reorg rolled
-                // the batch out and the L1Watcher missed it. The receipt checks
-                // are async while `on_l1_event` is synchronous, so the audit
-                // runs in a spawned task per rollup.
-                for (rollup_id, rollup) in &self.rollups {
-                    let Some(fin_l2) = rollup.l1_head.highest_l2_at_or_below_l1(*block_number)
-                    else {
-                        continue;
-                    };
-                    let finalized = rollup.optimistic.take_finalized(fin_l2);
-                    if finalized.is_empty() {
-                        continue;
-                    }
-                    let rollup_id = *rollup_id;
+                for rollup in self.rollups.values() {
+                    let candidates = rollup.optimistic.finalization_candidates(*block_number);
+                    let optimistic = Arc::clone(&rollup.optimistic);
+                    let held_pool = Arc::clone(&rollup.held_pool);
+                    let l1_head = Arc::clone(&rollup.l1_head);
                     let submitter = self.submitter.clone();
-                    let held_pool = rollup.held_pool.clone();
                     tokio::spawn(async move {
-                        for (sync_height, post_batch_hash, txs) in finalized {
-                            match submitter.receipt_exists(post_batch_hash).await {
-                                Ok(true) => {
-                                    held_pool.release_in_flight_batch(&txs);
-                                    event!(
-                                        name: "eez.composer.finality_audit.ok",
-                                        Level::DEBUG,
-                                        rollup_id,
-                                        sync_height,
-                                        post_batch_hash = %post_batch_hash,
-                                        "finalized batch audited: postBatch receipt present; ledger entry dropped",
-                                    );
+                        for (id, block) in candidates {
+                            match submitter.canonical_block_hash(block.number).await {
+                                Ok(Some(hash)) if hash == block.hash => {
+                                    if let Err(error) = optimistic.forget_finalized(id, block) {
+                                        event!(Level::ERROR, %error, "finality update failed; retaining records");
+                                    }
                                 }
-                                Ok(false) => {
-                                    // Detection + tx recovery only —
-                                    // repairing the L2 history is the
-                                    // Deriver's job.
-                                    event!(
-                                        name: "eez.composer.finality_audit.rolled_out",
-                                        Level::ERROR,
-                                        rollup_id,
-                                        sync_height,
-                                        post_batch_hash = %post_batch_hash,
-                                        tx_count = txs.len(),
-                                        "finalized batch has NO postBatch receipt on L1 — reorg rolled it out unobserved; re-queueing its user_txs (front)",
-                                    );
-                                    held_pool.push_front_batch(txs);
+                                Ok(Some(_)) => {
+                                    l1_head.invalidate_scan();
+                                    if let Err(error) = held_pool
+                                        .invalidate_after_l1(block.number.saturating_sub(1))
+                                    {
+                                        event!(Level::ERROR, %error, "finality audit found a reorg; ownership invalidation failed");
+                                    } else if let Err(error) =
+                                        optimistic.forget_finalized(id, block)
+                                    {
+                                        // Invalidation reopened every canonical outcome still
+                                        // owned here. Only fully transferred history or local
+                                        // terminal policy decisions remain eligible for removal.
+                                        event!(Level::ERROR, %error, "cannot prune resolved reorg history");
+                                    }
                                 }
-                                Err(err) => {
-                                    // Inconclusive: re-queueing txs that
-                                    // actually landed would burn nonces
-                                    // and poison the next bundle's simulation,
-                                    // so an inconclusive audit does not recover
-                                    // transactions speculatively.
-                                    event!(
-                                        name: "eez.composer.finality_audit.check_failed",
-                                        Level::ERROR,
-                                        rollup_id,
-                                        sync_height,
-                                        post_batch_hash = %post_batch_hash,
-                                        error = %err,
-                                        "finality-audit receipt lookup failed; ledger entry dropped UNAUDITED",
-                                    );
-                                    held_pool.release_in_flight_batch(&txs);
-                                }
+                                other => event!(Level::WARN, result = ?other,
+                                    "finality audit inconclusive; retaining recovery history"),
                             }
                         }
                     });
@@ -1359,45 +1309,18 @@ where
         let parent_number = parent_header.number();
         let suggested_fee_recipient: Address = Address::ZERO;
 
-        // ── One-in-flight gate ───────────────────────────────────────
-        // Emit a postBatch only once the previous resolves — FAILED
-        // (observer verdict) or CURSOR-CONFIRMED (Deriver advanced
-        // `l1_head.cursor()` past its Sync height). Two overlapping
-        // bundles share the same `from` cursor; the second hits
-        // `RootMismatch` and burns its user_txs' nonces. Gating on
-        // the DERIVER's cursor (not the observer's faster verdict) also
-        // keeps the next bundle's `posted` read fresh.
-        //
-        // While blocked the slot still gets its (empty) Sync block — L2
-        // cadence is unconditional; the next postBatch covers it.
+        // All user ownership changes require complete canonical evidence.
+        // A matching height, including a competing batch, proves no user nonce.
+        if let Some(attempt) = rollup.optimistic.pending_attempt() {
+            match self.reconcile_attempt(rollup_id, rollup, attempt).await {
+                Ok(RecoveryOutcome::HeadMoved) => return None,
+                Ok(RecoveryOutcome::HeadUnchanged) => {}
+                Err(error) => event!(Level::WARN, rollup_id, %error,
+                    "settlement evidence incomplete; retaining all unresolved ownership"),
+            }
+        }
         let cursor = rollup.l1_head.cursor();
-        let newly_cursor_confirmed = rollup.optimistic.resolve_below_cursor(cursor);
-        if !newly_cursor_confirmed.is_empty() {
-            pool.release_in_flight_batch(&newly_cursor_confirmed);
-        }
-
-        // ── Slot-context failure recovery ────────────────────────────
-        // The observer task only RECORDS verdicts; the destructive
-        // recovery happens here, serialized with the Sequencer's own
-        // commits (the slot loop is sequential — no commit can race
-        // this) and with the Deriver (reconcile lock). By now the
-        // failed Sync block has either committed (head ≥ height →
-        // reorg it out) or permanently didn't (stale-parent bail —
-        // nothing to roll back).
-        if let Some(failed) = rollup.optimistic.take_failed_for_recovery(cursor) {
-            // A moved head makes this slot's parent stale — the Sequencer's bail
-            // covers it. An UNCHANGED head (reinsert / stale-verdict) still owes
-            // the slot a block, and returning None there would let the
-            // mempool-fed commit_one fallback mint a tx-bearing grid block.
-            return match self.recover_failed_batch(rollup_id, rollup, failed).await {
-                RecoveryOutcome::HeadUnchanged => {
-                    self.build_empty_slot_block(rollup, &parent_header, timestamp)
-                }
-                RecoveryOutcome::HeadMoved => None,
-            };
-        }
-
-        let blocked = rollup.optimistic.blocking_height(cursor).is_some();
+        let blocked = rollup.optimistic.blocking_height().is_some();
         let sync_height = parent_number + 1;
         self.log_settlement_backlog(rollup_id, cursor, sync_height, blocked);
         if blocked {
@@ -1471,8 +1394,8 @@ where
 
         let pool_len_before = pool.len();
         // Caps how many held transactions one bundle attempts and therefore how
-        // many an atomic-relay drop re-queues. L1 block gas remains the hard
-        // protocol constraint, so deployments may need a lower cap.
+        // many users require settlement reconciliation. L1 block gas remains the
+        // hard protocol constraint, so deployments may need a lower cap.
         let max_user_txs = std::env::var("EEZ_MAX_USER_TXS_PER_BUNDLE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
@@ -1550,17 +1473,17 @@ where
         }
     }
 
-    /// Run recovery on every tick, not just Sync slots, so a mid-slot verdict
-    /// isn't held for K blocks. Idempotent: no Failed entry means no work.
+    /// Reconcile pending source ownership on every tick, including between
+    /// Sync slots. Observations alone cannot release reservations.
     async fn recover_failed(&self, rollup_id: u64) {
         let Some(rollup) = self.inner.rollups.get(&rollup_id) else {
             return;
         };
-        let cursor = rollup.l1_head.cursor();
-        if let Some(failed) = rollup.optimistic.take_failed_for_recovery(cursor) {
-            // Deliberately ignored: a tick owes no block, and the Sequencer
-            // re-reads the head right after this hook returns.
-            let _ = self.recover_failed_batch(rollup_id, rollup, failed).await;
+        if let Some(attempt) = rollup.optimistic.pending_attempt()
+            && let Err(error) = self.reconcile_attempt(rollup_id, rollup, attempt).await
+        {
+            event!(Level::WARN, rollup_id, %error,
+                    "settlement recovery waits for conclusive canonical evidence");
         }
     }
 }
@@ -1613,211 +1536,257 @@ where
         }
     }
 
-    /// Reorg a landed failed batch out, substitute an empty sibling (the shape
-    /// a deriver rebuilds from L1), re-push its txs minus burned nonces.
-    async fn recover_failed_batch(
+    /// Reconcile source nonces only against a completed canonical L1 scan.
+    /// The engine lock is reacquired after network reads and the generation
+    /// and L1 hash are rechecked before repairing L2 or transferring ownership.
+    async fn reconcile_attempt(
         &self,
         rollup_id: u64,
         rollup: &RollupState<L2>,
-        failed: crate::optimistic::FailedBatch,
-    ) -> RecoveryOutcome {
-        let sync_height = failed.sync_height;
-        let pool = rollup.held_pool.as_ref();
-        // Set by the two operations that move the head: the rollback and the
-        // sibling commit.
-        let mut outcome = RecoveryOutcome::HeadUnchanged;
-        let committer = &self.inner.committer;
-        let mut landed = Vec::new();
-        let mut receipt_error = None;
-        for tx in &failed.txs {
-            match self.inner.submitter.receipt_exists(tx.hash).await {
-                Ok(true) => landed.push(tx.hash),
-                Ok(false) => {}
-                Err(err) => {
-                    receipt_error = Some((tx.hash, err));
-                    break;
-                }
+        attempt: crate::optimistic::AttemptRecord,
+    ) -> Result<RecoveryOutcome, String> {
+        use crate::optimistic::{SourceOutcome, SubmissionObservation, TerminalReason};
+        let snapshot = rollup.l1_head.settlement_snapshot();
+        let (Some(at), Some(endpoint)) = (snapshot.through, snapshot.endpoint) else {
+            return Ok(RecoveryOutcome::HeadUnchanged);
+        };
+        if attempt.observation == SubmissionObservation::Prepared {
+            return Ok(RecoveryOutcome::HeadUnchanged);
+        }
+        if attempt
+            .dispatched_target
+            .is_some_and(|target| target.0 > at.number)
+            || matches!(attempt.observation, SubmissionObservation::Included { block } if block.number > at.number)
+        {
+            return Ok(RecoveryOutcome::HeadUnchanged);
+        }
+        let submitter = &self.inner.submitter;
+        let post = submitter
+            .source_state_at(attempt.id.post_batch_hash, submitter.poster_address(), at)
+            .await
+            .map_err(|error| error.to_string())?;
+        let evidence = snapshot.settlements.get(&attempt.id.post_batch_hash);
+        if let Some(receipt) = post.receipt.as_ref().filter(|receipt| receipt.success) {
+            let evidence = evidence.ok_or("included postBatch has not been reconciled")?;
+            if evidence.l1_block != receipt.block || evidence.tx_index != receipt.transaction_index
+            {
+                return Err(
+                    "postBatch receipt and reconciliation belong to different occurrences".into(),
+                );
+            }
+            validate_attempt_evidence(&attempt, evidence)?;
+        } else if evidence.is_some_and(|evidence| evidence.endpoint.is_some()) {
+            return Err("canonical postBatch receipt is missing for applied settlement".into());
+        } else if post.receipt.is_none() {
+            if let Some((target, _)) = attempt.dispatched_target
+                && submitter
+                    .canonical_block_contains(target, attempt.id.post_batch_hash)
+                    .await
+                    .map_err(|error| error.to_string())?
+            {
+                return Err("postBatch receipt index is still catching up".into());
+            }
+            // A running observer may still classify an infrastructure failure.
+            // Wait for its verdict so scheduling order cannot change charges.
+            if matches!(
+                attempt.observation,
+                SubmissionObservation::Dispatched { .. }
+            ) {
+                return Ok(RecoveryOutcome::HeadUnchanged);
             }
         }
-        if let Some((tx_hash, err)) = receipt_error {
-            event!(
-                name: "eez.composer.recovery.receipt_check_failed",
-                Level::WARN,
-                rollup_id,
-                sync_height,
-                tx_hash = %tx_hash,
-                error = %err,
-                "user receipt lookup failed; retaining failed batch for retry",
-            );
-            rollup.optimistic.reinsert_failed(failed);
-            return RecoveryOutcome::HeadUnchanged;
-        }
-        // Reorg only if the failed block (or descendants) actually
-        // became canonical. Rich Sync blocks carry unsettled
-        // cross-chain effects; empty (minimal-path) blocks are
-        // L1-independent and need no rollback.
-        if !failed.txs.is_empty() {
-            let _guard = committer.begin_reconcile().await;
-            // Cursor re-check UNDER the lock: the Deriver may have
-            // canonicalized this very batch from L1 between the
-            // observer's verdict and this slot (a false-failure
-            // verdict, or the bundle landing later than observed).
-            // Rolling back an L1-confirmed block would start a
-            // recovery-vs-deriver war — the deriver restores it, we
-            // roll it back again, and every postBatch in between
-            // anchors against the wrong root.
-            if rollup.l1_head.cursor() >= sync_height {
-                pool.release_in_flight_batch(&failed.txs);
-                event!(
-                    name: "eez.composer.recovery.stale_verdict",
-                    Level::WARN,
-                    rollup_id,
-                    sync_height,
-                    cursor = rollup.l1_head.cursor(),
-                    "failure verdict is stale — Deriver confirmed the batch from L1; dropping recovery",
-                );
-                return RecoveryOutcome::HeadUnchanged;
-            }
-            let head = committer.last_header();
-            if head.number() >= sync_height {
-                if let Err(err) = committer.reorg_to(failed.parent.clone()).await {
-                    event!(
-                        name: "eez.composer.recovery.reorg_failed",
-                        Level::ERROR,
-                        rollup_id,
-                        sync_height,
-                        error = %err,
-                        "reorg_to failed; keeping entry Failed — next slot retries",
-                    );
-                    rollup.optimistic.reinsert_failed(failed);
-                    return RecoveryOutcome::HeadUnchanged;
-                }
-                outcome = RecoveryOutcome::HeadMoved;
-                event!(
-                    name: "eez.composer.recovery.rolled_back",
-                    Level::WARN,
-                    rollup_id,
-                    sync_height,
-                    head = head.number(),
-                    "bundle failed on L1; optimistic Sync block rolled back to parent",
-                );
+
+        let mut inbound = Vec::with_capacity(attempt.txs.len());
+        for tx in &attempt.txs {
+            inbound.push(if tx.direction == Direction::Inbound {
+                Some(
+                    submitter
+                        .source_state_at(tx.hash, tx.sender, at)
+                        .await
+                        .map_err(|error| error.to_string())?,
+                )
             } else {
-                event!(
-                    name: "eez.composer.recovery.not_committed",
-                    Level::INFO,
-                    rollup_id,
-                    sync_height,
-                    head = head.number(),
-                    "failed Sync block never became canonical; nothing to roll back",
-                );
-            }
-            // Still under the reconcile guard, so nothing slips between the
-            // reorg and the replacement. Head elsewhere → nothing to substitute.
-            if committer.last_header().hash() == failed.parent.hash() {
-                let timestamp = failed
+                None
+            });
+        }
+        let _guard = self.inner.committer.begin_reconcile().await;
+        if !rollup.l1_head.generation_is(snapshot.generation)
+            || submitter
+                .canonical_block_hash(at.number)
+                .await
+                .map_err(|error| error.to_string())?
+                != Some(at.hash)
+        {
+            return Err("canonical settlement changed during source lookups".into());
+        }
+        // Read L2 nonces at the deriver's endpoint, never at the optimistic tip.
+        let l2_state = rollup
+            .l2_provider
+            .state_by_block_hash(endpoint.hash)
+            .map_err(|error| format!("canonical L2 source state: {error}"))?;
+        let mut outcomes = Vec::with_capacity(attempt.txs.len());
+        for ((tx, user), source) in attempt.txs.iter().zip(&attempt.manifest.users).zip(inbound) {
+            let own_effects_applied = evidence.is_some_and(|settled| {
+                !user.effects.is_empty()
+                    && settled.applied_effects.start <= user.effects.start
+                    && user.effects.end <= settled.applied_effects.end
+            });
+            let outcome = if let Some(source) = source {
+                if let Some(receipt) = source.receipt {
+                    if source.nonce <= tx.nonce {
+                        return Err("source receipt and pinned source nonce disagree".into());
+                    }
+                    let reason = if !receipt.success {
+                        TerminalReason::SourceReverted
+                    } else if user.effects.is_empty() {
+                        // Static execution leaves no mutable consumption log.
+                        // The receipt proves source completion, not execution
+                        // of every planned read.
+                        TerminalReason::SourceCompleted
+                    } else if own_effects_applied
+                        && evidence
+                            .is_some_and(|settled| source_uses_batch(&receipt, settled, &snapshot))
+                        && user.source_actions.iter().all(|action| {
+                            receipt
+                                .consumed
+                                .contains(&(action.call_hash, action.source_index))
+                        })
+                    {
+                        TerminalReason::Committed
+                    } else {
+                        TerminalReason::SourceCompletedWithMissingEffects
+                    };
+                    SourceOutcome::Terminal(reason)
+                } else if source.nonce > tx.nonce {
+                    SourceOutcome::Terminal(TerminalReason::SourceNonceSpent)
+                } else {
+                    SourceOutcome::Retryable {
+                        source_nonce: source.nonce,
+                    }
+                }
+            } else {
+                let nonce = l2_state
+                    .account_nonce(&tx.sender)
+                    .map_err(|error| format!("canonical L2 nonce: {error}"))?
+                    .unwrap_or(0);
+                if nonce <= tx.nonce {
+                    if own_effects_applied {
+                        return Err(
+                            "validated outbound group did not spend its source nonce".into()
+                        );
+                    }
+                    SourceOutcome::Retryable {
+                        source_nonce: nonce,
+                    }
+                } else {
+                    // Exact replay-group evidence remains valid through a
+                    // same-height extension. A competing batch can include
+                    // the same signed user; check its canonical metadata too.
+                    let mut included = own_effects_applied;
+                    if !included {
+                        if let Some((_, metadata)) = rollup
+                            .l2_provider
+                            .transaction_by_hash_with_meta(tx.hash)
+                            .map_err(|error| error.to_string())?
+                        {
+                            included = metadata.block_number <= endpoint.number
+                                && rollup
+                                    .l2_provider
+                                    .sealed_header(metadata.block_number)
+                                    .map_err(|error| error.to_string())?
+                                    .is_some_and(|header| header.hash() == metadata.block_hash);
+                        }
+                        if !included {
+                            included = rollup
+                                .l2_provider
+                                .transactions_by_block(endpoint.hash.into())
+                                .map_err(|error| error.to_string())?
+                                .is_some_and(|transactions| {
+                                    transactions.iter().any(|transaction| {
+                                        alloy_primitives::keccak256(transaction.encoded_2718())
+                                            == tx.hash
+                                    })
+                                });
+                        }
+                    }
+                    SourceOutcome::Terminal(if included {
+                        TerminalReason::Committed
+                    } else {
+                        TerminalReason::SourceNonceSpent
+                    })
+                }
+            };
+            outcomes.push(outcome);
+        }
+        drop(l2_state);
+
+        let mut result = RecoveryOutcome::HeadUnchanged;
+        // Only an unapplied optimistic block still on our branch may be
+        // replaced. Confirmed partial prefixes and competing canonical blocks
+        // are repaired by the deriver and are never replaced here.
+        if !attempt.txs.is_empty() && endpoint.number < attempt.sync_height {
+            let head = self.inner.committer.last_header();
+            let own_block = match head.number().cmp(&attempt.sync_height) {
+                std::cmp::Ordering::Equal => Some(head.hash()),
+                std::cmp::Ordering::Greater => rollup
+                    .l2_provider
+                    .sealed_header(attempt.sync_height)
+                    .map_err(|error| error.to_string())?
+                    .map(|header| header.hash()),
+                std::cmp::Ordering::Less => None,
+            };
+            if own_block == Some(attempt.manifest.sync_hash) {
+                self.inner
+                    .committer
+                    .reorg_to(attempt.parent.clone())
+                    .await
+                    .map_err(|error| error.to_string())?;
+                result = RecoveryOutcome::HeadMoved;
+                let timestamp = attempt
                     .parent
                     .timestamp()
-                    .saturating_add(self.inner.emission.timing.l2_block_time().as_secs());
-                match build_sync_block(
+                    .checked_add(self.inner.emission.timing.l2_block_time().as_secs())
+                    .ok_or("replacement timestamp overflow")?;
+                let built = build_sync_block(
                     rollup.l2_provider.as_ref(),
                     &self.inner.evm_config,
-                    &failed.parent,
+                    &attempt.parent,
                     timestamp,
                     Address::ZERO,
                     &[],
-                ) {
-                    // feed_witness=true: a PRODUCED block — later historical
-                    // chunks need its witness in the store.
-                    Ok(built) => match committer
-                        .commit_derived(built.payload, built.header, true)
-                        .await
-                    {
-                        Ok(_) => {
-                            outcome = RecoveryOutcome::HeadMoved;
-                            event!(
-                                name: "eez.composer.recovery.substituted",
-                                Level::WARN,
-                                rollup_id,
-                                sync_height,
-                                timestamp,
-                                "failed Sync block substituted with its empty sibling",
-                            );
-                        }
-                        Err(err) => event!(
-                            name: "eez.composer.recovery.substitute_failed",
-                            Level::ERROR,
-                            rollup_id,
-                            sync_height,
-                            error = %err,
-                            "empty-sibling commit failed; head stays at the parent and Catchup rebuilds",
-                        ),
-                    },
-                    Err(err) => event!(
-                        name: "eez.composer.recovery.substitute_failed",
-                        Level::ERROR,
-                        rollup_id,
-                        sync_height,
-                        error = %err,
-                        "empty-sibling build failed; head stays at the parent and Catchup rebuilds",
-                    ),
-                }
+                )
+                .map_err(|error| error.to_string())?;
+                self.inner
+                    .committer
+                    .commit_derived(built.payload, built.header, true)
+                    .await
+                    .map_err(|error| error.to_string())?;
             }
         }
-        // Re-push user_txs whose nonce survived — to the FRONT of the
-        // pool, ahead of anything submitted since, so user ordering is
-        // preserved across retries. An included-but-reverted tx has a
-        // burned nonce — re-bundling it would poison the next bundle's
-        // simulation.
-        {
-            let mut keep: Vec<crate::HeldTx> = Vec::with_capacity(failed.txs.len());
-            let mut release: Vec<crate::HeldTx> = Vec::new();
-            let mut dropped = 0usize;
-            // slot_skipped: the drop wasn't the txs' fault (skipped L1 slot or
-            // relay transport failure) — re-queue without counting an attempt.
-            let slot_skipped = failed.slot_skipped;
-            for tx in failed.txs {
-                if landed.contains(&tx.hash) {
-                    dropped += 1;
-                    release.push(tx.clone());
-                    event!(
-                        name: "eez.composer.recovery.nonce_burned",
-                        Level::WARN,
-                        rollup_id,
-                        tx_hash = %tx.hash,
-                        "user_tx already has an L1 receipt; not re-queueing (user must resubmit)",
-                    );
-                } else {
-                    keep.push(tx);
+        let charge = post.receipt.is_some()
+            || matches!(
+                attempt.observation,
+                SubmissionObservation::Excluded {
+                    charge_attempt: true,
+                    ..
                 }
-            }
-            pool.release_in_flight_batch(&release);
-            let (re_pushed, settlement_evicted) = if slot_skipped {
-                let re_pushed = keep.len();
-                pool.push_front_batch(keep);
-                (re_pushed, 0)
-            } else {
-                let recovery = recover_settlement_failure(
-                    pool,
-                    rollup_id,
-                    keep,
-                    SettlementFailureSource::Relay,
-                );
-                (recovery.requeued, recovery.evicted)
-            };
-            dropped += settlement_evicted;
-            if re_pushed > 0 || dropped > 0 {
-                event!(
-                    name: "eez.composer.recovery.re_pushed",
-                    Level::INFO,
-                    rollup_id,
-                    sync_height,
-                    re_pushed,
-                    dropped,
-                    "failed batch recovered; user_txs re-queued (front) for next Sync slot",
-                );
-            }
-        }
-        outcome
+            );
+        rollup.held_pool.resolve_attempt(
+            attempt.id,
+            at,
+            &outcomes,
+            charge,
+            MAX_BUNDLE_ATTEMPTS,
+            || rollup.l1_head.generation_is(snapshot.generation),
+        )?;
+        event!(name: "eez.composer.settlement.reconciled", Level::INFO,
+            event_name = "eez.composer.settlement.reconciled",
+            rollup_id, attempt = ?attempt.id, at_l1 = at.number,
+            post_batch_hash = %attempt.id.post_batch_hash,
+            canonical_l2_number = endpoint.number, canonical_l2_hash = %endpoint.hash,
+            outcomes = ?outcomes, charge_attempt = charge,
+            "canonical source dispositions recorded and ownership transferred");
+        Ok(result)
     }
 
     /// Compose the drained transactions in canonical order over the slot's
@@ -1917,10 +1886,13 @@ where
                 sender = %tx.sender,
                 nonce = tx.nonce,
                 direction = ?tx.direction,
-                "held tx nonce is below its canonical source-chain nonce; evicting stale tx",
+                "source nonce advanced; removing from composition and retaining submitted users for canonical audit",
             );
         }
-        pool.release_in_flight_batch(&stale);
+        if pool.recheck_stale_sources(&stale)? {
+            pool.push_front_batch(drained);
+            return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+        }
 
         // ── Slot execution contexts (design §2) ──────────────────────
         // One L1 state pinned at the anchor and one live Sync-block prefix,
@@ -3235,12 +3207,7 @@ where
                             failure = %error,
                             "attributable prover failure has no matching HeldTx; counting one opaque settlement failure and degrading to minimal postBatch",
                         );
-                        let recovery = recover_settlement_failure(
-                            pool,
-                            rollup_id,
-                            survivors,
-                            SettlementFailureSource::Prover,
-                        );
+                        let recovery = recover_settlement_failure(pool, rollup_id, survivors);
                         event!(
                             name: "eez.composer.prover.failure_recovered",
                             Level::WARN,
@@ -3405,12 +3372,7 @@ where
                         "unexpected proof rejection; possible Composer/prover disagreement; counting one settlement failure and degrading to minimal postBatch",
                     );
                 }
-                let recovery = recover_settlement_failure(
-                    pool,
-                    rollup_id,
-                    survivors,
-                    SettlementFailureSource::Prover,
-                );
+                let recovery = recover_settlement_failure(pool, rollup_id, survivors);
                 event!(
                     name: "eez.composer.prover.failure_recovered",
                     Level::WARN,
@@ -3455,11 +3417,51 @@ where
         };
         let total_entries: usize = comp_refs.iter().map(|c| c.source.batch.entries.len()).sum();
 
+        let manifest = match SettlementManifest::build(ManifestInput {
+            rollup_id,
+            sync_number: built.header.number(),
+            sync_hash: built.header.hash(),
+            users: survivors
+                .iter()
+                .map(|held| ProposedUser {
+                    raw: &held.raw_tx,
+                    source: eez_protocol::RollupId(if held.direction == Direction::Inbound {
+                        0
+                    } else {
+                        rollup_id
+                    }),
+                    attempts: held.attempts,
+                })
+                .collect(),
+            semantics: &semantic_transactions,
+            outbound_groups: &pending_out,
+            outbound_hosts: &outbound_entries,
+            checkpoint_positions: &effect_end_positions,
+            checkpoint_hashes: &pair_hashes,
+        }) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                event!(Level::ERROR, rollup_id, %error, "invalid user/effect manifest; retaining survivors");
+                pool.push_front_batch(survivors);
+                return self
+                    .dispatch_minimal_postbatch(
+                        ctx,
+                        rollup_id,
+                        rollup,
+                        parent_header,
+                        timestamp,
+                        suggested_fee_recipient,
+                        bundle_target,
+                    )
+                    .await;
+            }
+        };
+
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
         let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
-        bundle.push(prepared_postbatch);
+        bundle.push(prepared_postbatch.clone());
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
         // Outbound survivors are L2-signed — they run in the L2 Sync block + DA,
         // never the L1 bundle (an L2 tx is invalid on L1).
@@ -3472,30 +3474,45 @@ where
                 .filter(|held| held.direction == Direction::Inbound)
                 .map(|held| held.raw_tx.clone()),
         );
+        let attempt_id = match rollup.optimistic.begin(
+            sync_height,
+            post_batch_hash,
+            parent_header.clone(),
+            survivors.clone(),
+            manifest,
+            prepared_postbatch,
+        ) {
+            Ok(id) => id,
+            Err(error) => {
+                // Classification already removed poison and stale sources.
+                // Do not return an error that requeues the original drain.
+                event!(Level::ERROR, rollup_id, %error, "cannot record submission; retaining only classified survivors");
+                pool.push_front_batch(survivors);
+                return Ok(None);
+            }
+        };
         event!(
             name: "eez.composer.bundle.dispatched",
             Level::INFO,
             event_name = "eez.composer.bundle.dispatched",
             rollup_id,
             sync_height,
+            post_batch_hash = %post_batch_hash,
+            sync_hash = %built.header.hash(),
+            user_hashes = ?survivors.iter().map(|tx| tx.hash).collect::<Vec<_>>(),
+            attempt_counts = ?survivors.iter().map(|tx| tx.attempts).collect::<Vec<_>>(),
             tx_count = bundle.len(),
             entry_count = total_entries,
             evicted_poison = poison.len(),
             evicted_stale = stale.len(),
             "rich bundle dispatched to background observer; committing Sync block optimistically",
         );
-        rollup.optimistic.begin(
-            sync_height,
-            post_batch_hash,
-            parent_header.clone(),
-            survivors,
-        );
         self.spawn_bundle_observer(
             ctx,
             rollup_id,
             sync_height,
+            attempt_id,
             bundle,
-            built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3605,26 +3622,38 @@ where
         };
         let sync_height = empty_built.header.number();
         let post_batch_hash = post_batch_blob_transaction_hash(&minimal_postbatch_raw)?;
+        let attempt_id = match rollup.optimistic.begin(
+            sync_height,
+            post_batch_hash,
+            parent_header.clone(),
+            Vec::new(),
+            SettlementManifest::empty(sync_height, empty_built.header.hash()),
+            minimal_postbatch_raw.clone(),
+        ) {
+            Ok(id) => id,
+            Err(error) => {
+                event!(Level::ERROR, rollup_id, %error, "cannot record minimal submission; committing without emission");
+                return Ok(Some(SyncSlotBlock {
+                    payload: empty_built.payload,
+                    header: empty_built.header,
+                }));
+            }
+        };
         event!(
             name: "eez.composer.phase1.bundle.dispatched",
             Level::INFO,
             event_name = "eez.composer.phase1.bundle.dispatched",
             rollup_id,
             sync_height,
+            post_batch_hash = %post_batch_hash,
             "minimal postBatch dispatched to background observer (leading immediate only)",
-        );
-        rollup.optimistic.begin(
-            sync_height,
-            post_batch_hash,
-            parent_header.clone(),
-            Vec::new(),
         );
         self.spawn_bundle_observer(
             ctx,
             rollup_id,
             sync_height,
+            attempt_id,
             vec![minimal_postbatch_raw],
-            empty_built.header.hash(),
             Arc::clone(&rollup.optimistic),
             bundle_target,
         );
@@ -3745,9 +3774,14 @@ where
             );
 
             let post_batch_hash = post_batch_blob_transaction_hash(&raw)?;
-            rollup
-                .optimistic
-                .begin(boundary, post_batch_hash, boundary_parent, Vec::new());
+            let attempt_id = rollup.optimistic.begin(
+                boundary,
+                post_batch_hash,
+                boundary_parent,
+                Vec::new(),
+                SettlementManifest::empty(boundary, boundary_header.hash()),
+                raw.clone(),
+            )?;
             // A past terminal has no matching historical L1 slot. NextBlock
             // therefore derives and timestamp-pins a fresh future settlement
             // slot from its canonical parent at dispatch time.
@@ -3755,8 +3789,8 @@ where
                 ctx,
                 rollup_id,
                 boundary,
+                attempt_id,
                 vec![raw],
-                boundary_header.hash(),
                 Arc::clone(&rollup.optimistic),
                 BundleTarget::NextBlock,
             );
@@ -3827,8 +3861,8 @@ where
         ctx: &CrossChainExecCtx,
         rollup_id: u64,
         sync_height: u64,
+        attempt_id: AttemptId,
         bundle: Vec<Bytes>,
-        expected_final_state: B256,
         optimistic: Arc<OptimisticallyIncluded>,
         target: BundleTarget,
     ) {
@@ -3836,8 +3870,8 @@ where
         tokio::spawn(observe_bundle_outcome(
             rollup_id,
             sync_height,
+            attempt_id,
             bundle,
-            expected_final_state,
             optimistic,
             submitter,
             target,
@@ -4934,95 +4968,121 @@ fn ensure_batch_registry_native(
     Ok(())
 }
 
-/// Background bundle observer — verdict recording ONLY. Marks the ledger
-/// entry Settled or Failed; never mutates chain state. The destructive
-/// Recovery for failed entries runs at the next Sync slot through
-/// `Composer::recover_failed_batch`, serialized with Sequencer commits.
-///
-/// "Settled" requires an `L2ExecutionPerformed` in the inclusion block
-/// whose `newRoot` equals `expected_final_state` (the built Sync block's
-/// root) — the leading immediate advancing L1 partway doesn't count.
+/// Mutable consumption belongs to the most recent batch for this rollup in
+/// the same L1 block. Queue indices are reset by every later postBatch.
+fn source_uses_batch(
+    receipt: &eez_l1::submitter::CanonicalSourceReceipt,
+    batch: &eez_l1::ReconciledBatchSettlement,
+    snapshot: &eez_l1::l1_canonical_head::SettlementSnapshot,
+) -> bool {
+    receipt.block == batch.l1_block
+        && receipt.transaction_index > batch.tx_index
+        && !snapshot.settlements.values().any(|next| {
+            next.l1_block == batch.l1_block
+                && next.tx_index > batch.tx_index
+                && next.tx_index < receipt.transaction_index
+        })
+}
+
+/// Verify that authoritative replay coordinates belong to this exact local
+/// proposal before using them to classify its signed users.
+fn validate_attempt_evidence(
+    attempt: &crate::optimistic::AttemptRecord,
+    evidence: &eez_l1::ReconciledBatchSettlement,
+) -> Result<(), String> {
+    use alloy_consensus::transaction::TxHashRef as _;
+    use alloy_consensus::{Signed, Transaction, TxEip4844WithSidecar};
+    use alloy_eips::{Decodable2718, eip7594::BlobTransactionSidecarVariant};
+    let mut raw = attempt.post_batch.as_ref();
+    let signed =
+        Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(&mut raw)
+            .map_err(|error| format!("recorded postBatch envelope: {error}"))?;
+    if !raw.is_empty()
+        || *signed.tx_hash() != attempt.id.post_batch_hash
+        || alloy_primitives::keccak256(signed.tx().input()) != evidence.calldata_hash
+    {
+        return Err("reconciliation evidence does not match the signed postBatch".into());
+    }
+    let effects = &attempt.manifest.effects;
+    let applied = &evidence.applied_effects;
+    if applied.start > applied.end || applied.end > effects.len() {
+        return Err("reconciliation slice exceeds the user manifest".into());
+    }
+    if !applied.is_empty() {
+        let endpoint = evidence
+            .endpoint
+            .ok_or("producing settlement has no endpoint")?;
+        if endpoint.number != attempt.sync_height || endpoint.hash != effects[applied.end - 1] {
+            return Err("reconciliation endpoint differs from the manifest checkpoint".into());
+        }
+    }
+    for user in &attempt.manifest.users {
+        if let Some(group) = user.outbound_group {
+            let selected = applied.start <= user.effects.start && user.effects.end <= applied.end;
+            if selected != evidence.selection.outbound_groups.contains(&group) {
+                return Err(
+                    "reconciliation splits or misidentifies a signed outbound group".into(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn observe_bundle_outcome(
     rollup_id: u64,
     sync_height: u64,
+    attempt_id: AttemptId,
     bundle: Vec<Bytes>,
-    expected_final_state: B256,
     optimistic: Arc<OptimisticallyIncluded>,
     submitter: Submitter,
     target: BundleTarget,
 ) {
+    use crate::optimistic::SubmissionObservation;
+    let recorder = Arc::clone(&optimistic);
     let outcome = submitter
-        .send_bundle(&bundle, target, Some(expected_final_state))
-        .await;
-    // Only an included submission with the expected state transition settles.
-    // Every other outcome remains recoverable at the next Sync slot.
-    let settled = matches!(
-        outcome,
-        Ok(SendOutcome::Included {
-            state_applied: true,
-            ..
+        .send_bundle_recorded(&bundle, target, move |block, timestamp| {
+            match recorder.observe(
+                attempt_id,
+                SubmissionObservation::Dispatched { block, timestamp },
+            ) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(eez_l1::L1Error::Submission(
+                    "attempt was superseded before dispatch".into(),
+                )),
+                Err(error) => Err(eez_l1::L1Error::Submission(format!(
+                    "cannot record dispatch: {error}"
+                ))),
+            }
         })
-    );
-    match &outcome {
-        Ok(
-            o @ SendOutcome::Included {
-                state_applied: false,
-                ..
+        .await;
+    let observation = match &outcome {
+        Ok(SendOutcome::Included {
+            l1_block,
+            l1_block_hash,
+            ..
+        }) => SubmissionObservation::Included {
+            block: eez_l1::L1BlockRef {
+                number: *l1_block,
+                hash: *l1_block_hash,
             },
-        ) => event!(
-            name: "eez.composer.bundle.observed",
-            Level::ERROR,
-            event_name = "eez.composer.bundle.observed",
-            rollup_id,
-            sync_height,
-            settled,
-            outcome = ?o,
-            "postBatch was included without the expected state transition; possible Composer/prover/settlement-contract disagreement",
-        ),
-        Ok(o @ SendOutcome::Dropped { .. }) => event!(
-            name: "eez.composer.bundle.observed",
-            Level::WARN,
-            event_name = "eez.composer.bundle.observed",
-            rollup_id,
-            sync_height,
-            settled,
-            outcome = ?o,
-            "bundle was dropped before settlement; re-queueing transactions for recovery",
-        ),
-        Ok(o) => event!(
-            name: "eez.composer.bundle.observed",
-            Level::INFO,
-            event_name = "eez.composer.bundle.observed",
-            rollup_id,
-            sync_height,
-            settled,
-            outcome = ?o,
-            "bundle outcome observed",
-        ),
-        Err(err) => event!(
-            name: "eez.composer.bundle.observe_failed",
-            Level::WARN,
-            rollup_id,
-            sync_height,
-            error = %err,
-            "bundle submission/observation errored; treating as a drop (re-queue; slot recovery re-verifies via cursor)",
-        ),
-    }
-    if settled {
-        optimistic.mark_settled(sync_height);
-    } else {
-        // `slot_skipped` is the historical ledger name for any failure that
-        // was NOT attributable to the bundled txs: skipped slot, local
-        // submission-window miss, or target reorg. Requeue those without
-        // consuming the bounded poison-eviction budget.
-        let slot_skipped = match &outcome {
-            // Never reached the relay, so it says nothing about the txs. A
-            // relay-side REJECTION is L1Error::Submission and still counts.
-            Err(err) if err.is_transport() => true,
-            Ok(SendOutcome::Dropped { reason, .. }) => !reason.counts_toward_attempt_limit(),
-            _ => false,
-        };
-        optimistic.mark_failed(sync_height, slot_skipped);
+        },
+        Ok(SendOutcome::Dropped {
+            target_block,
+            reason,
+            ..
+        }) => SubmissionObservation::Excluded {
+            block: *target_block,
+            charge_attempt: reason.counts_toward_attempt_limit(),
+        },
+        Err(_) => SubmissionObservation::Uncertain,
+    };
+    event!(name: "eez.composer.bundle.observed", Level::INFO,
+        event_name = "eez.composer.bundle.observed",
+        rollup_id, sync_height, attempt = ?attempt_id, outcome = ?outcome,
+        "bundle observed; canonical derivation and source receipts retain ownership authority");
+    if let Err(error) = optimistic.observe(attempt_id, observation) {
+        event!(Level::ERROR, rollup_id, %error, "cannot record observation; retaining attempt");
     }
 }
 
@@ -5122,6 +5182,49 @@ mod tests {
     use alloy_sol_types::SolValue as _;
 
     #[test]
+    fn source_consumption_is_scoped_to_its_same_block_batch_window() {
+        use eez_l1::{L1BlockRef, ReconciledBatchSettlement, ReplaySelection};
+        let block = L1BlockRef {
+            number: 100,
+            hash: B256::with_last_byte(1),
+        };
+        let earlier = ReconciledBatchSettlement {
+            l1_block: block,
+            tx_hash: B256::with_last_byte(2),
+            tx_index: 1,
+            calldata_hash: B256::ZERO,
+            applied_effects: 0..1,
+            anchor_applied: true,
+            endpoint: None,
+            selection: ReplaySelection::default(),
+        };
+        let mut later = earlier.clone();
+        later.tx_hash = B256::with_last_byte(3);
+        later.tx_index = 4;
+        let mut snapshot = eez_l1::l1_canonical_head::SettlementSnapshot::default();
+        snapshot
+            .settlements
+            .insert(earlier.tx_hash, earlier.clone());
+        snapshot.settlements.insert(later.tx_hash, later.clone());
+        let mut receipt = eez_l1::submitter::CanonicalSourceReceipt {
+            block,
+            transaction_index: 2,
+            success: true,
+            consumed: Vec::new(),
+        };
+        assert!(source_uses_batch(&receipt, &earlier, &snapshot));
+        assert!(!source_uses_batch(&receipt, &later, &snapshot));
+        receipt.transaction_index = 5;
+        assert!(!source_uses_batch(&receipt, &earlier, &snapshot));
+        assert!(source_uses_batch(&receipt, &later, &snapshot));
+        receipt.block.hash = B256::with_last_byte(9);
+        assert!(!source_uses_batch(&receipt, &later, &snapshot));
+        receipt.block = block;
+        receipt.block.number += 1;
+        assert!(!source_uses_batch(&receipt, &later, &snapshot));
+    }
+
+    #[test]
     fn submission_identity_must_match_post_batch_signer() {
         let poster = Address::repeat_byte(0xa);
         assert!(ensure_submission_identity(poster, poster).is_ok());
@@ -5189,14 +5292,13 @@ mod tests {
 
     #[test]
     fn settlement_failures_increment_once_per_episode_and_preserve_fifo() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let first = held(Address::repeat_byte(0xa), Direction::Inbound, 0, 1);
         let second = held(Address::repeat_byte(0xb), Direction::Inbound, 0, 2);
         pool.push_contiguous(first.clone(), 0).unwrap();
         pool.push_contiguous(second.clone(), 0).unwrap();
 
-        let first_failure =
-            recover_settlement_failure(&pool, 1, pool.pop_all(), SettlementFailureSource::Prover);
+        let first_failure = recover_settlement_failure(&pool, 1, pool.pop_all());
         assert_eq!(
             first_failure,
             SettlementFailureOutcome {
@@ -5211,8 +5313,7 @@ mod tests {
         );
         assert!(after_first.iter().all(|tx| tx.attempts == 1));
 
-        let second_failure =
-            recover_settlement_failure(&pool, 1, after_first, SettlementFailureSource::Relay);
+        let second_failure = recover_settlement_failure(&pool, 1, after_first);
         assert_eq!(
             second_failure,
             SettlementFailureOutcome {
@@ -5231,7 +5332,7 @@ mod tests {
 
     #[test]
     fn settlement_failure_limit_evicts_current_and_queued_nonce_suffix() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xa);
         let mut root = held(sender, Direction::Inbound, 0, 1);
         root.attempts = MAX_BUNDLE_ATTEMPTS - 1;
@@ -5246,8 +5347,7 @@ mod tests {
         pool.push_contiguous(opposite_direction.clone(), 0).unwrap();
         pool.push_contiguous(independent.clone(), 0).unwrap();
 
-        let recovery =
-            recover_settlement_failure(&pool, 1, failed, SettlementFailureSource::Prover);
+        let recovery = recover_settlement_failure(&pool, 1, failed);
         assert_eq!(
             recovery,
             SettlementFailureOutcome {
@@ -5265,7 +5365,7 @@ mod tests {
 
     #[test]
     fn recursive_error_requeues_only_candidates_remaining_after_prover_eviction() {
-        let pool = HeldPool::new();
+        let pool = HeldPool::new(Default::default());
         let sender = Address::repeat_byte(0xc);
         let poison = held(sender, Direction::Inbound, 0, 1);
         let suffix = held(sender, Direction::Inbound, 1, 2);

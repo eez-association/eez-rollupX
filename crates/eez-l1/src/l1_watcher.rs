@@ -77,6 +77,9 @@ pub enum L1Event {
         /// the proof-window trigger (`L1_ts + proof_window_open`).
         timestamp: u64,
     },
+    /// Every batch through this canonical L1 block has been emitted. This
+    /// follows BatchPosted, including for scans containing no batches.
+    ScanComplete { block_number: u64, block_hash: B256 },
     /// Canonical L1 chain rewound. `common_ancestor_*` is the most
     /// recent block still in canon; everything strictly above it on
     /// the old chain is invalidated. The new canonical head follows.
@@ -426,6 +429,10 @@ impl L1Watcher {
                 timestamp: latest.timestamp,
             });
             self.emit_scanned_batches(latest_number, latest_number, scanned);
+            self.emit(L1Event::ScanComplete {
+                block_number: latest_number,
+                block_hash: latest_hash,
+            });
         } else {
             // Either a reorg, a multi-block gap, or a far-behind tip.
             let (old_tip_number, old_tip_hash) = (tip_number, tip_hash);
@@ -564,6 +571,10 @@ impl L1Watcher {
                     timestamp: boundary.timestamp,
                 });
                 self.emit_scanned_batches(scan_from, reached, scanned);
+                self.emit(L1Event::ScanComplete {
+                    block_number: reached,
+                    block_hash: boundary.hash,
+                });
                 return Ok(());
             }
 
@@ -632,6 +643,10 @@ impl L1Watcher {
             self.fill_forward(provider, scan_from, to, to_hash, state)
                 .await?;
             self.emit_scanned_batches(scan_from, to, scanned);
+            self.emit(L1Event::ScanComplete {
+                block_number: to,
+                block_hash: to_hash,
+            });
         }
 
         if tick_count.is_multiple_of(FINALIZED_REFRESH_TICKS) {
@@ -1083,6 +1098,9 @@ mod tests {
             }
             other => panic!("expected NewHead at boundary, got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 100010, block_hash
+        } if block_hash == boundary_hash));
         assert!(rx.try_recv().is_err(), "no further events on tick 1");
 
         // ── Tick 2: same latest → final chunk [100_011, 200_000]. Boundary
@@ -1182,6 +1200,9 @@ mod tests {
             L1Event::NewHead { block_number, .. } => assert_eq!(block_number, 50_000),
             other => panic!("expected NewHead, got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 50000, block_hash
+        } if block_hash == latest_hash));
         assert!(rx.try_recv().is_err(), "nothing else on tick 1");
 
         // ── Tick 2: a one-block reorg replaces the tip — same height,
@@ -1225,6 +1246,9 @@ mod tests {
             }
             other => panic!("expected NewHead, got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 50000, block_hash
+        } if block_hash == replacement_hash));
         assert!(rx.try_recv().is_err(), "nothing else emitted");
         assert_eq!(state.tip(), Some((50_000, replacement_hash)));
     }
@@ -1380,6 +1404,9 @@ mod tests {
             }
             other => panic!("expected NewHead, got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 11, block_hash
+        } if block_hash == next_hash));
         assert!(rx.try_recv().is_err(), "nothing else emitted on retry");
     }
 
@@ -1440,6 +1467,9 @@ mod tests {
             L1Event::NewHead { block_number, .. } => assert_eq!(block_number, 12),
             other => panic!("expected NewHead(12), got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 12, block_hash
+        } if block_hash == h12));
         assert!(rx.try_recv().is_err(), "nothing else emitted on retry");
     }
 
@@ -1489,6 +1519,9 @@ mod tests {
             L1Event::NewHead { block_number, .. } => assert_eq!(block_number, 12),
             other => panic!("expected NewHead(12), got {other:?}"),
         }
+        assert!(matches!(rx.try_recv().unwrap(), L1Event::ScanComplete {
+            block_number: 12, block_hash
+        } if block_hash == h12));
         assert!(
             rx.try_recv().is_err(),
             "NewHeads must stop at the narrowed boundary — none for 13"
