@@ -55,7 +55,9 @@ mkdir -p "$(dirname "$OUTPUT")"
         echo "EEZ_UI_DEMO_POOL_ADDRESS=$FLASH_LOAN_POOL"
         echo "EEZ_UI_DEMO_EXECUTOR_L1=$EXECUTOR_L1"
         echo "EEZ_UI_DEMO_EXECUTOR_L2=$EXECUTOR_L2"
-        echo "EEZ_UI_DEMO_WRAPPED_TOKEN_L2=$WRAPPED_TOKEN_L2"
+        # The pinned protocol creates the wrapped token on the first bridge
+        # call. Deployment exports its deterministic address in advance.
+        echo "EEZ_UI_DEMO_WRAPPED_TOKEN_L2=$PREDICTED_WRAPPED_TOKEN_L2"
         echo "EEZ_UI_DEMO_NFT_L2=$FLASH_LOANERS_NFT"
     } >"$OUTPUT"
 )

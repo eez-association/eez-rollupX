@@ -90,6 +90,19 @@ cast chain-id --rpc-url https://eez.asuscomm.com/rpc/l1
 cast chain-id --rpc-url https://eez.asuscomm.com/rpc/l2
 ```
 
+Recreating a Kurtosis enclave disconnects these standalone containers from its
+old Docker network. Reconnect the existing gateway and monitor to the new
+network, then restart the monitor to clear cached data from the previous chain:
+
+```bash
+docker network connect kt-eez-devnet eez-public-gateway
+docker network connect --alias eez-monitor kt-eez-devnet eez-monitor
+docker restart eez-monitor
+```
+
+Use the actual enclave network name. These commands preserve the gateway's
+certificate volumes and existing public routes.
+
 Stop the gateway without deleting its certificate state:
 
 ```bash
@@ -98,3 +111,47 @@ docker compose -f testing/public-gateway/docker-compose.yml down
 
 Do not add `-v` unless the persisted certificate/account state should also be
 deleted.
+
+## Chiado deployment
+
+The [Chiado deployment audit](../../docs/audits/2026-09-13-chiado-settlement-policy/README.md)
+records the active chain bindings and generated runtime configuration. Its
+gateway retains Docker-published ports 80 and 443 and the existing certificate
+volumes. It reaches the host UI proxy through `host.docker.internal:18081`; that
+proxy forwards the four RPC paths and `/monitor/` to the local Chiado services.
+This lets the L1 RPC and monitor keep their loopback bindings.
+
+Preserve the published-port topology when changing this deployment. On this
+host, UFW permits the UI proxy port while Docker provides the public HTTPS
+forwarding. Moving Caddy to host networking makes a loopback HTTPS check pass
+while normal public-DNS requests time out. Validate through normal DNS as well
+as any `curl --resolve` checks after a routing change.
+
+The Chiado profile uses the public Gnosis L1 explorer. Its separate
+[EEZ explorer stack](../explorers/README.md) is now published through this gateway:
+Blobscan at `https://eez.asuscomm.com:4443/` and L2 Blockscout at
+`https://eez.asuscomm.com:4445/`. Port 4444 remains unused for Chiado. The gateway
+imports `testing/explorers/public.caddy`, joins the explorer Docker network,
+and retains the existing certificate volumes. The monitor links to both
+explorers and reads its blob archive through the private host API.
+
+The monitor also uses WebSockets throughout:
+
+- `wss://eez.asuscomm.com/ws/l1` forwards to the embedded L1 WS port, 18646.
+- `wss://eez.asuscomm.com/ws/l2` forwards to the L2 WS port, 18689.
+- `wss://eez.asuscomm.com/monitor/api/live` carries shared monitor snapshots.
+
+Both node WS listeners remain on loopback. The host UI nginx proxy forwards
+WebSocket upgrades; Caddy terminates TLS on the existing public port 443.
+The monitor receives `newHeads` on both chains and reconciles canonical data
+before pushing snapshots. Its ordinary HTTP snapshot API remains the reconnect
+fallback. Monitor and bridge application changes live in the separate
+`eez-rollup-ui` repository; this repository documents their deployment routes.
+
+Manage the Chiado deployment with its generated Compose file rather than the
+Kurtosis gateway file above:
+
+```bash
+docker compose -p eez-chiado-public \
+  -f .runtime/chiado-settlement-20260913/public/compose.json ps
+```

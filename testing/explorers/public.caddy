@@ -1,0 +1,27 @@
+# Imported by the active Chiado gateway after it joins the explorer network.
+# Separate origins preserve the explorers' root-relative assets and URLs.
+(explorer_headers) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=604800"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+}
+
+https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
+	import explorer_headers
+	@read method GET HEAD
+	handle @read {
+		reverse_proxy eez-chiado-explorers-blobscan-web-1:3000
+	}
+	handle {
+		header Allow "GET, HEAD"
+		respond "Read-only explorer" 405
+	}
+}
+
+https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
+	import explorer_headers
+	reverse_proxy eez-chiado-explorers-blockscout-gateway-1:8080
+}
