@@ -21,10 +21,8 @@ use alloy_primitives::{Address, B256, Bytes, Signature, TxHash, U256};
 
 use crate::Blob;
 
-/// EIP-7594 limits one type-3 transaction to six blobs.
-///
-/// Enforcing the current limit for both wrapper variants keeps batch sizing
-/// deterministic across a fork transition and is stricter than older chains.
+/// Legacy posting profile bound. Enabled network-aware paths supply the
+/// selected fork's limit explicitly, independent of the sidecar encoding.
 pub const MAX_BLOBS_PER_TRANSACTION: usize = 6;
 
 /// Sidecar wire format used to propagate a type-3 transaction.
@@ -139,13 +137,23 @@ pub fn prepare_blob_sidecar(
     blobs: &[Blob],
     sidecar_encoding: BlobSidecarEncoding,
 ) -> Result<PreparedBlobSidecar, TransportError> {
+    prepare_blob_sidecar_with_limit(blobs, sidecar_encoding, MAX_BLOBS_PER_TRANSACTION)
+}
+
+/// Construct a sidecar under an explicitly resolved outgoing network/transport
+/// allowance. The wrapper format does not imply a protocol blob count.
+pub fn prepare_blob_sidecar_with_limit(
+    blobs: &[Blob],
+    sidecar_encoding: BlobSidecarEncoding,
+    maximum: usize,
+) -> Result<PreparedBlobSidecar, TransportError> {
     if blobs.is_empty() {
         return Err(TransportError::EmptyBlobs);
     }
-    if blobs.len() > MAX_BLOBS_PER_TRANSACTION {
+    if blobs.len() > maximum {
         return Err(TransportError::TooManyBlobs {
             actual: blobs.len(),
-            maximum: MAX_BLOBS_PER_TRANSACTION,
+            maximum,
         });
     }
 
@@ -292,6 +300,52 @@ pub fn pooled_blob_transaction_hash(encoded: &[u8]) -> Result<TxHash, TransportE
     Ok(*signed.tx_hash())
 }
 
+/// Re-sign only gas and fee fields of an owned, never-dispatched blob
+/// transaction. The calldata, nonce, destination, value, access list, and
+/// complete physical sidecar are preserved byte-for-byte by construction.
+pub fn reprice_blob_transaction<S: TxSignerSync<Signature>>(
+    encoded: &[u8],
+    gas_limit: u64,
+    max_fee_per_gas: u128,
+    max_priority_fee_per_gas: u128,
+    max_fee_per_blob_gas: u128,
+    signer: &S,
+) -> Result<SignedBlobTransaction, TransportError> {
+    let mut input = encoded;
+    let signed =
+        Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(&mut input)
+            .map_err(|error| TransportError::InvalidEncoding(error.to_string()))?;
+    if !input.is_empty() {
+        return Err(TransportError::InvalidEncoding("trailing bytes".into()));
+    }
+    let original_signer = signed
+        .recover_signer()
+        .map_err(|error| TransportError::Signing(error.to_string()))?;
+    if original_signer != signer.address() {
+        return Err(TransportError::Signing(
+            "replacement signer differs from original poster".into(),
+        ));
+    }
+    let mut transaction = signed.strip_signature();
+    transaction.tx.gas_limit = gas_limit;
+    transaction.tx.max_fee_per_gas = max_fee_per_gas;
+    transaction.tx.max_priority_fee_per_gas = max_priority_fee_per_gas;
+    transaction.tx.max_fee_per_blob_gas = max_fee_per_blob_gas;
+    let sidecar_encoding = match transaction.sidecar {
+        BlobTransactionSidecarVariant::Eip4844(_) => BlobSidecarEncoding::Eip4844,
+        BlobTransactionSidecarVariant::Eip7594(_) => BlobSidecarEncoding::Eip7594,
+    };
+    let versioned_hashes = transaction.tx.blob_versioned_hashes.clone();
+    sign_blob_transaction(
+        PreparedBlobTransaction {
+            transaction,
+            versioned_hashes,
+            sidecar_encoding,
+        },
+        signer,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use alloy_primitives::address;
@@ -334,6 +388,51 @@ mod tests {
     }
 
     #[test]
+    fn repricing_preserves_all_authorized_content_and_requires_original_poster() {
+        for encoding in [BlobSidecarEncoding::Eip4844, BlobSidecarEncoding::Eip7594] {
+            let original = sign_blob_transaction(
+                prepare_blob_transaction(params(), &[blob()], encoding).unwrap(),
+                &signer(),
+            )
+            .unwrap();
+            let updated = reprice_blob_transaction(
+                &original.pooled_transaction,
+                700_000,
+                40,
+                3,
+                20,
+                &signer(),
+            )
+            .unwrap();
+            let decode = |raw: &Bytes| {
+                Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(
+                    &mut raw.as_ref(),
+                )
+                .unwrap()
+            };
+            let first = decode(&original.pooled_transaction);
+            let next = decode(&updated.pooled_transaction);
+            let mut expected = first.tx().clone();
+            expected.tx.gas_limit = 700_000;
+            expected.tx.max_fee_per_gas = 40;
+            expected.tx.max_priority_fee_per_gas = 3;
+            expected.tx.max_fee_per_blob_gas = 20;
+            assert_eq!(next.tx(), &expected, "only gas and fee fields may change");
+            assert_ne!(first.hash(), next.hash());
+            assert_eq!(
+                first.recover_signer().unwrap(),
+                next.recover_signer().unwrap()
+            );
+            assert_eq!(updated.sidecar_encoding, encoding);
+            let other: PrivateKeySigner = B256::with_last_byte(13).to_string().parse().unwrap();
+            assert!(
+                reprice_blob_transaction(&original.pooled_transaction, 700_000, 40, 3, 20, &other)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn prepares_both_explicit_sidecar_encodings() {
         for encoding in [BlobSidecarEncoding::Eip4844, BlobSidecarEncoding::Eip7594] {
             let prepared = prepare_blob_transaction(params(), &[blob()], encoding).unwrap();
@@ -368,6 +467,44 @@ mod tests {
             pooled_blob_transaction_hash(&signed.pooled_transaction).unwrap(),
             signed.transaction_hash
         );
+    }
+
+    #[test]
+    fn explicit_network_allowance_round_trips_nine_blobs_in_both_wrappers() {
+        let blobs = crate::encode_native_payload(
+            7,
+            Bytes::from(vec![0; 8 * crate::DATA_BYTES_PER_BLOB + 100]),
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(blobs.len(), 9);
+        for encoding in [BlobSidecarEncoding::Eip4844, BlobSidecarEncoding::Eip7594] {
+            let sidecar = prepare_blob_sidecar_with_limit(&blobs, encoding, 9).unwrap();
+            let signed = sign_blob_transaction(
+                prepare_blob_transaction_with_sidecar(params(), sidecar).unwrap(),
+                &signer(),
+            )
+            .unwrap();
+            let mut bytes = signed.pooled_transaction.as_ref();
+            let decoded =
+                Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(
+                    &mut bytes,
+                )
+                .unwrap();
+            assert!(bytes.is_empty());
+            assert_eq!(
+                decoded.tx().tx.blob_versioned_hashes,
+                blob_versioned_hashes(&blobs).unwrap()
+            );
+            assert_eq!(*decoded.tx_hash(), signed.transaction_hash);
+            assert!(matches!(
+                prepare_blob_sidecar_with_limit(&blobs, encoding, 8),
+                Err(TransportError::TooManyBlobs {
+                    actual: 9,
+                    maximum: 8
+                })
+            ));
+        }
     }
 
     #[test]

@@ -9,8 +9,9 @@
 //! emitting heads, so a failed cycle retries the identical range next
 //! tick. A reorg retreat (Reorg + rewind) still precedes its scan.
 //!
-//! HTTP polling (reuses the `EEZ_L1_RPC_URL` read by `L1ReaderConfig`) — 2s interval, well
-//! inside gnosis 5s / Ethereum mainnet 12s block times.
+//! HTTP polling (reuses `EEZ_L1_RPC_URL`) remains the fallback. An embedded
+//! node can wake the same scan loop on canonical changes, avoiding a polling
+//! delay inside short proof windows. Notifications are hints, never evidence.
 //!
 //! Reorg detection walks back via `parent_hash` against a ring of recent
 //! canonical hashes (length ≤ `reorg_max_depth`). Past
@@ -28,8 +29,8 @@ use std::time::Duration;
 use alloy_eips::BlockNumberOrTag;
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_provider::{Provider, ProviderBuilder};
-use tokio::sync::broadcast;
-use tokio::time::{Instant, MissedTickBehavior, interval_at};
+use tokio::sync::{Notify, broadcast};
+use tokio::time::{Instant, Interval, MissedTickBehavior, interval_at};
 use tracing::{Level, event};
 use url::Url;
 
@@ -232,6 +233,7 @@ struct Inner {
     config: L1WatcherConfig,
     blob_source: BeaconBlobSource,
     event_tx: broadcast::Sender<L1Event>,
+    rescan: Notify,
 }
 
 impl std::fmt::Debug for L1Watcher {
@@ -254,13 +256,27 @@ impl L1Watcher {
     /// all subscribers exist.
     #[must_use]
     pub fn new(config: L1WatcherConfig) -> Self {
+        Self::new_inner(config, None)
+    }
+
+    /// Apply the same containing-fork rules to live events as boot catch-up.
+    #[must_use]
+    pub fn new_with_blob_rules(config: L1WatcherConfig, rules: crate::BlobRuleSource) -> Self {
+        Self::new_inner(config, Some(rules))
+    }
+
+    fn new_inner(config: L1WatcherConfig, rules: Option<crate::BlobRuleSource>) -> Self {
         let (event_tx, _) = broadcast::channel(EVENT_BUFFER);
-        let blob_source = BeaconBlobSource::new(config.beacon_url.clone());
+        let mut blob_source = BeaconBlobSource::new(config.beacon_url.clone());
+        if let Some(rules) = rules {
+            blob_source = blob_source.with_rules(rules);
+        }
         Self {
             inner: Arc::new(Inner {
                 config,
                 blob_source,
                 event_tx,
+                rescan: Notify::new(),
             }),
         }
     }
@@ -283,6 +299,35 @@ impl L1Watcher {
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<L1Event> {
         self.inner.event_tx.subscribe()
+    }
+
+    /// Wake the existing scanner on embedded canonical-chain changes. The
+    /// notification's contents are deliberately unused: the RPC scan remains
+    /// authoritative for hashes, reorgs, complete event ordering, and blob DA.
+    /// Lagged notifications coalesce into a scan of the latest canonical head;
+    /// a closed source leaves the periodic fallback running.
+    pub async fn wake_on_canonical_changes<T: Clone>(self, mut changes: broadcast::Receiver<T>) {
+        loop {
+            match changes.recv().await {
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {
+                    self.inner.rescan.notify_one();
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    event!(name: "eez.l1_watcher.notifications.closed", Level::WARN,
+                        "canonical notifications closed; continuing periodic L1 scans");
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Return whether the periodic timer fired. Head notifications do not
+    /// consume finality-refresh ticks or replace retries after a failed scan.
+    async fn wait_for_scan(&self, ticker: &mut Interval) -> bool {
+        tokio::select! {
+            _ = ticker.tick() => true,
+            () = self.inner.rescan.notified() => false,
+        }
     }
 
     async fn run(self, seed_number: u64, seed_hash: B256) {
@@ -348,6 +393,7 @@ impl L1Watcher {
         let mut ticker = interval_at(Instant::now() + POLL_INTERVAL, POLL_INTERVAL);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut tick_count: u64 = 0;
+        let mut timer_ticks: u64 = 0;
 
         event!(
             name: "eez.l1_watcher.started",
@@ -361,9 +407,16 @@ impl L1Watcher {
         );
 
         loop {
-            ticker.tick().await;
+            let periodic = self.wait_for_scan(&mut ticker).await;
             tick_count += 1;
-            if let Err(err) = self.poll_cycle(&provider, &mut state, tick_count).await {
+            if periodic {
+                timer_ticks += 1;
+            }
+            let refresh_finalized = periodic && timer_ticks.is_multiple_of(FINALIZED_REFRESH_TICKS);
+            if let Err(err) = self
+                .poll_cycle(&provider, &mut state, tick_count, refresh_finalized)
+                .await
+            {
                 // Retrying a deterministic error is an infinite silent stall.
                 // PANIC, don't return: reth's critical-task wrapper reports
                 // only panics, so a return exits just as quietly.
@@ -397,6 +450,7 @@ impl L1Watcher {
         provider: &impl Provider,
         state: &mut WatcherState,
         tick_count: u64,
+        refresh_finalized: bool,
     ) -> L1Result<()> {
         let latest = fetch_block_by_tag(provider, BlockNumberOrTag::Latest).await?;
         let latest_number = latest.number;
@@ -649,7 +703,7 @@ impl L1Watcher {
             });
         }
 
-        if tick_count.is_multiple_of(FINALIZED_REFRESH_TICKS) {
+        if refresh_finalized {
             self.refresh_finalized(provider, state).await?;
         }
 
@@ -1026,6 +1080,7 @@ mod tests {
                 },
                 blob_source: BeaconBlobSource::new(None),
                 event_tx,
+                rescan: Notify::new(),
             }),
         };
         (watcher, rx)
@@ -1038,6 +1093,95 @@ mod tests {
         b.header.inner.parent_hash = parent;
         b.header.inner.timestamp = ts;
         b
+    }
+
+    #[tokio::test]
+    async fn canonical_notification_wakes_scan_before_periodic_deadline() {
+        use std::task::{Context, Poll, Waker};
+        let (watcher, mut events) = test_watcher();
+        let mut ticker = interval_at(Instant::now() + Duration::from_secs(30), POLL_INTERVAL);
+        let mut context = Context::from_waker(Waker::noop());
+        {
+            let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
+            assert!(waiting.as_mut().poll(&mut context).is_pending());
+            watcher.inner.rescan.notify_one();
+            assert_eq!(waiting.as_mut().poll(&mut context), Poll::Ready(false));
+        }
+        assert!(
+            events.try_recv().is_err(),
+            "a wakeup is not canonical evidence"
+        );
+        // A notification arriving during a scan remains available to the next
+        // scan; repeated changes coalesce instead of creating concurrent scans.
+        watcher.inner.rescan.notify_one();
+        watcher.inner.rescan.notify_one();
+        assert!(!watcher.wait_for_scan(&mut ticker).await);
+        {
+            let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
+            assert!(waiting.as_mut().poll(&mut context).is_pending());
+        }
+        ticker.reset_immediately();
+        assert!(watcher.wait_for_scan(&mut ticker).await);
+    }
+
+    #[tokio::test]
+    async fn lagged_and_closed_notifications_preserve_scan_and_timer_fallback() {
+        use std::task::{Context, Waker};
+        let (watcher, mut events) = test_watcher();
+        let (tx, changes) = broadcast::channel(1);
+        for value in 0..4 {
+            tx.send(value).unwrap();
+        }
+        drop(tx);
+        watcher.clone().wake_on_canonical_changes(changes).await;
+        let mut ticker = interval_at(Instant::now() + Duration::from_secs(30), POLL_INTERVAL);
+        assert!(!watcher.wait_for_scan(&mut ticker).await);
+        {
+            let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
+            assert!(
+                waiting
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending(),
+                "a closed notification channel must not make scanning spin"
+            );
+        }
+        assert!(events.try_recv().is_err());
+        ticker.reset_immediately();
+        assert!(watcher.wait_for_scan(&mut ticker).await);
+    }
+
+    #[tokio::test]
+    async fn notification_scans_do_not_accelerate_finality_refresh_or_duplicate_heads() {
+        let (watcher, mut events) = test_watcher();
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let head = mock_block(10, B256::with_last_byte(10), B256::with_last_byte(9), 50);
+        let mut state = WatcherState::new(3);
+        state.push_canonical(10, head.header.hash);
+        // Even the sixth scan must not refresh finality unless its timer is due.
+        replies.push_success(&head);
+        watcher
+            .poll_cycle(&provider, &mut state, 6, false)
+            .await
+            .unwrap();
+        assert!(events.try_recv().is_err());
+        // Conversely a periodic finality refresh does not depend on the total
+        // number of scans, and the unchanged head emits no duplicate NewHead.
+        replies.push_success(&head);
+        replies.push_success(&mock_block(5, B256::with_last_byte(5), B256::ZERO, 25));
+        watcher
+            .poll_cycle(&provider, &mut state, 7, true)
+            .await
+            .unwrap();
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            L1Event::Finalized {
+                block_number: 5,
+                ..
+            }
+        ));
+        assert!(events.try_recv().is_err());
     }
 
     /// Far-behind catch-up advances the ring ONE chunk per poll cycle and
@@ -1072,7 +1216,7 @@ mod tests {
         asserter.push_success(&serde_json::json!([])); // winner logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect("chunk step succeeds");
 
@@ -1122,7 +1266,7 @@ mod tests {
         asserter.push_success(&mock_block(199_998, ancestor2_hash, ancestor1_hash, 4_998));
 
         watcher
-            .poll_cycle(&provider, &mut state, 2)
+            .poll_cycle(&provider, &mut state, 2, false)
             .await
             .expect("final chunk succeeds");
 
@@ -1181,7 +1325,7 @@ mod tests {
         ));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect("catch-up chunk succeeds");
 
@@ -1215,7 +1359,7 @@ mod tests {
         asserter.push_success(&mock_block(50_000, replacement_hash, latest_parent, 5_001)); // fill_forward by-hash
 
         watcher
-            .poll_cycle(&provider, &mut state, 2)
+            .poll_cycle(&provider, &mut state, 2, false)
             .await
             .expect("shallow reorg recovers, not ReorgTooDeep");
 
@@ -1281,7 +1425,7 @@ mod tests {
         asserter.push_failure_msg("injected: range scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1324,7 +1468,7 @@ mod tests {
         asserter.push_success(&mock_block(9, ancestor_hash, B256::with_last_byte(8), 9));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect("reorg tick succeeds");
 
@@ -1371,7 +1515,7 @@ mod tests {
         asserter.push_failure_msg("injected: log scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1388,7 +1532,7 @@ mod tests {
         asserter.push_success(&serde_json::json!([])); // winner logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 2)
+            .poll_cycle(&provider, &mut state, 2, false)
             .await
             .expect("retry succeeds");
 
@@ -1433,7 +1577,7 @@ mod tests {
         asserter.push_failure_msg("injected: log scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1454,7 +1598,7 @@ mod tests {
         asserter.push_success(&mock_block(11, h11, tip_hash, 110)); // fill_forward: by-hash h11
 
         watcher
-            .poll_cycle(&provider, &mut state, 2)
+            .poll_cycle(&provider, &mut state, 2, false)
             .await
             .expect("retry succeeds");
 
@@ -1501,7 +1645,7 @@ mod tests {
         asserter.push_success(&mock_block(11, h11, tip_hash, 1_100)); // fill_forward: by-hash h11
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect("narrowed scan must not propagate — reseeding at reached is the remedy");
 
@@ -1543,7 +1687,7 @@ mod tests {
         asserter.push_success(&mock_block(100, hash, B256::with_last_byte(0x63), 1_000));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1)
+            .poll_cycle(&provider, &mut state, 1, false)
             .await
             .expect("no-op cycle succeeds");
 

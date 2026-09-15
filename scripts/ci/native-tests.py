@@ -20,8 +20,11 @@ NEXTEST_VERSION = "0.9.143"
 RUST_VERSION = "1.94.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
-E2E_BINARIES = {f"eez-node-e2e::{name}" for name in ("e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption")}
-TARGETS = ["e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
+E2E_TARGETS = (
+    "e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
+    "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission")
+E2E_BINARIES = {f"eez-node-e2e::{name}" for name in E2E_TARGETS}
+TARGETS = [*E2E_TARGETS,
            "public_inputs_hash_vectors", "rolling_hash_vectors", "ethereum_kzg_compatibility"]
 # Build the node tests before enabling composer's Tokio test-util dev feature.
 # The latter invalidates Tokio and its dependants, including the shipping node
@@ -37,8 +40,12 @@ SUITES = {
     "unit": "kind(lib) | kind(bin) | "
             "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors))) | "
             "(package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility))",
-    "embedded": "package(=eez-node-e2e) & binary(=e2e)",
-    "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=chained_interstate) | binary(=resumption) | binary(=partial_consumption))",
+    # The Kurtosis target is archived too; its test stays explicitly ignored
+    # here and is run by verify-policy-replay.sh against a live enclave.
+    "embedded": "package(=eez-node-e2e) & (binary(=e2e) | binary(=settlement_policy) | "
+                "binary(=settlement_policy_cost) | binary(=kurtosis_policy_replay))",
+    "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=chained_interstate) | "
+                   "binary(=resumption) | binary(=partial_consumption) | binary(=settlement_policy_gas) | binary(=dynamic_admission))",
 }
 
 

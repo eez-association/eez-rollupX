@@ -18,6 +18,7 @@ eez-prover.workspace         = true
 
 # gnosis — chiado L1 header type for GnosisL1Adapter
 gnosis-primitives.workspace = true
+reth_gnosis.workspace = true
 
 # alloy
 alloy-consensus.workspace        = true

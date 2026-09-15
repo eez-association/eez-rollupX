@@ -121,7 +121,9 @@ impl Prover for ProveSvc {
             declared_to_block,
             submitted_post_batch_calldata,
             submitted_blobs,
+            posting_context,
         } = header;
+        let maximum_blobs = self.state.posting_blob_limit(posting_context.as_ref())?;
         timing.ensure_before_deadline(
             "pipeline",
             "Prove request deadline exceeded before request pipeline",
@@ -137,6 +139,7 @@ impl Prover for ProveSvc {
                 blocks,
                 submitted_post_batch_calldata,
                 submitted_blobs,
+                maximum_blobs,
                 request_permit,
                 pipeline_started,
                 timing,
@@ -272,6 +275,7 @@ impl ProveSvc {
         blocks: window::AdmittedBlocks,
         submitted_post_batch_calldata: Vec<u8>,
         submitted_blobs: Vec<Vec<u8>>,
+        maximum_blobs: usize,
         request_permit: OwnedSemaphorePermit,
         pipeline_started: Instant,
         timing: RequestTiming,
@@ -298,6 +302,7 @@ impl ProveSvc {
                     blocks,
                     submitted_post_batch_calldata,
                     submitted_blobs,
+                    maximum_blobs,
                     deadline,
                     &worker_cancellation,
                 )

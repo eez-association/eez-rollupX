@@ -31,6 +31,7 @@ reth-node-api.workspace                   = true
 reth-node-builder.workspace               = true
 reth-node-core.workspace                  = true
 reth-node-ethereum.workspace              = true
+reth-provider.workspace                   = true
 reth-rpc-eth-api.workspace                = true
 reth-storage-api.workspace                = true
 reth-tasks.workspace                      = true
@@ -70,6 +71,7 @@ tokio.workspace   = true
 tracing.workspace = true
 
 [dev-dependencies]
+reth-provider = { workspace = true, features = ["test-utils"] }
 alloy-genesis = { version = "2", default-features = false }
 alloy-network.workspace = true
 alloy-rpc-types-eth.workspace = true

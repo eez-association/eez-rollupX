@@ -86,6 +86,9 @@ pub struct AttemptRecord {
     pub observation: SubmissionObservation,
     /// Snapshot against which all currently owned users were classified.
     pub(crate) reconciled_at: Option<L1BlockRef>,
+    /// Receipt-cost observation follows canonical ownership reconciliation.
+    /// It has no authority over users and is retried on the existing tick.
+    pub(crate) cost_recorded_at: Option<L1BlockRef>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -210,6 +213,7 @@ impl OptimisticallyIncluded {
                     dispatched_target: None,
                     observation: SubmissionObservation::Prepared,
                     reconciled_at: None,
+                    cost_recorded_at: None,
                 },
             );
             Ok(id)
@@ -237,6 +241,75 @@ impl OptimisticallyIncluded {
                 .values()
                 .find(|attempt| needs_resolution(state, attempt))
                 .cloned()
+        })
+    }
+
+    pub(crate) fn pending_cost(&self) -> Option<AttemptRecord> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .find(|attempt| {
+                    attempt.reconciled_at.is_some() && attempt.cost_recorded_at.is_none()
+                })
+                .cloned()
+        })
+    }
+
+    pub(crate) fn cost_recorded(&self, id: AttemptId) -> bool {
+        self.read(|state| {
+            state
+                .attempts
+                .get(&id.generation)
+                .is_some_and(|attempt| attempt.id == id && attempt.cost_recorded_at.is_some())
+        })
+    }
+
+    pub(crate) fn record_cost(&self, id: AttemptId, at: L1BlockRef) -> Result<(), String> {
+        self.update(|state| {
+            let attempt = state
+                .attempts
+                .get_mut(&id.generation)
+                .filter(|attempt| attempt.id == id && attempt.reconciled_at.is_some())
+                .ok_or("cost observation belongs to an unresolved or replaced attempt")?;
+            attempt.cost_recorded_at = Some(at);
+            Ok(())
+        })
+    }
+
+    /// Replace the poster envelope before its first external dispatch. The
+    /// caller must retain the proved calldata, nonce, sidecar, and signed users
+    /// and validate the replacement's complete bundle before sending it.
+    ///
+    /// Ownership stays in this generation. Updating the hash makes callbacks
+    /// for the superseded envelope harmless; a sent or reconciled attempt can
+    /// never acquire a parallel replacement through this operation.
+    pub(crate) fn replace_prepared_post_batch(
+        &self,
+        id: AttemptId,
+        post_batch_hash: B256,
+        post_batch: Bytes,
+    ) -> Result<AttemptId, String> {
+        self.update(|state| {
+            let attempt = state
+                .attempts
+                .get_mut(&id.generation)
+                .filter(|attempt| attempt.id == id)
+                .ok_or("prepared attempt was superseded")?;
+            if attempt.observation != SubmissionObservation::Prepared
+                || attempt.dispatched_target.is_some()
+                || attempt.reconciled_at.is_some()
+            {
+                return Err("only a never-dispatched prepared attempt may be repriced".into());
+            }
+            if post_batch_hash == id.post_batch_hash && post_batch != attempt.post_batch {
+                return Err(
+                    "replacement bytes changed without changing transaction identity".into(),
+                );
+            }
+            attempt.id.post_batch_hash = post_batch_hash;
+            attempt.post_batch = post_batch;
+            Ok(attempt.id)
         })
     }
 
@@ -366,6 +439,12 @@ impl OptimisticallyIncluded {
                 }
             }
             for attempt in state.attempts.values_mut() {
+                if attempt
+                    .cost_recorded_at
+                    .is_some_and(|block| block.number > ancestor)
+                {
+                    attempt.cost_recorded_at = None;
+                }
                 if attempt.txs.is_empty()
                     && attempt
                         .reconciled_at
@@ -536,6 +615,22 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn compose_error_cannot_requeue_users_awaiting_canonical_evidence() {
+        let (ledger, pool, txs, _) = setup();
+        pool.requeue_composing(txs.clone());
+        assert!(pool.is_empty());
+        assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
+        ledger.read(|state| {
+            assert!(
+                state
+                    .users
+                    .values()
+                    .all(|user| user.location == UserLocation::AwaitingEvidence)
+            );
+        });
+    }
+
     fn setup() -> (
         Arc<OptimisticallyIncluded>,
         Arc<HeldPool>,
@@ -559,12 +654,94 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unsent_repricing_preserves_users_and_rejects_old_callbacks() {
+        let (ledger, pool, txs, id) = setup();
+        let replacement = Bytes::from_static(b"replacement poster envelope");
+        let next = ledger
+            .replace_prepared_post_batch(id, B256::repeat_byte(42), replacement.clone())
+            .unwrap();
+        assert_eq!(next.generation, id.generation);
+        assert!(
+            !ledger
+                .observe(id, SubmissionObservation::Uncertain)
+                .unwrap()
+        );
+        assert!(
+            ledger
+                .replace_prepared_post_batch(id, B256::ZERO, Bytes::new())
+                .is_err()
+        );
+        let current = ledger.pending_attempt().unwrap();
+        assert_eq!(current.id, next);
+        assert_eq!(current.post_batch, replacement);
+        assert_eq!(
+            current.txs.iter().map(|tx| &tx.raw_tx).collect::<Vec<_>>(),
+            txs.iter().map(|tx| &tx.raw_tx).collect::<Vec<_>>()
+        );
+        assert_eq!(current.manifest.users.len(), txs.len());
+        assert!(pool.pop_all().is_empty());
+        assert!(
+            ledger
+                .observe(
+                    next,
+                    SubmissionObservation::Dispatched {
+                        block: 100,
+                        timestamp: 1000,
+                    }
+                )
+                .unwrap()
+        );
+        assert!(
+            ledger
+                .replace_prepared_post_batch(next, B256::ZERO, Bytes::new())
+                .is_err()
+        );
+        assert_eq!(ledger.pending_attempt().unwrap().id, next);
+    }
+
+    #[test]
+    fn uncertain_or_resolved_attempts_cannot_be_repriced() {
+        for observation in [
+            SubmissionObservation::Uncertain,
+            SubmissionObservation::Included { block: block(10) },
+            SubmissionObservation::Excluded {
+                block: 10,
+                charge_attempt: false,
+            },
+        ] {
+            let (ledger, _, _, id) = setup();
+            ledger.observe(id, observation.clone()).unwrap();
+            assert!(
+                ledger
+                    .replace_prepared_post_batch(id, B256::ZERO, Bytes::new())
+                    .is_err()
+            );
+            assert_eq!(ledger.pending_attempt().unwrap().observation, observation);
+        }
+    }
+
     fn partial() -> [SourceOutcome; 3] {
         [
             SourceOutcome::Terminal(TerminalReason::Committed),
             SourceOutcome::Terminal(TerminalReason::Committed),
             SourceOutcome::Retryable { source_nonce: 0 },
         ]
+    }
+
+    #[test]
+    fn source_classification_survives_resolution_until_finality() {
+        let (ledger, pool, txs, id) = setup();
+        assert!(txs.iter().all(|tx| pool.is_cross_chain_source(tx.hash)));
+        let outcomes = vec![SourceOutcome::Terminal(TerminalReason::Committed); txs.len()];
+        pool.resolve_attempt(id, block(100), &outcomes, true, 5, || true)
+            .unwrap();
+        assert!(txs.iter().all(|tx| !pool.owns(tx.hash)));
+        // Asynchronous Reth reinjection must still recognize these sources
+        // after the canonical ownership transfer has released reservations.
+        assert!(txs.iter().all(|tx| pool.is_cross_chain_source(tx.hash)));
+        ledger.forget_finalized(id, block(100)).unwrap();
+        assert!(txs.iter().all(|tx| !pool.is_cross_chain_source(tx.hash)));
     }
 
     #[test]
@@ -672,6 +849,38 @@ mod tests {
         assert!(pool.is_empty());
         assert_eq!(ledger.pending_attempt().unwrap().txs[0].attempts, 1);
         assert_eq!(ledger.blocking_height(), Some(10));
+    }
+
+    #[test]
+    fn receipt_cost_retries_do_not_control_users_and_reopen_on_reorg() {
+        let (ledger, pool, _, id) = setup();
+        assert!(ledger.pending_cost().is_none());
+        assert!(ledger.record_cost(id, block(100)).is_err());
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::SourceReverted); 3],
+            true,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert!(ledger.blocking_height().is_none());
+        assert_eq!(ledger.pending_cost().unwrap().id, id);
+        ledger.record_cost(id, block(102)).unwrap();
+        assert!(ledger.pending_cost().is_none());
+        assert!(ledger.cost_recorded(id));
+        ledger.invalidate_after_l1(101).unwrap();
+        assert_eq!(ledger.pending_cost().unwrap().id, id);
+        assert!(ledger.blocking_height().is_none());
+        ledger.record_cost(id, block(101)).unwrap();
+        ledger.invalidate_after_l1(99).unwrap();
+        assert!(
+            ledger.pending_cost().is_none(),
+            "user evidence must first be reconciled again"
+        );
+        assert!(ledger.blocking_height().is_some());
+        assert!(!ledger.cost_recorded(id));
     }
 
     #[test]

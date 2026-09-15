@@ -5,6 +5,20 @@
 eez_devnet_ports_main() {
     local enclave="${KURTOSIS_ENCLAVE:-eez-ci}"
 
+    # Public-network checks use explicit endpoints and local deployment
+    # bindings. Never resolve a stopped or unrelated enclave in this mode.
+    if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+        local name
+        for name in EEZ_DEVNET_L1_RPC EEZ_DEVNET_L2_RPC EEZ_DEVNET_L1_FRONT EEZ_DEVNET_L2_FRONT; do
+            case "${!name:-}" in
+                http://*|https://*) export "$name" ;;
+                *) echo "$name must be an explicit http(s) URL for local deployment checks" >&2; return 1 ;;
+            esac
+        done
+        printf 'Using explicit network endpoints and local deployment bindings\n'
+        return 0
+    fi
+
     command -v kurtosis >/dev/null || {
         echo "kurtosis not found in PATH" >&2
         return 1

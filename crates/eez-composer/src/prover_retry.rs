@@ -131,7 +131,7 @@ pub(crate) fn validate_actionable_prover_failure(
     Ok(())
 }
 
-fn unix_time_millis() -> u64 {
+pub(crate) fn unix_time_millis() -> u64 {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
@@ -143,7 +143,7 @@ fn unix_time_millis() -> u64 {
 /// The Sequencer applies the same budget before entering the Composer. Repeating
 /// it here closes the race introduced by retry backoff: the proof budget is
 /// reserved before the relay-submission slack, so a retry cannot consume either.
-fn proof_start_cutoff_ms(timing: RollupTiming, target: BundleTarget) -> Option<u64> {
+pub(crate) fn proof_start_cutoff_ms(timing: RollupTiming, target: BundleTarget) -> Option<u64> {
     let BundleTarget::Exact { timestamp, .. } = target else {
         return None;
     };

@@ -43,6 +43,11 @@ async fn main() -> eyre::Result<()> {
     let expected_l2_system_address = config.expected_l2_system_address;
     let validator =
         validate::Validator::stateless(&config.chain_document_path, expected_l2_system_address)?;
+    let l1_chain_spec = config
+        .l1_chain_document_path
+        .as_deref()
+        .map(eez_l1::chain_config::load_l1_chain_spec)
+        .transpose()?;
     if !listen_addr.ip().is_loopback() {
         warn!(
             listen = %listen_addr,
@@ -70,12 +75,15 @@ async fn main() -> eyre::Result<()> {
         "serving Prove — waiting for composer windows",
     );
     let svc = service::ProveSvc::new(
-        Arc::new(service::ServiceState::new(
-            validator,
-            config.expected_rollup_id,
-            config.attester,
-            config.system_transaction_key,
-        )?),
+        Arc::new(
+            service::ServiceState::new(
+                validator,
+                config.expected_rollup_id,
+                config.attester,
+                config.system_transaction_key,
+            )?
+            .with_l1_chain_spec(l1_chain_spec),
+        ),
         limits,
     );
     let shutdown_service = svc.clone();

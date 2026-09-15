@@ -1,10 +1,11 @@
-//! L2 pool that refuses SYSTEM_ADDRESS txs. Real ones ride in Sync blocks over
-//! the engine API, so this covers RPC and reth's reorg re-injection alike.
+//! L2 pool that refuses SYSTEM_ADDRESS txs and, on composers, known cross-chain
+//! sources. They ride in Sync blocks over the engine API. This gate covers RPC
+//! and Reth's reorg reinjection without duplicating composer ownership.
 
-use std::{any::Any, time::SystemTime};
+use std::{any::Any, fmt, sync::Arc, time::SystemTime};
 
 use alloy_eips::{eip7840::BlobParams, merge::EPOCH_SLOTS};
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use reth_chainspec::{EthChainSpec, EthereumHardforks};
 use reth_ethereum_primitives::TransactionSigned;
 use reth_evm::ConfigureEvm;
@@ -37,6 +38,32 @@ pub type EezTransactionPool<Client, S, Evm> = Pool<
 #[error("SYSTEM_ADDRESS transactions are not accepted via the mempool")]
 struct SystemAddressRejected;
 
+type CrossChainFilter = Arc<dyn Fn(B256) -> bool + Send + Sync>;
+
+#[derive(Debug, thiserror::Error)]
+#[error("cross-chain source must be executed in a composer Sync block")]
+struct CrossChainSourceRejected;
+
+impl PoolTransactionError for crate::payload::SequencingDataError {
+    fn is_bad_transaction(&self) -> bool {
+        false
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl PoolTransactionError for CrossChainSourceRejected {
+    fn is_bad_transaction(&self) -> bool {
+        // A valid source reinserted after a reorg is not peer misbehavior.
+        false
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 impl PoolTransactionError for SystemAddressRejected {
     fn is_bad_transaction(&self) -> bool {
         // Never valid from anyone, so the peer that sent it earns a penalty.
@@ -48,12 +75,23 @@ impl PoolTransactionError for SystemAddressRejected {
     }
 }
 
-/// Rejects L2 SYSTEM_ADDRESS txs; a reorg re-injects them and a Live block
-/// carrying one fail-closes emission.
-#[derive(Debug)]
+/// Rejects L2 system transactions and optionally composer-owned sources that
+/// Reth may reinject from an orphaned Sync. Ordinary users retain validation.
 pub struct SystemAddressGate<V> {
     inner: V,
     system_address: Address,
+    cross_chain: Option<CrossChainFilter>,
+    data_guard: Option<Arc<crate::SequencingDataGuard>>,
+}
+
+impl<V: fmt::Debug> fmt::Debug for SystemAddressGate<V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SystemAddressGate")
+            .field("inner", &self.inner)
+            .field("system_address", &self.system_address)
+            .field("cross_chain_filter", &self.cross_chain.is_some())
+            .finish()
+    }
 }
 
 impl<V> SystemAddressGate<V> {
@@ -61,6 +99,8 @@ impl<V> SystemAddressGate<V> {
         Self {
             inner,
             system_address,
+            cross_chain: None,
+            data_guard: None,
         }
     }
 }
@@ -88,11 +128,40 @@ where
             InvalidPoolTransactionError::other(SystemAddressRejected),
         )
     }
+
+    fn is_cross_chain_source(&self, tx: &V::Transaction) -> bool {
+        self.cross_chain
+            .as_ref()
+            .is_some_and(|filter| filter(*tx.hash()))
+    }
+
+    fn reject_cross_chain(tx: V::Transaction) -> TransactionValidationOutcome<V::Transaction> {
+        event!(name: "eez.node.pool.cross_chain_source_rejected", Level::INFO,
+            event_name = "eez.node.pool.cross_chain_source_rejected",
+            tx_hash = %tx.hash(), sender = %tx.sender(),
+            "cross-chain source remains under composer ownership after reorg");
+        TransactionValidationOutcome::Invalid(
+            tx,
+            InvalidPoolTransactionError::other(CrossChainSourceRejected),
+        )
+    }
+
+    fn reject_data(
+        tx: V::Transaction,
+        error: crate::payload::SequencingDataError,
+    ) -> TransactionValidationOutcome<V::Transaction> {
+        if matches!(error, crate::payload::SequencingDataError::Unavailable(_)) {
+            TransactionValidationOutcome::Error(*tx.hash(), Box::new(error))
+        } else {
+            TransactionValidationOutcome::Invalid(tx, InvalidPoolTransactionError::other(error))
+        }
+    }
 }
 
 impl<V> TransactionValidator for SystemAddressGate<V>
 where
     V: TransactionValidator,
+    V::Transaction: PoolTransaction<Consensus = TransactionSigned>,
 {
     type Transaction = V::Transaction;
     type Block = V::Block;
@@ -104,6 +173,14 @@ where
     ) -> TransactionValidationOutcome<Self::Transaction> {
         if self.is_system_sender(&transaction) {
             return Self::reject(transaction);
+        }
+        if self.is_cross_chain_source(&transaction) {
+            return Self::reject_cross_chain(transaction);
+        }
+        if let Some(guard) = &self.data_guard
+            && let Err(error) = guard.validate_transaction(transaction.consensus_ref().inner())
+        {
+            return Self::reject_data(transaction, error);
         }
         self.inner.validate_transaction(origin, transaction).await
     }
@@ -120,6 +197,12 @@ where
         for (origin, tx) in transactions {
             if self.is_system_sender(&tx) {
                 slots.push(Some(Self::reject(tx)));
+            } else if self.is_cross_chain_source(&tx) {
+                slots.push(Some(Self::reject_cross_chain(tx)));
+            } else if let Some(guard) = &self.data_guard
+                && let Err(error) = guard.validate_transaction(tx.consensus_ref().inner())
+            {
+                slots.push(Some(Self::reject_data(tx, error)));
             } else {
                 slots.push(None);
                 forwarded.push((origin, tx));
@@ -151,14 +234,46 @@ where
 
 /// Copy of [`reth_node_ethereum::node::EthereumPoolBuilder`] that wraps the
 /// Ethereum validator in [`SystemAddressGate`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub struct EezPoolBuilder {
     system_address: Address,
+    cross_chain: Option<CrossChainFilter>,
+    data_guard: Option<Arc<crate::SequencingDataGuard>>,
+}
+
+impl fmt::Debug for EezPoolBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EezPoolBuilder")
+            .field("system_address", &self.system_address)
+            .field("cross_chain_filter", &self.cross_chain.is_some())
+            .finish()
+    }
 }
 
 impl EezPoolBuilder {
     pub const fn new(system_address: Address) -> Self {
-        Self { system_address }
+        Self {
+            system_address,
+            cross_chain: None,
+            data_guard: None,
+        }
+    }
+
+    /// Consult the composer's existing source records during pool validation,
+    /// including Reth's asynchronous reorg reinjection. Followers omit this.
+    #[must_use]
+    pub fn with_cross_chain_filter(
+        mut self,
+        filter: impl Fn(B256) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.cross_chain = Some(Arc::new(filter));
+        self
+    }
+
+    #[must_use]
+    pub fn with_data_guard(mut self, guard: Option<Arc<crate::SequencingDataGuard>>) -> Self {
+        self.data_guard = guard;
+        self
     }
 }
 
@@ -223,8 +338,12 @@ where
             }
 
             let system_address = self.system_address;
-            let validator =
-                eth_validator.map(|inner| SystemAddressGate::new(inner, system_address));
+            let validator = eth_validator.map(|inner| {
+                let mut gate = SystemAddressGate::new(inner, system_address);
+                gate.cross_chain = self.cross_chain.clone();
+                gate.data_guard = self.data_guard.clone();
+                gate
+            });
 
             let transaction_pool = TxPoolBuilder::new(ctx)
                 .with_validator(validator)
@@ -295,6 +414,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_da_limits_are_retryable_and_never_admit_ordinary_data() {
+        let mut gate = SystemAddressGate::new(AcceptAll, SYSTEM);
+        gate.data_guard = Some(Arc::new(crate::SequencingDataGuard::new(1)));
+        assert!(
+            gate.validate_transaction(TransactionOrigin::Local, pooled_tx(USER, 0))
+                .await
+                .is_error()
+        );
+        let outcomes = gate
+            .validate_transactions([
+                (TransactionOrigin::Local, pooled_tx(USER, 0)),
+                (TransactionOrigin::External, pooled_tx(SYSTEM, 0)),
+                (TransactionOrigin::External, pooled_tx(USER, 1)),
+            ])
+            .await;
+        assert!(outcomes[0].is_error());
+        assert!(outcomes[1].is_invalid());
+        assert!(outcomes[2].is_error());
+        let too_large = crate::payload::SequencingDataError::TooLarge { size: 2, limit: 1 };
+        assert!(!too_large.is_bad_transaction());
+        assert!(
+            SystemAddressGate::<AcceptAll>::reject_data(pooled_tx(USER, 0), too_large).is_invalid()
+        );
+    }
+
+    #[tokio::test]
     async fn rejects_system_sender_and_admits_others() {
         let gate = SystemAddressGate::new(AcceptAll, SYSTEM);
 
@@ -333,5 +478,32 @@ mod tests {
         assert!(out[0].is_valid());
         assert!(out[1].is_invalid());
         assert!(out[2].is_valid());
+    }
+
+    #[tokio::test]
+    async fn cross_chain_filter_covers_reinjection_and_local_submission_without_blocking_ordinary_users()
+     {
+        let reserved = *pooled_tx(USER, 1).hash();
+        let mut gate = SystemAddressGate::new(AcceptAll, SYSTEM);
+        gate.cross_chain = Some(Arc::new(move |hash| hash == reserved));
+        for origin in [TransactionOrigin::External, TransactionOrigin::Local] {
+            let out = gate.validate_transaction(origin, pooled_tx(USER, 1)).await;
+            assert!(out.is_invalid());
+        }
+        let out = gate
+            .validate_transactions([
+                (TransactionOrigin::External, pooled_tx(USER, 0)),
+                (TransactionOrigin::External, pooled_tx(USER, 1)),
+                (TransactionOrigin::External, pooled_tx(SYSTEM, 2)),
+                (TransactionOrigin::External, pooled_tx(USER, 3)),
+            ])
+            .await;
+        assert_eq!(
+            out.iter()
+                .map(TransactionValidationOutcome::is_valid)
+                .collect::<Vec<_>>(),
+            [true, false, false, true]
+        );
+        assert!(!CrossChainSourceRejected.is_bad_transaction());
     }
 }

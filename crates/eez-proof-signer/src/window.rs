@@ -85,6 +85,7 @@ pub(crate) struct AdmittedHeader {
     /// Untrusted physical blobs retained for KZG and native semantic-profile
     /// validation inside the settlement worker.
     pub(crate) submitted_blobs: Vec<Vec<u8>>,
+    pub(crate) posting_context: Option<eez_control_rpc::v1::L1PostingContext>,
 }
 
 /// A complete, structurally checked window ready for backend validation.
@@ -329,6 +330,7 @@ impl WindowAssembler<false> {
             l1_block_hash: submitted_l1_block_hash,
             abi_calldata: submitted_post_batch_calldata,
             blobs: submitted_blobs,
+            posting_context,
         } = submitted_post_batch;
         let l1_block_hash_len = submitted_l1_block_hash.len();
         if l1_block_hash_len != 0 {
@@ -363,6 +365,7 @@ impl WindowAssembler<false> {
                 declared_to_block,
                 submitted_post_batch_calldata,
                 submitted_blobs,
+                posting_context,
             },
             declared_block_count,
         })

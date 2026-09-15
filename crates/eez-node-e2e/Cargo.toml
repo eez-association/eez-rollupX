@@ -13,6 +13,9 @@ eez-node.workspace     = true
 eyre.workspace         = true
 
 [dev-dependencies]
+eez-payload-codec.workspace = true
+alloy-rlp.workspace = true
+eez-l1.workspace = true
 eez-deriver.workspace = true
 serde.workspace = true
 eez-blob-codec.workspace = true

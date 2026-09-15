@@ -59,6 +59,19 @@ All lifecycle and workload scripts fall back to the enclave name `eez-ci` when
 `KURTOSIS_ENCLAVE` is unset. Always export the intended name in a new shell,
 especially before running the destructive `stop.sh` command.
 
+For the interactive devnet with the configurable settlement policy, select
+`testing/kurtosis/devnet-args.yaml` and `KURTOSIS_ENCLAVE=eez-devnet`. This profile
+uses `always` for included pure L2 transactions and consolidates empty history
+every 900 L2 blocks. With its two-second L2 cadence, that is nominally 30
+minutes, subject to L1 inclusion. Empty Sync opportunities do not trigger a
+post. Valid cross-chain work posts at the next eligible opportunity. Aggregate
+blob fullness is disabled in this profile so it cannot shorten the idle period.
+The fee floor is explicit for this local PBS fixture. These settings do not
+change the legacy policy used by configurations that leave the feature disabled.
+
+Measure idle cadence after the first canonical settlement: a fresh local MEV
+relay must receive validator registrations before it can include bundles.
+
 `start.sh` does not request privileged package execution by default. Set
 `KURTOSIS_PRIVILEGED=1` only when using a custom topology that requires it.
 
@@ -445,6 +458,57 @@ automatically. They also read the deterministic L1 poster key (never the proof
 signer key) as their funding account from `KURTOSIS_ARGS_FILE`, so that variable
 must point to the arguments file used to start the network.
 
+### Verify an existing public-network deployment
+
+The same deployment, blob, protocol, wave, state-chaining and replay checks can
+use explicit endpoints instead of a Kurtosis enclave:
+
+```bash
+export EEZ_USE_LOCAL_DEPLOYMENTS=1
+export EEZ_DEPLOYMENTS_FILE=/absolute/path/to/deployments.env
+export EEZ_DEVNET_L1_RPC=http://127.0.0.1:18645
+export EEZ_DEVNET_L2_RPC=http://127.0.0.1:18688
+export EEZ_DEVNET_L1_FRONT=http://127.0.0.1:18999
+export EEZ_DEVNET_L2_FRONT=http://127.0.0.1:18998
+export EEZ_L1_BEACON_URL=http://127.0.0.1:6152
+export EEZ_L1_BUILDER_RPC_URL=https://builder.chiado.gcd.ovh/
+export EEZ_NODE_CONTAINER=eez-node-chiado
+export EEZ_SIGNER_CONTAINER=eez-proof-signer-chiado
+export EEZ_TEST_FUND_AMOUNT_ETH=0.05
+```
+
+Supply `PK`, `EEZ_FUND_FROM_KEY`, `EEZ_L1_SETUP_KEY`, and `EEZ_L2_SETUP_KEY`
+through a private environment using funded test accounts. Keep the poster's
+nonce stream separate from test traffic. `EEZ_TEST_FUND_AMOUNT_ETH` is a positive
+native-token amount with at most 18 decimal places; its existing default is 10.
+The upstream protocol runner separately defaults to 0.1 native units per worker
+per chain. These are funding transfers, not settlement fees.
+
+Explicit mode requires all four endpoints and a readable deployment file; it
+never falls back to an enclave. Node/signer log assertions use the named Docker
+containers. Blob verification probes the public builder's bundle method while
+retaining real inclusion, KZG, decoded payload and correlation assertions. Set
+`EEZ_VERIFY_BLOBSCAN=false` when no Blobscan instance is available; this only
+omits explorer checks. Native Beacon/KZG verification remains required.
+
+Independent protocol checks require L1/L2 `debug` APIs, including raw blocks,
+receipts and intermediate execution roots. Mined raw transactions missing from
+`eth_getRawTransactionByHash` are recovered from the exact raw-block position
+and must hash to the expected canonical transaction before matching blob data.
+Retain transaction lookup indexes and receipt/state history in the L1 client;
+a pruned snapshot can otherwise appear healthy until in-memory caches disappear
+on restart. Rebuilding an index does not restore already-pruned history.
+
+Replay additionally requires `EEZ_L2_GENESIS`, `EEZ_L1_CHAIN_CONFIG` (`chiado`
+for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the deployed
+`EEZ_L2_SYSTEM_KEY`. Use the actual proof/slack timing values when supplied.
+An existing canonical post satisfies wave bootstrap readiness; each measured
+wave still counts only posts occurring after its own baseline. State-ordering
+checks wait for canonical safe L2 receipts before recording their Sync height:
+a public builder can exclude a bundle and move its transactions to a later Sync
+block. L1 log queries start at the selected registry deployment block rather
+than scanning unavailable pre-deployment history in a pruned snapshot.
+
 ### Run one cross-chain workload
 
 ```bash
@@ -676,13 +740,18 @@ an empty window is rejected at node startup.
 Keep the private-network keys distinct, and never reuse them outside a
 disposable local environment.
 
-`max_user_txs_per_bundle` is the maximum number of held user cross-chain
-transactions, combined across both directions, offered to one Sync block. If
-omitted, the Kurtosis package uses `50`, matching the composer's in-code
-fallback and the standard Kurtosis deployment profile. Transactions beyond the
-cap remain FIFO-queued for later Sync blocks; the block-gas budget can reduce
-the actual drain below the cap. This is a resource and atomic-inclusion safety
-bound, not an unlimited-mode control.
+`max_user_txs_per_bundle` accepts a positive integer or the quoted string
+`"auto"`. A numeric value limits held user cross-chain transactions, combined
+across both directions, offered to one Sync block. The omitted value remains
+`50`, matching the composer default. Transactions beyond the selected prefix
+remain FIFO-queued; gas and blob capacity can reduce the actual drain.
+
+With `settlement_env.EEZ_SETTLEMENT_POLICY_ENABLED: "true"`, setting
+`max_user_txs_per_bundle: "auto"` selects using measured preparation time and
+available gas/blob capacity, without a fixed transaction-count cap. The runtime
+rejects `auto` when the policy is disabled. Configure admission through this
+existing top-level `eez` option; `settlement_env` carries the policy and posting
+fee options.
 
 The dedicated `crosschain-limit-args.yaml` profile deliberately sets the cap to
 `3` to make spillover observable under a small workload. It is a disposable

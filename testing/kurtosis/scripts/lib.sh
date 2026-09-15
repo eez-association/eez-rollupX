@@ -8,6 +8,56 @@
 # Priority fee every helper signs with; scripts may override before sourcing.
 PRIORITY_GAS_PRICE="${PRIORITY_GAS_PRICE:-${EEZ_TEST_PRIORITY_GAS_PRICE_WEI:-1}}"
 
+load_deployment_artifact() { # <destination directory>
+    if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+        cp "${EEZ_DEPLOYMENTS_FILE:-$REPO/deployments.env}" "$1/deployments.env"
+    else
+        kurtosis files download "$ENCLAVE" eez-deployments "$1" >/dev/null
+    fi
+}
+
+capture_runtime_log() { # <service> <output file>
+    if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+        local container
+        case "$1" in
+            eez-node) container="${EEZ_NODE_CONTAINER:?set EEZ_NODE_CONTAINER}" ;;
+            eez-proof-signer) container="${EEZ_SIGNER_CONTAINER:?set EEZ_SIGNER_CONTAINER}" ;;
+            *) echo "unsupported runtime service: $1" >&2; return 1 ;;
+        esac
+        timeout 30s docker logs "$container" >"$2" 2>&1
+    else
+        timeout 30s kurtosis service logs -a "$ENCLAVE" "$1" >"$2" 2>&1
+    fi
+}
+
+raw_transaction_for() { # <rpc> <hash> <scratch directory> → signed envelope
+    local rpc="$1" hash="$2" scratch="$3" raw transaction block_hash index actual
+    raw=$(cast rpc eth_getRawTransactionByHash "$hash" --rpc-url "$rpc" 2>/dev/null | jq -er '.') || raw=""
+    if [[ -z "$raw" ]]; then
+        # Some Gnosis clients return null for mined raw transactions although
+        # both the transaction metadata and complete raw block are available.
+        transaction=$(cast rpc eth_getTransactionByHash "$hash" --rpc-url "$rpc") || return 1
+        block_hash=$(jq -er '.blockHash' <<<"$transaction") || return 1
+        index=$(jq -er '.transactionIndex' <<<"$transaction") || return 1
+        [[ "$block_hash" =~ ^0x[[:xdigit:]]{64}$ && "$index" =~ ^0x[[:xdigit:]]+$ ]] || return 1
+        # Pipe full blocks instead of passing them as shell arguments: a
+        # public block can exceed the operating system's argument-size limit.
+        cast rpc debug_getRawBlock "$block_hash" --rpc-url "$rpc" \
+            | jq -er '.' | cast from-rlp >"$scratch/raw-block.json" || return 1
+        jq -e --argjson index "$((index))" '.[1][$index] // error("missing transaction")' \
+            "$scratch/raw-block.json" >"$scratch/raw-transaction.json" || return 1
+        if jq -e 'type == "array"' "$scratch/raw-transaction.json" >/dev/null; then
+            raw=$(jq -c '.' "$scratch/raw-transaction.json" | cast to-rlp) || return 1
+        else
+            raw=$(jq -er 'select(type == "string")' "$scratch/raw-transaction.json") || return 1
+        fi
+    fi
+    [[ "$raw" =~ ^0x([[:xdigit:]]{2})+$ ]] || return 1
+    actual=$(printf '%s' "$raw" | cast keccak) || return 1
+    [[ "${actual,,}" == "${hash,,}" ]] || { echo "raw transaction hash mismatch: $hash" >&2; return 1; }
+    printf '%s\n' "$raw"
+}
+
 yaml_value() { # <key> → scalar from the kurtosis args file
     # `-m1` not `| head -1`: head closes the pipe, grep takes SIGPIPE, and
     # pipefail then fails the whole pipeline.
@@ -45,11 +95,16 @@ gas_price_for() { # <rpc> → max fee in wei
     echo "$gas_price"
 }
 
-fund() { # <rpc> <key> <to> — 10 ETH from <key>'s account
-    local rpc="$1" key="$2" to="$3" from nonce
+fund() { # <rpc> <key> <to> — configurable native-token amount
+    local rpc="$1" key="$2" to="$3" from nonce amount
+    amount="${EEZ_TEST_FUND_AMOUNT_ETH:-10}"
+    [[ "$amount" =~ ^[0-9]+([.][0-9]{1,18})?$ && "$amount" =~ [1-9] ]] || {
+        echo "EEZ_TEST_FUND_AMOUNT_ETH must be a positive decimal with at most 18 decimal places" >&2
+        return 1
+    }
     from=$(cast wallet address --private-key "$key")
     nonce=$(retry cast nonce "$from" --rpc-url "$rpc")
-    cast send "$to" --value 10ether --private-key "$key" --nonce "$nonce" \
+    cast send "$to" --value "${amount}ether" --private-key "$key" --nonce "$nonce" \
         --gas-price "$(gas_price_for "$rpc")" --priority-gas-price "$PRIORITY_GAS_PRICE" \
         --rpc-url "$rpc" >/dev/null
 }

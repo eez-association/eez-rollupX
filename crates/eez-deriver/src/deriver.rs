@@ -432,6 +432,23 @@ where
     /// As [`Self::catch_up`]; additionally `SourceIncomplete` while the
     /// L1 source cannot yet serve the seed block's hash.
     pub async fn catch_up_with_seed(&self) -> DeriverResult<(u64, B256)> {
+        self.catch_up_with_seed_inner(false).await
+    }
+
+    /// Boot catch-up for a composer that may intentionally retain ordinary L2
+    /// history between settlements. Preserve the canonical pure prefix above
+    /// the validated anchor; an unowned cross-chain Sync and its descendants
+    /// still require the existing boot rollback. Safe/finalized remain L1-derived.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::catch_up_with_seed`]; additionally unavailable or inconsistent
+    /// local ancestry and malformed pending transactions prevent startup.
+    pub async fn catch_up_with_seed_retaining_pure_l2(&self) -> DeriverResult<(u64, B256)> {
+        self.catch_up_with_seed_inner(true).await
+    }
+
+    async fn catch_up_with_seed_inner(&self, retain_pure_l2: bool) -> DeriverResult<(u64, B256)> {
         let end = self.catch_up_inner().await?;
         // NOT canonicality-probed: at boot this tail is a batch THIS scan just
         // found, with a hash straight from `get_logs`. Cross-checked below.
@@ -472,20 +489,36 @@ where
                 detail: "catch-up seed block reorged during the scan; retry".into(),
             }));
         }
-        // No attempt ledger survives restart. Keeping an unposted Sync block
-        // would leave a system-transaction barrier that no attempt can recover.
-        // Only boot drops this suffix; live catch-up retains active proposals.
+        // No attempt ledger survives restart. Keeping an unposted cross-chain
+        // Sync would leave a system-transaction barrier no attempt can recover.
+        // A delayed-settlement composer must nevertheless retain its ordinary
+        // history: losing volatile policy intent does not discard included txs.
         let _guard = self.inner.committer.begin_reconcile().await;
         let cursor = self.inner.l1_head.cursor();
-        if self
+        let local_head = self
             .inner
             .l2_provider
             .best_block_number()
-            .map_err(DeriverError::l2_provider)?
-            > cursor
-        {
-            self.retreat_l2_to_cursor(cursor).await?;
+            .map_err(DeriverError::l2_provider)?;
+        let retained = if retain_pure_l2 {
+            self.pure_l2_boot_prefix(cursor, local_head)?
+        } else {
+            self.l2_sealed_header_at(cursor)?
+        };
+        if local_head > retained.number() {
+            // catch_up_inner already reconciled safe/finalized. Only the
+            // speculative head moves; retained pure blocks are not settlement.
+            if retain_pure_l2 {
+                self.inner.committer.reorg_to(retained.clone()).await?;
+            } else {
+                self.retreat_l2_to_cursor(cursor).await?;
+            }
         }
+        event!(name: "eez.deriver.catch_up.local_history", Level::INFO,
+            event_name = "eez.deriver.catch_up.local_history",
+            retain_pure_l2, settled_l2 = cursor, previous_head = local_head,
+            retained_head = retained.number(), retained_hash = %retained.hash(),
+            "reconciled pending local history at startup");
         event!(
             name: "eez.deriver.catch_up.seed",
             Level::INFO,
@@ -497,6 +530,55 @@ where
             "watcher seed chosen",
         );
         Ok((seed, canonical))
+    }
+
+    fn pure_l2_boot_prefix(
+        &self,
+        cursor: u64,
+        local_head: u64,
+    ) -> DeriverResult<SealedHeader<alloy_consensus::Header>> {
+        let mut retained = self.l2_sealed_header_at(cursor)?;
+        let system = self
+            .inner
+            .system_tx_cfg
+            .as_ref()
+            .ok_or_else(|| {
+                DeriverError::l2_provider("retaining pure L2 history requires the system signer")
+            })?
+            .system_signer
+            .address();
+        while retained.number() < local_head {
+            let number = retained
+                .number()
+                .checked_add(1)
+                .ok_or_else(|| DeriverError::l2_provider("pending L2 height overflow"))?;
+            let block = self
+                .inner
+                .l2_provider
+                .block_by_number(number)
+                .map_err(DeriverError::l2_provider)?
+                .ok_or_else(|| {
+                    DeriverError::l2_provider(format!("pending L2 block {number} missing"))
+                })?;
+            if block.header().number != number || block.header().parent_hash != retained.hash() {
+                return Err(DeriverError::l2_provider(
+                    "pending L2 ancestry changed during boot",
+                ));
+            }
+            for tx in block.body().transactions() {
+                let encoded = tx.encoded_2718();
+                if encoded.first() == Some(&0x7e) {
+                    return Ok(retained);
+                }
+                let tx = TransactionSigned::decode_2718(&mut encoded.as_slice())
+                    .map_err(DeriverError::l2_provider)?;
+                if tx.recover_signer().map_err(DeriverError::l2_provider)? == system {
+                    return Ok(retained);
+                }
+            }
+            retained = SealedHeader::seal_slow(block.header().clone());
+        }
+        Ok(retained)
     }
 
     /// Shared body of [`Self::catch_up`] / [`Self::catch_up_with_seed`].

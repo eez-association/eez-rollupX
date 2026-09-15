@@ -458,6 +458,27 @@ impl HeldPool {
         state.update_recovery_ownership();
     }
 
+    /// Restore a failed composition's original candidates only while this
+    /// composition still owns them. A later error must not undo an eviction,
+    /// release, replacement, or transfer back to canonical reconciliation.
+    pub(crate) fn requeue_composing(&self, candidates: Vec<HeldTx>) {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let retained = state.ledger.read(|data| {
+            candidates
+                .into_iter()
+                .filter(|tx| {
+                    state.in_flight.contains_key(&tx.hash)
+                        && data
+                            .users
+                            .get(&tx.hash)
+                            .is_none_or(|user| user.location == UserLocation::Composing)
+                })
+                .collect()
+        });
+        state.recover_batch(retained);
+        state.update_recovery_ownership();
+    }
+
     /// Release txs that were drained into an optimistic bundle and are now
     /// known not to need nonce reservation anymore.
     pub fn release_in_flight_batch(&self, txs: &[HeldTx]) {
@@ -532,6 +553,27 @@ impl HeldPool {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Includes newly admitted users, which enter the submission ledger only
+    /// when an attempt begins. Replacement, eviction and release remove this
+    /// ownership, while draining/requeueing preserves it.
+    pub(crate) fn owns(&self, hash: TxHash) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
+    }
+
+    /// Cross-chain sources must not enter ordinary L2 sequencing when Reth
+    /// reinjects an orphaned Sync block. Include the unfinalized ledger even
+    /// after resolution/eviction: pool reinjection is asynchronous and must
+    /// not race an ownership transfer. This reads the existing source records;
+    /// it does not maintain a second transaction registry.
+    #[must_use]
+    pub fn is_cross_chain_source(&self, hash: TxHash) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state.by_hash.contains(&hash)
+            || state.in_flight.contains_key(&hash)
+            || state.ledger.read(|data| data.users.contains_key(&hash))
+    }
 }
 
 #[cfg(test)]
@@ -571,6 +613,78 @@ mod tests {
         assert_eq!(drained[0].hash, TxHash::from(B256::repeat_byte(1)));
         assert_eq!(drained[2].hash, TxHash::from(B256::repeat_byte(3)));
         assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn compose_error_restores_only_remaining_owners_without_undoing_classification() {
+        let pool = HeldPool::new(Default::default());
+        let original: Vec<_> = (1..=5).map(tx).collect();
+        for tx in &original {
+            insert(&pool, tx.clone(), tx.nonce);
+        }
+        // A setup failure before classification restores the complete FIFO.
+        pool.requeue_composing(pool.pop_all());
+        let drained = pool.pop_all();
+        assert_eq!(drained, original);
+
+        let evicted = &original[0];
+        assert!(
+            pool.evict_chain_at_or_above(evicted.sender, evicted.direction, evicted.nonce)
+                .is_empty()
+        );
+        pool.release_in_flight_batch(&original[1..2]);
+        // A source already requeued by an inner recovery can be replaced by
+        // ingress before an outer fallback fails. Preserve that new owner.
+        pool.push_front_batch(vec![original[2].clone()]);
+        let mut replacement = original[2].clone();
+        replacement.hash = B256::repeat_byte(99);
+        replacement.max_fee_per_gas *= 2;
+        replacement.priority_fee_per_gas *= 2;
+        replacement.attempts = 1;
+        insert(&pool, replacement.clone(), replacement.nonce);
+
+        pool.requeue_composing(drained.clone());
+        pool.requeue_composing(drained);
+        assert_eq!(
+            pool.pop_all(),
+            vec![original[3].clone(), original[4].clone(), replacement]
+        );
+        assert!(!pool.owns(original[0].hash));
+        assert!(!pool.owns(original[1].hash));
+        assert!(!pool.owns(original[2].hash));
+    }
+
+    #[test]
+    fn ownership_includes_unsubmitted_groups_and_tracks_their_entire_pool_lifecycle() {
+        let ledger = Arc::new(OptimisticallyIncluded::default());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let original = tx(1);
+        insert(&pool, original.clone(), 1);
+        assert!(ledger.read(|data| data.users.is_empty()));
+        assert!(pool.owns(original.hash));
+        assert!(pool.is_cross_chain_source(original.hash));
+        let drained = pool.pop_all();
+        assert!(pool.is_empty());
+        assert!(pool.owns(original.hash));
+        assert!(pool.is_cross_chain_source(original.hash));
+        pool.push_front_batch(drained);
+        assert!(pool.owns(original.hash));
+
+        let mut replacement = original.clone();
+        replacement.hash = B256::repeat_byte(9);
+        replacement.max_fee_per_gas = 2;
+        replacement.priority_fee_per_gas = 2;
+        insert(&pool, replacement.clone(), 1);
+        assert!(!pool.owns(original.hash));
+        assert!(pool.owns(replacement.hash));
+        let evicted = pool.evict_chain_at_or_above(replacement.sender, replacement.direction, 1);
+        assert_eq!(evicted.len(), 1);
+        assert!(!pool.owns(replacement.hash));
+
+        insert(&pool, original.clone(), 1);
+        let drained = pool.pop_all();
+        pool.release_in_flight_batch(&drained);
+        assert!(!pool.owns(original.hash));
     }
 
     #[test]

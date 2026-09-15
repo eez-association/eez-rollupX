@@ -42,6 +42,9 @@
 
 use alloy_rlp::{Decodable, Encodable};
 
+mod block_size;
+pub use block_size::BlockDaSizer;
+
 /// A raw EIP-2718 signed transaction. Opaque to this crate.
 pub type RawTx = Vec<u8>;
 
@@ -58,6 +61,8 @@ pub type CodecResult<T> = Result<T, CodecError>;
 /// Error returned by encode / decode.
 #[derive(Debug, thiserror::Error)]
 pub enum CodecError {
+    #[error("encoded payload length exceeds addressable memory")]
+    LengthOverflow,
     /// Payload was empty or missing the tag byte.
     #[error("payload too short ({0} bytes)")]
     TooShort(usize),
@@ -197,6 +202,36 @@ pub fn encode_self_contained(
     buf.push(TAG_SELF_CONTAINED_BLOCKS);
     body.encode(&mut buf);
     Ok(buf)
+}
+
+/// Size of the existing self-contained encoding from incrementally measured
+/// RLP item lengths. Each input is the SUM of the individual elements'
+/// `Encodable::length()` values, without its enclosing list header. In
+/// particular, use the existing `Vec<u8>` representation for block RLPs;
+/// changing it to byte strings would change the wire format.
+pub fn self_contained_payload_len(
+    block_items: usize,
+    entry_items: usize,
+    group_items: usize,
+) -> CodecResult<usize> {
+    fn list_len(payload_length: usize) -> CodecResult<usize> {
+        payload_length
+            .checked_add(
+                alloy_rlp::Header {
+                    list: true,
+                    payload_length,
+                }
+                .length(),
+            )
+            .ok_or(CodecError::LengthOverflow)
+    }
+    let body = list_len(block_items)?
+        .checked_add(list_len(entry_items)?)
+        .and_then(|length| length.checked_add(list_len(group_items).ok()?))
+        .ok_or(CodecError::LengthOverflow)?;
+    list_len(body)?
+        .checked_add(1)
+        .ok_or(CodecError::LengthOverflow)
 }
 
 /// Decode a calldata payload.
@@ -459,6 +494,29 @@ mod tests {
             body: BlockBody::default(),
         };
         vec![alloy_rlp::encode(first), alloy_rlp::encode(second)]
+    }
+
+    #[test]
+    fn incremental_size_matches_existing_encoding_including_metadata() {
+        let blocks = self_contained_blocks();
+        for size in [0, 1, 55, 56, 127, 128, 255, 256, 1024] {
+            let entries = vec![vec![0; size], vec![255; size]];
+            let groups = vec![1u16, 127, 128, 256];
+            let actual = encode_self_contained(&blocks, &entries, &groups).unwrap();
+            let estimated = self_contained_payload_len(
+                blocks.iter().map(Encodable::length).sum(),
+                entries.iter().map(Encodable::length).sum(),
+                groups.iter().map(Encodable::length).sum(),
+            )
+            .unwrap();
+            assert_eq!(estimated, actual.len());
+        }
+        let actual = encode_self_contained(&blocks, &[], &[]).unwrap();
+        assert_eq!(
+            self_contained_payload_len(blocks.iter().map(Encodable::length).sum(), 0, 0).unwrap(),
+            actual.len()
+        );
+        assert!(self_contained_payload_len(usize::MAX, 0, 0).is_err());
     }
 
     #[test]

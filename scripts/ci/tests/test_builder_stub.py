@@ -32,7 +32,7 @@ class BuilderControlTest(unittest.TestCase):
         self.forwarded.append(json.loads(request.data))
         return io.BytesIO(b'{"jsonrpc":"2.0","id":1,"result":{"bundleHash":"0x01"}}')
 
-    def send(self, body, upstream=None):
+    def send(self, body, upstream=None, capture_dir=None):
         # Exercise the real request handler with only HTTP transport replaced.
         handler = object.__new__(MODULE.Handler)
         raw = json.dumps(body).encode()
@@ -42,6 +42,7 @@ class BuilderControlTest(unittest.TestCase):
         handler.upstream = "http://fixture.invalid"
         handler.passthrough_bundles = True
         handler.test_control_dir = str(self.directory)
+        handler.capture_dir = capture_dir
         handler.send_response = lambda *_: None
         handler.send_header = lambda *_: None
         handler.end_headers = lambda: None
@@ -56,6 +57,28 @@ class BuilderControlTest(unittest.TestCase):
             (self.directory / "released-bundle.json").write_text(
                 json.dumps(replacement or expected))
         return on_sleep
+
+    def test_blob_carrier_is_retained_before_partial_rpc_failure_or_lost_response(self):
+        captures = self.directory / "captures"
+        captures.mkdir()
+        request = bundle("0x030102", "0x0203")
+
+        def fail_after_accepting_prefix(_, **__):
+            files = list(captures.glob("blob-*.json"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(json.loads(files[0].read_text())["raw"], "0x030102")
+            return io.BytesIO(b'{"jsonrpc":"2.0","id":1,"error":{"code":-32003,"message":"txpool is full"}}')
+
+        reply = self.send(request, upstream=fail_after_accepting_prefix, capture_dir=str(captures))
+        self.assertEqual(reply["error"]["code"], -32003)
+
+        def lost_response(*args, **kwargs):
+            fail_after_accepting_prefix(*args, **kwargs)
+            raise TimeoutError("response lost after prefix accepted")
+
+        with self.assertRaises(TimeoutError):
+            self.send(request, upstream=lost_response, capture_dir=str(captures))
+        self.assertEqual(len(list(captures.glob("blob-*.json"))), 1)
 
     def test_targeted_hold_skips_maintenance_and_unrelated_users(self):
         retry = bundle("0x0304", "0x0202")
@@ -76,6 +99,30 @@ class BuilderControlTest(unittest.TestCase):
         (self.directory / "released-bundle.json").unlink()
         with patch.object(MODULE.time, "sleep", side_effect=AssertionError("held twice")):
             self.send(maintenance)
+
+    def test_rpc_outage_affects_only_selected_methods_and_recovers(self):
+        request = {"jsonrpc": "2.0", "id": 5,
+                   "method": "eth_maxPriorityFeePerGas", "params": []}
+        control = self.directory / "rpc-errors.json"
+        control.write_text(json.dumps([request["method"]]))
+        self.assertIn("error", self.send(request))
+        self.assertEqual(self.forwarded, [])
+        healthy = dict(request, method="eth_blockNumber")
+        self.send(healthy)
+        self.assertEqual(self.forwarded, [healthy])
+        control.write_text("[]")
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
+    def test_dropped_bundle_is_acknowledged_once_without_forwarding(self):
+        (self.directory / "drop-next.json").write_text("{}")
+        request = bundle("0x0300")
+        self.assertIn("bundleHash", self.send(request)["result"])
+        self.assertEqual(self.forwarded, [])
+        self.assertEqual(
+            json.loads((self.directory / "dropped-bundle.json").read_text()), request)
+        self.send(request)
+        self.assertEqual(self.forwarded, [request])
 
     def test_omission_arms_exact_retry_before_forwarding(self):
         for omitted in range(3):

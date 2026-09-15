@@ -1,9 +1,7 @@
 //! Independent admission of mandatory native semantic blob DA.
 
 use alloy_primitives::{B256, Bytes, U256};
-use eez_blob_codec::{
-    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
-};
+use eez_blob_codec::{Blob, blob_versioned_hashes, decode_native_payload};
 use eez_protocol::blob_semantics::{SemanticTransaction, decode_semantic_transactions};
 
 use super::CanonicalPostBatch;
@@ -49,14 +47,32 @@ pub(crate) enum BlobDaError {
     Kzg(String),
 }
 
-/// Validate the DA carrier and recover the existing `eez-payload-codec`
-/// payload. Batches are deliberately restricted to the canonical native
-/// profile and `[0, 1, ...]` blob indices; `batch.callData` is never an
-/// accepted DA carrier.
+/// Verify legacy fixtures with the default transaction blob limit.
+#[cfg(test)]
 pub(crate) fn verify_da_carrier(
     batch: &CanonicalPostBatch,
     submitted_blobs: &[Vec<u8>],
     expected_rollup_id: u64,
+) -> Result<VerifiedDa, BlobDaError> {
+    verify_da_carrier_with_limit(
+        batch,
+        submitted_blobs,
+        expected_rollup_id,
+        eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+    )
+}
+
+/// Validate the DA carrier and recover the existing `eez-payload-codec`
+/// payload. Batches must use the canonical native profile and `[0, 1, ...]`
+/// blob indices; `batch.callData` is never an accepted DA carrier.
+///
+/// The caller resolves the maximum from its independently configured L1
+/// chain profile and target context, never from a composer-supplied maximum.
+pub(crate) fn verify_da_carrier_with_limit(
+    batch: &CanonicalPostBatch,
+    submitted_blobs: &[Vec<u8>],
+    expected_rollup_id: u64,
+    maximum: usize,
 ) -> Result<VerifiedDa, BlobDaError> {
     let batch = batch.as_batch();
     if submitted_blobs.is_empty() {
@@ -68,10 +84,10 @@ pub(crate) fn verify_da_carrier(
     if !batch.callData.is_empty() {
         return Err(BlobDaError::NonEmptyBatchCallData);
     }
-    if submitted_blobs.len() > MAX_BLOBS_PER_TRANSACTION {
+    if submitted_blobs.len() > maximum {
         return Err(BlobDaError::TooManyBlobs {
             actual: submitted_blobs.len(),
-            maximum: MAX_BLOBS_PER_TRANSACTION,
+            maximum,
         });
     }
     let expected_indices = (0..submitted_blobs.len()).map(U256::from);

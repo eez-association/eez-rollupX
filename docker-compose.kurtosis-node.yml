@@ -30,10 +30,12 @@ services:
     environment:
       EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50081}
       EEZ_CHAIN_CONFIG: /app/genesis.json
+      EEZ_L1_CHAIN_CONFIG: /l1-genesis/genesis.json
       EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
       EEZ_L2_SYSTEM_KEY: "${EEZ_L2_SYSTEM_KEY:?set EEZ_L2_SYSTEM_KEY}"
       RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
     volumes:
+      - ${L1_GENESIS_DIR:?point at the enclave's l1-genesis artifact}:/l1-genesis:ro
       - ${FRESH_GENESIS:?deploy writes ./datadir/genesis.json}:/app/genesis.json:ro
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "${EEZ_SIGNER_PORT:-50081}"]
@@ -91,7 +93,7 @@ services:
       EEZ_PROOF_TIME_MS: "2000"
       EEZ_SUBMISSION_SLACK_MS: "1000"
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
-      EEZ_MAX_SPECULATIVE_DEPTH: "0"
+      EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"
       # ── L2 ──
       EEZ_L2_DATADIR: /l2
       EEZ_L2_GENESIS_PATH: /app/genesis.json

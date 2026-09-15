@@ -2,6 +2,7 @@
 # Authenticate and decode the exact blob-backed settlement for one protocol
 # scenario, then bind every reported user trigger to semantic tx_data.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 POST_HASH="${1:?usage: verify-semantic-settlement-blob.sh <post-hash> <L1|L2> <output-json> <sidecars-json> <trigger-hash>...}"
 TRIGGER_CHAIN="${2:?missing trigger chain}"
@@ -94,7 +95,7 @@ jq -e --argjson origin "$expected_origin" \
 raw_triggers=()
 for trigger_hash in "${TRIGGER_HASHES[@]}"; do
     [[ "$trigger_hash" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid trigger hash $trigger_hash"
-    raw="$(cast rpc eth_getRawTransactionByHash "$trigger_hash" --rpc-url "$trigger_rpc" | jq -er '.')" \
+    raw="$(raw_transaction_for "$trigger_rpc" "$trigger_hash" "$tmp_dir")" \
         || die "cannot read raw trigger transaction $trigger_hash"
     jq -e --arg raw "${raw,,}" \
         '[.payload.semantic_transactions[].tx_data | ascii_downcase] | index($raw) != null' \

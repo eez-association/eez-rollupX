@@ -279,7 +279,8 @@ class ProtocolNetworkRunnerTest(unittest.TestCase):
     def set_up_outer_wrapper(self):
         scripts = self.root / "testing/kurtosis/scripts"
         scripts.mkdir(parents=True)
-        shutil.copy2(REPO / "testing/kurtosis/scripts/run-protocol-e2e.sh", scripts)
+        for name in ("run-protocol-e2e.sh", "lib.sh"):
+            shutil.copy2(REPO / "testing/kurtosis/scripts" / name, scripts)
         ci = self.root / "scripts/ci"
         ci.mkdir(parents=True)
         shutil.copy2(RUNNER, ci)

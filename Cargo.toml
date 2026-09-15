@@ -69,6 +69,7 @@ reth-db                         = { git = "https://github.com/paradigmxyz/reth",
 reth-engine-primitives          = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-cli               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
+reth-basic-payload-builder     = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-primitives        = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-evm                        = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
@@ -109,6 +110,7 @@ revm                            = { version = "38", default-features = false, fe
     "optional_block_gas_limit",
     "optional_eip3607",
     "optional_no_base_fee",
+    "optional_fee_charge",
 ] }
 
 # alloy — aligned with reth v2.2.0's transitive picks:

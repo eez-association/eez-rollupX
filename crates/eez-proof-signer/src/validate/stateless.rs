@@ -48,9 +48,7 @@ use crate::EEZL2_ADDRESS;
 use crate::cancel::CancellationToken;
 use crate::window::AdmittedBlock;
 
-mod chain_config;
-
-use chain_config::{ChainDocumentKind, load_chain_document};
+use eez_l1::chain_config::{ChainDocumentKind, load_chain_document};
 
 const DEBUG_PROGRESS_INTERVAL: usize = 100;
 const BLOCKHASH_ANCESTOR_LIMIT: usize = 256;

@@ -125,6 +125,7 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
                 public_inputs_hash: fixture_hex(fixture_str(&oracle, "public_inputs_hash")),
                 l1_block_hash: fixture_hex(fixture_str(&post_batch_json, "l1_block_hash")),
                 blobs: Vec::new(),
+                posting_context: None,
             }),
         })),
     }];

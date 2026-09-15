@@ -51,6 +51,9 @@ impl FollowerSystemConfig {
 /// Follower-specific CLI arguments layered on top of reth's CLI.
 #[derive(clap::Args, Debug, Clone)]
 struct FollowerArgs {
+    /// Trusted L1 profile: mainnet, chiado, or a genesis/ChainConfig file.
+    #[arg(long, env = "EEZ_L1_CHAIN_CONFIG")]
+    l1_chain_config: Option<std::path::PathBuf>,
     /// Sequencer JSON-RPC URL. When set, this enables the optional unsafe-head
     /// overlay; safe and finalized remain L1-derived.
     #[arg(long, env = "EEZ_SEQUENCER_RPC")]
@@ -79,6 +82,19 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     // transactions byte-for-byte. Read every required value before launching
     // reth so a misconfigured follower never appears healthy.
     let system_config = read_system_config()?;
+    let l1_chain_spec = ext
+        .l1_chain_config
+        .as_deref()
+        .map(eez_l1::chain_config::load_l1_chain_spec)
+        .transpose()?;
+    let expected_l1_chain_id = read_l1_chain_id()?;
+    if let Some(spec) = &l1_chain_spec {
+        eyre::ensure!(
+            spec.chain().id() == expected_l1_chain_id,
+            "L1 chain configuration ID {} differs from EEZ_L1_CHAIN_ID {expected_l1_chain_id}",
+            spec.chain().id()
+        );
+    }
     let system_address = system_config.system_signer.address();
     validate_system_address(system_address)?;
     let l2_data_dir = read_checkpoint_dir();
@@ -116,8 +132,16 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
 
     let l1_reader_config = L1ReaderConfig::from_env()?;
     let deploy_block = l1_reader_config.deploy_block;
-    let l1_reader = L1Reader::new(l1_reader_config);
-    let l1_watcher = L1Watcher::new(L1WatcherConfig::from_env()?);
+    let mut l1_reader = L1Reader::new(l1_reader_config);
+    let l1_watcher_config = L1WatcherConfig::from_env()?;
+    let l1_watcher = if let Some(spec) = l1_chain_spec {
+        let rules: eez_l1::BlobRuleSource =
+            Arc::new(move |timestamp| spec.blob_params_at_timestamp(timestamp));
+        l1_reader = l1_reader.with_blob_rules(Arc::clone(&rules));
+        L1Watcher::new_with_blob_rules(l1_watcher_config, rules)
+    } else {
+        L1Watcher::new(l1_watcher_config)
+    };
     let system_tx_cfg = system_config.into_context(chain_spec.chain().id());
     event!(
         name: "eez.node.follower.system_tx_cfg",
@@ -139,7 +163,7 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
         l2_data_dir,
     );
 
-    wait_for_l1_ready(&l1_reader, deploy_block, read_l1_chain_id()?).await?;
+    wait_for_l1_ready(&l1_reader, deploy_block, expected_l1_chain_id).await?;
 
     let mut retry_delay = BOOT_CATCH_UP_INITIAL_RETRY_DELAY;
     let mut attempts = 0_u64;

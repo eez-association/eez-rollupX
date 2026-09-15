@@ -61,6 +61,10 @@ struct Args {
     /// Path to an operator-configured Alloy `ChainConfig` or complete `Genesis` document.
     #[arg(long = "chain-config", env = "EEZ_CHAIN_CONFIG")]
     chain_document_path: PathBuf,
+    /// Trusted L1 profile: mainnet, chiado, or a genesis/ChainConfig file.
+    /// Unset retains legacy six-blob requests; explicit target contexts require it.
+    #[arg(long = "l1-chain-config", env = "EEZ_L1_CHAIN_CONFIG")]
+    l1_chain_document_path: Option<PathBuf>,
 
     /// Expected nonzero L1 rollup-registry ID this signer serves.
     ///
@@ -152,6 +156,7 @@ struct Args {
 pub(crate) struct Config {
     pub(crate) listen_addr: SocketAddr,
     pub(crate) chain_document_path: PathBuf,
+    pub(crate) l1_chain_document_path: Option<PathBuf>,
     /// Expected L1 rollup-registry ID, distinct from the L2 EIP-155 chain ID.
     pub(crate) expected_rollup_id: NonZeroU64,
     /// Deployment-configured privileged L2 transaction signer.
@@ -188,6 +193,7 @@ impl Config {
         Ok(Self {
             listen_addr: args.listen_addr,
             chain_document_path: args.chain_document_path,
+            l1_chain_document_path: args.l1_chain_document_path,
             expected_rollup_id: args.expected_rollup_id,
             expected_l2_system_address: args.expected_l2_system_address,
             attester,

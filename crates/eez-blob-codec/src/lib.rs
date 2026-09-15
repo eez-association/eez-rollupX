@@ -10,13 +10,17 @@
 //! the small, deterministic blob boundary shared by the composer, proof signer,
 //! and deriver.
 
+mod limits;
 mod transport;
+
+pub use limits::{BlobLimitError, BlobLimits};
 
 pub use transport::{
     BlobSidecarEncoding, BlobTransactionParams, MAX_BLOBS_PER_TRANSACTION, PreparedBlobSidecar,
     PreparedBlobTransaction, SignedBlobTransaction, TransportError, blob_kzg_commitments,
     blob_versioned_hashes, pooled_blob_transaction_hash, prepare_blob_sidecar,
-    prepare_blob_transaction, prepare_blob_transaction_with_sidecar, sign_blob_transaction,
+    prepare_blob_sidecar_with_limit, prepare_blob_transaction,
+    prepare_blob_transaction_with_sidecar, reprice_blob_transaction, sign_blob_transaction,
 };
 
 use alloy_primitives::{Address, Bytes, U256};
@@ -142,6 +146,8 @@ impl AsRef<[u8]> for Blob {
 /// Codec and packing failures. Every error rejects the whole logical stream.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    #[error("encoded stream length exceeds addressable memory")]
+    LengthOverflow,
     #[error("blob message stream is empty")]
     EmptyStream,
     #[error("unknown blob protocol version {0:#04x}")]
@@ -328,6 +334,17 @@ pub fn encode_native_payload(
     operations: Bytes,
     semantic_messages: Vec<Message>,
 ) -> Result<Vec<Blob>, NativeProfileError> {
+    let encoded = encode_native_stream(chain_id, operations, semantic_messages)?;
+    Ok(pack(&encoded.blob_portion)?)
+}
+
+/// Build the exact unpadded native stream. Packing callers can check actual
+/// meaningful byte capacity before allocating physical blobs or KZG material.
+pub fn encode_native_stream(
+    chain_id: u64,
+    operations: Bytes,
+    semantic_messages: Vec<Message>,
+) -> Result<EncodedStream, NativeProfileError> {
     if semantic_messages.iter().any(|message| {
         matches!(
             message,
@@ -345,7 +362,26 @@ pub fn encode_native_payload(
     messages.push(Message::CloseBlobStream);
     let encoded = encode(&messages)?;
     debug_assert!(encoded.call_data_tail.is_empty());
-    Ok(pack(&encoded.blob_portion)?)
+    Ok(encoded)
+}
+
+/// Exact meaningful bytes in the native blob stream, before field packing and
+/// padding. `semantic_bytes` is the encoded length of complete semantic
+/// messages. This includes the version, operation type/id/length, and closing
+/// marker even when all operation data bytes are zero.
+pub fn native_stream_len(operations_bytes: usize, semantic_bytes: usize) -> Result<usize, Error> {
+    let mut length =
+        u32::try_from(operations_bytes).map_err(|_| Error::PayloadTooLong(operations_bytes))?;
+    let mut varint_bytes = 1usize;
+    while length >= 0x80 {
+        length >>= 7;
+        varint_bytes += 1;
+    }
+    // version + ChainOperation type + chain_id + length + close marker
+    operations_bytes
+        .checked_add(semantic_bytes)
+        .and_then(|bytes| bytes.checked_add(1 + 1 + size_of::<u64>() + varint_bytes + 1))
+        .ok_or(Error::LengthOverflow)
 }
 
 /// Decode and validate the native deployment profile.
@@ -863,6 +899,35 @@ mod tests {
         let blobs = pack(&encoded.blob_portion).unwrap();
         assert_eq!(blobs.len(), 2);
         assert_eq!(decode_blobs(&blobs, &[]).unwrap(), messages);
+    }
+
+    #[test]
+    fn native_size_counts_zero_bytes_varints_and_framing_without_padding() {
+        for size in [
+            0,
+            1,
+            127,
+            128,
+            16383,
+            16384,
+            DATA_BYTES_PER_BLOB,
+            DATA_BYTES_PER_BLOB * 3,
+        ] {
+            let messages = vec![
+                Message::ChainOperation {
+                    chain_id: 7,
+                    operations: vec![0; size].into(),
+                },
+                Message::CloseBlobStream,
+            ];
+            let encoded = encode(&messages).unwrap();
+            let measured = native_stream_len(size, 0).unwrap();
+            assert_eq!(measured, encoded.blob_portion.len());
+            let blobs = encode_native_payload(7, vec![0; size].into(), vec![]).unwrap();
+            assert_eq!(blobs.len(), measured.div_ceil(DATA_BYTES_PER_BLOB));
+        }
+        assert!(native_stream_len(usize::MAX, 0).is_err());
+        assert!(native_stream_len(1, usize::MAX).is_err());
     }
 
     #[test]

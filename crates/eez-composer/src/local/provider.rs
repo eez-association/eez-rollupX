@@ -56,6 +56,9 @@ pub struct ChainProvider {
     pub headers: Arc<dyn HeaderReader>,
     /// EVM config for building envs from headers.
     pub evm_config: EthEvmConfig,
+    /// Native Gnosis execution (fee collector and fork system transitions) for
+    /// strict L1 bundle validation. Legacy synthetic composition stays intact.
+    pub gnosis_evm_config: Option<reth_gnosis::evm_config::GnosisEvmConfig>,
 }
 
 impl Clone for ChainProvider {
@@ -64,6 +67,7 @@ impl Clone for ChainProvider {
             provider: Arc::clone(&self.provider),
             headers: Arc::clone(&self.headers),
             evm_config: self.evm_config.clone(),
+            gnosis_evm_config: self.gnosis_evm_config.clone(),
         }
     }
 }

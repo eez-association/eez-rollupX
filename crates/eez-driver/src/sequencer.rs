@@ -69,6 +69,233 @@ fn log_stale_parent(phase: &str) {
     );
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::slot::{ParentContext, SyncSlotBlock, SyncSlotComposer, SyncSlotOutcome};
+    use std::sync::Mutex;
+
+    struct PolicyComposer {
+        result: &'static str,
+        calls: Arc<Mutex<Vec<SyncSlotMode>>>,
+        guard: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl SyncSlotComposer for PolicyComposer {
+        fn guards_sequencing_da(&self) -> bool {
+            self.guard
+        }
+        async fn compose_sync_slot(
+            &self,
+            _: u64,
+            _: ParentContext,
+            _: u64,
+            _: Option<u64>,
+            _: SyncSlotMode,
+        ) -> Option<SyncSlotBlock> {
+            panic!("explicit outcome interface is required");
+        }
+
+        async fn compose_sync_slot_outcome(
+            &self,
+            _: u64,
+            parent: ParentContext,
+            timestamp: u64,
+            _: Option<u64>,
+            mode: SyncSlotMode,
+        ) -> SyncSlotOutcome {
+            self.calls.lock().unwrap().push(mode);
+            if self.result == "end" {
+                return SyncSlotOutcome::EndTick;
+            }
+            let header = SealedHeader::seal_slow(alloy_consensus::Header {
+                parent_hash: if self.result == "stale" {
+                    B256::ZERO
+                } else {
+                    parent.header.hash()
+                },
+                number: parent.header.number + 1,
+                timestamp,
+                transactions_root: alloy_consensus::constants::EMPTY_ROOT_HASH,
+                ..Default::default()
+            });
+            SyncSlotOutcome::Built(Box::new(SyncSlotBlock {
+                payload: alloy_rpc_types_engine::ExecutionData::from_block_unchecked(
+                    header.hash(),
+                    &alloy_consensus::Block::<alloy_consensus::TxEnvelope>::new(
+                        header.clone().unseal(),
+                        Default::default(),
+                    ),
+                ),
+                header,
+            }))
+        }
+    }
+
+    struct LegacyComposer;
+    #[async_trait::async_trait]
+    impl SyncSlotComposer for LegacyComposer {
+        async fn compose_sync_slot(
+            &self,
+            _: u64,
+            _: ParentContext,
+            _: u64,
+            _: Option<u64>,
+            _: SyncSlotMode,
+        ) -> Option<SyncSlotBlock> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_policy_outcomes_never_use_sync_pool_fallback_in_any_slot_mode() {
+        for mode in [
+            SyncSlotMode::Steady,
+            SyncSlotMode::Empty,
+            SyncSlotMode::Catchup,
+        ] {
+            for result in ["end", "empty", "stale", "legacy"] {
+                let future = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600;
+                let timestamp = if mode == SyncSlotMode::Empty {
+                    1
+                } else {
+                    future
+                };
+                let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+                    number: 4,
+                    timestamp: timestamp - 1,
+                    ..Default::default()
+                });
+                let (committer, commands) = crate::block_committer::test_committer(parent);
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let composer: SyncSlotComposerHandle = if result == "legacy" {
+                    Arc::new(LegacyComposer)
+                } else {
+                    Arc::new(PolicyComposer {
+                        result,
+                        calls: Arc::clone(&calls),
+                        guard: false,
+                    })
+                };
+                let (_, receiver) = mpsc::channel(1);
+                let mut sequencer = Sequencer::composer(
+                    EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+                    committer.clone(),
+                    receiver,
+                    RollupTiming::new(5000, 1000, 1000, 100),
+                    1,
+                    composer,
+                    0,
+                    Arc::default(),
+                );
+                let target = if mode == SyncSlotMode::Catchup { 15 } else { 5 };
+                sequencer
+                    .advance_sync_slot(target, timestamp, 1)
+                    .await
+                    .unwrap();
+                let commands = commands.lock().unwrap();
+                let live = usize::try_from(target - 5).unwrap();
+                if result != "legacy" {
+                    assert_eq!(*calls.lock().unwrap(), vec![mode]);
+                }
+                assert!(commands[..live].iter().all(|command| *command == "pool"));
+                match result {
+                    "end" | "stale" => {
+                        assert_eq!(commands.len(), live, "{mode:?}/{result}");
+                        assert_eq!(committer.last_header().number, target - 1);
+                    }
+                    "empty" => {
+                        assert_eq!(&commands[live..], &["prebuilt"]);
+                        assert_eq!(committer.last_header().number, target);
+                        assert_eq!(
+                            committer.last_header().transactions_root,
+                            alloy_consensus::constants::EMPTY_ROOT_HASH
+                        );
+                    }
+                    "legacy" => {
+                        assert_eq!(&commands[live..], &["pool"]);
+                        assert_ne!(
+                            committer.last_header().transactions_root,
+                            alloy_consensus::constants::EMPTY_ROOT_HASH
+                        );
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+    #[tokio::test]
+    async fn guarded_catchup_preserves_every_intermediate_empty_boundary() {
+        for k in [5, 6, 12] {
+            for residue in 0..k {
+                for result in ["empty", "end", "stale"] {
+                    let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+                        number: k - 1 + residue,
+                        timestamp: 100,
+                        ..Default::default()
+                    });
+                    let (committer, commands) = crate::block_committer::test_committer(parent);
+                    let calls = Arc::new(Mutex::new(Vec::new()));
+                    let (_, receiver) = mpsc::channel(1);
+                    let mut sequencer = Sequencer::composer(
+                        EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+                        committer.clone(),
+                        receiver,
+                        RollupTiming::new(u32::try_from(k * 1000).unwrap(), 1000, 1000, 100),
+                        1,
+                        Arc::new(PolicyComposer {
+                            result,
+                            calls: calls.clone(),
+                            guard: true,
+                        }),
+                        0,
+                        Arc::default(),
+                    );
+                    for _ in 0..=(k * 2) {
+                        let parent = committer.last_header();
+                        let outcome = sequencer
+                            .commit_one(SlotKind::Live, &parent, 3 * k + residue)
+                            .await;
+                        if result != "empty" {
+                            assert!(outcome.is_err());
+                            assert_eq!(committer.last_header().number, k - 1 + residue);
+                            assert!(
+                                commands.lock().unwrap().is_empty(),
+                                "failed empty boundary must not use the mempool"
+                            );
+                            break;
+                        }
+                        outcome.unwrap();
+                        if committer.last_header().number % k == residue {
+                            assert_eq!(
+                                committer.last_header().transactions_root,
+                                alloy_consensus::constants::EMPTY_ROOT_HASH
+                            );
+                        }
+                    }
+                    if result == "empty" {
+                        assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Empty; 3]);
+                        assert_eq!(
+                            commands
+                                .lock()
+                                .unwrap()
+                                .iter()
+                                .filter(|command| **command == "prebuilt")
+                                .count(),
+                            3
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Builds [`EthPayloadAttributes`] for the next block.
 ///
 /// Stage 1 produces minimal valid attributes: a strictly-increasing timestamp
@@ -306,7 +533,10 @@ where
         if self.speculative_limit_paused(head) {
             return Ok(());
         }
-        match self.commit_one(SlotKind::Live, &last_header).await {
+        match self
+            .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
+            .await
+        {
             Ok(()) => Ok(()),
             Err(err) if err.is_stale_parent() => {
                 log_stale_parent("live_tick");
@@ -393,7 +623,10 @@ where
                 // produce that many Live blocks then the terminal Sync.
                 for _ in 0..live {
                     let last_header = self.committer.last_header();
-                    match self.commit_one(SlotKind::Live, &last_header).await {
+                    match self
+                        .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
+                        .await
+                    {
                         Ok(()) => {}
                         Err(err) if err.is_stale_parent() => {
                             log_stale_parent("catchup.live");
@@ -427,8 +660,19 @@ where
                 };
                 let prebuilt = composer
                     // Catch-up: next-available L1 block (unpinned), empty.
-                    .compose_sync_slot(rollup_id, parent, sync_ts, None, SyncSlotMode::Catchup)
+                    .compose_sync_slot_outcome(
+                        rollup_id,
+                        parent,
+                        sync_ts,
+                        None,
+                        SyncSlotMode::Catchup,
+                    )
                     .await;
+                let prebuilt = match prebuilt {
+                    crate::SyncSlotOutcome::Built(built) => Some(*built),
+                    crate::SyncSlotOutcome::LegacyPool => None,
+                    crate::SyncSlotOutcome::EndTick => return Ok(()),
+                };
                 if let Some(built) = prebuilt {
                     if let Err(err) = self.commit_one_prebuilt(SlotKind::Sync, built).await {
                         if err.is_stale_parent() {
@@ -439,7 +683,10 @@ where
                     }
                     self.off_grid_skips = 0;
                 } else {
-                    match self.commit_one(SlotKind::Sync, &last_header).await {
+                    match self
+                        .commit_one(SlotKind::Sync, &last_header, sync_slot_block_height)
+                        .await
+                    {
                         Ok(()) => {}
                         Err(err) if err.is_stale_parent() => {
                             log_stale_parent("catchup.sync");
@@ -456,7 +703,10 @@ where
                     if self.speculative_limit_paused(last_header.number()) {
                         return Ok(()); // Defer Future + Sync to next trigger.
                     }
-                    match self.commit_one(SlotKind::Live, &last_header).await {
+                    match self
+                        .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
+                        .await
+                    {
                         Ok(()) => {}
                         Err(err) if err.is_stale_parent() => {
                             log_stale_parent("slot.live");
@@ -470,7 +720,10 @@ where
                     if self.speculative_limit_paused(last_header.number()) {
                         return Ok(()); // Defer remaining Future + Sync to next trigger.
                     }
-                    match self.commit_one(SlotKind::Future, &last_header).await {
+                    match self
+                        .commit_one(SlotKind::Future, &last_header, sync_slot_block_height)
+                        .await
+                    {
                         Ok(()) => {}
                         Err(err) if err.is_stale_parent() => {
                             log_stale_parent("slot.future");
@@ -517,14 +770,14 @@ where
                         l1_head,
                         "trigger too late for the immediate L1 slot; committing an empty block and holding the pool — next slot's batch covers it",
                     );
-                    // Empty mode keeps this grid height batch-boundary-eligible
-                    // (a tx-bearing block is not). If the empty build fails,
-                    // control falls through to the mempool-fed commit below.
+                    // Empty mode keeps this grid height batch-boundary-eligible.
+                    // The explicit outcome also lets a failed required empty
+                    // build end the tick without admitting pool transactions.
                     let parent = crate::slot::ParentContext {
                         header: last_header.clone(),
                     };
                     composer
-                        .compose_sync_slot(
+                        .compose_sync_slot_outcome(
                             rollup_id,
                             parent,
                             expected_sync_ts,
@@ -539,7 +792,7 @@ where
                     composer
                         // Steady: aim the immediate next L1 block, pinned to
                         // expected_sync_ts (re-derivable; == the L1 slot ts on-grid).
-                        .compose_sync_slot(
+                        .compose_sync_slot_outcome(
                             rollup_id,
                             parent,
                             expected_sync_ts,
@@ -547,6 +800,11 @@ where
                             SyncSlotMode::Steady,
                         )
                         .await
+                };
+                let prebuilt = match prebuilt {
+                    crate::SyncSlotOutcome::Built(built) => Some(*built),
+                    crate::SyncSlotOutcome::LegacyPool => None,
+                    crate::SyncSlotOutcome::EndTick => return Ok(()),
                 };
                 if let Some(built) = prebuilt {
                     match self.commit_one_prebuilt(SlotKind::Sync, built).await {
@@ -560,7 +818,10 @@ where
                     return Ok(());
                 }
 
-                match self.commit_one(SlotKind::Sync, &last_header).await {
+                match self
+                    .commit_one(SlotKind::Sync, &last_header, sync_slot_block_height)
+                    .await
+                {
                     Ok(()) => {}
                     Err(err) if err.is_stale_parent() => {
                         log_stale_parent("slot.sync");
@@ -646,10 +907,42 @@ where
         &mut self,
         kind: SlotKind,
         parent: &SealedHeader<ChainSpec::Header>,
+        sync_slot_height: u64,
     ) -> DriverResult<()> {
+        self.composer
+            .set_sequencing_target(self.rollup_id, sync_slot_height);
         let parent_hash = parent.hash();
         let parent_ts = parent.timestamp();
         let next_ts = parent_ts.saturating_add(self.timing.l2_block_time().as_secs());
+        if kind != SlotKind::Sync
+            && self.composer.guards_sequencing_da()
+            && parent.number().checked_add(1).is_some_and(|n| {
+                n % u64::from(self.timing.k()) == sync_slot_height % u64::from(self.timing.k())
+            })
+        {
+            // Catch-up may span several Sync intervals. Each intermediate grid
+            // boundary must remain an admissible historical settlement endpoint.
+            let outcome = self
+                .composer
+                .compose_sync_slot_outcome(
+                    self.rollup_id,
+                    crate::ParentContext {
+                        header: parent.clone(),
+                    },
+                    next_ts,
+                    None,
+                    SyncSlotMode::Empty,
+                )
+                .await;
+            return match outcome {
+                crate::SyncSlotOutcome::Built(block) => {
+                    self.commit_one_prebuilt(SlotKind::Sync, *block).await
+                }
+                _ => Err(DriverError::invalid_forkchoice(
+                    "required empty DA boundary unavailable".to_owned(),
+                )),
+            };
+        }
         let attrs = self.attributes.build(parent, next_ts);
         let timestamp = attrs.timestamp;
         let outcome = self.committer.commit_sequenced(parent_hash, attrs).await?;

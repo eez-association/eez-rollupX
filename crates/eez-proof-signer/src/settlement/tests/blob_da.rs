@@ -30,6 +30,27 @@ fn nonempty_abi_call_data_and_missing_physical_blobs_are_rejected() {
 }
 
 #[test]
+fn network_aware_carrier_accepts_nine_blobs_and_preserves_exact_payload() {
+    use crate::settlement::blob_da::verify_da_carrier_with_limit;
+    let payload = Bytes::from(vec![0; 8 * eez_blob_codec::DATA_BYTES_PER_BLOB + 100]);
+    let blobs = physical_blobs(payload.clone());
+    assert_eq!(blobs.len(), 9);
+    let mut batch = carrier_batch();
+    batch.blobIndices = (0..blobs.len()).map(U256::from).collect();
+    let verified =
+        verify_da_carrier_with_limit(&batch, &blobs, expected_rollup_id().get(), 9).unwrap();
+    assert_eq!(verified.payload(), payload.as_ref());
+    assert_eq!(verified.transaction_blob_hashes().len(), 9);
+    assert!(matches!(
+        verify_da_carrier_with_limit(&batch, &blobs, expected_rollup_id().get(), 6),
+        Err(BlobDaError::TooManyBlobs {
+            actual: 9,
+            maximum: 6
+        })
+    ));
+}
+
+#[test]
 fn canonical_blob_profile_recovers_payload_and_kzg_hashes() {
     let payload = Bytes::from_static(b"authenticated blob payload");
     let submitted = physical_blobs(payload.clone());

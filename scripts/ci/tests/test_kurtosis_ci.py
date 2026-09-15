@@ -83,12 +83,95 @@ class RelayResourcesTest(unittest.TestCase):
                 self.configure(self.plan, ETH_ARGS, limits)
             self.assertEqual(self.calls, [])
 
+
     def test_requires_flashbots_and_an_explicit_relay_image(self):
         for args in ({}, {"mev_type": "flashbots"},
                      {"mev_type": "none", "mev_params": ETH_ARGS["mev_params"]}):
             with self.subTest(args=args), self.assertRaises(ValueError):
                 self.configure(self.plan, args, {"min": 100, "max": 2000})
             self.assertEqual(self.calls, [])
+
+
+class SettlementEnvironmentTest(unittest.TestCase):
+    def test_transports_strings_without_duplicating_runtime_defaults(self):
+        source = REPO / "testing/kurtosis/main.star"
+        namespace = {"import_module": lambda _: None, "fail": fail,
+                     "type": lambda value: "string" if isinstance(value, str) else type(value).__name__}
+        exec(compile(source.read_text(), str(source), "exec"), namespace)
+        configure = namespace["settlement_environment"]
+        self.assertEqual(configure({}), {})
+        values = {"EEZ_SETTLEMENT_POLICY_ENABLED": "true",
+                  "EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
+                  "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "60000",
+                  "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "2000",
+                  "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000"}
+        self.assertEqual(configure(values), values)
+        for invalid in ({"EEZ_SETTLEMENT_PURE_L2_MOD": "always"},
+                        {"EEZ_SETTLEMENT_POLICY_ENABLED": True},
+                        {"EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": 2000},
+                        {"EEZ_MAX_BLOCKS_PER_BATCH": "300"}):
+            with self.assertRaises(ValueError):
+                configure(invalid)
+
+    def test_signer_block_limit_is_optional_and_passed_to_the_signer(self):
+        source = (REPO / "testing/kurtosis/main.star").read_text()
+        start = source.index('    signer_cmd = " ".join(')
+        end = source.index('\n    plan.add_service(\n        name="eez-proof-signer"', start)
+        import textwrap
+        command_setup = textwrap.dedent(source[start:end])
+        for options, expected in [({}, None), ({"proof_signer_max_request_blocks": 1024}, 1024)]:
+            namespace = {"eez": options, "PROOF_SIGNER_GRPC_PORT": 50061, "fail": fail,
+                         "type": lambda value: type(value).__name__}
+            exec(compile(command_setup, "signer-command", "exec"), namespace)
+            command = namespace["signer_cmd"]
+            if expected is None:
+                self.assertNotIn("--max-request-blocks", command)
+            else:
+                self.assertIn(f"--max-request-blocks={expected}", command)
+        for value in (0, -1, True, "1024", "1024; unexpected-command", 1.5):
+            namespace = {"eez": {"proof_signer_max_request_blocks": value},
+                         "PROOF_SIGNER_GRPC_PORT": 50061, "fail": fail,
+                         "type": lambda value: type(value).__name__}
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                exec(compile(command_setup, "signer-command", "exec"), namespace)
+
+class BlobExplorerSelectionTest(unittest.TestCase):
+    def run_selection(self, value=None):
+        script = (REPO / "testing/kurtosis/scripts/verify-blob-da.sh").read_text()
+        start = script.index('VERIFY_BLOBSCAN=')
+        configuration = script[start:script.index('\nfor tool in ', start)]
+        tail = script[script.index('if [[ "$VERIFY_BLOBSCAN" == true ]]; then'):]
+        with tempfile.TemporaryDirectory(prefix="eez-blob-explorer-selection.") as temporary:
+            root = Path(temporary)
+            (root / "scripts").mkdir()
+            verifier = root / "scripts/verify-blobscan.sh"
+            verifier.write_text('#!/bin/sh\necho "explorer verification requested"\nexit 23\n')
+            verifier.chmod(0o755)
+            env = dict(os.environ, KURTOSIS_DIR=str(root), RUN_DIR=str(root), summary_file="verified.json")
+            env.pop("EEZ_VERIFY_BLOBSCAN", None)
+            if value is not None:
+                env["EEZ_VERIFY_BLOBSCAN"] = value
+            return subprocess.run(["bash", "-euo", "pipefail", "-c", configuration + tail],
+                                  env=env, capture_output=True, text=True, timeout=10)
+
+    def test_default_and_explicit_true_preserve_explorer_failures(self):
+        for value in (None, "true"):
+            result = self.run_selection(value)
+            self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
+            self.assertIn("explorer verification requested", result.stdout)
+
+    def test_profile_without_explorers_can_explicitly_skip_only_that_check(self):
+        result = self.run_selection("false")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("explicitly disabled", result.stdout)
+        self.assertNotIn("explorer verification requested", result.stdout)
+
+    def test_invalid_selection_fails_before_verification(self):
+        for value in ("maybe", "", "1"):
+            result = self.run_selection(value)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("must be true or false", result.stderr)
+            self.assertNotIn("explorer verification requested", result.stdout)
 
 
 class SettlementReadinessTest(unittest.TestCase):

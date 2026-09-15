@@ -33,6 +33,7 @@ exec {protocol_lock}>"$PROTOCOL/tmp/.eez-network-e2e.lock"
 flock -n "$protocol_lock" || { echo "protocol network suite already running in this checkout" >&2; exit 1; }
 
 source "$KURTOSIS_DIR/scripts/runtime-tools.sh"
+source "$KURTOSIS_DIR/scripts/lib.sh"
 CAUSAL_VERIFIER="$(resolve_runtime_tool eez-protocol e2e-causal-verify "${EEZ_CAUSAL_VERIFIER_BIN:-}")"
 BLOB_VERIFIER="$(resolve_runtime_tool eez-l1 verify_blob_evidence "${EEZ_BLOB_VERIFIER_BIN:-}")"
 
@@ -55,7 +56,7 @@ mkdir -p "$RESULT_DIR"
 deploy_dir="$(mktemp -d /tmp/eez-protocol-deployments.XXXXXX)"
 trap 'rm -rf "$deploy_dir"' EXIT
 
-kurtosis files download "$ENCLAVE" eez-deployments "$deploy_dir" >/dev/null
+load_deployment_artifact "$deploy_dir"
 set -a
 source "$deploy_dir/deployments.env"
 set +a

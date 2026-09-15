@@ -26,6 +26,7 @@ anyhow = "1"
 eez-control-rpc.workspace = true
 eez-protocol.workspace = true
 reth-chainspec.workspace = true
+reth_gnosis.workspace = true
 serde_json.workspace = true
 tempfile = "3"
 tokio.workspace = true

@@ -38,6 +38,7 @@ services:
     environment:
       EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50061}
       EEZ_CHAIN_CONFIG: /app/genesis.json
+      EEZ_L1_CHAIN_CONFIG: chiado
       EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
       EEZ_L2_SYSTEM_KEY: "${EEZ_L2_SYSTEM_KEY:?set EEZ_L2_SYSTEM_KEY}"
       RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
@@ -116,8 +117,25 @@ services:
       # from the process env, and this service takes no env_file beyond
       # deployments.env, so they have to be forwarded explicitly. Defaults track
       # the in-code ones (composer.rs, timing.rs, l1_watcher.rs).
-      EEZ_MAX_BLOCKS_PER_BATCH: "${EEZ_MAX_BLOCKS_PER_BATCH:-300}"
-      EEZ_MAX_POSTBATCH_GAS: "${EEZ_MAX_POSTBATCH_GAS:-16777216}"
+      # Omitted values stay absent. Legacy mode supplies its old defaults;
+      # enabled policy rejects the old block cap and resolves active gas rules.
+      EEZ_MAX_BLOCKS_PER_BATCH:
+      EEZ_MAX_POSTBATCH_GAS:
+      EEZ_SETTLEMENT_POLICY_ENABLED: "${EEZ_SETTLEMENT_POLICY_ENABLED:-false}"
+      EEZ_SETTLEMENT_PURE_L2_MODE:
+      EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS:
+      EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS:
+      EEZ_SETTLEMENT_BLOB_FULLNESS_BPS:
+      EEZ_MAX_BLOBS_PER_BATCH:
+      EEZ_L1_POSTBATCH_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS:
+      EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS:
+      EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS:
+      EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS:
+      EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS:
+      EEZ_L1_POSTBATCH_GAS_MARGIN_BPS:
       EEZ_L1_REORG_MAX_DEPTH_BLOCKS: "${EEZ_L1_REORG_MAX_DEPTH_BLOCKS:-62}"
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
@@ -130,7 +148,7 @@ services:
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
       # Don't freeze the sequencer when chiado bundles are slow to land.
-      EEZ_MAX_SPECULATIVE_DEPTH: "0"
+      EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"
       # Multi-composer: tolerate + adopt batches posted by the competing
       # composer instead of erroring "someone else is sequencing".
       EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES: "true"
@@ -156,6 +174,10 @@ services:
       - --http.addr=0.0.0.0
       - --http.port=18688
       - --http.api=eth,net,web3
+      - --ws
+      - --ws.addr=127.0.0.1
+      - --ws.port=${EEZ_L2_WS_PORT:-18689}
+      - --ws.api=eth,net,web3
       - --authrpc.addr=127.0.0.1
       - --authrpc.port=18684
       - --port=30640
@@ -199,9 +221,9 @@ services:
       # reconstructs full blobs for /eth/v1/beacon/blobs/{block_id}, reducing
       # resource use compared with custodying every column as a supernode.
       - --semi-supernode
-      # Direct chiado peers — discovery alone is too sparse on a fresh
-      # lighthouse DB; without these the beacon head never advances (0
-      # peers) and the embedded EL stalls. Copied from docker-compose.chiado.yml.
-      - --libp2p-addresses=/ip4/57.131.40.177/tcp/9000/p2p/16Uiu2HAm6HQoX8sEJxr58GkuM9FPWkgLdCs71vz5qcu7hyisYRLS,/ip4/45.79.214.176/tcp/9000/p2p/16Uiu2HAm7jUXmkWrC5cTwSa9bVtzeAwUXu3MZZnhcsY5QTAiNmyL,/ip4/51.210.221.124/tcp/9500/p2p/16Uiu2HAmSnLLjZfkFCythED8tQS5kP4NJKBuMdd1FYE23ZymKwL6,/ip4/57.129.122.18/tcp/9000/p2p/16Uiu2HAmALSWURS5G4Qsmm7eFbH5oXxoFJEQuVdhAZ1MMcE9XjrU,/ip4/51.210.221.124/tcp/9100/p2p/16Uiu2HAmUhn8VR7HFY7SLPqbBhnTT1yfjKBJQKSodUkWsE5adNNu,/ip4/137.74.112.3/tcp/9000/p2p/16Uiu2HAm1merr7djndkMFf2TxacP53tA6rFoU4tXD5NNPGYz6RPa,/ip4/65.109.101.48/tcp/9000/p2p/16Uiu2HAm98ceLNE6X3mjVcsu6ZAaKZPPcqKmeofidTDy7UCHyTtY
+      # Direct Chiado peers supplement sparse discovery. Dial their endpoints
+      # without pinning peer IDs, which can rotate when an operator rebuilds a
+      # node. Lighthouse still validates peers against the configured network.
+      - --libp2p-addresses=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
     logging:
       driver: "local"

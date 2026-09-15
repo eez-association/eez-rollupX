@@ -112,6 +112,18 @@ pub struct SyncSlotBlock {
     pub header: SealedHeader<Header>,
 }
 
+/// Explicit control flow at a Sync boundary. A policy deferral must never
+/// accidentally admit mempool transactions into the required empty Sync.
+#[derive(Debug)]
+pub enum SyncSlotOutcome {
+    Built(Box<SyncSlotBlock>),
+    /// Compatibility with composers that use the original optional interface.
+    LegacyPool,
+    /// A stale parent or failed required empty build ends this tick. The
+    /// existing scheduler will catch up from the current head on its next tick.
+    EndTick,
+}
+
 /// Parent context the Sequencer supplies to a [`SyncSlotComposer`].
 ///
 /// The full `SealedHeader<Header>` from the Sequencer's synchronous
@@ -152,6 +164,32 @@ pub enum SyncSlotMode {
 /// `eez-composer`, to avoid a dependency cycle.
 #[async_trait]
 pub trait SyncSlotComposer: Send + Sync + 'static {
+    /// Policy composers preserve empty grid boundaries during ordinary catch-up.
+    fn guards_sequencing_da(&self) -> bool {
+        false
+    }
+
+    /// The scheduler owns the Sync grid, including its genesis/slot offset.
+    /// Publish its target before starting an ordinary payload job.
+    fn set_sequencing_target(&self, _rollup_id: u64, _sync_height: u64) {}
+
+    /// Maximum encoded block item size for this exact parent. `None` preserves
+    /// the legacy payload builder. Errors stop production, never remove a bound.
+    fn ordinary_block_da_limit(
+        &self,
+        _rollup_id: u64,
+        _parent: &SealedHeader<Header>,
+        _timestamp: u64,
+    ) -> Result<Option<usize>, String> {
+        Ok(None)
+    }
+
+    /// Fresh-interval bound used to reject individually unpostable ordinary
+    /// transactions without rejecting valid transactions waiting for capacity.
+    fn ordinary_transaction_da_limit(&self, _rollup_id: u64) -> Result<Option<usize>, String> {
+        Ok(None)
+    }
+
     /// Compose a Sync slot. `target_l1_block`: `Some(n)` aims the postBatch
     /// at exactly L1 block `n` (steady state, `l1_head + 1`); `None` aims the
     /// next available block (catch-up). `mode` gates the drain: `Catchup`
@@ -164,6 +202,23 @@ pub trait SyncSlotComposer: Send + Sync + 'static {
         target_l1_block: Option<u64>,
         mode: SyncSlotMode,
     ) -> Option<SyncSlotBlock>;
+
+    /// Explicit outcome interface. Existing composers retain their fallback;
+    /// policy-aware composers override this to prohibit it.
+    async fn compose_sync_slot_outcome(
+        &self,
+        rollup_id: u64,
+        parent: ParentContext,
+        timestamp: u64,
+        target_l1_block: Option<u64>,
+        mode: SyncSlotMode,
+    ) -> SyncSlotOutcome {
+        self.compose_sync_slot(rollup_id, parent, timestamp, target_l1_block, mode)
+            .await
+            .map_or(SyncSlotOutcome::LegacyPool, |built| {
+                SyncSlotOutcome::Built(Box::new(built))
+            })
+    }
 
     /// Run pending failed-bundle recovery before this tick's commit. May move
     /// the head (reorg + substitution), so callers re-read it. Default: no-op.

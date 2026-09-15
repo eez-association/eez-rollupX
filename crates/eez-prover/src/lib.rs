@@ -150,6 +150,14 @@ pub struct ProvingContext {
     /// `blockhash(N)` for a block-bound batch's `blockNumber = N`; `None` for a
     /// timeless (0) batch.
     pub l1_block_hash: Option<B256>,
+    /// Active-network target context; absent only for the legacy posting path.
+    pub l1_posting: Option<L1PostingContext>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct L1PostingContext {
+    pub chain_id: u64,
+    pub target_timestamp: u64,
 }
 
 /// Produces the [`BlockWitness`] for a committed L2 block — the seam by which

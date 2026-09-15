@@ -16,7 +16,7 @@ use tracing::{Level, event};
 pub mod correlation_rpc;
 
 mod payload;
-pub use payload::EezPayloadBuilder;
+pub use payload::{EezPayloadBuilder, SequencingDataGuard};
 mod pool;
 pub use pool::EezPoolBuilder;
 

@@ -299,7 +299,7 @@ fn initial_log_scan_ranges(from_block: u64, to_block: u64) -> Vec<(u64, u64)> {
 /// True when a `get_logs` failure means "matched too much", not "was wrong".
 /// Providers cap RESULT COUNT, which no fixed block span can respect. Detected by
 /// message, since the wording is client-specific but the remedy — narrow — isn't.
-fn is_range_too_wide(err: &L1Error) -> bool {
+pub(crate) fn is_range_too_wide(err: &L1Error) -> bool {
     let L1Error::Provider(msg) = err else {
         return false;
     };

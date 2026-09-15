@@ -4,7 +4,9 @@
 set -euo pipefail
 
 K="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$K/../.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
+source "$K/scripts/lib.sh"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
 EXPECTED_PROXY_ADDRESS="0x15ea912b805e733b3899149409acead6f56f0e16"
@@ -28,7 +30,7 @@ deploy_dir="${TMPDIR:-/tmp}/eez-deployment-check-$ENCLAVE"
 rm -rf "$deploy_dir"
 mkdir -p "$deploy_dir"
 trap 'rm -rf "$deploy_dir"' EXIT
-kurtosis files download "$ENCLAVE" eez-deployments "$deploy_dir" >/dev/null
+load_deployment_artifact "$deploy_dir"
 
 set -a
 # shellcheck disable=SC1091

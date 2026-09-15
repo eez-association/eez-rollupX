@@ -43,9 +43,10 @@ pub mod local;
 pub mod optimistic;
 mod prover_retry;
 pub mod rollup;
+pub mod settlement_policy;
 
 #[doc(inline)]
-pub use composer::{Composer, ComposerConfigError, CrossChainExecCtx};
+pub use composer::{Composer, ComposerConfigError, ComposerSettings, CrossChainExecCtx};
 #[doc(inline)]
 pub use held_pool::{AdmissionError, HeldPool, HeldTx};
 #[doc(inline)]

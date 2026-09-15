@@ -67,6 +67,7 @@ fn cli_parses_the_default_listen_addr() {
     .unwrap();
     let config = Config::from_args(args).unwrap();
     assert_eq!(config.listen_addr, "127.0.0.1:50061".parse().unwrap());
+    assert_eq!(config.l1_chain_document_path, None);
     assert_eq!(
         config.chain_document_path,
         PathBuf::from("chain-config.json")
@@ -99,6 +100,26 @@ fn cli_parses_the_default_listen_addr() {
         })
         .unwrap()
     );
+}
+
+#[test]
+fn l1_profile_cli_parses_presets_and_custom_documents() {
+    for value in ["chiado", "mainnet", "/tmp/l1-chain.json"] {
+        let config = Config::from_args(
+            parse_args([
+                "eez-proof-signer",
+                "--chain-config",
+                "l2.json",
+                "--rollup-id",
+                "1",
+                "--l1-chain-config",
+                value,
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(config.l1_chain_document_path, Some(PathBuf::from(value)));
+    }
 }
 
 #[test]

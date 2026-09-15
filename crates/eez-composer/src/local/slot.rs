@@ -24,6 +24,7 @@ use reth_revm::{database::StateProviderDatabase, db::State, db::bal::EvmDatabase
 use reth_storage_api::StateProviderBox;
 use reth_storage_api::errors::provider::ProviderError;
 use revm::context::result::EVMError;
+use revm::context_interface::{ContextSetters, ContextTr, JournalTr};
 use revm::database::CacheState;
 use revm::interpreter::{CallInputs, CallOutcome, Interpreter};
 use revm::{DatabaseCommit, Inspector};
@@ -109,6 +110,9 @@ pub struct L1SlotState {
     pub anchor: SealedHeader<Header>,
     /// Effects committed by surviving transactions, seeded into each fork.
     pub cache: CacheState,
+    /// Enabled-policy target environment and actual poster frame context.
+    /// Synthetic calls observe these values without charging transaction fees.
+    pub posting: Option<(reth_evm::EvmEnvFor<EthEvmConfig>, Address, u128)>,
 }
 
 impl L1SlotState {
@@ -135,6 +139,7 @@ impl L1SlotState {
         Ok(Self {
             anchor,
             cache: CacheState::default(),
+            posting: None,
         })
     }
 
@@ -153,10 +158,14 @@ impl L1SlotState {
             .provider
             .state_by_block_hash(self.anchor.hash())
             .map_err(provider_err)?;
-        let evm_env = provider
-            .evm_config
-            .evm_env(self.anchor.header())
-            .map_err(evm_err)?;
+        let evm_env = if let Some((env, _, _)) = &self.posting {
+            env.clone()
+        } else {
+            provider
+                .evm_config
+                .evm_env(self.anchor.header())
+                .map_err(evm_err)?
+        };
         let state = State::builder()
             .with_database(StateProviderDatabase::new(state_prov))
             .with_cached_prestate(seed)
@@ -204,6 +213,8 @@ pub struct L1TargetSession {
     evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     manager: Address,
     chain_id: u64,
+    posting_origin: Option<Address>,
+    posting_gas_price: u128,
 }
 
 impl std::fmt::Debug for L1TargetSession {
@@ -230,6 +241,8 @@ impl L1TargetSession {
     /// Returns [`ExecutorErrorKind::Provider`] when the anchor state cannot be
     /// opened, [`ExecutorErrorKind::Evm`] when env construction fails.
     pub fn new(state: &L1SlotState, client: Arc<LocalChainClient>) -> ExecutorResult<Self> {
+        let posting_origin = state.posting.as_ref().map(|(_, origin, _)| *origin);
+        let posting_gas_price = state.posting.as_ref().map_or(0, |(_, _, price)| *price);
         let (state, mut evm_env) = state.open_state(&client, state.cache.clone())?;
         let chain_id = evm_env.cfg_env.chain_id;
         // Synthetic frames carry no fee market and no EOA sender. In
@@ -240,6 +253,7 @@ impl L1TargetSession {
         evm_env.cfg_env.disable_eip3607 = true;
         evm_env.cfg_env.disable_nonce_check = true;
         evm_env.cfg_env.tx_gas_limit_cap = Some(u64::MAX);
+        evm_env.cfg_env.disable_fee_charge = posting_origin.is_some();
 
         let evm_config = client.chain_provider().evm_config.clone();
         let manager = client.manager_address();
@@ -250,6 +264,8 @@ impl L1TargetSession {
             evm_env,
             manager,
             chain_id,
+            posting_origin,
+            posting_gas_price,
         })
     }
 
@@ -371,7 +387,7 @@ impl TargetExecutionSession for L1TargetSession {
         }
         .abi_encode();
         let tx_env = revm::context::TxEnv {
-            caller: self.manager,
+            caller: self.posting_origin.unwrap_or(self.manager),
             gas_limit: self.frame_gas(DIRECT_CALL_GAS_LIMIT),
             kind: TxKind::Call(proxy),
             data: calldata.into(),
@@ -384,11 +400,13 @@ impl TargetExecutionSession for L1TargetSession {
         // the same composition tree. The outermost frame is skipped: it
         // targets an authorized proxy itself, and intercepting it would
         // re-dispatch the very frame that IS the dispatch.
-        let inspector = SkipTopFrame::new(if req.call_mode == CallMode::Static {
+        let mut inspector = SkipTopFrame::new(if req.call_mode == CallMode::Static {
             self.client.inspector_factory().build_static(dispatcher)
         } else {
             self.client.inspector_factory().build(dispatcher)
         });
+        inspector.top_caller = self.posting_origin.map(|_| self.manager);
+        inspector.top_gas_price = self.posting_origin.map(|_| self.posting_gas_price);
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
@@ -396,7 +414,11 @@ impl TargetExecutionSession for L1TargetSession {
                 inspector,
             );
             let result = evm.transact(tx_env).map_err(transact_err)?;
-            let inspector_error = evm.inspector_mut().inner.take_error();
+            let inspector = evm.inspector_mut();
+            let inspector_error = inspector
+                .error
+                .take()
+                .or_else(|| inspector.inner.take_error());
             (
                 result.result.output().cloned().unwrap_or_default(),
                 result.result.tx_gas_used(),
@@ -413,7 +435,7 @@ impl TargetExecutionSession for L1TargetSession {
         // committing it would tie the slot-shared state to whatever a future
         // revm decides to return in `result.state` for a revert.
         if success && req.call_mode == CallMode::Mutable {
-            reset_frame_caller_nonce(&mut changes, self.manager);
+            reset_frame_caller_nonce(&mut changes, self.posting_origin.unwrap_or(self.manager));
             self.state.commit(changes);
         }
 
@@ -462,15 +484,28 @@ struct SkipTopFrame<I> {
     inner: I,
     /// Open CALL frames; the top frame is the one entered at depth 0.
     depth: usize,
+    top_caller: Option<Address>,
+    error: Option<ExecutorError>,
+    top_gas_price: Option<u128>,
+    original_gas_price: Option<u128>,
 }
 
 impl<I> SkipTopFrame<I> {
     fn new(inner: I) -> Self {
-        Self { inner, depth: 0 }
+        Self {
+            inner,
+            depth: 0,
+            top_caller: None,
+            error: None,
+            top_gas_price: None,
+            original_gas_price: None,
+        }
     }
 }
 
-impl<CTX, I: Inspector<CTX>> Inspector<CTX> for SkipTopFrame<I> {
+impl<CTX: ContextTr<Tx = revm::context::TxEnv> + ContextSetters, I: Inspector<CTX>> Inspector<CTX>
+    for SkipTopFrame<I>
+{
     fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         self.inner.initialize_interp(interp, context);
     }
@@ -479,6 +514,26 @@ impl<CTX, I: Inspector<CTX>> Inspector<CTX> for SkipTopFrame<I> {
         let top = self.depth == 0;
         self.depth += 1;
         if top {
+            // In pinned REVM 38, disable_fee_charge skips upfront deduction
+            // but reimburse_caller/reward_beneficiary still use GASPRICE.
+            // Expose the actual price only inside execution and restore the
+            // synthetic zero price before transaction-level fee accounting.
+            if let Some(price) = self.top_gas_price {
+                self.original_gas_price = Some(context.tx().gas_price);
+                let mut tx = context.tx().clone();
+                tx.gas_price = price;
+                context.set_tx(tx);
+            }
+            if let Some(caller) = self.top_caller {
+                // A synthetic top-level transaction initially loads its EOA.
+                // The actual value-paying caller is the manager, already warm
+                // in a real postBatch frame. Load it before REVM transfers value.
+                if let Err(error) = context.journal_mut().load_account(caller) {
+                    self.error = Some(provider_err(error));
+                    return None;
+                }
+                inputs.caller = caller;
+            }
             return None;
         }
         self.inner.call(context, inputs)
@@ -486,6 +541,13 @@ impl<CTX, I: Inspector<CTX>> Inspector<CTX> for SkipTopFrame<I> {
 
     fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
         self.depth = self.depth.saturating_sub(1);
+        if self.depth == 0
+            && let Some(price) = self.original_gas_price.take()
+        {
+            let mut tx = context.tx().clone();
+            tx.gas_price = price;
+            context.set_tx(tx);
+        }
         if self.depth > 0 {
             self.inner.call_end(context, inputs, outcome);
         }
@@ -594,5 +656,98 @@ impl TargetExecutionSession for InboundL2TargetSession {
         })?;
         self.fork.restore(*snap);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod posting_frame_tests {
+    use super::*;
+    use alloy_primitives::U256;
+    use revm::{
+        context::{BlockEnv, CfgEnv, TxEnv},
+        database::InMemoryDB,
+        inspector::NoOpInspector,
+        primitives::hardfork::SpecId,
+        state::{AccountInfo, Bytecode},
+    };
+
+    #[test]
+    fn priced_synthetic_frame_has_real_origin_and_caller_without_charging_fees() {
+        let poster = Address::repeat_byte(1);
+        let manager = Address::repeat_byte(2);
+        let proxy = Address::repeat_byte(3);
+        // Return ORIGIN, GASPRICE, CALLER, CALLVALUE, and SELFBALANCE.
+        let code = Bytes::from_static(&[
+            0x32, 0x5f, 0x52, 0x3a, 0x60, 32, 0x52, 0x33, 0x60, 64, 0x52, 0x34, 0x60, 96, 0x52,
+            0x47, 0x60, 128, 0x52, 0x60, 160, 0x5f, 0xf3,
+        ]);
+        let mut database = InMemoryDB::default();
+        database.insert_account_info(poster, AccountInfo::default());
+        database.insert_account_info(
+            manager,
+            AccountInfo {
+                balance: U256::from(20),
+                ..Default::default()
+            },
+        );
+        database.insert_account_info(
+            proxy,
+            AccountInfo {
+                code: Some(Bytecode::new_raw(code)),
+                ..Default::default()
+            },
+        );
+        let mut cfg = CfgEnv::new().with_spec_and_mainnet_gas_params(SpecId::OSAKA);
+        cfg.disable_fee_charge = true;
+        cfg.disable_balance_check = true;
+        cfg.disable_base_fee = true;
+        let env = reth_evm::EvmEnv {
+            cfg_env: cfg,
+            block_env: BlockEnv {
+                basefee: 10,
+                gas_limit: 1_000_000,
+                ..Default::default()
+            },
+        };
+        let mut inspector = SkipTopFrame::new(NoOpInspector {});
+        inspector.top_caller = Some(manager);
+        inspector.top_gas_price = Some(37);
+        let mut result = EthEvmConfig::mainnet()
+            .evm_with_env_and_inspector(database, env, inspector)
+            .transact(TxEnv {
+                caller: poster,
+                kind: TxKind::Call(proxy),
+                gas_limit: 100_000,
+                value: U256::from(7),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(result.result.is_success());
+        let values = result
+            .result
+            .output()
+            .unwrap()
+            .chunks_exact(32)
+            .map(U256::from_be_slice)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            vec![
+                U256::from_be_slice(poster.as_slice()),
+                U256::from(37),
+                U256::from_be_slice(manager.as_slice()),
+                U256::from(7),
+                U256::from(7)
+            ]
+        );
+        reset_frame_caller_nonce(&mut result.state, poster);
+        assert_eq!(
+            result.state[&poster].info.balance,
+            U256::ZERO,
+            "a synthetic frame must not pay or mint fees"
+        );
+        assert_eq!(result.state[&poster].info.nonce, 0);
+        assert_eq!(result.state[&manager].info.balance, U256::from(13));
+        assert_eq!(result.state[&proxy].info.balance, U256::from(7));
     }
 }

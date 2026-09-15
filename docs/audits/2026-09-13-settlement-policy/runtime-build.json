@@ -1,0 +1,24 @@
+{
+  "baseline_commit": "71a8f52",
+  "profile": "dev (optimized with debuginfo; Cargo workspace defaults)",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "executables": {
+    "eez-follower": {
+      "executable": "/home/edu/Development/eez-rollup0-fork/target/debug/eez-follower",
+      "features": [],
+      "sha256": "94ce6b01cce76f5f4b139a44cfbc90c6bf8cc0560c946eee982ca0233d4b0935"
+    },
+    "eez-proof-signer": {
+      "executable": "/home/edu/Development/eez-rollup0-fork/target/debug/eez-proof-signer",
+      "features": [],
+      "sha256": "383e807ec19f3ceec5d54418826c1dc2f14b06663aeb960d2c7095e216a8ea27"
+    },
+    "eez-composer": {
+      "executable": "/home/edu/Development/eez-rollup0-fork/target/debug/eez-composer",
+      "features": [],
+      "sha256": "490569c4be4037bc130f0777fa9999784c01f57c5bfba0487bab209e08e237d4"
+    }
+  },
+  "kurtosis_image": "sha256:9c04d2e714a000dd4dcfb339ff46f8353b989f946edb80bbcd89e35531d1cb87",
+  "notes": "Final native partial/cost and Kurtosis runs use these exact frozen executables. Local binary paths identify Cargo build output, not committed artifacts."
+}
