@@ -8,6 +8,7 @@
 mod bundle_rpc;
 mod ingress;
 mod l1_embedded;
+mod queue_rpc;
 mod witness_source;
 
 use std::{collections::HashMap, env, str::FromStr, sync::Arc, time::Duration};
@@ -283,6 +284,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
     let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
     let reserved_sources = Arc::clone(&held_pool);
+    let rpc_held_pool = Arc::clone(&held_pool);
     let data_guard = retain_pure_l2_history.then(|| {
         Arc::new(eez_node_common::SequencingDataGuard::new(
             rollup_config.rollup_id,
@@ -307,6 +309,8 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .extend_rpc_modules(move |ctx| {
+            ctx.modules
+                .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
             correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
         })
         .launch_with_debug_capabilities()

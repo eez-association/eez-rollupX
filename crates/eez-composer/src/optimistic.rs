@@ -1161,4 +1161,288 @@ mod tests {
             ));
         });
     }
+
+    #[test]
+    fn recovery_across_generations_keeps_lower_nonce_first() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let users = (0..3).map(|nonce| tx(1, nonce)).collect::<Vec<_>>();
+        for user in &users {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let first = begin(&ledger, pool.pop_all(), 10);
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &[
+                SourceOutcome::Terminal(TerminalReason::Committed),
+                SourceOutcome::Retryable { source_nonce: 1 },
+                SourceOutcome::Retryable { source_nonce: 1 },
+            ],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        let second = begin(&ledger, pool.pop_n(1), 11);
+        ledger
+            .observe(
+                second,
+                SubmissionObservation::Excluded {
+                    block: 101,
+                    charge_attempt: false,
+                },
+            )
+            .unwrap();
+        pool.invalidate_after_l1(99).unwrap();
+        pool.resolve_attempt(
+            first,
+            block(101),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        pool.resolve_attempt(
+            second,
+            block(101),
+            &[SourceOutcome::Retryable { source_nonce: 0 }],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        let order = pool.pop_all().iter().map(|tx| tx.nonce).collect::<Vec<_>>();
+        assert_eq!(
+            order,
+            vec![0, 1, 2],
+            "recovery must preserve same-sender executable order"
+        );
+    }
+
+    #[test]
+    fn explicit_resubmission_survives_old_reconciliation() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let original = tx(1, 0);
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        let first = begin(&ledger, pool.pop_all(), 10);
+        let outcomes = [SourceOutcome::Retryable { source_nonce: 0 }];
+        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
+            .unwrap();
+        assert!(pool.is_empty());
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        assert_eq!(pool.len(), 1, "explicit resubmission was accepted");
+        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
+            .unwrap();
+        assert!(
+            pool.owns(original.hash),
+            "old accounting must not erase a new accepted submission"
+        );
+        let second = begin(&ledger, pool.pop_all(), 11);
+        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
+            .unwrap();
+        ledger.forget_finalized(first, block(100)).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, second);
+        assert_eq!(
+            ledger.read(|state| state.users[&original.hash].owner),
+            second.generation
+        );
+    }
+
+    #[test]
+    fn rollback_admission_repairs_the_first_hole_in_order() {
+        let pool = HeldPool::new(Default::default());
+        pool.push_contiguous(tx(1, 3), 3).unwrap();
+        let successor = pool.push_contiguous(tx(1, 4), 0);
+        assert!(
+            successor.is_err(),
+            "do not extend a nonce chain across a missing predecessor"
+        );
+        for nonce in 0..3 {
+            pool.push_contiguous(tx(1, nonce), 0).unwrap();
+        }
+        pool.push_contiguous(tx(1, 4), 0).unwrap();
+        let order = pool.pop_all().iter().map(|tx| tx.nonce).collect::<Vec<_>>();
+        assert_eq!(order, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn explicit_replacement_retires_its_old_terminal_owner() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let original = tx(1, 0);
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        let first = begin(&ledger, pool.pop_all(), 10);
+        let outcomes = [SourceOutcome::Retryable { source_nonce: 0 }];
+        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
+            .unwrap();
+        let mut lower_fee = original.clone();
+        // Only cached admission fields are exercised; this synthetic identity
+        // is never executed or included in a manifest.
+        lower_fee.hash = B256::repeat_byte(42);
+        lower_fee.max_fee_per_gas = 50;
+        lower_fee.priority_fee_per_gas = 5;
+        pool.push_contiguous(lower_fee, 0).unwrap();
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        assert_eq!(pool.len(), 1);
+        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
+            .unwrap();
+        assert!(
+            pool.owns(original.hash),
+            "explicit replacement must establish fresh ownership too"
+        );
+    }
+
+    #[test]
+    fn recovery_permutations_preserve_nonce_order_in_both_directions() {
+        fn permutations(
+            prefix: &mut Vec<usize>,
+            rest: &mut Vec<usize>,
+            output: &mut Vec<Vec<usize>>,
+        ) {
+            if rest.is_empty() {
+                output.push(prefix.clone());
+                return;
+            }
+            for i in 0..rest.len() {
+                let value = rest.remove(i);
+                prefix.push(value);
+                permutations(prefix, rest, output);
+                prefix.pop();
+                rest.insert(i, value);
+            }
+        }
+        let mut orders = Vec::new();
+        permutations(&mut Vec::new(), &mut (0..6).collect(), &mut orders);
+        assert_eq!(orders.len(), 720);
+        for direction in [Direction::Inbound, Direction::Outbound] {
+            let users = (0..6)
+                .map(|nonce| HeldTx {
+                    direction,
+                    ..tx(1, nonce)
+                })
+                .collect::<Vec<_>>();
+            for order in &orders {
+                let pool = HeldPool::new(Default::default());
+                for user in &users {
+                    pool.push_contiguous(user.clone(), 0).unwrap();
+                }
+                let drained = pool.pop_all();
+                for &index in order {
+                    pool.push_front_batch(vec![drained[index].clone()]);
+                }
+                let actual = pool.pop_all().iter().map(|tx| tx.nonce).collect::<Vec<_>>();
+                assert_eq!(
+                    actual,
+                    vec![0, 1, 2, 3, 4, 5],
+                    "direction={direction:?}, recover_order={order:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_outer_restore_can_leave_only_untracked_successor() {
+        for guarded_restore in [false, true] {
+            let ledger = Arc::new(OptimisticallyIncluded::new());
+            let pool = HeldPool::new(Arc::clone(&ledger));
+            let users = (14_514..14_517)
+                .map(|nonce| tx(1, nonce))
+                .collect::<Vec<_>>();
+            for user in &users {
+                pool.push_contiguous(user.clone(), 14_514).unwrap();
+            }
+            let first = begin(&ledger, pool.pop_all(), 10);
+            let outcomes = [SourceOutcome::Retryable {
+                source_nonce: 14_514,
+            }; 3];
+            pool.resolve_attempt(first, block(100), &outcomes, false, 3, || true)
+                .unwrap();
+            pool.push_contiguous(tx(1, 14_517), 14_514).unwrap();
+            let original_drain = pool.pop_all();
+            assert!(
+                pool.evict_chain_at_or_above(users[0].sender, Direction::Inbound, 14_514)
+                    .is_empty()
+            );
+            if guarded_restore {
+                pool.requeue_composing(original_drain);
+            } else {
+                pool.push_front_batch(original_drain);
+            }
+            pool.resolve_attempt(first, block(100), &outcomes, false, 3, || true)
+                .unwrap();
+            let order = pool.pop_all().iter().map(|tx| tx.nonce).collect::<Vec<_>>();
+            assert_eq!(
+                order,
+                if guarded_restore {
+                    vec![]
+                } else {
+                    vec![14_517]
+                }
+            );
+        }
+    }
+    #[test]
+    fn stale_ingress_cannot_reset_canonical_or_unresolved_ownership() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let original = tx(1, 0);
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        let id = begin(&ledger, pool.pop_all(), 10);
+        // An active duplicate remains idempotent and retains its generation.
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed)],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            pool.push_contiguous(original.clone(), 0),
+            Err(crate::AdmissionError::ReconciliationPending)
+        );
+        let completion = pool.queue_status()["lastCanonicalCompletion"].clone();
+        assert!(!completion.is_null());
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed)],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.queue_status()["lastCanonicalCompletion"], completion);
+        pool.invalidate_after_l1(99).unwrap();
+        assert!(pool.queue_status()["lastCanonicalCompletion"].is_null());
+        // Reopening preserves unresolved ownership; duplicate ingress cannot
+        // make a second generation or clear its canonical-evidence requirement.
+        pool.push_contiguous(original, 0).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+    }
+
+    #[test]
+    fn unresolved_ledger_owner_cannot_be_replaced_by_a_new_pool_reservation() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let original = tx(1, 0);
+        let id = begin(&ledger, vec![original.clone()], 10);
+        // Ownership remains authoritative even if a stale ingress view no
+        // longer finds this identity in the pool's queue or reservation set.
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let status = pool.transaction_status(original.hash).unwrap();
+        assert_eq!(status["lifecycle"], "awaiting_evidence");
+        assert_eq!(status["ownership"]["state"], "awaiting_evidence");
+        assert_eq!(
+            pool.push_contiguous(original, 0),
+            Err(crate::AdmissionError::ReconciliationPending)
+        );
+        assert!(pool.is_empty());
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+    }
 }

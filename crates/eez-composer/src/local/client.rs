@@ -349,10 +349,23 @@ impl LocalChainClient {
                 // Fees, funding, or an unexecuted/orphaned predecessor can
                 // repair this exact signed source. Keep ownership and nonce
                 // ordering until the source becomes executable in this slot.
-                return Err(ExecutorErrorKind::Unavailable(format!(
-                    "source nonce, funding or fee conditions unavailable: {e}"
-                ))
-                .into());
+                use eez_protocol::SourceCondition;
+                use revm::context::result::InvalidTransaction;
+                let condition = match e {
+                    InvalidTransaction::NonceTooHigh { tx, state } => SourceCondition::Nonce {
+                        transaction_nonce: tx,
+                        required_nonce: state,
+                    },
+                    InvalidTransaction::LackOfFundForMaxFee { fee, balance } => {
+                        SourceCondition::Balance {
+                            required: *fee,
+                            available: *balance,
+                        }
+                    }
+                    InvalidTransaction::GasPriceLessThanBasefee => SourceCondition::Fee,
+                    _ => unreachable!("matched source condition"),
+                };
+                return Err(ExecutorErrorKind::SourceBlocked(condition).into());
             }
             // Rejected before execution. Same outcome as a
             // revert — no calls, so the drain evicts — but named for what it is.
@@ -528,7 +541,13 @@ mod tests {
                 true,
             )
             .unwrap_err();
-        assert!(matches!(error.kind(), ExecutorErrorKind::Unavailable(_)));
+        assert!(matches!(
+            error.kind(),
+            ExecutorErrorKind::SourceBlocked(eez_protocol::SourceCondition::Nonce {
+                transaction_nonce: 1,
+                required_nonce: 0
+            })
+        ));
         assert!(
             client
                 .simulate_source_tx_on_with_retries(
@@ -587,7 +606,7 @@ mod tests {
         for (balance, fee) in [(funded, 2), (U256::ZERO, 1)] {
             assert!(!simulate(balance, fee, false, RECIPIENT).unwrap());
             let error = simulate(balance, fee, true, RECIPIENT).unwrap_err();
-            assert!(matches!(error.kind(), ExecutorErrorKind::Unavailable(_)));
+            assert!(matches!(error.kind(), ExecutorErrorKind::SourceBlocked(_)));
         }
         assert!(simulate(funded, 1, true, RECIPIENT).unwrap());
         assert!(!simulate(funded, 1, true, REVERTER).unwrap());

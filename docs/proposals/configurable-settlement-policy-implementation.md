@@ -7,6 +7,16 @@ runs. The original 44 requirement rows and 63 acceptance cases have recorded
 evidence below. Later extensions and revision-specific results are identified
 separately; results for an older executable do not validate later source edits.
 
+Subsequent live investigation found a
+[cross-chain nonce-gap liveness failure](../audits/2026-09-15-chiado-nonce-gap/README.md).
+The [queue-liveness correction](cross-chain-queue-liveness.md) repairs admission
+after rollback, ordered recovery, explicit readmission, and independent sender
+progress. Its [implementation audit](../audits/2026-09-15-cross-chain-queue-liveness/README.md)
+records 89 passing native scenarios, six canonical Chiado requests, independent
+follower convergence and deployment on September 15. The original incident's
+initiating event remains unproven; the reproduced failures and final correction
+are distinguished from that historical uncertainty.
+
 The 2026-09-14 ordinary-sequencing extension in proposal §6.5 has a separate
 [implementation and test mapping](../audits/2026-09-14-sequencing-da-budget/README.md).
 It replaces AC38's former accept-then-report behavior for newly submitted

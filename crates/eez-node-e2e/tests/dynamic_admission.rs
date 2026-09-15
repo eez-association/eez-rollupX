@@ -558,8 +558,16 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
         .find(|e| e.name == "eez.composer.sync_slot.drain")
         .unwrap();
     assert_eq!(
-        next.fields["drained_count"], 1,
+        next.fields["selection_limit"], 1,
         "backoff must affect actual runtime selection"
+    );
+    let prepared = events[backoff + 1..]
+        .iter()
+        .find(|e| e.name == "eez.composer.admission.prepared")
+        .unwrap();
+    assert_eq!(
+        prepared.fields["accepted"], 1,
+        "the composer must enforce the reduced limit on complete groups"
     );
 }
 

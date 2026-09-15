@@ -22,7 +22,8 @@ RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
 E2E_TARGETS = (
     "e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
-    "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission")
+    "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
+    "queue_liveness", "queue_reorg")
 E2E_BINARIES = {f"eez-node-e2e::{name}" for name in E2E_TARGETS}
 TARGETS = [*E2E_TARGETS,
            "public_inputs_hash_vectors", "rolling_hash_vectors", "ethereum_kzg_compatibility"]
@@ -45,7 +46,8 @@ SUITES = {
     "embedded": "package(=eez-node-e2e) & (binary(=e2e) | binary(=settlement_policy) | "
                 "binary(=settlement_policy_cost) | binary(=kurtosis_policy_replay))",
     "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=chained_interstate) | "
-                   "binary(=resumption) | binary(=partial_consumption) | binary(=settlement_policy_gas) | binary(=dynamic_admission))",
+                   "binary(=resumption) | binary(=partial_consumption) | binary(=settlement_policy_gas) | binary(=dynamic_admission) | "
+                   "binary(=queue_liveness) | binary(=queue_reorg))",
 }
 
 

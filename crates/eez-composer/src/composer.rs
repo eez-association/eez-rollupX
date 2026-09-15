@@ -63,6 +63,7 @@ mod config;
 mod costs;
 mod policy;
 mod posting;
+mod selection;
 mod sequencing;
 pub use config::ComposerSettings;
 
@@ -726,6 +727,16 @@ fn clamp_max_postbatch_gas(requested: u64) -> u64 {
 /// evicted before it can enter — and perpetually drop — a bundle.
 /// `false` = TRANSIENT (chain unreachable / provider / transport /
 /// missing data), which a retry may clear → re-queue, don't evict.
+fn source_condition(error: &eez_protocol::ComposerError) -> Option<&eez_protocol::SourceCondition> {
+    if let eez_protocol::ComposerErrorKind::Executor(error) = error.kind()
+        && let eez_protocol::ExecutorErrorKind::SourceBlocked(condition) = error.kind()
+    {
+        Some(condition)
+    } else {
+        None
+    }
+}
+
 fn sim_error_is_poison(err: &eez_protocol::ComposerError) -> bool {
     use eez_protocol::{ComposerErrorKind, ExecutorErrorKind};
     match err.kind() {
@@ -737,6 +748,7 @@ fn sim_error_is_poison(err: &eez_protocol::ComposerError) -> bool {
         ComposerErrorKind::Executor(ee) => !matches!(
             ee.kind(),
             ExecutorErrorKind::Unavailable(_)
+                | ExecutorErrorKind::SourceBlocked(_)
                 | ExecutorErrorKind::Provider(_)
                 | ExecutorErrorKind::Missing(_)
         ),
@@ -766,6 +778,7 @@ alloy_sol_types::sol! {
 async fn read_rollup_escrow(
     provider: &alloy_provider::RootProvider,
     rid: u64,
+    anchor: B256,
 ) -> Result<U256, String> {
     let eez = std::env::var("EEZ_REGISTRY_ADDRESS")
         .map_err(|error| format!("EEZ_REGISTRY_ADDRESS: {error}"))?
@@ -773,6 +786,7 @@ async fn read_rollup_escrow(
         .map_err(|error| format!("parse EEZ_REGISTRY_ADDRESS: {error}"))?;
     IEEZReader::new(eez, provider)
         .rollups(rid)
+        .block(anchor.into())
         .call()
         .await
         .map(|rollup| rollup.etherBalance)
@@ -921,7 +935,7 @@ fn requeue_unprocessed(
         false
     });
     pool.release_in_flight_batch(&cascade_evicted);
-    pool.push_front_batch(requeue);
+    pool.requeue_composing(requeue);
 }
 
 /// Append `txs` to the Sync block under construction, stopping at the first one
@@ -1560,11 +1574,18 @@ where
         let pool_len_before = pool.len();
         // Select a finite FIFO snapshot. Automatic mode learns the preparation
         // cost; live gas/blob guards then admit only complete groups that fit.
-        let automatic = self.inner.max_user_txs_per_bundle.is_none().then(|| {
+        let automatic_mode = self.inner.max_user_txs_per_bundle.is_none();
+        let automatic = (automatic_mode || self.inner.policy.is_some()).then(|| {
             self.inner.automatic_admission[&rollup_id]
                 .lock()
                 .unwrap()
                 .begin(pool_len_before, self.inner.emission.timing, bundle_target)
+        });
+        let automatic = automatic.map(|mut attempt| {
+            if let Some(limit) = self.inner.max_user_txs_per_bundle {
+                attempt.selected = limit.min(pool_len_before);
+            }
+            attempt
         });
         let max_user_txs = automatic.as_ref().map_or_else(
             || {
@@ -1574,13 +1595,17 @@ where
             },
             |attempt| attempt.selected,
         );
-        let drained = pool.pop_n(max_user_txs);
+        let drained = if self.inner.policy.is_some() && max_user_txs > 0 {
+            pool.candidates()
+        } else {
+            pool.pop_n(max_user_txs)
+        };
         // When the pool is empty, do not return early. This slot attempts a
         // minimal postBatch whose leading immediate entry advances L1's stored
         // commitment to the empty Sync block's hash. Without it, L1's view
         // would stop advancing while L2 continues producing blocks. The L1
         // bundle contains only `postBatch` in this path.
-        let drained_count = drained.len();
+        let candidate_count = drained.len();
         // Per-slot drain visibility (pool depth vs how many txs this bundle
         // took).
         event!(
@@ -1591,10 +1616,10 @@ where
             cursor,
             parent_number,
             pool_len_before,
-            drained_count,
-            admission_mode = if automatic.is_some() { "auto" } else { "fixed" },
+            candidate_count,
+            admission_mode = if automatic_mode { "auto" } else { "fixed" },
             selection_limit = max_user_txs,
-            "drained held pool at Sync slot",
+            "selected finite held-pool snapshot at Sync slot",
         );
 
         // Process held transactions through direction-specific nonce preflight
@@ -1619,7 +1644,9 @@ where
             automatic.as_ref(),
         ))
         .await;
-        if let Some(attempt) = &automatic {
+        if let Some(attempt) = &automatic
+            && automatic_mode
+        {
             self.inner.automatic_admission[&rollup_id]
                 .lock()
                 .unwrap()
@@ -1631,10 +1658,10 @@ where
                     name: "eez.composer.sync_slot.built",
                     Level::INFO,
                     rollup_id,
-                    tx_count = drained_count,
+                    candidate_count,
                     parent_number,
                     timestamp,
-                    "built Sync block carrying {{tx_count}} held tx(s)",
+                    "built Sync block after held-pool admission",
                 );
                 Some(built)
             }
@@ -2128,26 +2155,19 @@ where
                 .await;
         }
 
-        let outbound_source_nonces =
-            outbound_source_nonces_for_drain(state.as_ref(), rollup_id, &drained);
+        // Enabled discovery reads each source lazily from the pinned state.
+        // The legacy bounded drain retains its existing preflight behavior.
+        let (drained, stale) = if self.inner.policy.is_none() {
+            let outbound = outbound_source_nonces_for_drain(state.as_ref(), rollup_id, &drained);
+            let mut nonces = inbound_source_nonces_for_drain(ctx, rollup_id, &drained).await;
+            nonces.extend(outbound);
+            partition_stale(drained, &nonces)
+        } else {
+            (drained, Vec::new())
+        };
         drop(state);
-        let mut source_nonces = inbound_source_nonces_for_drain(ctx, rollup_id, &drained).await;
-        source_nonces.extend(outbound_source_nonces);
-        let (drained, stale) = partition_stale(drained, &source_nonces);
-        for tx in &stale {
-            event!(
-                name: "eez.composer.cc_compose.stale_nonce_evicted",
-                Level::WARN,
-                rollup_id,
-                tx_hash = %tx.hash,
-                sender = %tx.sender,
-                nonce = tx.nonce,
-                direction = ?tx.direction,
-                "source nonce advanced; removing from composition and retaining submitted users for canonical audit",
-            );
-        }
         if pool.recheck_stale_sources(&stale)? {
-            pool.push_front_batch(drained);
+            pool.requeue_composing(drained);
             return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
         }
 
@@ -2211,7 +2231,7 @@ where
                     drained = drained.len(),
                     "slot execution contexts unavailable; re-queueing the whole drain, degrading to minimal postBatch",
                 );
-                pool.push_front_batch(drained);
+                pool.requeue_composing(drained);
                 return self
                     .dispatch_minimal_postbatch(
                         ctx,
@@ -2326,7 +2346,7 @@ where
                 Ok(empty) => Some(admission::BlobAdmission::new(empty.block.into_block())),
                 Err(error) => {
                     event!(Level::WARN, rollup_id, %error, "admission template unavailable; retaining classified users");
-                    pool.push_front_batch(drained);
+                    pool.requeue_composing(drained);
                     return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
                 }
             }
@@ -2340,6 +2360,26 @@ where
         // in two phases. A sender's nonce chain is never reordered: the two
         // directions live on different chains, and poison-gap bookkeeping is
         // keyed per (sender, direction).
+        let mut selection = self.inner.policy.is_some().then(|| {
+            selection::Selection::new(
+                &drained,
+                admission.map_or(drained.len(), |attempt| attempt.selected),
+            )
+        });
+        let mut source_nonces = HashMap::new();
+        let mut source_deferred = Vec::new();
+        let source_state = crate::held_pool::SourceState {
+            l1: eez_l1::L1BlockRef {
+                number: l1_state.anchor.number(),
+                hash: l1_state.anchor.hash(),
+            },
+            l2: eez_l1::L1BlockRef {
+                number: parent_header.number(),
+                hash: parent_hash,
+            },
+        };
+        pool.begin_evaluation(source_state);
+        let snapshot = drained.clone();
         let (outbounds, mut inbounds): (Vec<(usize, HeldTx)>, Vec<(usize, HeldTx)>) = drained
             .into_iter()
             .enumerate()
@@ -2353,6 +2393,45 @@ where
         // commit to the state.
         let mut out_iter = outbounds.into_iter();
         while let Some((idx, held)) = out_iter.next() {
+            if let Some(selection) = &mut selection {
+                if !selection.consider(idx) {
+                    continue;
+                }
+                if !pool.claim(&held) {
+                    selection.block(idx);
+                    continue;
+                }
+                let key = (held.sender, held.direction);
+                let baseline = if let Some(nonce) = source_nonces.get(&key) {
+                    *nonce
+                } else {
+                    let source = if held.direction == Direction::Outbound {
+                        rollup.l2_provider.state_by_block_hash(parent_hash)
+                    } else {
+                        local
+                            .l1_entry
+                            .chain_provider()
+                            .provider
+                            .state_by_block_hash(l1_state.anchor.hash())
+                    }
+                    .map_err(|e| format!("pinned source state: {e}"))?;
+                    let nonce = source
+                        .account_nonce(&held.sender)
+                        .map_err(|e| format!("pinned source nonce: {e}"))?
+                        .unwrap_or(0);
+                    source_nonces.insert(key, nonce);
+                    nonce
+                };
+                if held.nonce < baseline {
+                    if pool.recheck_stale_sources(std::slice::from_ref(&held))? {
+                        return Err(
+                            "source nonce advanced; canonical reconciliation required".into()
+                        );
+                    }
+                    selection.discard(idx);
+                    continue;
+                }
+            }
             if admission.is_some_and(|attempt| !attempt.can_start_group(survivors.len())) {
                 admission_cut = Some("preparation_time");
                 deferred = abort_rest(
@@ -2377,14 +2456,18 @@ where
                 poison.push(held);
                 continue;
             }
-            let contexts = L1TargetSession::new(&l1_state, local.l1_entry.clone())
-                .map_err(|e| format!("L1TargetSession::new: {e}"))
-                .and_then(|exec| {
-                    draft
-                        .fork()
-                        .map(|fork| (exec, fork))
-                        .map_err(|e| format!("SyncBlockState::fork: {e}"))
-                });
+            let contexts = L1TargetSession::new(
+                &l1_state,
+                local.l1_entry.clone(),
+                self.inner.policy.is_some(),
+            )
+            .map_err(|e| format!("L1TargetSession::new: {e}"))
+            .and_then(|exec| {
+                draft
+                    .fork()
+                    .map(|fork| (exec, fork))
+                    .map_err(|e| format!("SyncBlockState::fork: {e}"))
+            });
             let (l1_exec, mut l2_fork) = match contexts {
                 Ok(contexts) => contexts,
                 Err(e) => {
@@ -2426,6 +2509,9 @@ where
                             tx_hash = %held.hash,
                             "outbound composition reached an L2 other than its source rollup; this node cannot settle another rollup's Sync block",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -2435,6 +2521,9 @@ where
                         .find(|target| target.rollup_id == eez_protocol::RollupId::MAINNET)
                     else {
                         event!(name: "eez.composer.cc_compose.outbound_no_entries", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx produced no L1 host entry; evicting");
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     };
@@ -2448,6 +2537,9 @@ where
                             tx_hash = %held.hash,
                             "outbound tx produced no L1 settlement entry; evicting (resubmit required)",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -2467,6 +2559,9 @@ where
                                     error = %error,
                                     "outbound settlement commitment partition is unsupported; evicting",
                                 );
+                                if let Some(selection) = &mut selection {
+                                    selection.block(idx);
+                                }
                                 push_poison_root(&mut poison, &mut poison_gaps, held);
                                 continue;
                             }
@@ -2487,6 +2582,9 @@ where
                             settlement_source_count,
                             "outbound source roots are not fully covered by the L1 settlement hosts; evicting",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -2511,6 +2609,9 @@ where
                             source_entries = source_entries.len(),
                             "outbound callback-delivery partition does not match its source roots; evicting",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -2554,6 +2655,9 @@ where
                             .and_then(|value| total.checked_add(value))
                     }) else {
                         event!(name: "eez.composer.cc_compose.outbound_ether_out_missing", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx is missing ether out entry, likely malformed; evicting");
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     };
@@ -2561,7 +2665,13 @@ where
                     // the debit happens at accept below.
                     if need > U256::ZERO {
                         if escrow_remaining.is_none() {
-                            match read_rollup_escrow(&ctx.l1_provider, rollup_id).await {
+                            match read_rollup_escrow(
+                                &ctx.l1_provider,
+                                rollup_id,
+                                l1_state.anchor.hash(),
+                            )
+                            .await
+                            {
                                 Ok(escrow) => escrow_remaining = Some(escrow),
                                 Err(error) => {
                                     transient = Some((
@@ -2579,6 +2689,19 @@ where
                         if let Some(avail) = escrow_remaining
                             && need > avail
                         {
+                            if let Some(selection) = &mut selection {
+                                pool.record_blocked(
+                                    &held,
+                                    eez_protocol::SourceCondition::Escrow {
+                                        required: need,
+                                        available: avail,
+                                    },
+                                    source_state,
+                                );
+                                selection.block(idx);
+                                source_deferred.push((idx, held));
+                                continue;
+                            }
                             if inbounds.is_empty() {
                                 event!(
                                     name: "eez.composer.cc_compose.outbound_over_escrow",
@@ -2590,6 +2713,9 @@ where
                                     escrow = %avail,
                                     "outbound withdrawal exceeds L1 rollup escrow with no inbound funding in this drain; evicting at compose time (would revert InsufficientRollupBalance on L1 — resubmit required)",
                                 );
+                                if let Some(selection) = &mut selection {
+                                    selection.block(idx);
+                                }
                                 push_poison_root(&mut poison, &mut poison_gaps, held);
                                 continue;
                             }
@@ -2635,6 +2761,9 @@ where
                                 block_gas_limit = BUILDER_GAS_LIMIT,
                                 "outbound [load, user] pair declares more gas than a whole L2 block; no slot can ever take it — evicting (resubmit with a lower gas limit)",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             continue;
                         }
@@ -2680,6 +2809,9 @@ where
                                 error = %e,
                                 "outbound entry shape is not representable in a Sync block; evicting (resubmit required)",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             continue;
                         }
@@ -2752,6 +2884,9 @@ where
                                 error = %why,
                                 "outbound [load, user] pair does not execute on the Sync block prefix; evicting the tx and rebuilding the prefix",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             // A failed append may be half-applied; the accepted
                             // list is the only truth to rebuild from.
@@ -2792,6 +2927,9 @@ where
                             error = %e,
                             "composed outbound entry does not match the call the tx made on the Sync block; evicting",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         draft = match reopen(&sync_txs) {
                             Ok(rebuilt) => rebuilt,
@@ -2851,7 +2989,21 @@ where
                     // L1). The L1 settlement is `outbound_entries`, spliced
                     // separately with dest=rid.
                     semantic_transactions.push(semantic);
+                    if let Some(selection) = &mut selection {
+                        selection.accept(idx);
+                        pool.record_ready(&held, source_state);
+                    }
                     survivors.push((idx, held));
+                }
+                Err(e) if source_condition(&e).is_some() => {
+                    let condition = source_condition(&e)
+                        .expect("matched source condition")
+                        .clone();
+                    pool.record_blocked(&held, condition, source_state);
+                    if let Some(selection) = &mut selection {
+                        selection.block(idx);
+                    }
+                    source_deferred.push((idx, held));
                 }
                 Err(e) if sim_error_is_poison(&e) => {
                     event!(
@@ -2863,6 +3015,9 @@ where
                         error = %e,
                         "outbound tx fails simulation deterministically; evicting",
                     );
+                    if let Some(selection) = &mut selection {
+                        selection.block(idx);
+                    }
                     push_poison_root(&mut poison, &mut poison_gaps, held);
                 }
                 Err(e) => {
@@ -2892,6 +3047,45 @@ where
         };
         let mut in_iter = inbounds.into_iter();
         while let Some((idx, held)) = in_iter.next() {
+            if let Some(selection) = &mut selection {
+                if !selection.consider(idx) {
+                    continue;
+                }
+                if !pool.claim(&held) {
+                    selection.block(idx);
+                    continue;
+                }
+                let key = (held.sender, held.direction);
+                let baseline = if let Some(nonce) = source_nonces.get(&key) {
+                    *nonce
+                } else {
+                    let source = if held.direction == Direction::Outbound {
+                        rollup.l2_provider.state_by_block_hash(parent_hash)
+                    } else {
+                        local
+                            .l1_entry
+                            .chain_provider()
+                            .provider
+                            .state_by_block_hash(l1_state.anchor.hash())
+                    }
+                    .map_err(|e| format!("pinned source state: {e}"))?;
+                    let nonce = source
+                        .account_nonce(&held.sender)
+                        .map_err(|e| format!("pinned source nonce: {e}"))?
+                        .unwrap_or(0);
+                    source_nonces.insert(key, nonce);
+                    nonce
+                };
+                if held.nonce < baseline {
+                    if pool.recheck_stale_sources(std::slice::from_ref(&held))? {
+                        return Err(
+                            "source nonce advanced; canonical reconciliation required".into()
+                        );
+                    }
+                    selection.discard(idx);
+                    continue;
+                }
+            }
             if admission.is_some_and(|attempt| !attempt.can_start_group(survivors.len())) {
                 admission_cut = Some("preparation_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
@@ -2952,6 +3146,9 @@ where
                         .any(|target| target.rollup_id != eez_protocol::RollupId(rollup_id))
                     {
                         event!(name: "eez.composer.cc_compose.inbound_foreign_target", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "inbound composition reached another L2; this node cannot build that rollup's Sync block");
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -2976,6 +3173,9 @@ where
                             error = %e,
                             "inbound composition uses an unsupported entry shape; evicting (resubmit required)",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
@@ -3007,6 +3207,9 @@ where
                                 block_gas_limit = BUILDER_GAS_LIMIT,
                                 "inbound deliveries declare more gas than a whole L2 block; no slot can ever take them — evicting (resubmit as separate calls)",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             continue;
                         }
@@ -3051,6 +3254,9 @@ where
                                 entries = target_entries.len(),
                                 "every inbound target entry was skipped as foreign, which cannot happen for own-rollup targets; evicting",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             continue;
                         }
@@ -3065,6 +3271,9 @@ where
                                 error = %e,
                                 "build_inbound_system_txs rejected the entries; evicting (resubmit required)",
                             );
+                            if let Some(selection) = &mut selection {
+                                selection.block(idx);
+                            }
                             push_poison_root(&mut poison, &mut poison_gaps, held);
                             continue;
                         }
@@ -3121,6 +3330,9 @@ where
                             error = %why,
                             "inbound delivery does not execute on the Sync block prefix; evicting the tx and rebuilding the prefix",
                         );
+                        if let Some(selection) = &mut selection {
+                            selection.block(idx);
+                        }
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         draft = match reopen(&sync_txs) {
                             Ok(rebuilt) => rebuilt,
@@ -3154,7 +3366,21 @@ where
                     );
                     semantic_transactions.push(semantic);
                     survivor_comps.push((composition, held.hash));
+                    if let Some(selection) = &mut selection {
+                        selection.accept(idx);
+                        pool.record_ready(&held, source_state);
+                    }
                     survivors.push((idx, held));
+                }
+                Err(e) if source_condition(&e).is_some() => {
+                    let condition = source_condition(&e)
+                        .expect("matched source condition")
+                        .clone();
+                    pool.record_blocked(&held, condition, source_state);
+                    if let Some(selection) = &mut selection {
+                        selection.block(idx);
+                    }
+                    source_deferred.push((idx, held));
                 }
                 Err(e) if sim_error_is_poison(&e) => {
                     event!(
@@ -3168,6 +3394,9 @@ where
                         error = %e,
                         "held tx fails simulation deterministically (e.g. wrong proxy → EmptyCalls, or revert); evicting — it can never compose, resubmit required",
                     );
+                    if let Some(selection) = &mut selection {
+                        selection.block(idx);
+                    }
                     push_poison_root(&mut poison, &mut poison_gaps, held);
                 }
                 Err(e) => {
@@ -3181,6 +3410,23 @@ where
                 }
             }
         }
+
+        if let Some(selection) = &selection
+            && let Some(chain) = selection.resume_chain()
+            && let Some(tx) = snapshot
+                .iter()
+                .find(|tx| (tx.sender, tx.direction) == chain)
+        {
+            pool.resume_discovery_at(tx);
+        }
+        if let Some(attempt) = admission {
+            attempt.source_deferred(!source_deferred.is_empty());
+        }
+        self.cancel_historical_predecessor_groups(
+            rollup_id,
+            source_deferred.iter().map(|(_, held)| held.hash),
+        );
+        requeue_unprocessed(pool, rollup_id, &poison_gaps, source_deferred);
 
         // ── Deferred work: settle what fits, keep the rest held. ──────
         // Normal under load. Before the poison sweep, so an eviction here rides
@@ -3353,6 +3599,9 @@ where
         // Nothing composed (all evicted or over budget). Still post a minimal
         // batch so L1 keeps tracking L2's progression.
         if survivors.is_empty() {
+            if let Some(attempt) = admission {
+                attempt.completed();
+            }
             if let Some(constraint) = admission_cut {
                 event!(name: "eez.composer.admission.deferred", Level::INFO,
                     event_name = "eez.composer.admission.deferred", rollup_id, constraint,

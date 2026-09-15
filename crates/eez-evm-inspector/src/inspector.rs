@@ -376,7 +376,11 @@ where
         let sim = match sim {
             Ok(response) => response,
             Err(e) => {
-                tracing::error!(error = %e, "target execution failed");
+                // Expected source waits are reported once per transition by
+                // the queue owner, with the transaction and pinned state.
+                if !matches!(e.kind(), eez_protocol::ExecutorErrorKind::SourceBlocked(_)) {
+                    tracing::error!(error = %e, "target execution failed");
+                }
                 self.record_error(e);
                 return Some(CallOutcome::new(
                     InterpreterResult::new(

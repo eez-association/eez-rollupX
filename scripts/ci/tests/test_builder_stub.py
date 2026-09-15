@@ -124,6 +124,39 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
+    def test_controlled_consensus_forwards_one_post_after_capturing_its_blob(self):
+        (self.directory / "single-transaction.json").write_text("{}")
+        captures = self.directory / "captures"
+        captures.mkdir()
+        request = bundle("0x030102")
+
+        def forward(raw, **kwargs):
+            files = list(captures.glob("blob-*.json"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(json.loads(files[0].read_text())["raw"], "0x030102")
+            return self.forward(raw, **kwargs)
+
+        self.send(request, upstream=forward, capture_dir=str(captures))
+        self.assertEqual(self.forwarded, [{"jsonrpc": "2.0", "id": 1,
+            "method": "eth_sendRawTransaction", "params": ["0x030102"]}])
+
+    def test_controlled_consensus_never_splits_a_multi_transaction_bundle(self):
+        (self.directory / "single-transaction.json").write_text("{}")
+        reply = self.send(bundle("0x030102", "0x0203"))
+        self.assertEqual(reply["error"]["code"], -32602)
+        self.assertEqual(self.forwarded, [])
+
+    def test_controlled_consensus_preserves_hold_and_drop_barriers(self):
+        (self.directory / "single-transaction.json").write_text("{}")
+        (self.directory / "drop-next.json").write_text("{}")
+        request = bundle("0x030102")
+        self.send(request)
+        self.assertEqual(self.forwarded, [])
+        (self.directory / "hold-next.json").write_text("{}")
+        with patch.object(MODULE.time, "sleep", side_effect=self.release(request)):
+            self.send(request)
+        self.assertEqual(self.forwarded[0]["method"], "eth_sendRawTransaction")
+
     def test_omission_arms_exact_retry_before_forwarding(self):
         for omitted in range(3):
             with self.subTest(omitted=omitted):

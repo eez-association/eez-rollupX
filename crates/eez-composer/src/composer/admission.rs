@@ -80,6 +80,15 @@ impl AutomaticAdmission {
 
     pub fn finish(&mut self, attempt: &Attempt) {
         let progress = attempt.progress.lock().unwrap();
+        // Waiting for source state says nothing about this network's capacity.
+        // Keep the last useful sample and backoff when no group was prepared.
+        if progress.source_deferred
+            && progress.completed
+            && !progress.limited
+            && progress.prepared.is_none()
+        {
+            return;
+        }
         if let Some(sample) = progress.prepared {
             self.sample = Some(sample);
         }
@@ -102,6 +111,7 @@ impl AutomaticAdmission {
 
 #[derive(Default, Debug)]
 struct Progress {
+    source_deferred: bool,
     phase: Duration,
     accepted: usize,
     limited: bool,
@@ -119,6 +129,10 @@ pub(super) struct Attempt {
 }
 
 impl Attempt {
+    pub fn source_deferred(&self, deferred: bool) {
+        self.progress.lock().unwrap().source_deferred |= deferred;
+    }
+
     pub fn can_start_group(&self, accepted: usize) -> bool {
         self.can_start_at(accepted, self.started.elapsed())
     }
@@ -554,5 +568,27 @@ mod tests {
                 .extend(&[Bytes::from_static(&[0xff])], DaOverhead::default(), None)
                 .is_err()
         );
+    }
+    #[test]
+    fn source_only_deferral_preserves_capacity_but_resource_and_transport_failures_back_off() {
+        let mut state = AutomaticAdmission {
+            sample: Some(sample(64, 100)),
+            retry_limit: None,
+        };
+        let a = attempt(64, 0, false, None);
+        a.source_deferred(true);
+        a.completed();
+        state.finish(&a);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 128);
+        let timed_out = attempt(64, 0, true, None);
+        timed_out.source_deferred(true);
+        timed_out.completed();
+        state.finish(&timed_out);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1);
+        state.retry_limit = None;
+        let transport = attempt(64, 0, false, None);
+        transport.source_deferred(true);
+        state.finish(&transport);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 32);
     }
 }

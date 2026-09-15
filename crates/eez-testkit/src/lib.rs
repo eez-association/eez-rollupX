@@ -7,8 +7,10 @@
 #![allow(missing_debug_implementations)]
 
 mod artifacts;
+mod l1_reorg;
 mod ports;
 pub mod signals;
+pub use l1_reorg::{L1ReorgControl, setup_cross_chain_with_l1_reorg};
 
 use std::{
     collections::HashSet,
@@ -3962,6 +3964,8 @@ pub struct CrossChainWorld {
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
+    /// Present only when the existing fixture uses controlled L1 consensus.
+    pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
     beacon: BeaconStub,
     _witness_dir: tempfile::TempDir,
@@ -5124,7 +5128,16 @@ pub async fn run_scenarios(
 
 /// Start the shared cross-chain fixture.
 pub async fn setup_cross_chain() -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, &[], NativeL1Profile::default(), false, false).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        &[],
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
 }
 
 /// Start the fixture with additional node environment variables.
@@ -5138,6 +5151,7 @@ pub async fn setup_cross_chain_with_env(
         NativeL1Profile::default(),
         false,
         false,
+        false,
     )
     .await
 }
@@ -5146,7 +5160,7 @@ pub async fn setup_cross_chain_with_profile(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, false, false).await
+    setup_cross_chain_inner(None, None, extra_env, profile, false, false, false).await
 }
 
 /// Route the canonical reader through the existing fault-capable relay from
@@ -5155,7 +5169,7 @@ pub async fn setup_cross_chain_with_profile_and_rpc_faults(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, false, true).await
+    setup_cross_chain_inner(None, None, extra_env, profile, false, true, false).await
 }
 
 /// The existing streaming proxy with runtime fault/recovery control.
@@ -5167,6 +5181,7 @@ pub async fn setup_cross_chain_with_prover_faults(
         None,
         extra_env,
         NativeL1Profile::default(),
+        false,
         false,
         false,
     )
@@ -5185,6 +5200,7 @@ pub async fn setup_cross_chain_proxied(
         NativeL1Profile::default(),
         false,
         false,
+        false,
     )
     .await
 }
@@ -5196,7 +5212,7 @@ pub async fn setup_cross_chain_with_fixed_fee_fixture(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, true, false).await
+    setup_cross_chain_inner(None, None, extra_env, profile, true, false, false).await
 }
 
 pub async fn setup_cross_chain_empty_call() -> Result<CrossChainEmptyCallWorld> {
@@ -5346,6 +5362,7 @@ async fn setup_cross_chain_inner(
     profile: NativeL1Profile,
     fixed_fee_fixture: bool,
     reader_faults: bool,
+    controlled_consensus: bool,
 ) -> Result<CrossChainWorld> {
     let mut cfg = CrossChainConfig::new(profile)?;
     if fixed_fee_fixture {
@@ -5383,6 +5400,9 @@ async fn setup_cross_chain_inner(
         cfg.genesis_time,
     )
     .await?;
+    let mut l1_reorg_control = controlled_consensus
+        .then(|| L1ReorgControl::prepare(&cfg, &builder_stub))
+        .transpose()?;
     let mut env = cfg.env(&builder_stub.url, beacon.endpoint());
     if reader_faults {
         env.push(("EEZ_L1_RPC_URL", builder_stub.url.clone()));
@@ -5397,6 +5417,9 @@ async fn setup_cross_chain_inner(
     ]);
     // Before the assertion below, so caller-supplied vars are checked too.
     env.extend_from_slice(extra_env);
+    if let Some(control) = &l1_reorg_control {
+        env.extend(control.env());
+    }
     assert!(
         !env.iter().any(|(name, _)| *name == "EEZ_PROOF_SIGNER_KEY"),
         "remote composer environment must not contain the proof-signer key",
@@ -5416,6 +5439,9 @@ async fn setup_cross_chain_inner(
 
     node.wait_for_rpc(&l1_rpc, SETUP_TIMEOUT, "embedded L1 RPC")
         .await?;
+    if let Some(control) = &mut l1_reorg_control {
+        control.start(&cfg).await?;
+    }
     let dep = deploy_protocol_dev(
         &l1_rpc,
         cfg.deployer_key,
@@ -5512,6 +5538,7 @@ async fn setup_cross_chain_inner(
         outbound_wrapper,
         prover_proxy,
         proof_signer,
+        l1_reorg_control,
         builder_stub,
         beacon,
         _witness_dir: witness_dir,

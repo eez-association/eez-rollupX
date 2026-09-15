@@ -124,6 +124,10 @@ impl ExecutorError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ExecutorErrorKind {
+    /// A temporary source-chain condition. The candidate fork is discarded,
+    /// but independent senders may still compose against the same pinned state.
+    #[error("source blocked: {0}")]
+    SourceBlocked(SourceCondition),
     /// The target chain is not reachable or not configured for the
     /// requested operation.
     #[error("target chain unavailable: {0}")]
@@ -153,6 +157,40 @@ pub enum ExecutorErrorKind {
         caller: crate::rollup_id::RollupId,
         /// Requested target rollup.
         target: crate::rollup_id::RollupId,
+    },
+}
+
+/// Conditions that can change without changing a signed source transaction.
+/// Classified where the EVM rejects the transaction, not by parsing its text.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum SourceCondition {
+    /// The pinned source state has not executed an earlier nonce.
+    #[error("nonce {transaction_nonce} requires predecessor {required_nonce}")]
+    Nonce {
+        /// Nonce carried by the signed transaction.
+        transaction_nonce: u64,
+        /// Next nonce required by the source state.
+        required_nonce: u64,
+    },
+    /// The signed execution fee cap is below the current source base fee.
+    #[error("source fee cap is below the base fee")]
+    Fee,
+    /// The source cannot cover the transaction's maximum upfront cost.
+    #[error("source balance {available} is below required {required}")]
+    Balance {
+        /// Upfront cost reported by EVM validation.
+        required: alloy_primitives::U256,
+        /// Available source-account balance.
+        available: alloy_primitives::U256,
+    },
+    /// A withdrawal lacks pinned rollup escrow or physical L1 backing.
+    #[error("settlement funds {available} are below required {required}")]
+    Escrow {
+        /// Withdrawal value required by the frame or complete group.
+        required: alloy_primitives::U256,
+        /// Physical manager backing or per-rollup escrow after the accepted prefix.
+        available: alloy_primitives::U256,
     },
 }
 

@@ -216,14 +216,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # forwarding; the Beacon fixture exposes canonical receipts only.
                 for raw in txs:
                     self._capture_blob(raw)
-                resp = urllib.request.urlopen(
-                    urllib.request.Request(
-                        self.upstream,
-                        data=json.dumps(body).encode(),
-                        headers={"Content-Type": "application/json"},
-                    ),
-                    timeout=10,
-                ).read()
+                single = (self.test_control_dir and os.path.exists(
+                    os.path.join(self.test_control_dir, "single-transaction.json")))
+                # The controlled-consensus native fixture uses a standard EL
+                # Engine API. Keep the same proof/hold/Beacon barriers, but use
+                # the existing single-transaction relay semantics on that EL.
+                if single and len(txs) != 1:
+                    resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
+                        "error": {"code": -32602, "message": "controlled native relay requires exactly one transaction"}}).encode()
+                else:
+                    forwarded = {"jsonrpc": "2.0", "id": body.get("id"),
+                        "method": "eth_sendRawTransaction", "params": txs} if single else body
+                    resp = urllib.request.urlopen(
+                        urllib.request.Request(
+                            self.upstream,
+                            data=json.dumps(forwarded).encode(),
+                            headers={"Content-Type": "application/json"},
+                        ),
+                        timeout=10,
+                    ).read()
             elif len(txs) != 1:
                 resp = json.dumps({
                     "jsonrpc": "2.0",

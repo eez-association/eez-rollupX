@@ -77,7 +77,7 @@ pub use dialect::ChainDialect;
 pub use error::{
     ComposerError, ComposerErrorKind, ComposerResult, CompositionError, CompositionErrorKind,
     CompositionResult, ExecutorError, ExecutorErrorKind, ExecutorResult, ProtocolError,
-    ProtocolErrorKind, ProtocolResult,
+    ProtocolErrorKind, ProtocolResult, SourceCondition,
 };
 #[doc(inline)]
 pub use executor::{ChainClient, ExecutionRequest, SessionSnapshot, TargetExecutionSession};

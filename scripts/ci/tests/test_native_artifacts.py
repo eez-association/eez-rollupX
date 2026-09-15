@@ -252,6 +252,7 @@ class NativeArtifactTest(unittest.TestCase):
     def test_test_inventory_and_serialism_are_preserved(self):
         self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
                                          "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
+                                         "queue_liveness", "queue_reorg",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors",
                                          "ethereum_kzg_compatibility"])
         self.assertIn("kind(lib) | kind(bin)", native.SUITES["unit"])
@@ -274,6 +275,8 @@ class NativeArtifactTest(unittest.TestCase):
             self.assertIn(name, native.TARGETS)
         self.assertIn("binary(=settlement_policy_gas)", native.SUITES["cross-chain"])
         self.assertIn("binary(=dynamic_admission)", native.SUITES["cross-chain"])
+        self.assertIn("binary(=queue_liveness)", native.SUITES["cross-chain"])
+        self.assertIn("binary(=queue_reorg)", native.SUITES["cross-chain"])
         self.assertIn("binary(=settlement_policy)", native.SUITES["embedded"])
 
     def test_test_features_are_isolated_without_losing_binary_unit_tests(self):

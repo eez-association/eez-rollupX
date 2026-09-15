@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use alloy_consensus::Header;
-use alloy_primitives::{Address, Bytes, TxKind};
+use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_sol_types::SolCall;
 use reth_evm::{ConfigureEvm, Evm as _};
 use reth_evm_ethereum::EthEvmConfig;
@@ -27,7 +27,7 @@ use revm::context::result::EVMError;
 use revm::context_interface::{ContextSetters, ContextTr, JournalTr};
 use revm::database::CacheState;
 use revm::interpreter::{CallInputs, CallOutcome, Interpreter};
-use revm::{DatabaseCommit, Inspector};
+use revm::{Database, DatabaseCommit, Inspector};
 
 use eez_protocol::abi::{
     authorizedProxiesCall, computeCrossChainProxyAddressCall, createCrossChainProxyCall,
@@ -215,6 +215,7 @@ pub struct L1TargetSession {
     chain_id: u64,
     posting_origin: Option<Address>,
     posting_gas_price: u128,
+    defer_source_conditions: bool,
 }
 
 impl std::fmt::Debug for L1TargetSession {
@@ -240,7 +241,11 @@ impl L1TargetSession {
     ///
     /// Returns [`ExecutorErrorKind::Provider`] when the anchor state cannot be
     /// opened, [`ExecutorErrorKind::Evm`] when env construction fails.
-    pub fn new(state: &L1SlotState, client: Arc<LocalChainClient>) -> ExecutorResult<Self> {
+    pub fn new(
+        state: &L1SlotState,
+        client: Arc<LocalChainClient>,
+        defer_source_conditions: bool,
+    ) -> ExecutorResult<Self> {
         let posting_origin = state.posting.as_ref().map(|(_, origin, _)| *origin);
         let posting_gas_price = state.posting.as_ref().map_or(0, |(_, _, price)| *price);
         let (state, mut evm_env) = state.open_state(&client, state.cache.clone())?;
@@ -266,6 +271,7 @@ impl L1TargetSession {
             chain_id,
             posting_origin,
             posting_gas_price,
+            defer_source_conditions,
         })
     }
 
@@ -369,6 +375,27 @@ impl TargetExecutionSession for L1TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        // An unfunded manager frame fails before composition can materialize
+        // the rollup's exact ether delta. Treat missing physical backing as a
+        // source wait; the caller still checks the per-rollup escrow before
+        // accepting any successful composition. Read this fork's state so the
+        // accepted prefix and nested calls retain their normal value semantics.
+        if self.defer_source_conditions && !req.value.is_zero() {
+            let available = self
+                .state
+                .basic(self.manager)
+                .map_err(provider_err)?
+                .map_or(U256::ZERO, |account| account.balance);
+            if req.value > available {
+                return Err(ExecutorErrorKind::SourceBlocked(
+                    eez_protocol::SourceCondition::Escrow {
+                        required: req.value,
+                        available,
+                    },
+                )
+                .into());
+            }
+        }
         let proxy = self.proxy_address(req.source_address, req.source_rollup_id)?;
         if !self.is_authorized_proxy(proxy)? {
             // `_processNCalls` creates and registers a missing source proxy in
@@ -662,7 +689,6 @@ impl TargetExecutionSession for InboundL2TargetSession {
 #[cfg(test)]
 mod posting_frame_tests {
     use super::*;
-    use alloy_primitives::U256;
     use revm::{
         context::{BlockEnv, CfgEnv, TxEnv},
         database::InMemoryDB,

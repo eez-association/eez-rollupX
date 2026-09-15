@@ -215,15 +215,71 @@ async fn late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_ta
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement() {
-    assert_companion_fee_or_funding_recovery(false).await;
+    assert_source_deferral_recovery(
+        false,
+        eez_testkit::NativeL1Profile::EthereumOsaka,
+        "1",
+        false,
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives() {
-    assert_companion_fee_or_funding_recovery(true).await;
+    assert_source_deferral_recovery(
+        true,
+        eez_testkit::NativeL1Profile::EthereumOsaka,
+        "1",
+        false,
+    )
+    .await;
 }
 
-async fn assert_companion_fee_or_funding_recovery(funding: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_blocked_fee_sender_does_not_starve_independent_auto_work() {
+    assert_source_deferral_recovery(
+        false,
+        eez_testkit::NativeL1Profile::GnosisPrague,
+        "auto",
+        false,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_blocked_balance_sender_does_not_starve_independent_auto_work() {
+    assert_source_deferral_recovery(
+        true,
+        eez_testkit::NativeL1Profile::GnosisPrague,
+        "auto",
+        false,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_blocked_outbound_balance_allows_independent_limit_one_work() {
+    assert_source_deferral_recovery(true, eez_testkit::NativeL1Profile::EthereumOsaka, "1", true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_blocked_outbound_balance_allows_independent_auto_work() {
+    assert_source_deferral_recovery(
+        true,
+        eez_testkit::NativeL1Profile::GnosisPrague,
+        "auto",
+        true,
+    )
+    .await;
+}
+
+async fn assert_source_deferral_recovery(
+    funding: bool,
+    profile: eez_testkit::NativeL1Profile,
+    limit: &str,
+    outbound: bool,
+) {
     use alloy_consensus::{SignableTransaction as _, TxEip1559};
     use alloy_eips::Encodable2718 as _;
     use alloy_network::TxSignerSync as _;
@@ -232,9 +288,29 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
     use eez_testkit::{IValue, onchain_nonce, sign_and_send, wait_for};
     let mut env = policy_env(Vec::new(), "interval");
     env.push(("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()));
-    let world = setup_cross_chain_with_env(&env).await.unwrap();
-    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
+    env.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", limit.into()));
+    let world = eez_testkit::setup_cross_chain_with_profile(profile, &env)
+        .await
+        .unwrap();
+    let source_rpc = if outbound {
+        world.l2_rpc()
+    } else {
+        world.l1_rpc()
+    };
+    let source_front = if outbound {
+        world.l2_xchain()
+    } else {
+        world.l1_xchain()
+    };
+    let source = ProviderBuilder::new().connect_http(source_rpc.parse().unwrap());
+    let queue_rpc = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let front = ProviderBuilder::new().connect_http(source_front.parse().unwrap());
+    let source_chain_id = source.get_chain_id().await.unwrap();
+    let target = if outbound {
+        world.outbound_proxy
+    } else {
+        world.setter_proxy
+    };
     let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(100)).unwrap();
     // Use the real source-chain transfer, not a state override. Both users
     // individually pass ingress, but cumulative execution can exhaust funding.
@@ -243,11 +319,11 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
     } else {
         100_000_000_000_000_000u64
     });
-    let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap();
+    let nonce = onchain_nonce(&source_rpc, ANVIL_KEY_1).await.unwrap();
     let funded = sign_and_send(
-        &world.l1_rpc(),
+        &source_rpc,
         ANVIL_KEY_1,
-        eez_testkit::DEV_CHAIN_ID,
+        source_chain_id,
         nonce,
         Some(signer.address()),
         value,
@@ -257,18 +333,18 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
     .await
     .unwrap();
     wait_for(TIMEOUT, || async {
-        eez_testkit::receipt_ok(&world.l1_rpc(), funded).await
+        eez_testkit::receipt_ok(&source_rpc, funded).await
     })
     .await
     .unwrap();
     let signed = |nonce, price: u128| {
         let mut tx = TxEip1559 {
-            chain_id: eez_testkit::DEV_CHAIN_ID,
+            chain_id: source_chain_id,
             nonce,
             gas_limit: 600_000,
             max_fee_per_gas: price,
             max_priority_fee_per_gas: price.min(1_000_000_000),
-            to: TxKind::Call(world.setter_proxy),
+            to: TxKind::Call(target),
             input: IValue::setValueCall {
                 v: U256::from(41 + nonce),
             }
@@ -316,10 +392,13 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
         authorized.push(second);
     }
     wait_for(TIMEOUT, || async {
-        Ok((world
-            .node
-            .log_count_matching(&["funding or fee conditions unavailable"])?
-            >= 2)
+        let queue: serde_json::Value = queue_rpc
+            .client()
+            .request("eez_getCrossChainQueueStatus", ())
+            .await?;
+        let expected_nonce = u64::from(funding);
+        Ok((queue["blocked"].as_u64().is_some_and(|n| n > 0)
+            && source.get_transaction_count(signer.address()).await? == expected_nonce)
             .then_some(()))
     })
     .await
@@ -333,9 +412,15 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
         batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
             .await
             .unwrap(),
-        0
+        usize::from(funding)
     );
-    assert_eq!(l1.get_transaction_count(signer.address()).await.unwrap(), 0);
+    assert_eq!(
+        source
+            .get_transaction_count(signer.address())
+            .await
+            .unwrap(),
+        u64::from(funding)
+    );
     assert_eq!(
         world
             .node
@@ -343,12 +428,72 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
             .unwrap(),
         0
     );
+    // An independent source must settle while the original sender is still
+    // blocked, including when the configured selection limit is exactly one.
+    // Fee cases cross the phase boundary: inbound A can reveal outbound B
+    // only after the outbound phase ended, so B must lead the next discovery.
+    let independent_outbound = if funding { outbound } else { !outbound };
+    let (independent_rpc, independent_front, independent_target) = if independent_outbound {
+        (world.l2_rpc(), world.l2_xchain(), world.outbound_proxy)
+    } else {
+        (world.l1_rpc(), world.l1_xchain(), world.setter_proxy)
+    };
+    let independent_chain_id = ProviderBuilder::new()
+        .connect_http(independent_rpc.parse().unwrap())
+        .get_chain_id()
+        .await
+        .unwrap();
+    let independent_nonce = onchain_nonce(&independent_rpc, eez_testkit::ANVIL_KEY_2)
+        .await
+        .unwrap();
+    let independent = sign_and_send(
+        &independent_front,
+        eez_testkit::ANVIL_KEY_2,
+        independent_chain_id,
+        independent_nonce,
+        Some(independent_target),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(99) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    assert!(
+        wait_for(TIMEOUT, || async {
+            eez_testkit::receipt_ok(&independent_rpc, independent).await
+        })
+        .await
+        .unwrap_or_else(|e| panic!(
+            "independent sender stalled: {e:#}{}",
+            world.settlement_diagnostics()
+        ))
+    );
+    assert_eq!(
+        source
+            .get_transaction_count(signer.address())
+            .await
+            .unwrap(),
+        u64::from(funding)
+    );
+    let blocked_hash = if funding {
+        *authorized[1].tx_hash()
+    } else {
+        *first.tx_hash()
+    };
+    assert!(
+        source
+            .get_transaction_receipt(blocked_hash)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
     if funding {
-        let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap();
+        let nonce = onchain_nonce(&source_rpc, ANVIL_KEY_1).await.unwrap();
         let funded = sign_and_send(
-            &world.l1_rpc(),
+            &source_rpc,
             ANVIL_KEY_1,
-            eez_testkit::DEV_CHAIN_ID,
+            source_chain_id,
             nonce,
             Some(signer.address()),
             U256::from(100_000_000_000_000_000u64),
@@ -359,7 +504,7 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
         .unwrap();
         assert!(
             wait_for(TIMEOUT, || async {
-                eez_testkit::receipt_ok(&world.l1_rpc(), funded).await
+                eez_testkit::receipt_ok(&source_rpc, funded).await
             })
             .await
             .unwrap()
@@ -376,7 +521,8 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
         );
         authorized.push(replacement);
         assert!(
-            l1.get_transaction_receipt(*first.tx_hash())
+            source
+                .get_transaction_receipt(*first.tx_hash())
                 .await
                 .unwrap()
                 .is_none()
@@ -385,7 +531,7 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
     for tx in &authorized {
         assert!(
             wait_for(TIMEOUT, || async {
-                eez_testkit::receipt_ok(&world.l1_rpc(), *tx.tx_hash()).await
+                eez_testkit::receipt_ok(&source_rpc, *tx.tx_hash()).await
             })
             .await
             .unwrap_or_else(|error| panic!(
@@ -393,25 +539,33 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
                 world.settlement_diagnostics()
             ))
         );
-        let included = l1
+        let included = source
             .get_transaction_by_hash(*tx.tx_hash())
             .await
             .unwrap()
             .unwrap();
         assert_eq!(included.inner.encoded_2718(), tx.encoded_2718());
     }
-    let dispatched = world
+    let dispatched: Vec<_> = world
         .node
         .signals_since(0)
         .unwrap()
         .into_iter()
-        .find(|event| event.name == "eez.composer.bundle.dispatched")
+        .filter(|event| event.name == "eez.composer.bundle.dispatched")
+        .collect();
+    for event in &dispatched {
+        let attempts: Vec<u32> =
+            serde_json::from_str(event.fields["attempt_counts"].as_str().unwrap()).unwrap();
+        assert!(
+            attempts.iter().all(|n| *n == 0),
+            "source deferral must not charge an attempt"
+        );
+    }
+    let covered = dispatched
+        .iter()
+        .filter_map(|event| event.fields["sync_height"].as_u64())
+        .max()
         .unwrap();
-    assert_eq!(
-        dispatched.fields["attempt_counts"],
-        if funding { "[0, 0]" } else { "[0]" }
-    );
-    let covered = dispatched.fields["sync_height"].as_u64().unwrap();
     let follower = NodeHandle::start(
         "source-fee-follower",
         &NodeConfig {
@@ -429,7 +583,7 @@ async fn assert_companion_fee_or_funding_recovery(funding: bool) {
         batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
             .await
             .unwrap(),
-        1
+        if funding { 3 } else { 2 }
     );
 }
 

@@ -135,6 +135,9 @@ pub async fn gate_and_hold(
     };
     if let Err(err) = held_pool.push_contiguous(tx, on_chain) {
         return Admission::Rejected(match err {
+            AdmissionError::ReconciliationPending => format!(
+                "source ownership for {hash} awaits canonical reconciliation; retry after settlement reconciliation"
+            ),
             AdmissionError::Nonce { expected, on_chain } => format!(
                 "invalid nonce {nonce} for {sender}: expected next unreserved nonce {expected} (source-chain nonce {on_chain})"
             ),
