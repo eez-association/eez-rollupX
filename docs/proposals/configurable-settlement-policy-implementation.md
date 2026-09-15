@@ -228,35 +228,62 @@ Each case must link to executing coverage before completion.
 
 ## Validation record
 
-The reviewed feature was checked against a fresh frozen runtime built with
-Rust **1.94.0** and Foundry **1.7.1**, at protocol submodule
+Validation uses Rust **1.94.0** and Foundry **1.7.1**, at protocol submodule
 `3c0cdf4955941a5c23639346932b55b33babebbd`. Full commands, test inventories,
 results, source fingerprints, and executable hashes are retained locally in
-`artifacts/pr-preparation-20260914/`. Tests execute the emitted libtest binaries
-serially against the frozen composer, follower, and signer; subsequent composer
-unit-test compilation cannot replace that runtime.
+`artifacts/pr-preparation-20260914/`. The complete original matrix validates
+the Rust source in feature commit `8980484`; the final dependency correction
+changes only four packages in `Cargo.lock`. Its rebuild and revalidation records
+are in the `tls-fixed-candidate/` subdirectory. Tests execute the emitted libtest
+binaries serially against each frozen composer, follower, and signer;
+subsequent composer unit-test compilation cannot replace those runtimes.
 
 | Candidate check | Result |
 | --- | --- |
-| Rust unit and protocol-vector suites | **932 passed**: 789 across the non-composer libraries, signer, and vector targets; 143 composer tests, including the two composition-ownership regressions |
-| Native node integration matrix | **93 passed**; the separate Kurtosis replay case requires an enclave and is explicitly ignored in this matrix |
+| Rust unit and protocol-vector suites | **932 passed on each lockfile**: 789 across the non-composer libraries, signer, and vector targets; 143 composer tests, including the two composition-ownership regressions |
+| Native node integration matrix | **93 passed** on the original reviewed runtime; **17 selected cases passed** again with the final lockfile. The separate Kurtosis replay case requires an enclave and is explicitly ignored in the native matrix. |
 | Python CI and verification helpers | **216 unique tests covered**, including all four opt-in real infrastructure checks: Docker runtime packaging, native archive relocation, Docker payload extraction, and isolated Kurtosis resources |
 | Strict workspace lint | `cargo +1.94.0 clippy --offline --locked --workspace --all-targets -j 2 -- -D warnings` passed with no lint allowances |
 | Minimal feature build | Driver, node-common, and L1 with `--no-default-features` passed |
 | Shipping executables and native test inventory | Both builds passed with `--offline --locked`; runtime files were frozen before test-only feature unification |
+| Dependency security policy | `cargo deny check advisories bans sources` and `cargo audit` passed with the final lockfile and unchanged policies; 14 existing allowed warnings remain |
 | Contract and complete protocol Anvil suites | **427 Solidity tests passed** (19 integration + 408 core protocol), and all **28 Anvil scenarios passed** |
 | Configuration propagation | Enabled and disabled Chiado/Kurtosis Compose checks, Chiado blob configuration, and explorer Compose validation passed |
 | Public explorer and monitor checks | Blockscout WSS, Blobscan pages/charts/currency and authenticated binary download, monitor links, canonical safe-block identity, and historical multi-blob decode passed; these read-only checks use the existing deployment |
 | Explorer offline checks | Chiado profile/fork/capacity/fee checks and archive-only blob proxy checks passed. Whitespace normalization of the compatibility patch applies with zero fuzz and produces the same 1,078 source files byte for byte. |
 | Formatting, syntax, and patch hygiene | Rust formatting, Python/shell/JavaScript syntax, whitespace, source inventory, and documentation-link checks passed; repeated before commit |
 
-The candidate runtime SHA-256 identities are:
+Final-lock native revalidation covers legacy posting, Ethereum/Gnosis `always`
+behavior, the canonical interval timer, empty consolidation, posting more than
+six blobs, ordered cross-chain overrides, Gnosis ordinary data budgets, automatic
+mixed admission on both profiles, same-block partial settlement, restart after
+partial settlement, complete companion-gas budgets, receipt costs with the
+network priority margin, and rejection of a tampered witness. All 17 exact case
+names and commands are recorded in
+`tls-fixed-candidate/native-revalidation-selection.json` and its result file.
+This is targeted revalidation of the dependency update; the complete 93-case
+matrix was run before that update. The existing GitHub CI runs the full native
+inventory and Kurtosis for the submitted revision.
 
-| Executable | SHA-256 |
-| --- | --- |
-| `eez-composer` | `928093b745a17d585ba886348d448fafadab4fd7347e37ea88cb23fc48a6a460` |
-| `eez-follower` | `1c503cffb8d2f973cad933216694da0b8a401584df1aa10d636e3771337f3bfe` |
-| `eez-proof-signer` | `b8b7ced8eea5b3d39ae536edfb9ba53b2fb1f4cb73ca42da7db2810d4d2cc5bf` |
+The regular Python/helper suite and both enabled/disabled deployment profiles
+were also rerun against the final lockfile: 212 Python cases passed, with the
+four opt-in cases already verified separately. All six original/final runtime
+hashes and the reviewed Rust-source fingerprints were checked before commit.
+
+The runtime SHA-256 identities distinguish the original full-matrix run from
+the final lockfile containing the Rustls correction:
+
+| Runtime | Executable | SHA-256 |
+| --- | --- | --- |
+| Original feature | `eez-composer` | `928093b745a17d585ba886348d448fafadab4fd7347e37ea88cb23fc48a6a460` |
+| Original feature | `eez-follower` | `1c503cffb8d2f973cad933216694da0b8a401584df1aa10d636e3771337f3bfe` |
+| Original feature | `eez-proof-signer` | `b8b7ced8eea5b3d39ae536edfb9ba53b2fb1f4cb73ca42da7db2810d4d2cc5bf` |
+| Final lockfile | `eez-composer` | `eb1d43d14ae737a1d415e3405d4a62f18262185ab7060ae9a0891e34a6554332` |
+| Final lockfile | `eez-follower` | `4e3ed8c0b4ead252e6d9183f70c6b5f10caa7d23bb496039ed147e8144b9818b` |
+| Final lockfile | `eez-proof-signer` | `9419528e2abc023f731c5a3f832829a623d03707032e44566e0ac9a29550e392` |
+
+The final `Cargo.lock` SHA-256 is
+`857d0de8c8009004981da2928952cfbebfeeaacdee8e123d0f24516e3316ae2c`.
 
 The existing native inventory is authoritative in
 `scripts/ci/native-tests.py`. Build its non-composer targets before the composer
@@ -270,6 +297,8 @@ Other reproducible checks:
 
 ```sh
 cargo +1.94.0 fmt --all -- --check
+cargo deny check advisories bans sources
+cargo audit
 cargo +1.94.0 clippy --offline --locked --workspace --all-targets -- -D warnings
 cargo +1.94.0 check --offline --locked -p eez-driver -p eez-node-common \
   -p eez-l1 --no-default-features
@@ -331,7 +360,7 @@ selection delay remains unexplained in the recovery audit.
 | Python builder stub/tests | Narrow temporary RPC faults and acknowledged-but-unincluded bundle fixture; existing atomic production submission is unchanged |
 | Example envs, Compose files, Kurtosis profile/main/check scripts | Explicit opt-in settings and fee policy, obsolete-cap removal, existing precedence, selected signer/follower profiles |
 | `testing/explorers/*`, public-gateway guide, `scripts/deploy-ui-demo.sh` | Separate Chiado Blockscout/Blobscan deployment, pinned compatibility patch, public routing, and canonical-data/browser verification; operational details are in the explorer README |
-| Workspace/crate manifests and lockfile | Existing native Gnosis executor reuse, optional shared chain-spec loading, REVM synthetic fee flag and test-only dependencies; no dependency-version upgrade |
+| Workspace/crate manifests and lockfile | Existing native Gnosis executor reuse, optional shared chain-spec loading, REVM synthetic fee flag and test-only dependencies; the final dependency audit also required the Rustls security update described below |
 | Operator guide, this ledger, audit evidence | Configuration defaults/units/validation/migration, complete requirement mapping, actual receipt/root/DA/cost evidence and reproduction |
 
 ## Priority fee percentage margin
@@ -390,3 +419,19 @@ restoration, eviction/release preservation, newer replacements, repeated error
 handling, and requests already awaiting canonical evidence. This correction is
 separate from the ordinary-pool selection delay in the Chiado recovery audit;
 that incident's root cause remains unestablished.
+
+## Dependency security correction
+
+The final dependency audit found
+[RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html),
+published on September 14. The inherited `rustls 0.23.40` accepts some TLS 1.3
+handshake messages across encryption-level boundaries. The lockfile now selects
+the patched `rustls 0.23.45`, with its required `rustls-webpki 0.103.15`,
+`aws-lc-rs 1.18.1`, and `aws-lc-sys 0.45.0` dependencies. No unrelated package
+versions or dependency edges were changed by this correction.
+
+Both `cargo deny check advisories bans sources` and `cargo audit` pass with the
+existing policies. The 14 already allowed warnings remain; no advisory exception
+or test allowance was added. Validation distinguishes the original full-matrix
+runtime from the rebuilt runtime containing this security patch. Existing live
+Chiado deployment evidence predates the patch.
