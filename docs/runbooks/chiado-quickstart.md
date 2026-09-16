@@ -14,6 +14,8 @@ The deploy image supplies contract sources, Forge, and genesis tools.
 
 ## 1. Configure
 
+Create `.env` only if it does not already exist; preserve existing settings:
+
 ```bash
 cp .env.chiado.example .env
 chmod 600 .env
@@ -26,7 +28,7 @@ Edit `.env`:
   separate from the proof signer. Fund the poster with test xDAI; it also deploys
   unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 - Keep the other defaults. If you change `EEZ_L1_BUILDER_RPC_URL`, use a Chiado
-  builder supporting `eth_sendBundle`. Startup probes the builder automatically.
+  builder supporting `eth_sendBundle`.
 
 The three EEZ images default to `:latest`, which can change on startup.
 To keep a fixed deployment, set all three image references to the same full Git
@@ -34,13 +36,8 @@ commit tag, or pin each image's digest.
 Use the matching checkout for Compose/configuration; details:
 [image selection](chiado-deployment.md#image-selection).
 
-```bash
-source .env
-cast chain-id --rpc-url "$EEZ_L1_RPC_URL"
-```
-
-Require **10200** before continuing. The deploy image's base genesis includes
-funded development accounts; review [genesis allocations](chiado-deployment.md#genesis-allocations)
+The deploy image's base genesis includes funded development accounts;
+review [genesis allocations](chiado-deployment.md#genesis-allocations)
 before registering a rollup intended for shared use.
 
 ## 2. Prepare chain data — once
@@ -53,13 +50,10 @@ docker run --rm -v "$PWD/data/chiado-l1:/data" \
 openssl rand -hex 32 > data/jwt.hex
 ```
 
-Wait for a successful download. Preserve the databases and JWT on restart.
-
 ## 3. Deploy contracts — once
 
 **Broadcasts transactions. Do not repeat after a partial failure:** inspect
-`contracts/broadcast/` receipts and deployment output first. The deploy command
-checks genesis generation and tools before its first broadcast.
+`contracts/broadcast/` receipts and deployment output first.
 
 ```bash
 source .env
@@ -75,22 +69,17 @@ docker run --rm --pull always --platform linux/amd64 --network host \
 ```
 
 Require a successful exit and completed `deployments.env`, `datadir/genesis.json`,
-and `datadir/genesis.profile.json`. Output files are owned by root. The simulation
-flag skips Foundry simulation; transactions still broadcast. A genesis file alone
-does not establish a completed deployment.
+and `datadir/genesis.profile.json`.
 
 ## 4. Start and check
 
 ```bash
 bash scripts/chiado-up.sh
-docker compose ps
-cast block-number --rpc-url http://127.0.0.1:18688
 ```
 
-The script starts the three services and verifies advancing L2/L1 commitments plus
-retrievable blobs from a new type-3 settlement.
-It preserves data and requires existing deployment bindings. A timeout leaves
-containers running; inspect logs instead of redeploying:
+Success: `chiado L2 is UP` and a settlement transaction hash. The script starts
+the node, signer, and Lighthouse, then checks L2 height, L1 settlement, and blob
+retrieval. A timeout leaves containers running; inspect logs:
 
 ```bash
 docker compose logs --tail=100 eez-node eez-proof-signer lighthouse
@@ -105,6 +94,5 @@ bash scripts/teardown-chiado.sh
 RPC ports: L2 `18688`, embedded L1 `18645`, inbound front `18999`, outbound front
 `18998`. Preserve `.env`, `deployments.env`, `datadir/`, `data/`,
 receipts, and image references/digests. Use the detailed runbook for
-[verification](chiado-deployment.md#start-and-verify),
-[failures](chiado-deployment.md#troubleshooting), and
+[failures](chiado-deployment.md#troubleshooting) and
 [local development](chiado-deployment.md#local-source-development).
