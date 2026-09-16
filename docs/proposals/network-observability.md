@@ -1,6 +1,6 @@
 # EEZ network observability proposal
 
-Draft implementation plan, 2026-09-16. Based on repository inspection and current vendor documentation; no live deployment inspection or changes were performed. Implementation has started in `feat/network-observability`; see [current evidence](../../observability/validation/initial-slice.md). Work packages remain incomplete unless that evidence explicitly says otherwise.
+Draft implementation plan, 2026-09-16. Based on repository inspection and current vendor documentation; no live deployment inspection or changes were performed. Implementation has started in `feat/network-observability`; see [exporter evidence](../../observability/validation/initial-slice.md) and [backend evidence](../../observability/validation/backend-stack.md). Work packages remain incomplete unless that evidence explicitly says otherwise.
 
 Reviewed twice by Claude using the proposal text only, followed by local source verification by Codex. See the [original review](network-observability-claude-review.md), [follow-up review](network-observability-claude-followup.md), and [finding dispositions](network-observability-review-disposition.md). The implementation decisions at the end of this document resolve the review findings; remaining integration checks have explicit fallbacks and do not block the RPC-based first release.
 

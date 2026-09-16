@@ -2,7 +2,8 @@
 
 Base: main at `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`.
 Worktree: `target/worktrees/network-observability`, branch `feat/network-observability`.
-Date: 2026-09-16. This is an implementation start, not completion of stage 1.
+Date: 2026-09-16. This records the first implementation slice, not completion of stage 1.
+Subsequent backend work is recorded in [backend-stack.md](backend-stack.md).
 
 | Area | Evidence / decision | Status |
 | --- | --- | --- |

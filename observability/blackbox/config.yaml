@@ -1,0 +1,16 @@
+modules:
+  rpc_http:
+    prober: http
+    timeout: 5s
+    http:
+      method: POST
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"result"\s*:\s*"0x[0-9a-fA-F]+"']
+      fail_if_body_matches_regexp: ['"error"\s*:']
+      follow_redirects: false
+  signer_tcp:
+    prober: tcp
+    timeout: 5s

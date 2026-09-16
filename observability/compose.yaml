@@ -1,0 +1,111 @@
+# Isolated monitoring backend. Start with a prepared runtime and explicit project name.
+services:
+  prometheus:
+    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+    ports: ["127.0.0.1:${PROMETHEUS_PORT:-19090}:9090"]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: &logging
+      driver: local
+      options: {max-size: "10m", max-file: "3"}
+
+  grafana:
+    image: grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_METRICS_ENABLED: "true"
+      GF_LOG_MODE: console
+    ports: ["127.0.0.1:${GRAFANA_PORT:-19300}:3000"]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    secrets: [grafana_admin_password]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      prometheus: {condition: service_healthy}
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  loki:
+    image: grafana/loki:3.7.7@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500
+    restart: unless-stopped
+    command: [-config.file=/etc/loki/config.yaml]
+    ports: ["127.0.0.1:${LOKI_PORT:-19310}:3100"]
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    mem_limit: 768m
+    cpus: 1.0
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  alloy:
+    user: alloy
+    image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+    restart: unless-stopped
+    command: [run, --disable-reporting, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy, /etc/alloy/config.alloy]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${OBS_LOG_DIR:?set OBS_LOG_DIR to dedicated JSON log directory}:/var/log/eez:ro
+      - alloy-data:/var/lib/alloy
+    mem_limit: 256m
+    cpus: 0.5
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
+    restart: unless-stopped
+    command: [--config.file=/etc/blackbox/config.yaml]
+    volumes: ["./blackbox/config.yaml:/etc/blackbox/config.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 128m
+    cpus: 0.5
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+secrets:
+  grafana_admin_password:
+    file: ${OBS_RUNTIME:?run prepare.py}/secrets/grafana-admin-password
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:

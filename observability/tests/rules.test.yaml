@@ -1,0 +1,55 @@
+rule_files:
+  - ../prometheus/recording-rules.yaml
+evaluation_interval: 15s
+tests:
+  - name: queue_freshness_and_failed_scrape_never_leave_healthy_recordings
+    interval: 15s
+    input_series:
+      - series: 'up{job="eez-observer",instance="node-1",environment="devnet",deployment="test"}'
+        values: '1 1 0 1 1'
+      - series: 'eez_observer_collection_success{job="eez-observer",instance="node-1",environment="devnet",deployment="test",source="queue"}'
+        values: '1 1 1 0 1'
+      - series: 'eez_observer_queue_evaluation_valid{job="eez-observer",instance="node-1",environment="devnet",deployment="test"}'
+        values: '1 0 1 1 1'
+      - series: 'eez_observer_queue_transactions{job="eez-observer",instance="node-1",environment="devnet",deployment="test",state="queued_ready"}'
+        values: '1 1 1 1 1'
+      - series: 'eez_observer_queue_transactions{job="eez-observer",instance="node-1",environment="devnet",deployment="test",state="queued_blocked"}'
+        values: '1 1 1 1 1'
+      - series: 'eez_observer_queue_transactions{job="eez-observer",instance="node-1",environment="devnet",deployment="test",state="queued_unknown"}'
+        values: '1 1 1 1 1'
+      - series: 'eez_observer_queue_transactions{job="eez-observer",instance="node-1",environment="devnet",deployment="test",state="in_flight"}'
+        values: '2 2 2 2 2'
+    promql_expr_test:
+      - expr: 'sum(eez:queue_transactions:current)'
+        eval_time: 0s
+        exp_samples: [{labels: '{}', value: 5}]
+      - expr: 'eez:queue_transactions:current'
+        eval_time: 15s
+        exp_samples: []
+      - expr: 'eez:queue_transactions:current'
+        eval_time: 30s
+        exp_samples: []
+      - expr: 'eez:queue_transactions:current'
+        eval_time: 45s
+        exp_samples: []
+      - expr: 'sum(eez:queue_transactions:current)'
+        eval_time: 60s
+        exp_samples: [{labels: '{}', value: 5}]
+  - name: chain_head_series_are_removed_when_exporter_scrape_fails
+    interval: 15s
+    input_series:
+      - series: 'up{job="eez-observer",instance="node-1"}'
+        values: '1 0'
+      - series: 'eez_observer_collection_success{job="eez-observer",instance="node-1",source="l1"}'
+        values: '1 1'
+      - series: 'eez_observer_chain_head_number{job="eez-observer",instance="node-1",source="l1"}'
+        values: '100 100'
+    promql_expr_test:
+      - expr: 'eez:chain_head_number:current'
+        eval_time: 0s
+        exp_samples:
+          - labels: 'eez:chain_head_number:current{job="eez-observer",instance="node-1",source="l1"}'
+            value: 100
+      - expr: 'eez:chain_head_number:current'
+        eval_time: 15s
+        exp_samples: []

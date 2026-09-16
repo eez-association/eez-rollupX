@@ -1,9 +1,11 @@
 # Self-hosted EEZ observability
 
-Implementation branch: `feat/network-observability`. This first slice implements
-the database-free WP3a RPC exporter. The [reviewed plan](../docs/proposals/network-observability.md)
-covers the later Grafana/Prometheus/Loki stack, canonical ledger and tracing.
-Those services are not deployed by this change.
+Implementation branch: `feat/network-observability`. The database-free RPC exporter
+and the self-hosted Prometheus/Grafana/Loki/Alloy backend are implemented. Two
+provisioned dashboards cover network and collection health. See the
+[reviewed plan](../docs/proposals/network-observability.md) for canonical accounting
+and tracing, which remain later work. The backend has been exercised with local
+fixtures; it has not been connected to the live Chiado deployment.
 
 The exporter reads L1/L2 identity and latest heads, the EEZ queue RPC, and an
 optional independent L1 reference. It never submits transactions, reads `.env`
@@ -46,8 +48,9 @@ Prometheus target configuration owns `environment`, `deployment`, `service` and
 in metric labels. The [metric contract](contracts/metrics.md) describes the
 initial signals; [recording rules](prometheus/recording-rules.yaml) gate raw
 values on collection/evaluation validity. Do not sum exporter and future native
-producers. Host metrics, latest/safe/finalized comparisons, full completion
-progress and the actual Prometheus/Grafana deployment remain future work.
+producers. Optional host metrics use an existing private node-exporter target. Native
+client instrumentation, safe/finalized comparisons and full completion progress
+remain future work.
 
 Checks:
 
@@ -67,3 +70,85 @@ checks failure/recovery across real polling cycles (roughly 30 seconds).
 See [initial integration evidence](validation/initial-slice.md) for implemented
 scope, findings and outstanding gates. No native Reth recorder, composer,
 signer, live Chiado configuration, or protocol data is changed by this slice.
+
+**Start the monitoring backend.**
+
+1. Keep the exporter running with verified chain identities. Its target must be
+   reachable from the monitoring containers: a host loopback listener is not
+   reachable through `host.docker.internal`. Bind an approved private interface
+   with `allow_non_loopback=true`, or supply a private tunnel. Check the actual
+   host firewall path; this setup does not modify firewall rules.
+2. Create a dedicated approved JSON-log directory and copy
+   `stack.example.json` to a private configuration file. Fill the deployment
+   labels, exporter target, operator webhook, and independently hosted heartbeat
+   receiver. Optional node-exporter/public-RPC/signer targets remain null until
+   configured. Supplying a webhook config makes it the notification destination
+   when you start the stack; `prepare.py` itself makes no network calls.
+3. Prepare and start a separate Compose project:
+
+```bash
+python3 observability/prepare.py \
+  --config /tmp/eez-monitoring-stack.json \
+  --runtime .runtime/observability
+
+docker compose --project-name eez-observability \
+  --env-file .runtime/observability/compose.env \
+  -f observability/compose.yaml up -d --wait
+```
+
+Grafana defaults to `http://127.0.0.1:19300`, Prometheus to
+`http://127.0.0.1:19090`, and Loki to `http://127.0.0.1:19310`. Use an SSH tunnel
+or authenticated private access for remote viewing. Grafana's initial user is
+`admin`; read its generated password from
+`.runtime/observability/secrets/grafana-admin-password`. The preparation tool
+preserves that file on reruns and never prints its value. Keep the runtime
+parent directory mode 0700: generated backend configs can contain webhook
+credentials. The password file is readable by the container UID through its
+individual secret mount.
+
+Open **EEZ · Network overview** or **EEZ · Infrastructure and collection**.
+Both select environment/deployment/instance and display missing stat values as
+**Unknown**. Optional reference-head and host panels remain unknown when not
+configured. Dashboard files, data sources, recording rules, alerts, contact
+points and routing are provisioned from version-controlled inputs.
+
+Loki/Alloy collect only the explicitly selected JSONL files. This Compose profile
+mounts those files from the backend host; a separate-node topology requires an
+agent on that node and a private transport to Loki, not an assumed shared path.
+The packaged blackbox exporter runs on the backend too; configure a separate
+probe exporter to test availability from an independent network location.
+
+The notification and storage procedures, heartbeat receiver requirements,
+missing-data semantics and recovery limitations are in the
+[operations runbook](runbooks/operations.md). A newly configured receiver still
+needs a delivery test, and production readiness requires a separate-host
+heartbeat receiver and backup/restore drill. The current test proves container-replacement
+persistence, not recovery after loss of the monitoring disk.
+
+**Validate the complete backend without live services.**
+
+```bash
+python3 observability/tests/test_prepare.py
+cargo build --locked -p eez-observer
+python3 observability/tests/smoke-stack.py
+```
+
+The integration test uses a unique `eez-obs-test-*` project and the pinned
+[test-only fixture image](tests/images.lock.json). It runs the real Rust
+exporter against fixture RPCs inside that project's Docker network, sends all
+notifications to its fixture receiver, and removes only its own containers and
+volumes. It checks Compose, `promtool` config/rules, Alloy config, both dashboards'
+queries, file-to-Loki ingestion, failure/recovery notifications, container-replacement
+persistence and missing heartbeats after stopping the backend. Timings are
+shortened only inside the test; normal Grafana alerts evaluate every 30 seconds
+with two-minute failure periods and one-minute heartbeats. The final JSON report
+is written under `.runtime/` without credentials.
+
+Images are pinned by tag **and** digest in [Compose](compose.yaml) and
+[the image lock](images.lock.json). The test mounts the locally built Linux
+exporter into its Linux fixture image; build a matching-architecture binary
+first. The normal backend deployment uses your separately managed exporter.
+
+The dedicated [Observability CI workflow](../.github/workflows/observability.yml)
+runs exporter checks and the isolated backend test on relevant pull requests.
+It uploads only the sanitized validation report, not runtime credentials or logs.
