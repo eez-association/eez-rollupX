@@ -71,18 +71,24 @@ class ChiadoConfigTest(unittest.TestCase):
             env={**environment, **images}, text=True, capture_output=True,
         )
 
-    def test_images_must_be_selected_explicitly(self):
-        for images in ({}, {"EEZ_NODE_IMAGE": "eez-node:local"},
-                       {"EEZ_PROOF_SIGNER_IMAGE": "eez-proof-signer:local"}):
+    def test_images_default_to_latest_when_unset_or_empty(self):
+        for images in ({}, {"EEZ_NODE_IMAGE": "", "EEZ_PROOF_SIGNER_IMAGE": ""},
+                       {"EEZ_NODE_IMAGE": "eez-node:local"}):
             with self.subTest(images=images):
                 result = self.render_images(images)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("set EEZ_", result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["eez-node"]["image"],
+                                 images.get("EEZ_NODE_IMAGE") or "ghcr.io/eduadiez/rollupx-node:latest")
+                self.assertEqual(services["eez-proof-signer"]["image"],
+                                 "ghcr.io/eduadiez/rollupx-proof-signer:latest")
 
     def test_published_and_local_images_share_configuration_without_builds(self):
         for node, signer in (
             ("ghcr.io/eduadiez/rollupx-node@sha256:" + "a" * 64,
              "ghcr.io/eduadiez/rollupx-proof-signer@sha256:" + "b" * 64),
+            ("ghcr.io/eduadiez/rollupx-node:" + "c" * 40,
+             "ghcr.io/eduadiez/rollupx-proof-signer:" + "c" * 40),
             ("eez-node:local", "eez-proof-signer:local"),
         ):
             with self.subTest(node=node):

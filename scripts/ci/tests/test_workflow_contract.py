@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 try:
@@ -48,6 +49,100 @@ class WorkflowContractTest(unittest.TestCase):
         results = self.result("true")
         results["kurtosis-e2e"]["result"] = "skipped"
         self.assertNotEqual(self.run_gate(results).returncode, 0)
+
+    def test_promotion_is_after_the_gate_and_only_on_main(self):
+        job = self.jobs["ci-result"]
+        promotion = job["steps"][1]
+        self.assertEqual(promotion["if"],
+                         "${{ success() && github.ref == 'refs/heads/main' && needs.build-runtime.outputs.published == 'true' }}")
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
+        self.assertIn("github.ref", job["concurrency"]["group"])
+        self.assertEqual(job["permissions"]["packages"], "write")
+        self.assertEqual(promotion["env"]["IMAGES"], "${{ needs.build-runtime.outputs.images }}")
+        producer = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
+        trigger = producer.get("on", producer.get(True))
+        self.assertEqual(trigger["workflow_call"]["outputs"]["images"]["value"],
+                         "${{ jobs.build.outputs.images }}")
+        self.assertEqual(producer["jobs"]["build"]["outputs"]["images"], "${{ steps.payloads.outputs.images }}")
+
+    def promote(self, *, current=True, fail_api=False, fail_publish=False, images=None):
+        with tempfile.TemporaryDirectory(prefix="eez-image-promotion.") as directory:
+            root = Path(directory)
+            shim = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+tool = Path(sys.argv[0]).name
+args = sys.argv[1:]
+with open(os.environ["PROMOTION_LOG"], "a") as log:
+    log.write(json.dumps([tool, *args]) + "\n")
+if tool == "gh":
+    if os.environ["FAIL_API"] == "true": sys.exit(1)
+    print(os.environ["MAIN_HEAD"])
+elif args[0] == "login":
+    assert sys.stdin.read() == "fixture-token"
+elif args[:3] == ["buildx", "imagetools", "create"]:
+    if os.environ["FAIL_PUBLISH"] == "true": sys.exit(1)
+elif args[0] != "logout":
+    raise SystemExit("Unexpected Docker operation")
+'''
+            for name in ("docker", "gh"):
+                path = root / name
+                path.write_text(shim)
+                path.chmod(0o755)
+            references = {role: {"reference": f"ghcr.io/eduadiez/rollupx-{suffix}@sha256:" + digit * 64}
+                          for role, suffix, digit in (("node", "node", "1"),
+                                                      ("signer", "proof-signer", "2"),
+                                                      ("deploy", "deploy", "3"))}
+            result = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", self.jobs["ci-result"]["steps"][1]["run"]],
+                text=True, capture_output=True, env={**os.environ,
+                    "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                    "GH_TOKEN": "fixture-token", "GITHUB_ACTOR": "operator",
+                    "GITHUB_REPOSITORY": "eduadiez/rollupX", "GITHUB_SHA": "a" * 40,
+                    "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                    "IMAGES": json.dumps(references if images is None else images),
+                    "MAIN_HEAD": ("a" if current else "b") * 40,
+                    "FAIL_API": str(fail_api).lower(), "FAIL_PUBLISH": str(fail_publish).lower(),
+                    "PROMOTION_LOG": str(root / "commands"),
+                },
+            )
+            commands = [json.loads(line) for line in (root / "commands").read_text().splitlines()]
+            copies = [command for command in commands if command[1:4] == ["buildx", "imagetools", "create"]]
+            return result, copies, references
+
+    def test_promotion_tags_exact_tested_digests_with_bare_commit_and_latest(self):
+        result, copies, images = self.promote()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = {(image["reference"].split("@")[0] + ":" + tag, image["reference"])
+                    for image in images.values() for tag in ("a" * 40, "latest")}
+        self.assertEqual({(c[c.index("--tag") + 1], c[-1]) for c in copies}, expected)
+        self.assertEqual(len(copies), 6)
+        self.assertTrue(all("--prefer-index=false" in c for c in copies))
+
+    def test_older_run_publishes_commit_tags_without_moving_latest(self):
+        result, copies, _ = self.promote(current=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(copies), 3)
+        self.assertTrue(all(c[c.index("--tag") + 1].endswith(":" + "a" * 40) for c in copies))
+        self.assertIn("latest unchanged", result.stdout)
+
+    def test_failed_lookup_or_publication_fails_ci_without_claiming_release(self):
+        result, copies, _ = self.promote(fail_api=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(copies), 3)
+        self.assertFalse(any(c[c.index("--tag") + 1].endswith(":latest") for c in copies))
+        result, copies, _ = self.promote(fail_publish=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(copies), 1)
+
+    def test_missing_producer_images_fail_before_tagging(self):
+        for images in ({}, {"deploy": {"reference": "ghcr.io/eduadiez/rollupx-deploy@sha256:" + "3" * 64}},
+                       {role: {"reference": "ghcr.io/eduadiez/rollupx-node:latest"}
+                        for role in ("node", "signer", "deploy")}):
+            with self.subTest(images=images):
+                result, copies, _ = self.promote(images=images)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(copies, [])
 
     def test_three_initial_lanes_keep_all_consolidated_checks(self):
         self.assertEqual({name for name, job in self.jobs.items() if not job.get("needs")},

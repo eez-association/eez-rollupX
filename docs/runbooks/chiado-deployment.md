@@ -64,7 +64,7 @@ the task's authorization.
 | Host tools | Bash, Git, Make, `curl`, `jq`, Python 3, OpenSSL, GNU utilities (`realpath`, `sha256sum`, `cmp`), `ss` (iproute2) |
 | Foundry | `forge` and `cast` from **1.7.1**; genesis generation enforces the `forge` version |
 | Storage capacity | Space for published images, L1 snapshot, PeerDAS data, and growing databases. Check `df -h .` and Docker storage; no measured minimum is established here. Published runtime images avoid local Rust builds. |
-| Network access | GHCR images, Solidity compiler download, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers. Private GHCR packages require `docker login ghcr.io` with an account/token allowed to read them. |
+| Network access | Public GHCR images, Solidity compiler download, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers. |
 | Deployment RPC | Synchronized Chiado execution RPC, chain ID **10200**; remains required by startup even when the embedded L1 is running |
 | Builder | Separate endpoint implementing `eth_sendBundle`; an ordinary execution RPC is insufficient |
 | Beacon | Packaged Lighthouse **v8.1.3**, checked-in `configs/chiado`, `--semi-supernode`, full-blob API; built-in Chiado config in this image leaves Fulu disabled |
@@ -116,7 +116,7 @@ the rollup. Changing genesis after registration changes its identity.
 | File/variable | Default location and ownership |
 | --- | --- |
 | `.env` | Private deployment RPC/keys; read by `make deploy-protocol` |
-| `.env.chiado` | Private service keys, **node/signer image digests**, and Compose settings; overrides `.env` during startup; preserve on restart |
+| `.env.chiado` | Private service keys, **node/signer image references**, and Compose settings; overrides `.env` during startup; preserve on restart |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
@@ -140,28 +140,30 @@ setup step; do not repeat contract deployment without reconciling broadcasts.
 
 ### 1. Select a published revision and check the checkout
 
-Select a **completed, successful `CI` run on this fork's `main`** in
-[GitHub Actions](https://github.com/eduadiez/rollupX/actions/workflows/ci.yml).
-The **Build runtime artifacts / build** job's **Runtime candidate** summary lists
-node, signer, and deploy image digests. Copy the node and signer references from
-that same run; this host-based deployment procedure does not need the deploy image.
+The defaults are `ghcr.io/eduadiez/rollupx-node:latest` and
+`ghcr.io/eduadiez/rollupx-proof-signer:latest`. CI also publishes the deployment
+image as `ghcr.io/eduadiez/rollupx-deploy`; this host-based procedure does not need it.
 
-| Runtime | Official fork package |
+| Tag/reference | Use |
 | --- | --- |
-| Node, Composer, genesis helpers | `ghcr.io/eduadiez/rollupx-node` |
-| Proof signer | `ghcr.io/eduadiez/rollupx-proof-signer` |
+| `:latest` | Default; updated after all validation lanes pass for the current `main` head |
+| `:<full-Git-commit>` | Select that validated source revision |
+| `@sha256:<image-digest>` | Pin exact image bytes, including across rebuilds of the same commit |
 
-CI tags are `sha-<full-commit>-<run-id>-<build-attempt>`; there is no `latest` or
-stable release tag. Prefer the summary's `@sha256:...` references so restart uses
-identical bytes. Publication precedes downstream tests: a successful build job
-alone is insufficient. Upstream association images are not this fork's binaries.
-If no completed successful run exists for the desired revision, wait for/fix CI
-before treating that candidate as qualified for deployment.
+[CI](https://github.com/eduadiez/rollupX/actions/workflows/ci.yml) promotes the exact
+tested digests without rebuilding. `latest` is mutable, and node/signer tags update
+separately: after pulling, require matching revision labels before proceeding.
+An older run cannot move `latest` backward after `main` advances.
 
-Use a clean checkout of that run's exact commit and its pinned submodule. Inspect
-local changes before changing revisions; preserve them. Do not use an older image
-with current contracts/configuration merely because it pulls successfully.
-Run the following after selecting the checkout; the guard rejects existing state:
+For a new rollup, pull the default pair and switch a clean checkout to their source
+revision **before** copying configuration templates or deploying contracts. Set
+both references to the same full commit instead when selecting a specific version.
+Do not substitute upstream association images or combine images with unrelated
+contracts/configuration. A commit tag selects source; record resolved digests for
+exact rollback because a successful rerun can rebuild that commit.
+
+The guard rejects existing deployment state. Inspect `git status` first and
+preserve local changes; the commands below require a clean tracked checkout:
 
 ```bash
 (
@@ -171,7 +173,17 @@ Run the following after selecting the checkout; the guard rejects existing state
     [[ ! -e "$path" ]] || { echo "Existing state: $path; identify the deployment first"; exit 1; }
   done
   git status --short
-  git rev-parse HEAD
+  git diff --quiet
+  git diff --cached --quiet
+  node_image=ghcr.io/eduadiez/rollupx-node:latest
+  signer_image=ghcr.io/eduadiez/rollupx-proof-signer:latest
+  docker pull --platform linux/amd64 "$node_image"
+  docker pull --platform linux/amd64 "$signer_image"
+  revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$node_image")"
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$revision" == "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$signer_image")" ]]
+  git fetch origin main
+  git switch --detach "$revision"
   git ls-tree HEAD eez-core-protocol
   git submodule update --init --recursive eez-core-protocol
   git submodule status --recursive
@@ -183,7 +195,7 @@ Run the following after selecting the checkout; the guard rejects existing state
 )
 ```
 
-**Pass:** checkout matches the selected CI commit, submodule matches the gitlink,
+**Pass:** both images and checkout share one source commit, submodule matches the gitlink,
 Foundry reports 1.7.1, static check prints
 `Chiado post-Fulu blob deployment configuration: PASS`.
 The check uses examples, not the live configuration.
@@ -205,7 +217,7 @@ Create private files, then edit them:
 | File | Required edits |
 | --- | --- |
 | `.env` | Replace the example `EEZ_L1_RPC_URL` with your synchronized Chiado RPC; set the three required keys; optionally set `EEZ_DEPLOY_KEY`. |
-| `.env.chiado` | Paste the selected `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` digest references; set the **same three keys**, verify `EEZ_L1_BUILDER_RPC_URL`, and retain the default paths above, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. |
+| `.env.chiado` | Keep the default `:latest` references or set both `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` to the selected commit/digests; set the **same three keys**, verify `EEZ_L1_BUILDER_RPC_URL`, and retain the default paths above, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. |
 
 Checkpoint sync defaults to `https://checkpoint.chiadochain.net/`; set
 `LH_CHECKPOINT_URL` in `.env.chiado` to use another trusted checkpoint source.
@@ -220,9 +232,10 @@ configuration or environment dumps; they contain keys.
 
 #### Pull runtime images and install genesis tools
 
-Run after editing `.env.chiado`. Pulling downloads images but starts no services.
-Copy the two genesis helpers out of the selected node image; the temporary
-container is never started. These native helpers avoid compiling Rust during a
+Run after editing `.env.chiado`. Step 1 already pulled the node/signer pair;
+if you changed those references, pull the selected pair before continuing. Pulling
+downloads images but starts no services. Copy the two genesis helpers from the
+node; the temporary container is never started. These native helpers avoid compiling Rust during a
 partially completed contract deployment.
 
 ```bash
@@ -230,9 +243,10 @@ export PATH="$PWD/.runtime/chiado-tools:$PATH"
 (
   set -euo pipefail
   source .env.chiado
-  docker pull --platform linux/amd64 "${EEZ_NODE_IMAGE:?set the published node digest}"
-  docker pull --platform linux/amd64 "${EEZ_PROOF_SIGNER_IMAGE:?set the published signer digest}"
   docker pull --platform linux/amd64 sigp/lighthouse:v8.1.3
+  for selected_image in "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE"; do
+    [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$selected_image")" == "$(git rev-parse HEAD)" ]]
+  done
   mkdir -p .runtime/chiado-tools
   tools_container="$(docker create --platform linux/amd64 "$EEZ_NODE_IMAGE")"
   trap 'docker rm "$tools_container" >/dev/null' EXIT
@@ -248,8 +262,9 @@ export PATH="$PWD/.runtime/chiado-tools:$PATH"
 
 **Pass:** two 32-byte hex hashes, successful contract build, and both images'
 revision/protocol labels match `git rev-parse HEAD` / `git ls-tree HEAD eez-core-protocol`.
-Record the digests and CI URL. Re-export `PATH` in each operator shell; retain these
-helpers with that image selection. If missing on restart, repeat the copy/test
+Record the CI URL and resolved digests using
+`docker image inspect --format '{{json .RepoDigests}}' "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE"`.
+Re-export `PATH` in each operator shell; retain helpers with that image selection. If missing on restart, repeat the copy/test
 commands using the recorded image; do not select a newer version.
 
 #### Preflight configuration
@@ -477,7 +492,8 @@ follower replay; record those checks separately when required.
 ## Restart and stop
 
 Use the recorded checkout, image IDs, keys, bindings, genesis/profile, JWT, and data
-paths. Preserve the image digests in `.env.chiado`; changing them is an upgrade.
+paths. With `:latest`, an explicit pull can change the next startup into an upgrade.
+Use commit/digest references in `.env.chiado` when the deployment must stay pinned.
 Startup uses `--no-build --pull never`: pull the recorded images explicitly if
 they are missing locally.
 Do not rerun first-deployment steps for an ordinary restart.
@@ -536,8 +552,9 @@ matching diagnostic below; do not delete state to clear an unexplained error.
 
 | Failure | First check and action |
 | --- | --- |
-| Missing image/configuration | Set both image references in `.env.chiado`; use the recorded node/signer digests and `docker pull` each image plus `sigp/lighthouse:v8.1.3`. Startup does not pull or build. A missing `deployments.env` requires completing deployment or restoring bindings, not deleting data. |
-| GHCR denied / manifest unknown | Check package spelling, digest and CI run; authenticate with `docker login ghcr.io` if package visibility requires it. Do not substitute `:latest` or another fork. |
+| Missing image/configuration | Check image references in `.env.chiado` (`:latest` by default); use the recorded references and `docker pull` each image plus `sigp/lighthouse:v8.1.3`. Startup does not pull or build. A missing `deployments.env` requires completing deployment or restoring bindings, not deleting data. |
+| Image not found | Check the public package name, tag/digest, and CI promotion result. The tag must have been published by a successful promotion job. |
+| Node/signer revisions differ after pull | The separate `latest` tags may have been updated between pulls. Pull both again and compare `org.opencontainers.image.revision`; alternatively select the same full commit tag for both. Require checkout/revision agreement before deployment. |
 | Genesis helper fails to load | Re-export `.runtime/chiado-tools` in `PATH`; check `ldd --version` and `ldd .runtime/chiado-tools/eez-genesis-block-hash`. Use Linux amd64/glibc 2.36+ and recopy helpers from the selected image. |
 | Missing/mismatched genesis | Use the [startup block](#start-and-verify) to load all three env files and check hashes; stop before `chiado-up.sh` while diagnosing. Fresh deployment: finish registration. Existing deployment: recover exact bindings/genesis, including timestamp. |
 | Deploy failed before bindings were written | Inspect the timestamped private log and `contracts/broadcast/`. Use `cast receipt` for each broadcast transaction and `cast nonce` for the deployer against the configured deployment RPC. Reconcile confirmed addresses/nonces before another deploy. |
@@ -610,8 +627,9 @@ checks retrieval/shape; it does not independently verify KZG proofs or replay.
    An execution snapshot does not provide missing blob history. Do not delete the
    current L2 database until the recovery path has been tested.
 3. For upgrades, check node/signer/protocol compatibility, stored-state formats,
-   configuration changes, and rollout order. Select both new image digests from one
-   successful CI run, use its checkout, and repeat the pull/helper setup. Retain
+   configuration changes, and rollout order. Pull both intended image references,
+   verify matching source labels, use that checkout, and repeat the helper setup.
+   Pulling `latest` is an explicit upgrade selection. Retain
    previous `.env.chiado`, image digests, checkout, and backups;
    a binary downgrade works only if old code can read the resulting data and speak
    the deployed protocol. Repeat startup, semantic, and replay checks required by
@@ -645,11 +663,12 @@ docker pull sigp/lighthouse:v8.1.3
 ```
 
 Use the same genesis-helper copy and deployment/start procedures, omitting the
-node/signer **pull** commands. Local builds require BuildKit and Rust build capacity.
+published-image pulls and revision-label assertions. Local builds require
+BuildKit and Rust build capacity.
 Local Dockerfiles do not add CI provenance labels; record the source commit/local
 changes and image IDs instead of comparing those labels. Rebuilding `:local`
-changes its bytes; treat the next restart as an upgrade. An existing local deployment can retain its images by setting these
-two variables; switching to published images requires the upgrade checks above.
+changes its bytes; treat the next restart as an upgrade. An existing local
+deployment can retain its images by setting these two variables; switching to published images requires the upgrade checks above.
 
 ## Handoff record
 
@@ -658,7 +677,7 @@ the [audit template](../audits/TEMPLATE.md), linked to this runbook:
 
 | Record | Required contents |
 | --- | --- |
-| Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, CI run URL, node/signer image digests and local IDs, Lighthouse tag/resolved digest, tool versions |
+| Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, CI run URL, node/signer references, resolved digests and local IDs, Lighthouse tag/resolved digest, tool versions |
 | Chain identity | L1/L2 chain IDs, registry/rollup/manager, proof system and attester, system/bridge addresses, deploy block, transaction receipts |
 | State/files | Genesis/profile SHA-256 digests, initial block hash and state root; retained locations of bindings, data, JWT, and backups |
 | Credentials | Private secret-manager/access references; never commit keys or authenticated URLs |

@@ -13,8 +13,8 @@ for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t no
 
 [[ -s deployments.env ]] || { echo "✗ deployments.env missing — complete explicit deployment or restore the original bindings; startup never redeploys" >&2; exit 1; }
 set -a; source .env; source .env.chiado; set +a
-: "${EEZ_NODE_IMAGE:?set EEZ_NODE_IMAGE in .env.chiado}"
-: "${EEZ_PROOF_SIGNER_IMAGE:?set EEZ_PROOF_SIGNER_IMAGE in .env.chiado}"
+export EEZ_NODE_IMAGE="${EEZ_NODE_IMAGE:-ghcr.io/eduadiez/rollupx-node:latest}"
+export EEZ_PROOF_SIGNER_IMAGE="${EEZ_PROOF_SIGNER_IMAGE:-ghcr.io/eduadiez/rollupx-proof-signer:latest}"
 # Pull published images (or build development images) explicitly before startup.
 for selected_image in "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE" sigp/lighthouse:v8.1.3; do
     docker image inspect "$selected_image" >/dev/null || { echo "✗ Missing image: $selected_image" >&2; exit 1; }

@@ -3,6 +3,22 @@
 Run commands from the repository root. This fork's behavior and the pinned
 protocol revision are the review baseline; upstream `main` is not a substitute.
 
+## Keep changes simple
+
+- Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions settings and
+  commands over repository-specific scripts or wrappers.
+- Add a script or abstraction only for repeated, error-prone work or a concrete
+  requirement existing tools cannot cover; state that reason. Do not add release
+  selectors, custom lock files, extra modes, or frameworks for simple configuration.
+- Stay within the requested behavior. Remove unnecessary indirection and duplicated
+  tooling; preserve required protocol checks, invariants, and regression coverage.
+- Keep quick starts to normal setup, run, and check commands. Put defensive guard
+  loops, source auditing, and recovery logic in the detailed runbook.
+- Describe current behavior in comments and operator documentation. Never reference
+  legacy implementations or narrate changes; keep history in audits or commits.
+- Treat the repository and published images as public. Do not add authentication
+  instructions for cloning the repository or pulling images.
+
 ## Before changing code
 
 ```bash
@@ -190,9 +206,12 @@ of duplicating it. Small fixes/docs edits need no new proposal/audit pair.
 
 For Chiado, use the [quick start](docs/runbooks/chiado-quickstart.md) and
 [deployment runbook](docs/runbooks/chiado-deployment.md) within the task's
-deployment/funding/recovery authorization. Keep runtime image selection explicit
-in `.env.chiado`; deployed node/signer digests must come from one successful fork
-CI run matching the checkout/protocol. Reserve `:local` for development builds.
+deployment/funding/recovery authorization. Chiado defaults to the fork's `:latest`
+images; full Git commit tags and digests are explicit pins.
+Promote deployment tags only from tested CI digests after all validation passes;
+never rebuild during promotion or let older runs roll `latest` backward. Match
+node/signer source revisions with the deployment checkout/protocol. Reserve
+`:local` for development builds.
 Startup must require existing bindings and preserve datadirs; deployment is a
 separate broadcast operation. Worktrees do not isolate fixed container names,
 ports, databases, or shared wallets. Clean up only owned

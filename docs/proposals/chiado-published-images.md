@@ -6,9 +6,15 @@ Baseline: fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`, protocol
 
 ## Behavior and acceptance
 
-- Set `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` directly in `.env.chiado`.
-  Operators copy digests from one successful `main` CI run and use its checkout.
-  The base Compose definition has no build rules or implicit local-image fallback.
+- Default `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` to the fork's `:latest`
+  images. Offer the full Git commit and image digest as explicit
+  pins. Use the images' source revision for the deployment checkout.
+- After every validation lane passes on `main`, add plain commit tags to the
+  exact tested node/signer/deploy digests. Update `latest` only if that commit is
+  still the `main` head; serialize promotion to prevent an older run rolling it
+  back. Keep CI's existing per-run candidates and digest handoffs unchanged.
+  Implement promotion in the existing workflow, without another operator script.
+- The base Compose definition has no build rules or implicit local-image fallback.
 - Keep `eez-node:local` / `eez-proof-signer:local` for explicit development builds
   using existing Dockerfiles. No new operator scripts or image-lock format.
 - Startup requires existing bindings and locally available selected images;
@@ -21,18 +27,21 @@ Baseline: fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`, protocol
 
 ## Compatibility and validation
 
-Existing local deployments must set the two image variables before startup or
+Existing local deployments must set both `:local` references before startup or
 teardown. Published images and local tags use the same Compose service definitions.
 Changing images is an upgrade; preserve `.env.chiado`, bindings/genesis/databases
 and assess protocol/storage compatibility. No automatic data migration, downgrade,
 or durable pending-request recovery is introduced.
 
-Validate rendered image selection, missing-image rejection, absence of build rules,
-secret isolation, and non-destructive missing-bindings startup. Run existing Chiado,
-settlement configuration, and CI tooling checks. Real image pulls and a fresh-host
-rehearsal are separate evidence; a published candidate is not a fully passed CI run.
+Validate default/latest and explicit image selection, absence of build rules,
+secret isolation, non-destructive missing-bindings startup, promotion after the
+validation gate, and older-run protection. Run existing Chiado, settlement
+configuration, and CI tooling checks. Real registry promotion and a fresh-host
+rehearsal are separate evidence; a CI candidate is not a fully passed release.
 
-## Validation record — 2026-09-16
+## Initial explicit-image validation — 2026-09-16
+
+Evidence for `a90f53e`, before adding commit/latest promotion:
 
 - Chiado configuration: 11 tests passed; static blob and Chiado/Kurtosis settlement
   configuration checks passed.
@@ -42,4 +51,17 @@ rehearsal are separate evidence; a published candidate is not a fully passed CI 
 - Documentation: 25 Bash examples passed syntax checks; 63 local links/anchors
   resolved, including pinned protocol documents; `git diff --check` passed.
 - No real image pull, contract broadcast, stack restart, or fresh-host rehearsal
-  was performed. Select a fully successful CI candidate before live deployment.
+  was performed.
+
+## Commit/latest validation — 2026-09-16
+
+- `python3 -m unittest discover -s scripts/ci/tests -v`: 233 selected, 229 passed,
+  four opt-in integration tests skipped. Offline promotion cases cover exact
+  source digests, bare commit/latest tags, older runs, missing references, API
+  failure, and publication failure. Every required lane remains in the CI gate.
+- Chiado blob and Chiado/Kurtosis settlement configuration checks passed; default
+  `latest`, explicit commit/digest references, and local images rendered correctly.
+- Both workflow YAML files and inline shell passed parsing/syntax checks; 26 Bash
+  examples and 64 relative links/anchors passed; `git diff --check` passed.
+- Registry promotion and deployment were not executed. New tags appear only after
+  the workflow lands on `main` and its validation/promotion steps succeed.

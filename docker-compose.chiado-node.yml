@@ -1,12 +1,13 @@
 # Packaged Chiado: embedded L1 + Composer/L2, independent signer, Lighthouse.
-# Set EEZ_NODE_IMAGE and EEZ_PROOF_SIGNER_IMAGE to published image digests in
-# .env.chiado. This deployment definition never builds images.
+# Defaults to the fork's latest validated main images. Override EEZ_NODE_IMAGE
+# and EEZ_PROOF_SIGNER_IMAGE with a full commit tag or digest to pin a deployment.
+# This deployment definition never builds images.
 # Local development uses Dockerfile / Dockerfile.signer and explicit :local tags.
 # Services use host networking; container names, ports and datadirs are shared.
 
 services:
   eez-proof-signer:
-    image: "${EEZ_PROOF_SIGNER_IMAGE:?set EEZ_PROOF_SIGNER_IMAGE in .env.chiado}"
+    image: "${EEZ_PROOF_SIGNER_IMAGE:-ghcr.io/eduadiez/rollupx-proof-signer:latest}"
     platform: linux/amd64
     container_name: eez-proof-signer-chiado
     network_mode: host
@@ -34,7 +35,7 @@ services:
       driver: "local"
 
   eez-node:
-    image: "${EEZ_NODE_IMAGE:?set EEZ_NODE_IMAGE in .env.chiado}"
+    image: "${EEZ_NODE_IMAGE:-ghcr.io/eduadiez/rollupx-node:latest}"
     platform: linux/amd64
     container_name: eez-node-chiado
     network_mode: host
@@ -96,8 +97,8 @@ services:
       # from the process env, and this service takes no env_file beyond
       # deployments.env, so they have to be forwarded explicitly. Defaults track
       # the in-code ones (composer.rs, timing.rs, l1_watcher.rs).
-      # Omitted values stay absent. Legacy mode supplies its old defaults;
-      # enabled policy rejects the old block cap and resolves active gas rules.
+      # Omitted values stay absent. With policy disabled, runtime defaults apply;
+      # enabled policy rejects EEZ_MAX_BLOCKS_PER_BATCH and resolves active gas rules.
       EEZ_MAX_BLOCKS_PER_BATCH:
       EEZ_MAX_POSTBATCH_GAS:
       EEZ_SETTLEMENT_POLICY_ENABLED: "${EEZ_SETTLEMENT_POLICY_ENABLED:-false}"
@@ -119,7 +120,7 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Unset preparation preserves the legacy rounded trigger (~800ms for
+      # Unset preparation uses the rounded trigger (~800ms for
       # preparation with these defaults). Set an explicit positive allowance
       # to reserve preparation independently and trigger at millisecond precision.
       EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-1500}"

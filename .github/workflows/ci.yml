@@ -263,7 +263,14 @@ jobs:
     if: always()
     needs: [build-runtime, lint, contract-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    # Serialize main's tag updates; PR gates have their own ref and never publish.
+    concurrency:
+      group: runtime-image-tags-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Require every validation lane
         env:
@@ -282,3 +289,36 @@ jobs:
                   raise SystemExit(f"{name}: {job['result']} (expected {expected})")
           print('All required validation passed for the release candidate.')
           PY
+      - name: Publish commit and latest image tags
+        if: ${{ success() && github.ref == 'refs/heads/main' && needs.build-runtime.outputs.published == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGES: ${{ needs.build-runtime.outputs.images }}
+        shell: bash
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io >/dev/null' EXIT
+          references="$(jq -er '[.node.reference, .signer.reference, .deploy.reference] |
+            if all(.[]; type == "string" and test("@sha256:[0-9a-f]{64}$"))
+            then .[] else error("Expected three runtime image digests") end' <<<"$IMAGES")"
+          [[ -n "$references" ]]
+          while IFS= read -r reference; do
+            repository="${reference%@*}"
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$repository:$GITHUB_SHA" "$reference"
+          done <<<"$references"
+
+          # An older, slower run may finish after a newer commit. Its commit tag
+          # is valid, but it must not replace latest for the current main head.
+          main_head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$main_head" != "$GITHUB_SHA" ]]; then
+            echo 'Commit tags published; latest unchanged because main has advanced.'
+            exit 0
+          fi
+          while IFS= read -r reference; do
+            repository="${reference%@*}"
+            docker buildx imagetools create --prefer-index=false \
+              --tag "$repository:latest" "$reference"
+            printf -- '- `%s:%s` and `%s:latest` → `%s`\n' \
+              "$repository" "$GITHUB_SHA" "$repository" "$reference" >> "$GITHUB_STEP_SUMMARY"
+          done <<<"$references"

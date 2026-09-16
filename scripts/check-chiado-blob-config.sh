@@ -9,8 +9,7 @@ for tool in docker jq; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
-# Lighthouse v8 reads bootstrap_nodes.yaml for custom networks. The older
-# boot_enr.yaml filename alone silently leaves peer discovery without seeds.
+# Lighthouse v8 requires bootstrap_nodes.yaml to seed custom-network discovery.
 [[ -s configs/chiado/bootstrap_nodes.yaml ]] || {
     echo "Chiado Lighthouse bootstrap_nodes.yaml is missing or empty" >&2
     exit 1

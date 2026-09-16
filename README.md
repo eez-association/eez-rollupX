@@ -77,7 +77,8 @@ retained only as a compatibility fallback.
 
 Start with the [Chiado quick start](docs/runbooks/chiado-quickstart.md): select
 this fork's published node/signer images, configure, deploy, and start. Runtime
-images come from GHCR; `:local` builds are for development. Use the
+images default to `:latest`; full Git commit tags and digests pin a version.
+`:local` builds are for development. Use the
 [detailed runbook](docs/runbooks/chiado-deployment.md) for preflight checks,
 restart, troubleshooting, and recovery limits.
 

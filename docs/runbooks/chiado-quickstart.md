@@ -1,6 +1,8 @@
 # Chiado quick start
 
-Run from a clean checkout of the commit you intend to deploy. This creates a
+Use a fresh deployment directory. Contract deployment uses this checkout, so
+its source revision must match the images ([version checks](chiado-deployment.md#1-select-a-published-revision-and-check-the-checkout)).
+Run commands in order and stop on any failure. This creates a
 **new rollup and spends Chiado test xDAI**. For an existing rollup, use
 [restart](chiado-deployment.md#restart-and-stop); preserve its bindings, genesis,
 keys, images, and databases. Full validation and recovery:
@@ -14,22 +16,14 @@ without whitespace or colons and enough disk for the L1 snapshot and growing dat
 
 ## 1. Choose images and configure
 
-In [this fork's CI](https://github.com/eduadiez/rollupX/actions/workflows/ci.yml),
-choose a **completed successful `main` run**. Use its exact checkout commit and
-copy the node/signer `@sha256:...` references from **Build runtime artifacts / build
-→ Runtime candidate** into `.env.chiado`. The packages are
-`ghcr.io/eduadiez/rollupx-node` and `ghcr.io/eduadiez/rollupx-proof-signer`.
-There is no `latest` tag. A passed build job alone does not mean all CI passed.
+Images default to `:latest`, published after `main` passes CI. To pin a version,
+use the same full Git commit tag on both images, or use their image digests.
 
 ```bash
-set -euo pipefail
-for path in .env .env.chiado deployments.env datadir data; do
-  [[ ! -e "$path" ]] || { echo "Existing state: $path; use the detailed runbook"; exit 1; }
-done
 git submodule update --init --recursive eez-core-protocol
-umask 077
 cp .env.example .env
 cp .env.chiado.example .env.chiado
+chmod 600 .env .env.chiado
 ```
 
 Edit both files before continuing:
@@ -37,9 +31,10 @@ Edit both files before continuing:
 - `.env`: synchronized external Chiado `EEZ_L1_RPC_URL` (chain ID **10200**),
   dedicated poster, proof-signer, and L2-system keys. Fund the poster with test
   xDAI; it also deploys unless you set/fund a separate `EEZ_DEPLOY_KEY`.
-- `.env.chiado`: the **same three keys**, both image references, and a working
+- `.env.chiado`: the **same three keys** and a working
   `EEZ_L1_BUILDER_RPC_URL` supporting `eth_sendBundle`. Keep the default paths,
-  Beacon URL, and `eip7594`. Proof/system keys must differ; keep poster separate
+  Beacon URL and `eip7594`. Keep `:latest` or set both image references to the
+  version you selected. Proof/system keys must differ; keep poster separate
   from proof signer. Review the base genesis's funded development accounts before
   registration; changing genesis later changes the rollup identity.
 
@@ -47,16 +42,14 @@ Edit both files before continuing:
 
 ```bash
 source .env.chiado
-docker pull --platform linux/amd64 "${EEZ_NODE_IMAGE:?set the node digest}"
-docker pull --platform linux/amd64 "${EEZ_PROOF_SIGNER_IMAGE:?set the signer digest}"
+docker pull --platform linux/amd64 "$EEZ_NODE_IMAGE"
+docker pull --platform linux/amd64 "$EEZ_PROOF_SIGNER_IMAGE"
 docker pull --platform linux/amd64 sigp/lighthouse:v8.1.3
 mkdir -p .runtime/chiado-tools
-(
-  tools_container="$(docker create --platform linux/amd64 "$EEZ_NODE_IMAGE")"
-  trap 'docker rm "$tools_container" >/dev/null' EXIT
-  docker cp "$tools_container:/usr/local/bin/eez-genesis-state-root" .runtime/chiado-tools/
-  docker cp "$tools_container:/usr/local/bin/eez-genesis-block-hash" .runtime/chiado-tools/
-)
+tools_container="$(docker create --platform linux/amd64 "$EEZ_NODE_IMAGE")"
+docker cp "$tools_container:/usr/local/bin/eez-genesis-state-root" .runtime/chiado-tools/
+docker cp "$tools_container:/usr/local/bin/eez-genesis-block-hash" .runtime/chiado-tools/
+docker rm "$tools_container"
 export PATH="$PWD/.runtime/chiado-tools:$PATH"
 eez-genesis-state-root genesis.json
 eez-genesis-block-hash genesis.json
@@ -65,8 +58,7 @@ bash scripts/check-chiado-blob-config.sh
 ```
 
 Expect two 32-byte hashes, a successful contract build, and configuration `PASS`.
-No Rust build is needed. If GHCR denies access, run `docker login ghcr.io` with
-package-read credentials. Before broadcasting, run the detailed
+No Rust build is needed. Before broadcasting, run the detailed
 [preflight configuration check](chiado-deployment.md#preflight-configuration) to
 verify keys, RPC freshness, funding, builder availability, and genesis rendering.
 
@@ -89,13 +81,13 @@ and JWT on restart.
 and `contracts/broadcast/` receipts if deployment fails.
 
 ```bash
-test ! -e deployments.env
-mkdir -p .runtime/chiado-deployment
-EEZ_DEPLOY_SKIP_SIMULATION=1 make deploy-protocol \
-  2>&1 | tee ".runtime/chiado-deployment/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
-test -s deployments.env
-test -s datadir/genesis.json
-test -s datadir/genesis.profile.json
+EEZ_DEPLOY_SKIP_SIMULATION=1 make deploy-protocol
+```
+
+On success, `deployments.env`, `datadir/genesis.json`, and
+`datadir/genesis.profile.json` exist. Then start:
+
+```bash
 chmod 644 datadir/genesis.json
 bash scripts/chiado-up.sh
 ```
@@ -122,7 +114,9 @@ bash scripts/teardown-chiado.sh
 
 RPC: L2 `18688`, embedded L1 `18645`, inbound front `18999`, outbound front
 `18998`. Preserve `.env`, `.env.chiado`, `deployments.env`, `datadir/`, `data/`,
-the selected commit, image digests, and CI URL. Use the detailed runbook for
+the selected commit and resolved image digests. Pulling `latest` again selects an
+upgrade; ordinary startup reuses installed images. Pin commit/digest references
+in `.env.chiado` when you need a fixed version. Use the detailed runbook for
 [canonical/genesis verification](chiado-deployment.md#start-and-verify),
 [failures](chiado-deployment.md#troubleshooting), and
 [local development builds](chiado-deployment.md#local-source-development).
