@@ -6,7 +6,8 @@ and its pinned protocol revision; upstream `main` is not a substitute.
 ## Scope and shared resources
 
 - Inspect `git status --short` before editing; preserve existing work and operator
-  configuration/state. Keep cleanup within the requested scope.
+  configuration/state. Keep implementation, refactoring, and cleanup within the
+  requested scope.
 - Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions configuration.
   Add a script or abstraction only for repeated, error-prone work or a concrete
   gap in those tools; state the reason. Simple configuration does not need extra
@@ -273,9 +274,10 @@ authoritative procedures instead of duplicating them.
 - Omit obvious restatements, edit narration, and unsupported performance/safety/
   protocol claims. Links may support an explanation, not replace it; distinguish
   inferred intent from established requirements. Keep change history in commits/audits.
-- Update nearby comments/API docs with behavior changes without erasing relevant
-  compatibility rationale. Add an explanation only when the current code alone
-  would not let a maintainer understand or safely modify it; no comment quota.
+- Update nearby comments and API documentation when behavior changes, preserving
+  relevant compatibility rationale. Add implementation comments when the code
+  alone does not make its behavior, constraints, or rationale sufficiently clear;
+  do not add comments to meet a quota.
 
 ### Records and operations
 
@@ -299,8 +301,10 @@ For Chiado operation or deployment changes, read the
 - Normal deployment uses the published deploy image's bundled contracts/tools;
   host builds and `:local` images are for development. Match node/signer/deploy
   source revisions with the configuration checkout and protocol. The default
-  `:latest` can change on Compose startup; full Git commit tags fix the source
-  revision, while digests fix image bytes.
+  `:latest` can change on Compose startup. Commit-SHA tags name the intended source
+  revision by convention and can move; digests pin image content. Neither alone
+  establishes source provenance. Verify the source-to-digest mapping through CI's
+  artifact manifest and [verification checks](scripts/ci/prepare-runtime-artifacts.sh).
 - Copy `.env.chiado.example` to `.env` only during initial setup when `.env` does
   not exist. Preserve existing settings and secrets; Compose loads `.env`. Keep
   private inputs mapped per service; never inject the proof-signing key into the node.
