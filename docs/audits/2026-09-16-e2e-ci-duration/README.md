@@ -89,3 +89,60 @@ promotion. Workflow syntax and shell syntax validation passed.
   failures but do not establish their causes.
 - Real release-image execution, network semantics, and independent follower
   replay were not run locally for this workflow-only change.
+
+## Follow-up: recovery assertion in embedded shard 4
+
+The [embedded shard 4 run at `e9be01a`](https://github.com/eduadiez/rollupX/actions/runs/35143239173/job/104966547612)
+completed in approximately 24 minutes: 11 tests passed and
+`gnosis_ordinary_burst_is_budgeted_across_sync_intervals` failed all three
+attempts. Its assertion required a `Catchup`-mode Composer invocation after
+the injected canonical-reader outage. Diagnostic upload again hit the storage
+quota; the job console retained the relevant node log tail.
+
+The first attempt's log shows recovery at 20:43:46 UTC rebuilding the 20:43:38
+and 20:43:43 boundaries in `Empty` mode, then preparing the 20:43:48 terminal
+in `Steady` mode. This agrees with the
+[documented scheduler contract](../../configurable-settlement-policy.md#network-profiles-and-execution):
+once catch-up reaches a usable future terminal, it may compose in that same
+opportunity. A `Catchup`-mode terminal is therefore not a reliable witness that
+historical boundaries were rebuilt.
+
+The test now snapshots the stalled L2 timestamp and current L1 timestamp before
+restoring RPC. It requires a subsequent `Empty`-mode invocation for a boundary
+strictly newer than the stalled L2 head and no later than that L1 snapshot.
+This still requires actual historical recovery; an unrelated empty boundary
+or a standalone `Steady` invocation cannot satisfy it. The subsequent checks
+for empty boundary bodies, bounded encoded intervals, transaction completion,
+settlement timing, independent follower replay and cross-chain progress remain.
+
+Local validation uses the unchanged runtime source revision, fixture-only ports,
+and preserved logs/datadirs under `/tmp/rollupx-e2e-investigation`. Cargo rebuilt
+the Composer and follower during candidate compilation, changing their executable
+hashes; this is semantic validation, not a matched-binary performance comparison.
+These are local-only debug-profile checks; the complete CI release-artifact
+matrix still needs to run for the fix.
+
+The original Gnosis assertion passed locally both with a cold signer build
+(291.70 seconds including compilation) and with prebuilt binaries (186.11
+seconds). Its warm-run log contains a late `Catchup` terminal, unlike the CI
+failure's `Steady` terminal. The failing baseline evidence is therefore the
+three CI attempts, not a claimed local failure-to-pass reproduction.
+
+The corrected Ethereum and Gnosis cases both passed, without retries: two
+selected tests, 29 filtered out, 368.29 seconds of execution. Both recovery
+traces show two `Empty` boundaries followed by a `Steady` terminal. These runs
+also completed the retained on-chain assertions and independent follower replay.
+Workspace Clippy with warnings denied, formatting, and `git diff --check` passed.
+The integration contracts built successfully with existing Forge lint warnings.
+
+Commands used for the corrected checks (the prebuilt test overrides pointed to
+the locally source-built `target/debug` role binaries, avoiding compilation after
+the fixture genesis clock starts):
+
+```bash
+cargo +1.94.0 test --locked -p eez-node-e2e --test settlement_policy \
+  ordinary_burst_is_budgeted_across_sync_intervals -- --test-threads=1
+cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.94.0 fmt --all --check
+git diff --check
+```

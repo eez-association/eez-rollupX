@@ -2294,7 +2294,6 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l1_before = l1.get_block_number().await.unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
-    let fault_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The combined workload exceeds
@@ -2318,6 +2317,21 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // Missing scheduler ticks must preserve intermediate empty boundaries.
     tokio::time::sleep(Duration::from_secs(12)).await;
     assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
+    let stalled_l2_timestamp = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let recovery_l1_timestamp = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let recovery_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
     for &hash in &hashes {
@@ -2388,15 +2402,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
     // actual empty Sync construction, never assume height % K == 0.
     let signals = world.node.signals_since(0).unwrap();
+    // Recovery may finish in Steady mode once it reaches a usable future slot.
+    // Prove that a missing historical boundary was rebuilt after the outage,
+    // rather than requiring a structural-only Catchup terminal.
     assert!(
         world
             .node
-            .signals_since(fault_cursor)
+            .signals_since(recovery_cursor)
             .unwrap()
             .iter()
             .any(|event| {
-                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Catchup"
-            })
+                event.name == "eez.composer.sync_slot.invoked"
+                    && event.fields["mode"] == "Empty"
+                    && event.fields["timestamp"].as_u64().is_some_and(|timestamp| {
+                        timestamp > stalled_l2_timestamp && timestamp <= recovery_l1_timestamp
+                    })
+            }),
+        "RPC recovery did not rebuild a missing historical Sync boundary{}",
+        world.settlement_diagnostics(),
     );
     let boundaries = signals
         .into_iter()
