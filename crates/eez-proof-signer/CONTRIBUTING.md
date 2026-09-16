@@ -17,10 +17,11 @@ If these disagree, do not loosen a check to make the disagreement disappear.
 Identify whether the implementation or the normative requirement is wrong,
 then update code, tests, and documentation deliberately.
 
-Code comments must explain the current invariant or design reason in plain
-language. Do not cite spec section numbers from source comments, narrate old
-implementations, or leave migration history that will become stale. Links to
-the spec are appropriate in repository documentation.
+Follow the repository's [comments and API documentation guidance](../../AGENTS.md#comments-and-api-documentation).
+At signer trust boundaries, explain a value's source, prior checks, and remaining
+obligations when the types/code do not make them evident. Keep necessary
+compatibility/migration rationale; specification links supplement the explanation
+rather than replace it.
 
 ## Current implementation
 

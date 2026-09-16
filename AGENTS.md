@@ -5,8 +5,8 @@ and its pinned protocol revision; upstream `main` is not a substitute.
 
 ## Scope and shared resources
 
-- Inspect `git status --short` before editing; preserve existing work. Keep cleanup
-  within the requested scope.
+- Inspect `git status --short` before editing; preserve existing work and operator
+  configuration/state. Keep cleanup within the requested scope.
 - Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions configuration.
   Add a script or abstraction only for repeated, error-prone work or a concrete
   gap in those tools; state the reason. Simple configuration does not need extra
@@ -82,16 +82,34 @@ its Solidity implementation/tests and the applicable fork contract:
   and proving/submission bound to the **same L1 target**. An authorized contract
   change must update every affected Solidity/Rust producer and consumer, including
   ABI/codecs, Composer, signer, and deriver/follower.
-- The signer accepts a narrower profile than the core protocol. Preserve exact
+- The signer accepts a narrower profile than the core protocol; upstream support
+  alone does not authorize extending it. An authorized extension must update the
+  applicable specification, validation, and regressions together. Preserve exact
   decoding/byte comparisons, bounded parsing of Composer-controlled input, and
-  independent public-input recomputation. Reject unsupported input; do not loosen
+  independent public-input recomputation. Reject unsupported input; never bypass
   checks, truncate input, or report skipped validation as success.
+- Reuse existing checked domain types at trust boundaries. In the signer, keep
+  [admitted input, validated execution, and authorized effects](crates/eez-proof-signer/docs/data-provenance.md)
+  distinct; decoding alone does not authorize signing. Return errors for malformed
+  external input and expected operational failures. Production `unwrap`/`expect`
+  needs a locally demonstrable invariant, explained when non-obvious.
 - Keep [integration compiler settings](contracts/foundry.toml) aligned with the
   pinned protocol: Solidity 0.8.34, optimizer runs 1, `via_ir`, relative remappings.
   Compiler/metadata drift changes bytecode, CREATE2 addresses, and genesis commitments.
 - For changes affecting wire, configuration, or storage compatibility, document
   mixed-version behavior, historical decoding/follower replay, upgrade order,
   migrations, and rollback limits in the affected specification and operator docs.
+- For configuration changes, trace defaults and precedence through supported
+  inputs and every affected runtime/Compose consumer. Test relevant absent, empty,
+  invalid, and conflicting inputs against the setting's contract; parsing alone
+  does not prove that the intended value reaches the node or signer.
+- For async task changes, reuse Reth's task executor in [node wiring](crates/eez-node/src/lib.rs)
+  and follow the signer's [request lifecycle](crates/eez-proof-signer/docs/request-lifecycle.md)
+  when changing its workers. Keep blocking I/O and expensive execution/witness work
+  off async executor threads; bound new concurrent work and specify its owner,
+  cancellation, and shutdown behavior.
+  A timed-out RPC does not stop an already-running blocking worker: the signer
+  worker retains its request permit until it exits.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
   triggers from gas/blob/timing admission limits. Derive budgets from active network
   rules or measured work; admission estimates are not consensus limits. Retain final
@@ -139,10 +157,13 @@ Build workspace binaries with `cargo +1.94.0 build --locked --workspace`.
 
 During iteration, run focused packages/targets. Before completing a change, run
 the applicable checks below and regressions for changed behavior; do not repeat
-workspace checks after every edit. CI also owns the full release-artifact and
-Kurtosis matrix; `make test` does not cover every lane. Prose-only changes need
-documentation checks, not runtime suites. Live procedures require their prepared
-environment and task authorization.
+workspace checks after every edit. Match regressions to the failure mechanism:
+malformed/boundary inputs, state-transition invariants, controlled synchronization
+for task lifecycle, or process tests for cross-component behavior. CI owns the
+full release-artifact and Kurtosis matrix; `make test` does not cover every lane.
+Prose-only changes need documentation checks, not runtime suites. Run `bash -n`
+on edited shell scripts. Live procedures require their prepared environment and
+task authorization.
 
 | Changed area | Expected checks |
 | --- | --- |
@@ -158,7 +179,8 @@ environment and task authorization.
 | Deployment scripts | `python3 -m unittest discover -s scripts/ci/tests -p 'test_deploy_preflight.py' -v`; affected genesis/configuration checks. Mocked preflight tests do not validate a broadcast. |
 | CI tooling/workflows | `python3 -m unittest discover -s scripts/ci/tests -v`; exercise the changed producer/consumer path |
 | Dependencies/lockfile | `cargo deny check advisories bans sources`; `cargo audit`; affected builds and compatibility tests |
-| Documentation | `git diff --check`; resolve edited links/paths at the protocol pin; run `bash -n` on edited shell examples/scripts. Syntax checking does not execute the procedure. |
+| Cargo features | Build affected shipping targets with the production feature selection in [Dockerfile.runtime](Dockerfile.runtime). Test/`--all-features` builds alone do not establish that configuration works. |
+| Documentation | `git diff --check`; resolve edited links/paths at the protocol pin; run `bash -n` on edited shell examples. Syntax checking does not execute the procedure. |
 
 Python configuration checks require Docker Compose's CLI, not a daemon or live
 deployment. The full tooling suite also needs the initialized protocol, `jq`, and
@@ -221,17 +243,41 @@ The [CI gate and promotion](.github/workflows/ci.yml) own this procedure.
 - CI's Nextest profile retries twice with `flaky-result = "fail"`; report retry-only
   passes as flakes. Distinguish static, mocked, process, and live evidence, and
   state whether semantic assertions and independent replay ran.
+- For performance claims, compare the requested fork baseline and candidate with
+  comparable workloads, build profiles, concurrency, and environments. Report
+  noise and secondary regressions; benchmark success does not replace correctness checks.
 - Report checks/results and applicable checks not run, including reasons and what
   remains unverified. Passing throughput, receipts, or startup does not establish
   semantic correctness, durable recovery, or deployment of the edited revision.
 
 ## Documentation and operations
 
-Comments and operator procedures describe current behavior and necessary rationale;
-do not reference replaced implementations in comments. Keep change history in audits
-or commits. When an authorized change invalidates instructions, update the owning
+When an authorized change invalidates instructions, update the owning
 specification/runbook and affected `AGENTS.md` guidance in the same change. Link
 authoritative procedures instead of duplicating them.
+
+### Comments and API documentation
+
+- Explain what a reader needs to safely change the current code: non-obvious
+  behavior, invariants/preconditions, ordering/ownership/lifecycle constraints,
+  protocol limitations or asymmetries, and meaningful resource trade-offs. Retain
+  necessary compatibility/migration rationale and why a simpler alternative fails.
+- API docs describe behavior, inputs/outputs, errors/panics, side effects, and
+  guarantees where relevant. Implementation comments explain non-obvious behavior
+  and rationale; they should not translate each statement or compensate for unclear code.
+- For introduced or materially changed unsafe blocks/impls, add a substantive
+  `SAFETY` explanation of the actual obligations and how they hold, such as
+  ownership, lifetimes, bounds, alignment, or synchronization. Explain the protected
+  relationship for non-obvious synchronization/memory ordering; naming a primitive
+  or saying “safe” is insufficient.
+- Omit obvious restatements, edit narration, and unsupported performance/safety/
+  protocol claims. Links may support an explanation, not replace it; distinguish
+  inferred intent from established requirements. Keep change history in commits/audits.
+- Update nearby comments/API docs with behavior changes without erasing relevant
+  compatibility rationale. Add an explanation only when the current code alone
+  would not let a maintainer understand or safely modify it; no comment quota.
+
+### Records and operations
 
 | Record | Use |
 | --- | --- |
@@ -253,11 +299,11 @@ For Chiado operation or deployment changes, read the
 - Normal deployment uses the published deploy image's bundled contracts/tools;
   host builds and `:local` images are for development. Match node/signer/deploy
   source revisions with the configuration checkout and protocol. The default
-  `:latest` can change on Compose startup; full Git commit tags or digests are pins.
-- Copy the Chiado template to `.env`; Compose loads it automatically. Keep private
-  inputs mapped per service; never inject the proof-signing key into the node.
-  Use Docker/Compose's normal image pulling and configuration loading instead of
-  manual preparation those tools already handle.
+  `:latest` can change on Compose startup; full Git commit tags fix the source
+  revision, while digests fix image bytes.
+- Copy `.env.chiado.example` to `.env` only during initial setup when `.env` does
+  not exist. Preserve existing settings and secrets; Compose loads `.env`. Keep
+  private inputs mapped per service; never inject the proof-signing key into the node.
 - Genesis rendering/tool checks must precede the first deployment broadcast.
   Startup requires existing bindings and preserves datadirs/genesis; contract
   deployment is a separate, non-idempotent operation.
