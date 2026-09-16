@@ -346,7 +346,9 @@ pub enum Liveness {
 /// Non-writing shared-lock probe. Age, missing files and probe errors are never
 /// evidence that a writer has ended. An acquired lock is released before return.
 pub fn probe_epoch(directory: &Path, epoch: Epoch) -> Liveness {
-    let Ok(file) = File::open(directory.join(format!("{}.lock", hex::encode(epoch.0)))) else {
+    let Ok(file) =
+        crate::reader::open_regular(&directory.join(format!("{}.lock", hex::encode(epoch.0))))
+    else {
         return Liveness::Unknown;
     };
     match file.try_lock_shared() {

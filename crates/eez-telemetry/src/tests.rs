@@ -348,3 +348,70 @@ fn rotation_keeps_immutable_ids_and_bounded_retention() {
     }
     assert!(bytes <= cfg.retained_bytes);
 }
+
+#[test]
+fn bounded_reader_replays_real_closed_writer_segments_without_holding_files() {
+    use crate::reader::{inventory, read_segment};
+    let directory = private_tempdir();
+    let (publisher, writer) = Writer::start(identity(), config(directory.path())).unwrap();
+    let epoch = publisher.epoch();
+    for _ in 0..80 {
+        assert!(publisher.publish(publisher.capture().unwrap(), event(), None));
+    }
+    assert!(writer.shutdown(Duration::from_secs(8)));
+    let mut sequences = HashSet::new();
+    for segment in inventory(directory.path()).unwrap() {
+        assert_eq!(segment.epoch, epoch);
+        let mut offset = 0;
+        loop {
+            let batch = read_segment(directory.path(), segment, offset).unwrap();
+            match serde_json::from_slice::<Record>(&batch.header).unwrap() {
+                Record::Header {
+                    epoch: header_epoch,
+                    segment_id,
+                    identity: header_identity,
+                    ..
+                } => {
+                    assert_eq!(header_epoch, epoch);
+                    assert_eq!(segment_id, segment.segment);
+                    assert_eq!(header_identity, identity());
+                }
+                _ => panic!("writer header expected"),
+            }
+            for line in batch.lines {
+                if let Record::Data(data) = serde_json::from_slice(&line.bytes).unwrap() {
+                    assert!(sequences.insert(data.sequence));
+                    assert_eq!(assemble(&[data]).unwrap().event, event());
+                }
+            }
+            assert!(batch.tail.is_none());
+            assert!(batch.next_offset >= offset);
+            offset = batch.next_offset;
+            if batch.snapshot_complete {
+                break;
+            }
+        }
+        fs::remove_file(directory.path().join(segment.filename(true))).unwrap();
+    }
+    assert_eq!(sequences.len(), 80);
+    assert_eq!(sequences.iter().copied().max(), Some(80));
+    assert!(inventory(directory.path()).unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn liveness_probe_does_not_follow_a_replaced_epoch_lock() {
+    use std::os::unix::fs::symlink;
+    let directory = private_tempdir();
+    let epoch = Epoch([1; 16]);
+    let outside = directory.path().join("other-file");
+    fs::write(&outside, b"").unwrap();
+    symlink(
+        outside,
+        directory
+            .path()
+            .join(format!("{}.lock", hex::encode(epoch.0))),
+    )
+    .unwrap();
+    assert_eq!(probe_epoch(directory.path(), epoch), Liveness::Unknown);
+}

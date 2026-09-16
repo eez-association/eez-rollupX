@@ -24,7 +24,7 @@ An open row is a release gate, not an implicitly deferred requirement.
 | R15 | Bounded nonblocking lifecycle writer independent of logging/sampling | eez-telemetry spool; 4096-record channel, 16 KiB records, 64 MiB segments, 24h/2 GiB retention | validation/lifecycle-transport.md: overflow, ENOSPC, rotation, shutdown, concurrency | Partial: native workload validation pending |
 | R16 | Chunk completion+digest, immutable segment IDs, independent control/drop records | eez-telemetry wire/spool | Missing/reordered/conflicting chunks, bypassed-full-channel control tests | Verified at transport layer; SQL ingestion pending |
 | R17 | Instance/epoch fencing and headers; explicit ended/unknown liveness | OS advisory locks; read-only probe_epoch | Collision and restart-without-traffic tests | Partial: process crash and observer classification pending |
-| R18 | Transactional file offsets, dedup/quarantine, provisional/suspected/recoverable gaps | Observer local bounded reader and SQL ingestion | Crash before/after commit, retention expiry, late events, unknown schema | Open |
+| R18 | Transactional file offsets, dedup/quarantine, provisional/suspected/recoverable gaps | Bounded transport reader API implemented; observer SQL ingestion pending | Reader rotation/partial/oversize/replay tests; transactional crash/gap tests pending | Partial: filesystem boundary only |
 | R19 | Restart admissions unresolved; exact assurance and reorg-retractable outcomes | Native transitions, observer evidence/anchor validation | Outcome matrix, source-only receipt vs cross-chain claim, readmission tests | Open |
 | R20 | Monotonic native ages/stages; direction and outcome counts, pending distributions | Held-pool/composer/signer instrumentation | Queue/attempt regressions, histogram output; completed vs pending tests | Open |
 | R21 | Four protocol dashboards with coverage, links, policy/restart annotations | Cross-chain/settlement/blob/gas dashboards and SQL views | All dashboard queries on audit fixtures; missing/expired trace links | Open |
@@ -103,3 +103,9 @@ These exclusions are in the proposal; they do not defer any row above.
   periodic checks. Keep `5469c88` as the baseline without polling. The new root
   AGENTS.md applies; subsequent builds/checks use Rust 1.94.0. Earlier
   evidence remains tied to its recorded revision/toolchain.
+
+- Lifecycle segment enumeration is deterministic, not causal. Random filename
+  order and writer UTC timestamps cannot establish event publication order or
+  restart causality. The importer must use retained epoch evidence/lock liveness,
+  persist offsets atomically with chunks, and rotate work fairly across known
+  segments. An incomplete inventory never proves retention loss.

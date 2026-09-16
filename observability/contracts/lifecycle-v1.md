@@ -130,3 +130,36 @@ It increments `eez_telemetry_dropped_events_total{signal="lifecycle",reason}` fo
 Reth prefix/exposition remains an integration gate; no dashboard selects these
 candidate names before it is verified. Epochs, paths, hashes, and errors are not
 metric labels.
+
+## Bounded reader API
+
+`eez-telemetry::reader` provides the filesystem boundary for the importer. Its
+inventory accepts canonical epoch/segment filenames with either suffix, deduplicates
+IDs across a racing rename, and sorts for deterministic enumeration only. It caps
+successful inventories at 4,096 segments and 65,536 total directory entries. An
+unreadable or over-limit inventory is a collection error, never evidence that
+missing files expired. Scheduling must rotate across persisted scan timestamps;
+always taking the first filenames would starve later segments.
+
+A read pass captures the file length, rechecks a bounded header, and reads at most
+32 complete records plus one bounded partial/oversized prefix. It never reads
+past that length, so concurrent appends wait for the next pass. The next offset
+advances only through complete lines of at most 16 KiB. Raw bytes and original
+offsets remain available for quarantine; unknown JSON is not discarded by the
+filesystem layer. The caller must check header identity/schema and compare the
+header digest with its persisted checkpoint before importing records.
+
+Partial lines stay at their start offset. An oversized line returns at most
+16 KiB plus one byte as evidence and also leaves its checkpoint unchanged; it
+requires explicit investigation/replay rather than an unbounded scan to another
+newline. Truncation before the checkpoint and invalid line boundaries fail
+explicitly. `.active` to `.closed` rotation resumes from the same ID and offset.
+A NotFound read must be reconciled with another complete inventory before assigning
+a retention gap. No file descriptor survives the pass or a subsequent SQL commit.
+
+On Unix, segment opens and epoch-lock probes use no-follow/nonblocking flags and
+verify regular files, including when a path changes after inventory. Failed lock
+access remains unknown liveness. These are blocking filesystem APIs: the async
+observer must run them on a bounded blocking worker. The database importer and
+its transactional checkpoints/gap classification are still an open R18 gate;
+this API alone does not persist or validate lifecycle outcomes.
