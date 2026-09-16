@@ -90,3 +90,39 @@ transactions is explicitly rejected. Workers wait 15 seconds on success and
 back off 15/30/60 seconds on failure. DB connection, statement, lock and client
 request deadlines are respectively 5/10/5/15 seconds. HTTP drain is capped at two
 seconds and scanner cancellation closes its dedicated database connections.
+
+## Wallet and posting method evidence (schema 2)
+
+`eez.wallet_receipts` and `eez.wallet_cost_totals` select receipts whose sender is
+in that chain's configured wallet list. Wallet identity establishes spend only.
+`eez.posting_receipts` additionally requires L1, a configured recipient contract,
+and a complete canonical decode of the current `postAndVerifyBatch` ABI. A reverted
+posting call still incurs its exact charge. Neither view asserts application of
+an L2 range or ownership of a companion/source. These populations overlap and
+must not be added together. All L2 receipt fees remain outside L1 totals.
+
+The decoder reuses `eez-protocol::entries::decode_postbatch` and the generated ABI
+types. An allocation-free preflight checks array lengths and contiguous, ordered
+tails using those token types, before the normal decoder allocates. A full canonical
+argument round trip then checks primitive values and padding. The input cap is
+8 MiB with a finite token budget. Full transaction backfill uses the same 8 MiB
+response bound as full block fetching. Only a calldata hash and classification
+are retained; calldata, proofs and signed envelopes are not persisted.
+
+`eez.posting_coverage` shows decoded, invalid, other-method and unknown method
+counts, method collection failures, and last attempt time. `other` means a selector
+other than the current posting method; it includes unsupported historical ABI
+selectors and is not proof that no older protocol posting call occurred.
+`unverified` includes noncanonical/overlapping ABI layouts, trailing bytes or
+preflight-budget rejection. Such a call can still have a valid paid receipt;
+its charge stays in wallet/general totals while it is excluded from the narrower
+posting view. Do not report the posting subset as complete historic settlement
+spend when unsupported or unverified method evidence exists.
+
+Migration 2 leaves migration 1 unchanged, preserves all receipt costs, and seeds
+old transaction classifications as `pending`. The ordinary scanner retries at
+most four pending method records per chain/cycle in oldest-attempt order. A failed
+transaction fetch leaves an explicit pending/error state and does not block
+header/receipt progress. Decoding never reconstructs source ownership from sender
+or transaction order. Decoded classifications are immutable for the same logical
+transaction; a contradictory later observation is an inconsistency.

@@ -8,11 +8,17 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 1;
-const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../observability/migrations/0001-canonical.sql"),
-)];
+pub const SCHEMA_VERSION: i32 = 2;
+const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../observability/migrations/0001-canonical.sql"),
+    ),
+    (
+        2,
+        include_str!("../../../observability/migrations/0002-posting.sql"),
+    ),
+];
 const CONFIG_LIMIT: u64 = 64 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 

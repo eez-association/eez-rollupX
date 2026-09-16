@@ -5,6 +5,7 @@ pub mod database;
 pub mod indexer;
 pub mod metrics;
 pub mod model;
+mod posting;
 pub mod rpc;
 
 use axum::{Router, extract::State, http::header, routing::get};
@@ -108,7 +109,7 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         let status = Arc::clone(index_status.as_ref().expect("index status initialized"));
         let rpc = rpc.clone();
         tasks.spawn(async move {
-            indexer::run(index, rpc, status).await;
+            Box::pin(indexer::run(index, rpc, status)).await;
         });
     }
     for (index, (source, endpoint)) in endpoints.into_iter().enumerate() {

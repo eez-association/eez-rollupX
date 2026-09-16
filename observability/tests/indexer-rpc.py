@@ -2,8 +2,11 @@
 """Deterministic fork/receipt source. No transactions are submitted anywhere."""
 import http.server
 import json
+import pathlib
 import threading
 
+
+POST_CALL = pathlib.Path('/post-calldata.hex').read_text().strip()
 
 def digest(number):
     return '0x' + f'{number:064x}'
@@ -29,7 +32,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
         if self.path == '/control':
             with self.lock:
                 if 'phase' in request:
-                    assert request['phase'] in ('missing', 'healthy', 'fork', 'contradiction', 'wrong_identity', 'mid_fetch', 'pruned', 'wrong_type')
+                    assert request['phase'] in ('missing', 'healthy', 'fork', 'contradiction', 'wrong_identity', 'mid_fetch', 'pruned', 'wrong_type', 'invalid_post', 'unverified_post', 'transaction_unavailable')
                     type(self).phase = request['phase']
                 if 'finalize' in request:
                     type(self).finalize = request['finalize']
@@ -44,7 +47,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
         def transaction(height):
             return {'hash': digest(chain * 1000 + height), 'blockHash': block_hash(height),
                 'blockNumber': hex(height), 'transactionIndex': '0x0', 'from': '0x' + 'aa' * 20,
-                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1), 'type': '0x3' if height == 2 else '0x2', 'input': '0x12345678'}
+                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1), 'type': '0x3' if height == 2 else '0x2', 'input': (POST_CALL[:10] if phase == 'invalid_post' else POST_CALL + '00' * 32 if phase == 'unverified_post' else POST_CALL) if height == 2 else '0x12345678'}
         method, params = request['method'], request['params']
         if method == 'eth_chainId':
             value = hex(chain + (10 if phase == 'wrong_identity' else 0))
@@ -58,6 +61,9 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 'transactions': [transaction(height)] if full and height in (1, 2) else []}
             if phase == 'pruned' and height == 2 and full:
                 value = None
+        elif method == 'eth_getTransactionByHash':
+            height = int(params[0], 16) - chain * 1000
+            value = transaction(height) if height in (1,2) and phase != 'transaction_unavailable' else None
         elif method == 'eth_getTransactionReceipt':
             height = int(params[0], 16) - chain * 1000
             assert height in (1, 2)

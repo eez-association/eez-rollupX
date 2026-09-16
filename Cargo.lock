@@ -3523,8 +3523,10 @@ name = "eez-observer"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "axum",
  "clap",
+ "eez-protocol",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

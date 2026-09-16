@@ -78,6 +78,20 @@ impl Rpc {
         .await
     }
 
+    pub(crate) async fn transaction(
+        &self,
+        endpoint: &Endpoint,
+        hash: alloy_primitives::B256,
+    ) -> Result<Value, Failure> {
+        self.call_bounded(
+            &endpoint.url,
+            "eth_getTransactionByHash",
+            json!([format!("{hash:#x}")]),
+            8 * MAX_RESPONSE_BYTES,
+        )
+        .await
+    }
+
     async fn call_bounded(
         &self,
         url: &str,

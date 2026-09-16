@@ -17,9 +17,9 @@ An open row is a release gate, not an implicitly deferred requirement.
 | R08 | Canonical scanner identity, bootstrap, parent-linked consistent fetch, atomic cursor | Observer indexer/ledger; explicit immutable selection and bootstrap | validation/database.md: restart, killed-before-commit, concurrent cursors, mid-fetch fork, history-gap recovery | Verified for receipt scanner; large/deep backfill performance remains R27/R30 |
 | R09 | Preserve orphan/reinclusion history; finalized contradiction freezes affected views | SQL blocks/receipts/cursor model; L1 anchor validation; source_valid gating | Real same-height fork, reinclusion, finality freeze tests in smoke-database.py | Partial: exact applied L2 settlement finality pending |
 | R10 | Exact gas/blob charges, canonical reverts, missing fields gaps; no join multiplication | Observer accounting parser and canonical SQL receipt/total/coverage views | validation/receipt-accounting.md: full saved audit, overflow/missing/revert fixtures | Partial: durable canonical selection verified; settlement/source joins pending |
-| R11 | Wallet spend, settlement/companion attribution and L2 fees distinct | Configured wallets/contracts, evidence/provenance and allocation views | Unallocated/missing-membership and shared-batch fixtures | Open |
+| R11 | Wallet spend, settlement/companion attribution and L2 fees distinct | Wallet views and current-ABI decoded posting view; method coverage and bounded backfill | SQL/RPC wallet/post/revert/invalid/unverified separation; nested ABI and allocation-bound tests | Partial: applied settlement/companion/source allocation pending |
 | R12 | Authenticated/versioned blob length; measured-subset weighted utilization and coverage | Codec exact boundary, bounded retrieval, measurement states | Terminator/trailing-zero/authentication/pruning/revert fixtures | Open |
-| R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, append-only migration history, private opt-in PostgreSQL profile and generated role credentials | Real schema/checksum/downgrade refusal, no implicit DDL, reader authentication/permissions, persistence | Partial: clean restore and first multi-version upgrade drill pending |
+| R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, append-only migration history, private opt-in PostgreSQL profile and generated role credentials | Real schema/checksum/downgrade refusal, no implicit DDL, reader authentication/permissions, persistence | Partial: populated v1-to-v2 upgrade verified; clean restore pending |
 | R14 | Typed versioned events; epoch/sequence at owned transition; many-to-many membership | eez-telemetry schema; contracts/lifecycle-v1.md | Chunk/schema fixtures in telemetry tests | Partial: native capture points pending |
 | R15 | Bounded nonblocking lifecycle writer independent of logging/sampling | eez-telemetry spool; 4096-record channel, 16 KiB records, 64 MiB segments, 24h/2 GiB retention | validation/lifecycle-transport.md: overflow, ENOSPC, rotation, shutdown, concurrency | Partial: native workload validation pending |
 | R16 | Chunk completion+digest, immutable segment IDs, independent control/drop records | eez-telemetry wire/spool | Missing/reordered/conflicting chunks, bypassed-full-channel control tests | Verified at transport layer; SQL ingestion pending |
@@ -83,3 +83,13 @@ These exclusions are in the proposal; they do not defer any row above.
 - The PostgreSQL adapter currently requires Unix sockets or explicit private TCP
   transport; the packaged cross-host path is an authenticated tunnel. Requested
   TLS modes fail explicitly instead of being ignored. See runbooks/database.md.
+
+- Response byte limits alone do not bound nested ABI decoder allocations. The
+  observer now checks contiguous token layouts and array bounds using the existing
+  generated ABI token types before decoding; noncanonical/unsupported layouts
+  retain paid costs with unverified method coverage. No signing/protocol decoder
+  behavior changed. Review allocation amplification in other raw ABI consumers as
+  a separate defensive follow-up.
+- The signer captured-anchor fixture intentionally uses the old `0xcafef125`
+  selector. The current protocol uses `0xe4a480e4`; method coverage must state its
+  supported ABI era instead of silently reinterpreting old calldata.

@@ -65,7 +65,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '1'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '2'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -78,6 +78,7 @@ def check_profile(binary, report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=pathlib.Path, default=ROOT.parent / 'target/debug/eez-observer')
+    parser.add_argument('--previous-binary', type=pathlib.Path, help='Optional saved schema-v1 observer for upgrade compatibility checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -86,7 +87,7 @@ def main():
         binary_digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     report = {'scope': 'isolated database only; no live services', 'image': IMAGE, 'checks': [],
               'binary_sha256': binary_digest, 'validated_at': datetime.now(timezone.utc).isoformat(),
-              'migration_sha256': hashlib.sha256((ROOT / 'migrations/0001-canonical.sql').read_bytes()).hexdigest()}
+              'migration_sha256': {path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted((ROOT / 'migrations').glob('*.sql'))}}
     try:
         check_profile(args.binary, report)
         run(['docker', 'network', 'create', '--internal', network])
@@ -94,7 +95,8 @@ def main():
         fixture_image = next(key + '@' + value for key, value in fixture_images.items() if key.startswith('python:'))
         run(['docker', 'run', '--detach', '--rm', '--name', rpc_name, '--network', network, '--network-alias', 'rpc',
              '--user', '65534', '--memory', '128m', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
-             '--mount', f'type=bind,src={ROOT / "tests/indexer-rpc.py"},dst=/rpc.py,readonly', fixture_image, 'python3', '/rpc.py'])
+             '--mount', f'type=bind,src={ROOT / "tests/indexer-rpc.py"},dst=/rpc.py,readonly',
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/empty-post-calldata.hex"},dst=/post-calldata.hex,readonly', fixture_image, 'python3', '/rpc.py'])
         run(['docker', 'run', '--detach', '--rm', '--name', name, '--network', network, '--user', 'postgres',
              '--memory', '512m', '--cpus', '1', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
              '--env', 'POSTGRES_PASSWORD=fixture-only', '--env', 'POSTGRES_DB=eez_observer',
@@ -111,13 +113,31 @@ def main():
         # stdin avoids putting connection credentials in an exec command string.
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/database.json'], data=json.dumps(config))
         migrate = ['docker', 'exec', name, '/observer', 'migrate', '--database-config', '/tmp/database.json']
-        run(migrate)
-        run(migrate)
-        report['checks'].append('explicit_migration_and_idempotent_reapplication')
         psql = ['docker', 'exec', '-i', name, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'eez_observer']
+        # Construct the released v1 schema and its exact history; a fresh install
+        # of the current schema was already tested through the Compose profile.
+        v1 = (ROOT / 'migrations/0001-canonical.sql').read_text()
+        digest = hashlib.sha256(v1.encode()).hexdigest()
+        if args.previous_binary:
+            run(['docker','cp',str(args.previous_binary.resolve()),name + ':/observer-v1'])
+            run(['docker','exec',name,'/observer-v1','migrate','--database-config','/tmp/database.json'])
+        else:
+            run(psql, data=v1 + "\nINSERT INTO eez.schema_migrations(version,checksum) VALUES(1,decode('" + digest + "','hex'));")
         result = run(psql, data=(ROOT / 'tests/accounting-ledger.sql').read_text())
         assert 'canonical ledger invariants passed' in result.stdout
         report['checks'].append('canonical_revert_reorg_reinclusion_missing_fees_full_width_sums_and_readonly_roles')
+        before_upgrade = run(psql + ['-Atq'], data='SELECT known_total_paid FROM eez.canonical_cost_totals WHERE chain_instance_id=1;').stdout.strip()
+        selector = (ROOT / 'tests/fixtures/empty-post-calldata.hex').read_text().strip()[2:10]
+        run(psql, data=(ROOT / 'tests/legacy-posting.sql').read_text().replace('POST_SELECTOR', selector))
+        run(migrate)
+        run(migrate)
+        assert run(psql + ['-Atq'], data='SELECT known_total_paid FROM eez.canonical_cost_totals WHERE chain_instance_id=1;').stdout.strip() == before_upgrade
+        assert run(psql + ['-Atq'], data="SELECT count(*) FROM eez.posting_analysis WHERE state='pending';").stdout.strip() == '5'
+        if args.previous_binary:
+            assert run(['docker','exec',name,'/observer-v1','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
+            report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_v2_downgrade')
+        report['checks'].append('explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown')
+        report['checks'].append('explicit_migration_and_idempotent_reapplication')
         run(psql, data="ALTER ROLE eez_observer_writer LOGIN PASSWORD 'fixture-writer';")
         writer = {**config, 'connection_string': config['connection_string'].replace('user=postgres', 'user=eez_observer_writer').replace('password=fixture-only', 'password=fixture-writer')}
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/writer.json'], data=json.dumps(writer))
@@ -136,6 +156,9 @@ def main():
             return scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='scanner' AND role='l1';")
         index = ['docker', 'exec', name, '/observer', 'indexer', '--config', '/tmp/index.json', '--once']
         write_index(index_config)
+        if args.previous_binary:
+            assert run(['docker','exec',name,'/observer-v1','indexer','--config','/tmp/index.json','--once'],check=False).returncode != 0
+            report['checks'].append('saved_v1_indexer_refuses_v2_schema_without_touching_receipts')
         run(psql, data='CREATE DATABASE empty_observer;')
         empty_config = {**writer, 'connection_string': writer['connection_string'].replace('dbname=eez_observer', 'dbname=empty_observer')}
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/empty.json'], data=json.dumps(empty_config))
@@ -146,6 +169,24 @@ def main():
         assert run(['docker', 'exec', name, 'psql', '-XAtq', '-U', 'postgres', '-d', 'empty_observer', '-c', "SELECT to_regnamespace('eez') IS NULL;"]).stdout.strip() == 't'
         write_index(index_config)
         report['checks'].append('unmigrated_schema_refused_without_implicit_ddl_in_both_runtime_modes')
+        control(phase='healthy')
+        upgrade = copy.deepcopy(index_config)
+        upgrade['deployment'] = 'upgrade'
+        upgrade['l1']['bootstrap'] = 2
+        upgrade['l1']['contracts'] = ['0x' + 'bb' * 20]
+        write_index(upgrade)
+        assert scalar("SELECT unknown_method_receipts FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='upgrade';") == '1'
+        control(phase='transaction_unavailable')
+        run(index)
+        assert scalar("SELECT unknown_method_receipts||':'||method_collection_errors FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='upgrade';") == '1:1'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='upgrade' AND role='l1';") == '591216'
+        control(phase='healthy')
+        run(index)
+        assert scalar("SELECT sum(execution_paid+blob_paid) FROM eez.posting_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='upgrade';") == '591216'
+        assert scalar("SELECT unknown_method_receipts FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='upgrade';") == '0'
+        report['checks'].append('legacy_posting_evidence_backfills_from_real_rpc_without_recharging_receipt')
+        write_index(index_config)
+        control(phase='missing')
         run(index)
         assert total() == '147000', total()
         assert scalar("SELECT count(*) FROM eez.collection_gaps g JOIN eez.chain_instances c ON c.id=g.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='scanner' AND state='open';") == '2'
@@ -225,6 +266,32 @@ def main():
         run(index)
         assert cursor('wrong-type') == '3'
         report['checks'].append('contradictory_receipt_transaction_type_refused_and_retry_recovers')
+        variant['deployment'] = 'posting'
+        variant['l1']['contracts'] = ['0x' + 'bb' * 20]
+        write_index(variant)
+        run(index)
+        assert scalar("SELECT known_total_paid FROM eez.wallet_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting' AND role='l1';") == '738216'
+        assert scalar("SELECT sum(execution_paid+blob_paid) FROM eez.posting_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting' AND NOT success;") == '591216'
+        assert scalar("SELECT decoded_post_receipts||':'||other_method_receipts||':'||unknown_method_receipts FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting';") == '1:1:0'
+        assert scalar("SELECT count(*) FROM eez.posting_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='scanner';") == '0'
+        assert scalar("SELECT count(*) FROM eez.posting_receipts WHERE role='l2';") == '0'
+        variant['deployment'] = 'invalid-posting'
+        write_index(variant)
+        control(phase='invalid_post')
+        run(index)
+        assert scalar("SELECT known_total_paid FROM eez.wallet_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='invalid-posting' AND role='l1';") == '738216'
+        assert scalar("SELECT invalid_post_calldata_receipts FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='invalid-posting';") == '1'
+        assert scalar("SELECT count(*) FROM eez.posting_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='invalid-posting';") == '0'
+        control(phase='healthy')
+        variant['deployment'] = 'unverified-posting'
+        write_index(variant)
+        control(phase='unverified_post')
+        run(index)
+        assert scalar("SELECT known_total_paid FROM eez.wallet_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='unverified-posting' AND role='l1';") == '738216'
+        assert scalar("SELECT unknown_method_receipts FROM eez.posting_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='unverified-posting';") == '1'
+        assert scalar("SELECT count(*) FROM eez.posting_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='unverified-posting';") == '0'
+        control(phase='healthy')
+        report['checks'].append('wallet_spend_decoded_contract_posts_reverts_and_invalid_calldata_remain_distinct')
         variant['deployment'] = 'bounded-batch'
         variant['batch_blocks'] = 1
         write_index(variant)
@@ -298,10 +365,10 @@ def main():
                 raise RuntimeError('continuous observer did not shut down')
             time.sleep(0.2)
         report['checks'].append('continuous_indexer_serves_both_chain_metrics_and_exits_on_sigterm')
-        run(psql, data="UPDATE eez.schema_migrations SET version=version+1;")
+        run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0
-        run(psql, data="UPDATE eez.schema_migrations SET version=version-1;")
+        run(psql, data="UPDATE eez.schema_migrations SET version=version-100;")
         report['checks'].append('newer_schema_refuses_migration_downgrade_and_old_indexer')
         run(psql, data="UPDATE eez.schema_migrations SET checksum=decode(repeat('00',32),'hex');")
         assert run(migrate, check=False).returncode != 0

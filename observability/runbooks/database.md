@@ -74,3 +74,11 @@ receipt persistence/recovery, not those later capabilities.
 
 References checked for this packaging: [Docker PostgreSQL guide](https://docs.docker.com/guides/postgresql/)
 and [Grafana provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+
+Schema 2 adds wallet/posting views and method-coverage backfill. Upgrade the
+observer database explicitly with the new binary's `migrate` command before
+starting its indexer. The old schema-1 binary refuses the upgraded schema rather
+than attempting a downgrade. Keep a backup of the database and original runtime
+credentials before migration; reverting only the executable is not a schema
+rollback. Existing exact charges survive migration while method coverage can
+initially be unknown. The scanner fills that evidence in bounded passes.

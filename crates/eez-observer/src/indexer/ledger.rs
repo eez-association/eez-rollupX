@@ -165,6 +165,7 @@ async fn save_receipt(
 ) -> Result<(), Error> {
     let recipient = tx.recipient.as_ref().map(|address| address.as_slice());
     client.execute("INSERT INTO eez.transactions(chain_instance_id,hash,sender,recipient,nonce,transaction_type,method_selector) VALUES($1,$2::bytea,$3::bytea,$4::bytea,$5::text::numeric,$6,$7) ON CONFLICT(chain_instance_id,hash) DO UPDATE SET sender=EXCLUDED.sender,recipient=EXCLUDED.recipient,nonce=EXCLUDED.nonce,transaction_type=EXCLUDED.transaction_type,method_selector=EXCLUDED.method_selector",&[&id,&tx.hash.as_slice(),&tx.sender.as_slice(),&recipient,&tx.nonce.to_string(),&tx.kind,&tx.selector]).bounded().await?;
+    save_posting(client, id, tx.hash, &tx.posting).await?;
     let key = format!("{:#x}:{:#x}", tx.hash, block.hash);
     if let Some(receipt) = receipt {
         let cost = receipt.cost.as_ref().ok();
@@ -327,5 +328,49 @@ pub(super) async fn record_block_gap(
     error: Error,
 ) -> Result<(), Error> {
     db.client.execute("INSERT INTO eez.collection_gaps(chain_instance_id,source,reference_key,from_number,to_number,reason) VALUES($1,'chain',$2::text,$2::text::numeric,$2::text::numeric,$3) ON CONFLICT(chain_instance_id,source,reference_key,reason) DO UPDATE SET state='open',last_seen_at=now()", &[&id,&number.to_string(),&error.label()]).bounded().await?;
+    Ok(())
+}
+
+pub(super) async fn save_posting(
+    client: &impl GenericClient,
+    id: i64,
+    hash: B256,
+    analysis: &crate::posting::Analysis,
+) -> Result<(), Error> {
+    let digest = analysis.calldata_hash.as_ref().map(B256::as_slice);
+    client.execute("INSERT INTO eez.posting_analysis(chain_instance_id,transaction_hash,state,calldata_hash,observed_at) VALUES($1,$2::bytea,$3,$4::bytea,now()) ON CONFLICT(chain_instance_id,transaction_hash) DO UPDATE SET state=EXCLUDED.state,calldata_hash=EXCLUDED.calldata_hash,observed_at=EXCLUDED.observed_at,collection_error=NULL", &[&id,&hash.as_slice(),&analysis.state,&digest]).bounded().await?;
+    Ok(())
+}
+
+pub(super) async fn pending_posting(
+    db: &Database,
+    id: i64,
+) -> Result<Vec<(B256, Option<Vec<u8>>)>, Error> {
+    db.client.query("SELECT a.transaction_hash::bytea,t.method_selector FROM eez.posting_analysis a JOIN eez.transactions t ON t.chain_instance_id=a.chain_instance_id AND t.hash=a.transaction_hash WHERE a.chain_instance_id=$1 AND a.state='pending' ORDER BY a.last_attempt_at,a.transaction_hash LIMIT 4", &[&id]).bounded().await?.iter().map(|row| {
+        let hash = B256::from(<[u8;32]>::try_from(row.try_get::<_,Vec<u8>>(0)?).map_err(|_| Error::Inconsistent)?);
+        Ok((hash,row.try_get(1)?))
+    }).collect()
+}
+pub(super) async fn touch_posting_attempt(db: &Database, id: i64, hash: B256) -> Result<(), Error> {
+    db.client.execute("UPDATE eez.posting_analysis SET last_attempt_at=now() WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea", &[&id,&hash.as_slice()]).bounded().await?;
+    Ok(())
+}
+pub(super) async fn repair_posting(db: &Database, id: i64, tx: &Transaction) -> Result<(), Error> {
+    let recipient = tx.recipient.as_ref().map(|address| address.as_slice());
+    let digest = tx.posting.calldata_hash.as_ref().map(B256::as_slice);
+    let changed = db.client.execute("UPDATE eez.posting_analysis a SET state=$8,calldata_hash=$9::bytea,observed_at=now(),collection_error=NULL FROM eez.transactions t WHERE a.chain_instance_id=$1 AND a.transaction_hash=$2::bytea AND t.chain_instance_id=$1 AND t.hash=$2::bytea AND t.sender=$3::bytea AND t.recipient IS NOT DISTINCT FROM $4::bytea AND t.nonce=$5::text::numeric AND t.transaction_type=$6 AND t.method_selector IS NOT DISTINCT FROM $7", &[&id,&tx.hash.as_slice(),&tx.sender.as_slice(),&recipient,&tx.nonce.to_string(),&tx.kind,&tx.selector,&tx.posting.state,&digest]).bounded().await?;
+    if changed != 1 {
+        return Err(Error::ConflictingFact);
+    }
+    Ok(())
+}
+
+pub(super) async fn posting_failure(
+    db: &Database,
+    id: i64,
+    hash: B256,
+    error: Error,
+) -> Result<(), Error> {
+    db.client.execute("UPDATE eez.posting_analysis SET collection_error=$3 WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea AND state='pending'", &[&id,&hash.as_slice(),&error.label()]).bounded().await?;
     Ok(())
 }

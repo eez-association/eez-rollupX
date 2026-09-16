@@ -60,3 +60,20 @@ applied L2 range finality, blob authentication/length, lifecycle ingestion,
 clean-host restore and measured larger backfills. The saved Chiado audit remains
 the arithmetic/reference-membership corpus; synthetic RPC fixtures do not
 substitute for that corpus or independent replay proof.
+
+Schema-2 follow-up: the observer now reuses the existing protocol ABI for posting
+classification, with an allocation-free token-layout preflight before decoding.
+All 22 observer tests passed, including nested calls/static root arrays, forged
+array lengths, overlapping tails, trailing data and explicit separation of the
+historical pre-int192 selector. The current empty-call RPC fixture is generated
+by `cargo run -p eez-observer --example posting-fixture` and checked against the
+encoder in the test; the old-selector fixture is reused from the signer corpus.
+
+The database suite now upgrades a populated v1 schema, verifies exact costs are
+unchanged, and backfills missing method evidence through RPC. With
+`--previous-binary /tmp/eez-observer-schema-v1`, it also uses the saved milestone
+binary to install v1 and proves that old migration/indexing commands refuse v2.
+Unavailable method data, invalid calldata and noncanonical layouts keep wallet
+charges while reducing posting classification coverage. Wallet and posting costs
+are overlapping views, never two amounts to sum. Exact applied settlement ranges,
+companion membership and source allocation still remain open.

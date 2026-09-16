@@ -222,6 +222,7 @@ struct Transaction {
     nonce: U256,
     kind: i16,
     selector: Option<Vec<u8>>,
+    posting: crate::posting::Analysis,
     index: u64,
 }
 fn address(value: &str) -> Result<Address, Error> {
@@ -249,6 +250,13 @@ impl Transaction {
         } else {
             None
         };
+        let posting = if selector.as_deref() == Some(crate::posting::SELECTOR.as_slice()) {
+            crate::posting::Analysis::parse(
+                &alloy_primitives::hex::decode(bytes).map_err(|_| Failure::Malformed)?,
+            )
+        } else {
+            crate::posting::Analysis::other()
+        };
         let kind = quantity(&value["type"])?;
         if kind > 255 {
             return Err(Failure::Malformed.into());
@@ -265,6 +273,7 @@ impl Transaction {
                 .map_err(|_| Failure::Malformed)?,
             kind: kind as i16,
             selector,
+            posting,
             index: tx_index,
         })
     }
@@ -574,6 +583,30 @@ async fn scan_chain(
             ledger::repair_block(database, id, &block, &observations).await?;
         }
     }
+    // Old schema rows may lack method evidence. A bounded fair retry lane
+    // repairs classification independently from receipt/header progress.
+    for (hash, selector) in ledger::pending_posting(database, id).await? {
+        ledger::touch_posting_attempt(database, id, hash).await?;
+        if selector.as_deref() != Some(crate::posting::SELECTOR.as_slice()) {
+            ledger::save_posting(
+                &database.client,
+                id,
+                hash,
+                &crate::posting::Analysis::other(),
+            )
+            .await?;
+            continue;
+        }
+        let transaction = match fetch_transaction(rpc, endpoint, hash).await {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                ledger::posting_failure(database, id, hash, error).await?;
+                continue; // A failed method fetch never erases known receipt charges.
+            }
+        };
+        rpc.validate_identity(endpoint).await?;
+        ledger::repair_posting(database, id, &transaction).await?;
+    }
     // L2 finality is deliberately NOT taken from its RPC tag. Applied settlement
     // hash/range verification supplies L2 finality in the correlation index.
     if role == "l1"
@@ -606,6 +639,27 @@ async fn scan_chain(
             .await?
             .map(|block| block.number),
     })
+}
+
+async fn fetch_transaction(
+    rpc: &Rpc,
+    endpoint: &Endpoint,
+    expected: B256,
+) -> Result<Transaction, Error> {
+    let value = rpc.transaction(endpoint, expected).await?;
+    let block = Block {
+        number: quantity(&value["blockNumber"])?,
+        hash: hash(&value["blockHash"])?,
+        parent: B256::ZERO,
+        timestamp: 0,
+    };
+    let index =
+        usize::try_from(quantity(&value["transactionIndex"])?).map_err(|_| Failure::Malformed)?;
+    let transaction = Transaction::parse(&value, &block, index)?;
+    if transaction.hash != expected {
+        return Err(Error::Inconsistent);
+    }
+    Ok(transaction)
 }
 
 async fn fetch_observations(
