@@ -24,6 +24,8 @@ trap 'rm -f -- "$config_dir/deployments.env"; rmdir -- "$config_dir"' EXIT
 touch "$config_dir/deployments.env"
 
 config="$(
+    EEZ_NODE_IMAGE=eez-node:config-test \
+    EEZ_PROOF_SIGNER_IMAGE=eez-proof-signer:config-test \
     docker compose \
         --project-directory "$config_dir" \
         --env-file "$REPO/.env.chiado.example" \
@@ -32,6 +34,8 @@ config="$(
 )"
 
 jq -e '
+    (.services["eez-node"] | has("build") | not) and
+    (.services["eez-proof-signer"] | has("build") | not) and
     .services["eez-node"].environment.EEZ_L1_CHAIN_ID == "10200" and
     .services["eez-node"].environment.EEZ_L1_BLOCK_TIME_MS == "5000" and
     .services["eez-node"].environment.EEZ_PROOF_TIME_MS == "1500" and

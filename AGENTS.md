@@ -111,7 +111,7 @@ run runtime suites solely for prose edits. `make test` does not cover all CI lan
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
 | Protocol pin or core-contract integration | Core tests below, `forge build --root eez-core-protocol`, `bash scripts/ci/run-protocol-anvil.sh`, and affected fork/E2E checks |
 | EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`, affected contract tests, and deployment verification in the [Kurtosis guide](testing/kurtosis/README.md) |
-| Chiado/settlement configuration | `bash scripts/check-chiado-blob-config.sh`; `python3 scripts/check-settlement-policy-config.py`; affected runtime tests if parsing or behavior changes |
+| Chiado/settlement configuration | `bash scripts/check-chiado-blob-config.sh`; `python3 scripts/check-settlement-policy-config.py`; `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v` for Compose/startup changes; affected runtime tests if parsing or behavior changes |
 | CI tooling/workflows | `python3 -m unittest discover -s scripts/ci/tests -v`; exercise the changed producer/consumer path |
 | Dependencies/lockfile | `cargo deny check advisories bans sources`; `cargo audit`; affected builds and compatibility tests |
 | Documentation | `git diff --check`; resolve relative links at the protocol pin; run `bash -n` on edited shell examples/scripts |
@@ -188,9 +188,14 @@ available to another checkout. Keep current behavior in the relevant specificati
 or `docs/<topic>.md`; link the authoritative procedure from README/AGENTS instead
 of duplicating it. Small fixes/docs edits need no new proposal/audit pair.
 
-For Chiado, use the [deployment runbook](docs/runbooks/chiado-deployment.md) within
-the task's deployment/funding/recovery authorization. Worktrees do not isolate its
-fixed container names, ports, databases, or shared wallets. Clean up only owned
+For Chiado, use the [quick start](docs/runbooks/chiado-quickstart.md) and
+[deployment runbook](docs/runbooks/chiado-deployment.md) within the task's
+deployment/funding/recovery authorization. Keep runtime image selection explicit
+in `.env.chiado`; deployed node/signer digests must come from one successful fork
+CI run matching the checkout/protocol. Reserve `:local` for development builds.
+Startup must require existing bindings and preserve datadirs; deployment is a
+separate broadcast operation. Worktrees do not isolate fixed container names,
+ports, databases, or shared wallets. Clean up only owned
 resources; preserve deployment bindings and genesis on restart. The
 [staged workload runner](scripts/run-chiado-staged-performance.sh) locks shared
 wallets and uses `--no-verify`; respect its locking and do not report it as semantic

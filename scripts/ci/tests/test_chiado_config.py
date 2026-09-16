@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -15,6 +16,12 @@ REPO = Path(__file__).resolve().parents[3]
                      "Docker Compose CLI and jq are required (no daemon needed)")
 class ChiadoConfigTest(unittest.TestCase):
     def setUp(self):
+        images = mock.patch.dict(os.environ, {
+            "EEZ_NODE_IMAGE": "eez-node:config-test",
+            "EEZ_PROOF_SIGNER_IMAGE": "eez-proof-signer:config-test",
+        })
+        images.start()
+        self.addCleanup(images.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="eez-chiado-config-test.")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -51,6 +58,74 @@ class ChiadoConfigTest(unittest.TestCase):
         deployment.write_text(contents)
         self.check()
         self.assertEqual(deployment.read_text(), contents)
+
+    def render_images(self, images):
+        (self.root / "deployments.env").touch()
+        environment = {k: v for k, v in os.environ.items()
+                       if k not in ("EEZ_NODE_IMAGE", "EEZ_PROOF_SIGNER_IMAGE")}
+        return subprocess.run(
+            ["docker", "compose", "--project-directory", str(self.root),
+             "--env-file", str(self.repo / ".env.chiado.example"), "-f",
+             str(self.repo / "docker-compose.chiado-node.yml"),
+             "config", "--no-env-resolution", "--format", "json"],
+            env={**environment, **images}, text=True, capture_output=True,
+        )
+
+    def test_images_must_be_selected_explicitly(self):
+        for images in ({}, {"EEZ_NODE_IMAGE": "eez-node:local"},
+                       {"EEZ_PROOF_SIGNER_IMAGE": "eez-proof-signer:local"}):
+            with self.subTest(images=images):
+                result = self.render_images(images)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("set EEZ_", result.stderr)
+
+    def test_published_and_local_images_share_configuration_without_builds(self):
+        for node, signer in (
+            ("ghcr.io/eduadiez/rollupx-node@sha256:" + "a" * 64,
+             "ghcr.io/eduadiez/rollupx-proof-signer@sha256:" + "b" * 64),
+            ("eez-node:local", "eez-proof-signer:local"),
+        ):
+            with self.subTest(node=node):
+                result = self.render_images({"EEZ_NODE_IMAGE": node,
+                                             "EEZ_PROOF_SIGNER_IMAGE": signer})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["eez-node"]["image"], node)
+                self.assertEqual(services["eez-proof-signer"]["image"], signer)
+                for service in ("eez-node", "eez-proof-signer"):
+                    self.assertNotIn("build", services[service])
+                    self.assertEqual(services[service]["platform"], "linux/amd64")
+                self.assertNotIn("EEZ_PROOF_SIGNER_KEY", services["eez-node"]["environment"])
+                self.assertIn("EEZ_PROOF_SIGNER_KEY", services["eez-proof-signer"]["environment"])
+
+    def test_missing_bindings_startup_preserves_existing_data(self):
+        (self.repo / ".env").write_text("EEZ_L1_RPC_URL=http://example.invalid\n")
+        shutil.copy2(self.repo / ".env.chiado.example", self.repo / ".env.chiado")
+        sentinels = []
+        for directory in ("data/eez-l2", "data/chiado-lighthouse"):
+            path = self.repo / directory / "keep"
+            path.parent.mkdir(parents=True)
+            path.write_text("existing deployment data")
+            sentinels.append(path)
+        # Fail if startup invokes a tool after finding missing bindings; never
+        # contact Docker or a network endpoint during this regression test.
+        tool_dir = self.root / "bin"
+        tool_dir.mkdir()
+        log = self.root / "invoked"
+        for tool in ("docker", "cast", "curl", "jq", "make"):
+            stub = tool_dir / tool
+            stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$0" >> "{log}"\nexit 99\n')
+            stub.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(self.repo / "scripts/chiado-up.sh")],
+            env={**os.environ, "PATH": str(tool_dir) + os.pathsep + os.environ["PATH"]},
+            text=True, capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("deployments.env missing", result.stderr)
+        self.assertFalse(log.exists(), "Startup must stop before invoking deployment or services")
+        for path in sentinels:
+            self.assertEqual(path.read_text(), "existing deployment data")
 
     def test_wrong_chain_id_still_fails(self):
         compose = self.repo / "docker-compose.chiado-node.yml"

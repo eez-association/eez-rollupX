@@ -1,32 +1,13 @@
-# Packaged chiado stack: eez-node (embedded chiado L1 + L2 + composer),
-# eez-proof-signer, and lighthouse (drives the embedded L1). Single-L1
-# topology — no standalone
-# tip-follower reth: the bundle target-block oracle falls back to the
-# embedded L1 (EEZ_L1_TARGET_RPC_URL unset), which tracks the canonical
-# tip in steady state. The one-time protocol deploy is done against an
-# external chiado RPC before `up` (see README / scripts/devnet-test.sh).
-#
-# Prereqs (one-time, see README):
-#   1. Download an L1 snapshot into ${L1_SNAPSHOT_DIR}:
-#        docker run --rm -v ${L1_SNAPSHOT_DIR}:/data \
-#          ghcr.io/gnosischain/reth_gnosis:v2.0.0 \
-#          download --chain chiado --minimal --datadir /data
-#   2. Create the shared JWT: openssl rand -hex 32 > ${JWT_FILE}
-#   3. Deploy the protocol on chiado and write deployments.env
-#        (make deploy-protocol against EEZ_L1_RPC_URL=<external chiado RPC>)
-#   4. Fill .env.chiado (keys + bundler) from .env.chiado.example
-#
-# Then: docker compose -f docker-compose.chiado-node.yml up
-#
-# All services use host networking so lighthouse↔eez-node engine API and
-# the embedded L1 / lighthouse libp2p peering work without port mapping.
+# Packaged Chiado: embedded L1 + Composer/L2, independent signer, Lighthouse.
+# Set EEZ_NODE_IMAGE and EEZ_PROOF_SIGNER_IMAGE to published image digests in
+# .env.chiado. This deployment definition never builds images.
+# Local development uses Dockerfile / Dockerfile.signer and explicit :local tags.
+# Services use host networking; container names, ports and datadirs are shared.
 
 services:
   eez-proof-signer:
-    build:
-      context: .
-      dockerfile: Dockerfile.signer
-    image: eez-proof-signer:local
+    image: "${EEZ_PROOF_SIGNER_IMAGE:?set EEZ_PROOF_SIGNER_IMAGE in .env.chiado}"
+    platform: linux/amd64
     container_name: eez-proof-signer-chiado
     network_mode: host
     restart: unless-stopped
@@ -53,10 +34,8 @@ services:
       driver: "local"
 
   eez-node:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: eez-node:local
+    image: "${EEZ_NODE_IMAGE:?set EEZ_NODE_IMAGE in .env.chiado}"
+    platform: linux/amd64
     container_name: eez-node-chiado
     network_mode: host
     restart: unless-stopped

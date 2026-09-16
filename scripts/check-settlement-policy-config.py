@@ -38,6 +38,9 @@ def main():
                 (root / "deployments.env").write_text("")
                 example = repo / f".env.{profile}.example"
                 env = os.environ.copy()
+                if profile == "chiado":
+                    env.update(EEZ_NODE_IMAGE="eez-node:config-test",
+                               EEZ_PROOF_SIGNER_IMAGE="eez-proof-signer:config-test")
                 for key in (*policy, "EEZ_L1_POSTBATCH_PRIORITY_FEE",
                             "EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_MAX_POSTBATCH_GAS",
                             "EEZ_MAX_SPECULATIVE_DEPTH"):

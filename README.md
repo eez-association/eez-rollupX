@@ -75,10 +75,11 @@ and reconstructing full blobs for the deriver through
 `/eth/v1/beacon/blobs/{block_id}`. The deprecated pre-Fulu sidecar endpoint is
 retained only as a compatibility fallback.
 
-Follow the [Chiado deployment runbook](docs/runbooks/chiado-deployment.md) for
-prerequisites, keys and funding, first deployment, startup checks, restart,
-troubleshooting, and recovery limits. It is the shared procedure for humans and
-agents; the [runbook index](docs/runbooks/README.md) explains how to maintain it.
+Start with the [Chiado quick start](docs/runbooks/chiado-quickstart.md): select
+this fork's published node/signer images, configure, deploy, and start. Runtime
+images come from GHCR; `:local` builds are for development. Use the
+[detailed runbook](docs/runbooks/chiado-deployment.md) for preflight checks,
+restart, troubleshooting, and recovery limits.
 
 First deployment must generate the registered genesis before startup. Restarting
 an existing rollup must preserve its deployment bindings, genesis, keys, and data.

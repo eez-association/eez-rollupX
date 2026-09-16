@@ -1,5 +1,8 @@
 # Chiado deployment and operation
 
+For the short first-deployment path, use the [quick start](chiado-quickstart.md).
+This runbook includes validation, restart, and recovery.
+
 Use [`docker-compose.chiado-node.yml`](../../docker-compose.chiado-node.yml):
 `eez-node` runs the Composer, embedded Chiado L1 execution client, and L2;
 `eez-proof-signer` independently validates batches; Lighthouse drives L1 consensus
@@ -10,7 +13,7 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 | Verification record | Value |
 | --- | --- |
 | Runtime source reviewed | 2026-09-16; fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`; protocol `3c0cdf4955941a5c23639346932b55b33babebbd` |
-| Checked | Source/configuration consistency, relative links, Bash syntax, stubbed startup/health/blob examples, `scripts/check-chiado-blob-config.sh` |
+| Checked | Source/configuration consistency, Compose rendering, Bash syntax, offline regression checks; runtime baseline above plus the published-image configuration changes in this branch |
 | Pending | Full fresh-host deployment and restart rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
 
 ## Select the procedure
@@ -22,15 +25,15 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 | Move hosts, upgrade, or recover missing state | [Recovery and upgrades](#recovery-and-upgrades) | Deployment inventory, preserved state, and an identified recovery source |
 
 **Deployment is not idempotent.** `make deploy-protocol` broadcasts a new deployment
-even if `deployments.env` exists. If that file is missing, `chiado-up.sh` can deploy
-and **delete `L2_DATA_DIR` and `LIGHTHOUSE_DATA`**. Do not use `make clean-deploy`,
+even if `deployments.env` exists. `chiado-up.sh` requires existing bindings and
+never deploys contracts or deletes datadirs. Do not use `make clean-deploy`,
 `make clean-l2`, or removal of bindings as a restart/recovery procedure.
 
 ## Shell, host, and network prerequisites
 
 Run commands in Bash from the intended deployment checkout's root. Use a checkout
-path without whitespace or commas: generated bindings contain unquoted paths and
-Docker's mount syntax uses commas. Use the default paths and ports below. Custom
+path without whitespace or colons: generated bindings contain unquoted paths and
+Compose's short volume syntax uses colons. Use the default paths and ports below. Custom
 layouts require adapting Compose, the startup wrapper (which hardcodes the L1/L2
 health-check ports), and the commands together.
 A worktree or `COMPOSE_PROJECT_NAME` does not isolate fixed container names,
@@ -57,11 +60,11 @@ the task's authorization.
 
 | Requirement | Check/constraint |
 | --- | --- |
-| Linux, local Docker Engine, Compose, BuildKit | `docker info`; `docker compose version`. Bind mounts refer to this host; CI runtime artifacts target Linux amd64. |
+| Linux amd64, local Docker Engine and Compose | `docker info`; `docker compose version`. Bind mounts refer to this host. Host genesis helpers copied from the Debian Bookworm image require glibc 2.36 or newer (`ldd --version`); Ubuntu 24.04 meets this requirement. |
 | Host tools | Bash, Git, Make, `curl`, `jq`, Python 3, OpenSSL, GNU utilities (`realpath`, `sha256sum`, `cmp`), `ss` (iproute2) |
 | Foundry | `forge` and `cast` from **1.7.1**; genesis generation enforces the `forge` version |
-| Build/storage capacity | Space and memory for Rust image builds, L1 snapshot, PeerDAS data, and growing databases. Check `df -h .` and Docker storage; no measured minimum is established here. |
-| Network access | Dependencies/images, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers |
+| Storage capacity | Space for published images, L1 snapshot, PeerDAS data, and growing databases. Check `df -h .` and Docker storage; no measured minimum is established here. Published runtime images avoid local Rust builds. |
+| Network access | GHCR images, Solidity compiler download, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers. Private GHCR packages require `docker login ghcr.io` with an account/token allowed to read them. |
 | Deployment RPC | Synchronized Chiado execution RPC, chain ID **10200**; remains required by startup even when the embedded L1 is running |
 | Builder | Separate endpoint implementing `eth_sendBundle`; an ordinary execution RPC is insufficient |
 | Beacon | Packaged Lighthouse **v8.1.3**, checked-in `configs/chiado`, `--semi-supernode`, full-blob API; built-in Chiado config in this image leaves Fulu disabled |
@@ -113,7 +116,7 @@ the rollup. Changing genesis after registration changes its identity.
 | File/variable | Default location and ownership |
 | --- | --- |
 | `.env` | Private deployment RPC/keys; read by `make deploy-protocol` |
-| `.env.chiado` | Private service keys and Compose settings; overrides `.env` during startup |
+| `.env.chiado` | Private service keys, **node/signer image digests**, and Compose settings; overrides `.env` during startup; preserve on restart |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
@@ -135,10 +138,30 @@ Complete steps 1–4 in order. Keep the stack stopped until **Start and verify**
 After a partial failure, inspect retained outputs and resume only the uncompleted
 setup step; do not repeat contract deployment without reconciling broadcasts.
 
-### 1. Check the checkout and build
+### 1. Select a published revision and check the checkout
 
-Inspect local changes before initializing the pinned submodule. Do not substitute
-upstream `main`. The guard below refuses an existing deployment/configuration:
+Select a **completed, successful `CI` run on this fork's `main`** in
+[GitHub Actions](https://github.com/eduadiez/rollupX/actions/workflows/ci.yml).
+The **Build runtime artifacts / build** job's **Runtime candidate** summary lists
+node, signer, and deploy image digests. Copy the node and signer references from
+that same run; this host-based deployment procedure does not need the deploy image.
+
+| Runtime | Official fork package |
+| --- | --- |
+| Node, Composer, genesis helpers | `ghcr.io/eduadiez/rollupx-node` |
+| Proof signer | `ghcr.io/eduadiez/rollupx-proof-signer` |
+
+CI tags are `sha-<full-commit>-<run-id>-<build-attempt>`; there is no `latest` or
+stable release tag. Prefer the summary's `@sha256:...` references so restart uses
+identical bytes. Publication precedes downstream tests: a successful build job
+alone is insufficient. Upstream association images are not this fork's binaries.
+If no completed successful run exists for the desired revision, wait for/fix CI
+before treating that candidate as qualified for deployment.
+
+Use a clean checkout of that run's exact commit and its pinned submodule. Inspect
+local changes before changing revisions; preserve them. Do not use an older image
+with current contracts/configuration merely because it pulls successfully.
+Run the following after selecting the checkout; the guard rejects existing state:
 
 ```bash
 (
@@ -156,51 +179,14 @@ upstream `main`. The guard below refuses an existing deployment/configuration:
   docker compose version
   forge --version
   cast --version
-  docker build -t eez-node:local .
-  docker build -f Dockerfile.signer -t eez-proof-signer:local .
-  docker image inspect --format '{{.RepoTags}} {{.Id}}' eez-node:local eez-proof-signer:local
   bash scripts/check-chiado-blob-config.sh
 )
 ```
 
-**Pass:** submodule matches the gitlink, both builds succeed, static check prints
-`Chiado post-Fulu blob deployment configuration: PASS`. Record image IDs;
-`:local` tags are mutable. This check uses examples, not the live configuration.
-
-#### Host genesis tools
-
-Deployment runs on the host and needs `eez-genesis-state-root` and
-`eez-genesis-block-hash`. Supply them from the built node image to avoid a host
-Cargo build after contracts have already been broadcast. These wrappers mount
-only the input file, with networking and image pulling disabled:
-
-```bash
-export PATH="$PWD/.runtime/chiado-tools:$PATH"
-(
-  set -euo pipefail
-  mkdir -p .runtime/chiado-tools
-  cat > .runtime/chiado-tools/genesis-tool <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-genesis_path="$(realpath -- "${1:?pass the genesis JSON path}")"
-exec docker run --rm --pull never --network none \
-  --mount "type=bind,source=$genesis_path,target=/genesis.json,readonly" \
-  --entrypoint "/usr/local/bin/$(basename "$0")" \
-  eez-node:local /genesis.json
-SH
-  chmod 755 .runtime/chiado-tools/genesis-tool
-  ln -sfn genesis-tool .runtime/chiado-tools/eez-genesis-state-root
-  ln -sfn genesis-tool .runtime/chiado-tools/eez-genesis-block-hash
-  eez-genesis-state-root "$PWD/genesis.json"
-  eez-genesis-block-hash "$PWD/genesis.json"
-  forge build --root contracts
-)
-```
-
-**Pass:** two 32-byte hex hashes and a successful contract build. The repository
-fixture here tests tools; it is not the deployment's genesis. Re-export `PATH`
-in a new shell. On restart, reuse the recorded node image; if wrappers are missing,
-recreate only this wrapper block, without rebuilding/retagging the images.
+**Pass:** checkout matches the selected CI commit, submodule matches the gitlink,
+Foundry reports 1.7.1, static check prints
+`Chiado post-Fulu blob deployment configuration: PASS`.
+The check uses examples, not the live configuration.
 
 ### 2. Configure and preflight
 
@@ -219,7 +205,7 @@ Create private files, then edit them:
 | File | Required edits |
 | --- | --- |
 | `.env` | Replace the example `EEZ_L1_RPC_URL` with your synchronized Chiado RPC; set the three required keys; optionally set `EEZ_DEPLOY_KEY`. |
-| `.env.chiado` | Set the **same three keys**, verify `EEZ_L1_BUILDER_RPC_URL`, and retain the default paths above, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. |
+| `.env.chiado` | Paste the selected `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` digest references; set the **same three keys**, verify `EEZ_L1_BUILDER_RPC_URL`, and retain the default paths above, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. |
 
 Checkpoint sync defaults to `https://checkpoint.chiadochain.net/`; set
 `LH_CHECKPOINT_URL` in `.env.chiado` to use another trusted checkpoint source.
@@ -231,6 +217,42 @@ and distinguish omitted values from empty strings. Compose explicitly supplies
 the running node's embedded L1 RPC, so do not replace the external deployment
 RPC with an unsynchronized local endpoint. Do not publish expanded Compose
 configuration or environment dumps; they contain keys.
+
+#### Pull runtime images and install genesis tools
+
+Run after editing `.env.chiado`. Pulling downloads images but starts no services.
+Copy the two genesis helpers out of the selected node image; the temporary
+container is never started. These native helpers avoid compiling Rust during a
+partially completed contract deployment.
+
+```bash
+export PATH="$PWD/.runtime/chiado-tools:$PATH"
+(
+  set -euo pipefail
+  source .env.chiado
+  docker pull --platform linux/amd64 "${EEZ_NODE_IMAGE:?set the published node digest}"
+  docker pull --platform linux/amd64 "${EEZ_PROOF_SIGNER_IMAGE:?set the published signer digest}"
+  docker pull --platform linux/amd64 sigp/lighthouse:v8.1.3
+  mkdir -p .runtime/chiado-tools
+  tools_container="$(docker create --platform linux/amd64 "$EEZ_NODE_IMAGE")"
+  trap 'docker rm "$tools_container" >/dev/null' EXIT
+  docker cp "$tools_container:/usr/local/bin/eez-genesis-state-root" .runtime/chiado-tools/
+  docker cp "$tools_container:/usr/local/bin/eez-genesis-block-hash" .runtime/chiado-tools/
+  eez-genesis-state-root "$PWD/genesis.json"
+  eez-genesis-block-hash "$PWD/genesis.json"
+  forge build --root contracts
+  docker image inspect --format '{{.Id}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "io.eez.protocol.revision"}}' \
+    "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE"
+)
+```
+
+**Pass:** two 32-byte hex hashes, successful contract build, and both images'
+revision/protocol labels match `git rev-parse HEAD` / `git ls-tree HEAD eez-core-protocol`.
+Record the digests and CI URL. Re-export `PATH` in each operator shell; retain these
+helpers with that image selection. If missing on restart, repeat the copy/test
+commands using the recorded image; do not select a newer version.
+
+#### Preflight configuration
 
 Before spending gas, verify RPC identity, key consistency, funding, builder method
 availability, and genesis rendering. Output labels public addresses and balances
@@ -374,9 +396,9 @@ export PATH="$PWD/.runtime/chiado-tools:$PATH"
 )
 ```
 
-`chiado-up.sh` requires `FRESH_GENESIS` before its optional deploy branch; first
-registration must therefore be explicit. With the bindings file present it skips
-deployment/data deletion and creates missing initial L2/Lighthouse directories.
+`chiado-up.sh` requires existing bindings, genesis, snapshot, JWT, and locally
+available images. It creates missing initial L2/Lighthouse directories and starts
+Compose with `--no-build --pull never`; contract deployment is a separate step.
 
 **Startup pass:** `chiado L2 is UP`, L2 height greater than 3, changed registry
 commitment, and a new `BatchPosted` transaction of type 3 whose versioned-hash-selected
@@ -455,7 +477,9 @@ follower replay; record those checks separately when required.
 ## Restart and stop
 
 Use the recorded checkout, image IDs, keys, bindings, genesis/profile, JWT, and data
-paths. Rebuilding a mutable `:local` tag changes the next start into an upgrade.
+paths. Preserve the image digests in `.env.chiado`; changing them is an upgrade.
+Startup uses `--no-build --pull never`: pull the recorded images explicitly if
+they are missing locally.
 Do not rerun first-deployment steps for an ordinary restart.
 
 Before stopping, pause submissions and record unsettled transaction hashes,
@@ -492,7 +516,8 @@ startup silently create replacement directories:
   test -d "$L1_SNAPSHOT_DIR"
   test -d "$L2_DATA_DIR"
   test -d "$LIGHTHOUSE_DATA"
-  docker image inspect --format '{{.RepoTags}} {{.Id}}' eez-node:local eez-proof-signer:local
+  docker image inspect --format '{{.RepoDigests}} {{.Id}}' \
+    "$EEZ_NODE_IMAGE" "$EEZ_PROOF_SIGNER_IMAGE" sigp/lighthouse:v8.1.3
 )
 ```
 
@@ -500,7 +525,7 @@ Compare image IDs and file paths/digests with the inventory, then run
 [Start and verify](#start-and-verify). Missing/empty databases require recovery
 assessment; directory existence alone is not a backup-integrity check.
 
-Configuration changes require `chiado_compose up -d` (also used by startup) to
+Configuration changes require `chiado_compose up -d --no-build --pull never` to
 recreate affected containers; `docker restart` retains their old environment.
 For planned changes, preserve the previous configuration and repeat health checks.
 
@@ -511,6 +536,9 @@ matching diagnostic below; do not delete state to clear an unexplained error.
 
 | Failure | First check and action |
 | --- | --- |
+| Missing image/configuration | Set both image references in `.env.chiado`; use the recorded node/signer digests and `docker pull` each image plus `sigp/lighthouse:v8.1.3`. Startup does not pull or build. A missing `deployments.env` requires completing deployment or restoring bindings, not deleting data. |
+| GHCR denied / manifest unknown | Check package spelling, digest and CI run; authenticate with `docker login ghcr.io` if package visibility requires it. Do not substitute `:latest` or another fork. |
+| Genesis helper fails to load | Re-export `.runtime/chiado-tools` in `PATH`; check `ldd --version` and `ldd .runtime/chiado-tools/eez-genesis-block-hash`. Use Linux amd64/glibc 2.36+ and recopy helpers from the selected image. |
 | Missing/mismatched genesis | Use the [startup block](#start-and-verify) to load all three env files and check hashes; stop before `chiado-up.sh` while diagnosing. Fresh deployment: finish registration. Existing deployment: recover exact bindings/genesis, including timestamp. |
 | Deploy failed before bindings were written | Inspect the timestamped private log and `contracts/broadcast/`. Use `cast receipt` for each broadcast transaction and `cast nonce` for the deployer against the configured deployment RPC. Reconcile confirmed addresses/nonces before another deploy. |
 | Signer unhealthy/rejecting | `chiado_compose logs --tail=100 eez-proof-signer`; repeat the startup key/hash checks. Check genesis mode with `stat -c '%a %n' datadir/genesis.json` (public file should be 644), UID 65532 readability, and L1 chain config `chiado`. |
@@ -529,7 +557,7 @@ mapped discovery port (default UDP **9205**). These flags do not configure NAT.
 Keep both unset for automatic advertisement when that works. Then:
 
 ```bash
-chiado_compose up -d --no-deps lighthouse
+chiado_compose up -d --no-build --pull never --no-deps lighthouse
 curl -fsS http://127.0.0.1:6152/eth/v1/node/peer_count | jq '.data'
 curl -fsS http://127.0.0.1:6152/eth/v1/node/syncing | jq '.data'
 ```
@@ -582,7 +610,9 @@ checks retrieval/shape; it does not independently verify KZG proofs or replay.
    An execution snapshot does not provide missing blob history. Do not delete the
    current L2 database until the recovery path has been tested.
 3. For upgrades, check node/signer/protocol compatibility, stored-state formats,
-   configuration changes, and rollout order. Retain previous image IDs and backups;
+   configuration changes, and rollout order. Select both new image digests from one
+   successful CI run, use its checkout, and repeat the pull/helper setup. Retain
+   previous `.env.chiado`, image digests, checkout, and backups;
    a binary downgrade works only if old code can read the resulting data and speak
    the deployed protocol. Repeat startup, semantic, and replay checks required by
    the change; record which actually ran.
@@ -596,6 +626,31 @@ user state automatically. Missing bindings after a partial deploy require receip
 reconciliation, not the ordinary restart path. Do not claim recovery beyond retained
 history until the complete recovery procedure has been exercised.
 
+## Local source development
+
+Use this path when testing local Rust changes, with an isolated deployment whose
+fixed ports/names/datadirs you own. In `.env.chiado`, set:
+
+```dotenv
+EEZ_NODE_IMAGE=eez-node:local
+EEZ_PROOF_SIGNER_IMAGE=eez-proof-signer:local
+```
+
+Build explicitly with the existing Dockerfiles:
+
+```bash
+docker build -t eez-node:local .
+docker build -f Dockerfile.signer -t eez-proof-signer:local .
+docker pull sigp/lighthouse:v8.1.3
+```
+
+Use the same genesis-helper copy and deployment/start procedures, omitting the
+node/signer **pull** commands. Local builds require BuildKit and Rust build capacity.
+Local Dockerfiles do not add CI provenance labels; record the source commit/local
+changes and image IDs instead of comparing those labels. Rebuilding `:local`
+changes its bytes; treat the next restart as an upgrade. An existing local deployment can retain its images by setting these
+two variables; switching to published images requires the upgrade checks above.
+
 ## Handoff record
 
 Maintain the operational inventory privately; commit only sanitized evidence using
@@ -603,7 +658,7 @@ the [audit template](../audits/TEMPLATE.md), linked to this runbook:
 
 | Record | Required contents |
 | --- | --- |
-| Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, tool versions, immutable image IDs |
+| Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, CI run URL, node/signer image digests and local IDs, Lighthouse tag/resolved digest, tool versions |
 | Chain identity | L1/L2 chain IDs, registry/rollup/manager, proof system and attester, system/bridge addresses, deploy block, transaction receipts |
 | State/files | Genesis/profile SHA-256 digests, initial block hash and state root; retained locations of bindings, data, JWT, and backups |
 | Credentials | Private secret-manager/access references; never commit keys or authenticated URLs |

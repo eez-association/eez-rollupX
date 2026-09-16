@@ -5,6 +5,7 @@ reconstructing a process from scripts, old logs, or an earlier conversation.
 
 | Task | Procedure | Verification status |
 | --- | --- | --- |
+| New Chiado rollup: minimal command sequence | [Chiado quick start](chiado-quickstart.md) | Published-image procedure; fresh-host rehearsal pending |
 | Deploy, start, check, and stop a Chiado rollup | [Chiado deployment](chiado-deployment.md) | Source reviewed; static checks; full deployment rehearsal pending |
 
 Use `docs/proposals/` for intended changes, `docs/audits/` for dated evidence,
