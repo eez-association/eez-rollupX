@@ -93,3 +93,12 @@ These exclusions are in the proposal; they do not defer any row above.
 - The signer captured-anchor fixture intentionally uses the old `0xcafef125`
   selector. The current protocol uses `0xe4a480e4`; method coverage must state its
   supported ABI era instead of silently reinterpreting old calldata.
+
+- Main alignment is a continuing user requirement. On 2026-09-16, refreshed
+  public origin/main over HTTPS (the session's SSH key was unavailable) and merged
+  `5469c88860408daf776ee812156dd280c1a9e262` into this branch as `5cbdd02`.
+  There were no conflicts, uncommitted work was byte-for-byte preserved, and the
+  protocol gitlink stayed `3c0cdf4955941a5c23639346932b55b33babebbd`. Refresh
+  origin/main again before substantial milestones and final validation. The new
+  root AGENTS.md applies; subsequent builds/checks use Rust 1.94.0. Earlier
+  evidence remains tied to its recorded revision/toolchain.

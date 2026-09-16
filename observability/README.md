@@ -165,7 +165,8 @@ first. The normal backend deployment uses your separately managed exporter.
 
 The dedicated [Observability CI workflow](../.github/workflows/observability.yml)
 runs exporter checks and the isolated backend test on relevant pull requests.
-It uploads only the sanitized validation report, not runtime credentials or logs.
+It records successful checks in the job summary and retains sanitized failure
+reports for three days. Runtime credentials and logs are not uploaded.
 
 **Optional canonical receipt indexing.**
 
