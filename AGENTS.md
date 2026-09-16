@@ -19,6 +19,10 @@ the repository root. Keep detailed procedures in the linked documents.
   only when the task includes that scope, and validate downstream compatibility.
 - Place shared behavior with its lifecycle owner. Keep roles and required
   dependencies explicit; add abstractions and public APIs for real callers.
+- Use the dependency constraints in [Cargo.toml](Cargo.toml), `Cargo.lock`, and
+  the toolchain selected by CI. Keep Reth, Stateless, reth_gnosis, REVM, and Alloy
+  compatible. Treat dependency upgrades as deliberate, validated changes rather
+  than incidental fixes for a build failure.
 
 ## Specifications
 
@@ -47,6 +51,10 @@ specifications.
   consumers: Solidity, shared Rust types/codecs, Composer, signer, and
   deriver/follower. Update compatibility vectors and affected specifications
   together; a local encoder/decoder round trip alone cannot prove compatibility.
+- For wire, configuration, or persistent-state changes, define mixed-version
+  behavior and effects on historical decoding and follower replay. Document
+  required upgrade order, restarts, migrations, and rollback limits; validate
+  the affected network profiles and fork boundaries.
 - For settlement or queue work, also read the [settlement policy](docs/configurable-settlement-policy.md)
   and [queue requirements](docs/proposals/cross-chain-queue-liveness.md). Preserve
   policy-disabled behavior; distinguish scheduling triggers from gas, DA, and
@@ -73,31 +81,35 @@ specifications.
 - Write comments and docs about current behavior and rationale. Update affected
   specifications and operator examples when their contract changes.
 
-## Proposals and audits
+## Proposals, audits, and runbooks
 
 - For substantial design or behavior changes, create or update
-  `docs/proposals/<topic>.md` before implementation. Record status, date, source
-  baseline, problem, scope/non-goals, invariants, design/tradeoffs, failure and
-  recovery behavior, and acceptance checks. Distinguish draft ideas from accepted
+  `docs/proposals/<topic>.md` before implementation, using the
+  [proposal template](docs/proposals/TEMPLATE.md). Distinguish draft ideas from accepted
   requirements; a draft containing `MUST` is not an adopted contract. Use the
   task's existing authorization; writing a proposal creates no extra approval gate.
 - For investigations, substantial validation, or operational changes, record
-  evidence in `docs/audits/YYYY-MM-DD-<topic>/README.md`. Include source and
-  protocol revisions, relevant uncommitted changes, tested binary/image identity,
-  environment/configuration, exact commands, results, evidence locations, and
-  limitations. Separate observed facts, reproduced behavior, and hypotheses;
+  evidence in `docs/audits/YYYY-MM-DD-<topic>/README.md`, using the
+  [audit template](docs/audits/TEMPLATE.md). Pin source, protocol, and executable
+  identities; record commands, outcomes, and limits. Separate facts from hypotheses;
   reproducing a possible failure path does not prove it caused a past incident.
 - Link proposals, implementation/coverage records, and audits in both directions.
-  Map important requirements to production paths, checks, and results. Use small
-  machine-readable evidence summaries when useful; retain sanitized reproduction
-  inputs and diagnostics without committing databases or bulk logs.
+  Map requirements to production paths, checks, and retrievable evidence. Retain
+  small sanitized inputs/results or identify an external artifact and its digest;
+  label local-only, missing, or expired evidence. Do not commit databases or bulk logs.
 - Keep intended design, implementation, validation, and deployment status
   distinct. Preserve dated findings and failed checks; add dated corrections or
-  links to superseding evidence. Older results do not validate later changes.
-- Maintain current behavior and operator instructions in `docs/<topic>.md` or
-  the relevant crate specification/README. Link supporting proposals and audits
-  instead of duplicating their history. Small fixes and documentation edits can
-  update existing records without creating a proposal and audit pair.
+  links to superseding evidence. Record unmet criteria and concrete next steps.
+  Older results do not validate later changes.
+- Keep repeatable operational procedures in [docs/runbooks](docs/runbooks/README.md).
+  Read the relevant runbook before operating a deployment. Include prerequisites,
+  commands, expected results, restart/recovery boundaries, and verification status.
+  Turn newly verified operational steps into runbook updates so the next human
+  or agent can reuse them; link dated evidence without copying incident history.
+- Maintain current behavior in `docs/<topic>.md` or the relevant crate
+  specification/README. Link proposals, audits, and runbooks from their entry
+  points instead of maintaining competing instructions. Small fixes and
+  documentation edits need no new proposal and audit pair.
 
 ## Validation
 
@@ -136,10 +148,12 @@ specifications.
   minimal sanitized failure evidence before deleting disposable data; keep
   unrelated changes, existing deployments, databases, and shared wallets intact.
 - Run funded traffic, deployment changes, or destructive recovery only within
-  the task's existing authorization. For Chiado workloads, read the root
-  [README](README.md) and the selected runner; respect shared resources and its
-  locking rules. Keep secrets, private keys, authenticated URLs, and private
-  deployment hostnames out of committed artifacts and reports.
+  the task's existing authorization. For Chiado, follow the
+  [deployment runbook](docs/runbooks/chiado-deployment.md); for workloads, also
+  read the [README](README.md) and selected runner, respecting shared resources
+  and locking rules. Preserve deployment identity when restarting. Keep secrets,
+  private keys, authenticated URLs, and private deployment hostnames out of
+  committed artifacts and reports.
 - PR descriptions state the behavior change, motivating invariant, tradeoffs,
   exact validation, and relevant CI checks still pending. Preserve meaningful
   commits; for an authorized history rewrite, inspect `git range-diff` and use

@@ -75,11 +75,17 @@ and reconstructing full blobs for the deriver through
 `/eth/v1/beacon/blobs/{block_id}`. The deprecated pre-Fulu sidecar endpoint is
 retained only as a compatibility fallback.
 
-> **One command** (after the one-time setup + `.env`/`.env.chiado`): `bash
-> scripts/chiado-up.sh` deploys the protocol (skipped if already deployed),
-> prepares the datadirs, starts the stack, waits until it's healthy, and
-> prints the RPC URLs. The numbered steps below are that same flow done by
-> hand.
+Follow the [Chiado deployment runbook](docs/runbooks/chiado-deployment.md) for
+prerequisites, keys and funding, first deployment, startup checks, restart,
+troubleshooting, and recovery limits. It is the shared procedure for humans and
+agents; the [runbook index](docs/runbooks/README.md) explains how to maintain it.
+
+First deployment must generate the registered genesis before startup. Restarting
+an existing rollup must preserve its deployment bindings, genesis, keys, and data.
+The runbook separates these paths and identifies commands that broadcast or
+change running services.
+
+### Staged performance workload
 
 For the 770-job / 870-source staged performance workload against an existing
 Chiado deployment, configure `eez-core-protocol/chain.env` (or set
@@ -98,111 +104,6 @@ and receipt monitoring while skipping semantic verification. The upstream run
 directory under `eez-core-protocol/tmp/e2e-staged-net/` contains its phase and
 job timings. The reported faucet reserve includes refundable funds and is not
 the expected cost. Do not start another upstream network runner concurrently.
-
-### One-time setup
-
-```bash
-git submodule update --init --recursive
-
-# 1. Build the node and proof-signer images.
-docker build -t eez-node:local .
-docker build -f Dockerfile.signer -t eez-proof-signer:local .
-
-# 2. Download a minimal chiado L1 snapshot (skips syncing from genesis).
-mkdir -p data
-docker run --rm -v "$PWD/data/chiado-l1:/data" \
-  ghcr.io/gnosischain/reth_gnosis:v2.0.0 \
-  download --chain chiado --minimal --datadir /data
-
-# 3. Shared engine-API JWT for eez-node <-> lighthouse.
-openssl rand -hex 32 > data/jwt.hex
-
-# 4. Use the checked-in Chiado config, including the activated Fulu epoch
-# and Lighthouse's bootstrap_nodes.yaml alias. To refresh it from Gnosis:
-# git clone https://github.com/gnosischain/configs.git /tmp/gnosis-configs
-# cp -a /tmp/gnosis-configs/chiado/. configs/chiado/
-# ln -sfn bootnodes.yaml configs/chiado/bootstrap_nodes.yaml
-
-# 5. Fund the operator/poster keys with xDAI (https://faucet.chiadochain.net).
-```
-
-The custom directory is required with the pinned Lighthouse v8.1.3: its built-in
-Chiado profile leaves Fulu disabled. The checked-in chain parameters and
-`bootnodes.yaml` come from [Gnosis's Chiado configuration](https://github.com/gnosischain/configs/tree/main/chiado).
-Lighthouse reads the seeds through the `bootstrap_nodes.yaml` alias; the other
-execution-client files in that snapshot are not used by this beacon. Bootnodes
-introduce peers through UDP discovery. The direct TCP endpoints in Compose
-supplement that discovery and do not restrict it to those peers.
-
-If discovery stalls and `/eth/v1/node/identity` advertises no public `ip`/`udp`,
-set `LH_ENR_ADDRESS` and `LH_ENR_UDP_PORT` in `.env.chiado` to the host's public
-address and mapped discovery port (9205 for the packaged stack). Both are
-optional; unset or empty values preserve automatic advertisement. These settings
-do not configure port forwarding. Recreate only the beacon with
-`docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml up -d --no-deps lighthouse`.
-Verify discovery finds additional peers and the beacon stays synchronized;
-an HTTP response alone does not establish network health.
-
-### Deploy the protocol (once, against a fully-synced chiado RPC)
-
-The embedded L1 is still syncing at this point, so run the deploy against a
-Chiado RPC that's already at the chain tip — the public endpoint, or a
-standalone chiado-reth.
-
-```bash
-cp .env.example .env
-#   EEZ_L1_RPC_URL=<tip chiado RPC>   EEZ_L1_POSTER_KEY=<operator key>
-#   EEZ_PROOF_SIGNER_KEY=<operator key>   (its address becomes the proof system's authorizedSigner)
-#   EEZ_L2_SYSTEM_KEY=<separate L2 system-transaction key>
-EEZ_DEPLOY_SKIP_SIMULATION=1 make deploy-protocol
-```
-
-This deploys EEZ + ECDSAProofSystem + the rollup manager, registers the
-rollup, deploys the L1 bridge contracts, and writes **`deployments.env`**
-(registry, proof system, rollup id, deploy block, bridge, and EEZL2 addresses).
-The deploy derives the public L2 system address from `EEZ_L2_SYSTEM_KEY`,
-generates and funds its canonical EEZL2 genesis, and registers that exact state
-root; the private key is never written to `deployments.env`. It also writes the
-L2 **`datadir/genesis.json`** whose timestamp is pinned to the deploy block. The
-container loads `deployments.env` automatically; `.env.chiado`'s
-`FRESH_GENESIS` points at that genesis (default `./datadir/genesis.json`), so
-**deploy must run before `up`** — there is no separate genesis-creation step.
-(Set `EEZ_BLOCKSCOUT_URL` first to also verify the contracts on Blockscout —
-opt-in.)
-
-### Configure and start
-
-```bash
-cp .env.chiado.example .env.chiado    # paths, keys, builder, and blob settings
-bash scripts/chiado-up.sh
-```
-
-The embedded L1 checkpoint-syncs (lighthouse, ~5 min) and catches up past the
-deploy block; then the L2 sequencer + composer run. Startup refuses an implicit
-DA mode, rejects a non-EIP-7594 Chiado blob configuration, probes the builder's
-`eth_sendBundle` method, confirms the synchronized Beacon endpoint identifies
-post-Fulu Chiado and serves the full-blob API, and waits for a new settlement.
-In blob mode it additionally requires that settlement to be type 3 and checks
-that every versioned-hash-selected blob is retrievable. Basic health checks:
-
-```bash
-cast block-number --rpc-url http://localhost:18645   # embedded chiado L1 climbing
-cast block-number --rpc-url http://localhost:18688   # L2 producing
-```
-
-The static deployment wiring is also checked in CI and can be validated
-without starting a network:
-
-```bash
-bash scripts/check-chiado-blob-config.sh
-```
-
-The colocated semi-supernode is sufficient for live operation and the normal
-consensus-client retention window. It reconstructs full blobs on request, so
-retrieval can be slower than from a supernode. Long-horizon recovery still
-requires a durable archival Beacon source or a protocol snapshot/bootstrap
-strategy; do not describe a Chiado deployment as independently recoverable
-beyond that window until this is provided and tested.
 
 ### Endpoints & cross-chain fronts
 
