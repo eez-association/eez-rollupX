@@ -131,6 +131,7 @@ struct Shared {
     started_at: u64,
     stats: Stats,
     accepting: AtomicBool,
+    active_sends: AtomicU64,
 }
 
 /// Move-only reservation allocated under the authoritative state owner. It can
@@ -224,7 +225,11 @@ impl Publisher {
         let mut success = true;
         for bytes in records {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
-            let reason = if self.shared.accepting.load(Ordering::Acquire) {
+            // Pair the send reservation with shutdown's accepting flag in one
+            // total order. The writer cannot finish its final drain while an
+            // already admitted send is still about to reach the channel.
+            self.shared.active_sends.fetch_add(1, Ordering::SeqCst);
+            let reason = if self.shared.accepting.load(Ordering::SeqCst) {
                 match self.sender.try_send(Queued {
                     sequence: ticket.sequence,
                     bytes,
@@ -236,6 +241,7 @@ impl Publisher {
             } else {
                 Some("shutdown")
             };
+            self.shared.active_sends.fetch_sub(1, Ordering::SeqCst);
             if let Some(reason) = reason {
                 stats.drop_record(ticket.sequence, reason);
                 success = false;
@@ -274,6 +280,7 @@ impl Writer {
             started_at: now_ms()?,
             stats: Stats::default(),
             accepting: AtomicBool::new(true),
+            active_sends: AtomicU64::new(0),
         });
         let (sender, receiver) = mpsc::sync_channel(config.queue_records);
         let (done_sender, done) = mpsc::sync_channel(1);
@@ -311,7 +318,7 @@ impl Writer {
     /// A stuck filesystem thread is detached; process exit may lose trailing
     /// telemetry, which the observer treats as an unknown crash window.
     pub fn shutdown(mut self, remaining: Duration) -> bool {
-        self.shared.accepting.store(false, Ordering::Release);
+        self.shared.accepting.store(false, Ordering::SeqCst);
         let complete = self
             .done
             .recv_timeout((remaining / 4).min(Duration::from_secs(2)))
@@ -325,7 +332,7 @@ impl Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        self.shared.accepting.store(false, Ordering::Release);
+        self.shared.accepting.store(false, Ordering::SeqCst);
     }
 }
 
@@ -504,11 +511,15 @@ impl Spool {
     fn run(&mut self, receiver: Receiver<Queued>) {
         let mut last_control = Instant::now();
         loop {
-            let accepting = self.shared.accepting.load(Ordering::Acquire);
-            let record = if accepting {
-                receiver.recv_timeout(Duration::from_millis(100)).ok()
-            } else {
+            let accepting = self.shared.accepting.load(Ordering::SeqCst);
+            // Read reservations BEFORE checking the queue, so a send that
+            // completed while this value changed cannot be missed at shutdown.
+            let draining_complete =
+                !accepting && self.shared.active_sends.load(Ordering::SeqCst) == 0;
+            let record = if draining_complete {
                 receiver.try_recv().ok()
+            } else {
+                receiver.recv_timeout(Duration::from_millis(100)).ok()
             };
             if let Some(record) = record {
                 if self
@@ -525,7 +536,7 @@ impl Spool {
                 } else {
                     self.shared.stats.written.fetch_add(1, Ordering::Relaxed);
                 }
-            } else if !accepting {
+            } else if draining_complete {
                 break;
             }
             if last_control.elapsed() >= CONTROL_INTERVAL {
@@ -632,6 +643,7 @@ mod tests {
             started_at: now_ms().unwrap(),
             stats: Stats::default(),
             accepting: AtomicBool::new(true),
+            active_sends: AtomicU64::new(0),
         });
         let (sender, receiver) = mpsc::sync_channel(1);
         let publisher = Publisher {
@@ -750,5 +762,61 @@ mod tests {
         assert_eq!(publisher.stats().last_assigned_sequence, 1);
         assert_eq!(publisher.stats().dropped_records, 1);
         spool.close(WriterStatus::Stopped).unwrap();
+    }
+
+    #[test]
+    fn shutdown_drains_a_send_already_admitted_before_the_stop_flag() {
+        let (_directory, publisher, receiver, mut spool) = fixture();
+        assert!(publisher.publish(publisher.capture().unwrap(), event(), None));
+        let second = publisher.capture().unwrap();
+        let bytes = encode(
+            &publisher.shared.identity,
+            publisher.epoch(),
+            second.sequence,
+            &Payload {
+                observed_at_unix_ms: second.observed_at,
+                trace: None,
+                event: event(),
+            },
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        // Model a producer preempted after reserving a send and observing true,
+        // but before its try_send. Shutdown must not retire the receiver yet.
+        publisher.shared.active_sends.fetch_add(1, Ordering::SeqCst);
+        publisher.shared.accepting.store(false, Ordering::SeqCst);
+        let (finished, done) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            spool.run(receiver);
+            finished.send(()).unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while publisher.stats().written_records != 1 {
+            assert!(
+                Instant::now() < deadline,
+                "writer did not consume the first record"
+            );
+            thread::yield_now();
+        }
+        assert!(!worker.is_finished());
+        publisher
+            .shared
+            .stats
+            .attempted
+            .fetch_add(1, Ordering::Relaxed);
+        publisher
+            .sender
+            .try_send(Queued {
+                sequence: second.sequence,
+                bytes,
+            })
+            .unwrap();
+        publisher.shared.active_sends.fetch_sub(1, Ordering::SeqCst);
+        done.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.join().unwrap();
+        assert_eq!(publisher.stats().attempted_records, 2);
+        assert_eq!(publisher.stats().written_records, 2);
+        assert_eq!(publisher.stats().dropped_records, 0);
     }
 }

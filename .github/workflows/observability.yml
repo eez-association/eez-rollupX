@@ -46,10 +46,10 @@ jobs:
         run: python3 observability/tests/test_prepare.py
       - name: Format
         run: cargo fmt -p eez-observer -p eez-telemetry --check
-      - name: Exporter tests
-        run: cargo test --locked -p eez-observer -p eez-telemetry
-      - name: Exporter lint
-        run: cargo clippy --locked -p eez-observer -p eez-telemetry --all-targets -- -D warnings
+      - name: Exporter and telemetry tests
+        run: cargo test --locked -p eez-observer -p eez-telemetry --all-features
+      - name: Exporter and telemetry lint
+        run: cargo clippy --locked -p eez-observer -p eez-telemetry --all-features --all-targets -- -D warnings
       - name: Build exporter
         run: cargo build --locked -p eez-observer
       - name: Isolated backend, query, log and alert tests

@@ -79,6 +79,8 @@ try:
                   'public_rpc_url': 'http://fixture:9000/rpc',
                   'signer_tcp_target': 'fixture:9000',
                   'node_exporter_target': 'fixture:9000',
+                  'native_processes': [{'service': 'eez-proof-signer', 'instance': 'fixture-signer',
+                      'metrics_target': 'fixture:9000', 'metrics_listen': '127.0.0.1:19102'}],
                   'grafana_port': 0, 'prometheus_port': 0, 'loki_port': 0}
         prepare.prepare(config, runtime, fast_test=True)
         endpoint = {'url': 'http://fixture:9000/rpc', 'chain_id': 1, 'genesis_hash': '0x' + 'aa' * 32}
@@ -149,6 +151,13 @@ try:
                 return request(url)['data']['result']
             until('JSON file collected through Alloy into Loki', logs_present, seconds=120)
             until('independent process receives heartbeat', lambda: request(fixture + '/heartbeat-status')['count'] > 0)
+            phase_start = len(request(fixture + '/events'))
+            request(fixture + '/control', data={'mode': 'metrics_error'})
+            until('configured native metrics failure alert delivered', lambda: notification('EEZNativeTelemetryUnavailable_eez-proof-signer-fixture-signer', 'firing'))
+            assert query('eez:chain_head_number:current{source="l1"}')
+            request(fixture + '/control', data={'mode': 'healthy'})
+            until('configured native metrics recovery delivered', lambda: notification('EEZNativeTelemetryUnavailable_eez-proof-signer-fixture-signer', 'resolved'))
+            report['checks'].append('native_metrics_target_failure_and_recovery')
             phase_start = len(request(fixture + '/events'))
             request(fixture + '/control', data={'mode': 'stale'})
             until('stale readiness removes queue recordings', lambda: query('eez_observer_queue_evaluation_valid')[0]['value'][1] == '0' and not query('eez:queue_transactions:current'))

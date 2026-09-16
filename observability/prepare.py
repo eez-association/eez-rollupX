@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate isolated deployment configuration. No network calls or service changes."""
 import argparse
+import hashlib
+import ipaddress
 import json
 import pathlib
 import re
@@ -18,11 +20,54 @@ def write_json(path, data):
     path.write_text(json.dumps(data, indent=2) + '\n')
 
 
+def native_configs(config):
+    processes = config.get('native_processes', [])
+    if not isinstance(processes, list) or len(processes) > 16:
+        raise ValueError('native_processes must be a list of at most 16 processes')
+    result, identities, targets = [], set(), set()
+    for process in processes:
+        required = {'service', 'instance', 'metrics_target', 'metrics_listen'}
+        if not isinstance(process, dict) or required - set(process) or set(process) - required - {'allow_non_loopback', 'lifecycle_directory'}:
+            raise ValueError('missing or unknown native process fields')
+        service, instance = process['service'], process['instance']
+        if service not in ('eez-composer', 'eez-follower', 'eez-proof-signer') or not isinstance(instance, str) or not LABEL.fullmatch(instance):
+            raise ValueError('invalid native service or instance')
+        identity = (service, instance)
+        target = process['metrics_target']
+        match = TARGET.fullmatch(target) if isinstance(target, str) else None
+        if not match or not 0 < int(match[1]) < 65536 or 'REPLACE' in target:
+            raise ValueError('native metrics target must be explicit host:port')
+        if identity in identities or target in targets:
+            raise ValueError('duplicate native identity or metrics target')
+        identities.add(identity)
+        targets.add(target)
+        listen = process['metrics_listen']
+        try:
+            host, port = listen.rsplit(':', 1)
+            address = ipaddress.ip_address(host.strip('[]'))
+            valid = port.isascii() and port.isdigit() and 0 < int(port) < 65536 and (
+                address.version == 4 and host == str(address) or address.version == 6 and host.startswith('[') and host.endswith(']'))
+        except (AttributeError, ValueError):
+            valid = False
+        private_override = process.get('allow_non_loopback', False)
+        if not valid or type(private_override) is not bool or (not address.is_loopback and not private_override):
+            raise ValueError('native listener must be an IP:port; non-loopback requires explicit opt-in')
+        value = {'identity': {'environment': config['environment'], 'deployment': config['deployment'], 'service': service, 'instance': instance},
+                 'metrics': {'listen': listen, 'allow_non_loopback': private_override}, 'lifecycle': None}
+        spool = process.get('lifecycle_directory')
+        if spool is not None:
+            if not isinstance(spool, str) or not pathlib.PurePosixPath(spool).is_absolute() or any(c in spool for c in '\x00\n\r') or 'REPLACE' in spool:
+                raise ValueError('lifecycle_directory must be an explicit absolute node-host path')
+            value['lifecycle'] = {'directory': spool}
+        result.append((f'{service}-{instance}', target, value))
+    return result
+
+
 def validate(config):
     required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory',
                 'alert_webhook_url', 'heartbeat_webhook_url'}
     allowed = required | {'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
-                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port'}
+                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes'}
     if set(config) - allowed or required - set(config):
         raise ValueError('missing or unknown stack configuration fields')
     for key in ('environment', 'deployment', 'observer_instance'):
@@ -57,6 +102,7 @@ def validate(config):
     path = pathlib.Path(config['log_directory']).resolve(strict=True)
     if not path.is_dir() or 'REPLACE' in str(path):
         raise ValueError('log_directory must be an existing dedicated directory')
+    native_configs(config)  # Validate all generated process configs before writing anything.
     return path
 
 
@@ -83,6 +129,9 @@ def prepare(config, runtime, *, fast_test=False):
         scrape.append({'job_name': job, 'static_configs': [{'targets': [target], 'labels': {**labels, 'service': job}}]})
     scrape.append({'job_name': 'eez-observer', 'static_configs': [{'targets': [config['observer_target']],
                    'labels': {**labels, 'service': 'eez-observer', 'instance': config['observer_instance']}}]})
+    for name, target, native in native_configs(config):
+        write_json(runtime / f'native/{name}.json', native)
+        scrape.append({'job_name': name, 'static_configs': [{'targets': [target], 'labels': native['identity']}]})
     if config.get('node_exporter_target'):
         scrape.append({'job_name': 'node-exporter', 'static_configs': [{'targets': [config['node_exporter_target']],
                        'labels': {**labels, 'service': 'node-exporter'}}]})
@@ -154,6 +203,7 @@ loki.write "local" {
     (runtime / 'compose.env').chmod(0o600)
     write_json(runtime / 'manifest.json', {'environment': config['environment'], 'deployment': config['deployment'],
         'observer_instance': config['observer_instance'], 'test_timings': fast_test,
+        'native_processes': [name for name, _, _ in native_configs(config)],
         'probes_independent': (config.get('probe_exporter_target') or 'blackbox:9115') != 'blackbox:9115',
         'node_metrics_configured': bool(config.get('node_exporter_target'))})
     return runtime
@@ -182,6 +232,11 @@ def alert_rules(config, *, fast_test=False):
         metric = f'up{{{scope},job="{job}"}}'
         specs.append((f'eez-backend-{job}', f'EEZBackendUnavailable_{job}', f'(1 - {metric}) or absent({metric})',
                       'Alerting', 'warning', f'{job} scrape failed. Check monitoring storage, process health and network.'))
+    for name, _, native in native_configs(config):
+        metric = f'up{{{scope},job="{name}",instance="{native["identity"]["instance"]}"}}'
+        uid = 'eez-native-' + hashlib.sha256(name.encode()).hexdigest()[:16]
+        specs.append((uid, f'EEZNativeTelemetryUnavailable_{name}', f'(1 - {metric}) or absent({metric})',
+                      'Alerting', 'warning', 'Configured native metrics are unavailable. Check the process, generated telemetry config, private listener and scrape path.'))
     for job, key in [('public-rpc', 'public_rpc_url'), ('signer-listener', 'signer_tcp_target')]:
         if config.get(key):
             metric = f'probe_success{{{scope},job="{job}"}}'

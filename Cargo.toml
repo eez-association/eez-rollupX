@@ -80,6 +80,7 @@ reth-network-peers              = { git = "https://github.com/paradigmxyz/reth",
 reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-core                  = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
+reth-node-metrics               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-ethereum              = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-payload-builder            = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-payload-primitives         = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }

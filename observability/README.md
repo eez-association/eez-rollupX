@@ -13,6 +13,11 @@ and durable ingestion are still in progress. The [requirement ledger](requiremen
 tracks each implementation and acceptance gate without treating partial work as a
 completed release.
 
+Native process endpoints can now be configured explicitly through generated
+`EEZ_TELEMETRY_CONFIG` files; see [startup and precedence](contracts/native-startup.md).
+The composer/follower reuse the pinned Reth recorder and signer uses the compatible
+standalone recorder. No native queue-source handoff or trace export is enabled yet.
+
 The exporter reads L1/L2 identity and latest heads, the EEZ queue RPC, and an
 optional independent L1 reference. It never submits transactions, reads `.env`
 files, loads node signing keys, or modifies either chain. Its metrics listener
@@ -54,9 +59,9 @@ Prometheus target configuration owns `environment`, `deployment`, `service` and
 in metric labels. The [metric contract](contracts/metrics.md) describes the
 initial signals; [recording rules](prometheus/recording-rules.yaml) gate raw
 values on collection/evaluation validity. Do not sum exporter and future native
-producers. Optional host metrics use an existing private node-exporter target. Native
-client instrumentation, safe/finalized comparisons and full completion progress
-remain future work.
+producers. Optional host metrics use an existing private node-exporter target.
+Per-chain client attribution, safe/finalized comparisons and full completion
+progress remain future work.
 
 Checks:
 
@@ -74,8 +79,9 @@ and stops its own exporter and mock server, verifies HTTP exposition, and
 checks failure/recovery across real polling cycles (roughly 30 seconds).
 
 See [initial integration evidence](validation/initial-slice.md) for implemented
-scope, findings and outstanding gates. No native Reth recorder, composer,
-signer, live Chiado configuration, or protocol data is changed by this slice.
+scope, findings and outstanding gates for that earlier slice. The optional native
+startup described above is subsequent work; live Chiado configuration and protocol
+data have not been changed.
 
 **Start the monitoring backend.**
 

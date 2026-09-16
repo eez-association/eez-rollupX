@@ -58,6 +58,34 @@ class Preparation(unittest.TestCase):
         self.assertEqual(next(r for r in rules if r['uid'] == 'eez-observer-down')['noDataState'], 'Alerting')
         self.assertEqual(next(r for r in rules if r['uid'] == 'eez-heartbeat')['for'], '0s')
 
+    def test_native_config_and_scrape_share_identity_with_explicit_private_endpoints(self):
+        self.config['native_processes'] = [{'service': 'eez-composer', 'instance': 'node-1',
+            'metrics_target': 'private-node:19101', 'metrics_listen': '127.0.0.1:19101',
+            'lifecycle_directory': '/var/lib/eez-lifecycle/composer'}]
+        runtime = prepare.prepare(self.config, self.root / 'runtime')
+        native = json.loads((runtime / 'native/eez-composer-node-1.json').read_text())
+        prom = json.loads((runtime / 'prometheus/prometheus.yaml').read_text())
+        job = next(job for job in prom['scrape_configs'] if job['job_name'] == 'eez-composer-node-1')
+        self.assertEqual(job['static_configs'][0]['labels'], native['identity'])
+        self.assertEqual(native['metrics']['listen'], '127.0.0.1:19101')
+        self.assertFalse(native['metrics']['allow_non_loopback'])
+        self.assertEqual(native['lifecycle']['directory'], '/var/lib/eez-lifecycle/composer')
+        self.assertNotIn('webhook', json.dumps(native))
+        rules = prepare.alert_rules(self.config)[0]['rules']
+        rule = next(rule for rule in rules if rule['uid'].startswith('eez-native-'))
+        self.assertLessEqual(len(rule['uid']), 40)
+        self.assertEqual(rule['noDataState'], 'Alerting')
+        self.assertIn('job="eez-composer-node-1"', rule['data'][0]['model']['expr'])
+        process = self.config['native_processes'][0]
+        for field, value in [('service', 'unknown'), ('metrics_listen', '0.0.0.0:19101'),
+                             ('metrics_listen', 'host:19101'), ('allow_non_loopback', 'false'),
+                             ('lifecycle_directory', '../relative')]:
+            with self.assertRaises(ValueError):
+                prepare.prepare({**self.config, 'native_processes': [{**process, field: value}]}, self.root / 'invalid')
+            self.assertFalse((self.root / 'invalid').exists())
+        with self.assertRaises(ValueError):
+            prepare.prepare({**self.config, 'native_processes': [process, process]}, self.root / 'invalid')
+
     def test_dashboards_use_stable_datasources_and_do_not_fill_missing_values(self):
         for path in (ROOT / 'grafana/dashboards').glob('*.json'):
             dashboard = json.loads(path.read_text())

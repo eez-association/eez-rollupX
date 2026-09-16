@@ -25,6 +25,9 @@ class Fixture(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/metrics':
+            if self.mode == 'metrics_error':
+                self.send({'error': 'fixture metrics unavailable'}, status=503)
+                return
             self.send(b'node_memory_MemAvailable_bytes 10737418240\nnode_filesystem_avail_bytes{fstype="ext4",mountpoint="/fixture"} 107374182400\n', content_type='text/plain; version=0.0.4')
         elif self.path == '/events':
             with self.lock:
@@ -39,7 +42,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/control':
-            assert data['mode'] in ('healthy', 'stale', 'error')
+            assert data['mode'] in ('healthy', 'stale', 'error', 'metrics_error')
             type(self).mode = data['mode']
             self.send({'ok': True})
             return

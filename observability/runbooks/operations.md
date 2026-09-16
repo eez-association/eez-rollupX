@@ -27,6 +27,15 @@ failure merely because an upstream network paused. Signer TCP probes establish
 listener availability only. A public RPC probe checks a read-only JSON-RPC
 response; a probe running on this backend is not an independent external probe.
 
+`EEZNativeTelemetryUnavailable_<service>-<instance>` is provisioned for each
+configured native metrics target, with explicit alerting on missing data and
+query errors. Check that `EEZ_TELEMETRY_CONFIG` points to the generated file,
+its service identity matches the executable, and its effective listener is
+reachable from Prometheus. An explicit Reth `--metrics` overrides the file's
+listen address; keep the scrape target consistent with that override. See the
+[startup contract](../contracts/native-startup.md). An available metrics endpoint
+does not prove a healthy lifecycle spool or successful protocol execution.
+
 **Heartbeat.** Grafana's `EEZHeartbeat` sends a firing webhook every minute to
 the independently hosted receiver. That receiver must track the timestamp of
 actual received heartbeats and notify through its own delivery path after three

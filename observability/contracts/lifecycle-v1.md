@@ -51,7 +51,7 @@ events are a counted encoding loss; they never change the protocol decision.
 | `admitted` | Source identity, optional previous admission for explicit readmission, optional replaced admission. Repeated ingress of an already owned hash creates no admission |
 | `readiness` | Admission/source member, exact L1/L2 source-state block references, optional blocking reason (`nonce`, `fee`, `balance`, `escrow`); null means ready |
 | `attempt_prepared` | Existing native generation+post hash wrapped in epoch, sync height, exact member list, encoded bytes, purchased candidate blob count, active blob allowance |
-| `dispatched` | Attempt identity, target block reference, signed transaction hash and nonce. Each event is a dispatch occurrence, not another paid transaction |
+| `dispatched` | Attempt identity, target block number/timestamp, signed transaction hash and nonce. The future target has no known block hash. Each event is a dispatch occurrence, not another paid transaction |
 | `reconciled` | Attempt identity and canonical L1 anchor reported by the node |
 | `terminal` | Admission/source member, optional attempt, native outcome, claimed assurance, optional anchor, local monotonic elapsed nanoseconds |
 | `reorg` | Last common L1 ancestor observed by the node |

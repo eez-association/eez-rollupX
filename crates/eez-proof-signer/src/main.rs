@@ -37,6 +37,21 @@ pub(crate) use eez_protocol::EEZL2_ADDRESS;
 async fn main() -> eyre::Result<()> {
     init_tracing()?;
     let config = config::Config::load()?;
+    let telemetry_config = eez_telemetry::native::Config::from_env("eez-proof-signer")
+        .map_err(|error| eyre::eyre!(error))?;
+    let _metrics = telemetry_config
+        .as_ref()
+        .and_then(|config| config.metrics.as_ref())
+        .map(eez_telemetry::native::start_metrics)
+        .transpose()
+        .map_err(|error| eyre::eyre!(error))?;
+    let lifecycle = telemetry_config
+        .as_ref()
+        .map(eez_telemetry::native::LifecycleGuard::start)
+        .unwrap_or_default();
+    if telemetry_config.is_some() {
+        eez_telemetry::native::describe_process();
+    }
 
     let listen_addr = config.listen_addr;
     let limits = config.limits;
@@ -88,6 +103,8 @@ async fn main() -> eyre::Result<()> {
     // A timed-out RPC may leave non-interruptible blocking work running after
     // tonic has drained its request future. Do not terminate that work midway.
     shutdown_service.wait_until_idle().await;
+    // The service drain is authoritative; no extra shutdown deadline is assumed.
+    lifecycle.shutdown(std::time::Duration::ZERO);
     serve_result.wrap_err_with(|| format!("serve {listen_addr}"))
 }
 

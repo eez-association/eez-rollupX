@@ -86,7 +86,13 @@ enum EmbeddedL1<Ethereum, Chiado> {
 
 /// Launch a production composer node.
 pub fn run_composer() -> eyre::Result<()> {
-    node_cli::<NoRoleArgs>()?.run(launch_composer)
+    let mut cli = node_cli::<NoRoleArgs>()?;
+    let telemetry = eez_node_common::telemetry::prepare(&mut cli, "eez-composer")?;
+    let result = cli.run(launch_composer);
+    // Reth owns the drain deadline. Once its runner returns there is no known
+    // remaining budget; signal telemetry shutdown without extending that drain.
+    telemetry.shutdown(std::time::Duration::ZERO);
+    result
 }
 
 fn composer_proving_from_env() -> eyre::Result<ComposerProving> {

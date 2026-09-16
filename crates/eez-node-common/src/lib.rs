@@ -15,6 +15,8 @@ use tracing::{Level, event};
 #[cfg(feature = "l1-startup")]
 pub mod correlation_rpc;
 
+pub mod telemetry;
+
 mod payload;
 pub use payload::{EezPayloadBuilder, SequencingDataGuard};
 mod pool;

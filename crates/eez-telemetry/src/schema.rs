@@ -185,7 +185,8 @@ pub enum Event {
     },
     Dispatched {
         attempt: AttemptId,
-        target: BlockRef,
+        target_block: u64,
+        target_timestamp: u64,
         transaction_hash: Hash32,
         nonce: u64,
     },

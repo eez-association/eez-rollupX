@@ -6,16 +6,24 @@ license.workspace = true
 rust-version.workspace = true
 description = "Bounded, best-effort EEZ lifecycle telemetry independent of protocol state."
 
+[features]
+default = []
+native = ["dep:metrics-exporter-prometheus", "dep:tokio", "dep:tracing"]
+
 [dependencies]
 getrandom = "0.4.2"
 hex.workspace = true
 metrics = "0.24.6"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"], optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
 
 [dev-dependencies]
 tempfile = "3"
+metrics-util = { version = "0.20", default-features = false }
 
 [lints]
 workspace = true

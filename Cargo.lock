@@ -3431,6 +3431,7 @@ dependencies = [
  "eez-driver",
  "eez-l1",
  "eez-payload-codec",
+ "eez-telemetry",
  "eyre",
  "jsonrpsee",
  "mimalloc",
@@ -3444,6 +3445,7 @@ dependencies = [
  "reth-evm 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-node-api 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-node-builder 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
+ "reth-node-metrics 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-payload-primitives 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "reth-primitives-traits",
  "reth-rpc-eth-api 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
@@ -3537,6 +3539,7 @@ dependencies = [
  "eez-l1",
  "eez-payload-codec",
  "eez-protocol",
+ "eez-telemetry",
  "eyre",
  "hex",
  "prost",
@@ -3617,10 +3620,14 @@ dependencies = [
  "getrandom 0.4.2",
  "hex",
  "metrics",
+ "metrics-exporter-prometheus",
+ "metrics-util",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5957,11 +5964,17 @@ checksum = "1db0d8f1fc9e62caebd0319e11eaec5822b0186c171568f0480b46a0137f9108"
 dependencies = [
  "base64 0.22.1",
  "evmap",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "indexmap 2.14.0",
+ "ipnet",
  "metrics",
  "metrics-util",
  "quanta",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

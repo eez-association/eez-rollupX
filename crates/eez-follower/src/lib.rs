@@ -67,7 +67,11 @@ struct FollowerArgs {
 /// Returns an error when configuration is invalid or either reth or the L1
 /// bootstrap fails.
 pub fn run() -> eyre::Result<()> {
-    node_cli::<FollowerArgs>()?.run(launch)
+    let mut cli = node_cli::<FollowerArgs>()?;
+    let telemetry = eez_node_common::telemetry::prepare(&mut cli, "eez-follower")?;
+    let result = cli.run(launch);
+    telemetry.shutdown(Duration::ZERO);
+    result
 }
 
 async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {

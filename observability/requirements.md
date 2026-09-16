@@ -7,9 +7,9 @@ An open row is a release gate, not an implicitly deferred requirement.
 
 | ID | Requirement / invariant | Implementation and configuration | Tests / evidence / documentation | Status |
 | --- | --- | --- | --- | --- |
-| R01 | One identity source; bounded labels; no secrets or signed pending envelopes | Exporter config, stack prepare; native identity pending | Observer config tests, prepare tests; contracts/metrics.md | Partial |
-| R02 | Existing configurations and protocol behavior unchanged by disabled telemetry | Native initialization and optional configuration | Disabled/enabled devnet comparison and startup tests | Open |
-| R03 | One Reth recorder/subscriber; verified prefix, histogram buckets, embedded attribution | Pinned recorder builder/layer integration | Actual node/signer scrape, bucket and duplicate-init tests; capability matrix | Open |
+| R01 | One identity source; bounded labels; no secrets or signed pending envelopes | Exporter config, stack prepare including native_processes, typed lifecycle schema | Observer/native config tests, prepare tests; contracts/metrics.md and native-startup.md | Partial: log/trace adapters pending |
+| R02 | Existing configurations and protocol behavior unchanged by disabled telemetry | Optional EEZ_TELEMETRY_CONFIG, entrypoint wiring, CLI precedence | Native startup tests; disabled/enabled devnet comparison pending | Partial |
+| R03 | One Reth recorder/subscriber; verified prefix, histogram buckets, embedded attribution | Pinned recorder builder hook; standalone signer exporter; original subscribers | Bucket/prefix and singleton tests; actual devnet metrics sample pending | Partial |
 | R04 | Read-only exporter; chain/genesis checked each poll; bounded calls/backoff | crates/eez-observer, config.example.json | Nine Rust tests, smoke-exporter.py; validation/initial-slice.md | Verified |
 | R05 | Disjoint queue counts; stale/failed/null means unknown; one recording-rule producer | Observer model/metrics; prometheus/recording-rules.yaml | Rust freshness/partition tests; rules.test.yaml, smoke-stack.py | Verified |
 | R06 | Private pinned self-hosted stack, resource/retention budgets, persistent stores | compose.yaml, images.lock.json, prepare.py | Isolated stack run; validation/backend-stack.md | Partial: node-host agent packaging, database/trace profiles pending |
@@ -49,6 +49,16 @@ An open row is a release gate, not an implicitly deferred requirement.
   Emitting from a fallible mutation closure could report a transition that never
   committed. Capture after successful publication and allocate sequence while its
   existing ownership is held; serialize and perform I/O after lock release.
+- Native dispatch targets are future block number/timestamp pairs, without a
+  known block hash. The event contract preserves those fields instead of demanding
+  or fabricating a canonical target hash.
+- Existing entrypoint drains do not expose a remaining shutdown budget. The
+  lifecycle startup foundation signals shutdown without waiting after those
+  drains; tracing integration still needs a measured budget-aware flush hook.
+- The transport shutdown review found a send admitted before stop could arrive
+  after the writer's final empty-queue check. In-flight send reservations now fence
+  the final drain; a deterministic regression covers that interleaving. See
+  [native startup evidence](validation/native-startup.md) for the complete checks.
 - The existing queue RPC ages use wall time and committed-only progress. Preserve
   that compatible API; new native durations use monotonic time, and canonical
   terminal progress requires the observer's validated evidence.
