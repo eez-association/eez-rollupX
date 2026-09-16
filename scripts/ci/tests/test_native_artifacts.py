@@ -43,7 +43,7 @@ class NativeArtifactTest(unittest.TestCase):
                              runtime_sha256=native.runtime_hashes(self.frozen))
         self.target = self.root / "job-target"
 
-    def run_archive(self, suite="unit", failures=()):
+    def run_archive(self, suite="unit", failures=(), partition=None):
         (self.root / "manifest.json").write_text(json.dumps(self.manifest))
         def extract(command, **_):
             if command[:3] == ["cargo-nextest", "nextest", "list"]:
@@ -59,7 +59,7 @@ class NativeArtifactTest(unittest.TestCase):
                 patch.object(native.subprocess, "run", side_effect=extract) as run, \
                 patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target)):
             try:
-                native.run(self.root, suite)
+                native.run(self.root, suite, partition)
             finally:
                 self.calls = run.call_args_list
             return run.call_args
@@ -79,6 +79,31 @@ class NativeArtifactTest(unittest.TestCase):
                          str(self.target / "native-tests/target/release/eez-runtime"))
         self.assertIn("--test-threads=1", command)
         self.assertEqual(command[command.index("--profile") + 1], "ci")
+
+    def test_partition_retains_suite_filter_identity_and_serial_execution(self):
+        for suite in ("embedded", "cross-chain"):
+            for shard in range(1, 5):
+                with self.subTest(suite=suite, shard=shard):
+                    if self.target.exists():
+                        shutil.rmtree(self.target)
+                    partition = f"slice:{shard}/4"
+                    args = self.run_archive(suite, partition=partition)
+                    command = args.args[0]
+                    self.assertEqual(command[command.index("--partition") + 1], partition)
+                    self.assertEqual(command[command.index("-E") + 1], native.SUITES[suite])
+                    self.assertIn("--test-threads=1", command)
+                    self.assertIn("--no-tests=fail", command)
+                    self.assertEqual(args.kwargs["env"]["EEZ_TEST_PREBUILT"], "1")
+
+    def test_partition_cannot_certify_partial_unit_validation(self):
+        with self.assertRaisesRegex(ValueError, "unit validation must run in full"):
+            self.run_archive(partition="slice:1/4")
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.root / "unit-passed.json").exists())
+
+    def test_partition_failure_is_propagated(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_archive("embedded", failures=("native-tests",), partition="slice:1/4")
 
     def test_wrong_revision_profile_lock_or_toolchain_fails_closed(self):
         for key in self.identity:
@@ -486,14 +511,14 @@ class NativeRelocationTest(unittest.TestCase):
 #[test] fn fixture_is_relocated() {
     assert_eq!(std::fs::read_to_string(manifest_dir().join("tests/fixtures/fixture.txt")).unwrap(), "relocated fixture");
 }
-#[test] fn nodes_and_signer_are_relocated() {
-    for bin in [NodeBinary::Composer, NodeBinary::Follower] {
-        assert!(std::process::Command::new(bin.path().unwrap()).status().unwrap().success());
-    }
-    for bin in [NodeBinary::Composer, NodeBinary::Follower] {
-        let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
-        assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
-    }
+fn check_node(bin: NodeBinary) {
+    let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
+    assert!(result.status.success());
+    assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
+}
+#[test] fn composer_is_relocated() { check_node(NodeBinary::Composer); }
+#[test] fn follower_is_relocated() { check_node(NodeBinary::Follower); }
+#[test] fn signer_is_relocated() {
     let signer = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN").unwrap();
     assert!(std::process::Command::new(signer).status().unwrap().success());
 }
@@ -574,8 +599,29 @@ class NativeRelocationTest(unittest.TestCase):
             for suite in native.SUITES:
                 env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}")
                 payload = artifact if suite == "unit" else lean
-                subprocess.run([sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite],
-                               cwd=consumer, env=env, check=True)
+                command = [sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite]
+                result = subprocess.run(command, cwd=consumer, env=env, check=True, capture_output=True, text=True)
+                if suite != "unit":
+                    def passed(result):
+                        return set(re.findall(r"PASS .*? (eez-node-e2e::\S+ \S+)", result.stderr))
+                    complete = passed(result)
+                    self.assertTrue(complete, result.stderr)
+                    covered = set()
+                    for shard in range(1, 5):
+                        env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}-{shard}")
+                        result = subprocess.run(command + ["--partition", f"slice:{shard}/4"],
+                                                cwd=consumer, env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        selected = passed(result)
+                        self.assertTrue(selected, result.stderr)
+                        self.assertFalse(covered & selected, "a test ran in more than one partition")
+                        covered |= selected
+                    self.assertEqual(covered, complete, "partitioning changed the suite's coverage")
+                    # An empty partition must not turn into a green validation lane.
+                    env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}-empty")
+                    empty = subprocess.run(command + ["--partition", "slice:100/100"],
+                                           cwd=consumer, env=env, capture_output=True, text=True)
+                    self.assertEqual(empty.returncode, 4, empty.stdout + empty.stderr)
                 if suite == "unit":
                     self.assertEqual((consumer / "crates/eez-blob-codec/compatibility.executed").read_text(), "passed")
                     subprocess.run([sys.executable, "scripts/ci/native-tests.py", "export-e2e", str(artifact),

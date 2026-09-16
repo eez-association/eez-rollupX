@@ -50,6 +50,24 @@ class WorkflowContractTest(unittest.TestCase):
         results["kurtosis-e2e"]["result"] = "skipped"
         self.assertNotEqual(self.run_gate(results).returncode, 0)
 
+    def test_native_matrices_cover_every_partition_and_block_promotion_on_failure(self):
+        for name in ("embedded-e2e", "cross-chain-e2e"):
+            job = self.jobs[name]
+            partitions = job["strategy"]["matrix"]["partition"]
+            self.assertEqual(partitions, [f"slice:{i}/4" for i in range(1, 5)])
+            self.assertFalse(job["strategy"]["fail-fast"])
+            self.assertNotIn("continue-on-error", job)
+            execution = next(s for s in job["steps"] if "run-native-suite.sh" in s.get("run", ""))
+            self.assertEqual(execution["env"]["NEXTEST_PARTITION"], "${{ matrix.partition }}")
+            self.assertIn('"$NEXTEST_PARTITION"', execution["run"])
+            self.assertNotIn("continue-on-error", execution)
+            upload = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/upload-artifact@"))
+            self.assertIn("${{ strategy.job-index }}", upload["with"]["name"])
+            for state in ("failure", "cancelled", "skipped"):
+                results = self.result("true")
+                results[name]["result"] = state
+                self.assertNotEqual(self.run_gate(results).returncode, 0)
+
     def test_promotion_is_after_the_gate_and_only_on_main(self):
         job = self.jobs["ci-result"]
         promotion = job["steps"][1]

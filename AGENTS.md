@@ -229,6 +229,15 @@ Composer unit archive: its Tokio `test-util` feature changes shipping dependenci
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 
+Published native E2E suites each use four Nextest slice partitions on separate
+runner jobs, with serial tests inside each partition. All partitions must pass
+before promotion; matrix failures do not cancel the remaining partitions. Each
+job consumes the same verified payload without recompiling Rust. The no-publication
+fallback still runs the complete suites serially in the producer job. Sharding
+reduces elapsed time only when the runner pool has capacity; queued jobs do not
+consume their execution timeout. Keep partition inventories complete when changing
+the matrix, and retain unique diagnostic artifact names for each shard.
+
 Promote deployment tags only from tested digests after **all** CI validation lanes
 pass. Never rebuild during promotion or let older runs roll `latest` backward.
 The [CI gate and promotion](.github/workflows/ci.yml) own this procedure.
