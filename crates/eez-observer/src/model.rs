@@ -75,6 +75,10 @@ pub struct Head {
 }
 
 pub(crate) fn quantity(value: &Value) -> Result<u64, Failure> {
+    u64::from_str_radix(quantity_hex(value)?, 16).map_err(|_| Failure::Malformed)
+}
+
+pub(crate) fn quantity_hex(value: &Value) -> Result<&str, Failure> {
     let s = value.as_str().ok_or(Failure::Malformed)?;
     let raw = s.strip_prefix("0x").ok_or(Failure::Malformed)?;
     if raw.is_empty()
@@ -83,7 +87,7 @@ pub(crate) fn quantity(value: &Value) -> Result<u64, Failure> {
     {
         return Err(Failure::Malformed);
     }
-    u64::from_str_radix(raw, 16).map_err(|_| Failure::Malformed)
+    Ok(raw)
 }
 
 impl Head {

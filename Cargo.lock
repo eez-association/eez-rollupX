@@ -3499,6 +3499,7 @@ dependencies = [
 name = "eez-observer"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
  "axum",
  "clap",
  "reqwest 0.12.28",

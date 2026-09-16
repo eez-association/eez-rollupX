@@ -1,4 +1,5 @@
 //! Read-only EEZ observer. This first implementation is an RPC exporter only.
+pub mod accounting;
 pub mod config;
 pub mod metrics;
 pub mod model;
