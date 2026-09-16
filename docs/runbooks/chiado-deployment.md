@@ -166,7 +166,7 @@ validated `main`, the same **full Git commit tag on all three images** for a fix
 source revision, or each image's `@sha256:<digest>` for exact bytes. Commit tags can
 be refreshed by a successful rebuild; digests identify the actual build.
 
-Docker downloads images as needed. The deploy command uses `--pull always`;
+The deploy command uses `--pull always`;
 Compose's default [pull policy](https://docs.docker.com/reference/compose-file/services/#pull_policy)
 also refreshes `latest`. Starting with `latest` can therefore select an upgrade.
 The three tags update separately. For a fixed deployment or work that may span
@@ -345,8 +345,8 @@ bash scripts/chiado-up.sh
 ```
 
 The script requires existing bindings/genesis/snapshot/JWT, creates initial
-L2/Lighthouse directories if absent, and runs `docker compose up -d`. Compose
-pulls images automatically; contract deployment is separate. It never deletes data.
+L2/Lighthouse directories if absent, and runs `docker compose up -d`.
+Contract deployment is separate. Startup never deletes data.
 
 **Pass:** `chiado L2 is UP`, L2 height greater than 3, changed registry commitment,
 and a new `BatchPosted` type-3 transaction whose versioned-hash-selected full blobs
@@ -426,7 +426,7 @@ follower replay; record those checks separately when required.
 
 Use the recorded checkout, keys, bindings, genesis/profile, JWT, and datadirs.
 Pin the recorded commit/digests in `.env` to keep the same runtime: Compose can
-refresh `:latest` during `up`. Missing pinned images are downloaded automatically.
+refresh `:latest` during `up`.
 Do not rerun first-deployment steps for a restart. For a process-only restart of
 existing containers, `docker compose restart` retains their current images and
 configuration; it does not apply edits to `.env`.
@@ -556,9 +556,9 @@ checks retrieval/shape; it does not independently verify KZG proofs or replay.
    current L2 database until the recovery path has been tested.
 3. For upgrades, check node/signer/protocol compatibility, stored-state formats,
    configuration changes, and rollout order. Select the intended node/signer
-   references in `.env` and matching configuration checkout. Docker downloads
-   them on startup. Verify source labels and retain the previous `.env`, image
-   digests, checkout, and backups. A binary downgrade works only if old code can
+   references in `.env` and matching configuration checkout. Verify source labels
+   and retain the previous `.env`, image digests, checkout, and backups.
+   A binary downgrade works only if old code can
    read the resulting data and speak
    the deployed protocol. Repeat startup, semantic, and replay checks required by
    the change; record which actually ran.
@@ -594,9 +594,8 @@ EEZ_DEPLOY_IMAGE=eez-deploy:local
 ```
 
 Use the same deployment/start procedures, with `--pull never` on the deployment
-command to use the local image. Compose reuses the built `:local` node/signer
-images and downloads Lighthouse when absent. Builds require BuildKit and Rust
-build capacity. Local Dockerfiles do not supply CI provenance labels; record the
+command to use the local image. Builds require BuildKit and Rust build capacity.
+Local Dockerfiles do not supply CI provenance labels; record the
 commit/dirty patch and image IDs. Rebuilding a tag changes its bytes; assess the
 next restart as an upgrade.
 

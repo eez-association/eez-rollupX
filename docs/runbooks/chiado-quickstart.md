@@ -28,9 +28,9 @@ Edit `.env`:
 - Keep the other defaults. If you change `EEZ_L1_BUILDER_RPC_URL`, use a Chiado
   builder supporting `eth_sendBundle`. Startup probes the builder automatically.
 
-The three EEZ images default to `:latest`. Docker downloads images automatically;
-Compose can update `latest` on startup. To keep a fixed deployment, set all three
-image references to the same full Git commit tag, or pin each image's digest.
+The three EEZ images default to `:latest`, which can change on startup.
+To keep a fixed deployment, set all three image references to the same full Git
+commit tag, or pin each image's digest.
 Use the matching checkout for Compose/configuration; details:
 [image selection](chiado-deployment.md#image-selection).
 
@@ -87,8 +87,8 @@ docker compose ps
 cast block-number --rpc-url http://127.0.0.1:18688
 ```
 
-Startup pulls images through Compose, starts the three services, and verifies
-advancing L2/L1 commitments plus retrievable blobs from a new type-3 settlement.
+The script starts the three services and verifies advancing L2/L1 commitments plus
+retrievable blobs from a new type-3 settlement.
 It preserves data and requires existing deployment bindings. A timeout leaves
 containers running; inspect logs instead of redeploying:
 

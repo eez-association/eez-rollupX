@@ -76,10 +76,9 @@ and reconstructing full blobs for the deriver through
 retained only as a compatibility fallback.
 
 Start with the [Chiado quick start](docs/runbooks/chiado-quickstart.md): configure
-`.env`, deploy with the published deploy image, and start the services. Docker
-downloads the published images automatically; `:latest` is the default, with
-full Git commit tags or digests for a fixed version. `:local` builds are for
-development. Use the
+`.env`, deploy with the published deploy image, and start the services.
+`:latest` is the default; use full Git commit tags or digests for a fixed version.
+`:local` builds are for development. Use the
 [detailed runbook](docs/runbooks/chiado-deployment.md) for preflight checks,
 restart, troubleshooting, and recovery limits.
 
