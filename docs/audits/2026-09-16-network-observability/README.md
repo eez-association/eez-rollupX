@@ -72,3 +72,47 @@ clean-host restore, production performance, deployment or the seven-day baseline
 Those remain explicit work in the coverage ledger. Lifecycle ingestion is the
 next integration boundary; accepted-request history must remain unknown after
 missing evidence rather than becoming an inferred completion.
+
+
+## Lifecycle ingestion follow-up
+
+Source `d1134be` adds optional independent lifecycle-source workers and schema 4.
+The source baseline remains main `5469c88`; no additional main polling occurred.
+The tested default-feature observer SHA-256 is `20c09cdb50a9fca142f437367b3ff3f80207d5053252d10e7fa7880119bd2922`.
+Its migration hashes and real process scenarios are recorded in the current
+[database report](../../../observability/validation/database.json), validated at
+`2026-09-16T23:55:50.507506+00:00`. Earlier schema-3 reports remain available from
+Git, for example `git show 1ab46c8:observability/validation/database.json`; the
+current report supersedes the working-tree copy, not the earlier source record.
+
+27 observer tests and 21 all-feature telemetry tests passed. Workspace all-target
+Clippy, formatting, six preparation tests, dependency deny and audit checks passed.
+Audit retained the existing 14 allowed warnings. The observer's new direct local
+telemetry dependency did not change package versions. The full isolated database
+suite passed with the saved v1 executable, including populated upgrade to v4 and
+old-binary refusal, all previous canonical/settlement cases, and these additions:
+
+- Raw records, chunks/events and file offsets roll back together when the importer
+  is killed before commit, then replay once after restart.
+- Out-of-order/duplicate input and segment rotation preserve event/checkpoint
+  identity; a conflicting late chunk retracts only its transport-success claim.
+- Killing a separate lock-holding writer process establishes end. Partial records,
+  unknown trailing windows, missing locks and retention remain distinct states.
+- Unknown wire/payload schemas retain raw positions and stay quarantined. A clean
+  ended epoch's full-u64 missing sequence range remains one bounded interval.
+- A missing configured spool produces its own metric/error while another source
+  and canonical receipt scans remain healthy; shutdown meets the fixture bound.
+
+The first process run found PostgreSQL parameter inference in `SELECT DISTINCT`;
+explicit `bigint` typing fixed it. The first failure is retained locally at
+`/tmp/eez-observability-lifecycle-database-first-failure.{log,json}` with no promised
+retention. Later review added conservative opaque-evidence handling and file
+backlog metrics before the final run. Scenario details and reproducible commands
+are in [database evidence](../../../observability/validation/database.md) and the
+[ingestion contract](../../../observability/contracts/lifecycle-ingestion.md).
+
+These are transport/history tests, not native source-outcome proof. Next work
+captures authoritative native transitions, expands their evidence to the proposal's
+anchor matrix and validates canonical outcome views. Native workload performance,
+physical storage budgets, tracing, remaining dashboards/alerts, restore and live
+baseline acceptance remain open in the requirement ledger.
