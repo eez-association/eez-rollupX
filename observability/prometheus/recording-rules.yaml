@@ -1,0 +1,23 @@
+groups:
+  - name: eez-observer-current
+    interval: 15s
+    rules:
+      - record: eez:chain_head_number:current
+        expr: >-
+          eez_observer_chain_head_number
+          and on (environment, deployment, job, instance, source)
+          (eez_observer_collection_success == 1)
+      - record: eez:queue_transactions:current
+        expr: >-
+          eez_observer_queue_transactions
+          and on (environment, deployment, job, instance)
+          (eez_observer_collection_success{source="queue"} == 1)
+          and on (environment, deployment, job, instance)
+          (eez_observer_queue_evaluation_valid == 1)
+      - record: eez:queue_oldest_age_seconds:current
+        expr: >-
+          eez_observer_queue_oldest_age_seconds
+          and on (environment, deployment, job, instance)
+          (eez_observer_collection_success{source="queue"} == 1)
+          and on (environment, deployment, job, instance)
+          (eez_observer_queue_evaluation_valid == 1)

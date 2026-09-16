@@ -12,6 +12,7 @@ members = [
     "crates/eez-node",
     "crates/eez-node-common",
     "crates/eez-node-e2e",
+    "crates/eez-observer",
     "crates/eez-payload-codec",
     "crates/eez-proof-signer",
     "crates/eez-protocol",
