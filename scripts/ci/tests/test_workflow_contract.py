@@ -81,6 +81,17 @@ class WorkflowContractTest(unittest.TestCase):
         compiler = next(s for s in steps if s.get("uses") == "./.github/actions/compiler-cache")
         self.assertEqual(compiler["with"]["enabled"], "${{ vars.CI_COMPILER_CACHE != 'false' }}")
 
+    def test_lint_installs_cast_before_tests_that_decode_real_transactions(self):
+        steps = self.jobs["lint"]["steps"]
+        install = next(i for i, step in enumerate(steps)
+                       if step.get("uses", "").startswith("foundry-rs/foundry-toolchain@"))
+        tests = next(i for i, step in enumerate(steps)
+                     if "unittest discover" in step.get("run", ""))
+        self.assertLess(install, tests)
+        contracts = next(s for s in self.jobs["contract-tests"]["steps"]
+                         if s.get("uses", "").startswith("foundry-rs/foundry-toolchain@"))
+        self.assertEqual(steps[install]["with"], contracts["with"])
+
     def test_kurtosis_consumer_requires_publication_and_unconditional_login(self):
         caller = self.jobs["kurtosis-e2e"]
         self.assertEqual(caller["if"], "${{ needs.build-runtime.outputs.published == 'true' }}")
