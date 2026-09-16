@@ -1,0 +1,737 @@
+{
+  "nativeTests": [
+    {
+      "target": "settlement_policy",
+      "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "passed": true,
+      "durationSeconds": 95.31,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement",
+      "passed": true,
+      "durationSeconds": 96.21,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+      "passed": true,
+      "durationSeconds": 99.22,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+      "passed": true,
+      "durationSeconds": 103.48,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+      "passed": true,
+      "durationSeconds": 92.65,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "queue_liveness",
+      "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "passed": true,
+      "durationSeconds": 86.95,
+      "executableSha256": "d9c2e63929423afc074eea8ae33d21fe60409a850eae2733aac32b71b6c37f03",
+      "stage": "escrow-assertion"
+    },
+    {
+      "target": "queue_liveness",
+      "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "passed": true,
+      "durationSeconds": 86.85,
+      "executableSha256": "d9c2e63929423afc074eea8ae33d21fe60409a850eae2733aac32b71b6c37f03",
+      "stage": "escrow-assertion"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+      "passed": true,
+      "durationSeconds": 98.2,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+      "passed": true,
+      "durationSeconds": 78.72,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "always_skips_idle_syncs_then_settles_included_activity_and_replays",
+      "passed": true,
+      "durationSeconds": 103.75,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+      "passed": true,
+      "durationSeconds": 116.57,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+      "passed": true,
+      "durationSeconds": 116.93,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "fee_ceiling_blocks_posting_without_losing_activity_or_splitting",
+      "passed": true,
+      "durationSeconds": 86.72,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "passed": true,
+      "durationSeconds": 94.25,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+      "passed": true,
+      "durationSeconds": 110.63,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+      "passed": true,
+      "durationSeconds": 176.1,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "general_block_rule_consolidates_empty_history_before_the_pure_interval",
+      "passed": true,
+      "durationSeconds": 96.9,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "interval_preserves_execution_but_waits_below_all_thresholds",
+      "passed": true,
+      "durationSeconds": 42.04,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "interval_posts_accumulated_activity_using_the_registration_l1_timestamp",
+      "passed": true,
+      "durationSeconds": 120.94,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target",
+      "passed": true,
+      "durationSeconds": 71.65,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+      "passed": true,
+      "durationSeconds": 188.1,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "lowering_blob_cap_rejects_retained_unsplittable_history_without_losing_it",
+      "passed": true,
+      "durationSeconds": 103.01,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "native_gnosis_always_settles_with_native_blob_fees_and_independent_replay",
+      "passed": true,
+      "durationSeconds": 103.5,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "ordinary_rpc_rejects_unpostable_data_without_consuming_nonce",
+      "passed": true,
+      "durationSeconds": 66.84,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+      "passed": true,
+      "durationSeconds": 92.09,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+      "passed": true,
+      "durationSeconds": 93.09,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+      "passed": true,
+      "durationSeconds": 86.62,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "passed": true,
+      "durationSeconds": 151.59,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays",
+      "passed": true,
+      "durationSeconds": 90.33,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty",
+      "passed": true,
+      "durationSeconds": 85.77,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy",
+      "test": "more_than_three_hundred_blocks_settle_in_one_native_batch",
+      "passed": true,
+      "durationSeconds": 326.06,
+      "executableSha256": "f69595478190d3fad5b91139e574c74b7fe561310177ff748ec766410e4fa0c1",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+      "passed": true,
+      "durationSeconds": 82.42,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+      "passed": true,
+      "durationSeconds": 81.92,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+      "passed": true,
+      "durationSeconds": 77.46,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+      "passed": true,
+      "durationSeconds": 97.9,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+      "passed": true,
+      "durationSeconds": 96.45,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+      "passed": true,
+      "durationSeconds": 111.98,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+      "passed": true,
+      "durationSeconds": 102.02,
+      "executableSha256": "6efefa1da5529778b1c0687e99c29861637402eeaf8f8f2d433f89e0fd17d6bf",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "last_user_omission_preserves_two_user_prefix_and_clean_follower",
+      "passed": true,
+      "durationSeconds": 81.69,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "first_user_omission_preserves_anchor_and_retries_only_unspent_source",
+      "passed": true,
+      "durationSeconds": 115.76,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "middle_user_omission_preserves_prefix_and_spent_source_dispositions",
+      "passed": true,
+      "durationSeconds": 85.7,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "policy_first_source_omission_keeps_the_registration_anchor",
+      "passed": true,
+      "durationSeconds": 96.92,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "policy_partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+      "passed": true,
+      "durationSeconds": 101.97,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "policy_valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "passed": true,
+      "durationSeconds": 83.98,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "policy_restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "passed": true,
+      "durationSeconds": 121.57,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "restart_after_partial_consumption_accepts_resubmission_without_replaying_expired_bundle",
+      "passed": true,
+      "durationSeconds": 118.3,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "partial_consumption",
+      "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "passed": true,
+      "durationSeconds": 91.76,
+      "executableSha256": "65b9f3e5c403172057f8d3ca17d0fe711963f6f70351cecf28adc7f4f02ea363",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "both_directions_zero_value_direct_proxy_success_single_call",
+      "passed": true,
+      "durationSeconds": 82.12,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "both_directions_return_value_and_wrapper_success_repeated_waves",
+      "passed": true,
+      "durationSeconds": 97.6,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "codeless_registered_targets_complete_deterministically_in_both_directions",
+      "passed": true,
+      "durationSeconds": 76.9,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "direct_ccm_l2_outbound_call_is_rejected",
+      "passed": true,
+      "durationSeconds": 68.09,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_deposit_to_payable_contract_runs_fallback",
+      "passed": true,
+      "durationSeconds": 73.3,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_destination_events_are_retained_in_the_l2_block",
+      "passed": true,
+      "durationSeconds": 77.26,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly",
+      "passed": true,
+      "durationSeconds": 83.03,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_empty_calldata_and_zero_value_is_not_skipped",
+      "passed": true,
+      "durationSeconds": 77.36,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+      "passed": true,
+      "durationSeconds": 81.31,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "passed": true,
+      "durationSeconds": 101.0,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "minimal_bidirectional_cross_chain_smoke",
+      "passed": true,
+      "durationSeconds": 73.45,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "inbound_value_and_calldata_apply_atomically",
+      "passed": true,
+      "durationSeconds": 83.42,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "mismatched_actionable_rejection_eventually_evicts_the_candidate",
+      "passed": true,
+      "durationSeconds": 78.67,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "opaque_prover_rejection_eventually_evicts_the_candidate",
+      "passed": true,
+      "durationSeconds": 78.76,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "outbound_destination_events_are_retained_in_the_l1_block",
+      "passed": true,
+      "durationSeconds": 67.28,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "outbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly",
+      "passed": true,
+      "durationSeconds": 83.12,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+      "passed": true,
+      "durationSeconds": 67.29,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+      "passed": true,
+      "durationSeconds": 67.49,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "real_signer_rejects_tampered_post_batch_calldata",
+      "passed": true,
+      "durationSeconds": 58.22,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "real_signer_attester_mismatch_never_submits_a_batch",
+      "passed": true,
+      "durationSeconds": 68.03,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "passed": true,
+      "durationSeconds": 123.18,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "cross_chain",
+      "test": "real_signer_rejects_tampered_witness",
+      "passed": true,
+      "durationSeconds": 78.8,
+      "executableSha256": "58b8a05dd4f1477f6d1cce1e7c40182af0f6919c2eb3938dc26750a9d85ab841",
+      "stage": "acceptance"
+    },
+    {
+      "target": "chained_interstate",
+      "test": "identical_outbound_calls_in_separate_transactions_chain_state",
+      "passed": true,
+      "durationSeconds": 77.41,
+      "executableSha256": "d0837e2a042bc30269730f74df84881b9afb40b7dde1e03acc17a8c78a93415e",
+      "stage": "acceptance"
+    },
+    {
+      "target": "chained_interstate",
+      "test": "mixed_direction_state_chain_in_one_slot",
+      "passed": true,
+      "durationSeconds": 102.86,
+      "executableSha256": "d0837e2a042bc30269730f74df84881b9afb40b7dde1e03acc17a8c78a93415e",
+      "stage": "acceptance"
+    },
+    {
+      "target": "chained_interstate",
+      "test": "poison_mid_bundle_leaves_survivors_correct",
+      "passed": true,
+      "durationSeconds": 87.02,
+      "executableSha256": "d0837e2a042bc30269730f74df84881b9afb40b7dde1e03acc17a8c78a93415e",
+      "stage": "acceptance"
+    },
+    {
+      "target": "chained_interstate",
+      "test": "same_sender_outbound_chain",
+      "passed": true,
+      "durationSeconds": 81.8,
+      "executableSha256": "d0837e2a042bc30269730f74df84881b9afb40b7dde1e03acc17a8c78a93415e",
+      "stage": "acceptance"
+    },
+    {
+      "target": "chained_interstate",
+      "test": "three_order_dependent_inbound_calls_in_one_bundle",
+      "passed": true,
+      "durationSeconds": 80.9,
+      "executableSha256": "d0837e2a042bc30269730f74df84881b9afb40b7dde1e03acc17a8c78a93415e",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_gas",
+      "test": "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "passed": true,
+      "durationSeconds": 86.38,
+      "executableSha256": "fbaa2d99a3c04a270dd5085c4240728fef9cdb9529de1531f594401dc180d5e9",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_gas",
+      "test": "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "passed": true,
+      "durationSeconds": 88.19,
+      "executableSha256": "fbaa2d99a3c04a270dd5085c4240728fef9cdb9529de1531f594401dc180d5e9",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_gas",
+      "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "passed": true,
+      "durationSeconds": 111.88,
+      "executableSha256": "fbaa2d99a3c04a270dd5085c4240728fef9cdb9529de1531f594401dc180d5e9",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_gas",
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "passed": true,
+      "durationSeconds": 106.83,
+      "executableSha256": "fbaa2d99a3c04a270dd5085c4240728fef9cdb9529de1531f594401dc180d5e9",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_cost",
+      "test": "ethereum_receipts_use_network_priority_with_percentage_margin",
+      "passed": true,
+      "durationSeconds": 57.58,
+      "executableSha256": "9de9a16cb45a2c98e0dd4d149938f253608435c6118747b8ebbdc7af92d5ca43",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_cost",
+      "test": "gnosis_receipts_use_network_priority_with_percentage_margin",
+      "passed": true,
+      "durationSeconds": 58.53,
+      "executableSha256": "9de9a16cb45a2c98e0dd4d149938f253608435c6118747b8ebbdc7af92d5ca43",
+      "stage": "acceptance"
+    },
+    {
+      "target": "resumption",
+      "test": "resumed_batch_settles_only_its_new_suffix",
+      "passed": true,
+      "durationSeconds": 75.52,
+      "executableSha256": "c0e3bb3b7c0de8c1fc205ee69e7b3f9a0bae465a17a298104b5641863279ce68",
+      "stage": "acceptance"
+    },
+    {
+      "target": "e2e",
+      "test": "anvil_reorg_preserves_wall_clock",
+      "passed": true,
+      "durationSeconds": 16.15,
+      "executableSha256": "01dfcc2011fa44f0af14cef11ad7886c1ef6fbfa0dea0e7063cd172c6be973bc",
+      "stage": "acceptance"
+    },
+    {
+      "target": "e2e",
+      "test": "happy_case_composer_sustained",
+      "passed": true,
+      "durationSeconds": 59.88,
+      "executableSha256": "01dfcc2011fa44f0af14cef11ad7886c1ef6fbfa0dea0e7063cd172c6be973bc",
+      "stage": "acceptance"
+    },
+    {
+      "target": "e2e",
+      "test": "happy_case_follower_l1_reorg_recovers",
+      "passed": true,
+      "durationSeconds": 56.52,
+      "executableSha256": "01dfcc2011fa44f0af14cef11ad7886c1ef6fbfa0dea0e7063cd172c6be973bc",
+      "stage": "acceptance"
+    },
+    {
+      "target": "e2e",
+      "test": "happy_case_two_composers_l1_reorg_recovers",
+      "passed": true,
+      "durationSeconds": 64.48,
+      "executableSha256": "01dfcc2011fa44f0af14cef11ad7886c1ef6fbfa0dea0e7063cd172c6be973bc",
+      "stage": "acceptance"
+    },
+    {
+      "target": "e2e",
+      "test": "happy_case_blob_l1_reorg_replaces_correlations",
+      "passed": true,
+      "durationSeconds": 52.91,
+      "executableSha256": "01dfcc2011fa44f0af14cef11ad7886c1ef6fbfa0dea0e7063cd172c6be973bc",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_cost",
+      "test": "ethereum_receipts_compare_equal_idle_and_transaction_workloads",
+      "passed": true,
+      "durationSeconds": 353.21,
+      "executableSha256": "9de9a16cb45a2c98e0dd4d149938f253608435c6118747b8ebbdc7af92d5ca43",
+      "stage": "acceptance"
+    },
+    {
+      "target": "settlement_policy_cost",
+      "test": "gnosis_receipts_compare_equal_idle_and_transaction_workloads",
+      "passed": true,
+      "durationSeconds": 363.66,
+      "executableSha256": "9de9a16cb45a2c98e0dd4d149938f253608435c6118747b8ebbdc7af92d5ca43",
+      "stage": "acceptance"
+    },
+    {
+      "target": "queue_reorg",
+      "test": "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "passed": true,
+      "durationSeconds": 91.64,
+      "executableSha256": "8b6876a64db47d214b3615457e8f57e50395718d9bd0fe2c0cb9b7c163bc8cb1",
+      "stage": "reorg-final"
+    }
+  ],
+  "runtimeBinaries": {
+    "eez-proof-signer": "639b7b25ec81485eedc64663c8a7e1f24d821cfe2d9c8bb0f531e0874f387a68",
+    "eez-follower": "7c7006c70c386c3ce45f9cbda53b7f8bf857c586119f80e0caf518c0c71e65fd",
+    "eez-composer": "778f12e7818c88ea7339e320e52012b96956f093b0ab66e07fd1a65876503f8c"
+  },
+  "productionSourceUnchangedSinceBuild": true,
+  "unitTests": {
+    "composer": 162,
+    "protocol": 167,
+    "node": 33,
+    "inspector": 14,
+    "testkit": 8
+  },
+  "ciPython": {
+    "total": 219,
+    "skipped": 4
+  },
+  "monitorPython": 50,
+  "monitorJavaScriptSuites": 2,
+  "format": true,
+  "clippy": true
+}

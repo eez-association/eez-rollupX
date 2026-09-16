@@ -105,6 +105,7 @@ pub(crate) struct ServiceState {
     expected_l2_system_address: Address,
     attester: Attester,
     system_transaction_reconstructor: settlement::SystemTransactionReconstructor,
+    l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
 }
 
 impl ServiceState {
@@ -115,6 +116,7 @@ impl ServiceState {
         expected_rollup_id: NonZeroU64,
         attester: Attester,
         system_transaction_key: settlement::SystemTransactionKey,
+        l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
     ) -> eyre::Result<Self> {
         let expected_l2_system_address = system_transaction_key.address();
         eyre::ensure!(
@@ -133,6 +135,31 @@ impl ServiceState {
             expected_l2_system_address,
             attester,
             system_transaction_reconstructor,
+            l1_chain_spec,
+        })
+    }
+
+    fn posting_blob_limit(
+        &self,
+        target: &eez_control_rpc::v1::L1PostingContext,
+    ) -> Result<usize, tonic::Status> {
+        use reth_chainspec::EthChainSpec as _;
+        let chain_spec = &self.l1_chain_spec;
+        if target.chain_id != chain_spec.chain().id() {
+            return Err(tonic::Status::invalid_argument(
+                "posting context chain does not match trusted L1 chain",
+            ));
+        }
+        let params = chain_spec
+            .blob_params_at_timestamp(target.target_timestamp)
+            .ok_or_else(|| {
+                tonic::Status::invalid_argument("posting target has no active blob rules")
+            })?;
+        let maximum = eez_blob_codec::BlobLimits::from_params(params)
+            .and_then(|limits| limits.outgoing(0, u64::MAX, None))
+            .map_err(|error| tonic::Status::invalid_argument(error.to_string()))?;
+        usize::try_from(maximum).map_err(|_| {
+            tonic::Status::invalid_argument("L1 blob allowance exceeds platform capacity")
         })
     }
 }

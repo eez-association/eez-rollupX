@@ -1,0 +1,748 @@
+{
+  "recordedAt": "2026-09-16T00:17:05.825556+00:00",
+  "artifactRoot": "artifacts/chiado-shaped-admission-v2-20260915",
+  "scope": "Bounded enabled-policy postBatch admission reserves; no execution-semantic, policy-setting or contract-runtime change. Larger simple Syncs demonstrated; no overall mixed-workload efficiency win.",
+  "workload": {
+    "args": [
+      "counter:100",
+      "counterL2:100",
+      "nestedCounter:50",
+      "nestedCounterL2:50",
+      "multi-call-nested:50",
+      "multi-call-nestedL2:50",
+      "multi-call-twice:50",
+      "multi-call-twiceL2:50",
+      "counter-multi-tx:50",
+      "reentrant:20",
+      "revertCounter:50",
+      "revertCounterL2:50",
+      "revertFromOtherChain:50",
+      "revertFromOtherChainL2:50"
+    ],
+    "prepareParallel": 200,
+    "fundEth": "0.005",
+    "floorEth": "0.005",
+    "verification": false,
+    "expectedJobs": 770,
+    "expectedSourceTransactions": 870,
+    "expectedDirections": {
+      "inbound": 520,
+      "outbound": 350
+    },
+    "expectedSetupTransactions": 2850,
+    "sendWorkers": 28,
+    "pollIntervalSeconds": 1,
+    "sourceObservationSeconds": 5,
+    "sourceObservationBatch": 100
+  },
+  "protocolCommit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "runtimeSha256": {
+    "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+    "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+    "eez-composer": "c55872ba63d584c4f147b106fd57b4456e872dd74cd9ee01f62bee049473fd56"
+  },
+  "sourceValidation": {
+    "recordedAt": "2026-09-15T23:42:13.035445+00:00",
+    "checks": [
+      {
+        "name": "composer-unit",
+        "command": "cargo +1.94.0 test -p eez-composer --lib --offline --locked -j2",
+        "exitCode": 0,
+        "passed": 194,
+        "log": "composer-unit.log"
+      },
+      {
+        "name": "composer-clippy",
+        "command": "cargo +1.94.0 clippy -p eez-composer --all-targets --offline --locked -j2 -- -D warnings",
+        "exitCode": 0,
+        "passed": null,
+        "log": "composer-clippy.log"
+      },
+      {
+        "name": "format",
+        "command": "cargo +1.94.0 fmt --all -- --check",
+        "exitCode": 0,
+        "passed": null,
+        "log": "format.log"
+      },
+      {
+        "name": "whitespace",
+        "command": "git diff --check",
+        "exitCode": 0,
+        "passed": null,
+        "log": "whitespace.log"
+      }
+    ],
+    "sourceIdentities": {
+      "crates/eez-composer/src/composer.rs": "72f01f88e6ec7cc5d6334ce99325577a8ad9021a8ed3c357f234fc416a9628b4",
+      "crates/eez-composer/src/composer/gas.rs": "a9d5c787e763e99e1247a1bc1d7b8f5213e77c775e43febf8fc79c69416b53ee",
+      "crates/eez-composer/src/local/slot.rs": "1997fed75cd39c9b990d8d999f704f2147b02256431e67259de49e213fbb0ceb",
+      "crates/eez-node-e2e/tests/dynamic_admission.rs": "ffa2608e8ec3a3a9f74781eeb223dcecfea18eb44ec4b2951828c6abdf17f846",
+      "contracts/test/PostBatchGasPins.t.sol": "c8d55e35ae7f5d8bd41b38a3e9abce9bd5b68d8ec6f7d008da9aa99a5c869edd"
+    }
+  },
+  "contractValidation": {
+    "testsPerProfile": 14,
+    "profiles": [
+      "cancun",
+      "prague",
+      "osaka"
+    ],
+    "totalPassed": 42,
+    "resultBoundBytes": 64,
+    "deferredGasReserve": 270000,
+    "existingProxyGasReserve": 70000,
+    "priorQueueEntryCleanupGasReserve": 65000,
+    "maximumMeasuredTotalEntries": 128
+  },
+  "nativeRegressions": [
+    {
+      "test": "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+      "passed": true,
+      "durationSeconds": 77.54892651410773,
+      "startedAt": "2026-09-15T23:49:35.211192+00:00",
+      "finishedAt": "2026-09-15T23:50:52.760176+00:00"
+    },
+    {
+      "test": "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+      "passed": true,
+      "durationSeconds": 77.76628992892802,
+      "startedAt": "2026-09-15T23:50:53.147108+00:00",
+      "finishedAt": "2026-09-15T23:52:10.913442+00:00"
+    },
+    {
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "passed": true,
+      "durationSeconds": 87.34626696072519,
+      "startedAt": "2026-09-15T23:52:11.306605+00:00",
+      "finishedAt": "2026-09-15T23:53:38.652904+00:00"
+    },
+    {
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "passed": true,
+      "durationSeconds": 87.5395001899451,
+      "startedAt": "2026-09-15T23:53:39.033955+00:00",
+      "finishedAt": "2026-09-15T23:55:06.573485+00:00"
+    },
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "passed": true,
+      "durationSeconds": 83.38835280807689,
+      "startedAt": "2026-09-15T23:55:06.949409+00:00",
+      "finishedAt": "2026-09-15T23:56:30.337796+00:00"
+    },
+    {
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "passed": true,
+      "durationSeconds": 107.88582164701074,
+      "startedAt": "2026-09-15T23:56:30.736376+00:00",
+      "finishedAt": "2026-09-15T23:58:18.622238+00:00"
+    }
+  ],
+  "build": {
+    "startedAt": "2026-09-15T23:42:31.439928+00:00",
+    "finishedAt": "2026-09-15T23:49:14.495398+00:00",
+    "durationSeconds": 403.04239770490676,
+    "exitCode": 0,
+    "profile": "normal release; unchanged Cargo profile and Rust 1.94.0",
+    "sourceIdentityChecksPassed": true,
+    "freshComposerArtifactsConfirmed": true,
+    "unchangedFollowerAndSigner": true
+  },
+  "deployment": {
+    "appliedAt": "2026-09-15T23:58:36.976521+00:00",
+    "actualComposerSha256": "c55872ba63d584c4f147b106fd57b4456e872dd74cd9ee01f62bee049473fd56",
+    "beforeComposerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+    "sameAssignedEnvironment": true,
+    "sameOriginalDataMounts": true
+  },
+  "restartConfigurationPersisted": {
+    "at": "2026-09-16T00:00:08.729251+00:00",
+    "updatedFile": ".runtime/chiado-settlement-20260913/runtime.compose.json",
+    "beforeSha256": "626eb4baf771f17b64c8ac67854e551c144daaa6699f3849e988081e19e8d14b",
+    "afterSha256": "7a817d17f1627504966b614ef9e34fe2781d871bf628678e345560ffc593619c",
+    "composerSha256": "c55872ba63d584c4f147b106fd57b4456e872dd74cd9ee01f62bee049473fd56",
+    "onlyChange": "composer read-only bind updated to tested bounded-admission binary",
+    "runningContainerRestarted": false
+  },
+  "profiles": {
+    "baseline": {
+      "composerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+      "startedAt": "2026-09-15T22:13:07.365079+00:00",
+      "finishedAt": "2026-09-15T22:21:54.058471+00:00",
+      "verifiedSourceCount": 870,
+      "sourcePostCount": 37,
+      "maximumObservedSourcesPerSync": 34,
+      "meanSourcesPerPost": 23.513513513513512,
+      "sourceCountsPerPost": [
+        1,
+        30,
+        30,
+        30,
+        24,
+        30,
+        29,
+        29,
+        28,
+        25,
+        25,
+        22,
+        22,
+        27,
+        23,
+        23,
+        31,
+        2,
+        31,
+        2,
+        30,
+        16,
+        11,
+        11,
+        11,
+        12,
+        17,
+        17,
+        21,
+        34,
+        34,
+        34,
+        34,
+        34,
+        27,
+        34,
+        29
+      ],
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "174998012523998",
+        "companions": 520,
+        "physicalBlobs": 37,
+        "postBlobWei": "4849664000000000",
+        "postExecutionGasUsed": 202157413,
+        "postExecutionWei": "202157415543423798",
+        "posts": 37,
+        "totalBlobWei": "4849664000000000",
+        "totalExecutionGasUsed": 275858229,
+        "totalExecutionWei": "202332413555947796",
+        "totalWei": "207182077555947796",
+        "totalXDAI": "0.207182077555947796"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "174998012523998",
+        "companions": 520,
+        "physicalBlobs": 47,
+        "postBlobWei": "6160384000000000",
+        "postExecutionGasUsed": 202835589,
+        "postExecutionWei": "202835591551335372",
+        "posts": 43,
+        "totalBlobWei": "6160384000000000",
+        "totalExecutionGasUsed": 276536405,
+        "totalExecutionWei": "203010589563859370",
+        "totalWei": "209170973563859370",
+        "totalXDAI": "0.20917097356385937"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 261555.722,
+          "median": 126250.18950000001,
+          "min": 7350.689,
+          "p95NearestRank": 256602.014
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 259590.957,
+          "median": 124362.8985,
+          "min": 5337.617,
+          "p95NearestRank": 254722.014
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 261279.659,
+          "median": 126138.9055,
+          "min": 7290.189,
+          "p95NearestRank": 256407.249
+        }
+      },
+      "firstHeldToLastCanonicalCompleteMs": 262406.119,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 7,
+        "eez.composer.admission.submission_backoff": 1,
+        "l1_tx_gas_budget": 23,
+        "preparation_time": 8
+      },
+      "observedOutcomes": {
+        "excluded": 2,
+        "included": 43,
+        "slot_skipped": 8
+      },
+      "canonicalSkippedSlots": 8,
+      "setupMineSeconds": 182.241,
+      "setupTransactionsSharedWithSourcePosts": 0
+    },
+    "candidate": {
+      "composerSha256": "c55872ba63d584c4f147b106fd57b4456e872dd74cd9ee01f62bee049473fd56",
+      "startedAt": "2026-09-16T00:00:39.794209+00:00",
+      "finishedAt": "2026-09-16T00:08:36.111559+00:00",
+      "verifiedSourceCount": 870,
+      "sourcePostCount": 38,
+      "maximumObservedSourcesPerSync": 39,
+      "meanSourcesPerPost": 22.894736842105264,
+      "sourceCountsPerPost": [
+        1,
+        29,
+        29,
+        26,
+        23,
+        27,
+        27,
+        26,
+        26,
+        28,
+        28,
+        26,
+        23,
+        25,
+        29,
+        26,
+        31,
+        12,
+        31,
+        31,
+        19,
+        11,
+        11,
+        14,
+        8,
+        22,
+        13,
+        39,
+        38,
+        37,
+        17,
+        34,
+        34,
+        34,
+        32,
+        1,
+        1,
+        1
+      ],
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "73970305022456741",
+        "companions": 520,
+        "physicalBlobs": 38,
+        "postBlobWei": "5177343960678400",
+        "postExecutionGasUsed": 223094098,
+        "postExecutionWei": "267712921030361618",
+        "posts": 38,
+        "totalBlobWei": "5177343960678400",
+        "totalExecutionGasUsed": 297064402,
+        "totalExecutionWei": "341683226052818359",
+        "totalWei": "346860570013496759",
+        "totalXDAI": "0.346860570013496759"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "73970305022456741",
+        "companions": 520,
+        "physicalBlobs": 47,
+        "postBlobWei": "6356991960678400",
+        "postExecutionGasUsed": 223659736,
+        "postExecutionWei": "268323871438283714",
+        "posts": 43,
+        "totalBlobWei": "6356991960678400",
+        "totalExecutionGasUsed": 297630040,
+        "totalExecutionWei": "342294176460740455",
+        "totalWei": "348651168421418855",
+        "totalXDAI": "0.348651168421418855"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 307097.959,
+          "median": 146747.374,
+          "min": 32102.354,
+          "p95NearestRank": 272285.728
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 303963.263,
+          "median": 144929.314,
+          "min": 30130.299,
+          "p95NearestRank": 269316.869
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 306112.568,
+          "median": 146635.544,
+          "min": 32071.902,
+          "p95NearestRank": 271317.65
+        }
+      },
+      "firstHeldToLastCanonicalCompleteMs": 308122.72,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 6,
+        "eez.composer.admission.submission_backoff": 6,
+        "l1_tx_gas_budget": 22,
+        "preparation_time": 12
+      },
+      "observedOutcomes": {
+        "excluded": 12,
+        "included": 43,
+        "slot_skipped": 9
+      },
+      "canonicalSkippedSlots": 9,
+      "setupMineSeconds": 91.736,
+      "setupTransactionsSharedWithSourcePosts": 26
+    }
+  },
+  "observedDeltasPercent": {
+    "firstHeldToLastCompletionMs": 17.422078865470358,
+    "medianHeldToCanonicalMs": 16.235369294237763,
+    "p95HeldToCanonicalMs": 6.112077514715064,
+    "sourceBlobs": 2.7027027027027026,
+    "sourceBundleChargedWei": 67.41823139592272,
+    "sourceBundleGas": 7.687344719377576,
+    "sourcePostGas": 10.356624913873429,
+    "sourcePosts": 2.7027027027027026
+  },
+  "peakCanonicalPost": {
+    "actualCostWei": "12328594123753426",
+    "aggregateBlobCapacityBytes": 253952,
+    "aggregateBlobUtilizationPercent": 38.094994329637096,
+    "blockGasLimit": 17351896,
+    "bundleBlockGasUtilizationPercent": 63.12942401222322,
+    "bundleGasUsed": 10954152,
+    "declaredPostGas": 7460220,
+    "effectiveMaxBlobs": 2,
+    "encodedBytes": 96743,
+    "finalQuotedGasBudget": 16777216,
+    "hash": "0x858e7edd67bc99c5b46254557fd800e8fb8b15c0a9f15cd39845729044a1d5fa",
+    "l1Block": 23076031,
+    "l1BlockHash": "0xf463556864db7eeb075e3770f7ab99d044f6f1de36b44da7dfee2ce6145a3df7",
+    "l1TransactionIndex": 0,
+    "l2SyncBlock": 179850,
+    "l2SyncHash": "0xbbbc52d0235767c5b3a711741bc32f8c69e9de3afd3f16ee89e488fbe5d16778",
+    "networkTransactionGasMax": 16777216,
+    "physicalBlobs": 1,
+    "postCalldataBytes": 26372,
+    "postGasUsed": 6216850,
+    "postedBlobUtilizationPercent": 76.18998865927419,
+    "sourceCount": 39,
+    "sourceDirections": {
+      "inbound": 39
+    },
+    "usableBytesPerBlob": 126976
+  },
+  "estimatorUsage": {
+    "projectionCounts": {
+      "total": 51,
+      "shaped": 30,
+      "legacy": 21,
+      "withExplicitCleanup": 11,
+      "maximumExplicitCleanupGas": 2860000
+    },
+    "canonicalModeSummary": {
+      "shaped": {
+        "posts": 22,
+        "sources": 556,
+        "maximumSourcesPerSync": 39
+      },
+      "legacy": {
+        "posts": 16,
+        "sources": 314,
+        "maximumSourcesPerSync": 34
+      }
+    },
+    "cutSummary": {
+      "total": 22,
+      "constraints": {
+        "l1_tx_gas_budget": 22
+      },
+      "shaped": 11,
+      "legacy": 11,
+      "withEntryDiscount": 6,
+      "withExplicitCleanup": 8,
+      "maximumLoggedEntryDiscountGas": 4400000,
+      "nonzeroDiscountCutsIncluded": 5
+    },
+    "receiptGasComparison": {
+      "baseline": {
+        "postGas": 202157413,
+        "companionGas": 73700816,
+        "totalGas": 275858229,
+        "postExecutionWei": "202157415543423798",
+        "companionExecutionWei": "174998012523998",
+        "blobWei": "4849664000000000",
+        "totalPaidWei": "207182077555947796"
+      },
+      "candidate": {
+        "postGas": 223094098,
+        "companionGas": 73970304,
+        "totalGas": 297064402,
+        "postExecutionWei": "267712921030361618",
+        "companionExecutionWei": "73970305022456741",
+        "blobWei": "5177343960678400",
+        "totalPaidWei": "346860570013496759"
+      },
+      "delta": {
+        "postGas": 20936685,
+        "companionGas": 269488,
+        "totalGas": 21206173
+      },
+      "percentChange": {
+        "postGas": 10.356624913873429,
+        "companionGas": 0.3656513111062434,
+        "totalGas": 7.687344719377576
+      },
+      "postShareOfGasIncreasePercent": 98.72920021920032
+    },
+    "correctness": {
+      "completeCanonicalAudit": true,
+      "canonicalGaps": [],
+      "uniqueSources": 870,
+      "sourceDispositions": {
+        "Committed": 820,
+        "SourceCompleted": 50
+      },
+      "sourceCompletedScenarios": {
+        "revertCounter": 50
+      },
+      "sourceReceiptStatus": [
+        {
+          "chain": "l1",
+          "disposition": "Committed",
+          "receiptSuccess": true,
+          "count": 470
+        },
+        {
+          "chain": "l2",
+          "disposition": "Committed",
+          "receiptSuccess": true,
+          "count": 350
+        },
+        {
+          "chain": "l1",
+          "disposition": "SourceCompleted",
+          "receiptSuccess": true,
+          "count": 50
+        }
+      ],
+      "finalNonceChecks": {
+        "l1": true,
+        "l2": true
+      },
+      "allFirstTerminalObservationsMatchFinalOwnership": true,
+      "finalQueue": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      },
+      "runtimeUnchanged": true,
+      "protocolUnchanged": true,
+      "priorSafeStatePreserved": true,
+      "forbiddenEventCounts": {
+        "eez.composer.phase2.canonical_mismatch": 0,
+        "eez.composer.phase2.final_receipt_failed": 0,
+        "eez.composer.cc_compose.poison_eviction_completed": 0
+      },
+      "attentionEvents": [
+        {
+          "line": 1010,
+          "timestamp": "2026-09-16T00:02:24.452893Z",
+          "event": "eez.composer.postbatch.preflight_failed",
+          "message": "unsent bundle deferred; due work retained without a user attempt penalty",
+          "error": "target parent or submission window changed before final pricing"
+        }
+      ],
+      "preflightFailures": [
+        {
+          "fields": {
+            "error": "target parent or submission window changed before final pricing",
+            "event_name": "eez.composer.postbatch.preflight_failed",
+            "message": "unsent bundle deferred; due work retained without a user attempt penalty",
+            "rollup_id": 1
+          },
+          "file": "node.log",
+          "line": 1010,
+          "timestamp": "2026-09-16T00:02:24.452893Z"
+        }
+      ],
+      "firstSourceHeldAt": "2026-09-16T00:03:23.636076Z",
+      "protocolSemanticVerification": "not run (--no-verify)",
+      "independentLiveFollower": "not run; separate native cases include follower replay"
+    },
+    "limitations": [
+      "shaped=true means the canonical-parent model was available; it does not establish that any current entry was discounted.",
+      "The entry_discount field is logged only at gas cuts. Missing cut telemetry is unknown, not a zero discount. No per-entry discount-class count is logged, so existing-proxy discount use is not established.",
+      "shaped=false does not identify which prior-queue predicate failed. Its prior_cleanup_gas=0 is the unavailable-model placeholder, not evidence that persistent cleanup was free or absent.",
+      "Nonzero cleanup and discounts are admission reserves, not receipt gas savings. Final execution/refunds and ordering can differ from these reserve values.",
+      "The heterogeneous workload includes new setup transactions and counter, nested, repeated-call, multi-transaction, reentrant and reverting scenarios. Scenario names do not prove a particular classifier failure.",
+      "This single public pair had different chain/fee/inclusion conditions and grouping: higher peak packing but more posts and receipt gas overall. It does not establish an overall efficiency gain or isolate the estimator as the cause of all deltas.",
+      "The public run used --no-verify and no independent live follower. Canonical transaction/layer/ownership checks passed; separate native tests cover follower replay."
+    ]
+  },
+  "runChecks": {
+    "allScenariosSent": true,
+    "allSourcesTerminal": true,
+    "finalNonceChecks": {
+      "l1": {
+        "passed": true,
+        "pinnedBlock": "0x1601cce",
+        "wallets": 770,
+        "transactions": 1910
+      },
+      "l2": {
+        "passed": true,
+        "pinnedBlock": "0x2bed0",
+        "wallets": 770,
+        "transactions": 1810
+      }
+    },
+    "runtimeUnchanged": true,
+    "protocolUnchanged": true,
+    "priorSafeStatePreserved": true,
+    "protocolVerificationStatus": "not run: explicitly disabled with --no-verify",
+    "liveFollower": "not-run"
+  },
+  "finalHealth": {
+    "at": "2026-09-16T00:14:24.005059+00:00",
+    "composerSha256": "c55872ba63d584c4f147b106fd57b4456e872dd74cd9ee01f62bee049473fd56",
+    "settings": {
+      "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
+      "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+      "EEZ_PREPARATION_TIME_MS": "500",
+      "EEZ_PROOF_TIME_MS": "500",
+      "EEZ_SUBMISSION_SLACK_MS": "700",
+      "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+      "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "500000000000"
+    },
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1789517308312,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0x3fc5e9c80bbbc3c983911a046d3182908c2f8468ca0e1b6cbeaa280984f1db0e",
+          "number": 23076045
+        },
+        "observedAtMs": 1789517311758
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x6ee96450128c8374967b1b65992554a3e229aa19b31fe0f9292fea5ed0a8a89e",
+          "number": 23076044
+        },
+        "l2": {
+          "hash": "0xca9070795062b25a64b0d403bc356f1d3431b8638b5527b5352d9c30738f0b4f",
+          "number": 179919
+        }
+      },
+      "unknown": 0
+    },
+    "l1": {
+      "number": "0x1601d0a",
+      "hash": "0x93d49d8c34f9f890ab2f571878e74eed4c9f8d2cb1a77b256eb0d1ddf30a076d",
+      "stateRoot": "0x7522fb5ace6d1913b26185dc97c406a179b9dedb7a5e822374c75e137c0bebf0",
+      "timestamp": "0x6aa9df57",
+      "gasLimit": "0x1036640",
+      "gasUsed": "0x0",
+      "baseFeePerGas": "0x7"
+    },
+    "l2": {
+      "number": "0x2c02e",
+      "hash": "0x7e87ec8b159fd4dedbc2bf94122e8bba5fa0de0e1312c2aad286ecb5c9e503f5",
+      "stateRoot": "0x217b47188688290e22315587d1f16e78af80449b1324fc297879b749a4f5bde4",
+      "timestamp": "0x6aa9df5c",
+      "gasLimit": "0x1c9c380",
+      "gasUsed": "0x0",
+      "baseFeePerGas": "0x7"
+    },
+    "safe": {
+      "number": "0x2bffc",
+      "hash": "0x3d109c5e03e17f0058e3384189ea02faab0ea7b881dc3a706cc5d7e208069d4b",
+      "stateRoot": "0x2080a8bdd8e555ff412beb4e8e8158a2bdf0767cebd41f1f3dde94e07c98a50a",
+      "timestamp": "0x6aa9df2a",
+      "gasLimit": "0x1c9c380",
+      "gasUsed": "0x0",
+      "baseFeePerGas": "0x7"
+    },
+    "beacon": {
+      "is_syncing": false,
+      "is_optimistic": false,
+      "el_offline": false,
+      "head_slot": "24824271",
+      "sync_distance": "1"
+    },
+    "peers": {
+      "connected": "25",
+      "connecting": "0",
+      "disconnected": "4",
+      "disconnecting": "0"
+    },
+    "priorSafeHashAndStatePreserved": true,
+    "manualReadinessPassed": true
+  },
+  "manualReadiness": {
+    "passed": true,
+    "checkCommand": "bash scripts/run-chiado-staged-performance.sh --check",
+    "runCommand": "bash scripts/run-chiado-staged-performance.sh",
+    "afterMeasurementTopupWei": "10000000000000000",
+    "topupHash": "0x10f91379d928ce48294c83d292c1552b1a2e037e05575d092339203a91bcbcea",
+    "topupCanonicalReceiptVerified": true
+  },
+  "limitations": [
+    "This is one sequential public Chiado pair on the same continuing deployment, not a randomized causal benchmark or native Gnosis-profile result.",
+    "The semantic cohort and worker settings match; parallel source order, sender nonces, proxy addresses, accumulated state and batch grouping need not match. Ingress order hashes and scenario counts are retained.",
+    "Setup wall time is separate from held-source latency, but unsettled setup history and shared setup transactions remain in source-post ranges and costs. Initial selection/calibration and observer readiness brackets are retained.",
+    "Receipt gas and charged xDAI are separate measurements. Exact final fee quotes, signed fees and receipts are joined; a changed estimator or blob price is not attributed to this gas-accounting fix.",
+    "Source-bearing cost includes whole posts and every canonical companion; it does not isolate a marginal per-source charge. All-captured cost additionally includes setup/history and any other paid attempts covered by the audit.",
+    "Admission cuts and preparation measurements include retries/rejected candidates and are not unique-source counts. Excluded does not establish a capacity failure. Skipped slots require canonical parent/child timestamp-gap evidence.",
+    "Physical blob count is taken from canonical transactions and receipts. Encoding estimates and active capacity remain null when their matching evidence is ambiguous; no missing cost or capacity is replaced with zero.",
+    "Held-to-safe and held-to-canonical-ownership completion are reported separately. Protocol semantic assertions were disabled with --no-verify; an independent live follower was not run."
+  ],
+  "evidenceSha256": {
+    "source-checks.json": "423989ed981fd93fc351ce1e2370f6b5fef4a123d3c1799ae7af2719d15b9d80",
+    "composer-unit.log": "b79f2ab89a020765b9924e617725f27c59822a0e49932542972bce6b3f2722cb",
+    "composer-clippy.log": "75b2226bd2aa41e17ff776ca298859235e32fd1dcff6f6ec1269f1e956dadb1b",
+    "format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "whitespace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "build/build.json": "6ecb0da1ed1d0cb3b159ce7874bed30168807289140875e220f3a635c6dab348",
+    "build/source-identities.json": "1e5d7ea1b5175f5846c492eb914e6521470189bd95039a511e6d3b5cb66b0ad4",
+    "build/runtime-identities.json": "1c77812bbf1adeac60ae7175ed3d6b7d17fd2b469efb1eec49563990d8bc9434",
+    "native/build.json": "32ce16dbd3b564d795c5572f8dd6f261316548f9053c41ab4d6ca13d27b732c4",
+    "native/harness-identities.json": "d3763db8193a69f08372da789230a1b2a849be8e2e64fdcc018c29f0ac213062",
+    "native/results.json": "61b4afa24616440e4da35772f4f16eb6657295a04ddf06fc863b53ca027ce8ea",
+    "native/forty-source-projections.json": "a09772f784e3cfb024d919beaadb3b722b73dc8af156cc547609014e94665950",
+    "contracts/source-identities.json": "556ad5427e6a43d969d820fe8ba831c0504f98aa3eb8d98973991334965c9afe",
+    "contracts/measurements.json": "d0bc66f22a3eaf3ea3b3704fba6b0f1ffd7bbcc19120f4d4d266ac371d8a9e05",
+    "contracts/rust-review.md": "2301681b632cf233b52ac53ca1c598e25caec2dbd89f488f7d2b8c45fb4fd7de",
+    "contracts/rust-review-identities.json": "c943029779a1a6537ba1124493713dfd73751850550c39c01764d16ebbca2d7e",
+    "contracts/final-cancun.json": "bd684483f2c63b50fb713f5c141bfeaf6f72c7e630a693fe25116ed5eb88b1d2",
+    "contracts/final-prague.json": "d1ebb51bec013e3f09f8affc83a65b2953ff3bc7ace96e56711c7aa4065b46d9",
+    "contracts/final-osaka.json": "4ac90687b3c5edaf1738612ce78aef470cc8f6ea88a9f110f4e6e34232d893f0",
+    "deployment.json": "ad18a781d9dc96db732bcd7d1aeb8971a32ccf9ba85b957f54838c850961b0fe",
+    "deployment-health.json": "ae12eff3f3e6f5bc18fcf42fbbc9fb923f5c431d4ce872105a2af08b250cafe0",
+    "persist-candidate.json": "eed1b75b2a42871de9daff88de78c79256da6e2cf5ecd3284e92a737a338a226",
+    "candidate/execution.json": "28c473b2d323d55521cbb22c452da80ee4632cf28930700d094d5f45a0e80f83",
+    "candidate/canonical-audit.json": "1ba750a16ae996020c24d8b9dec76ea9f2c827a0335112978529fff3a2e1a934",
+    "candidate/canonical-evidence.json": "e591e73834663a56f4126b405f60e998a3775df77f4c3d1aeb1e8fa2c8b8105c",
+    "comparison.json": "b3eefa281e7b96b37ca18effc160fedba5f74ea6a69cad7958259f15aec60ce1",
+    "comparison-checks.json": "b30650161775410f1373c755df355d057599026b06af9f0c6fa074bded7c7eb2",
+    "estimator-usage.json": "f8eedb12f854247f22e7f4086f994b326d65a3ead793b0b5140e72024c583486",
+    "final-health.json": "4d9297c0ef842576730d0aaac86fff1b90baef0369f15f4c5b1eced81c7a1237",
+    "manual-readiness.log": "760df0011b5033715293adcf89bad0214065cc2f7c07e18aab84c6859c36ef4f",
+    "manual-readiness-funding.json": "21d284e82afbe0ff71a7654f954a99c10dedb5e41e690c8f46287b691ee8a264",
+    "estimator-usage.md": "ea359e1df82852e85a7505868017579aa70bdfeb3a8f7b176d864f1cca0b23ec"
+  }
+}

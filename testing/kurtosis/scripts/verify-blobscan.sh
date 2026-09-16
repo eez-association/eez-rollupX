@@ -132,11 +132,14 @@ for ((batch_position = 0; batch_position < batch_count; batch_position++)); do
                 exit 1
             }
 
-        indexed_blob="$(curl -fsS "$BLOBSCAN_API/blobs/$versioned_hash/data" | jq -er '.')"
+        indexed_blob_file="$temp_dir/indexed-blob-$batch_position-$blob_position.json"
+        curl -fsS "$BLOBSCAN_API/blobs/$versioned_hash/data" -o "$indexed_blob_file"
+        indexed_blob="$(jq -er '.' "$indexed_blob_file")"
         beacon_blob="$(
-            jq -er --arg blob "${indexed_blob,,}" \
+            # A full hex-encoded blob exceeds Linux's per-argument limit.
+            jq -er --slurpfile indexed "$indexed_blob_file" \
                 '.data[] | (if type == "object" then .blob else . end) |
-                 select(ascii_downcase == $blob)' \
+                 select(ascii_downcase == ($indexed[0] | ascii_downcase))' \
                 "$sidecars_file" | head -n 1
         )"
         [[ -n "$beacon_blob" ]] || {

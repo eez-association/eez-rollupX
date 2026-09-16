@@ -31,6 +31,13 @@ done
 : "${L2_DATA_DIR:?set L2_DATA_DIR in .env.chiado}"
 : "${LIGHTHOUSE_DATA:?set LIGHTHOUSE_DATA in .env.chiado}"
 
+# Custom network configs must use the filename consumed by Lighthouse v8.
+# A missing optional seed file otherwise starts a node with empty discovery.
+[[ -s "$CHIADO_CONFIG_DIR/bootstrap_nodes.yaml" ]] || {
+    echo "✗ $CHIADO_CONFIG_DIR/bootstrap_nodes.yaml missing or empty — provide Chiado discovery ENRs (see configs/chiado)" >&2
+    exit 1
+}
+
 # Native blob DA is consensus-critical and mandatory.
 : "${EEZ_L1_BUILDER_RPC_URL:?set the Chiado eth_sendBundle endpoint}"
 : "${EEZ_L1_BEACON_URL:?set EEZ_L1_BEACON_URL for blob derivation}"

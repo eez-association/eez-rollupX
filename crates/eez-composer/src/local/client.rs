@@ -26,6 +26,14 @@ use eez_protocol::{
 use super::provider::{ChainProvider, HeaderReader};
 use super::session::LocalExecutionSession;
 
+/// Composition simulation bypasses proxy consumption on the source chain.
+/// Its gas is a planning estimate; final ordered L1 execution remains required.
+#[derive(Debug)]
+pub(crate) struct SourceSimulation {
+    pub success: bool,
+    pub gas_used: u64,
+}
+
 /// Discriminates how this client operates within the composition.
 ///
 /// Both variants carry the contract holding this chain's
@@ -98,6 +106,7 @@ impl LocalChainClient {
             provider: state_provider,
             headers,
             evm_config,
+            gnosis_evm_config: None,
         }
     }
 
@@ -119,6 +128,37 @@ impl LocalChainClient {
             + 'static,
     {
         let cp = Self::build_chain_provider(&provider, evm_config);
+        Arc::new(Self {
+            provider: cp,
+            rollup_id,
+            role: Role::Entry { dispatch_address },
+            dialect,
+            overlay_channel: new_overlay_channel(),
+        })
+    }
+
+    /// Retain the node's actual Gnosis executor alongside the header adapter.
+    /// Strict posting simulation must include its fee collector and fork
+    /// transitions, which an Ethereum executor over Gnosis timestamps omits.
+    pub fn new_gnosis_entry<P>(
+        provider: P,
+        config: reth_gnosis::evm_config::GnosisEvmConfig,
+        rollup_id: RollupId,
+        dispatch_address: Address,
+        dialect: eez_protocol::ChainDialect,
+    ) -> Arc<Self>
+    where
+        P: StateProviderFactory
+            + HeaderProvider<Header = alloy_consensus::Header>
+            + BlockNumReader
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
+        let evm_config = EthEvmConfig::new(Arc::new(config.chain_spec().inner.clone()));
+        let mut cp = Self::build_chain_provider(&provider, evm_config);
+        cp.gnosis_evm_config = Some(config);
         Arc::new(Self {
             provider: cp,
             rollup_id,
@@ -251,18 +291,20 @@ impl LocalChainClient {
         state: &mut State<StateProviderDatabase<StateProviderBox>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     ) -> ExecutorResult<bool> {
-        self.source_sim(raw_tx, dispatcher, state, evm_env)
+        self.simulate_source_tx_on_with_retries(raw_tx, dispatcher, state, evm_env, false)
+            .map(|result| result.success)
     }
 
     /// Shared source-simulation body: decode, build the tx env, run under the
     /// session inspector, commit.
-    fn source_sim(
+    pub(crate) fn simulate_source_tx_on_with_retries(
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
         state: &mut State<StateProviderDatabase<StateProviderBox>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
-    ) -> ExecutorResult<bool> {
+        retry_unavailable_conditions: bool,
+    ) -> ExecutorResult<SourceSimulation> {
         use alloy_eips::eip2718::Decodable2718;
 
         // Only entry-role clients are authorized to simulate source
@@ -304,7 +346,37 @@ impl LocalChainClient {
             // the tx's, so it must not degrade into an empty composition (which
             // the drain reads as poison and evicts on).
             Err(EVMError::Database(e)) => return Err(ExecutorError::provider(e)),
-            // Rejected before execution (nonce, balance, fee). Same outcome as a
+            Err(EVMError::Transaction(e))
+                if retry_unavailable_conditions
+                    && matches!(
+                        e,
+                        revm::context::result::InvalidTransaction::GasPriceLessThanBasefee
+                            | revm::context::result::InvalidTransaction::LackOfFundForMaxFee { .. }
+                            | revm::context::result::InvalidTransaction::NonceTooHigh { .. }
+                    ) =>
+            {
+                // Fees, funding, or an unexecuted/orphaned predecessor can
+                // repair this exact signed source. Keep ownership and nonce
+                // ordering until the source becomes executable in this slot.
+                use eez_protocol::SourceCondition;
+                use revm::context::result::InvalidTransaction;
+                let condition = match e {
+                    InvalidTransaction::NonceTooHigh { tx, state } => SourceCondition::Nonce {
+                        transaction_nonce: tx,
+                        required_nonce: state,
+                    },
+                    InvalidTransaction::LackOfFundForMaxFee { fee, balance } => {
+                        SourceCondition::Balance {
+                            required: *fee,
+                            available: *balance,
+                        }
+                    }
+                    InvalidTransaction::GasPriceLessThanBasefee => SourceCondition::Fee,
+                    _ => unreachable!("matched source condition"),
+                };
+                return Err(ExecutorErrorKind::SourceBlocked(condition).into());
+            }
+            // Rejected before execution. Same outcome as a
             // revert — no calls, so the drain evicts — but named for what it is.
             Err(EVMError::Transaction(e)) => {
                 tracing::warn!(%e, "source tx rejected at validation; it records no cross-chain call");
@@ -328,7 +400,7 @@ impl LocalChainClient {
         }
 
         tracing::info!(gas_used, success, "source simulation complete");
-        Ok(success)
+        Ok(SourceSimulation { success, gas_used })
     }
 }
 
@@ -383,9 +455,13 @@ mod tests {
     }
 
     fn signed_tx(to: Address) -> Vec<u8> {
+        signed_tx_with_nonce(to, 0)
+    }
+
+    fn signed_tx_with_nonce(to: Address, nonce: u64) -> Vec<u8> {
         let mut tx = TxLegacy {
             chain_id: Some(1),
-            nonce: 0,
+            nonce,
             gas_price: 1,
             gas_limit: 100_000,
             to: TxKind::Call(to),
@@ -405,6 +481,10 @@ mod tests {
     }
 
     fn fixture() -> Arc<LocalChainClient> {
+        fixture_with_balance(U256::from(1_000_000_000_000_000_000_u128))
+    }
+
+    fn fixture_with_balance(balance: U256) -> Arc<LocalChainClient> {
         let provider: MockEthProvider = MockEthProvider::new().with_genesis_block();
         let header = Header {
             number: 1,
@@ -412,10 +492,7 @@ mod tests {
             ..Default::default()
         };
         provider.add_header(header.hash_slow(), header);
-        provider.add_account(
-            signer().address(),
-            ExtendedAccount::new(0, U256::from(1_000_000_000_000_000_000_u128)),
-        );
+        provider.add_account(signer().address(), ExtendedAccount::new(0, balance));
         provider.add_account(
             REVERTER,
             ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("63deadbeef6000526004601cfd")),
@@ -444,5 +521,126 @@ mod tests {
         let client = fixture();
         assert!(source_status(&client, signed_tx(RECIPIENT)));
         assert!(!source_status(&client, signed_tx(REVERTER)));
+    }
+
+    #[test]
+    fn source_planning_gas_reports_execution_instead_of_the_signed_limit() {
+        let client = fixture();
+        let slot = L1SlotState::open(&client).unwrap();
+        let (mut state, env) = slot.fork_state(&client).unwrap();
+        let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+        let result = client
+            .simulate_source_tx_on_with_retries(
+                signed_tx(RECIPIENT),
+                &mut dispatcher,
+                &mut state,
+                env,
+                true,
+            )
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.gas_used, 21_000);
+    }
+
+    #[test]
+    fn enabled_future_nonce_waits_for_its_predecessor_without_changing_legacy() {
+        let client = fixture();
+        let slot = L1SlotState::open(&client).unwrap();
+        let (mut state, env) = slot.fork_state(&client).unwrap();
+        let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+        let future = signed_tx_with_nonce(RECIPIENT, 1);
+        assert!(
+            !client
+                .simulate_source_tx_on_with_retries(
+                    future.clone(),
+                    &mut dispatcher,
+                    &mut state,
+                    env.clone(),
+                    false,
+                )
+                .unwrap()
+                .success
+        );
+        let error = client
+            .simulate_source_tx_on_with_retries(
+                future.clone(),
+                &mut dispatcher,
+                &mut state,
+                env.clone(),
+                true,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            ExecutorErrorKind::SourceBlocked(eez_protocol::SourceCondition::Nonce {
+                transaction_nonce: 1,
+                required_nonce: 0
+            })
+        ));
+        assert!(
+            client
+                .simulate_source_tx_on_with_retries(
+                    signed_tx(RECIPIENT),
+                    &mut dispatcher,
+                    &mut state,
+                    env.clone(),
+                    true,
+                )
+                .unwrap()
+                .success
+        );
+        assert!(
+            client
+                .simulate_source_tx_on_with_retries(
+                    future,
+                    &mut dispatcher,
+                    &mut state,
+                    env.clone(),
+                    true,
+                )
+                .unwrap()
+                .success
+        );
+        // A spent nonce cannot be repaired by waiting for a predecessor.
+        assert!(
+            !client
+                .simulate_source_tx_on_with_retries(
+                    signed_tx(RECIPIENT),
+                    &mut dispatcher,
+                    &mut state,
+                    env,
+                    true,
+                )
+                .unwrap()
+                .success
+        );
+    }
+
+    #[test]
+    fn enabled_funding_and_fee_failures_are_retryable_without_changing_legacy_or_reverts() {
+        let simulate = |balance, basefee, retry, to| {
+            let client = fixture_with_balance(balance);
+            let slot = L1SlotState::open(&client).unwrap();
+            let (mut state, mut env) = slot.fork_state(&client).unwrap();
+            env.cfg_env = revm::context::CfgEnv::new()
+                .with_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::LONDON);
+            env.block_env.basefee = basefee;
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            client.simulate_source_tx_on_with_retries(
+                signed_tx(to),
+                &mut dispatcher,
+                &mut state,
+                env,
+                retry,
+            )
+        };
+        let funded = U256::from(1_000_000_000u64);
+        for (balance, fee) in [(funded, 2), (U256::ZERO, 1)] {
+            assert!(!simulate(balance, fee, false, RECIPIENT).unwrap().success);
+            let error = simulate(balance, fee, true, RECIPIENT).unwrap_err();
+            assert!(matches!(error.kind(), ExecutorErrorKind::SourceBlocked(_)));
+        }
+        assert!(simulate(funded, 1, true, RECIPIENT).unwrap().success);
+        assert!(!simulate(funded, 1, true, REVERTER).unwrap().success);
     }
 }

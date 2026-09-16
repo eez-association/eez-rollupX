@@ -1,0 +1,71 @@
+{
+  "baseline": {
+    "idle": {
+      "batch_hashes": [
+        "0xba3dfd4fa457447851aff59ff064e5a375e160af4bbe3ece6afea0b055be66c3",
+        "0xa418cf3537c5703e56a57fafa860b411e1203b31cd1291c40da86c5358c61114",
+        "0x32f5f10b33bc39f4c1313ee33858559c578104fff20135a27b3bfac06bf2448a",
+        "0x167608ea8b7d3c7522e8a9d8597302baafedd32750eb9062d9cdbbc660630f18",
+        "0x109a37725dc22bde5459fbddc81162ac3de56f67c2ee77da677f5a395c3bfceb",
+        "0xb7d26b38f95ed174c81f02f0cc7f09654f68f5760f419d7bcd711e374c2228de",
+        "0xac3cca4a23db534bc06bc546055535b90f365a8f1708fea1b27f7f42281d11da",
+        "0x3d733630964315d0115c770f96196d68e1def0f395a9235a345ae41b19a48345"
+      ],
+      "bundle_cost": "0x1ffa5c9faf9000",
+      "execution_gas": 900100,
+      "from": 76,
+      "included_l2_transactions": 0,
+      "physical_blob_gas": 1048576,
+      "poster_cost": "0x1ffa5c9faf9000",
+      "through": 115
+    },
+    "transactions": {
+      "batch_hashes": [
+        "0xae88189596808b58fc4b555c7541401eec544cce518e5def118337d6423c918c",
+        "0x32b0d8b1913b613e6e4e0cd744907fd0e07ccb0e32b6441e4d9f108b40d96ee2",
+        "0x9e3d5b7f3cb6c61a0adf10161a89c7c99fb81dcbb12d5a97d9bcb3401a919750",
+        "0xd57f3a54491424ed92b151845eb02d870079d04a6a4ff94d5a25898eaa7e9d31",
+        "0xabd6f06be0930152fdea470217826943b9ab24fbbdbbc06e2ce09ee2ac259891",
+        "0x162316344eb2838fda65c2886a021192bb341089830c205e16e1d4befda46bab",
+        "0x940c8006aabaf4db8af9f38a3b833a9412fdc5524d34cbbecc7c19f5282ad222",
+        "0x65b4e59c7442196bcb3d8a33a24386223c6c4b1216ebeb757b77329ee6479f8a"
+      ],
+      "bundle_cost": "0x1ffa24be923000",
+      "execution_gas": 900076,
+      "from": 116,
+      "included_l2_transactions": 2,
+      "physical_blob_gas": 1048576,
+      "poster_cost": "0x1ffa24be923000",
+      "through": 155
+    }
+  },
+  "execution_base_fee": 0,
+  "policy": {
+    "idle": {
+      "batch_hashes": [
+        "0xc47d9903e910a40a6f160b07052dc0bf31f1947aa7c5f9fbb074bbf4d38c5709"
+      ],
+      "bundle_cost": "0x6654b5029400",
+      "execution_gas": 112514,
+      "from": 86,
+      "included_l2_transactions": 0,
+      "physical_blob_gas": 131072,
+      "poster_cost": "0x6654b5029400",
+      "through": 125
+    },
+    "transactions": {
+      "batch_hashes": [
+        "0x33b711133e49078461af1fe13b7b2ba86690193acc2015e8ca7c666021438c89"
+      ],
+      "bundle_cost": "0x6651e9c11c00",
+      "execution_gas": 112502,
+      "from": 126,
+      "included_l2_transactions": 2,
+      "physical_blob_gas": 131072,
+      "poster_cost": "0x6651e9c11c00",
+      "through": 165
+    }
+  },
+  "profile": "EthereumOsaka",
+  "range_blocks": 40
+}

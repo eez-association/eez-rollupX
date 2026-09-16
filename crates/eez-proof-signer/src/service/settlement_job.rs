@@ -92,6 +92,7 @@ pub(super) fn validate_and_settle(
     blocks: window::AdmittedBlocks,
     submitted_post_batch_calldata: Vec<u8>,
     submitted_blobs: Vec<Vec<u8>>,
+    maximum_blobs: usize,
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<AttestationMaterial, PipelineError> {
@@ -99,8 +100,8 @@ pub(super) fn validate_and_settle(
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
     }
-    let (attestable_public_inputs_hash, observation_claims) =
-        run_settlement_with_observations(SettlementInput {
+    let (attestable_public_inputs_hash, observation_claims) = run_settlement_with_observations(
+        SettlementInput {
             submitted_post_batch_calldata,
             submitted_blobs: &submitted_blobs,
             validated_window: &validated_window,
@@ -110,7 +111,9 @@ pub(super) fn validate_and_settle(
             expected_proof_system: state.attester.expected_proof_system(),
             system_transaction_reconstructor: &state.system_transaction_reconstructor,
             cancellation,
-        })?;
+        },
+        maximum_blobs,
+    )?;
     ensure_settlement_active(cancellation)?;
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
@@ -317,6 +320,7 @@ impl SettlementPipelineError {
 /// each settlement gate is synchronous and non-interruptible.
 fn run_settlement_with_observations(
     input: SettlementInput<'_>,
+    maximum_blobs: usize,
 ) -> Result<
     (
         AttestablePublicInputsHash,
@@ -394,8 +398,12 @@ fn run_settlement_with_observations(
 
     ensure_settlement_active(cancellation)?;
 
-    let verified_da =
-        settlement::verify_da_carrier(&canonical_batch, submitted_blobs, expected_rollup_id.get())?;
+    let verified_da = settlement::verify_da_carrier_with_limit(
+        &canonical_batch,
+        submitted_blobs,
+        expected_rollup_id.get(),
+        maximum_blobs,
+    )?;
 
     // Bind posted transactions and effect sidecars to the validated block bytes,
     // including the reconstructed Sync-block transaction sequence.
@@ -430,7 +438,8 @@ fn run_settlement_with_observations(
 pub(super) fn run_settlement(
     input: SettlementInput<'_>,
 ) -> Result<AttestablePublicInputsHash, SettlementPipelineError> {
-    let (hash, observations) = run_settlement_with_observations(input)?;
+    let (hash, observations) =
+        run_settlement_with_observations(input, eez_blob_codec::MAX_BLOBS_PER_TRANSACTION)?;
     assert!(
         observations.is_empty(),
         "pipeline fixture with observations must exercise validate_and_settle"

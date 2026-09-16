@@ -333,7 +333,6 @@ impl CompositionBuilder {
         name = "dispatch_call",
         skip_all,
         fields(target = %target_rollup_id, source = %req.source_rollup_id),
-        err,
     )]
     pub fn dispatch_call(
         &mut self,

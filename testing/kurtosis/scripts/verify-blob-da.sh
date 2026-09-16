@@ -7,10 +7,16 @@ set -euo pipefail
 KURTOSIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$KURTOSIS_DIR/../.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:-eez-blob}"
+source "$KURTOSIS_DIR/scripts/lib.sh"
 ROLLUP_ID="${EEZ_ROLLUP_ID:-1}"
 TIMEOUT="${EEZ_BLOB_SMOKE_TIMEOUT:-600}"
 RESULT_ROOT="${EEZ_BLOB_RESULT_DIR:-$REPO/artifacts/kurtosis-blob}"
 PK="${PK:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}"
+VERIFY_BLOBSCAN="${EEZ_VERIFY_BLOBSCAN-true}"
+case "$VERIFY_BLOBSCAN" in
+    true|false) ;;
+    *) echo "EEZ_VERIFY_BLOBSCAN must be true or false" >&2; exit 1 ;;
+esac
 
 for tool in cast curl forge jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
@@ -31,7 +37,11 @@ http_url() {
 }
 
 BEACON_URL="${EEZ_L1_BEACON_URL:-$(http_url "$(kurtosis port print "$ENCLAVE" cl-1-lighthouse-reth http)")}"
-RELAY_URL="${EEZ_MEV_RELAY_URL:-$(http_url "$(kurtosis port print "$ENCLAVE" mev-relay-api http)")}"
+if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+    RELAY_URL="${EEZ_L1_BUILDER_RPC_URL:?set the public-network bundle relay}"
+else
+    RELAY_URL="${EEZ_MEV_RELAY_URL:-$(http_url "$(kurtosis port print "$ENCLAVE" mev-relay-api http)")}"
+fi
 
 run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="$RESULT_ROOT/$run_stamp"
@@ -39,7 +49,8 @@ mkdir -p "$RUN_DIR/batches"
 temp_dir="$(mktemp -d /tmp/eez-blob-smoke.XXXXXX)"
 trap 'rm -rf "$temp_dir"' EXIT
 
-kurtosis files download "$ENCLAVE" eez-deployments "$temp_dir/deployments" >/dev/null
+mkdir -p "$temp_dir/deployments"
+load_deployment_artifact "$temp_dir/deployments"
 set -a
 source "$temp_dir/deployments/deployments.env"
 set +a
@@ -52,6 +63,16 @@ VERIFIER="$(resolve_runtime_tool eez-l1 verify_blob_evidence "${EEZ_BLOB_VERIFIE
 # move the test transactions across more composer windows than necessary.
 forge build --root "$REPO/contracts" >/dev/null
 
+if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+    # A public bundle builder need not expose the local PBS fixture's
+    # validator-registration API. Check its real submission method instead;
+    # successful inclusion and full blob retrieval are still required below.
+    curl --fail --silent --show-error --max-time 15 \
+        -H 'content-type: application/json' \
+        --data '{"jsonrpc":"2.0","method":"eth_sendBundle","params":[{"txs":[],"blockNumber":"0x0"}],"id":1}' \
+        "$RELAY_URL" | jq -e 'has("result") or (has("error") and .error.code != -32601)' >/dev/null
+    echo "==> public bundle submission endpoint available"
+else
 echo "==> waiting for MEV relay validator registrations"
 deadline=$((SECONDS + TIMEOUT))
 registrations=0
@@ -67,6 +88,7 @@ if ! [[ "$registrations" =~ ^[0-9]+$ ]] || (( registrations == 0 )); then
     exit 1
 fi
 echo "    relay ready with $registrations registrations"
+fi
 
 start_l1_block="$(cast block-number --rpc-url "$L1_RPC")"
 sender="$(cast wallet address --private-key "$PK")"
@@ -351,6 +373,10 @@ echo "    safe L2 block:  $safe_number"
 echo "    settled hash:   $safe_block_hash"
 echo "    evidence:       $summary_file"
 
-"$KURTOSIS_DIR/scripts/verify-blobscan.sh" \
-    "$summary_file" \
-    "$RUN_DIR/blobscan.json"
+if [[ "$VERIFY_BLOBSCAN" == true ]]; then
+    "$KURTOSIS_DIR/scripts/verify-blobscan.sh" \
+        "$summary_file" \
+        "$RUN_DIR/blobscan.json"
+else
+    echo "==> Blobscan verification explicitly disabled (native blob DA checks passed)"
+fi

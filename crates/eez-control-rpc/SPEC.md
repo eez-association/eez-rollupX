@@ -120,8 +120,16 @@ root-dependent rolling hashes only after commitment assignment. The exact entry
 shapes and effect binding are defined in
 [signer section 8](../eez-proof-signer/SPEC.md#8-block-hash-commitment-chain-and-effect-binding).
 
-`post_batch.blobs` MUST contain one to six complete 131,072-byte EIP-4844 blobs in
-transaction order. Their version-`00` EEZ message stream contains exactly one
+`post_batch.posting_context` MUST contain the L1 chain ID and the exact intended
+L1 target timestamp. The signer requires an operator-configured L1 profile,
+rejects chain mismatches and targets before blob activation, and derives blob
+limits from that profile at the requested timestamp. There is no omitted-context
+fallback. The composer MUST use the same target for proving and submission;
+a new target requires a fresh request. The context selects limits; it does not
+assert canonical ancestry or alter the batch's timeless public-input hash.
+
+`post_batch.blobs` MUST contain complete 131,072-byte EIP-4844 blobs in transaction
+order, from one up to that target's per-transaction and per-block allowance. Their version-`00` EEZ message stream contains exactly one
 leading `ChainOperation(rollup_id, payload)`, complete native semantic transaction
 brackets, and a final `CloseBlobStream`, with canonical field-element packing
 and zero padding. New chain-operation payloads are:
@@ -164,7 +172,7 @@ The first streamed chunk MUST contain exactly one `ProveHeader`:
   the terminal Sync block MUST contain zero transactions; protocol-level
   system writes can still change its state root.
 - `post_batch` MUST be present and contain the calldata constructed in section
-  3.1.
+  3.1, including the required `posting_context`.
 - `post_batch.public_inputs_hash` is non-authoritative. The Composer SHOULD
   send it empty; the prover response supplies the recomputed hash.
 - The current timeless profile requires `post_batch.l1_block_hash` to be empty.

@@ -29,23 +29,14 @@ SIGNER_LOG="${EEZ_PROOF_SIGNER_LOG:-$LOG_DIR/state-chaining-proof-signer.log}"
 DEPLOY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/eez-deployments-$ENCLAVE-state-chaining.XXXXXX")
 trap 'rm -rf "$DEPLOY_DIR"' EXIT
 
-if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" && -f "$REPO/deployments.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$REPO/deployments.env"
-    set +a
-else
-    kurtosis files download "$ENCLAVE" eez-deployments "$DEPLOY_DIR" >/dev/null 2>&1 \
-        || { echo "could not download the eez-deployments artifact"; exit 1; }
-    set -a
-    # shellcheck disable=SC1091
-    source "$DEPLOY_DIR/deployments.env"
-    set +a
-fi
+load_deployment_artifact "$DEPLOY_DIR"
+set -a
+source "$DEPLOY_DIR/deployments.env"
+set +a
 [[ -n "${EEZ_REGISTRY_ADDRESS:-}" && -n "${EEZ_ROLLUP_ID:-}" ]] \
     || { echo "deployments.env is missing the registry address or rollup id"; exit 1; }
 
-L2_DEPLOY_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
+L2_DEPLOY_KEY="${EEZ_L2_SETUP_KEY:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}"
 INBOUND_KEY="${EEZ_STATE_CHAINING_IN_KEY:-0x$(openssl rand -hex 32)}"
 INBOUND_SENDER=$(cast wallet address --private-key "$INBOUND_KEY")
 OUTBOUND_KEY="${EEZ_STATE_CHAINING_OUT_KEY:-0x$(openssl rand -hex 32)}"
@@ -60,21 +51,25 @@ WRAPPED_TOPIC=$(cast keccak 'Wrapped(uint256,bool,bool,uint256)')
 FUNDING_KEY="${EEZ_FUND_FROM_KEY:-$L2_DEPLOY_KEY}"
 L1_DEPLOY_KEY="${EEZ_L1_SETUP_KEY:-$FUNDING_KEY}"
 
-refresh_node_log() { timeout 30s kurtosis service logs -a "$ENCLAVE" eez-node >"$NODE_LOG" 2>&1 || true; }
-refresh_signer_log() { timeout 30s kurtosis service logs -a "$ENCLAVE" eez-proof-signer >"$SIGNER_LOG" 2>&1 || true; }
+refresh_node_log() { capture_runtime_log eez-node "$NODE_LOG" || true; }
+refresh_signer_log() { capture_runtime_log eez-proof-signer "$SIGNER_LOG" || true; }
 
 wait_for_sync_boundary() {
     # These scenarios assert that all prepared calls share one composed Sync
-    # slot, so submit them immediately after the previous pool snapshot.
+    # slot. Wait for the previous committed Sync block before submitting them.
+    # Empty Sync blocks still advance under the settlement policy, even when
+    # the composer skips the held-pool drain and does not post a batch.
     local baseline count=0 deadline
     refresh_node_log
     baseline=$(strip_ansi <"$NODE_LOG" \
-        | grep -Fc '"event_name":"eez.composer.sync_slot.drain"' || true)
+        | grep -F '"slot.kind":"sync"' \
+        | grep -Fc '"message":"produced block ' || true)
     deadline=$((SECONDS + ${EEZ_SYNC_BOUNDARY_WAIT_SECS:-60}))
     while (( SECONDS < deadline )); do
         refresh_node_log
         count=$(strip_ansi <"$NODE_LOG" \
-            | grep -Fc '"event_name":"eez.composer.sync_slot.drain"' || true)
+            | grep -F '"slot.kind":"sync"' \
+            | grep -Fc '"message":"produced block ' || true)
         (( count > baseline )) && return 0
         sleep 1
     done
@@ -85,14 +80,26 @@ wait_for_sync_boundary() {
 wait_for_receipts() {
     local rpc="$1"
     shift
-    local hashes=("$@") deadline hash status confirmed
+    local hashes=("$@") deadline hash status confirmed receipt height safe_height canonical_hash
     deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     while (( SECONDS < deadline )); do
         confirmed=0
         for hash in "${hashes[@]}"; do
             status=$(receipt_status "$hash" "$rpc")
-            [[ "$status" == "1" ]] && confirmed=$((confirmed + 1))
             [[ "$status" != "0x0" ]] || { echo "transaction $hash reverted" >&2; return 1; }
+            [[ "$status" == "1" ]] || continue
+            if [[ "$rpc" == "$L2" ]]; then
+                # A dropped L1 bundle can recompose the same signed L2 source
+                # transactions into a later Sync block. Do not pin their
+                # tentative receipt locations before canonical settlement.
+                receipt=$(receipt_json "$hash" "$rpc")
+                height=$(jq -er '.result.blockNumber' <<<"$receipt") || continue
+                safe_height=$(cast block safe --field number --rpc-url "$rpc") || continue
+                (( safe_height >= height )) || continue
+                canonical_hash=$(cast block "$height" --field hash --rpc-url "$rpc") || continue
+                [[ "${canonical_hash,,}" == "$(jq -r '.result.blockHash | ascii_downcase' <<<"$receipt")" ]] || continue
+            fi
+            confirmed=$((confirmed + 1))
         done
         (( confirmed == ${#hashes[@]} )) && return 0
         sleep 5
@@ -205,7 +212,15 @@ run_scenario() {
     gas_price=$(gas_price_for "$source_rpc")
     completed_before=$(retry cast call "$wrapper" 'completedProxyCalls()(uint256)' --rpc-url "$source_rpc")
     target_before=$(retry cast call "$target" 'value()(uint256)' --rpc-url "$target_rpc")
-    all_target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block latest \
+    local target_from_block=0
+    local target_to_block=safe
+    # These targets are deployed by this fixture after the registry. A public
+    # L1 snapshot need not retain logs predating this deployment.
+    if [[ "$target_rpc" == "$L1" ]]; then
+        target_from_block="${EEZ_REGISTRY_DEPLOY_BLOCK:-0}"
+        target_to_block=latest
+    fi
+    all_target_logs=$(retry cast logs --address "$target" --from-block "$target_from_block" --to-block "$target_to_block" \
         'ValueSet(address,uint256)' --rpc-url "$target_rpc" --json)
     target_event_count_before=$(jq -r 'length' <<<"$all_target_logs")
     target_event_count="$target_event_count_before"
@@ -264,7 +279,7 @@ run_scenario() {
         nonce=$((nonce + 1))
     done
 
-    echo "==> $direction $scenario-state chaining: waiting for a fresh drain window"
+    echo "==> $direction $scenario-state chaining: waiting for a fresh Sync-slot boundary"
     wait_for_sync_boundary
     refresh_signer_log
     node_baseline=$(wc -l <"$NODE_LOG")
@@ -294,7 +309,7 @@ run_scenario() {
 
     target_event_deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     while (( SECONDS < target_event_deadline )); do
-        all_target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block latest \
+        all_target_logs=$(retry cast logs --address "$target" --from-block "$target_from_block" --to-block "$target_to_block" \
             'ValueSet(address,uint256)' --rpc-url "$target_rpc" --json)
         target_event_count=$(jq -r 'length' <<<"$all_target_logs")
         (( target_event_count >= target_event_count_before + 3 )) && break
@@ -338,7 +353,7 @@ run_mixed_direction_scenario() {
     outbound_nonce=$(retry cast nonce "$OUTBOUND_SENDER" --rpc-url "$L2")
     l1_gas_price=$(gas_price_for "$L1")
     l2_gas_price=$(gas_price_for "$L2")
-    l2_events=$(retry cast logs --address "$L2_VALUE" --from-block 0 --to-block latest \
+    l2_events=$(retry cast logs --address "$L2_VALUE" --from-block 0 --to-block safe \
         'ValueSet(address,uint256)' --rpc-url "$L2" --json)
     l2_events_before=$(jq -r 'length' <<<"$l2_events")
 
@@ -355,7 +370,7 @@ run_mixed_direction_scenario() {
     inbound_hash=$(cast keccak "$inbound_raw")
     outbound_hash=$(cast keccak "$outbound_raw")
 
-    echo "==> mixed-direction state chaining: waiting for a fresh drain window"
+    echo "==> mixed-direction state chaining: waiting for a fresh Sync-slot boundary"
     wait_for_sync_boundary
     refresh_signer_log
     node_baseline=$(wc -l <"$NODE_LOG")
@@ -376,7 +391,7 @@ run_mixed_direction_scenario() {
 
     event_deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     while (( SECONDS < event_deadline )); do
-        l2_events=$(retry cast logs --address "$L2_VALUE" --from-block 0 --to-block latest \
+        l2_events=$(retry cast logs --address "$L2_VALUE" --from-block 0 --to-block safe \
             'ValueSet(address,uint256)' --rpc-url "$L2" --json)
         (( $(jq -r 'length' <<<"$l2_events") >= l2_events_before + 1 )) && break
         sleep 3
@@ -478,7 +493,7 @@ run_poison_mid_bundle_scenario() {
     deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     target_logs='[]'
     while (( SECONDS < deadline )); do
-        target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block latest \
+        target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block safe \
             'ValueSet(address,uint256)' --rpc-url "$L2" --json)
         (( $(jq -r 'length' <<<"$target_logs") >= 2 )) && break
         sleep 3
@@ -545,7 +560,7 @@ run_repeated_inbound_source_transaction_scenario() {
     deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     target_logs='[]'
     while (( SECONDS < deadline )); do
-        target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block latest \
+        target_logs=$(retry cast logs --address "$target" --from-block 0 --to-block safe \
             'ValueSet(address,uint256)' --rpc-url "$L2" --json)
         (( $(jq -r 'length' <<<"$target_logs") >= 2 )) && break
         sleep 3

@@ -28,6 +28,9 @@ use tracing::{Level, event};
 use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
+mod status;
+pub use status::SourceState;
+
 /// A cross-chain transaction held between submission and Sync-slot
 /// composition.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +76,9 @@ pub const REPLACEMENT_TX_COST_PERCENT: u128 = 10;
 /// A pool admission failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionError {
+    /// A canonical or unresolved owner conflicts with the ingress nonce view.
+    /// The caller can retry after canonical reconciliation; nothing was held.
+    ReconciliationPending,
     /// Nonce is burned, reserved in-flight, or not the next unreserved slot.
     Nonce { expected: u64, on_chain: u64 },
     /// Queued-nonce replacement did not bump both fees by the required
@@ -109,9 +115,44 @@ struct PoolState {
     /// or evicted by its caller; a forgotten reservation bricks its nonce
     /// slot (admission forever expects past it).
     in_flight: HashMap<TxHash, (Address, Direction, u64)>,
+    /// Resume discovery at a source chain, never at one of its higher nonces.
+    scan_from: Option<(Address, Direction)>,
+    telemetry: status::QueueTelemetry,
 }
 
 impl PoolState {
+    /// Only explicit, validated admission may retire local terminal ownership.
+    /// Attempt records retain their generations so old callbacks remain harmless.
+    fn retire_local_owner_for_admission(&self, hash: TxHash) -> Result<(), AdmissionError> {
+        if !self.ledger.read(|data| data.users.contains_key(&hash)) {
+            return Ok(());
+        }
+        self.ledger
+            .update(|data| {
+                match data.users.get(&hash).map(|user| &user.location) {
+                    None => {}
+                    Some(UserLocation::Terminal {
+                        canonical: None, ..
+                    }) => {
+                        let previous = data
+                            .users
+                            .remove(&hash)
+                            .expect("matched local terminal owner");
+                        event!(name: "eez.held_pool.readmitted", Level::INFO,
+                            event_name = "eez.held_pool.readmitted",
+                            tx_hash = %hash, previous_generation = previous.owner,
+                            previous_disposition = ?previous.location,
+                            "explicit admission retired local terminal ownership");
+                    }
+                    Some(_) => {
+                        return Err("source ownership awaits canonical reconciliation".into());
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|_| AdmissionError::ReconciliationPending)
+    }
+
     fn apply_resolution(&mut self, gaps: &[crate::optimistic::NonceGap]) {
         let mut users = self
             .ledger
@@ -155,7 +196,7 @@ impl PoolState {
 
     /// Track submitted users through recomposition, replacement and eviction
     /// so an old attempt cannot recover a discarded or newly owned user.
-    fn update_recovery_ownership(&self) {
+    fn update_recovery_ownership(&mut self) {
         self.ledger
             .update(|data| {
                 for user in data.users.values_mut() {
@@ -180,6 +221,8 @@ impl PoolState {
                 Ok(())
             })
             .expect("cannot preserve recovered transaction ownership; held pool stopped");
+        self.telemetry
+            .retain(&self.by_hash, &self.in_flight, &self.ledger);
     }
     fn recover_batch(&mut self, recovered: Vec<HeldTx>) {
         let mut replacement_roots: HashMap<(Address, Direction), (u64, TxHash)> = HashMap::new();
@@ -227,16 +270,16 @@ impl PoolState {
     }
 
     /// Next nonce that keeps the `(sender, direction)` chain contiguous:
-    /// one past the highest queued-or-in-flight reservation, or `on_chain`
-    /// if there is none. Reservations below `on_chain` already landed and
-    /// are ignored. `None` on nonce overflow (chain is at `u64::MAX`).
+    /// first hole starting at the observed source nonce. A pending observation
+    /// may roll back; a higher reservation must never hide a missing predecessor.
+    /// Reservations below the observation are ignored, not removed.
     fn next_expected_nonce(
         &self,
         sender: Address,
         direction: Direction,
         on_chain: u64,
     ) -> Option<u64> {
-        let highest_reserved = self
+        let reserved: HashSet<_> = self
             .txs
             .iter()
             .filter(|tx| tx.sender == sender && tx.direction == direction)
@@ -248,20 +291,50 @@ impl PoolState {
                     .map(|(_, _, nonce)| *nonce),
             )
             .filter(|nonce| *nonce >= on_chain)
-            .max();
-        match highest_reserved {
-            Some(nonce) => nonce.checked_add(1),
-            None => Some(on_chain),
+            .collect();
+        let mut expected = on_chain;
+        while reserved.contains(&expected) {
+            expected = expected.checked_add(1)?;
         }
+        Some(expected)
     }
 
     /// Move a recovered tx from in-flight back to the queue front,
     /// skipping the re-queue if the hash is already queued (idempotent).
     fn push_front_recovered(&mut self, tx: HeldTx) {
         self.release_in_flight(&tx);
-        if self.by_hash.insert(tx.hash) {
-            self.txs.push_front(tx);
+        self.insert_queued(tx, true);
+    }
+
+    /// One insertion rule for ingress and recovery. Global queue priority is
+    /// constrained by the source chain's predecessor/successor positions.
+    fn insert_queued(&mut self, tx: HeldTx, front_priority: bool) {
+        if !self.by_hash.insert(tx.hash) {
+            return;
         }
+        let same_chain =
+            |queued: &HeldTx| queued.sender == tx.sender && queued.direction == tx.direction;
+        let position = if front_priority {
+            self.txs
+                .iter()
+                .rposition(|queued| same_chain(queued) && queued.nonce < tx.nonce)
+                .map_or(0, |index| index + 1)
+        } else {
+            self.txs
+                .iter()
+                .position(|queued| same_chain(queued) && queued.nonce > tx.nonce)
+                .unwrap_or(self.txs.len())
+        };
+        if front_priority && position > 0 {
+            let owner = self
+                .ledger
+                .read(|data| data.users.get(&tx.hash).map(|u| u.owner));
+            event!(name: "eez.held_pool.recovery_ordered", Level::DEBUG,
+                event_name = "eez.held_pool.recovery_ordered", tx_hash = %tx.hash,
+                sender = %tx.sender, direction = ?tx.direction, nonce = tx.nonce,
+                ?owner, position, "recovery retained queued nonce predecessors");
+        }
+        self.txs.insert(position, tx);
     }
 
     /// Reserve a drained tx's nonce until its bundle resolves.
@@ -296,6 +369,8 @@ impl HeldPool {
             txs: VecDeque::new(),
             by_hash: HashSet::new(),
             in_flight: HashMap::new(),
+            scan_from: None,
+            telemetry: Default::default(),
         };
         Self {
             state: Mutex::new(state),
@@ -325,6 +400,8 @@ impl HeldPool {
             .ledger
             .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
         state.apply_resolution(&gaps);
+        let ledger = Arc::clone(&state.ledger);
+        state.telemetry.observe_completion(&ledger);
         Ok(())
     }
 
@@ -333,6 +410,7 @@ impl HeldPool {
     pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.ledger.invalidate_after_l1(ancestor)?;
+        state.telemetry.invalidate_after_l1(ancestor);
         state.apply_resolution(&[]);
         Ok(())
     }
@@ -416,9 +494,16 @@ impl HeldPool {
             }
             let replacement_hash = tx.hash;
             let previous_hash = state.txs[queued_idx].hash;
+            state.retire_local_owner_for_admission(replacement_hash)?;
+            state.telemetry.admitted(replacement_hash);
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
             state.by_hash.insert(replacement_hash);
+            event!(name: "eez.held_pool.replaced", Level::INFO,
+                event_name = "eez.held_pool.replaced",
+                previous_hash = %previous_hash, replacement_hash = %replacement_hash,
+                sender = %target_sender, nonce = target_nonce, direction = ?target_direction,
+                "accepted queued transaction replacement");
             state.update_recovery_ownership();
             return Ok(());
         }
@@ -444,8 +529,9 @@ impl HeldPool {
         if target_nonce != expected {
             return Err(AdmissionError::Nonce { expected, on_chain });
         }
-        state.by_hash.insert(tx.hash);
-        state.txs.push_back(tx);
+        state.retire_local_owner_for_admission(tx.hash)?;
+        state.telemetry.admitted(tx.hash);
+        state.insert_queued(tx, false);
         state.update_recovery_ownership();
         Ok(())
     }
@@ -455,6 +541,27 @@ impl HeldPool {
     pub fn push_front_batch(&self, recovered: Vec<HeldTx>) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.recover_batch(recovered);
+        state.update_recovery_ownership();
+    }
+
+    /// Restore a failed composition's original candidates only while this
+    /// composition still owns them. A later error must not undo an eviction,
+    /// release, replacement, or transfer back to canonical reconciliation.
+    pub(crate) fn requeue_composing(&self, candidates: Vec<HeldTx>) {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let retained = state.ledger.read(|data| {
+            candidates
+                .into_iter()
+                .filter(|tx| {
+                    state.in_flight.contains_key(&tx.hash)
+                        && data
+                            .users
+                            .get(&tx.hash)
+                            .is_none_or(|user| user.location == UserLocation::Composing)
+                })
+                .collect()
+        });
+        state.recover_batch(retained);
         state.update_recovery_ownership();
     }
 
@@ -504,6 +611,79 @@ impl HeldPool {
         self.pop_n(usize::MAX)
     }
 
+    /// Finite candidate view. Transactions stay replaceable until claimed.
+    /// A resumed chain takes discovery priority while preserving every chain's
+    /// nonce order and the relative order of all other queued transactions.
+    pub(crate) fn candidates(&self) -> Vec<HeldTx> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let mut candidates: Vec<_> = state.txs.iter().cloned().collect();
+        if let Some(chain) = state.scan_from.take() {
+            candidates.sort_by_key(|tx| (tx.sender, tx.direction) != chain);
+        }
+        candidates
+    }
+
+    pub(crate) fn resume_discovery_at(&self, tx: &HeldTx) {
+        self.state
+            .lock()
+            .expect("held_pool mutex poisoned")
+            .scan_from = Some((tx.sender, tx.direction));
+    }
+
+    /// Atomically claim the snapshot's exact identity. A concurrent replacement
+    /// or newly recovered predecessor requires discovery at a later opportunity.
+    /// Already composing candidates can be reused by bounded recomposition.
+    pub(crate) fn claim(&self, tx: &HeldTx) -> bool {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let chain = |sender, direction| sender == tx.sender && direction == tx.direction;
+        if state
+            .txs
+            .iter()
+            .any(|queued| chain(queued.sender, queued.direction) && queued.nonce < tx.nonce)
+        {
+            return false;
+        }
+        if state.in_flight.contains_key(&tx.hash) {
+            return state.ledger.read(|data| {
+                data.users
+                    .get(&tx.hash)
+                    .is_none_or(|user| user.location == UserLocation::Composing)
+            });
+        }
+        let Some(index) = state.txs.iter().position(|queued| {
+            queued.hash == tx.hash
+                && chain(queued.sender, queued.direction)
+                && queued.nonce == tx.nonce
+        }) else {
+            return false;
+        };
+        // Claiming preserves identity and membership ownership; only this
+        // user's ledger location changes. Avoid rescanning every queued user
+        // for each candidate in a large snapshot.
+        if state.ledger.read(|data| data.users.contains_key(&tx.hash)) {
+            let claimed = &state.txs[index];
+            let accepted = state
+                .ledger
+                .update(|data| {
+                    let user = data.users.get_mut(&tx.hash).ok_or("source owner changed")?;
+                    if user.location != UserLocation::Queued {
+                        return Ok(false);
+                    }
+                    user.tx = claimed.clone();
+                    user.location = UserLocation::Composing;
+                    Ok(true)
+                })
+                .expect("cannot claim transaction ownership; held pool stopped");
+            if !accepted {
+                return false;
+            }
+        }
+        let claimed = state.txs.remove(index).expect("matched queued transaction");
+        state.by_hash.remove(&claimed.hash);
+        state.mark_in_flight(&claimed);
+        true
+    }
+
     /// Drain up to `max` held txs (FIFO). Capping bounds the users affected by
     /// one failed settlement episode, at the cost of more slots to drain a
     /// large pool. Per-user reconciliation decides their eventual disposition.
@@ -531,6 +711,27 @@ impl HeldPool {
     /// True iff the pool is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Includes newly admitted users, which enter the submission ledger only
+    /// when an attempt begins. Replacement, eviction and release remove this
+    /// ownership, while draining/requeueing preserves it.
+    pub(crate) fn owns(&self, hash: TxHash) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
+    }
+
+    /// Cross-chain sources must not enter ordinary L2 sequencing when Reth
+    /// reinjects an orphaned Sync block. Include the unfinalized ledger even
+    /// after resolution/eviction: pool reinjection is asynchronous and must
+    /// not race an ownership transfer. This reads the existing source records;
+    /// it does not maintain a second transaction registry.
+    #[must_use]
+    pub fn is_cross_chain_source(&self, hash: TxHash) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state.by_hash.contains(&hash)
+            || state.in_flight.contains_key(&hash)
+            || state.ledger.read(|data| data.users.contains_key(&hash))
     }
 }
 
@@ -571,6 +772,78 @@ mod tests {
         assert_eq!(drained[0].hash, TxHash::from(B256::repeat_byte(1)));
         assert_eq!(drained[2].hash, TxHash::from(B256::repeat_byte(3)));
         assert!(pool.is_empty());
+    }
+
+    #[test]
+    fn compose_error_restores_only_remaining_owners_without_undoing_classification() {
+        let pool = HeldPool::new(Default::default());
+        let original: Vec<_> = (1..=5).map(tx).collect();
+        for tx in &original {
+            insert(&pool, tx.clone(), tx.nonce);
+        }
+        // A setup failure before classification restores the complete FIFO.
+        pool.requeue_composing(pool.pop_all());
+        let drained = pool.pop_all();
+        assert_eq!(drained, original);
+
+        let evicted = &original[0];
+        assert!(
+            pool.evict_chain_at_or_above(evicted.sender, evicted.direction, evicted.nonce)
+                .is_empty()
+        );
+        pool.release_in_flight_batch(&original[1..2]);
+        // A source already requeued by an inner recovery can be replaced by
+        // ingress before an outer fallback fails. Preserve that new owner.
+        pool.push_front_batch(vec![original[2].clone()]);
+        let mut replacement = original[2].clone();
+        replacement.hash = B256::repeat_byte(99);
+        replacement.max_fee_per_gas *= 2;
+        replacement.priority_fee_per_gas *= 2;
+        replacement.attempts = 1;
+        insert(&pool, replacement.clone(), replacement.nonce);
+
+        pool.requeue_composing(drained.clone());
+        pool.requeue_composing(drained);
+        assert_eq!(
+            pool.pop_all(),
+            vec![original[3].clone(), original[4].clone(), replacement]
+        );
+        assert!(!pool.owns(original[0].hash));
+        assert!(!pool.owns(original[1].hash));
+        assert!(!pool.owns(original[2].hash));
+    }
+
+    #[test]
+    fn ownership_includes_unsubmitted_groups_and_tracks_their_entire_pool_lifecycle() {
+        let ledger = Arc::new(OptimisticallyIncluded::default());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let original = tx(1);
+        insert(&pool, original.clone(), 1);
+        assert!(ledger.read(|data| data.users.is_empty()));
+        assert!(pool.owns(original.hash));
+        assert!(pool.is_cross_chain_source(original.hash));
+        let drained = pool.pop_all();
+        assert!(pool.is_empty());
+        assert!(pool.owns(original.hash));
+        assert!(pool.is_cross_chain_source(original.hash));
+        pool.push_front_batch(drained);
+        assert!(pool.owns(original.hash));
+
+        let mut replacement = original.clone();
+        replacement.hash = B256::repeat_byte(9);
+        replacement.max_fee_per_gas = 2;
+        replacement.priority_fee_per_gas = 2;
+        insert(&pool, replacement.clone(), 1);
+        assert!(!pool.owns(original.hash));
+        assert!(pool.owns(replacement.hash));
+        let evicted = pool.evict_chain_at_or_above(replacement.sender, replacement.direction, 1);
+        assert_eq!(evicted.len(), 1);
+        assert!(!pool.owns(replacement.hash));
+
+        insert(&pool, original.clone(), 1);
+        let drained = pool.pop_all();
+        pool.release_in_flight_batch(&drained);
+        assert!(!pool.owns(original.hash));
     }
 
     #[test]
@@ -1048,5 +1321,156 @@ mod tests {
             ]
         );
         assert_eq!(pool.pop_all()[0].hash, TxHash::from(B256::repeat_byte(4)));
+    }
+    #[test]
+    fn snapshot_claim_rejects_replacements_and_restores_only_claimed_owners() {
+        let pool = HeldPool::new(Default::default());
+        let original = tx(1);
+        insert(&pool, original.clone(), original.nonce);
+        let snapshot = pool.candidates();
+        let replacement = HeldTx {
+            hash: B256::repeat_byte(99),
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 100,
+            ..original.clone()
+        };
+        insert(&pool, replacement.clone(), replacement.nonce);
+        assert!(!pool.claim(&snapshot[0]));
+        pool.requeue_composing(snapshot);
+        assert_eq!(pool.candidates(), vec![replacement.clone()]);
+        assert!(pool.claim(&replacement));
+        assert!(
+            pool.claim(&replacement),
+            "bounded recomposition keeps its ownership"
+        );
+        assert_eq!(pool.queue_status()["inFlight"], 1);
+        pool.requeue_composing(vec![replacement.clone()]);
+        assert_eq!(pool.candidates(), vec![replacement]);
+    }
+
+    #[test]
+    fn recovered_predecessor_invalidates_a_successors_old_snapshot_claim() {
+        let pool = HeldPool::new(Default::default());
+        let successor = HeldTx { nonce: 2, ..tx(1) };
+        insert(&pool, successor.clone(), 2);
+        let snapshot = pool.candidates();
+        let predecessor = HeldTx {
+            nonce: 1,
+            hash: B256::repeat_byte(33),
+            ..successor.clone()
+        };
+        insert(&pool, predecessor.clone(), 1);
+        assert!(!pool.claim(&snapshot[0]));
+        assert!(pool.claim(&predecessor));
+        assert!(pool.claim(&successor));
+    }
+
+    #[test]
+    fn discovery_resume_preserves_nonce_order_and_does_not_reorder_the_pool() {
+        let pool = HeldPool::new(Default::default());
+        let a = tx(1);
+        let b = tx(2);
+        let a_next = HeldTx {
+            nonce: a.nonce + 1,
+            hash: B256::repeat_byte(98),
+            ..a.clone()
+        };
+        for user in [&a, &b, &a_next] {
+            insert(&pool, user.clone(), user.nonce);
+        }
+        pool.resume_discovery_at(&a_next);
+        assert_eq!(
+            pool.candidates(),
+            vec![a.clone(), a_next.clone(), b.clone()]
+        );
+        assert_eq!(pool.pop_all(), vec![a, b, a_next]);
+    }
+
+    #[test]
+    fn sparse_maximum_nonce_does_not_prevent_repair_and_full_chain_overflows() {
+        let pool = HeldPool::new(Default::default());
+        let maximum = HeldTx {
+            nonce: u64::MAX,
+            ..tx(1)
+        };
+        insert(&pool, maximum.clone(), u64::MAX);
+        let missing = HeldTx {
+            nonce: 0,
+            hash: B256::repeat_byte(97),
+            ..maximum.clone()
+        };
+        insert(&pool, missing.clone(), 0);
+        assert_eq!(pool.candidates(), vec![missing, maximum.clone()]);
+        let state = pool.state.lock().unwrap();
+        assert_eq!(
+            state.next_expected_nonce(maximum.sender, maximum.direction, u64::MAX),
+            None
+        );
+    }
+
+    #[test]
+    fn queue_observations_follow_identity_and_expire_on_same_height_replacement() {
+        use eez_l1::L1BlockRef;
+        let pool = HeldPool::new(Default::default());
+        let first = tx(1);
+        let second = HeldTx {
+            nonce: 2,
+            hash: B256::repeat_byte(96),
+            ..first.clone()
+        };
+        insert(&pool, first.clone(), 1);
+        insert(&pool, second.clone(), 1);
+        let source = SourceState {
+            l1: L1BlockRef {
+                number: 10,
+                hash: B256::repeat_byte(10),
+            },
+            l2: L1BlockRef {
+                number: 20,
+                hash: B256::repeat_byte(20),
+            },
+        };
+        pool.begin_evaluation(source);
+        pool.record_blocked(
+            &first,
+            eez_protocol::SourceCondition::Nonce {
+                transaction_nonce: 1,
+                required_nonce: 0,
+            },
+            source,
+        );
+        assert_eq!(pool.queue_status()["blocked"], 2);
+        assert_eq!(
+            pool.transaction_status(second.hash).unwrap()["blocking"]["condition"]["required_nonce"],
+            0
+        );
+        assert!(!pool.queue_status().to_string().contains("raw_tx"));
+        let changed = SourceState {
+            l2: L1BlockRef {
+                hash: B256::repeat_byte(21),
+                ..source.l2
+            },
+            ..source
+        };
+        pool.begin_evaluation(changed);
+        assert_eq!(pool.queue_status()["blocked"], 0);
+        assert_eq!(pool.queue_status()["unknown"], 2);
+        assert_eq!(
+            pool.transaction_status(first.hash).unwrap()["blocking"]["current"],
+            false
+        );
+        pool.record_ready(&first, changed);
+        assert_eq!(pool.queue_status()["ready"], 1);
+        let replacement = HeldTx {
+            hash: B256::repeat_byte(95),
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 100,
+            ..first
+        };
+        insert(&pool, replacement, 1);
+        assert_eq!(pool.queue_status()["ready"], 0);
+        assert_eq!(pool.queue_status()["unknown"], 2);
+        pool.invalidate_after_l1(9).unwrap();
+        assert!(pool.queue_status()["sourceState"].is_null());
     }
 }

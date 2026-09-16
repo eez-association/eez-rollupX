@@ -44,17 +44,12 @@ DEPLOY_DIR="$(mktemp -d /tmp/eez-deployments.XXXXXX)"
 trap 'rm -rf "$DEPLOY_DIR"' EXIT
 
 # Pull the deployment artifact from the enclave by default.
-if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" && -f "$REPO/deployments.env" ]]; then
-    set -a; source "$REPO/deployments.env"; set +a
-else
-    kurtosis files download "$ENCLAVE" eez-deployments "$DEPLOY_DIR" >/dev/null 2>&1 \
-        || { echo "kurtosis files download failed — is '$ENCLAVE' up and deployed?"; exit 1; }
-    set -a; source "$DEPLOY_DIR/deployments.env"; set +a
-fi
+load_deployment_artifact "$DEPLOY_DIR"
+set -a; source "$DEPLOY_DIR/deployments.env"; set +a
 [[ -n "${EEZ_REGISTRY_ADDRESS:-}" ]] || { echo "EEZ_REGISTRY_ADDRESS unset — deployments.env incomplete"; exit 1; }
 
 # Hardhat accounts are funded on L2; L1 actors are funded below.
-HH_KEY_2=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a   # L2 contract deployer / L2 proxy creator
+HH_KEY_2="${EEZ_L2_SETUP_KEY:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}" # L2 deployer
 # Fresh users avoid stale held-pool nonce state from earlier interrupted runs.
 HH_KEY_REV_IN="0x$(openssl rand -hex 32)"
 HH_ADDR_REV_IN=$(cast wallet address --private-key "$HH_KEY_REV_IN")
@@ -65,7 +60,7 @@ HH_ADDR_IN=$(cast wallet address --private-key "$HH_KEY_IN")
 HH_KEY_OUT="${EEZ_WAVE_OUT_KEY:-0x$(openssl rand -hex 32)}"
 HH_ADDR_OUT=$(cast wallet address --private-key "$HH_KEY_OUT")
 # Pure-L2 filler user.
-HH_KEY_PURE=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a  # #2 (L2 deployer, idle at wave time)
+HH_KEY_PURE="$HH_KEY_2" # L2 deployer, idle at wave time
 
 # EOAs funded on L1 so they can pay gas on the shared chain.
 L1_FUNDED_KEYS=("$HH_KEY_IN")
@@ -105,7 +100,7 @@ fund_l2() { fund "$L2" "$HH_KEY_2" "$1"; }
 for k in "${L1_FUNDED_KEYS[@]}"; do
     a=$(cast wallet address --private-key "$k")
     if [[ "$(cast balance "$a" --rpc-url "$L1" 2>/dev/null || echo 0)" == "0" ]]; then
-        echo "==> funding $a on L1 (10 ETH)"
+        echo "==> funding $a on L1 (${EEZ_TEST_FUND_AMOUNT_ETH:-10} native units)"
         fund_l1 "$a" || { echo "failed to fund $a — is the funding key funded on L1?"; exit 1; }
     fi
 done
@@ -117,7 +112,7 @@ if [[ "${EEZ_INCLUDE_REVERTS:-0}" == "1" ]]; then
 fi
 
 if [[ "$(cast balance "$HH_ADDR_OUT" --rpc-url "$L2" 2>/dev/null || echo 0)" == "0" ]]; then
-    echo "==> funding $HH_ADDR_OUT on L2 (10 ETH)"
+    echo "==> funding $HH_ADDR_OUT on L2 (${EEZ_TEST_FUND_AMOUNT_ETH:-10} native units)"
     fund_l2 "$HH_ADDR_OUT" || { echo "failed to fund $HH_ADDR_OUT on L2"; exit 1; }
 fi
 
@@ -182,8 +177,8 @@ FILLER_PER_GAP="${EEZ_FILLER_PER_GAP:-2}"
 INCLUDE_REVERTS="${EEZ_INCLUDE_REVERTS:-0}"
 PURE_RECIPIENT=0x2222222222222222222222222222222222222222
 
-refresh_node_log() { timeout 30s kurtosis service logs -a "$ENCLAVE" eez-node >"$NODE_LOG" 2>&1 || true; }
-refresh_signer_log() { timeout 30s kurtosis service logs -a "$ENCLAVE" eez-proof-signer >"$SIGNER_LOG" 2>&1 || true; }
+refresh_node_log() { capture_runtime_log eez-node "$NODE_LOG" || true; }
+refresh_signer_log() { capture_runtime_log eez-proof-signer "$SIGNER_LOG" || true; }
 strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
 # Count a registry event from a block. Baselined per run: several modes share
@@ -355,10 +350,11 @@ run_waves() {
     # LAST so the wrapper's value is the expected final Value.value() (both
     # write the same target through the same proxy, in submission order).
     local w
-    # Warm-up uses its own L1 baseline. Reset the wave baseline afterwards so
-    # the readiness bundle cannot satisfy the per-wave event assertions.
+    # An idle policy may deliberately avoid posting for longer than the
+    # readiness timeout. An existing canonical post proves bootstrap; measured
+    # wave assertions still start strictly after this readiness check.
     local BUILDER_FIRST_BLOCK
-    BUILDER_FIRST_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))
+    BUILDER_FIRST_BLOCK="${EEZ_REGISTRY_DEPLOY_BLOCK:-0}"
     # Here, not at setup: the helpers it calls are defined above this point.
     wait_for_builder "$BUILDER_FIRST_BLOCK" || return 1
     L1_FIRST_COUNTED_BLOCK=$(( $(retry cast block-number --rpc-url "$L1") + 1 ))

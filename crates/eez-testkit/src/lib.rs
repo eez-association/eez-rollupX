@@ -7,8 +7,10 @@
 #![allow(missing_debug_implementations)]
 
 mod artifacts;
+mod l1_reorg;
 mod ports;
 pub mod signals;
+pub use l1_reorg::{L1ReorgControl, setup_cross_chain_with_l1_reorg};
 
 use std::{
     collections::HashSet,
@@ -659,12 +661,23 @@ fn proof_signer_binary() -> Result<PathBuf> {
 #[derive(Debug)]
 struct ProofSignerConfig<'a> {
     chain_config: &'a std::path::Path,
+    l1_chain_config: Option<String>,
     rollup_id: u64,
     signer_key: &'a str,
     /// Expected verifier key under the signer's validation policy. Negative
     /// tests can deliberately configure a key that differs from L1's registry.
     vkey: B256,
     proof_system: Address,
+}
+
+/// The native Anvil harness and embedded test L1 use this same fork profile.
+/// Its chain ID differs from the L2 fixture's execution chain ID.
+fn write_l1_chain_config(directory: &std::path::Path) -> Result<PathBuf> {
+    let mut config = fixture_genesis()?.config;
+    config.chain_id = DEV_CHAIN_ID;
+    let path = directory.join("l1-chain-config.json");
+    std::fs::write(&path, serde_json::to_vec(&config)?).context("write native test L1 profile")?;
+    Ok(path)
 }
 
 /// Owns a proof-signer process and its diagnostic log.
@@ -686,6 +699,14 @@ impl ProofSignerHandle {
         let (log_path, log_dir) = test_log_destination("eez-proof-signer")?;
         let working_dir = tempfile::tempdir().context("proof signer working directory")?;
         isolate_dotenv(working_dir.path())?;
+        // The fixture's L1 uses the same configured fork schedule with the
+        // separate dev chain ID. Every proof uses this operator-owned profile.
+        let l1_config_path = write_l1_chain_config(working_dir.path())?;
+        let l1_profile = cfg.l1_chain_config.as_deref().unwrap_or(
+            l1_config_path
+                .to_str()
+                .context("non-UTF-8 L1 profile path")?,
+        );
         let log = std::fs::File::create(&log_path).context("create proof signer log")?;
         let err_log = log.try_clone().context("clone proof signer log")?;
         let mut command = Command::new(proof_signer_binary()?);
@@ -700,6 +721,8 @@ impl ProofSignerHandle {
                 cfg.chain_config
                     .to_str()
                     .context("non-UTF-8 L2 genesis path")?,
+                "--l1-chain-config",
+                l1_profile,
                 "--rollup-id",
                 &cfg.rollup_id.to_string(),
                 "--vkey",
@@ -815,6 +838,10 @@ pub enum ProverMutation {
     /// is the status returned by the real signer when its resource capacity is
     /// exceeded.
     ResourceExhausted,
+    /// Reject even historical/anchor-only requests until an operator recovers it.
+    AllResourceExhausted,
+    /// Temporary transport/provider outage, without changing request contents.
+    Unavailable,
     /// A typed rejection whose candidate identity cannot belong to the current
     /// request. The Composer must treat it as opaque rather than acting on it.
     MismatchedActionable,
@@ -824,6 +851,14 @@ impl ProverMutation {
     fn apply(self, chunks: &mut [ProveChunk]) -> Result<(), Status> {
         match self {
             Self::None => {}
+            Self::AllResourceExhausted => {
+                return Err(Status::resource_exhausted(
+                    "fixture manual prover request limit",
+                ));
+            }
+            Self::Unavailable => {
+                return Err(Status::unavailable("fixture temporary upstream outage"));
+            }
             Self::PostBatch => {
                 let calldata = chunks
                     .iter_mut()
@@ -890,7 +925,11 @@ impl ProverMutation {
                                 encode_prove_failure(&failure).into(),
                             ))
                         }
-                        Self::None | Self::PostBatch | Self::Witness => unreachable!(),
+                        Self::None
+                        | Self::PostBatch
+                        | Self::Witness
+                        | Self::AllResourceExhausted
+                        | Self::Unavailable => unreachable!(),
                     };
                 }
             }
@@ -909,7 +948,7 @@ struct ProxyCounters {
 #[derive(Clone, Debug)]
 struct ProverProxyService {
     upstream: String,
-    mutation: ProverMutation,
+    mutation: Arc<Mutex<ProverMutation>>,
     counters: Arc<ProxyCounters>,
 }
 
@@ -925,7 +964,8 @@ impl Prover for ProverProxyService {
         while let Some(chunk) = input.message().await? {
             chunks.push(chunk);
         }
-        if let Err(status) = self.mutation.apply(&mut chunks) {
+        let mutation = *self.mutation.lock().unwrap();
+        if let Err(status) = mutation.apply(&mut chunks) {
             if matches!(
                 status.code(),
                 tonic::Code::ResourceExhausted | tonic::Code::FailedPrecondition
@@ -966,6 +1006,7 @@ impl Prover for ProverProxyService {
 pub struct ProverProxyHandle {
     endpoint: String,
     counters: Arc<ProxyCounters>,
+    mutation: Arc<Mutex<ProverMutation>>,
     task: JoinHandle<()>,
 }
 
@@ -974,9 +1015,10 @@ impl ProverProxyHandle {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let counters = Arc::new(ProxyCounters::default());
+        let mutation = Arc::new(Mutex::new(mutation));
         let service = ProverProxyService {
             upstream,
-            mutation,
+            mutation: Arc::clone(&mutation),
             counters: Arc::clone(&counters),
         };
         let task = tokio::spawn(async move {
@@ -991,6 +1033,7 @@ impl ProverProxyHandle {
         Ok(Self {
             endpoint: format!("http://{addr}"),
             counters,
+            mutation,
             task,
         })
     }
@@ -1009,6 +1052,10 @@ impl ProverProxyHandle {
 
     pub fn rejections(&self) -> usize {
         self.counters.rejections.load(Ordering::Relaxed)
+    }
+
+    pub fn set_mutation(&self, mutation: ProverMutation) {
+        *self.mutation.lock().unwrap() = mutation;
     }
 }
 
@@ -1055,6 +1102,7 @@ impl Harness {
         l2_genesis: (PathBuf, tempfile::TempDir),
     ) -> Result<Self> {
         let genesis_time = cfg.genesis_timestamp;
+        write_l1_chain_config(l2_genesis.1.path())?;
         let anvil = Anvil::spawn_with(PortLease::tcp(), cfg).await?;
         let stub = BundleStub::spawn(PortLease::tcp(), &anvil.rpc_url).await?;
         let beacon = BeaconStub::spawn(
@@ -1186,6 +1234,15 @@ impl Harness {
         opts: NodeEnvOptions<'_>,
     ) -> Result<Vec<(&'static str, String)>> {
         let mut env = vec![
+            (
+                "EEZ_L1_CHAIN_CONFIG",
+                self.l2_genesis
+                    .1
+                    .path()
+                    .join("l1-chain-config.json")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             ("EEZ_L1_CHAIN_PATH", "dev".to_string()),
             ("EEZ_L1_RPC_URL", self.anvil.rpc_url.clone()),
             ("EEZ_L1_BEACON_URL", self.beacon.endpoint().to_string()),
@@ -1249,6 +1306,7 @@ impl Harness {
             let genesis = self.l2_genesis_path();
             let attester = signer_address(signer_key)?;
             let signer = ProofSignerHandle::spawn(&ProofSignerConfig {
+                l1_chain_config: None,
                 chain_config: genesis,
                 rollup_id: opts.rollup_id,
                 signer_key,
@@ -1644,6 +1702,26 @@ pub struct NodeConfig<'a> {
 }
 
 impl NodeHandle {
+    /// Stall this fixture's process across a scheduler deadline while leaving
+    /// its separate signer alive. Dropping the handle still kills the child.
+    pub async fn pause_for(&self, duration: Duration) -> Result<()> {
+        let pid = self.child.lock().expect("node child mutex poisoned").id();
+        let signal = |name: &str| -> Result<()> {
+            ensure!(
+                Command::new("kill")
+                    .args([name, &pid.to_string()])
+                    .status()
+                    .context("signal fixture process")?
+                    .success(),
+                "failed to signal fixture process {pid} with {name}"
+            );
+            Ok(())
+        };
+        signal("-STOP")?;
+        tokio::time::sleep(duration).await;
+        signal("-CONT")
+    }
+
     fn spawn_with(
         name: &str,
         datadir: &std::path::Path,
@@ -3659,11 +3737,21 @@ pub struct CrossChainConfig {
     pub poster_key: &'static str,
     pub l1_genesis: (PathBuf, tempfile::TempDir),
     pub l2_genesis: (PathBuf, tempfile::TempDir),
+    pub l1_profile: NativeL1Profile,
     port_leases: Vec<PortLease>,
 }
 
+/// Explicit private-network fixtures; Gnosis runs its native node/executor.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NativeL1Profile {
+    #[default]
+    EthereumOsaka,
+    EthereumPrague,
+    GnosisPrague,
+}
+
 impl CrossChainConfig {
-    fn new() -> Result<Self> {
+    fn new(l1_profile: NativeL1Profile) -> Result<Self> {
         let deployer_key = ANVIL_KEY_1;
         let attester_key = ANVIL_ATTESTER_KEY;
         let poster_key = ANVIL_KEY;
@@ -3685,6 +3773,27 @@ impl CrossChainConfig {
         let l1_p2p_port = l1_p2p_lease.port();
         let l1_xchain_port = l1_xchain_lease.port();
         let l2_xchain_port = l2_xchain_lease.port();
+        let l1_genesis = write_l1_dev_genesis_at(ts)?;
+        if l1_profile != NativeL1Profile::EthereumOsaka {
+            let mut genesis: alloy_genesis::Genesis =
+                serde_json::from_slice(&std::fs::read(&l1_genesis.0)?)?;
+            genesis.config.osaka_time = None;
+            genesis.config.prague_time = Some(0);
+            if l1_profile == NativeL1Profile::GnosisPrague {
+                let chiado = &*reth_gnosis::spec::chains::CHIADO_GENESIS;
+                genesis.config.deposit_contract_address = chiado.config.deposit_contract_address;
+                for name in ["eip1559collector", "blockRewardsContract"] {
+                    genesis
+                        .config
+                        .extra_fields
+                        .insert(name.to_owned(), chiado.config.extra_fields[name].clone());
+                }
+                // The native executor calls the configured reward contract;
+                // carry the reviewed Chiado predeploy code and storage too.
+                genesis.alloc.extend(chiado.alloc.clone());
+            }
+            std::fs::write(&l1_genesis.0, serde_json::to_vec(&genesis)?)?;
+        }
         Ok(Self {
             l1_http_port,
             l1_auth_port,
@@ -3700,7 +3809,8 @@ impl CrossChainConfig {
             deployer_key,
             attester_key,
             poster_key,
-            l1_genesis: write_l1_dev_genesis_at(ts)?,
+            l1_genesis,
+            l1_profile,
             l2_genesis,
             port_leases: vec![
                 l1_http_lease,
@@ -3730,11 +3840,28 @@ impl CrossChainConfig {
 
     fn env(&self, builder_rpc_url: &str, beacon_url: &str) -> Vec<(&'static str, String)> {
         vec![
-            ("EEZ_L1_CHAIN", "testing".to_string()),
+            (
+                "EEZ_L1_CHAIN",
+                if self.l1_profile == NativeL1Profile::GnosisPrague {
+                    "testing-gnosis"
+                } else {
+                    "testing"
+                }
+                .to_string(),
+            ),
+            ("EEZ_L1_CHAIN_CONFIG", self.l1_chain_config()),
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_RPC_URL", self.l1_rpc_url()),
             ("EEZ_L1_BEACON_URL", beacon_url.to_string()),
-            ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip7594".to_string()),
+            (
+                "EEZ_L1_BLOB_SIDECAR_ENCODING",
+                if self.l1_profile == NativeL1Profile::EthereumOsaka {
+                    "eip7594"
+                } else {
+                    "eip4844"
+                }
+                .to_string(),
+            ),
             ("EEZ_L1_TARGET_RPC_URL", self.l1_rpc_url()),
             ("EEZ_L1_BUILDER_RPC_URL", builder_rpc_url.to_string()),
             ("EEZ_L1_XCHAIN_PORT", self.l1_xchain_port.to_string()),
@@ -3788,6 +3915,15 @@ impl CrossChainConfig {
             ),
         ]
     }
+
+    fn l1_chain_config(&self) -> String {
+        let path = self.l1_genesis.0.to_string_lossy();
+        if self.l1_profile == NativeL1Profile::GnosisPrague {
+            format!("gnosis:{path}")
+        } else {
+            path.into_owned()
+        }
+    }
 }
 
 pub const SETUP_TIMEOUT: Duration = Duration::from_secs(90);
@@ -3827,6 +3963,8 @@ pub struct CrossChainWorld {
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
+    /// Present only when the existing fixture uses controlled L1 consensus.
+    pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
     beacon: BeaconStub,
     _witness_dir: tempfile::TempDir,
@@ -3925,10 +4063,21 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 impl CrossChainWorld {
     /// Crash the composer and reopen the same chain databases with an empty pool.
     pub async fn restart_composer(&mut self) -> Result<()> {
+        self.restart_composer_with_env(&[]).await
+    }
+
+    /// Reopen retained chain/witness data with a new startup policy snapshot.
+    pub async fn restart_composer_with_env(
+        &mut self,
+        extra_env: &[(&'static str, String)],
+    ) -> Result<()> {
+        self.env.extend_from_slice(extra_env);
         {
             let mut child = self.node.child.lock().expect("node child mutex poisoned");
-            child.kill().context("stop composer for restart")?;
-            child.wait().context("wait for composer exit")?;
+            if child.try_wait().context("read composer status")?.is_none() {
+                child.kill().context("stop composer for restart")?;
+                child.wait().context("wait for composer exit")?;
+            }
         }
         self.node = NodeHandle::start_with_datadir(
             "restarted-composer",
@@ -3950,6 +4099,43 @@ impl CrossChainWorld {
         std::fs::write(&temporary, b"{}")?;
         std::fs::rename(temporary, directory.join("hold-next.json"))?;
         Ok(())
+    }
+
+    /// The existing relay also forwards read RPC unchanged; tests may point
+    /// the canonical reader here to inject a narrow, reversible RPC outage.
+    pub fn fault_rpc_url(&self) -> &str {
+        &self.builder_stub.url
+    }
+
+    pub fn fail_rpc_methods(&self, methods: &[&str]) -> Result<()> {
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("rpc-errors.new");
+        std::fs::write(&temporary, serde_json::to_vec(methods)?)?;
+        std::fs::rename(temporary, directory.join("rpc-errors.json"))?;
+        Ok(())
+    }
+
+    /// Accept the next bundle at the relay without including it on L1.
+    pub fn drop_next_bundle(&self) -> Result<()> {
+        std::fs::write(
+            self.builder_stub
+                .capture_dir()
+                .join("control/drop-next.json"),
+            b"{}",
+        )?;
+        Ok(())
+    }
+
+    pub fn dropped_bundle(&self) -> Result<Option<serde_json::Value>> {
+        match std::fs::read(
+            self.builder_stub
+                .capture_dir()
+                .join("control/dropped-bundle.json"),
+        ) {
+            Ok(raw) => Ok(Some(serde_json::from_slice(&raw)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub fn held_bundle(&self) -> Result<Option<serde_json::Value>> {
@@ -4941,14 +5127,64 @@ pub async fn run_scenarios(
 
 /// Start the shared cross-chain fixture.
 pub async fn setup_cross_chain() -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, &[]).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        &[],
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
 }
 
 /// Start the fixture with additional node environment variables.
 pub async fn setup_cross_chain_with_env(
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        extra_env,
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
+}
+
+pub async fn setup_cross_chain_with_profile(
+    profile: NativeL1Profile,
+    extra_env: &[(&'static str, String)],
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(None, None, extra_env, profile, false, false, false).await
+}
+
+/// Route the canonical reader through the existing fault-capable relay from
+/// startup, so tests can delay L1 observations without stopping the L1 miner.
+pub async fn setup_cross_chain_with_profile_and_rpc_faults(
+    profile: NativeL1Profile,
+    extra_env: &[(&'static str, String)],
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(None, None, extra_env, profile, false, true, false).await
+}
+
+/// The existing streaming proxy with runtime fault/recovery control.
+pub async fn setup_cross_chain_with_prover_faults(
+    extra_env: &[(&'static str, String)],
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(
+        Some(ProverMutation::None),
+        None,
+        extra_env,
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
 }
 
 /// Starts the fixture with a mutation proxy and expected attester override.
@@ -4956,7 +5192,26 @@ pub async fn setup_cross_chain_proxied(
     mutation: ProverMutation,
     attester: Address,
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(Some(mutation), Some(attester), &[]).await
+    setup_cross_chain_inner(
+        Some(mutation),
+        Some(attester),
+        &[],
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
+}
+
+/// Native fee comparison fixture. Zero execution base fee remains zero while
+/// these controlled blocks stay below their target; each chain's real blob fee
+/// floor remains active. Poster tips are measured from canonical receipts.
+pub async fn setup_cross_chain_with_fixed_fee_fixture(
+    profile: NativeL1Profile,
+    extra_env: &[(&'static str, String)],
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(None, None, extra_env, profile, true, false, false).await
 }
 
 pub async fn setup_cross_chain_empty_call() -> Result<CrossChainEmptyCallWorld> {
@@ -5103,11 +5358,22 @@ async fn setup_cross_chain_inner(
     mutation: Option<ProverMutation>,
     attester_override: Option<Address>,
     extra_env: &[(&'static str, String)],
+    profile: NativeL1Profile,
+    fixed_fee_fixture: bool,
+    reader_faults: bool,
+    controlled_consensus: bool,
 ) -> Result<CrossChainWorld> {
-    let mut cfg = CrossChainConfig::new()?;
+    let mut cfg = CrossChainConfig::new(profile)?;
+    if fixed_fee_fixture {
+        let mut genesis: alloy_genesis::Genesis =
+            serde_json::from_slice(&std::fs::read(&cfg.l1_genesis.0)?)?;
+        genesis.base_fee_per_gas = Some(0);
+        std::fs::write(&cfg.l1_genesis.0, serde_json::to_vec(&genesis)?)?;
+    }
     let signer_attester = signer_address(cfg.attester_key)?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
         chain_config: &cfg.l2_genesis.0,
+        l1_chain_config: Some(cfg.l1_chain_config()),
         rollup_id: cfg.rollup_id,
         signer_key: cfg.attester_key,
         vkey: signer_address(cfg.attester_key)?.into_word(),
@@ -5133,7 +5399,13 @@ async fn setup_cross_chain_inner(
         cfg.genesis_time,
     )
     .await?;
+    let mut l1_reorg_control = controlled_consensus
+        .then(|| L1ReorgControl::prepare(&cfg, &builder_stub))
+        .transpose()?;
     let mut env = cfg.env(&builder_stub.url, beacon.endpoint());
+    if reader_faults {
+        env.push(("EEZ_L1_RPC_URL", builder_stub.url.clone()));
+    }
     env.extend([
         ("EEZ_PROVER_URL", prover_url.to_string()),
         ("EEZ_ATTESTER_ADDRESS", format!("{attester:#x}")),
@@ -5144,6 +5416,9 @@ async fn setup_cross_chain_inner(
     ]);
     // Before the assertion below, so caller-supplied vars are checked too.
     env.extend_from_slice(extra_env);
+    if let Some(control) = &l1_reorg_control {
+        env.extend(control.env());
+    }
     assert!(
         !env.iter().any(|(name, _)| *name == "EEZ_PROOF_SIGNER_KEY"),
         "remote composer environment must not contain the proof-signer key",
@@ -5163,6 +5438,9 @@ async fn setup_cross_chain_inner(
 
     node.wait_for_rpc(&l1_rpc, SETUP_TIMEOUT, "embedded L1 RPC")
         .await?;
+    if let Some(control) = &mut l1_reorg_control {
+        control.start(&cfg).await?;
+    }
     let dep = deploy_protocol_dev(
         &l1_rpc,
         cfg.deployer_key,
@@ -5259,6 +5537,7 @@ async fn setup_cross_chain_inner(
         outbound_wrapper,
         prover_proxy,
         proof_signer,
+        l1_reorg_control,
         builder_stub,
         beacon,
         _witness_dir: witness_dir,

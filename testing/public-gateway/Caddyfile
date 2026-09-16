@@ -1,4 +1,4 @@
-{$EEZ_DOMAIN:eez.asuscomm.com} {
+{$EEZ_DOMAIN} {
 	encode zstd gzip
 	log
 	header {
@@ -52,7 +52,7 @@
 # These applications emit root-relative Next.js asset and navigation URLs, so
 # each receives its own HTTPS origin instead of a path prefix. Using separate
 # ports keeps the existing single dynamic-DNS hostname and certificate.
-https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
+https://{$EEZ_DOMAIN}:4443 {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=604800"
@@ -62,7 +62,7 @@ https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
 	reverse_proxy {$EEZ_BLOBSCAN_UPSTREAM:blobscan-web:3000}
 }
 
-https://{$EEZ_DOMAIN:eez.asuscomm.com}:4444 {
+https://{$EEZ_DOMAIN}:4444 {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=604800"
@@ -78,7 +78,7 @@ https://{$EEZ_DOMAIN:eez.asuscomm.com}:4444 {
 	}
 }
 
-https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
+https://{$EEZ_DOMAIN}:4445 {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=604800"

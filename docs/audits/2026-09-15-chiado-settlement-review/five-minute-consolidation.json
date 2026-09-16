@@ -1,0 +1,275 @@
+{
+  "verified": true,
+  "at": "2026-09-15T14:14:38.973451+00:00",
+  "settings": {
+    "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
+    "EEZ_SETTLEMENT_POLICY_ENABLED": "true",
+    "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+    "EEZ_L2_BLOCK_TIME_MS": "1000",
+    "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS": "off",
+    "EEZ_PREPARATION_TIME_MS": "500",
+    "EEZ_PROOF_TIME_MS": "500",
+    "EEZ_SUBMISSION_SLACK_MS": "700"
+  },
+  "configurationChange": {
+    "runtimeFile": ".runtime/chiado-settlement-20260913/private/runtime.env",
+    "oldThreshold": 1800,
+    "newThreshold": 300,
+    "composerRestartedAt": "2026-09-15T14:06:55.378020226Z",
+    "imageAndExecutableUnchanged": true,
+    "composerSha256": "321025bcd368c0dfc8f11d24f79e677d5ea1f98db41eae1d2629deb0ce398840",
+    "container": "6dbd0588f4f289f4ca07c7a626743b92a1277b229c64aa57dc11f3323918f4e6",
+    "image": "sha256:51f0a76e97a744ecf17c9cda62d7c4a478f93bd6d81545a432e3dcad875566e0",
+    "beaconAndSignerUnchanged": true,
+    "priorSafeBlockPreserved": {
+      "number": "0x22ddf",
+      "hash": "0x862715cd22a3b361640a942289dbfc2cd7cbc976ca8ebde2af99eb59e76d72ed",
+      "timestamp": "0x6aa94d0d",
+      "stateRoot": "0x59b203ec8c15b01b73da1b24ededa5eb6f41de9e208a5c03f1f1458827304e26"
+    }
+  },
+  "restartCatchup": {
+    "posts": 4,
+    "emptyL2Blocks": 1040,
+    "postHashes": [
+      "0x832078136c0feb453331f7c10665171f3e94823aa045d382bdd0d6aaaed3388a",
+      "0x8cc93c7a1945e7c12db539ddab76a466f0ae75dcf5adc2dc23bf3a812f06fbdb",
+      "0x1bdb18d8c511e60b86236b2d1bc353f6a37c7363adbf1a720e0e008f0d30ec88",
+      "0xfc0506d7e02988ad331e1631153c6f1d502c124eb4cf5ff375e258a2a67c61d2"
+    ]
+  },
+  "firstIdleCycle": {
+    "trigger": {
+      "timestamp": "2026-09-15T14:12:23.307892Z",
+      "level": "INFO",
+      "fields": {
+        "message": "settlement policy evaluated against canonical evidence",
+        "rollup_id": 1,
+        "event_name": "eez.composer.settlement.decision",
+        "reasons": "{\"general\"}",
+        "due": true,
+        "required_endpoint": "Some(L2Endpoint { number: 144155, hash: 0x164936e657cf5f01d911decf4412a0eaf664988359df76f81d64c163228568db })",
+        "unsettled_blocks": 300,
+        "settlement_age_ms": 300000,
+        "pending_pure_l2_transactions": 0,
+        "anchor_l2_number": 143855,
+        "anchor_l2_hash": "0xbceca38b501bf453fcc4711c65c9817d0760ed853367ab6ee9d7b64d4f081c14",
+        "anchor_l1_number": 23069518,
+        "anchor_l1_hash": "0xc51259c866a6b5ab614dcb6db8688f469f34a6aaeccb2ac0a7a464e0c1ccbfa7",
+        "last_settlement_timestamp": 1789481245,
+        "overdue_blocks": 0,
+        "overdue_interval_ms": 0,
+        "fullness_threshold_bps": "None",
+        "usable_bytes_per_blob": 126976,
+        "estimated_stream_bytes": 229483,
+        "effective_blobs": 2,
+        "target_l1_timestamp": 1789481545
+      },
+      "target": "eez_composer::composer::policy"
+    },
+    "lastDecisionBeforeTrigger": {
+      "timestamp": "2026-09-15T14:12:18.325764Z",
+      "level": "INFO",
+      "fields": {
+        "message": "settlement policy evaluated against canonical evidence",
+        "rollup_id": 1,
+        "event_name": "eez.composer.settlement.decision",
+        "reasons": "{}",
+        "due": false,
+        "required_endpoint": "None",
+        "unsettled_blocks": 295,
+        "settlement_age_ms": 295000,
+        "pending_pure_l2_transactions": 0,
+        "anchor_l2_number": 143855,
+        "anchor_l2_hash": "0xbceca38b501bf453fcc4711c65c9817d0760ed853367ab6ee9d7b64d4f081c14",
+        "anchor_l1_number": 23069518,
+        "anchor_l1_hash": "0xc51259c866a6b5ab614dcb6db8688f469f34a6aaeccb2ac0a7a464e0c1ccbfa7",
+        "last_settlement_timestamp": 1789481245,
+        "overdue_blocks": 0,
+        "overdue_interval_ms": 0,
+        "fullness_threshold_bps": "None",
+        "usable_bytes_per_blob": 126976,
+        "estimated_stream_bytes": 225662,
+        "effective_blobs": 2,
+        "target_l1_timestamp": 1789481540
+      },
+      "target": "eez_composer::composer::policy"
+    },
+    "postHash": "0xf3738243f39b213e8816c5756fb91fac32d7e3d7445dc3a73e101af9ac43a2f7",
+    "l1Block": 23069571,
+    "firstL2Block": 143856,
+    "lastL2Block": 144170,
+    "emptyL2Blocks": 315,
+    "blobs": 2,
+    "receipt": {
+      "type": "0x3",
+      "status": "0x1",
+      "cumulativeGasUsed": "0x1ba8d",
+      "logs": [
+        {
+          "address": "0x2fbd78894e327a38b69a3c2f539b92d926610331",
+          "topics": [
+            "0xc0b8d01bb696973c75a58d377245b23ce450af0ed8c4cf808cd0a3d85c6f3da1",
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+          ],
+          "data": "0x52dd7bc0548a57604ba4b5b2db0bc0f4bfff1b9fb17e89cef0adce7132e64951",
+          "blockHash": "0xf05bd5d7fc41caedf1d8790154cd7623632b6f990873343975d90c675db40d44",
+          "blockNumber": "0x1600383",
+          "blockTimestamp": "0x6aa9525d",
+          "transactionHash": "0xf3738243f39b213e8816c5756fb91fac32d7e3d7445dc3a73e101af9ac43a2f7",
+          "transactionIndex": "0x0",
+          "logIndex": "0x0",
+          "removed": false
+        },
+        {
+          "address": "0x2fbd78894e327a38b69a3c2f539b92d926610331",
+          "topics": [
+            "0x99403777f3e390813f268a6307c0cb1b1ae83271187473a2c07e34f81e4a2936",
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          "data": "0x0072c80140fab4534a90f8d0ada6fd188b01c05d4374e9437dbbbd9a6bafd3b600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "blockHash": "0xf05bd5d7fc41caedf1d8790154cd7623632b6f990873343975d90c675db40d44",
+          "blockNumber": "0x1600383",
+          "blockTimestamp": "0x6aa9525d",
+          "transactionHash": "0xf3738243f39b213e8816c5756fb91fac32d7e3d7445dc3a73e101af9ac43a2f7",
+          "transactionIndex": "0x0",
+          "logIndex": "0x1",
+          "removed": false
+        },
+        {
+          "address": "0x2fbd78894e327a38b69a3c2f539b92d926610331",
+          "topics": [
+            "0xd6f8d71ce42a799b91f399271f4b0e91f85eb87fac7bb2cedd4b3a52fad36182",
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+          ],
+          "data": "0x",
+          "blockHash": "0xf05bd5d7fc41caedf1d8790154cd7623632b6f990873343975d90c675db40d44",
+          "blockNumber": "0x1600383",
+          "blockTimestamp": "0x6aa9525d",
+          "transactionHash": "0xf3738243f39b213e8816c5756fb91fac32d7e3d7445dc3a73e101af9ac43a2f7",
+          "transactionIndex": "0x0",
+          "logIndex": "0x2",
+          "removed": false
+        }
+      ],
+      "logsBloom": "0x40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000040000000000000000000000000000000480000000000000040020000000000800000000000000020000000800000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000008000000000000000000000000000000000000000060000000000000000000040000000000000000000000010000200000000000000000",
+      "transactionHash": "0xf3738243f39b213e8816c5756fb91fac32d7e3d7445dc3a73e101af9ac43a2f7",
+      "transactionIndex": "0x0",
+      "blockHash": "0xf05bd5d7fc41caedf1d8790154cd7623632b6f990873343975d90c675db40d44",
+      "blockNumber": "0x1600383",
+      "gasUsed": "0x1ba8d",
+      "effectiveGasPrice": "0x3b9aca07",
+      "blobGasUsed": "0x40000",
+      "blobGasPrice": "0x3b9aca00",
+      "from": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+      "to": "0x2fbd78894e327a38b69a3c2f539b92d926610331",
+      "contractAddress": null
+    },
+    "previousL1Settlement": {
+      "number": "0x160034e",
+      "hash": "0xc51259c866a6b5ab614dcb6db8688f469f34a6aaeccb2ac0a7a464e0c1ccbfa7",
+      "timestamp": "0x6aa9511d",
+      "stateRoot": "0x3bb14e33dff72761d73ebcc865a478708a239fb41b880096683d9071649be91d"
+    },
+    "canonicalL1BlocksAcrossRetries": [
+      {
+        "number": "0x1600380",
+        "hash": "0x4ab3eb1ba121b2fc1eaddd3b0f04570806e991c610ec48821859c3ab8c669486",
+        "timestamp": "0x6aa95244",
+        "stateRoot": "0xfc172b0fa01606a5acb611be85485493db4fef9b4fbf0dee4041957e2575ad83"
+      },
+      {
+        "number": "0x1600381",
+        "hash": "0xcf4dd523c29e93c9adb0a2b16737b1388a21f4ed64451edc34b34ca7a06910de",
+        "timestamp": "0x6aa9524e",
+        "stateRoot": "0x7fbce3d5210eed867e3a353f8713dd0d709153ec27ba5e3d035e0bedfbbeabc0"
+      },
+      {
+        "number": "0x1600382",
+        "hash": "0xa2f2ed3ae6470204d593df8ad312b1978123b912838c22cbfe85039e6efaa4b8",
+        "timestamp": "0x6aa95258",
+        "stateRoot": "0x0f0b1b0706d66dc02ef6fe9770bcdcd64c059115946e1e6904fc42bca02f378b"
+      },
+      {
+        "number": "0x1600383",
+        "hash": "0xf05bd5d7fc41caedf1d8790154cd7623632b6f990873343975d90c675db40d44",
+        "timestamp": "0x6aa9525d",
+        "stateRoot": "0x7b68cfcd23f403d7988f601419cc57676da1c432b79f9a26e638274541b67370"
+      }
+    ],
+    "l1InclusionIntervalSeconds": 320,
+    "retryEvents": [
+      {
+        "timestamp": "2026-09-15T14:12:30.384762Z",
+        "level": "WARN",
+        "fields": {
+          "message": "bundle dropped; composer will retry on next tick",
+          "target_block": 23069569,
+          "tx_hash": "0x945abaa6885b225db42e127592b0688a0fb0f3cd35253801691389ea2fb48684",
+          "reason": "slot_skipped"
+        },
+        "target": "eez_l1::submitter"
+      },
+      {
+        "timestamp": "2026-09-15T14:12:40.819239Z",
+        "level": "WARN",
+        "fields": {
+          "message": "bundle dropped; composer will retry on next tick",
+          "target_block": 23069570,
+          "tx_hash": "0xf2d388d8ea2f64b2153557c3e3448084b708cac9552991c52f0dcc5370741229",
+          "reason": "slot_skipped"
+        },
+        "target": "eez_l1::submitter"
+      }
+    ],
+    "reconciledAt": "2026-09-15T14:12:46.840785Z",
+    "allRangeHashesMatchCanonicalCorrelation": true
+  },
+  "health": {
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": null,
+      "inFlight": 0,
+      "lastCanonicalCompletion": null,
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": null,
+      "unknown": 0
+    },
+    "safe": {
+      "number": "0x2332a",
+      "hash": "0x52dd7bc0548a57604ba4b5b2db0bc0f4bfff1b9fb17e89cef0adce7132e64951",
+      "timestamp": "0x6aa95258",
+      "stateRoot": "0xaf747fa9164aee1cbb76f1ca065df050bb0ebab76eebc6cf911fccad89d3cffe"
+    },
+    "latest": {
+      "number": "0x233a2",
+      "hash": "0x5b8a596f16507b1c66413dc7a8d2bc1213511be10c2a045275e01d1d5e96d23f",
+      "timestamp": "0x6aa952d0",
+      "stateRoot": "0x368dfac4ccfc5928bbd8f73298209090b37725f1fab72a389eb41dc4b8ba3a36"
+    },
+    "beaconSync": {
+      "is_syncing": false,
+      "is_optimistic": false,
+      "el_offline": false,
+      "head_slot": "24817075",
+      "sync_distance": "0"
+    },
+    "beaconPeers": {
+      "connected": "24",
+      "connecting": "0",
+      "disconnected": "4",
+      "disconnecting": "0"
+    }
+  },
+  "validationNote": "The first post-restart check compared Docker mount lists directly. This independent verification checks bindings by value, the unchanged Compose file, and the hash and state root of the previous safe block.",
+  "evidenceSha256": {
+    "deployment.json": "b7a302923cf29fc2752d7463f466c7b86ee204aeff37bdf31e32b798bab2983e",
+    "health.json": "c9d0d74253f20a9288e8254b21da1de2f0b21df8e7ef4cee4b1fb6df502767a2",
+    "verification.json": "31bb5a0fcceac4c11cbf2e13b4339d880dd004ca824581a6d7abe5b2bb7c94f5",
+    "node.log": "009dfdc30df8e44da18caacdf4796ee8f7bc57ddbbf83051c85a79bd628accae"
+  }
+}

@@ -40,8 +40,27 @@ async fn attempt_event(
     })
 }
 
-async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
-    let mut world = setup_cross_chain_with_env(&[]).await.unwrap();
+fn enabled_policy_env() -> Vec<(&'static str, String)> {
+    vec![
+        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+        ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+        ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "100000000000".into()),
+        (
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+            "100000000000".into(),
+        ),
+        // Native test miner ordering only; atomic builder ordering is exercised
+        // by the separate Kurtosis fixture.
+        ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()),
+    ]
+}
+
+async fn partial_after_proving(omitted: usize, restart_before_retry: bool, policy: bool) {
+    let env = if policy { enabled_policy_env() } else { vec![] };
+    let mut world = setup_cross_chain_with_env(&env).await.unwrap();
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
         .unwrap();
@@ -55,8 +74,12 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             .signals_since(cursor)?
             .iter()
             .any(|event| {
-                event.name == signals::COMPOSER_BUNDLE_DISPATCHED
-                    || event.name == signals::COMPOSER_PHASE1_BUNDLE_DISPATCHED
+                if policy {
+                    event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
+                } else {
+                    event.name == signals::COMPOSER_BUNDLE_DISPATCHED
+                        || event.name == signals::COMPOSER_PHASE1_BUNDLE_DISPATCHED
+                }
             })
             .then_some(()))
     })
@@ -115,7 +138,20 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         4,
         "anchor and all three users were proved"
     );
-    let dispatched = attempt_event(&world, signals::COMPOSER_BUNDLE_DISPATCHED, post_hash).await;
+    let dispatched = if policy {
+        // Final fee/gas selection re-signs only the poster. Match the immutable
+        // user wave and root; receipt/reconciliation checks below use its final hash.
+        wait_for(TIMEOUT, || async {
+            Ok(world.node.signals_since(0)?.into_iter().find(|event| {
+                event.name == signals::COMPOSER_BUNDLE_DISPATCHED
+                    && event.fields["user_hashes"] == format!("{hashes:?}")
+            }))
+        })
+        .await
+        .unwrap()
+    } else {
+        attempt_event(&world, signals::COMPOSER_BUNDLE_DISPATCHED, post_hash).await
+    };
     let height = dispatched.u64("sync_height").unwrap();
     let full_hash = dispatched.b256("sync_hash").unwrap();
     assert_eq!(full_hash, *proposed_roots.last().unwrap());
@@ -184,6 +220,33 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         .join(", ");
     assert_eq!(reconciled.fields["outcomes"], format!("[{expected}]"));
     assert_eq!(reconciled.fields["charge_attempt"], true);
+    if policy {
+        let actual = attempt_event(&world, "eez.composer.postbatch.actual_cost", post_hash).await;
+        let post_cost = U256::from(posted.gas_used) * U256::from(posted.effective_gas_price)
+            + U256::from(posted.blob_gas_used.unwrap())
+                * U256::from(posted.blob_gas_price.unwrap());
+        let mut companion_cost = U256::ZERO;
+        for (index, hash) in hashes.iter().enumerate() {
+            if index != omitted {
+                let receipt = l1.get_transaction_receipt(*hash).await.unwrap().unwrap();
+                companion_cost +=
+                    U256::from(receipt.gas_used) * U256::from(receipt.effective_gas_price);
+            }
+        }
+        assert_eq!(actual.fields["post_total_cost"], post_cost.to_string());
+        assert_eq!(
+            actual.fields["companion_total_cost"],
+            companion_cost.to_string()
+        );
+        assert_eq!(
+            actual.fields["bundle_total_cost"],
+            (post_cost + companion_cost).to_string()
+        );
+        assert!(
+            companion_cost > U256::ZERO,
+            "included source reverts still incur fees"
+        );
+    }
     let mut retry = wait_for(TIMEOUT, || async {
         Ok(world.node.signals_since(cursor)?.into_iter().find(|event| {
             event.name == signals::COMPOSER_BUNDLE_DISPATCHED
@@ -207,7 +270,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             16,
         )
         .unwrap();
-        let old_post = retry.b256("post_batch_hash").unwrap();
+        let prepared_hash = retry.b256("post_batch_hash").unwrap();
         let held_raw: Bytes = held["params"][0]["txs"][0]
             .as_str()
             .unwrap()
@@ -216,7 +279,25 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         let held_post =
             EthereumTxEnvelope::<TxEip4844WithSidecar>::decode_2718(&mut held_raw.as_ref())
                 .unwrap();
-        assert_eq!(*held_post.tx_hash(), old_post, "hold the dispatched retry");
+        let old_post = *held_post.tx_hash();
+        if !policy {
+            assert_eq!(old_post, prepared_hash, "hold the dispatched retry");
+        }
+        let held_call =
+            eez_protocol::abi::postAndVerifyBatchCall::abi_decode(held_post.input()).unwrap();
+        assert_eq!(
+            held_call
+                .batch
+                .entries
+                .last()
+                .unwrap()
+                .rootUpdates
+                .last()
+                .unwrap()
+                .newRoot,
+            retry.b256("sync_hash").unwrap(),
+            "repricing must preserve the proved retry endpoint"
+        );
         // This fixture embeds L1 in the same process. Advance beyond reth's
         // two-block persistence threshold before killing it, then verify the
         // original receipt survives. The dev chain does not advance finality.
@@ -289,12 +370,25 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     })
     .await
     .unwrap();
-    let retry_settlement = attempt_event(
-        &world,
-        signals::COMPOSER_SETTLEMENT_RECONCILED,
-        retry.b256("post_batch_hash").unwrap(),
-    )
-    .await;
+    let retry_settlement = if policy {
+        // The final poster hash changes during fee/gas selection. Its proved
+        // endpoint and the users' signed transactions remain unchanged.
+        wait_for(TIMEOUT, || async {
+            Ok(world.node.signals_since(0)?.into_iter().find(|event| {
+                event.name == signals::COMPOSER_SETTLEMENT_RECONCILED
+                    && event.fields["canonical_l2_hash"] == retry.fields["sync_hash"]
+            }))
+        })
+        .await
+        .unwrap()
+    } else {
+        attempt_event(
+            &world,
+            signals::COMPOSER_SETTLEMENT_RECONCILED,
+            retry.b256("post_batch_hash").unwrap(),
+        )
+        .await
+    };
     assert_eq!(retry_settlement.fields["outcomes"], "[Terminal(Committed)]");
     assert!(retried.status());
     assert!(retried.block_number.unwrap() > inclusion_block);
@@ -377,22 +471,37 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn first_user_omission_preserves_anchor_and_retries_only_unspent_source() {
-    partial_after_proving(0, false).await;
+    partial_after_proving(0, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn middle_user_omission_preserves_prefix_and_spent_source_dispositions() {
-    partial_after_proving(1, false).await;
+    partial_after_proving(1, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn last_user_omission_preserves_two_user_prefix_and_clean_follower() {
-    partial_after_proving(2, false).await;
+    partial_after_proving(2, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn restart_after_partial_consumption_accepts_resubmission_without_replaying_expired_bundle() {
-    partial_after_proving(1, true).await;
+    partial_after_proving(1, true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn policy_first_source_omission_keeps_the_registration_anchor() {
+    partial_after_proving(0, false, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn policy_partial_prefix_keeps_unconsumed_users_and_receipt_costs() {
+    partial_after_proving(1, false, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn policy_restart_after_partial_keeps_accounting_and_rebuilds_intent() {
+    partial_after_proving(1, true, true).await;
 }
 
 /// Both posts carry the identical proof, calldata and valid blob sidecar. A
@@ -401,7 +510,17 @@ async fn restart_after_partial_consumption_accepts_resubmission_without_replayin
 /// resume at the middle group, at the same L2 height and in the same L1 block.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
-    let world = setup_cross_chain_with_env(&[]).await.unwrap();
+    valid_same_block_resume(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn policy_valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
+    valid_same_block_resume(true).await;
+}
+
+async fn valid_same_block_resume(policy: bool) {
+    let env = if policy { enabled_policy_env() } else { vec![] };
+    let world = setup_cross_chain_with_env(&env).await.unwrap();
     let middle = deploy_value(
         &world.l1_rpc(),
         TARGET_DEPLOYER,
@@ -426,7 +545,13 @@ async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| event.name == signals::BUNDLE_ACCEPTED)
+            .any(|event| {
+                if policy {
+                    event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
+                } else {
+                    event.name == signals::BUNDLE_ACCEPTED
+                }
+            })
             .then_some(()))
     })
     .await
@@ -574,12 +699,23 @@ async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
         "only the new middle and last groups"
     );
     let full_hash = *resumed_roots.last().unwrap();
-    let dispatched = attempt_event(
-        &world,
-        signals::COMPOSER_BUNDLE_DISPATCHED,
-        *original.tx_hash(),
-    )
-    .await;
+    let dispatched = if policy {
+        wait_for(TIMEOUT, || async {
+            Ok(world.node.signals_since(0)?.into_iter().find(|event| {
+                event.name == signals::COMPOSER_BUNDLE_DISPATCHED
+                    && event.fields["user_hashes"] == format!("{users:?}")
+            }))
+        })
+        .await
+        .unwrap()
+    } else {
+        attempt_event(
+            &world,
+            signals::COMPOSER_BUNDLE_DISPATCHED,
+            *original.tx_hash(),
+        )
+        .await
+    };
     let height = dispatched.u64("sync_height").unwrap();
     assert_eq!(dispatched.b256("sync_hash").unwrap(), full_hash);
     assert_eq!(dispatched.fields["user_hashes"], format!("{users:?}"));

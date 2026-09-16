@@ -8,6 +8,17 @@
 
 use alloy_primitives::{Address, B256, address, b256};
 
+pub(crate) fn posting_context() -> eez_control_rpc::v1::L1PostingContext {
+    eez_control_rpc::v1::L1PostingContext {
+        chain_id: 1,
+        target_timestamp: 1_710_338_135, // Mainnet Cancun activation.
+    }
+}
+
+pub(crate) fn l1_chain_spec() -> std::sync::Arc<reth_chainspec::ChainSpec> {
+    reth_chainspec::MAINNET.clone()
+}
+
 /// Deterministic system-transaction identity used only by tests.
 pub(crate) const TEST_SYSTEM_ADDRESS_ARG: &str = "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 

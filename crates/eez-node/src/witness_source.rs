@@ -421,4 +421,68 @@ mod tests {
         assert_eq!(back.rlp, bw.rlp);
         assert_eq!(back.witness.state, bw.witness.state);
     }
+
+    #[test]
+    fn canonical_witness_hit_reorg_and_missing_input_preserve_retained_data() {
+        use alloy_consensus::Header;
+        use eez_prover::ProvingWitnessSource as _;
+        use reth_chainspec::ChainSpecBuilder;
+        use reth_evm_ethereum::EthEvmConfig;
+        use reth_provider::test_utils::MockEthProvider;
+        use std::sync::Arc;
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
+        let provider: MockEthProvider = MockEthProvider::new();
+        let parent = Header {
+            number: 1,
+            timestamp: 1000,
+            gas_limit: 30_000_000,
+            base_fee_per_gas: Some(0),
+            ..Default::default()
+        };
+        let parent_hash = parent.hash_slow();
+        provider.add_header(parent_hash, parent);
+        let header = Header {
+            number: 2,
+            parent_hash,
+            timestamp: 1012,
+            gas_limit: 30_000_000,
+            base_fee_per_gas: Some(0),
+            ..Default::default()
+        };
+        let original_hash = header.hash_slow();
+        provider.add_header(original_hash, header.clone());
+        let mut original = sample(2);
+        original.hash = original_hash;
+        store.put(2, &original).unwrap();
+        let config = EthEvmConfig::new(Arc::new(
+            ChainSpecBuilder::mainnet().shanghai_activated().build(),
+        ));
+        let source = super::NodeWitnessSource::new(Arc::clone(&store), provider.clone(), config);
+        assert_eq!(source.block_witness(2).unwrap().rlp, original.rlp);
+        assert!(
+            source
+                .block_witness(3)
+                .unwrap_err()
+                .contains("not captured yet")
+        );
+
+        let mut replacement = header;
+        replacement.extra_data = Bytes::from_static(b"replacement");
+        let replacement_hash = replacement.hash_slow();
+        // Publishing the new canonical hash without its body must not return
+        // the old branch's witness or prune it using a policy threshold.
+        provider.headers.lock().remove(&original_hash);
+        provider.add_header(replacement_hash, replacement.clone());
+        assert!(source.block_witness(2).is_err());
+        assert_eq!(store.get(2).unwrap().unwrap().hash, original_hash);
+        // The pinned mock's recovered_block is always None. Test restoration
+        // through the existing capture store here; native restart coverage
+        // exercises replay with the actual Reth provider and an empty store.
+        let mut recaptured = original.clone();
+        recaptured.hash = replacement_hash;
+        recaptured.rlp = Bytes::from_static(b"canonical replacement fixture");
+        store.put(2, &recaptured).unwrap();
+        assert_eq!(source.block_witness(2).unwrap().hash, replacement_hash);
+    }
 }

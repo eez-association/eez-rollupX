@@ -1,0 +1,2601 @@
+{
+  "status": "final candidate implemented and locally validated; no live deployment changed",
+  "branch": "feat/configurable-settlement-policy",
+  "sourcePatchSha256": "53188c7ce7cc419b07c6f4d2981cf0023a39abcf62ec9cbb6949b26770b1ba96",
+  "productionFiles": [
+    "crates/eez-composer/src/composer/admission.rs",
+    "crates/eez-composer/src/composer.rs",
+    "crates/eez-l1/src/submitter.rs"
+  ],
+  "runtime": {
+    "binaries": {
+      "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+      "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+      "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+    },
+    "builtAt": "2026-09-15T18:30:48.192351+00:00",
+    "baseCommit": "f46e40bad4d49e365ca6f62296ab07f57bd9b259",
+    "sourceDiffSha256": "d1902844b20ff5d1cda74875358e02ae9cb1eada448d6babf139040969edd5a9"
+  },
+  "fixtureIdentities": {
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": "1e796e2ee0e90b357e9a8ec9115ac50229fe035a26021fdba1455d7bc5730223",
+    "crates/eez-testkit/src/l1_reorg.rs": "656447951615057b6b11176d20c7976691812e74316bf1da2117e91538d9d614",
+    "scripts/native-l1-consensus.py": "ffa0af18b7a5c6aa83792ea85b959970f944cc524ce3e11a4eb18cf7ca1f62fb"
+  },
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-15T18:29:59.262937+00:00",
+      "durationSeconds": 0.680384
+    },
+    {
+      "name": "unit",
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "test",
+        "-p",
+        "eez-composer",
+        "-p",
+        "eez-l1",
+        "--lib",
+        "--offline",
+        "--locked",
+        "-j2"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-15T18:29:59.943654+00:00",
+      "durationSeconds": 6.167748
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "clippy",
+        "-p",
+        "eez-composer",
+        "-p",
+        "eez-l1",
+        "-p",
+        "eez-testkit",
+        "-p",
+        "eez-node-e2e",
+        "--all-targets",
+        "--offline",
+        "--locked",
+        "-j2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-15T18:30:06.111709+00:00",
+      "durationSeconds": 11.296917
+    },
+    {
+      "name": "python-syntax",
+      "command": [
+        "python3",
+        "-m",
+        "py_compile",
+        "scripts/native-l1-consensus.py"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-15T18:30:17.409020+00:00",
+      "durationSeconds": 0.04691
+    },
+    {
+      "name": "whitespace",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "startedAt": "2026-09-15T18:30:17.456305+00:00",
+      "durationSeconds": 0.027294
+    }
+  ],
+  "unitCounts": {
+    "composer": 181,
+    "l1": 127
+  },
+  "nativeCases": [
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/dynamic_admission",
+        "--exact",
+        "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+        "--test-threads=1"
+      ],
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 85.58s"
+      ],
+      "durationSeconds": 85.59,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/automatic_selection_survives_a_canonically_skipped_slot_without_shrinking/test.log"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/dynamic_admission",
+        "--exact",
+        "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+        "--test-threads=1"
+      ],
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 87.28s"
+      ],
+      "durationSeconds": 87.3,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source/test.log"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/dynamic_admission",
+        "--exact",
+        "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1"
+      ],
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 92.04s"
+      ],
+      "durationSeconds": 92.05,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/test.log"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/dynamic_admission",
+        "--exact",
+        "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1"
+      ],
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 92.52s"
+      ],
+      "durationSeconds": 92.56,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/test.log"
+    },
+    {
+      "target": "queue_reorg",
+      "test": "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/queue_reorg",
+        "--exact",
+        "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+        "--test-threads=1"
+      ],
+      "executableSha256": "65a8b949cff6cd78609e48862040fd8acbb5a579b3e386b4432e84edb1694ca4",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 85.88s"
+      ],
+      "durationSeconds": 85.94,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order/test.log"
+    },
+    {
+      "target": "dynamic_admission",
+      "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/harness/dynamic_admission",
+        "--exact",
+        "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+        "--test-threads=1"
+      ],
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+      },
+      "exitCode": 0,
+      "passed": true,
+      "summary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 91.07s"
+      ],
+      "durationSeconds": 91.1,
+      "log": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/candidate-v2/integration/automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts/test.log"
+    }
+  ],
+  "negativeControl": {
+    "result": {
+      "target": "dynamic_admission",
+      "test": "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "executableSha256": "1482c2294770245256e22a58dd318de15cb392953a1edc514389b4f78ffeb243",
+      "runtime": {
+        "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+        "eez-follower": "9584d300d41a35e3df0f3a9ca9f4e6f61a2b0533ec5f76a80c02502c5f18a1a5",
+        "eez-composer": "f6e672458cc14f3c8bd2d01513baae71cc0a8cc6dd087642780fdba8ed12cb3c"
+      },
+      "exitCode": 101,
+      "passed": false,
+      "summary": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 90.44s"
+      ],
+      "durationSeconds": 90.51
+    },
+    "interpretation": "Expected old-runtime failure at same settled L2 block assertion; four sources split into Sync85/90 after skipped-slot backoff4\u21922. New candidate passes."
+  },
+  "liveDeploymentChanged": false,
+  "artifactDirectory": "artifacts/performance-parallel-20260915/",
+  "preservedEarlierFailures": [
+    {
+      "evidence": "artifacts/performance-parallel-20260915/candidate/unit-local-network.json",
+      "description": "V1 socket-permission failure passed unchanged with loopback access."
+    },
+    {
+      "evidence": "artifacts/performance-parallel-20260915/candidate-v2/initial-unit-fixture-failure",
+      "description": "Two new V2 tests incorrectly initialized a fresh attempt as rebuilt; fixture corrected without weakening production guard or assertions."
+    }
+  ],
+  "runtimeErrorEvidence": "artifacts/performance-parallel-20260915/candidate-v2/runtime-error-observations.json",
+  "v1ComparisonEvidence": "artifacts/performance-parallel-20260915/release/v1-results.md",
+  "coverage": [
+    {
+      "requirement": "Observed accepted-group work determines non-KZG finishing reserve, retaining floor and fallback",
+      "implementation": [
+        "crates/eez-composer/src/composer/admission.rs::Sample::tail_for",
+        "crates/eez-composer/src/composer/admission.rs::Progress::sample"
+      ],
+      "tests": [
+        "composer::admission::tests::clean_measured_group_work_scales_finishing_without_repeating_all_admission",
+        "composer::admission::tests::learned_finishing_tracks_slower_work_and_each_physical_blob_before_commit"
+      ],
+      "configuration": "Automatic admission only; no new options"
+    },
+    {
+      "requirement": "Explicit final timing refusal can preserve valid prefix without learning rejected work or prospective blobs",
+      "implementation": [
+        "crates/eez-composer/src/composer/admission.rs::Attempt::can_finish_at"
+      ],
+      "tests": [
+        "composer::admission::tests::a_known_time_refusal_preserves_prefix_learning_without_charging_rejected_work",
+        "composer::admission::tests::a_time_limited_prefix_improves_the_next_attempt_but_keeps_work_blob_and_deadline_guards"
+      ],
+      "configuration": "No change"
+    },
+    {
+      "requirement": "Unknown, source-deferred, failed-append, duplicate, inconsistent and rebuilt observations retain fallback",
+      "implementation": [
+        "crates/eez-composer/src/composer/admission.rs::Progress::sample",
+        "crates/eez-composer/src/composer/admission.rs::Attempt::can_start_at",
+        "crates/eez-composer/src/composer/admission.rs::Attempt::can_finish_at"
+      ],
+      "tests": [
+        "composer::admission::tests::rejected_deferred_unfinished_and_rebuilt_work_cannot_train_a_cheap_tail",
+        "composer::admission::tests::time_refusal_does_not_clear_source_rebuild_append_or_bracket_uncertainty",
+        "composer::admission::tests::group_timing_requires_unique_matching_start_and_finish_and_valid_arithmetic"
+      ],
+      "configuration": "No change"
+    },
+    {
+      "requirement": "Keep physical blob cost, gas and proof/dispatch cutoffs authoritative",
+      "implementation": [
+        "crates/eez-composer/src/composer/admission.rs::Sample::tail_for",
+        "existing exact packing, full-bundle simulation and submitter deadlines unchanged"
+      ],
+      "tests": [
+        "composer::admission::tests::multi_blob_samples_do_not_permanently_block_smaller_candidates_and_overflow_fails_closed",
+        "submitter::tests::exact_target_missed_deadline_never_reaches_target_rpc",
+        "submitter::tests::selected_policy_target_still_rejects_late_preparation_and_skipped_slots",
+        "dynamic_admission::automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts"
+      ],
+      "configuration": "Existing configured timing and resource limits retained"
+    },
+    {
+      "requirement": "Exempt backoff only for an uncharged exact target proven absent in completed canonical history with every source retryable",
+      "implementation": [
+        "crates/eez-l1/src/submitter.rs::canonical_target_was_skipped",
+        "crates/eez-composer/src/composer.rs::submission_backoff_required",
+        "crates/eez-composer/src/composer.rs canonical reconciliation caller"
+      ],
+      "tests": [
+        "submitter::tests::skipped_slot_requires_a_strict_gap_between_canonical_headers",
+        "submitter::tests::timestamp_mismatch_without_a_skipped_slot_does_not_exempt_backoff",
+        "submitter::tests::skipped_slot_evidence_rejects_unavailable_or_reorged_headers",
+        "submitter::tests::skipped_slot_evidence_cannot_precede_the_completed_scan",
+        "composer::tests::proven_skipped_slot_retains_capacity_only_when_every_source_can_retry",
+        "composer::tests::completed_or_empty_attempt_never_trains_failure_backoff",
+        "dynamic_admission::automatic_selection_survives_a_canonically_skipped_slot_without_shrinking"
+      ],
+      "configuration": "Automatic mode only; no change to charging, ownership or target pinning"
+    },
+    {
+      "requirement": "Retain backoff on real exclusions and preserve canonical reorg recovery and replay",
+      "implementation": [
+        "crates/eez-composer/src/composer.rs::submission_backoff_required",
+        "existing canonical source reconciliation and queue generation handling unchanged"
+      ],
+      "tests": [
+        "dynamic_admission::automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+        "queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+        "dynamic_admission::gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "dynamic_admission::ethereum_explicit_preparation_mixed_wave_after_small_post_replays"
+      ],
+      "configuration": "No change"
+    },
+    {
+      "requirement": "Preserve legacy/default/numeric behavior and configuration precedence",
+      "implementation": [
+        "Existing automatic-mode guard and configuration parsing unchanged"
+      ],
+      "tests": [
+        "composer::config::tests::operational_defaults_preserve_legacy_and_have_no_implicit_blob_cap",
+        "composer::config::tests::automatic_admission_requires_network_aware_policy_and_preserves_numeric_defaults",
+        "settlement_policy::config::tests::absent_settings_preserve_legacy_defaults_and_old_cap"
+      ],
+      "configuration": "No new parsed fields, defaults, CLI options or serialization"
+    }
+  ],
+  "documentation": [
+    "docs/configurable-settlement-policy.md",
+    "docs/proposals/configurable-settlement-policy.md"
+  ],
+  "releaseRuntime": {
+    "eez-proof-signer": {
+      "sha256": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "bytes": 16129920,
+      "fresh": true
+    },
+    "eez-follower": {
+      "sha256": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "bytes": 95564752,
+      "fresh": true
+    },
+    "eez-composer": {
+      "sha256": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b",
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "bytes": 117901712,
+      "fresh": false
+    }
+  },
+  "releaseBuild": {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "build",
+      "--release",
+      "-p",
+      "eez-node",
+      "-p",
+      "eez-follower",
+      "-p",
+      "eez-proof-signer",
+      "--bins",
+      "--offline",
+      "--locked",
+      "-j",
+      "3",
+      "--message-format=json"
+    ],
+    "cwd": "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/candidate-v2-source",
+    "startedAt": "2026-09-15T18:30:15.171885+00:00",
+    "exitCode": 0,
+    "durationSeconds": 422.4443202018738,
+    "finishedAt": "2026-09-15T18:37:17.616211+00:00"
+  },
+  "sourceScopeVerification": {
+    "baselineFilesChecked": 515,
+    "changedFiles": [
+      "crates/eez-composer/src/composer.rs",
+      "crates/eez-composer/src/composer/admission.rs",
+      "crates/eez-l1/src/submitter.rs",
+      "crates/eez-node-e2e/tests/dynamic_admission.rs",
+      "crates/eez-testkit/src/l1_reorg.rs",
+      "docs/configurable-settlement-policy.md",
+      "docs/proposals/configurable-settlement-policy.md",
+      "scripts/native-l1-consensus.py"
+    ],
+    "matchesReviewedScope": true,
+    "symlinkIdentitiesCheckedAsLinks": true
+  },
+  "followUpEvidence": [
+    "artifacts/performance-parallel-20260915/gas-follow-up.md",
+    "artifacts/performance-parallel-20260915/gas-follow-up.json",
+    "artifacts/performance-parallel-20260915/prover-follow-up.md"
+  ],
+  "comparisonBase": {
+    "description": "Frozen working tree before this follow-up, including earlier uncommitted branch changes",
+    "sourceDirectory": "artifacts/performance-parallel-20260915/release/baseline-source",
+    "identityManifest": "artifacts/performance-parallel-20260915/release/baseline-identities.json",
+    "baseCommit": "f46e40bad4d49e365ca6f62296ab07f57bd9b259"
+  },
+  "sourcePatchPath": "artifacts/performance-parallel-20260915/integrated-change.patch",
+  "performance": {
+    "v1PassedTrials": 15,
+    "v2PassedTrials": 6,
+    "trialFailures": 0,
+    "trialReruns": 0,
+    "negativeControlExcludedFromPassingTrials": true,
+    "scope": "Local native fixtures; one trial per condition, no universal speedup or cost-saving claim",
+    "completeEvidence": "artifacts/performance-parallel-20260915/release/comparison-summary.json",
+    "completeEvidenceSha256": "abafbf99929614de0f10fff20e87db827825525527df7c750797731211a2ec45",
+    "finalCandidate": [
+      {
+        "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "candidate-v2-dev",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "dev",
+        "startedAt": "2026-09-15T18:39:06.625410+00:00",
+        "finishedAt": "2026-09-15T18:40:28.704499+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+          "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+          "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 82.07909006997943,
+        "waveCanonicalSourceCounts": [
+          55,
+          55,
+          18
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          2,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 4,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 4.178864002227783,
+          "median": 10.290432453155518,
+          "p95": 15.138715028762817,
+          "maximum": 15.169636964797974,
+          "total": 1095.3325605392456
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {
+          "preparation_time": 1
+        },
+        "gasBudgetCutConstraints": {},
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 130,
+          "median": 330,
+          "p95": 395,
+          "maximum": 395,
+          "total": 855
+        },
+        "logIdentities": {
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-auto-follower-1823848-3.log": "644658595d4caefc48053790e6e15cdbbde3e18da2e4346fd5e2150991505815",
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-node-1823848-2.log": "989a3f5aa2feff55b56eb732f76a7eea54a17d26ce2e6bc45a05b95ce949323f"
+        },
+        "logRoles": {
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-auto-follower-1823848-3.log": "follower",
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-node-1823848-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:40:15.634282Z",
+            "selected": 128,
+            "accepted": 55,
+            "preparation_ms": 330,
+            "admission_ms": 227,
+            "non_blob_finishing_ms": 22,
+            "measured_group_work_ms": 210,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": true,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 55
+          },
+          {
+            "timestamp": "2026-09-15T18:40:20.699697Z",
+            "selected": 55,
+            "accepted": 55,
+            "preparation_ms": 395,
+            "admission_ms": 245,
+            "non_blob_finishing_ms": 21,
+            "measured_group_work_ms": 220,
+            "available_ms": 496,
+            "blob_count": 2,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 18
+          },
+          {
+            "timestamp": "2026-09-15T18:40:25.435967Z",
+            "selected": 18,
+            "accepted": 18,
+            "preparation_ms": 130,
+            "admission_ms": 51,
+            "non_blob_finishing_ms": 13,
+            "measured_group_work_ms": 44,
+            "available_ms": 495,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x090ac714a80b0bc66f37f60ff7610dadda8d95102898f82e33497cb31c458771",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0x6a47715703d3cd00c97339d9028934384577709af164ff52bb39eaf1ac360539",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 71,
+            "syncHash": "0x65a1d93b7e68860aa0f90409386704787ad4997ce9ec90fbf052a13031d772b4",
+            "sourceCount": 55,
+            "safeTimestamp": "2026-09-15T18:40:17.072086Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:40:18.215186Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xfcc5c51c299983ac9c795a7dfd2821c3db826bf09076df15d5c929c58b2be07a",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0x3b386ddc8b8fb428770c6246712c9f2b459c827903643e43cf94b041f0a65d06",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0xd4d58a1b59417aeafe7a0384e644087e15e5c32564380364ccfae798f121e7c0",
+            "sourceCount": 55,
+            "safeTimestamp": "2026-09-15T18:40:23.089696Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:40:24.227242Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xbb3428e2c418bc0af136c0ba33858d7188ee491aa0c370545a076ad1f91f3200",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0x8d10a4ed0d233d660c9012392c5ea546182ade6e54ad552a575d5cfc2a7e3771",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0x12b56dc40308075985055772b65516af5ab5baf36ff1687358ced9847d9aa976",
+            "sourceCount": 18,
+            "safeTimestamp": "2026-09-15T18:40:28.067908Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:40:28.216364Z"
+          }
+        ],
+        "runtimeErrors": [],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:39:28.149899Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789497572 }"
+          }
+        ]
+      },
+      {
+        "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "candidate-v2-release",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:40:28.708520+00:00",
+        "finishedAt": "2026-09-15T18:41:50.684809+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 81.97628286294639,
+        "waveCanonicalSourceCounts": [
+          57,
+          53,
+          18
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          2,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 4,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 3.273160934448242,
+          "median": 9.360217571258545,
+          "p95": 14.237021923065186,
+          "maximum": 14.286531925201416,
+          "total": 964.3414077758789
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {
+          "preparation_time": 1
+        },
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 1
+        },
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 94,
+          "median": 296,
+          "p95": 297,
+          "maximum": 297,
+          "total": 687
+        },
+        "logIdentities": {
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-auto-follower-1831168-3.log": "2448bfb1b64e7403423f4aba014cef32381f026b6c910de16de6ae267f50ffc8",
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-node-1831168-2.log": "a662e652170e656ea54af2757861434661b9d193acaf65f45a6842089c0f5326"
+        },
+        "logRoles": {
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-auto-follower-1831168-3.log": "follower",
+          "round-2/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-node-1831168-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:41:37.601552Z",
+            "selected": 128,
+            "accepted": 57,
+            "preparation_ms": 297,
+            "admission_ms": 192,
+            "non_blob_finishing_ms": 14,
+            "measured_group_work_ms": 182,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 53
+          },
+          {
+            "timestamp": "2026-09-15T18:41:42.600011Z",
+            "selected": 57,
+            "accepted": 53,
+            "preparation_ms": 296,
+            "admission_ms": 160,
+            "non_blob_finishing_ms": 15,
+            "measured_group_work_ms": 146,
+            "available_ms": 497,
+            "blob_count": 2,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": true,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 18
+          },
+          {
+            "timestamp": "2026-09-15T18:41:47.398511Z",
+            "selected": 18,
+            "accepted": 18,
+            "preparation_ms": 94,
+            "admission_ms": 27,
+            "non_blob_finishing_ms": 8,
+            "measured_group_work_ms": 21,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0xece7c91935e122da4910ae8ea6b97b92c56821e50df1df03b3845afd8983bc50",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0x0c3c3efa9a26c1d14ca68364a9309ee73839e1e7e8bfcfc6a1c4a01864810351",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 71,
+            "syncHash": "0x012201c810413a1faea90b6a16290ca7bc849bc88b3a6cd6fb22d123b570aeb2",
+            "sourceCount": 57,
+            "safeTimestamp": "2026-09-15T18:41:39.173148Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:41:40.379922Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x7edef1638de4d2baa43da97b9a3dff2c7fc9456d44b76028bca5e1fdb1b04099",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0x4a9f29a2ca4b8a7ef4f7a6d7c1a86f35ab833046512adf6807dac2b233096f0c",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0xa51c7c0747338cabb357e09cd651b40dcc733d6b2def88e835d81ab1d7265246",
+            "sourceCount": 53,
+            "safeTimestamp": "2026-09-15T18:41:45.150747Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:41:46.380800Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x40d6312932a656c482bada9f5bf8c12c95ca716dafad9b741b38a16aad658b31",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0x181cfaf1dcf22f649ea71d8841021fcfaaa64c062a5010800f5b0060c2169bd0",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0x204e07489eae2df21d6f52882a4f60596e867515ae913948c2d802746369491b",
+            "sourceCount": 18,
+            "safeTimestamp": "2026-09-15T18:41:50.151043Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:41:50.378005Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:40:52.416793Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-5: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          },
+          {
+            "timestamp": "2026-09-15T18:40:52.801690Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-6: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          },
+          {
+            "timestamp": "2026-09-15T18:40:54.339382Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "canonical settlement evidence changed during proving"
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:40:52.155339Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789497654 }"
+          }
+        ]
+      },
+      {
+        "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "candidate-v2-dev",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "dev",
+        "startedAt": "2026-09-15T18:41:53.761686+00:00",
+        "finishedAt": "2026-09-15T18:43:25.756369+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-follower": "ec7855cbb19f3c3961679c48509cbca99776285adfffe7ef3120fa8bf2b829cd",
+          "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+          "eez-composer": "bd829735be0c3c43df442d47995f211e2eed4a1ece268f59fb3037db693e382a"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 91.99467915017158,
+        "waveCanonicalSourceCounts": [
+          31,
+          31,
+          31,
+          31,
+          4
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 5,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 5.768277883529663,
+          "median": 14.322322487831116,
+          "p95": 19.60332179069519,
+          "maximum": 24.30448889732361,
+          "total": 1639.0763177871704
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 2
+        },
+        "wavePreparationMs": {
+          "count": 5,
+          "minimum": 191,
+          "median": 286,
+          "p95": 321,
+          "maximum": 321,
+          "total": 1363
+        },
+        "logIdentities": {
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-auto-follower-1838720-3.log": "51ccb4a5c2142a33f6d445394b1601ac2b049f93a3b2b128a9f920de3dd99c04",
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-node-1838720-2.log": "d250462af582ff848ba373cd54b76b78dba07b9dcbc85b50198c61e2cb13a214"
+        },
+        "logRoles": {
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-auto-follower-1838720-3.log": "follower",
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-dev/logs/eez-node-node-1838720-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:43:02.578821Z",
+            "selected": 128,
+            "accepted": 31,
+            "preparation_ms": 273,
+            "admission_ms": 88,
+            "non_blob_finishing_ms": 16,
+            "measured_group_work_ms": 80,
+            "available_ms": 495,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:43:07.593339Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 286,
+            "admission_ms": 80,
+            "non_blob_finishing_ms": 16,
+            "measured_group_work_ms": 73,
+            "available_ms": 494,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:43:12.596929Z",
+            "selected": 66,
+            "accepted": 31,
+            "preparation_ms": 292,
+            "admission_ms": 92,
+            "non_blob_finishing_ms": 16,
+            "measured_group_work_ms": 84,
+            "available_ms": 496,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:43:17.625900Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 321,
+            "admission_ms": 86,
+            "non_blob_finishing_ms": 18,
+            "measured_group_work_ms": 79,
+            "available_ms": 496,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 4
+          },
+          {
+            "timestamp": "2026-09-15T18:43:22.495992Z",
+            "selected": 4,
+            "accepted": 4,
+            "preparation_ms": 191,
+            "admission_ms": 8,
+            "non_blob_finishing_ms": 9,
+            "measured_group_work_ms": 4,
+            "available_ms": 496,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x0f92b2bd43a802e759691509b7148b10a4c630797efc98a60e6b7daee18d4c42",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0x8f4f57b055c9477c6d6c26ab0a0353289fb11e295626d6d995a0af2ab464eed5",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 71,
+            "syncHash": "0xf5328365f062b78008c7c4b10e55bf5c649b7faae00019e6557dac8d837d3751",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:43:05.408134Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:43:05.420692Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x8f88efba930dc4ade81b306220683a46cd81d11d04bc54f90ac1229d489c9819",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0x1d233458922824f3623bd567c25609437500bec81aaeae5c8f99be0d41865213",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0x8109d76ed1cb65e2cc03fea0760e1d86b6cafe277d11345cd95e81f7131ff2d7",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:43:09.333727Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:43:09.422850Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x69871192cfd483efd9a5099102900b293b25315d9d6decda6a92ce10468c6a6c",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0xb294a4df0a4ec136b4b4a2f747645baa5c45d882caadc8f9407cfcf365935b73",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0x66b05a13d2ea6bd2038c27a8f46d9e099c4d9b81922e49dd96209634b71d81d0",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:43:14.283401Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:43:15.326008Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x4903506e2bf027628318c01196c0487c5c14a690366dd5df03e7af21bafbb0f3",
+            "canonicalL1Block": 17,
+            "canonicalL1BlockHash": "0xb2e1051cfd599e694f83d35cd2543a1547e84d068a1ad607e15b05aa424854d5",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 86,
+            "syncHash": "0x5bfd7cc5c2aa2ec692dec83fba11615bf480dd28a01631dc9582dffdeafd6ecf",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:43:19.270352Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:43:19.384187Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x850adb5aeabd26b054d74301afbd398d0c81ab00fb86ea9739a1f2b91e6c05fb",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0x3cab4c5362c552d3756d9bc85b6c546b87113decf0954cb9c20f1a2b7c33a827",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 91,
+            "syncHash": "0x0eeda9c9a9c272c79b0a2ebb6187764e700d3bf13cf1623be138b1b3b7d5086c",
+            "sourceCount": 4,
+            "safeTimestamp": "2026-09-15T18:43:24.293295Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:43:25.294865Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:42:17.013684Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-5: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:42:15.478176Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789497739 }"
+          }
+        ]
+      },
+      {
+        "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "candidate-v2-release",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:43:25.761294+00:00",
+        "finishedAt": "2026-09-15T18:45:02.668981+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 96.90768415806815,
+        "waveCanonicalSourceCounts": [
+          31,
+          31,
+          31,
+          31,
+          4
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 5,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 3.655380964279175,
+          "median": 14.431219100952148,
+          "p95": 18.663806200027466,
+          "maximum": 23.331115007400513,
+          "total": 1543.4015092849731
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 2
+        },
+        "wavePreparationMs": {
+          "count": 5,
+          "minimum": 181,
+          "median": 243,
+          "p95": 277,
+          "maximum": 277,
+          "total": 1207
+        },
+        "logIdentities": {
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-auto-follower-1846873-3.log": "9c3ee6379a43b3145483fbac4fe676239b5532052043ecdefd7da0cd046c4e23",
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-node-1846873-2.log": "43419f595fd94f2a43cb41d958981414e530bbf167b36182b997b555834e0a19"
+        },
+        "logRoles": {
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-auto-follower-1846873-3.log": "follower",
+          "round-2/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/candidate-v2-release/logs/eez-node-node-1846873-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:44:39.580776Z",
+            "selected": 128,
+            "accepted": 31,
+            "preparation_ms": 277,
+            "admission_ms": 95,
+            "non_blob_finishing_ms": 15,
+            "measured_group_work_ms": 87,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:44:44.546828Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 243,
+            "admission_ms": 60,
+            "non_blob_finishing_ms": 13,
+            "measured_group_work_ms": 55,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:44:49.546126Z",
+            "selected": 66,
+            "accepted": 31,
+            "preparation_ms": 241,
+            "admission_ms": 64,
+            "non_blob_finishing_ms": 11,
+            "measured_group_work_ms": 59,
+            "available_ms": 496,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:44:54.570850Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 265,
+            "admission_ms": 77,
+            "non_blob_finishing_ms": 12,
+            "measured_group_work_ms": 70,
+            "available_ms": 495,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 4
+          },
+          {
+            "timestamp": "2026-09-15T18:44:59.485248Z",
+            "selected": 4,
+            "accepted": 4,
+            "preparation_ms": 181,
+            "admission_ms": 5,
+            "non_blob_finishing_ms": 6,
+            "measured_group_work_ms": 3,
+            "available_ms": 497,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x834167cda0f714a75c67da7dfe0c8fb8777f1ac4ce01049423e987aee8635a33",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0xdc04f338952351e91a718c94ca167ea86edb9f5390849dc436200affe7f5948e",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0x3d513725ff944e64b848becef3c8767d27b88d539847f2f4d89b022d7e306cf2",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:44:41.251456Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:44:42.302924Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x9aba562abdd0b4e10a641e8fb454d517fd654fed52a19653967de4a8bdbf498e",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0x529f43ab9dc257ea3e21cc017e1308c5325bd801554ccf752c4a0135d45ab88e",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0x7d00da5d6a59913dad453e300b8d362aef22cdb9b2bb7148e2448a17989dede1",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:44:47.330589Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:44:48.314645Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xcefd1b902dfe348daeb9873355bc3aa1fd1f2e7d93b314b8e52e89e0a574fba0",
+            "canonicalL1Block": 17,
+            "canonicalL1BlockHash": "0xa621f5640b02d88afbf3f3a2072c6e8ffdf9a4d0039d78199d599cfb323c8eb6",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 86,
+            "syncHash": "0xdbfaac36603a95dbf00442efd2af005b86b76d7cb18e1203fedc919257cf0e8a",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:44:52.294799Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:44:52.347723Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xb9a8c8dfefc0e094eae8c1be223dd8dd4fb51f82d58ab331bde0291f9b5301a8",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0xc603fc2ffc3ee82eec41e95d70fd0ff0c0b6c9a026d5c0b08da78e9d268fba49",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 91,
+            "syncHash": "0x22654366fb859ccdab599f75451dc01008136e8defc11fdcd832a5486e16ee92",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:44:56.282277Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:44:56.343132Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xa55ccba8cdf2034f34f8f303bf32be7de67c1a9cdd8bdd6d308ace80effe4b20",
+            "canonicalL1Block": 19,
+            "canonicalL1BlockHash": "0x309df9bfc4a4a5b299e2fce8b7ff9427457f66cdb9db05183fc51c5c196f5522",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 96,
+            "syncHash": "0x35a82345fd3872926499e6f1009cc525e6dd27c1c89f8d3b464ecb77cdeecc9a",
+            "sourceCount": 4,
+            "safeTimestamp": "2026-09-15T18:45:01.213155Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:45:02.278470Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:43:49.641211Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-5: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:43:49.302570Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789497831 }"
+          }
+        ]
+      },
+      {
+        "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "profile": "candidate-v2-release",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:45:04.830288+00:00",
+        "finishedAt": "2026-09-15T18:46:51.510045+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/settlement_policy_gas",
+          "--exact",
+          "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b"
+        },
+        "harnessSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83",
+        "passed": true,
+        "fixtureDurationSeconds": 106.67975314287469,
+        "waveCanonicalSourceCounts": [
+          1,
+          1
+        ],
+        "waveUniqueSettledSources": 2,
+        "wavePhysicalBlobCounts": [
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 2,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 2,
+          "minimum": 13.131936073303223,
+          "median": 15.127874493598938,
+          "p95": 17.123812913894653,
+          "maximum": 17.123812913894653,
+          "total": 30.255748987197876
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 3
+        },
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 70,
+          "median": 72,
+          "p95": 103,
+          "maximum": 103,
+          "total": 245
+        },
+        "logIdentities": {
+          "round-2/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/candidate-v2-release/logs/eez-node-node-1855782-2.log": "e1ddadff2d7651964a2fb9ad96047b99aba8373cfca5bb47a6ef7f893993fc1b",
+          "round-2/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/candidate-v2-release/logs/eez-node-policy-gas-follower-1855782-3.log": "f4775306c9686841d82eca025f4d2112b98aa511a82e7c04d97d7e8553b00eef"
+        },
+        "logRoles": {
+          "round-2/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/candidate-v2-release/logs/eez-node-node-1855782-2.log": "composer",
+          "round-2/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/candidate-v2-release/logs/eez-node-policy-gas-follower-1855782-3.log": "follower"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:46:23.077823Z",
+            "selected": 2,
+            "accepted": 1,
+            "preparation_ms": 72,
+            "admission_ms": 2,
+            "non_blob_finishing_ms": 6,
+            "measured_group_work_ms": 0,
+            "available_ms": 895,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 1
+          },
+          {
+            "timestamp": "2026-09-15T18:46:28.108943Z",
+            "selected": 2,
+            "accepted": 1,
+            "preparation_ms": 103,
+            "admission_ms": 16,
+            "non_blob_finishing_ms": 10,
+            "measured_group_work_ms": 1,
+            "available_ms": 895,
+            "blob_count": 1,
+            "group_work_calibrated": false,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 1
+          },
+          {
+            "timestamp": "2026-09-15T18:46:33.075376Z",
+            "selected": 1,
+            "accepted": 1,
+            "preparation_ms": 70,
+            "admission_ms": 2,
+            "non_blob_finishing_ms": 5,
+            "measured_group_work_ms": 0,
+            "available_ms": 895,
+            "blob_count": 1,
+            "group_work_calibrated": true,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x9de3dd96c3791f0da52f2f4be6ca3f6bc9177c051da76c88e4dea053819fb559",
+            "canonicalL1Block": 17,
+            "canonicalL1BlockHash": "0xfe460a438da7111f14a9a8503970139640965bd945a615255b297f688cf74b7d",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 86,
+            "syncHash": "0x211d12053054d1cc99120b9c405106a5f7cce9059c05912cf4f1e6ff21d39731",
+            "sourceCount": 1,
+            "safeTimestamp": "2026-09-15T18:46:31.263648Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:46:32.076866Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x574baf683bacd20578b3544673bbdf1be6a076f35628edac2aa503c210be0319",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0x54e7d77cc8db77099d775900d9838f0a3ac3fa07cbfdb800cf3fd1d520b12ddf",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 91,
+            "syncHash": "0xdcac607ec4130bb997b4126117fa1071ef8db20a087e37f86b479448902ee548",
+            "sourceCount": 1,
+            "safeTimestamp": "2026-09-15T18:46:35.255528Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:46:35.587974Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:46:24.079118Z",
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:46:24.079004Z",
+            "level": "WARN",
+            "message": "not retrying proof because its retry budget is exhausted",
+            "attempt": 1,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 16, timestamp: 1789497985 }"
+          },
+          {
+            "timestamp": "2026-09-15T18:46:24.079118Z",
+            "level": "ERROR",
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ]
+      },
+      {
+        "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "profile": "candidate-v2-release",
+        "round": 2,
+        "sourceRevision": "v2",
+        "sourceVariant": "candidate",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:46:53.625676+00:00",
+        "finishedAt": "2026-09-15T18:48:27.628938+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/settlement_policy",
+          "--exact",
+          "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b"
+        },
+        "harnessSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce",
+        "passed": true,
+        "fixtureDurationSeconds": 94.00325663480908,
+        "waveCanonicalSourceCounts": [],
+        "waveUniqueSettledSources": 0,
+        "wavePhysicalBlobCounts": [],
+        "waveTotalPhysicalBlobs": null,
+        "waveHeldTimingComplete": false,
+        "waveHeldToSafeSeconds": null,
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {},
+        "wavePreparationMs": null,
+        "logIdentities": {
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-fullness-follower-1860437-4.log": "f3f62b708b3ea20467aa67a2f6d33ae6ca0b6b8586450d61652246113c820bcf",
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-node-1860437-2.log": "a664626034bd89d6d49f40250aa4cdcf2047fbd10b350e95eccccfee4b2b5450",
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-restarted-composer-1860437-3.log": "0be05cda3de80d63ed1e920876025778a8664a8a9e2e0cf35efc5acc201fbc5e"
+        },
+        "logRoles": {
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-fullness-follower-1860437-4.log": "follower",
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-node-1860437-2.log": "composer",
+          "round-2/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/candidate-v2-release/logs/eez-node-restarted-composer-1860437-3.log": "composer"
+        },
+        "preparedWaveAttempts": [],
+        "canonicalWavePosts": [],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:48:16.418073Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:48:16.417932Z",
+            "level": "WARN",
+            "message": "not retrying proof because its retry budget is exhausted",
+            "attempt": 1,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 14, timestamp: 1789498097 }"
+          },
+          {
+            "timestamp": "2026-09-15T18:48:16.418073Z",
+            "level": "ERROR",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ],
+        "historicalPreparation": [
+          {
+            "timestamp": "2026-09-15T18:48:15.417062Z",
+            "message": "measured anchor-only encoding, KZG and witness preparation before proving",
+            "event_name": "eez.composer.settlement.preparation_time",
+            "rollup_id": 1,
+            "preparation_ms": 406,
+            "blob_count": 2
+          },
+          {
+            "timestamp": "2026-09-15T18:48:16.836077Z",
+            "message": "measured anchor-only encoding, KZG and witness preparation before proving",
+            "event_name": "eez.composer.settlement.preparation_time",
+            "rollup_id": 1,
+            "preparation_ms": 403,
+            "blob_count": 2
+          }
+        ],
+        "encodedBytes": [
+          244362,
+          248183
+        ],
+        "canonicalPostCount": 1,
+        "canonicalCosts": [
+          {
+            "message": "canonical receipt charges; normalized integer costs round down and exclude zero denominators",
+            "event_name": "eez.composer.postbatch.actual_cost",
+            "rollup_id": 1,
+            "chain_id": 1337,
+            "native_currency": "ETH",
+            "unit": "native_base_units",
+            "action": "apply",
+            "post_batch_hash": "0x67e1dfeb4fbf66ccb55f7f8223b32e46da26547a7dc7afbf144b2ad7bd929835",
+            "canonical_sample_number": 15,
+            "canonical_sample_hash": "0x5fcf39a4cc4956bf5bb4126b314d0be956640e3aa217a9f2331fa2a841c89f85",
+            "post_included": true,
+            "post_success": "Some(true)",
+            "post_execution_cost": "149278205977432",
+            "post_blob_cost": "262144",
+            "post_total_cost": "149278206239576",
+            "companion_execution_cost": "0",
+            "companion_blob_cost": "0",
+            "companion_total_cost": "0",
+            "bundle_total_cost": "149278206239576",
+            "post_gas_used": 130417,
+            "post_blob_gas_used": 262144,
+            "settled_l2_blocks": 84,
+            "included_l2_transactions": 8,
+            "post_cost_per_l2_block": "Some(1777121502852)",
+            "post_cost_per_l2_transaction": "Some(18659775779947)",
+            "applied_endpoint": "Some(L2Endpoint { number: 84, hash: 0xd081274e85971e1295763547862ce8816042d2ea0560a1cc3c2fd1281b288461 })",
+            "companions": "[]",
+            "physicalBlobCount": 2
+          }
+        ]
+      }
+    ],
+    "matchedBaseline": [
+      {
+        "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "dev",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "dev",
+        "startedAt": "2026-09-15T18:10:37.910026+00:00",
+        "finishedAt": "2026-09-15T18:12:01.088559+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+          "eez-follower": "9584d300d41a35e3df0f3a9ca9f4e6f61a2b0533ec5f76a80c02502c5f18a1a5",
+          "eez-composer": "f6e672458cc14f3c8bd2d01513baae71cc0a8cc6dd087642780fdba8ed12cb3c"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 83.17852496821433,
+        "waveCanonicalSourceCounts": [
+          49,
+          49,
+          30
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 3,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 4.22787880897522,
+          "median": 8.393392443656921,
+          "p95": 14.168262958526611,
+          "maximum": 14.201133012771606,
+          "total": 1060.3860766887665
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {
+          "preparation_time": 1
+        },
+        "gasBudgetCutConstraints": {},
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 213,
+          "median": 291,
+          "p95": 331,
+          "maximum": 331,
+          "total": 835
+        },
+        "logIdentities": {
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-auto-follower-1656806-3.log": "61e95340de80b359cd3e02640b6a94494ef644b83efd1182ebc19c6029be0803",
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-node-1656806-2.log": "a87e5fc969dd7ff4ccc1a3b3ff58f38b282de3d2856d4be27fb3f2caf442f919"
+        },
+        "logRoles": {
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-auto-follower-1656806-3.log": "follower",
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-node-1656806-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:11:46.638227Z",
+            "selected": 128,
+            "accepted": 49,
+            "preparation_ms": 331,
+            "available_ms": 494,
+            "blob_count": 1,
+            "timeLimitedPrefix": true,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 49
+          },
+          {
+            "timestamp": "2026-09-15T18:11:51.599144Z",
+            "selected": 49,
+            "accepted": 49,
+            "preparation_ms": 291,
+            "available_ms": 493,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 30
+          },
+          {
+            "timestamp": "2026-09-15T18:11:56.518120Z",
+            "selected": 30,
+            "accepted": 30,
+            "preparation_ms": 213,
+            "available_ms": 496,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x1c12fdb27d3528df90f055e1313e9ffb5941fd92dd18abf90ce4583bb72c84d3",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0xf3b697b4fca9ecbecd8e88a9287b20a1dd3aa8d1f99ce9f840beecebf1fe354e",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 71,
+            "syncHash": "0x2cd45d1a57365f61521b6af0c093f3e9f73ae05343ddd797224520bf4a64009a",
+            "sourceCount": 49,
+            "safeTimestamp": "2026-09-15T18:11:49.400174Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:11:50.862999Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xb4547f91a0df445f6f4329ec5fd0bfaab865fc50ada2c3494fae49ba893c7a57",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0xaf7e5d7149c268c7f1c5268cdda252067fda357020594c327819444458e94230",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0x6a50b244143b30e402dde87153cbfe799de18d6e4173242dcff594963ffa2a00",
+            "sourceCount": 49,
+            "safeTimestamp": "2026-09-15T18:11:53.397353Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:11:54.873490Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x0153901e37e4d529cd357dfc081d61f3ec3990e165bd68109df4fd5f3a0e4219",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0x4bacace9ba3e3fc93cc185d95b90fdfdfd34839705ea0cbbef3734f341b21f37",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0x90014edffc9764443e2a55a59b1db23c8d799ec96e561bdd35a5104a87e8492b",
+            "sourceCount": 30,
+            "safeTimestamp": "2026-09-15T18:11:59.378885Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:12:00.848971Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:11:01.621139Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-5: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          },
+          {
+            "timestamp": "2026-09-15T18:11:01.780300Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-6: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:11:01.528082Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789495863 }"
+          }
+        ]
+      },
+      {
+        "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "release",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:07:52.186741+00:00",
+        "finishedAt": "2026-09-15T18:09:15.772792+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "95118f7adb754e1157b68159249033c78315aa877ed15710558b6e714f825b4f"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 83.5860464121215,
+        "waveCanonicalSourceCounts": [
+          57,
+          56,
+          15
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          2,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 4,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 4.157445907592773,
+          "median": 10.263045907020569,
+          "p95": 15.10222601890564,
+          "maximum": 15.13637900352478,
+          "total": 1068.3293075561523
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {
+          "preparation_time": 1
+        },
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 1
+        },
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 90,
+          "median": 271,
+          "p95": 327,
+          "maximum": 327,
+          "total": 688
+        },
+        "logIdentities": {
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-auto-follower-1641394-3.log": "a3e099f905af764bb4ccfbab38c6e5780e2d910a0ed8698e461986d92f25c9db",
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-node-1641394-2.log": "1f1ac28e71427ec0c6d643c52828f1d35c76278c4e659a4d6cbd79c84d01aa72"
+        },
+        "logRoles": {
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-auto-follower-1641394-3.log": "follower",
+          "round-1/gnosis_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-node-1641394-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:09:00.575240Z",
+            "selected": 128,
+            "accepted": 57,
+            "preparation_ms": 271,
+            "available_ms": 497,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 56
+          },
+          {
+            "timestamp": "2026-09-15T18:09:05.629818Z",
+            "selected": 57,
+            "accepted": 56,
+            "preparation_ms": 327,
+            "available_ms": 498,
+            "blob_count": 2,
+            "timeLimitedPrefix": true,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 15
+          },
+          {
+            "timestamp": "2026-09-15T18:09:10.394401Z",
+            "selected": 15,
+            "accepted": 15,
+            "preparation_ms": 90,
+            "available_ms": 496,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0xeb353dc0f87920366d7ded6ae24581bf706552bdc42eaf9a1387ffa75699fe9d",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0xb68d559bd041a89eb6d8e603f16ffb29d4c35e33d1562efaa0f56299757e5bfa",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 70,
+            "syncHash": "0xeec2d30ef93365ac0bdc9d0537d10d1f9e3192090c4f942adc00e7463dd814b6",
+            "sourceCount": 57,
+            "safeTimestamp": "2026-09-15T18:09:02.606261Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:09:03.246993Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xe68e577fa683409ea548671cd602f7da0023d8a390e9299ed44ef720f9d0eed9",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0xb8d68b316bd6d774dc50f9c56c27b80ff272065279482e9dbede53122c8b2831",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 75,
+            "syncHash": "0x76aad3e604cf895da6bf95886cb5b28f00d7e5183b23ed8274f10ce5bb869d1b",
+            "sourceCount": 56,
+            "safeTimestamp": "2026-09-15T18:09:08.614488Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:09:09.263189Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xcf4c86224375f669d61a20748c16e89c7783a2eb156df59152881e37b8f21b68",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0x912e19b66eeefc59697c94c1f7099bd7c535ddce849ddbf5d9321ea58a538526",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 80,
+            "syncHash": "0x167136da5933224b77e39594302d8d043d09ea71fed8e027683201db2dc57da3",
+            "sourceCount": 15,
+            "safeTimestamp": "2026-09-15T18:09:13.580212Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:09:15.233174Z"
+          }
+        ],
+        "runtimeErrors": [],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:08:13.573255Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789495697 }"
+          }
+        ]
+      },
+      {
+        "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "dev",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "dev",
+        "startedAt": "2026-09-15T18:18:51.208825+00:00",
+        "finishedAt": "2026-09-15T18:20:22.304587+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+          "eez-follower": "9584d300d41a35e3df0f3a9ca9f4e6f61a2b0533ec5f76a80c02502c5f18a1a5",
+          "eez-composer": "f6e672458cc14f3c8bd2d01513baae71cc0a8cc6dd087642780fdba8ed12cb3c"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 91.09576139505953,
+        "waveCanonicalSourceCounts": [
+          31,
+          31,
+          31,
+          31,
+          4
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          1,
+          1,
+          1,
+          null
+        ],
+        "waveTotalPhysicalBlobs": null,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 4.632683992385864,
+          "median": 14.31143593788147,
+          "p95": 19.592944145202637,
+          "maximum": 24.2257399559021,
+          "total": 1600.4552869796753
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 2
+        },
+        "wavePreparationMs": {
+          "count": 5,
+          "minimum": 192,
+          "median": 289,
+          "p95": 310,
+          "maximum": 310,
+          "total": 1357
+        },
+        "logIdentities": {
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-auto-follower-1703165-3.log": "0e8245d6da051ee437bef43720d9b977ce30680e3e9ac8df8471386b85c31e86",
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-node-1703165-2.log": "d662502975fe060a325d989987b3e395c3b8de605ad50a1dd8ed2eed57765149"
+        },
+        "logRoles": {
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-auto-follower-1703165-3.log": "follower",
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/dev/logs/eez-node-node-1703165-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:19:59.615189Z",
+            "selected": 128,
+            "accepted": 31,
+            "preparation_ms": 310,
+            "available_ms": 496,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:20:04.597580Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 289,
+            "available_ms": 493,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:20:09.573799Z",
+            "selected": 66,
+            "accepted": 31,
+            "preparation_ms": 265,
+            "available_ms": 492,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:20:14.609240Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 301,
+            "available_ms": 492,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 4
+          },
+          {
+            "timestamp": "2026-09-15T18:20:19.499379Z",
+            "selected": 4,
+            "accepted": 4,
+            "preparation_ms": 192,
+            "available_ms": 493,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0xd997213e1312a3ae18e77d940a11f66ce83dbdb1ea6c92769ba0f52d24683e61",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0x617385d620d67ed08cbd12595573073b15b97af10954b236f07266376529f23b",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 70,
+            "syncHash": "0x998e7d69a11cb4b7dc54db5bab56d26674697807ba4efcf6532922d04c7c56da",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:20:01.725153Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:20:02.165500Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xae6f3f6b2d6b5e93a079c0daa87ac234a3c19ae4efa1b363516b1c7f4496b998",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0xbd57a7b6f0b78dda22f02791b19ff085b4a1686d78a50e919b7eb216315f2f46",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 75,
+            "syncHash": "0x0ad04a7707a0dda8d405cb7de29df459b2f72aac38e0d33a6650578cb960335d",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:20:06.713712Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:20:08.178807Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x4e66e7a5ca00a1a0d7b1b91d54deae1d36a1d3eabf67e273d420571c64e37520",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0xf229fc7d7c87b6d2857959182e6f5d1df2979171c87900812075f445e5fa342a",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 80,
+            "syncHash": "0x4e93a8c0ac8599ed5476b6a466aff9e929465386a95c47f2ba831c9690967d68",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:20:11.738966Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:20:12.166260Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x31b059d9a704c666a64c96f5dd59ebc31faa865aa705beadf92cfb30373e216e",
+            "canonicalL1Block": 17,
+            "canonicalL1BlockHash": "0x7fcdea8321d433db054d91ab7897e3d8612befc59023f53c99498fa9a25e9592",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 85,
+            "syncHash": "0x1f1fb1454c23e4430807c27c400536392914586fc1283bae1850a6171145fc37",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:20:16.713520Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:20:18.175793Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xe53cb67054df0f444e88cf695ba903a0351b1172d218bb6bf55b0288811a66b3",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0xc5045b590ff87f50d145875897f81592a25508d1f45777d6d6ff659dcc9d7c48",
+            "canonicalEvidenceBasis": "included_receipt_and_independent_follower",
+            "costTelemetryPresent": false,
+            "reconciliationTelemetryPresent": false,
+            "syncHeight": 90,
+            "syncHash": "0x063702963efcce91d6230a5737acf14c6f7ad6694b15cc0b132dd9377ac9a7eb",
+            "sourceCount": 4,
+            "safeTimestamp": "2026-09-15T18:20:21.675683Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:20:22.120435Z"
+          }
+        ],
+        "runtimeErrors": [],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:19:12.897192Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789496356 }"
+          }
+        ]
+      },
+      {
+        "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "profile": "release",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:21:53.867662+00:00",
+        "finishedAt": "2026-09-15T18:23:25.914515+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/dynamic_admission",
+          "--exact",
+          "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "95118f7adb754e1157b68159249033c78315aa877ed15710558b6e714f825b4f"
+        },
+        "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3",
+        "passed": true,
+        "fixtureDurationSeconds": 92.04684656206518,
+        "waveCanonicalSourceCounts": [
+          31,
+          31,
+          31,
+          31,
+          4
+        ],
+        "waveUniqueSettledSources": 128,
+        "wavePhysicalBlobCounts": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 5,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 128,
+          "minimum": 3.6533048152923584,
+          "median": 13.268548488616943,
+          "p95": 19.603069067001343,
+          "maximum": 23.245292901992798,
+          "total": 1503.5577445030212
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 2
+        },
+        "wavePreparationMs": {
+          "count": 5,
+          "minimum": 182,
+          "median": 245,
+          "p95": 252,
+          "maximum": 252,
+          "total": 1171
+        },
+        "logIdentities": {
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-auto-follower-1719063-3.log": "ee7096cecef4739d0975125c2e7a7c0b439ab1a840438fceca3ad329aa6204a7",
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-node-1719063-2.log": "f30bdd2a49385b3f6d3251dcf85c31247c752f0643d9200bdd1afa1d44757a3f"
+        },
+        "logRoles": {
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-auto-follower-1719063-3.log": "follower",
+          "round-1/ethereum_explicit_preparation_mixed_wave_after_small_post_replays/release/logs/eez-node-node-1719063-2.log": "composer"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:23:02.556325Z",
+            "selected": 128,
+            "accepted": 31,
+            "preparation_ms": 251,
+            "available_ms": 496,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:23:07.544806Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 241,
+            "available_ms": 498,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:23:12.558017Z",
+            "selected": 66,
+            "accepted": 31,
+            "preparation_ms": 252,
+            "available_ms": 495,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 31
+          },
+          {
+            "timestamp": "2026-09-15T18:23:17.549926Z",
+            "selected": 31,
+            "accepted": 31,
+            "preparation_ms": 245,
+            "available_ms": 496,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 4
+          },
+          {
+            "timestamp": "2026-09-15T18:23:22.488296Z",
+            "selected": 4,
+            "accepted": 4,
+            "preparation_ms": 182,
+            "available_ms": 494,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x389fbd3303727b42889d6d02aaa6551902c0df95f7bc055055fbc6f7b8530efd",
+            "canonicalL1Block": 14,
+            "canonicalL1BlockHash": "0x5afa669a968ea1818964b97bcde0ea4d463e82dad1dc3c377e5199b2fe690f0f",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 71,
+            "syncHash": "0x1c4130f0137b640ae580c34b555e45270a6b75335d829ddf681c3eedca671883",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:23:04.379881Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:23:05.388902Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x04ca5365f2b3832bafd5366948a5d133685a623756a314135bc2aad77ab14924",
+            "canonicalL1Block": 15,
+            "canonicalL1BlockHash": "0x4bd6dbc8d8b1e31fe942f335f8c3f81573b0c334b6c4bc11d42742e06b0c5d3d",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 76,
+            "syncHash": "0x70d781eb11b29f2f46fce21820d4dd5591be0b321929c7c97f51781be4e51ef9",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:23:09.376512Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:23:09.450538Z"
+          },
+          {
+            "canonicalPostBatchHash": "0x192a371140eb5e1694b7bb7b1bd49b93534be504efcd0d027d662d70e72511ed",
+            "canonicalL1Block": 16,
+            "canonicalL1BlockHash": "0xadd65f0046852e57e669ea2f25f457966cb2898a78c674fdc9afb2b2a36ea3f9",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 81,
+            "syncHash": "0xdba213301b6b5e0f16d50c8bee981a4db50fe8b263e6a13bdbd4533317a0d0a6",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:23:14.351617Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:23:15.390551Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xcd80c68d9f5e50fe9595d1b98889c70d122d230e621c739379e0477c7100ed38",
+            "canonicalL1Block": 17,
+            "canonicalL1BlockHash": "0x569e513839aa8a5313cb2b1fd9234e5ad17bd1199cb15facc5a9ff93472691eb",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 86,
+            "syncHash": "0x4878d05e2f30a86872cffa8fc0e4c8ac655366cfec548f45133dcf9fd7b3f77a",
+            "sourceCount": 31,
+            "safeTimestamp": "2026-09-15T18:23:20.356070Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:23:21.399719Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xfcfa5d8ea128cfa7ff016387ded7d5959288531a0251ff781c7fa16eae484d48",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0x20f684459639de517691c72c188af89b160a2856cd85b665e29faa9a0f9a1f47",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 91,
+            "syncHash": "0x83278f5dce88590d8a89bd8371e8c94d674fc305f660ee3a7ee5dd751fc2f792",
+            "sourceCount": 4,
+            "safeTimestamp": "2026-09-15T18:23:24.352562Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:23:25.364236Z"
+          }
+        ],
+        "runtimeErrors": [],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:22:15.451476Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 5, timestamp: 1789496539 }"
+          }
+        ]
+      },
+      {
+        "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "profile": "release",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:12:03.258795+00:00",
+        "finishedAt": "2026-09-15T18:13:55.895687+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/settlement_policy_gas",
+          "--exact",
+          "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "95118f7adb754e1157b68159249033c78315aa877ed15710558b6e714f825b4f"
+        },
+        "harnessSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83",
+        "passed": true,
+        "fixtureDurationSeconds": 112.63688802300021,
+        "waveCanonicalSourceCounts": [
+          1,
+          1
+        ],
+        "waveUniqueSettledSources": 2,
+        "wavePhysicalBlobCounts": [
+          1,
+          1
+        ],
+        "waveTotalPhysicalBlobs": 2,
+        "waveHeldTimingComplete": true,
+        "waveHeldToSafeSeconds": {
+          "count": 2,
+          "minimum": 12.214295864105225,
+          "median": 14.701075911521912,
+          "p95": 17.1878559589386,
+          "maximum": 17.1878559589386,
+          "total": 29.402151823043823
+        },
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {
+          "l1_tx_gas_budget": 3
+        },
+        "wavePreparationMs": {
+          "count": 3,
+          "minimum": 58,
+          "median": 77,
+          "p95": 80,
+          "maximum": 80,
+          "total": 215
+        },
+        "logIdentities": {
+          "round-1/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/release/logs/eez-node-node-1664563-2.log": "144bcce3b560b0bc24592f60be42cfb17ae3d50b0673dee6385d1a6af5bd5e69",
+          "round-1/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/release/logs/eez-node-policy-gas-follower-1664563-3.log": "74ac7f9ced9583d97a5435f52ba7f7f6afdd7989ecfcf597e6b13b97ebeb9d7d"
+        },
+        "logRoles": {
+          "round-1/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/release/logs/eez-node-node-1664563-2.log": "composer",
+          "round-1/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/release/logs/eez-node-policy-gas-follower-1664563-3.log": "follower"
+        },
+        "preparedWaveAttempts": [
+          {
+            "timestamp": "2026-09-15T18:13:26.081280Z",
+            "selected": 2,
+            "accepted": 1,
+            "preparation_ms": 77,
+            "available_ms": 897,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 1
+          },
+          {
+            "timestamp": "2026-09-15T18:13:31.084407Z",
+            "selected": 2,
+            "accepted": 1,
+            "preparation_ms": 80,
+            "available_ms": 897,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": 1
+          },
+          {
+            "timestamp": "2026-09-15T18:13:36.062931Z",
+            "selected": 1,
+            "accepted": 1,
+            "preparation_ms": 58,
+            "available_ms": 896,
+            "blob_count": 1,
+            "timeLimitedPrefix": false,
+            "preparationOverrunMs": 0,
+            "followingPreparedSourceCount": null
+          }
+        ],
+        "canonicalWavePosts": [
+          {
+            "canonicalPostBatchHash": "0x15518bff8abc3bbfc73487ed0feea6b1eca3ecb1dabcbcfeb2954b73f719788f",
+            "canonicalL1Block": 18,
+            "canonicalL1BlockHash": "0x3b77d3ca5c75a55ef59f23bbeb31a72fa19be4147c308d1a094e310f5ad5d8a5",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 90,
+            "syncHash": "0xeb60b4fea535b94e12c5b3c3c140dc357a4942f74e1672913c72198073057e1a",
+            "sourceCount": 1,
+            "safeTimestamp": "2026-09-15T18:13:33.692103Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:13:34.483638Z"
+          },
+          {
+            "canonicalPostBatchHash": "0xd149ad91c93da0984110b358ac7bef245ff8d210dfded28c2e54e267d5752263",
+            "canonicalL1Block": 19,
+            "canonicalL1BlockHash": "0x2a184198494d3af6113ead7d351d90906e3d3c0e969cbcfa8936cd355c264cd1",
+            "canonicalEvidenceBasis": "canonical_cost_and_reconciliation",
+            "costTelemetryPresent": true,
+            "reconciliationTelemetryPresent": true,
+            "syncHeight": 95,
+            "syncHash": "0x34d9c883d564049e8c1d5f9734083583122d4d216cd8281bac141446b2be1530",
+            "sourceCount": 1,
+            "safeTimestamp": "2026-09-15T18:13:38.665669Z",
+            "independentFollowerSafeTimestamp": "2026-09-15T18:13:39.943085Z"
+          }
+        ],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:13:27.082807Z",
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:13:27.082680Z",
+            "level": "WARN",
+            "message": "not retrying proof because its retry budget is exhausted",
+            "attempt": 1,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 17, timestamp: 1789496008 }"
+          },
+          {
+            "timestamp": "2026-09-15T18:13:27.082807Z",
+            "level": "ERROR",
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "retryable prover error (DEADLINE_EXCEEDED): Composer proof attempt exceeded its 1s budget"
+          }
+        ]
+      },
+      {
+        "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "profile": "release",
+        "round": 1,
+        "sourceVariant": "baseline",
+        "compilerProfile": "release",
+        "startedAt": "2026-09-15T18:17:13.899650+00:00",
+        "finishedAt": "2026-09-15T18:18:48.005174+00:00",
+        "command": [
+          "/home/edu/Development/eez-rollup0-fork/artifacts/performance-parallel-20260915/release/harness/settlement_policy",
+          "--exact",
+          "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+          "--test-threads=1"
+        ],
+        "runtimeIdentities": {
+          "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+          "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+          "eez-composer": "95118f7adb754e1157b68159249033c78315aa877ed15710558b6e714f825b4f"
+        },
+        "harnessSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce",
+        "passed": true,
+        "fixtureDurationSeconds": 94.10552252596244,
+        "waveCanonicalSourceCounts": [],
+        "waveUniqueSettledSources": 0,
+        "wavePhysicalBlobCounts": [],
+        "waveTotalPhysicalBlobs": null,
+        "waveHeldTimingComplete": false,
+        "waveHeldToSafeSeconds": null,
+        "preparationOverruns": [],
+        "cutConstraints": {},
+        "gasBudgetCutConstraints": {},
+        "wavePreparationMs": null,
+        "logIdentities": {
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-fullness-follower-1694169-4.log": "1cbd6f7c568cd3e5a47c3208a84ba77e3dd5546a155f9524920cdd575f4b3db0",
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-node-1694169-2.log": "be5683467fef9b29cb823d5292064fdbead2752d4508ca76d8b6f0da6d9458c0",
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-restarted-composer-1694169-3.log": "8325cdfea22276335b30f04a9d30a2c796c152f4cbe1dc5cd814917cf37d9973"
+        },
+        "logRoles": {
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-fullness-follower-1694169-4.log": "follower",
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-node-1694169-2.log": "composer",
+          "round-1/fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules/release/logs/eez-node-restarted-composer-1694169-3.log": "composer"
+        },
+        "preparedWaveAttempts": [],
+        "canonicalWavePosts": [],
+        "runtimeErrors": [
+          {
+            "timestamp": "2026-09-15T18:18:34.804252Z",
+            "message": "minimal batch unavailable; retaining complete range without capacity splitting",
+            "rollup_id": 1,
+            "error": "prover.prove: retryable prover error (UNAVAILABLE): Prove 1-73: code: 'The service is currently unavailable', message: \"another Prove request is already active\""
+          }
+        ],
+        "timingWarnings": [
+          {
+            "timestamp": "2026-09-15T18:18:34.220906Z",
+            "level": "WARN",
+            "message": "retrying complete proof request after transient failure",
+            "attempt": 1,
+            "next_attempt": 2,
+            "kind": "DeadlineExceeded",
+            "target": "Exact { block: 14, timestamp: 1789496316 }"
+          }
+        ],
+        "historicalPreparation": [
+          {
+            "timestamp": "2026-09-15T18:18:33.219025Z",
+            "message": "measured anchor-only encoding, KZG and witness preparation before proving",
+            "event_name": "eez.composer.settlement.preparation_time",
+            "rollup_id": 1,
+            "preparation_ms": 373,
+            "blob_count": 2
+          },
+          {
+            "timestamp": "2026-09-15T18:18:35.299341Z",
+            "message": "measured anchor-only encoding, KZG and witness preparation before proving",
+            "event_name": "eez.composer.settlement.preparation_time",
+            "rollup_id": 1,
+            "preparation_ms": 395,
+            "blob_count": 2
+          }
+        ],
+        "encodedBytes": [
+          239759,
+          243591
+        ],
+        "canonicalPostCount": 1,
+        "canonicalCosts": [
+          {
+            "message": "canonical receipt charges; normalized integer costs round down and exclude zero denominators",
+            "event_name": "eez.composer.postbatch.actual_cost",
+            "rollup_id": 1,
+            "chain_id": 1337,
+            "native_currency": "ETH",
+            "unit": "native_base_units",
+            "action": "apply",
+            "post_batch_hash": "0x8e554cb01c1c5879aa5ff296cd2cd5e47813a7c4b8e3ccd21edf7d9c6102a833",
+            "canonical_sample_number": 15,
+            "canonical_sample_hash": "0x6b2c990352cafbf446e25234e88537c940cadef39b52f4808e4e43f98a4aae03",
+            "post_included": true,
+            "post_success": "Some(true)",
+            "post_execution_cost": "149278205977432",
+            "post_blob_cost": "262144",
+            "post_total_cost": "149278206239576",
+            "companion_execution_cost": "0",
+            "companion_blob_cost": "0",
+            "companion_total_cost": "0",
+            "bundle_total_cost": "149278206239576",
+            "post_gas_used": 130417,
+            "post_blob_gas_used": 262144,
+            "settled_l2_blocks": 78,
+            "included_l2_transactions": 8,
+            "post_cost_per_l2_block": "Some(1913823156917)",
+            "post_cost_per_l2_transaction": "Some(18659775779947)",
+            "applied_endpoint": "Some(L2Endpoint { number: 78, hash: 0xffc815ea9d557f0e5c769330510cba7c43a05d8bf81455065406058a2744f4b6 })",
+            "companions": "[]",
+            "physicalBlobCount": 2
+          }
+        ]
+      }
+    ]
+  },
+  "finalRuntimeSourceIdentityMatchesRelease": true
+}

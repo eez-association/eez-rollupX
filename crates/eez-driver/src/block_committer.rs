@@ -122,6 +122,63 @@ pub struct BlockCommitterHandle<T: PayloadTypes> {
     reconcile_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
+/// Small test engine at the existing command boundary. Sequenced commands
+/// include a nonempty pool marker; derived commands preserve the supplied block.
+#[cfg(test)]
+pub(crate) fn test_committer(
+    initial: SealedHeader<alloy_consensus::Header>,
+) -> (
+    BlockCommitterHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
+    Arc<std::sync::Mutex<Vec<&'static str>>>,
+) {
+    let (sender, mut receiver) = mpsc::channel::<
+        CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
+    >(COMMAND_BUFFER);
+    let last_header = Arc::new(RwLock::new(initial));
+    let head = Arc::clone(&last_header);
+    let commands = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&commands);
+    tokio::spawn(async move {
+        while let Some(command) = receiver.recv().await {
+            match command {
+                CommitCommand::Sequence { attrs, response } => {
+                    recorded.lock().unwrap().push("pool");
+                    let parent = head.read().unwrap().clone();
+                    let header = SealedHeader::seal_slow(alloy_consensus::Header {
+                        parent_hash: parent.hash(),
+                        number: parent.number + 1,
+                        timestamp: attrs.timestamp,
+                        transactions_root: B256::with_last_byte(1),
+                        ..Default::default()
+                    });
+                    *head.write().unwrap() = header.clone();
+                    let _ = response.send(Ok(CommitOutcome { header }));
+                }
+                CommitCommand::Derive {
+                    header, response, ..
+                } => {
+                    recorded.lock().unwrap().push("prebuilt");
+                    let result = DeriveOutcome {
+                        block_hash: header.hash(),
+                        block_number: header.number,
+                    };
+                    *head.write().unwrap() = header;
+                    let _ = response.send(Ok(result));
+                }
+                _ => panic!("unexpected engine command in sequencer boundary test"),
+            }
+        }
+    });
+    (
+        BlockCommitterHandle {
+            sender,
+            last_header,
+            reconcile_lock: Arc::new(tokio::sync::Mutex::new(())),
+        },
+        commands,
+    )
+}
+
 impl<T: PayloadTypes> Clone for BlockCommitterHandle<T> {
     fn clone(&self) -> Self {
         Self {

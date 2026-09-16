@@ -16,10 +16,14 @@ jsonrpsee = { workspace = true, optional = true }
 reth-rpc-eth-api = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 eez-driver.workspace = true
+eez-payload-codec.workspace = true
 eez-l1 = { workspace = true, optional = true }
 
+alloy-consensus.workspace                 = true
+alloy-rlp.workspace                       = true
 alloy-primitives.workspace                = true
 alloy-eips.workspace                      = true
+reth-basic-payload-builder.workspace      = true
 reth-chainspec.workspace                  = true
 reth-db.workspace                         = true
 reth-ethereum-cli.workspace               = true
@@ -29,6 +33,8 @@ reth-ethereum-primitives.workspace        = true
 reth-evm.workspace                        = true
 reth-node-api.workspace                   = true
 reth-node-builder.workspace               = true
+reth-payload-primitives.workspace         = true
+reth-storage-api.workspace                = true
 reth-primitives-traits.workspace          = true
 reth-transaction-pool.workspace           = true
 
@@ -39,9 +45,6 @@ mimalloc.workspace = true
 thiserror.workspace = true
 tokio.workspace    = true
 tracing.workspace  = true
-
-[dev-dependencies]
-alloy-consensus.workspace = true
 
 [lints]
 workspace = true

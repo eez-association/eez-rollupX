@@ -22,6 +22,9 @@ const TEST_PROOF_SYSTEM: &str = "00000000000000000000000000000000000000aa";
 /// it varies. Tests for mandatory options use `parse_exact_args` directly.
 fn parse_args<const N: usize>(args: [&str; N]) -> Result<Args, clap::Error> {
     let mut args = args.to_vec();
+    if !args.contains(&"--l1-chain-config") {
+        args.extend(["--l1-chain-config", "mainnet"]);
+    }
     if !args.contains(&"--vkey") {
         args.extend(["--vkey", TEST_VKEY]);
     }
@@ -67,6 +70,7 @@ fn cli_parses_the_default_listen_addr() {
     .unwrap();
     let config = Config::from_args(args).unwrap();
     assert_eq!(config.listen_addr, "127.0.0.1:50061".parse().unwrap());
+    assert_eq!(config.l1_chain_document_path, PathBuf::from("mainnet"));
     assert_eq!(
         config.chain_document_path,
         PathBuf::from("chain-config.json")
@@ -99,6 +103,26 @@ fn cli_parses_the_default_listen_addr() {
         })
         .unwrap()
     );
+}
+
+#[test]
+fn l1_profile_cli_parses_presets_and_custom_documents() {
+    for value in ["chiado", "mainnet", "/tmp/l1-chain.json"] {
+        let config = Config::from_args(
+            parse_args([
+                "eez-proof-signer",
+                "--chain-config",
+                "l2.json",
+                "--rollup-id",
+                "1",
+                "--l1-chain-config",
+                value,
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(config.l1_chain_document_path, PathBuf::from(value));
+    }
 }
 
 #[test]
@@ -197,6 +221,8 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
             ],
             "cli-precedence" => vec![
                 "eez-proof-signer",
+                "--l1-chain-config",
+                "mainnet",
                 "--chain-config",
                 "chain-config.json",
                 "--rollup-id",
@@ -220,8 +246,16 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
             .try_get_matches_from(cli)
             .and_then(|matches| Args::from_arg_matches(&matches));
         match scenario.as_str() {
-            "fallback" => assert_eq!(parsed.unwrap().expected_rollup_id.get(), 7),
-            "cli-precedence" => assert_eq!(parsed.unwrap().expected_rollup_id.get(), 9),
+            "fallback" => {
+                let args = parsed.unwrap();
+                assert_eq!(args.expected_rollup_id.get(), 7);
+                assert_eq!(args.l1_chain_document_path, PathBuf::from("chiado"));
+            }
+            "cli-precedence" => {
+                let args = parsed.unwrap();
+                assert_eq!(args.expected_rollup_id.get(), 9);
+                assert_eq!(args.l1_chain_document_path, PathBuf::from("mainnet"));
+            }
             "empty" => assert!(parsed.is_err(), "an empty EEZ_ROLLUP_ID was accepted"),
             _ => unreachable!(),
         }
@@ -247,7 +281,8 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
         }
         child
             .env(ROLLUP_ENV_CHILD, scenario)
-            .env("EEZ_ROLLUP_ID", environment_value);
+            .env("EEZ_ROLLUP_ID", environment_value)
+            .env("EEZ_L1_CHAIN_CONFIG", "chiado");
 
         let output = child.output().unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -297,6 +332,8 @@ fn vkey_is_mandatory_and_nonzero() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--signer-key",
@@ -426,6 +463,8 @@ fn signer_key_is_mandatory() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--vkey",
@@ -556,6 +595,8 @@ fn l2_system_key_and_deployment_address_are_mandatory_and_must_match() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--vkey",
@@ -596,6 +637,8 @@ fn l2_system_key_and_deployment_address_are_mandatory_and_must_match() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--vkey",
@@ -659,6 +702,8 @@ fn proof_system_is_mandatory_and_nonzero() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--vkey",
@@ -698,6 +743,8 @@ fn attester_address_is_mandatory_and_must_match_the_signing_key() {
             "eez-proof-signer",
             "--chain-config",
             "chain-config.json",
+            "--l1-chain-config",
+            "mainnet",
             "--rollup-id",
             "1",
             "--vkey",
@@ -788,4 +835,36 @@ fn the_removed_concurrency_option_is_rejected() {
         ])
         .is_err()
     );
+}
+
+#[test]
+fn l1_profile_is_mandatory() {
+    let args = [
+        "eez-proof-signer",
+        "--chain-config",
+        "l2.json",
+        "--rollup-id",
+        "1",
+        "--vkey",
+        TEST_VKEY,
+        "--signer-key",
+        TEST_ATTESTER_KEY,
+        "--attester-address",
+        TEST_ATTESTER_ADDRESS,
+        "--l2-system-key",
+        TEST_SYSTEM_KEY,
+        "--l2-system-address",
+        TEST_SYSTEM_ADDRESS_ARG,
+        "--proof-system",
+        TEST_PROOF_SYSTEM,
+    ];
+    let error = parse_exact_args(args).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    assert!(error.to_string().contains("--l1-chain-config"));
+    let mut complete = args.to_vec();
+    complete.extend(["--l1-chain-config", "chiado"]);
+    assert!(parse_exact_args(complete).is_ok());
 }

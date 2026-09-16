@@ -16,12 +16,15 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod blob_source;
+pub use blob_source::BlobRuleSource;
+pub mod chain_config;
 pub mod config;
 pub mod error;
 pub mod l1_canonical_head;
 pub mod l1_head_stream;
 pub mod l1_reader;
 pub mod l1_watcher;
+pub mod posting_fees;
 pub mod reconciled_settlement;
 pub mod scan;
 pub mod submitter;

@@ -78,6 +78,35 @@ async fn a_mismatched_header_rollup_is_rejected_without_waiting_for_eof() {
 }
 
 #[tokio::test]
+async fn missing_or_invalid_posting_context_never_reaches_execution_or_signing() {
+    let inner = one_accepting_validator();
+    let server = TestServer::new(Arc::clone(&inner)).await;
+    for context in [
+        None,
+        Some(eez_control_rpc::v1::L1PostingContext {
+            chain_id: 10200,
+            ..crate::testkit::posting_context()
+        }),
+        Some(eez_control_rpc::v1::L1PostingContext {
+            target_timestamp: 0,
+            ..crate::testkit::posting_context()
+        }),
+    ] {
+        let mut chunks = happy_window();
+        header_mut(&mut chunks[0])
+            .post_batch
+            .as_mut()
+            .unwrap()
+            .posting_context = context;
+        let status = server.prove(chunks).await;
+        assert_eq!(status.code(), Code::InvalidArgument, "{status:?}");
+        assert_eq!(inner.validator.stub_remaining(), 1);
+    }
+    let _response = server.attest(happy_window()).await;
+    assert_eq!(inner.validator.stub_remaining(), 0);
+}
+
+#[tokio::test]
 async fn malformed_windows_never_reach_the_validator() {
     let inner = one_accepting_validator();
     let server = TestServer::new(Arc::clone(&inner)).await;

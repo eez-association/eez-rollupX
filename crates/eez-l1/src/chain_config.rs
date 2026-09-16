@@ -26,6 +26,82 @@ const GENESIS_FIELDS: &[&str] = &[
     "parentHash",
     "timestamp",
 ];
+
+/// Resolve the existing network presets or a strict custom execution profile.
+/// Chiado must use GnosisChainSpec: deserializing its fork dates as Ethereum
+/// would lose Gnosis's blob maxima and minimum blob fee.
+#[cfg(feature = "chain-spec")]
+pub fn load_l1_chain_spec(path: &Path) -> eyre::Result<std::sync::Arc<reth_chainspec::ChainSpec>> {
+    match path.to_str() {
+        Some(profile) if profile.starts_with("gnosis:") => {
+            let genesis = load_private_gnosis_genesis(Path::new(&profile["gnosis:".len()..]))?;
+            eyre::ensure!(
+                !matches!(genesis.config.chain_id, 100 | 10200),
+                "private Gnosis profiles require a distinct chain ID; use the canonical preset for public networks"
+            );
+            Ok(std::sync::Arc::new(
+                reth_gnosis::spec::gnosis_spec::GnosisChainSpec::from(genesis).inner,
+            ))
+        }
+        Some("mainnet") => Ok(reth_chainspec::MAINNET.clone()),
+        Some("chiado") => {
+            use reth_gnosis::spec::{chains::CHIADO_GENESIS, gnosis_spec::GnosisChainSpec};
+            Ok(std::sync::Arc::new(
+                GnosisChainSpec::from(CHIADO_GENESIS.clone()).inner,
+            ))
+        }
+        _ => {
+            let (genesis, _) = load_chain_document(path)?;
+            eyre::ensure!(
+                !matches!(genesis.config.chain_id, 100 | 10200),
+                "Gnosis/Chiado requires its native profile; use EEZ_L1_CHAIN_CONFIG=chiado for Chiado"
+            );
+            Ok(std::sync::Arc::new(reth_chainspec::ChainSpec::from(
+                genesis,
+            )))
+        }
+    }
+}
+
+/// Native execution requires these addresses even on a private PoS fixture.
+/// Validate before GnosisEvmConfig, whose upstream constructor assumes them.
+pub fn validate_gnosis_execution_config(genesis: &Genesis) -> eyre::Result<()> {
+    eyre::ensure!(
+        genesis.config.deposit_contract_address.is_some(),
+        "native Gnosis profile requires depositContractAddress"
+    );
+    for name in ["eip1559collector", "blockRewardsContract"] {
+        let value = genesis
+            .config
+            .extra_fields
+            .get(name)
+            .ok_or_else(|| eyre::eyre!("native Gnosis profile requires {name}"))?;
+        serde_json::from_value::<alloy_primitives::Address>(value.clone())
+            .wrap_err_with(|| format!("native Gnosis {name} must be an address"))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "chain-spec")]
+fn load_private_gnosis_genesis(path: &Path) -> eyre::Result<Genesis> {
+    let mut document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    let config = document
+        .get_mut("config")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| eyre::eyre!("private Gnosis profile requires a full Genesis document"))?;
+    let mut native_fields = Vec::new();
+    for name in ["eip1559collector", "blockRewardsContract"] {
+        if let Some(value) = config.remove(name) {
+            native_fields.push((name.to_owned(), value));
+        }
+    }
+    // Every other field retains the common strict validation, including fork
+    // dates, blob parameters, unknown keys and the genesis spelling alias.
+    let (mut genesis, _) = parse_chain_document(&serde_json::to_vec(&document)?)?;
+    genesis.config.extra_fields.extend(native_fields);
+    validate_gnosis_execution_config(&genesis)?;
+    Ok(genesis)
+}
 const CONSENSUS_CONFIG_FIELDS: &[&str] = &["epoch", "period"];
 const BLOB_PARAMETER_FIELDS: &[&str] = &["baseFeeUpdateFraction", "max", "target"];
 // Exact keys consumed by Alloy 2.1's `blob_schedule_blob_params`. Amsterdam is
@@ -44,14 +120,14 @@ const BLOB_SCHEDULE_FORKS: &[&str] = &[
 
 /// JSON shape used to obtain the chain configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ChainDocumentKind {
+pub enum ChainDocumentKind {
     BareChainConfig,
     Genesis,
 }
 
 impl ChainDocumentKind {
     /// Stable source label used by startup tracing.
-    pub(super) const fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             Self::BareChainConfig => "chain_config",
             Self::Genesis => "genesis",
@@ -60,7 +136,7 @@ impl ChainDocumentKind {
 }
 
 /// Read and strictly parse one operator-configured chain document.
-pub(super) fn load_chain_document(path: &Path) -> eyre::Result<(Genesis, ChainDocumentKind)> {
+pub fn load_chain_document(path: &Path) -> eyre::Result<(Genesis, ChainDocumentKind)> {
     let encoded =
         fs::read(path).wrap_err_with(|| format!("read chain configuration {}", path.display()))?;
     parse_chain_document(&encoded)
@@ -69,7 +145,20 @@ pub(super) fn load_chain_document(path: &Path) -> eyre::Result<(Genesis, ChainDo
 
 /// Parse either a complete Genesis document or a bare `ChainConfig`.
 fn parse_chain_document(encoded: &[u8]) -> eyre::Result<(Genesis, ChainDocumentKind)> {
-    let document: serde_json::Value = serde_json::from_slice(encoded)?;
+    let mut document: serde_json::Value = serde_json::from_slice(encoded)?;
+    // The pinned ethereum-genesis-generator emits the geth spelling
+    // `mixhash`; Alloy's Genesis field is `mixHash`. Normalize explicitly so
+    // the trust input is retained instead of silently discarded by serde.
+    if let Some(object) = document.as_object_mut()
+        && object.contains_key("config")
+        && let Some(alias) = object.remove("mixhash")
+    {
+        if let Some(canonical) = object.get("mixHash") {
+            eyre::ensure!(canonical == &alias, "Genesis mixhash and mixHash disagree");
+        } else {
+            object.insert("mixHash".into(), alias);
+        }
+    }
     let object = document
         .as_object()
         .ok_or_else(|| eyre::eyre!("chain configuration must be a JSON object"))?;

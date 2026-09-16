@@ -85,6 +85,10 @@ fn chunks_for(ctx: &ProvingContext) -> Vec<ProveChunk> {
                 // pre-claim it (the batch determines it deterministically).
                 public_inputs_hash: Vec::new(),
                 l1_block_hash: ctx.l1_block_hash.map(|h| h.to_vec()).unwrap_or_default(),
+                posting_context: Some(eez_control_rpc::v1::L1PostingContext {
+                    chain_id: ctx.l1_posting.chain_id,
+                    target_timestamp: ctx.l1_posting.target_timestamp,
+                }),
                 blobs: ctx
                     .blobs
                     .iter()
@@ -310,6 +314,7 @@ mod tests {
     struct StubProver {
         signer: PrivateKeySigner,
         hash: B256,
+        headers: tokio::sync::mpsc::UnboundedSender<ProveHeader>,
     }
 
     #[tonic::async_trait]
@@ -319,7 +324,11 @@ mod tests {
             request: Request<Streaming<ProveChunk>>,
         ) -> Result<Response<ProveResponse>, Status> {
             let mut stream = request.into_inner();
-            while stream.message().await?.is_some() {}
+            while let Some(chunk) = stream.message().await? {
+                if let Some(prove_chunk::Kind::Header(header)) = chunk.kind {
+                    let _ = self.headers.send(header);
+                }
+            }
             let sig = self.signer.sign_hash_sync(&self.hash).unwrap();
             let mut out = [0u8; 65];
             out[..32].copy_from_slice(&sig.r().to_be_bytes::<32>());
@@ -346,17 +355,29 @@ mod tests {
     }
 
     async fn spawn_stub(signer: PrivateKeySigner, hash: B256) -> String {
+        spawn_capturing_stub(signer, hash).await.0
+    }
+
+    async fn spawn_capturing_stub(
+        signer: PrivateKeySigner,
+        hash: B256,
+    ) -> (String, tokio::sync::mpsc::UnboundedReceiver<ProveHeader>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
+        let (headers, received) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(async move {
             Server::builder()
-                .add_service(ProverServer::new(StubProver { signer, hash }))
+                .add_service(ProverServer::new(StubProver {
+                    signer,
+                    hash,
+                    headers,
+                }))
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
                 .await
                 .unwrap();
         });
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        format!("http://{addr}")
+        (format!("http://{addr}"), received)
     }
 
     async fn spawn_unavailable_stub() -> String {
@@ -398,8 +419,53 @@ mod tests {
                 ..Default::default()
             },
             blobs: eez_blob_codec::pack(&[0, 1]).unwrap(),
-            ..Default::default()
+            blocks: Vec::new(),
+            l1_block_hash: None,
+            l1_posting: eez_prover::L1PostingContext {
+                chain_id: 31337,
+                target_timestamp: 12345,
+            },
         }
+    }
+
+    /// The required target and every physical blob survive RPC encoding.
+    #[tokio::test]
+    async fn rpc_preserves_required_l1_target_and_all_nine_physical_blobs() {
+        let key = test_key();
+        let attester = key.address();
+        let mut ctx = test_context();
+        let l1_posting = ctx.l1_posting;
+        ctx.l1_block_hash = Some(B256::repeat_byte(0x42));
+        ctx.blobs = eez_blob_codec::encode_native_payload(
+            1,
+            alloy_primitives::Bytes::from(vec![0; 8 * eez_blob_codec::DATA_BYTES_PER_BLOB + 100]),
+            Vec::new(),
+        )
+        .unwrap();
+        ctx.batch.blobIndices = (0..ctx.blobs.len())
+            .map(alloy_primitives::U256::from)
+            .collect();
+        let expected = ctx
+            .blobs
+            .iter()
+            .map(|blob| blob.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let hash = request_hash(&ctx, attester.into_word()).unwrap();
+        let (url, mut received) = spawn_capturing_stub(key, hash).await;
+        RemoteProver::new(url, attester).prove(ctx).await.unwrap();
+        let header = received.recv().await.unwrap();
+        let batch = header.post_batch.unwrap();
+        assert_eq!(batch.blobs.len(), 9);
+        assert_eq!(batch.blobs, expected);
+        assert_eq!(batch.l1_block_hash, B256::repeat_byte(0x42).to_vec());
+        assert_eq!(
+            batch
+                .posting_context
+                .as_ref()
+                .map(|context| (context.chain_id, context.target_timestamp)),
+            Some((l1_posting.chain_id, l1_posting.target_timestamp))
+        );
+        assert!(received.try_recv().is_err());
     }
 
     /// A registered-attester signature over this request is returned verbatim.
@@ -452,7 +518,7 @@ mod tests {
         let wrong_attester = address!("0x00000000000000000000000000000000000000ff");
         let prover = RemoteProver::new(url, wrong_attester);
         let err = prover
-            .prove(ProvingContext::default())
+            .prove(test_context())
             .await
             .expect_err("attestation not recovering to the registered attester must be refused");
         assert!(
@@ -470,7 +536,7 @@ mod tests {
 
         let error = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            prover.prove(ProvingContext::default()),
+            prover.prove(test_context()),
         )
         .await
         .expect("connection failure should be prompt")
@@ -486,7 +552,7 @@ mod tests {
     async fn unavailable_rpc_status_surfaces_as_retryable() {
         let prover = RemoteProver::new(spawn_unavailable_stub().await, Address::ZERO);
 
-        let error = prover.prove(ProvingContext::default()).await.unwrap_err();
+        let error = prover.prove(test_context()).await.unwrap_err();
 
         assert_eq!(
             error.retryable_kind(),

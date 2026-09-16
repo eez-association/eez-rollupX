@@ -101,10 +101,16 @@ jobs:
         run: cargo deny check advisories bans sources
       - name: Check known vulnerabilities
         run: cargo audit
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.7.1
       - name: Test CI scripts
         run: python3 -m unittest discover -s scripts/ci/tests -v
       - name: Validate post-Fulu Chiado blob configuration
         run: bash scripts/check-chiado-blob-config.sh
+      - name: Validate settlement policy configuration propagation
+        run: python3 scripts/check-settlement-policy-config.py
       - name: Clippy
         run: bash scripts/ci/with-compiler-cache.sh clippy cargo clippy --locked --timings --workspace --all-targets -- -D warnings
       - name: Cargo failure diagnostics

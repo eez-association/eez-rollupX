@@ -45,6 +45,15 @@ message PostBatch {
   // prover derives KZG versioned hashes from these bytes and never trusts
   // hashes claimed by the Composer.
   repeated bytes blobs = 4;
+  // Required. Clients select an explicit L1 target; the signer resolves
+  // limits from its operator-trusted L1 profile,
+  // never a blob maximum supplied by the composer.
+  L1PostingContext posting_context = 5;
+}
+
+message L1PostingContext {
+  uint64 chain_id = 1;
+  uint64 target_timestamp = 2;
 }
 
 message BlockWitness {

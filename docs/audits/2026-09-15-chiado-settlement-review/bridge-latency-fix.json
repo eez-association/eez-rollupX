@@ -1,0 +1,1646 @@
+{
+  "verified": true,
+  "createdAt": "2026-09-15T13:37:32.352094+00:00",
+  "baseCommit": "f46e40bad4d49e365ca6f62296ab07f57bd9b259",
+  "sourceIdentity": "Uncommitted candidate; exact source manifests are hashed below. Only the exclusion test expectation changed after freezing runtime binaries.",
+  "runtimeBinaries": {
+    "eez-proof-signer": "ac7e1a863b563f69c38ecde42b30355118a5bc05aaa9686a1746f7ee64248537",
+    "eez-follower": "9584d300d41a35e3df0f3a9ca9f4e6f61a2b0533ec5f76a80c02502c5f18a1a5",
+    "eez-composer": "321025bcd368c0dfc8f11d24f79e677d5ea1f98db41eae1d2629deb0ce398840"
+  },
+  "testOnlyAmendment": {
+    "reason": "Existing exclusion/backoff test assumed the removed two-user admission ramp. It now requires all four queued sources, a two-source backoff, and unchanged nonce/receipt/follower checks. Runtime source and frozen binaries are unchanged.",
+    "changedSources": {
+      "crates/eez-node-e2e/tests/dynamic_admission.rs": {
+        "before": "32e9af87e03fbd29f296e57e6a91e8dee617254a51f18b12789d249fe2320580",
+        "after": "539ab251abd60f45cb6465a26a92bd4825bae4b97ac718b138f7f74218a6c9fb"
+      }
+    }
+  },
+  "deployment": {
+    "finishedAt": "2026-09-15T13:18:05.226089+00:00",
+    "image": "eez-node:chiado-bridge-latency-20260915",
+    "afterImage": "sha256:51f0a76e97a744ecf17c9cda62d7c4a478f93bd6d81545a432e3dcad875566e0",
+    "afterContainer": "577ea05fd62eeff772ad3c4acf0ea5011c27fb0b870a6440cadf30b3af631ca9",
+    "timing": {
+      "EEZ_PREPARATION_TIME_MS": "500",
+      "EEZ_PROOF_TIME_MS": "500",
+      "EEZ_SUBMISSION_SLACK_MS": "700"
+    },
+    "chainDataPreserved": true,
+    "parallelValidation": {
+      "completed": 3,
+      "selected": 42,
+      "remaining": 39,
+      "explicitlyAuthorized": true
+    }
+  },
+  "validation": {
+    "composerUnitTests": 166,
+    "driverUnitTests": 44,
+    "pythonSuite": {
+      "run": 224,
+      "passed": 220,
+      "existingOptInSkips": 4
+    },
+    "rustfmt": "passed",
+    "diffCheck": "passed",
+    "clippyAllAffectedTargets": "passed",
+    "clippyAmendedTest": "passed",
+    "nativeUniquePassed": 44,
+    "native": [
+      {
+        "target": "dynamic_admission",
+        "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "passed": true,
+        "durationSeconds": 96.94,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "passed": true,
+        "durationSeconds": 102.95,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "queue_liveness",
+        "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "passed": true,
+        "durationSeconds": 87.18,
+        "executableSha256": "d9c2e63929423afc074eea8ae33d21fe60409a850eae2733aac32b71b6c37f03"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+        "passed": true,
+        "durationSeconds": 92.15,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+        "passed": true,
+        "durationSeconds": 98.71,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "queue_liveness",
+        "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "passed": true,
+        "durationSeconds": 87.14,
+        "executableSha256": "d9c2e63929423afc074eea8ae33d21fe60409a850eae2733aac32b71b6c37f03"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "always_skips_idle_syncs_then_settles_included_activity_and_replays",
+        "passed": true,
+        "durationSeconds": 93.1,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+        "passed": true,
+        "durationSeconds": 121.75,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+        "passed": true,
+        "durationSeconds": 82.58,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+        "passed": true,
+        "durationSeconds": 137.83,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "passed": true,
+        "durationSeconds": 94.14,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "interval_preserves_execution_but_waits_below_all_thresholds",
+        "passed": true,
+        "durationSeconds": 41.99,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "general_block_rule_consolidates_empty_history_before_the_pure_interval",
+        "passed": true,
+        "durationSeconds": 96.79,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "interval_posts_accumulated_activity_using_the_registration_l1_timestamp",
+        "passed": true,
+        "durationSeconds": 122.6,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+        "passed": true,
+        "durationSeconds": 88.03,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target",
+        "passed": true,
+        "durationSeconds": 98.66,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+        "passed": true,
+        "durationSeconds": 77.4,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+        "passed": true,
+        "durationSeconds": 81.87,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "settlement_policy",
+        "test": "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+        "passed": true,
+        "durationSeconds": 161.07,
+        "executableSha256": "57706aff0bf1e35931e30ea28d6e16c94cd632d9f62d761423a1dd03687c87ce"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+        "passed": true,
+        "durationSeconds": 76.96,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+        "passed": true,
+        "durationSeconds": 93.04,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+        "passed": true,
+        "durationSeconds": 92.44,
+        "executableSha256": "e69596e637bb89be1d61e82061ce1cac6ec6a6a2fa40b77fe618e37a63540e36"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "passed": true,
+        "durationSeconds": 102.51,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "dynamic_admission",
+        "test": "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "passed": true,
+        "durationSeconds": 91.18,
+        "executableSha256": "2e940320b59d6b8715b57731a40c1c63b1f7fb474d9864402b36eee7fadcea54"
+      },
+      {
+        "target": "partial_consumption",
+        "test": "policy_partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+        "passed": true,
+        "durationSeconds": 100.75,
+        "executableSha256": "db2b1b2ef2424765d92cd54fa7226cbd131781b45de37bd25bd49bb490668d0c"
+      },
+      {
+        "target": "partial_consumption",
+        "test": "policy_valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+        "passed": true,
+        "durationSeconds": 80.97,
+        "executableSha256": "db2b1b2ef2424765d92cd54fa7226cbd131781b45de37bd25bd49bb490668d0c"
+      },
+      {
+        "target": "partial_consumption",
+        "test": "policy_restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "passed": true,
+        "durationSeconds": 117.54,
+        "executableSha256": "db2b1b2ef2424765d92cd54fa7226cbd131781b45de37bd25bd49bb490668d0c"
+      },
+      {
+        "target": "cross_chain",
+        "test": "both_directions_return_value_and_wrapper_success_repeated_waves",
+        "passed": true,
+        "durationSeconds": 97.03,
+        "executableSha256": "63f4b4aa33d0b3e6a8b1b73489a2a519a6ce703d50d408f8aa9577d294e265d9"
+      },
+      {
+        "target": "cross_chain",
+        "test": "minimal_bidirectional_cross_chain_smoke",
+        "passed": true,
+        "durationSeconds": 77.21,
+        "executableSha256": "63f4b4aa33d0b3e6a8b1b73489a2a519a6ce703d50d408f8aa9577d294e265d9"
+      },
+      {
+        "target": "cross_chain",
+        "test": "inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "passed": true,
+        "durationSeconds": 117.33,
+        "executableSha256": "63f4b4aa33d0b3e6a8b1b73489a2a519a6ce703d50d408f8aa9577d294e265d9"
+      },
+      {
+        "target": "cross_chain",
+        "test": "outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+        "passed": true,
+        "durationSeconds": 71.51,
+        "executableSha256": "63f4b4aa33d0b3e6a8b1b73489a2a519a6ce703d50d408f8aa9577d294e265d9"
+      },
+      {
+        "target": "chained_interstate",
+        "test": "identical_outbound_calls_in_separate_transactions_chain_state",
+        "passed": true,
+        "durationSeconds": 77.26,
+        "executableSha256": "556a2c68e65a9a93b2ede90b8eeb38d56bf466f18df71cc2302b537551475af8"
+      },
+      {
+        "target": "cross_chain",
+        "test": "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "passed": true,
+        "durationSeconds": 107.13,
+        "executableSha256": "63f4b4aa33d0b3e6a8b1b73489a2a519a6ce703d50d408f8aa9577d294e265d9"
+      },
+      {
+        "target": "chained_interstate",
+        "test": "mixed_direction_state_chain_in_one_slot",
+        "passed": true,
+        "durationSeconds": 86.83,
+        "executableSha256": "556a2c68e65a9a93b2ede90b8eeb38d56bf466f18df71cc2302b537551475af8"
+      },
+      {
+        "target": "chained_interstate",
+        "test": "same_sender_outbound_chain",
+        "passed": true,
+        "durationSeconds": 71.25,
+        "executableSha256": "556a2c68e65a9a93b2ede90b8eeb38d56bf466f18df71cc2302b537551475af8"
+      },
+      {
+        "target": "chained_interstate",
+        "test": "poison_mid_bundle_leaves_survivors_correct",
+        "passed": true,
+        "durationSeconds": 96.94,
+        "executableSha256": "556a2c68e65a9a93b2ede90b8eeb38d56bf466f18df71cc2302b537551475af8"
+      },
+      {
+        "target": "chained_interstate",
+        "test": "three_order_dependent_inbound_calls_in_one_bundle",
+        "passed": true,
+        "durationSeconds": 77.36,
+        "executableSha256": "556a2c68e65a9a93b2ede90b8eeb38d56bf466f18df71cc2302b537551475af8"
+      },
+      {
+        "target": "settlement_policy_gas",
+        "test": "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+        "passed": true,
+        "durationSeconds": 87.19,
+        "executableSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83"
+      },
+      {
+        "target": "settlement_policy_gas",
+        "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "passed": true,
+        "durationSeconds": 106.86,
+        "executableSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83"
+      },
+      {
+        "target": "settlement_policy_gas",
+        "test": "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+        "passed": true,
+        "durationSeconds": 97.94,
+        "executableSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83"
+      },
+      {
+        "target": "e2e",
+        "test": "happy_case_composer_sustained",
+        "passed": true,
+        "durationSeconds": 59.87,
+        "executableSha256": "f8a381e1ef61b1a90bdaacb9fb0751e343fae1b55a1b1292d542f5e8d109525b"
+      },
+      {
+        "target": "settlement_policy_gas",
+        "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "passed": true,
+        "durationSeconds": 106.68,
+        "executableSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83"
+      },
+      {
+        "target": "e2e",
+        "test": "happy_case_two_composers_l1_reorg_recovers",
+        "passed": true,
+        "durationSeconds": 60.42,
+        "executableSha256": "f8a381e1ef61b1a90bdaacb9fb0751e343fae1b55a1b1292d542f5e8d109525b"
+      },
+      {
+        "target": "e2e",
+        "test": "happy_case_follower_l1_reorg_recovers",
+        "passed": true,
+        "durationSeconds": 52.37,
+        "executableSha256": "f8a381e1ef61b1a90bdaacb9fb0751e343fae1b55a1b1292d542f5e8d109525b"
+      }
+    ],
+    "originalFailure": {
+      "test": "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+      "cause": "Obsolete two-user ramp expectation; actual four-user admission and two-user retry were correct.",
+      "logSha256": "3922a43384e030f459487823c7e1935fdfc75026c20a03f76ff503a74b55de8e",
+      "rerunPassed": true
+    }
+  },
+  "wave": {
+    "start": "2026-09-15T13:22:32.351000+00:00",
+    "end": "2026-09-15T13:23:25.639000+00:00",
+    "count": 24,
+    "initialUnsettledL2": 2,
+    "maxSampledUnsettledL2": 10,
+    "maxOutstanding": 6,
+    "destinationIncreaseWei": "24000000000276",
+    "statisticsMs": {
+      "acknowledgementMs": {
+        "count": 24,
+        "min": 4.681743000001006,
+        "median": 6.459495499999321,
+        "mean": 14.851519791667366,
+        "p95": 17.758474999995087,
+        "max": 171.14724099999876
+      },
+      "receiptObservedMs": {
+        "count": 24,
+        "min": 2770.1292350000003,
+        "median": 5370.441322999999,
+        "mean": 5754.543265208335,
+        "p95": 9313.330473000002,
+        "max": 11411.942391000004
+      },
+      "safeDeliveryObservedMs": {
+        "count": 24,
+        "min": 2771.4408450000046,
+        "median": 6011.532955999999,
+        "mean": 6138.605994458335,
+        "p95": 9813.323153000005,
+        "max": 11911.895344000004
+      },
+      "waitAndPreparationMs": {
+        "count": 24,
+        "min": 586.572,
+        "median": 3329.8695,
+        "mean": 3605.171875,
+        "p95": 7105.124,
+        "max": 9203.124000000002
+      },
+      "submittedToReconciledMs": {
+        "count": 24,
+        "min": 3115.637,
+        "median": 5865.5560000000005,
+        "mean": 6124.70825,
+        "p95": 9620.238000000001,
+        "max": 11718.238
+      }
+    },
+    "perPostDispatchToReconciledMs": {
+      "count": 10,
+      "min": 2485.2690000000002,
+      "median": 2525.334,
+      "mean": 2520.5885,
+      "p95": 2545.317,
+      "max": 2545.317
+    },
+    "l1PayloadArrivalMs": {
+      "count": 11,
+      "min": 226.731,
+      "median": 301.356,
+      "mean": 307.45354545454546,
+      "p95": 413.24300000000005,
+      "max": 413.24300000000005
+    },
+    "skippedSlots": [],
+    "posts": [
+      {
+        "hash": "0x39bf8864902b61fb099e1fb9689a43b2a9aef70fc45ede8be84e0aa87ca9b3e6",
+        "at": "2026-09-15T13:22:33.636678Z",
+        "targetBlock": 23069044,
+        "txCount": 2,
+        "included": false,
+        "dropReasons": [
+          "excluded"
+        ]
+      },
+      {
+        "hash": "0x1f7db36021908c3e2e001682a6c7955bdb0ec1183c19c40e9476e20d3ba989c0",
+        "at": "2026-09-15T13:22:38.622078Z",
+        "targetBlock": 23069045,
+        "txCount": 2,
+        "included": true,
+        "blockNumber": 23069045,
+        "blockHash": "0xc6d4abbedc687a33def1c2accdd65db85183609ba21c3dda7fbb0c823f3d508a",
+        "slotTimestamp": 1789478560,
+        "sourceHashes": [
+          "0x964bc6651e2d363b1cf04930d2fd43fb873a1a515a86476e31656654d3caf4b3"
+        ],
+        "sourceIndexes": [
+          0
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:22:41.165438Z",
+        "safeL2": 141170,
+        "safeHash": "0xd9b34772ec762c5f8eabd20aee64f802c7071b54b7dffff384d3cfdc9b1a88a5",
+        "safeBalance": "6035654214205099164",
+        "gasUsed": 160048,
+        "dispatchToReconciledMs": 2543.3599999999997
+      },
+      {
+        "hash": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "at": "2026-09-15T13:22:43.655124Z",
+        "targetBlock": 23069046,
+        "txCount": 6,
+        "included": true,
+        "blockNumber": 23069046,
+        "blockHash": "0xfe64f2f509d6bf2f3f09661cda755f44408963f65bd6b4c9538f4d7f0f5abb95",
+        "slotTimestamp": 1789478565,
+        "sourceHashes": [
+          "0x86c6cea4e8c4a3b21d32dc401fb87e894127c97d339ee1a488f69d9c85b4b825",
+          "0x4379f36a6323719fa37a64135f2465ac90ed4b23afe9204c427596bdeaf63381",
+          "0x72d04be516422842de62941e2bd31db7421a470003e2210c6802e239334af0dc",
+          "0xee8b388179292657af4b62948657984eb7cc3477ae8306ff8424dbdca73d0c99",
+          "0x452c07b74d375a6f4232ec6065213a721d9432fd210bb048cd586724375d3b7b"
+        ],
+        "sourceIndexes": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:22:46.170238Z",
+        "safeL2": 141175,
+        "safeHash": "0x829925cdeac684cf83c916b2c44269fe450eeea464c8379c804c521655be0b17",
+        "safeBalance": "6035659214205099179",
+        "gasUsed": 871787,
+        "dispatchToReconciledMs": 2515.114
+      },
+      {
+        "hash": "0xc57c32e70e0b56231537b81381b766bc2bee5f8c0689c88abb64e0d626a97d9d",
+        "at": "2026-09-15T13:22:48.669912Z",
+        "targetBlock": 23069047,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069047,
+        "blockHash": "0x9ea25f902f76adaa0e3bb514fb71018f8924c801a9308fd5700cf2c3281319aa",
+        "slotTimestamp": 1789478570,
+        "sourceHashes": [
+          "0xd8add118c04ff19d881b848a4a3e33ebf0ed13736908370d5076b5fc518dc3f3",
+          "0x723854af1640835b796d9e493c3a44f504777bec830b42f1089f3851950ed813"
+        ],
+        "sourceIndexes": [
+          6,
+          7
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:22:51.167322Z",
+        "safeL2": 141180,
+        "safeHash": "0x4cdb7612f0851067b7770c9a7417fd239b2cb452bfbc7d988de05de734752617",
+        "safeBalance": "6035661214205099192",
+        "gasUsed": 287004,
+        "dispatchToReconciledMs": 2497.41
+      },
+      {
+        "hash": "0x0cc5f0ebed2367fb5a2efbef70ae2caf7f7736a9c46da96b8b55845bf08bb773",
+        "at": "2026-09-15T13:22:53.641772Z",
+        "targetBlock": 23069048,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069048,
+        "blockHash": "0x4263377fae4b275fa55d7c6de8f0b5cf163fe707032f72e84c809b4484a24f3a",
+        "slotTimestamp": 1789478575,
+        "sourceHashes": [
+          "0x1782cf8a2a5bda3a7b2497801d189f965586ba8afcc3f922c3d7d525a8f0e131",
+          "0x33feea19dbef254070d09ee2bf4a9317aaf5297c9a31bc2e93109fd388a511c3"
+        ],
+        "sourceIndexes": [
+          8,
+          9
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:22:56.166384Z",
+        "safeL2": 141185,
+        "safeHash": "0x6ee9775c6a0baf5840dde4464b8ad4293f0e1e2a9ea978614b070990029faa59",
+        "safeBalance": "6035663214205099209",
+        "gasUsed": 218334,
+        "dispatchToReconciledMs": 2524.612
+      },
+      {
+        "hash": "0xcdbc834576b2c123035ff8641b8d7ef71a37f0295b2c36cffdc00d229b06a11a",
+        "at": "2026-09-15T13:22:58.640757Z",
+        "targetBlock": 23069049,
+        "txCount": 4,
+        "included": true,
+        "blockNumber": 23069049,
+        "blockHash": "0x59315a84dc7f977794171180500160d33577872c27717e0e3062a7738ae938cf",
+        "slotTimestamp": 1789478580,
+        "sourceHashes": [
+          "0xa3ec378b19f5ff6969c3d3c30fb02421ac4bbaee2f6d6ddee8e1fe97559df742",
+          "0x2b416f7ffcbea489d85b9917f227071fd710db1e2b256248779f9a3a9b27165e",
+          "0x96700e3379797769a380719e25dacb3e9a97566e4f81d0e149092ed948d702d3"
+        ],
+        "sourceIndexes": [
+          10,
+          11,
+          12
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:01.166813Z",
+        "safeL2": 141190,
+        "safeHash": "0xf1ab828bca21c6c9b28f0f1002730f40aa2820e1bab1b6f2849b508a51d148d3",
+        "safeBalance": "6035666214205099242",
+        "gasUsed": 396985,
+        "dispatchToReconciledMs": 2526.056
+      },
+      {
+        "hash": "0xd0659731e0a00e4e9180082eb70aa3e82a5af7f2a073a19dad6109f77b8db494",
+        "at": "2026-09-15T13:23:03.681550Z",
+        "targetBlock": 23069050,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069050,
+        "blockHash": "0x9c968851a7a8806ba7ac3765db2eb3584dbd033b32ba5da67b43c905ba3f5b9f",
+        "slotTimestamp": 1789478585,
+        "sourceHashes": [
+          "0x01ff522c645bc86867ddbc43459518828fc4edb0c5f5ed33a6d60935d013c0b9",
+          "0x0c4a2fd1ca272e0789ee34df5019a2c0f34af5e61b528bf7c2fcccfd4069018c"
+        ],
+        "sourceIndexes": [
+          13,
+          14
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:06.166819Z",
+        "safeL2": 141195,
+        "safeHash": "0xfcda0eadf4c4d471f8d90a94c506464930eda25b4dae6f5ff194b47c57e61089",
+        "safeBalance": "6035668214205099269",
+        "gasUsed": 229694,
+        "dispatchToReconciledMs": 2485.2690000000002
+      },
+      {
+        "hash": "0xed2159ad22a625676d21707a8909cefe804b2ee86be20606499acb85d1b186c2",
+        "at": "2026-09-15T13:23:08.638572Z",
+        "targetBlock": 23069051,
+        "txCount": 4,
+        "included": true,
+        "blockNumber": 23069051,
+        "blockHash": "0x921829d3fd042c89f46db1e9f49a84fb19601cf49a4687d1409be79689edda4a",
+        "slotTimestamp": 1789478590,
+        "sourceHashes": [
+          "0xee37d53db8f821eeeb40ad87efd9c51e3f0e7b4be22963b544e6a0093cb5f9d6",
+          "0xd78760494c68759b87edbe3c6c8f9cbb2c4cfe068b952393dbfaccb160d06288",
+          "0x5487ba787f89c85bb19944e7385c2c496600f7afbb8a35c07725ed0a0709e6f3"
+        ],
+        "sourceIndexes": [
+          15,
+          16,
+          17
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:11.167637Z",
+        "safeL2": 141200,
+        "safeHash": "0xf475d2d765567a714de30883a51d47833adbf74cb73ccf5fbf079e7094e7ceb6",
+        "safeBalance": "6035671214205099317",
+        "gasUsed": 396973,
+        "dispatchToReconciledMs": 2529.065
+      },
+      {
+        "hash": "0x108118a4ebfecef18bf608b5109e90bb4e8980305129c29361c789069ed20949",
+        "at": "2026-09-15T13:23:13.620982Z",
+        "targetBlock": 23069052,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069052,
+        "blockHash": "0x65632836792af2c5c577e8d56edb10de15fc6f43dadf675f055a31109008c9d1",
+        "slotTimestamp": 1789478595,
+        "sourceHashes": [
+          "0x532ef59328bd018a8d92f13912681c40f447d83bbfc2c6dc69a97150c45fafdb",
+          "0xe2d075b0f6d9fc03894541674237e94db99b26b1fe89220ebf22ce84cd13ffa6"
+        ],
+        "sourceIndexes": [
+          18,
+          19
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:16.166299Z",
+        "safeL2": 141205,
+        "safeHash": "0xb50757f5304e4172806ce348e32e6347d2d2afab10ba311c99f2201f5864e99d",
+        "safeBalance": "6035673214205099354",
+        "gasUsed": 229694,
+        "dispatchToReconciledMs": 2545.317
+      },
+      {
+        "hash": "0x0d16e5aac8dfd8989331e7f6a163448609a4b4e449e9609577e9390925fa73b2",
+        "at": "2026-09-15T13:23:18.654809Z",
+        "targetBlock": 23069053,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069053,
+        "blockHash": "0x31f904f01af07131113cd90e104c55eb24a7a52106d9f9cd7acf0e8e543d0da4",
+        "slotTimestamp": 1789478600,
+        "sourceHashes": [
+          "0xffadfe0ebaa52addd9bcde43fdf9119a769c0e9e280bad6e63db07fb5e4c473f",
+          "0xc6655148c6e0b04f7b0e3285e3624df8672eabc804a6505b4b7ec7af216aab62"
+        ],
+        "sourceIndexes": [
+          20,
+          21
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:21.165790Z",
+        "safeL2": 141210,
+        "safeHash": "0x374d27cdb5cdb11c03aa45ebd21b5c84238c6ac31a782d66b1dbea63b777e52e",
+        "safeBalance": "6035675214205099395",
+        "gasUsed": 218334,
+        "dispatchToReconciledMs": 2510.981
+      },
+      {
+        "hash": "0x33b7c40e432c8fa8d8a741dc891d5d7fd7498edf916464dac53bf152690b85f7",
+        "at": "2026-09-15T13:23:23.636695Z",
+        "targetBlock": 23069054,
+        "txCount": 3,
+        "included": true,
+        "blockNumber": 23069054,
+        "blockHash": "0xfd43bf982a2a98308f9b397e62de3828c1fa6c7bb8cef0d49aa2519dbbc3fd60",
+        "slotTimestamp": 1789478605,
+        "sourceHashes": [
+          "0x1f45cde6fa227ef1d00a865910afbe67a12dd76156143353784d94d35eb0eda7",
+          "0xcf34930e2310582dce7e9814e1dee0fdc60fe9e6ea66a790ca8766bfd89bc71a"
+        ],
+        "sourceIndexes": [
+          22,
+          23
+        ],
+        "blobs": 1,
+        "reconciledAt": "2026-09-15T13:23:26.165396Z",
+        "safeL2": 141215,
+        "safeHash": "0x1ee39999581488ad300857fbcb99f4263947de9c5051a2a9f91ee4c7aef80a8d",
+        "safeBalance": "6035677214205099440",
+        "gasUsed": 218334,
+        "dispatchToReconciledMs": 2528.701
+      }
+    ],
+    "transactions": [
+      {
+        "index": 0,
+        "hash": "0x964bc6651e2d363b1cf04930d2fd43fb873a1a515a86476e31656654d3caf4b3",
+        "nonce": 896,
+        "valueWei": "1000000000000",
+        "submittedAt": "2026-09-15T13:22:32.351Z",
+        "admittedAt": "2026-09-15T13:22:32.521150Z",
+        "post": "0x1f7db36021908c3e2e001682a6c7955bdb0ec1183c19c40e9476e20d3ba989c0",
+        "l1Block": 23069045,
+        "safeL2": 141170,
+        "acknowledgementMs": 171.14724099999876,
+        "receiptObservedMs": 8510.691483000002,
+        "safeDeliveryObservedMs": 8807.875462000004,
+        "waitAndPreparationMs": 6271.078,
+        "dispatchToReconciledMs": 2543.3599999999997,
+        "submittedToReconciledMs": 8814.438
+      },
+      {
+        "index": 1,
+        "hash": "0x86c6cea4e8c4a3b21d32dc401fb87e894127c97d339ee1a488f69d9c85b4b825",
+        "nonce": 897,
+        "valueWei": "1000000000001",
+        "submittedAt": "2026-09-15T13:22:34.452Z",
+        "admittedAt": "2026-09-15T13:22:34.456394Z",
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "l1Block": 23069046,
+        "safeL2": 141175,
+        "acknowledgementMs": 15.089971000001242,
+        "receiptObservedMs": 11411.942391000004,
+        "safeDeliveryObservedMs": 11911.895344000004,
+        "waitAndPreparationMs": 9203.124000000002,
+        "dispatchToReconciledMs": 2515.114,
+        "submittedToReconciledMs": 11718.238
+      },
+      {
+        "index": 2,
+        "hash": "0x4379f36a6323719fa37a64135f2465ac90ed4b23afe9204c427596bdeaf63381",
+        "nonce": 898,
+        "valueWei": "1000000000002",
+        "submittedAt": "2026-09-15T13:22:36.550Z",
+        "admittedAt": "2026-09-15T13:22:36.555738Z",
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "l1Block": 23069046,
+        "safeL2": 141175,
+        "acknowledgementMs": 6.369941000004474,
+        "receiptObservedMs": 9313.330473000002,
+        "safeDeliveryObservedMs": 9813.323153000005,
+        "waitAndPreparationMs": 7105.124,
+        "dispatchToReconciledMs": 2515.114,
+        "submittedToReconciledMs": 9620.238000000001
+      },
+      {
+        "index": 3,
+        "hash": "0x72d04be516422842de62941e2bd31db7421a470003e2210c6802e239334af0dc",
+        "nonce": 899,
+        "valueWei": "1000000000003",
+        "submittedAt": "2026-09-15T13:22:38.651Z",
+        "admittedAt": "2026-09-15T13:22:38.654958Z",
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "l1Block": 23069046,
+        "safeL2": 141175,
+        "acknowledgementMs": 4.681743000001006,
+        "receiptObservedMs": 7212.735496000001,
+        "safeDeliveryObservedMs": 7712.668874000003,
+        "waitAndPreparationMs": 5004.124,
+        "dispatchToReconciledMs": 2515.114,
+        "submittedToReconciledMs": 7519.237999999999
+      },
+      {
+        "index": 4,
+        "hash": "0xee8b388179292657af4b62948657984eb7cc3477ae8306ff8424dbdca73d0c99",
+        "nonce": 900,
+        "valueWei": "1000000000004",
+        "submittedAt": "2026-09-15T13:22:40.751Z",
+        "admittedAt": "2026-09-15T13:22:40.755606Z",
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "l1Block": 23069046,
+        "safeL2": 141175,
+        "acknowledgementMs": 5.547070000000531,
+        "receiptObservedMs": 5112.776493999998,
+        "safeDeliveryObservedMs": 5612.690533000001,
+        "waitAndPreparationMs": 2904.124,
+        "dispatchToReconciledMs": 2515.114,
+        "submittedToReconciledMs": 5419.238
+      },
+      {
+        "index": 5,
+        "hash": "0x452c07b74d375a6f4232ec6065213a721d9432fd210bb048cd586724375d3b7b",
+        "nonce": 901,
+        "valueWei": "1000000000005",
+        "submittedAt": "2026-09-15T13:22:42.851Z",
+        "admittedAt": "2026-09-15T13:22:42.855824Z",
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "l1Block": 23069046,
+        "safeL2": 141175,
+        "acknowledgementMs": 5.4427750000031665,
+        "receiptObservedMs": 3013.0356700000048,
+        "safeDeliveryObservedMs": 3512.598324000006,
+        "waitAndPreparationMs": 804.1239999999999,
+        "dispatchToReconciledMs": 2515.114,
+        "submittedToReconciledMs": 3319.238
+      },
+      {
+        "index": 6,
+        "hash": "0xd8add118c04ff19d881b848a4a3e33ebf0ed13736908370d5076b5fc518dc3f3",
+        "nonce": 902,
+        "valueWei": "1000000000006",
+        "submittedAt": "2026-09-15T13:22:44.952Z",
+        "admittedAt": "2026-09-15T13:22:44.956871Z",
+        "post": "0xc57c32e70e0b56231537b81381b766bc2bee5f8c0689c88abb64e0d626a97d9d",
+        "l1Block": 23069047,
+        "safeL2": 141180,
+        "acknowledgementMs": 6.368753000002471,
+        "receiptObservedMs": 5628.106152,
+        "safeDeliveryObservedMs": 5914.239951999996,
+        "waitAndPreparationMs": 3717.9120000000003,
+        "dispatchToReconciledMs": 2497.41,
+        "submittedToReconciledMs": 6215.321999999999
+      },
+      {
+        "index": 7,
+        "hash": "0x723854af1640835b796d9e493c3a44f504777bec830b42f1089f3851950ed813",
+        "nonce": 903,
+        "valueWei": "1000000000007",
+        "submittedAt": "2026-09-15T13:22:47.051Z",
+        "admittedAt": "2026-09-15T13:22:47.059953Z",
+        "post": "0xc57c32e70e0b56231537b81381b766bc2bee5f8c0689c88abb64e0d626a97d9d",
+        "l1Block": 23069047,
+        "safeL2": 141180,
+        "acknowledgementMs": 10.11721199999738,
+        "receiptObservedMs": 3529.0987040000036,
+        "safeDeliveryObservedMs": 3815.1929299999974,
+        "waitAndPreparationMs": 1618.9119999999998,
+        "dispatchToReconciledMs": 2497.41,
+        "submittedToReconciledMs": 4116.322
+      },
+      {
+        "index": 8,
+        "hash": "0x1782cf8a2a5bda3a7b2497801d189f965586ba8afcc3f922c3d7d525a8f0e131",
+        "nonce": 904,
+        "valueWei": "1000000000008",
+        "submittedAt": "2026-09-15T13:22:49.151Z",
+        "admittedAt": "2026-09-15T13:22:49.156276Z",
+        "post": "0x0cc5f0ebed2367fb5a2efbef70ae2caf7f7736a9c46da96b8b55845bf08bb773",
+        "l1Block": 23069048,
+        "safeL2": 141185,
+        "acknowledgementMs": 5.444175999997242,
+        "receiptObservedMs": 6633.213953999999,
+        "safeDeliveryObservedMs": 6917.094122000002,
+        "waitAndPreparationMs": 4490.772,
+        "dispatchToReconciledMs": 2524.612,
+        "submittedToReconciledMs": 7015.384
+      },
+      {
+        "index": 9,
+        "hash": "0x33feea19dbef254070d09ee2bf4a9317aaf5297c9a31bc2e93109fd388a511c3",
+        "nonce": 905,
+        "valueWei": "1000000000009",
+        "submittedAt": "2026-09-15T13:22:51.251Z",
+        "admittedAt": "2026-09-15T13:22:51.257591Z",
+        "post": "0x0cc5f0ebed2367fb5a2efbef70ae2caf7f7736a9c46da96b8b55845bf08bb773",
+        "l1Block": 23069048,
+        "safeL2": 141185,
+        "acknowledgementMs": 6.73772199999803,
+        "receiptObservedMs": 4533.167028999997,
+        "safeDeliveryObservedMs": 4817.093556,
+        "waitAndPreparationMs": 2390.772,
+        "dispatchToReconciledMs": 2524.612,
+        "submittedToReconciledMs": 4915.384
+      },
+      {
+        "index": 10,
+        "hash": "0xa3ec378b19f5ff6969c3d3c30fb02421ac4bbaee2f6d6ddee8e1fe97559df742",
+        "nonce": 906,
+        "valueWei": "1000000000010",
+        "submittedAt": "2026-09-15T13:22:53.351Z",
+        "admittedAt": "2026-09-15T13:22:53.357072Z",
+        "post": "0xcdbc834576b2c123035ff8641b8d7ef71a37f0295b2c36cffdc00d229b06a11a",
+        "l1Block": 23069049,
+        "safeL2": 141190,
+        "acknowledgementMs": 7.090052999999898,
+        "receiptObservedMs": 7145.504891000004,
+        "safeDeliveryObservedMs": 7435.853230000008,
+        "waitAndPreparationMs": 5289.757,
+        "dispatchToReconciledMs": 2526.056,
+        "submittedToReconciledMs": 7815.813
+      },
+      {
+        "index": 11,
+        "hash": "0x2b416f7ffcbea489d85b9917f227071fd710db1e2b256248779f9a3a9b27165e",
+        "nonce": 907,
+        "valueWei": "1000000000011",
+        "submittedAt": "2026-09-15T13:22:55.450Z",
+        "admittedAt": "2026-09-15T13:22:55.454864Z",
+        "post": "0xcdbc834576b2c123035ff8641b8d7ef71a37f0295b2c36cffdc00d229b06a11a",
+        "l1Block": 23069049,
+        "safeL2": 141190,
+        "acknowledgementMs": 5.09534999999596,
+        "receiptObservedMs": 5046.138466999997,
+        "safeDeliveryObservedMs": 5336.456529000003,
+        "waitAndPreparationMs": 3190.757,
+        "dispatchToReconciledMs": 2526.056,
+        "submittedToReconciledMs": 5716.813
+      },
+      {
+        "index": 12,
+        "hash": "0x96700e3379797769a380719e25dacb3e9a97566e4f81d0e149092ed948d702d3",
+        "nonce": 908,
+        "valueWei": "1000000000012",
+        "submittedAt": "2026-09-15T13:22:57.550Z",
+        "admittedAt": "2026-09-15T13:22:57.556131Z",
+        "post": "0xcdbc834576b2c123035ff8641b8d7ef71a37f0295b2c36cffdc00d229b06a11a",
+        "l1Block": 23069049,
+        "safeL2": 141190,
+        "acknowledgementMs": 6.5068390000087675,
+        "receiptObservedMs": 2946.123807000011,
+        "safeDeliveryObservedMs": 3236.514046000011,
+        "waitAndPreparationMs": 1090.757,
+        "dispatchToReconciledMs": 2526.056,
+        "submittedToReconciledMs": 3616.813
+      },
+      {
+        "index": 13,
+        "hash": "0x01ff522c645bc86867ddbc43459518828fc4edb0c5f5ed33a6d60935d013c0b9",
+        "nonce": 909,
+        "valueWei": "1000000000013",
+        "submittedAt": "2026-09-15T13:22:59.651Z",
+        "admittedAt": "2026-09-15T13:22:59.656086Z",
+        "post": "0xd0659731e0a00e4e9180082eb70aa3e82a5af7f2a073a19dad6109f77b8db494",
+        "l1Block": 23069050,
+        "safeL2": 141195,
+        "acknowledgementMs": 6.06683699999121,
+        "receiptObservedMs": 6167.872508999993,
+        "safeDeliveryObservedMs": 6666.939631000001,
+        "waitAndPreparationMs": 4030.5499999999997,
+        "dispatchToReconciledMs": 2485.2690000000002,
+        "submittedToReconciledMs": 6515.8189999999995
+      },
+      {
+        "index": 14,
+        "hash": "0x0c4a2fd1ca272e0789ee34df5019a2c0f34af5e61b528bf7c2fcccfd4069018c",
+        "nonce": 910,
+        "valueWei": "1000000000014",
+        "submittedAt": "2026-09-15T13:23:01.751Z",
+        "admittedAt": "2026-09-15T13:23:01.767715Z",
+        "post": "0xd0659731e0a00e4e9180082eb70aa3e82a5af7f2a073a19dad6109f77b8db494",
+        "l1Block": 23069050,
+        "safeL2": 141195,
+        "acknowledgementMs": 17.146921999999904,
+        "receiptObservedMs": 4067.611818999998,
+        "safeDeliveryObservedMs": 4566.071659000008,
+        "waitAndPreparationMs": 1930.55,
+        "dispatchToReconciledMs": 2485.2690000000002,
+        "submittedToReconciledMs": 4415.8189999999995
+      },
+      {
+        "index": 15,
+        "hash": "0xee37d53db8f821eeeb40ad87efd9c51e3f0e7b4be22963b544e6a0093cb5f9d6",
+        "nonce": 911,
+        "valueWei": "1000000000015",
+        "submittedAt": "2026-09-15T13:23:03.851Z",
+        "admittedAt": "2026-09-15T13:23:03.856759Z",
+        "post": "0xed2159ad22a625676d21707a8909cefe804b2ee86be20606499acb85d1b186c2",
+        "l1Block": 23069051,
+        "safeL2": 141200,
+        "acknowledgementMs": 6.498374000002514,
+        "receiptObservedMs": 6970.366509999993,
+        "safeDeliveryObservedMs": 6971.850810999997,
+        "waitAndPreparationMs": 4787.572,
+        "dispatchToReconciledMs": 2529.065,
+        "submittedToReconciledMs": 7316.637
+      },
+      {
+        "index": 16,
+        "hash": "0xd78760494c68759b87edbe3c6c8f9cbb2c4cfe068b952393dbfaccb160d06288",
+        "nonce": 912,
+        "valueWei": "1000000000016",
+        "submittedAt": "2026-09-15T13:23:05.951Z",
+        "admittedAt": "2026-09-15T13:23:05.956287Z",
+        "post": "0xed2159ad22a625676d21707a8909cefe804b2ee86be20606499acb85d1b186c2",
+        "l1Block": 23069051,
+        "safeL2": 141200,
+        "acknowledgementMs": 6.170950999992783,
+        "receiptObservedMs": 4870.9147809999995,
+        "safeDeliveryObservedMs": 4872.286987999993,
+        "waitAndPreparationMs": 2687.5719999999997,
+        "dispatchToReconciledMs": 2529.065,
+        "submittedToReconciledMs": 5216.637000000001
+      },
+      {
+        "index": 17,
+        "hash": "0x5487ba787f89c85bb19944e7385c2c496600f7afbb8a35c07725ed0a0709e6f3",
+        "nonce": 913,
+        "valueWei": "1000000000017",
+        "submittedAt": "2026-09-15T13:23:08.052Z",
+        "admittedAt": "2026-09-15T13:23:08.057804Z",
+        "post": "0xed2159ad22a625676d21707a8909cefe804b2ee86be20606499acb85d1b186c2",
+        "l1Block": 23069051,
+        "safeL2": 141200,
+        "acknowledgementMs": 7.703616000013426,
+        "receiptObservedMs": 2770.1292350000003,
+        "safeDeliveryObservedMs": 2771.4408450000046,
+        "waitAndPreparationMs": 586.572,
+        "dispatchToReconciledMs": 2529.065,
+        "submittedToReconciledMs": 3115.637
+      },
+      {
+        "index": 18,
+        "hash": "0x532ef59328bd018a8d92f13912681c40f447d83bbfc2c6dc69a97150c45fafdb",
+        "nonce": 914,
+        "valueWei": "1000000000018",
+        "submittedAt": "2026-09-15T13:23:10.152Z",
+        "admittedAt": "2026-09-15T13:23:10.159025Z",
+        "post": "0x108118a4ebfecef18bf608b5109e90bb4e8980305129c29361c789069ed20949",
+        "l1Block": 23069052,
+        "safeL2": 141205,
+        "acknowledgementMs": 8.428398999996716,
+        "receiptObservedMs": 6168.972533000007,
+        "safeDeliveryObservedMs": 6169.749521999998,
+        "waitAndPreparationMs": 3468.982,
+        "dispatchToReconciledMs": 2545.317,
+        "submittedToReconciledMs": 6014.299
+      },
+      {
+        "index": 19,
+        "hash": "0xe2d075b0f6d9fc03894541674237e94db99b26b1fe89220ebf22ce84cd13ffa6",
+        "nonce": 915,
+        "valueWei": "1000000000019",
+        "submittedAt": "2026-09-15T13:23:12.251Z",
+        "admittedAt": "2026-09-15T13:23:12.262374Z",
+        "post": "0x108118a4ebfecef18bf608b5109e90bb4e8980305129c29361c789069ed20949",
+        "l1Block": 23069052,
+        "safeL2": 141205,
+        "acknowledgementMs": 12.701983000006294,
+        "receiptObservedMs": 4069.3895230000053,
+        "safeDeliveryObservedMs": 4070.208448999998,
+        "waitAndPreparationMs": 1369.982,
+        "dispatchToReconciledMs": 2545.317,
+        "submittedToReconciledMs": 3915.299
+      },
+      {
+        "index": 20,
+        "hash": "0xffadfe0ebaa52addd9bcde43fdf9119a769c0e9e280bad6e63db07fb5e4c473f",
+        "nonce": 916,
+        "valueWei": "1000000000020",
+        "submittedAt": "2026-09-15T13:23:14.351Z",
+        "admittedAt": "2026-09-15T13:23:14.356562Z",
+        "post": "0x0d16e5aac8dfd8989331e7f6a163448609a4b4e449e9609577e9390925fa73b2",
+        "l1Block": 23069053,
+        "safeL2": 141210,
+        "acknowledgementMs": 6.080268000005162,
+        "receiptObservedMs": 6505.5573869999935,
+        "safeDeliveryObservedMs": 8208.248821000001,
+        "waitAndPreparationMs": 4303.809,
+        "dispatchToReconciledMs": 2510.981,
+        "submittedToReconciledMs": 6814.79
+      },
+      {
+        "index": 21,
+        "hash": "0xc6655148c6e0b04f7b0e3285e3624df8672eabc804a6505b4b7ec7af216aab62",
+        "nonce": 917,
+        "valueWei": "1000000000021",
+        "submittedAt": "2026-09-15T13:23:16.451Z",
+        "admittedAt": "2026-09-15T13:23:16.467498Z",
+        "post": "0x0d16e5aac8dfd8989331e7f6a163448609a4b4e449e9609577e9390925fa73b2",
+        "l1Block": 23069053,
+        "safeL2": 141210,
+        "acknowledgementMs": 17.758474999995087,
+        "receiptObservedMs": 4406.176311000003,
+        "safeDeliveryObservedMs": 6108.825960000002,
+        "waitAndPreparationMs": 2203.809,
+        "dispatchToReconciledMs": 2510.981,
+        "submittedToReconciledMs": 4714.79
+      },
+      {
+        "index": 22,
+        "hash": "0x1f45cde6fa227ef1d00a865910afbe67a12dd76156143353784d94d35eb0eda7",
+        "nonce": 918,
+        "valueWei": "1000000000022",
+        "submittedAt": "2026-09-15T13:23:18.550Z",
+        "admittedAt": "2026-09-15T13:23:18.555678Z",
+        "post": "0x33b7c40e432c8fa8d8a741dc891d5d7fd7498edf916464dac53bf152690b85f7",
+        "l1Block": 23069054,
+        "safeL2": 141215,
+        "acknowledgementMs": 5.821187000008649,
+        "receiptObservedMs": 7088.112288000004,
+        "safeDeliveryObservedMs": 7088.721298000004,
+        "waitAndPreparationMs": 5086.695,
+        "dispatchToReconciledMs": 2528.701,
+        "submittedToReconciledMs": 7615.396
+      },
+      {
+        "index": 23,
+        "hash": "0xcf34930e2310582dce7e9814e1dee0fdc60fe9e6ea66a790ca8766bfd89bc71a",
+        "nonce": 919,
+        "valueWei": "1000000000023",
+        "submittedAt": "2026-09-15T13:23:20.650Z",
+        "admittedAt": "2026-09-15T13:23:20.656104Z",
+        "post": "0x33b7c40e432c8fa8d8a741dc891d5d7fd7498edf916464dac53bf152690b85f7",
+        "l1Block": 23069054,
+        "safeL2": 141215,
+        "acknowledgementMs": 6.420616999996128,
+        "receiptObservedMs": 4988.070458000002,
+        "safeDeliveryObservedMs": 4988.703827999998,
+        "waitAndPreparationMs": 2986.695,
+        "dispatchToReconciledMs": 2528.701,
+        "submittedToReconciledMs": 5515.396
+      }
+    ],
+    "finalQueue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1789478603307,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0xfd43bf982a2a98308f9b397e62de3828c1fa6c7bb8cef0d49aa2519dbbc3fd60",
+          "number": 23069054
+        },
+        "observedAtMs": 1789478606165
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x31f904f01af07131113cd90e104c55eb24a7a52106d9f9cd7acf0e8e543d0da4",
+          "number": 23069053
+        },
+        "l2": {
+          "hash": "0xfe03498c98c2ca1f68610bac7e059faf0c8bce85441a7f567018964d2ecb4ab2",
+          "number": 141214
+        }
+      },
+      "unknown": 0
+    }
+  },
+  "timingStages": {
+    "verified": true,
+    "posts": [
+      {
+        "post": "0x1f7db36021908c3e2e001682a6c7955bdb0ec1183c19c40e9476e20d3ba989c0",
+        "block": 23069045,
+        "slotTimestamp": 1789478560,
+        "payloadAt": "2026-09-15T13:22:40.260662Z",
+        "canonicalAt": "2026-09-15T13:22:40.809436Z",
+        "safeAt": "2026-09-15T13:22:40.934277Z",
+        "reconciledAt": "2026-09-15T13:22:41.165438Z",
+        "payloadAfterSlotMs": 260.662,
+        "canonicalAfterSlotMs": 809.436,
+        "safeAfterSlotMs": 934.277099609375,
+        "canonicalToSafeMs": 124.841,
+        "safeToReconciledMs": 231.161
+      },
+      {
+        "post": "0x89b06fc3898a31cc9a57d12ed8ac92a2461ad2ae0942d60d501ec9b2bc911ab7",
+        "block": 23069046,
+        "slotTimestamp": 1789478565,
+        "payloadAt": "2026-09-15T13:22:45.292630Z",
+        "canonicalAt": "2026-09-15T13:22:45.815146Z",
+        "safeAt": "2026-09-15T13:22:46.059653Z",
+        "reconciledAt": "2026-09-15T13:22:46.170238Z",
+        "payloadAfterSlotMs": 292.63,
+        "canonicalAfterSlotMs": 815.1460000000001,
+        "safeAfterSlotMs": 1059.653076171875,
+        "canonicalToSafeMs": 244.507,
+        "safeToReconciledMs": 110.58500000000001
+      },
+      {
+        "post": "0xc57c32e70e0b56231537b81381b766bc2bee5f8c0689c88abb64e0d626a97d9d",
+        "block": 23069047,
+        "slotTimestamp": 1789478570,
+        "payloadAt": "2026-09-15T13:22:50.301356Z",
+        "canonicalAt": "2026-09-15T13:22:50.457176Z",
+        "safeAt": "2026-09-15T13:22:50.583791Z",
+        "reconciledAt": "2026-09-15T13:22:51.167322Z",
+        "payloadAfterSlotMs": 301.356,
+        "canonicalAfterSlotMs": 457.17600000000004,
+        "safeAfterSlotMs": 583.791015625,
+        "canonicalToSafeMs": 126.61500000000001,
+        "safeToReconciledMs": 583.5310000000001
+      },
+      {
+        "post": "0x0cc5f0ebed2367fb5a2efbef70ae2caf7f7736a9c46da96b8b55845bf08bb773",
+        "block": 23069048,
+        "slotTimestamp": 1789478575,
+        "payloadAt": "2026-09-15T13:22:55.236053Z",
+        "canonicalAt": "2026-09-15T13:22:55.662935Z",
+        "safeAt": "2026-09-15T13:22:55.822492Z",
+        "reconciledAt": "2026-09-15T13:22:56.166384Z",
+        "payloadAfterSlotMs": 236.05300000000003,
+        "canonicalAfterSlotMs": 662.9350000000001,
+        "safeAfterSlotMs": 822.491943359375,
+        "canonicalToSafeMs": 159.55700000000002,
+        "safeToReconciledMs": 343.892
+      },
+      {
+        "post": "0xcdbc834576b2c123035ff8641b8d7ef71a37f0295b2c36cffdc00d229b06a11a",
+        "block": 23069049,
+        "slotTimestamp": 1789478580,
+        "payloadAt": "2026-09-15T13:23:00.317555Z",
+        "canonicalAt": "2026-09-15T13:23:00.467317Z",
+        "safeAt": "2026-09-15T13:23:00.623968Z",
+        "reconciledAt": "2026-09-15T13:23:01.166813Z",
+        "payloadAfterSlotMs": 317.55499999999995,
+        "canonicalAfterSlotMs": 467.317,
+        "safeAfterSlotMs": 623.9677734375,
+        "canonicalToSafeMs": 156.651,
+        "safeToReconciledMs": 542.845
+      },
+      {
+        "post": "0xd0659731e0a00e4e9180082eb70aa3e82a5af7f2a073a19dad6109f77b8db494",
+        "block": 23069050,
+        "slotTimestamp": 1789478585,
+        "payloadAt": "2026-09-15T13:23:05.226731Z",
+        "canonicalAt": "2026-09-15T13:23:05.752964Z",
+        "safeAt": "2026-09-15T13:23:05.914322Z",
+        "reconciledAt": "2026-09-15T13:23:06.166819Z",
+        "payloadAfterSlotMs": 226.731,
+        "canonicalAfterSlotMs": 752.9639999999999,
+        "safeAfterSlotMs": 914.32177734375,
+        "canonicalToSafeMs": 161.358,
+        "safeToReconciledMs": 252.497
+      },
+      {
+        "post": "0xed2159ad22a625676d21707a8909cefe804b2ee86be20606499acb85d1b186c2",
+        "block": 23069051,
+        "slotTimestamp": 1789478590,
+        "payloadAt": "2026-09-15T13:23:10.364949Z",
+        "canonicalAt": "2026-09-15T13:23:10.493142Z",
+        "safeAt": "2026-09-15T13:23:10.647621Z",
+        "reconciledAt": "2026-09-15T13:23:11.167637Z",
+        "payloadAfterSlotMs": 364.949,
+        "canonicalAfterSlotMs": 493.14200000000005,
+        "safeAfterSlotMs": 647.620849609375,
+        "canonicalToSafeMs": 154.479,
+        "safeToReconciledMs": 520.0160000000001
+      },
+      {
+        "post": "0x108118a4ebfecef18bf608b5109e90bb4e8980305129c29361c789069ed20949",
+        "block": 23069052,
+        "slotTimestamp": 1789478595,
+        "payloadAt": "2026-09-15T13:23:15.339012Z",
+        "canonicalAt": "2026-09-15T13:23:15.883899Z",
+        "safeAt": "2026-09-15T13:23:16.053862Z",
+        "reconciledAt": "2026-09-15T13:23:16.166299Z",
+        "payloadAfterSlotMs": 339.012,
+        "canonicalAfterSlotMs": 883.899,
+        "safeAfterSlotMs": 1053.862060546875,
+        "canonicalToSafeMs": 169.963,
+        "safeToReconciledMs": 112.437
+      },
+      {
+        "post": "0x0d16e5aac8dfd8989331e7f6a163448609a4b4e449e9609577e9390925fa73b2",
+        "block": 23069053,
+        "slotTimestamp": 1789478600,
+        "payloadAt": "2026-09-15T13:23:20.291329Z",
+        "canonicalAt": "2026-09-15T13:23:20.798149Z",
+        "safeAt": "2026-09-15T13:23:20.931864Z",
+        "reconciledAt": "2026-09-15T13:23:21.165790Z",
+        "payloadAfterSlotMs": 291.329,
+        "canonicalAfterSlotMs": 798.149,
+        "safeAfterSlotMs": 931.864013671875,
+        "canonicalToSafeMs": 133.715,
+        "safeToReconciledMs": 233.926
+      },
+      {
+        "post": "0x33b7c40e432c8fa8d8a741dc891d5d7fd7498edf916464dac53bf152690b85f7",
+        "block": 23069054,
+        "slotTimestamp": 1789478605,
+        "payloadAt": "2026-09-15T13:23:25.338469Z",
+        "canonicalAt": "2026-09-15T13:23:25.460673Z",
+        "safeAt": "2026-09-15T13:23:25.617569Z",
+        "reconciledAt": "2026-09-15T13:23:26.165396Z",
+        "payloadAfterSlotMs": 338.469,
+        "canonicalAfterSlotMs": 460.673,
+        "safeAfterSlotMs": 617.56884765625,
+        "canonicalToSafeMs": 156.89600000000002,
+        "safeToReconciledMs": 547.827
+      }
+    ],
+    "transactions": [
+      {
+        "index": 0,
+        "submittedToSafeMs": 8583.277,
+        "submittedToReconciledMs": 8814.438,
+        "observedMs": 8807.875462000004
+      },
+      {
+        "index": 1,
+        "submittedToSafeMs": 11607.653,
+        "submittedToReconciledMs": 11718.238,
+        "observedMs": 11911.895344000004
+      },
+      {
+        "index": 2,
+        "submittedToSafeMs": 9509.653,
+        "submittedToReconciledMs": 9620.238000000001,
+        "observedMs": 9813.323153000005
+      },
+      {
+        "index": 3,
+        "submittedToSafeMs": 7408.653,
+        "submittedToReconciledMs": 7519.237999999999,
+        "observedMs": 7712.668874000003
+      },
+      {
+        "index": 4,
+        "submittedToSafeMs": 5308.652999999999,
+        "submittedToReconciledMs": 5419.238,
+        "observedMs": 5612.690533000001
+      },
+      {
+        "index": 5,
+        "submittedToSafeMs": 3208.653,
+        "submittedToReconciledMs": 3319.238,
+        "observedMs": 3512.598324000006
+      },
+      {
+        "index": 6,
+        "submittedToSafeMs": 5631.791,
+        "submittedToReconciledMs": 6215.321999999999,
+        "observedMs": 5914.239951999996
+      },
+      {
+        "index": 7,
+        "submittedToSafeMs": 3532.791,
+        "submittedToReconciledMs": 4116.322,
+        "observedMs": 3815.1929299999974
+      },
+      {
+        "index": 8,
+        "submittedToSafeMs": 6671.492,
+        "submittedToReconciledMs": 7015.384,
+        "observedMs": 6917.094122000002
+      },
+      {
+        "index": 9,
+        "submittedToSafeMs": 4571.492,
+        "submittedToReconciledMs": 4915.384,
+        "observedMs": 4817.093556
+      },
+      {
+        "index": 10,
+        "submittedToSafeMs": 7272.968,
+        "submittedToReconciledMs": 7815.813,
+        "observedMs": 7435.853230000008
+      },
+      {
+        "index": 11,
+        "submittedToSafeMs": 5173.968000000001,
+        "submittedToReconciledMs": 5716.813,
+        "observedMs": 5336.456529000003
+      },
+      {
+        "index": 12,
+        "submittedToSafeMs": 3073.968,
+        "submittedToReconciledMs": 3616.813,
+        "observedMs": 3236.514046000011
+      },
+      {
+        "index": 13,
+        "submittedToSafeMs": 6263.321999999999,
+        "submittedToReconciledMs": 6515.8189999999995,
+        "observedMs": 6666.939631000001
+      },
+      {
+        "index": 14,
+        "submittedToSafeMs": 4163.322,
+        "submittedToReconciledMs": 4415.8189999999995,
+        "observedMs": 4566.071659000008
+      },
+      {
+        "index": 15,
+        "submittedToSafeMs": 6796.621,
+        "submittedToReconciledMs": 7316.637,
+        "observedMs": 6971.850810999997
+      },
+      {
+        "index": 16,
+        "submittedToSafeMs": 4696.621,
+        "submittedToReconciledMs": 5216.637000000001,
+        "observedMs": 4872.286987999993
+      },
+      {
+        "index": 17,
+        "submittedToSafeMs": 2595.621,
+        "submittedToReconciledMs": 3115.637,
+        "observedMs": 2771.4408450000046
+      },
+      {
+        "index": 18,
+        "submittedToSafeMs": 5901.862,
+        "submittedToReconciledMs": 6014.299,
+        "observedMs": 6169.749521999998
+      },
+      {
+        "index": 19,
+        "submittedToSafeMs": 3802.862,
+        "submittedToReconciledMs": 3915.299,
+        "observedMs": 4070.208448999998
+      },
+      {
+        "index": 20,
+        "submittedToSafeMs": 6580.8640000000005,
+        "submittedToReconciledMs": 6814.79,
+        "observedMs": 8208.248821000001
+      },
+      {
+        "index": 21,
+        "submittedToSafeMs": 4480.8640000000005,
+        "submittedToReconciledMs": 4714.79,
+        "observedMs": 6108.825960000002
+      },
+      {
+        "index": 22,
+        "submittedToSafeMs": 7067.5689999999995,
+        "submittedToReconciledMs": 7615.396,
+        "observedMs": 7088.721298000004
+      },
+      {
+        "index": 23,
+        "submittedToSafeMs": 4967.569,
+        "submittedToReconciledMs": 5515.396,
+        "observedMs": 4988.703827999998
+      }
+    ],
+    "stageStatisticsMs": {
+      "payloadAfterSlotMs": {
+        "count": 10,
+        "min": 226.731,
+        "median": 296.993,
+        "p95": 364.949,
+        "max": 364.949
+      },
+      "canonicalAfterSlotMs": {
+        "count": 10,
+        "min": 457.17600000000004,
+        "median": 707.9495,
+        "p95": 883.899,
+        "max": 883.899
+      },
+      "safeAfterSlotMs": {
+        "count": 10,
+        "min": 583.791015625,
+        "median": 868.4068603515625,
+        "p95": 1059.653076171875,
+        "max": 1059.653076171875
+      },
+      "canonicalToSafeMs": {
+        "count": 10,
+        "min": 124.841,
+        "median": 156.7735,
+        "p95": 244.507,
+        "max": 244.507
+      },
+      "safeToReconciledMs": {
+        "count": 10,
+        "min": 110.58500000000001,
+        "median": 298.1945,
+        "p95": 583.5310000000001,
+        "max": 583.5310000000001
+      }
+    },
+    "submittedToSafeMs": {
+      "count": 24,
+      "min": 2595.621,
+      "median": 5470.222,
+      "p95": 9509.653,
+      "max": 11607.653
+    },
+    "belowFiveSeconds": {
+      "observed": 9,
+      "serverSafe": 10,
+      "serverReconciled": 8
+    },
+    "excluded": [
+      {
+        "post": "0x39bf8864902b61fb099e1fb9689a43b2a9aef70fc45ede8be84e0aa87ca9b3e6",
+        "dispatchAt": "2026-09-15T13:22:33.636678Z",
+        "targetBlock": 23069044,
+        "blockHash": "0x58fa975f9f56d627fc6031b7a26ee97d46bd8cc6515730e067e903a154edd626",
+        "timestamp": 1789478555,
+        "transactions": [],
+        "gasUsed": 0,
+        "gasLimit": 17033182,
+        "blobGasUsed": 0,
+        "reasonReported": [
+          "excluded"
+        ],
+        "limitation": "Canonical block contents establish exclusion, not the builder/proposer decision that caused it."
+      }
+    ]
+  },
+  "independentFollower": {
+    "verified": true,
+    "binarySha256": "9584d300d41a35e3df0f3a9ca9f4e6f61a2b0533ec5f76a80c02502c5f18a1a5",
+    "verifiedEndpoint": {
+      "number": "141215",
+      "hash": "0x1ee39999581488ad300857fbcb99f4263947de9c5051a2a9f91ee4c7aef80a8d",
+      "timestamp": "1789478605",
+      "stateRoot": "0xc0ddf715f0c43abed7bb02912b9583134b056e5c540fbb98ac0779afa5bf6c31"
+    },
+    "verifiedBalance": "0x53c30872ab9d3db0",
+    "exitCode": 0,
+    "finishedAt": "2026-09-15T13:23:27.562687+00:00"
+  },
+  "health": {
+    "verified": true,
+    "at": "2026-09-15T13:36:12.213604+00:00",
+    "composerSha256": "321025bcd368c0dfc8f11d24f79e677d5ea1f98db41eae1d2629deb0ce398840",
+    "container": "577ea05fd62eeff772ad3c4acf0ea5011c27fb0b870a6440cadf30b3af631ca9",
+    "image": "sha256:51f0a76e97a744ecf17c9cda62d7c4a478f93bd6d81545a432e3dcad875566e0",
+    "settings": {
+      "EEZ_PREPARATION_TIME_MS": "500",
+      "EEZ_PROOF_TIME_MS": "500",
+      "EEZ_SUBMISSION_SLACK_MS": "700",
+      "EEZ_SETTLEMENT_POLICY_ENABLED": "true",
+      "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+      "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "1800",
+      "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS": "off",
+      "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto"
+    },
+    "before": {
+      "l1": {
+        "number": "0x1600202",
+        "hash": "0xcb532343887d2f6773a441c02f2287e6c021600371f05ed28548f3cdf181030e",
+        "timestamp": "0x6aa949c0",
+        "stateRoot": "0x2afecad14d0e6cf3132490a941633e5414903bff1593755f53aa5d32cfe3420d"
+      },
+      "l2": {
+        "number": "0x22a95",
+        "hash": "0xf342d465022f376361f4a1a604011a97f19a042e0aa96dd2686ac84a15cb0310",
+        "timestamp": "0x6aa949c3",
+        "stateRoot": "0x7c2241498d29a1de7bdcc515736ba6cd83f499fd80c5ee20f783a7730a079b5e"
+      }
+    },
+    "after": {
+      "l1": {
+        "number": "0x1600204",
+        "hash": "0xc2aacb7877d96183b9ffc4ec95316721d36cb19cd2436671393b74ab88584021",
+        "timestamp": "0x6aa949ca",
+        "stateRoot": "0x1f8767cc0747a706164fe410f8c78ce941ad0ce980bf936f0e5a3364036fa626"
+      },
+      "l2": {
+        "number": "0x22a9e",
+        "hash": "0x300509fc505660fe8440b1574b45a471b55e8b463c83bd36cf13277d51715d6f",
+        "timestamp": "0x6aa949cc",
+        "stateRoot": "0xb4e6ad2053c32f184f061624b9ba8d39a4f8b5b6db51a665139befcb4fc31e6a"
+      },
+      "safe": {
+        "number": "0x2279f",
+        "hash": "0x1ee39999581488ad300857fbcb99f4263947de9c5051a2a9f91ee4c7aef80a8d",
+        "timestamp": "0x6aa946cd",
+        "stateRoot": "0xc0ddf715f0c43abed7bb02912b9583134b056e5c540fbb98ac0779afa5bf6c31"
+      }
+    },
+    "verifiedWaveEndpoint": {
+      "number": "0x2279f",
+      "hash": "0x1ee39999581488ad300857fbcb99f4263947de9c5051a2a9f91ee4c7aef80a8d",
+      "timestamp": "0x6aa946cd",
+      "stateRoot": "0xc0ddf715f0c43abed7bb02912b9583134b056e5c540fbb98ac0779afa5bf6c31"
+    },
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1789478603307,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0xfd43bf982a2a98308f9b397e62de3828c1fa6c7bb8cef0d49aa2519dbbc3fd60",
+          "number": 23069054
+        },
+        "observedAtMs": 1789478606165
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x31f904f01af07131113cd90e104c55eb24a7a52106d9f9cd7acf0e8e543d0da4",
+          "number": 23069053
+        },
+        "l2": {
+          "hash": "0xfe03498c98c2ca1f68610bac7e059faf0c8bce85441a7f567018964d2ecb4ab2",
+          "number": 141214
+        }
+      },
+      "unknown": 0
+    },
+    "beacon": {
+      "sync": {
+        "is_syncing": false,
+        "is_optimistic": false,
+        "el_offline": false,
+        "head_slot": "24816614",
+        "sync_distance": "0"
+      },
+      "peers": {
+        "connected": "23",
+        "connecting": "0",
+        "disconnected": "4",
+        "disconnecting": "0"
+      }
+    }
+  },
+  "measurementLimits": [
+    "One live wave; not a universal latency guarantee or L1 consensus finality.",
+    "Same 24 sources and 2.1-second spacing as baseline; each run excludes its own warm-up.",
+    "Candidate wave shared the host with concurrent native regression tests; beacon peer count was also different.",
+    "The candidate delivered 9/24 observed requests below five seconds; usual sub-five-second delivery is not established.",
+    "A builder RPC returned result:null but the first bundle was excluded from an empty block; the proposer/builder cause is unproven."
+  ],
+  "evidenceSha256": {
+    "artifacts/bridge-latency-fix-20260915-final/source-identities.json": "578762e6676f415797127b90d9cb09991166b396c8b49e398a6e61a239eecce5",
+    "artifacts/bridge-latency-fix-20260915-final/amended-source-identities.json": "8fc4b8baf18dda8a5d33c88deadbbaa567afe9654b530c4780da44e46026a74d",
+    "artifacts/bridge-latency-fix-20260915-final/runtime-identities.json": "13d19d7730e42526ad93227ed75e377c780b2a952d96f42ea841d8ed0a65c9fc",
+    "artifacts/bridge-latency-fix-20260915-final/deployment.json": "d1a7cf9e3c6cc084da58b042b6ff2a0abb08e997b9d14ebcc658f77bbd34e0eb",
+    "artifacts/bridge-latency-fix-20260915-final/final-health.json": "3a3c71b9464b5ef0b1bb228e55338eb30d7f170deb3a4b3b2e9a6f79f114e86f",
+    "artifacts/bridge-latency-fix-20260915-final/final-unit.log": "2fe6fe7a6f78a8842bc35578c98a2daf77f0173204cc27872b57f3c447b0b18a",
+    "artifacts/bridge-latency-fix-20260915-final/clippy.log": "b8eba175867148b456d5fa45b55db7e564cf2690fb830a6c6b2aa78850156b82",
+    "artifacts/bridge-latency-fix-20260915-final/amended-clippy.log": "4e33ca6a2eb09aead5a6685bdcbd4511275ad104910a840ce75da5c6ac5bb485",
+    "artifacts/bridge-latency-fix-20260915-final/smoke-results.json": "ee7c6cd72e2926fd42bac9768655a78c0a2d0ba6fa8b3f51e2e5b75da223b0b2",
+    "artifacts/bridge-latency-fix-20260915-final/regression-results.json": "a18b564765608dabd91b23fcf2380546425ac6b894b628ea857433944a18fee4",
+    "artifacts/bridge-latency-fix-20260915-final/amended-results.json": "f05b3c5077ad5e064bf4a65d601c76a4e51c7112c59cc837efab293e0cb42220",
+    "artifacts/bridge-latency-fix-20260915-final/test-amendment.json": "37906dd0c9a9fd76772be18152550a66a7f213217cec0c1fd613a7d878aceb6f",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/measurement.json": "ec95d7fca013b2ecbd3f50d608866e41c4feb7a452455d1a449946a97845a66b",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/summary.json": "f3069991b7b97bbbfb5954c7595d07683554c5fc3d1fe4711f4c7f76facb3027",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/timing-stages.json": "53cb21ec44253ee7a17bc840d36083b37a3046d0613157a91bf411298da69dd7",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/capture.json": "cff355864edfa3bcc424a30f0237fff3d3d16f420f2bf21b83fe0ec7136f82a4",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/runtime.json": "d094fc70472d675facfe37c46d28a1832185cc83b9351483766621ada4dcd0e1",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/canonical-receipts.json": "5f9b6f836be112a5b7b2d18a41c1d4e1584579127ddfa54bf8e62498e9d882f1",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/node-complete.log": "87d69f4fcf6639691b569c30df3f8494213acf8b77efd84ef2e4d859c77d3bec",
+    "artifacts/chiado-bridge-wave-latency-fix-20260915/beacon-debug-window.log": "70465fa24f8d71f34375506d0f0b6c0d04efb756d003dfd701bde2ab9de85300",
+    "artifacts/bridge-latency-fix-20260915/independent-follower.json": "0205ea2bae9969f7a50169b9538205de4b7e722db738e34fab33f448047576d4",
+    "artifacts/bridge-latency-fix-20260915/independent-follower.log": "1233372d18f23a5927a85ce23a903b931dede29815556ef84beec5b9525081ea",
+    "artifacts/bridge-latency-fix-20260915/python-tests.log": "187e6b0dd01a0082a488d96013346df3eef22910ca8d45fe27a6ecb684a2be40"
+  }
+}

@@ -5,14 +5,14 @@
 //! beacon REST endpoint and recomputes every body's KZG versioned hash before
 //! accepting it.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy_eips::eip4844::kzg_to_versioned_hash;
 use alloy_primitives::{B256, Bytes, U256, hex};
 use alloy_provider::Provider;
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
-    Blob, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
+    Blob, BlobLimits, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
 };
 use eez_protocol::abi::postAndVerifyBatchCall;
 use serde_json::Value;
@@ -42,7 +42,12 @@ pub(crate) struct BeaconBlobSource {
     beacon_url: Option<Url>,
     client: reqwest::Client,
     timing: OnceCell<BeaconTiming>,
+    rules: Option<BlobRuleSource>,
 }
+
+/// Immutable operator-selected L1 fork schedule. Historical admission uses the
+/// actual containing block's timestamp; outgoing operator caps are not inputs.
+pub type BlobRuleSource = Arc<dyn Fn(u64) -> Option<alloy_eips::eip7840::BlobParams> + Send + Sync>;
 
 impl BeaconBlobSource {
     pub(crate) fn new(beacon_url: Option<Url>) -> Self {
@@ -50,7 +55,29 @@ impl BeaconBlobSource {
             beacon_url: beacon_url.map(normalize_base_url),
             client: reqwest::Client::new(),
             timing: OnceCell::new(),
+            rules: None,
         }
+    }
+
+    pub(crate) fn with_rules(mut self, rules: BlobRuleSource) -> Self {
+        self.rules = Some(rules);
+        self
+    }
+
+    fn historical_limit(&self, timestamp: u64) -> L1Result<usize> {
+        let Some(rules) = &self.rules else {
+            return Ok(MAX_BLOBS_PER_TRANSACTION);
+        };
+        let params = rules(timestamp).ok_or_else(|| {
+            L1Error::Config(format!(
+                "L1 blob rules unavailable at containing timestamp {timestamp}"
+            ))
+        })?;
+        let maximum = BlobLimits::from_params(params)
+            .and_then(|limits| limits.outgoing(0, u64::MAX, None))
+            .map_err(|error| L1Error::Config(format!("containing L1 blob rules: {error}")))?;
+        usize::try_from(maximum)
+            .map_err(|_| L1Error::Config("L1 blob allowance exceeds platform capacity".into()))
     }
 
     /// Populate every batch's authenticated operations payload from its
@@ -61,7 +88,7 @@ impl BeaconBlobSource {
         rollup_id: u64,
         batches: &mut [ScannedBatch],
     ) -> L1Result<()> {
-        let mut sidecars_by_block: HashMap<B256, Vec<AvailableBlob>> = HashMap::new();
+        let mut sidecars_by_block: HashMap<B256, (usize, Vec<AvailableBlob>)> = HashMap::new();
 
         for scanned in batches {
             let posted =
@@ -72,12 +99,6 @@ impl BeaconBlobSource {
                     ))
                 })?;
             let indices = &posted.batch.blobIndices;
-            validate_blob_profile(
-                scanned.tx_hash,
-                &posted.batch.callData,
-                indices,
-                &scanned.transaction_blob_hashes,
-            )?;
             if self.beacon_url.is_none() {
                 return Err(L1Error::Config(
                     "EEZ_L1_BEACON_URL is required to derive native blob batches".into(),
@@ -112,6 +133,14 @@ impl BeaconBlobSource {
                             .into(),
                     });
                 }
+                let maximum = self.historical_limit(block.header.inner.timestamp)?;
+                validate_blob_profile_with_limit(
+                    scanned.tx_hash,
+                    &posted.batch.callData,
+                    indices,
+                    &scanned.transaction_blob_hashes,
+                    maximum,
+                )?;
                 let available = self
                     .fetch_slot_blobs(
                         block.header.inner.timestamp,
@@ -119,12 +148,20 @@ impl BeaconBlobSource {
                         scanned.tx_hash,
                     )
                     .await?;
-                entry.insert(available);
+                entry.insert((maximum, available));
             }
 
-            let available = sidecars_by_block
+            let (maximum, available) = sidecars_by_block
                 .get(&scanned.l1_block_hash)
                 .expect("inserted immediately above");
+            // Every transaction in the block has its own carrier and indices.
+            validate_blob_profile_with_limit(
+                scanned.tx_hash,
+                &posted.batch.callData,
+                indices,
+                &scanned.transaction_blob_hashes,
+                *maximum,
+            )?;
             let mut transaction_blobs = Vec::with_capacity(scanned.transaction_blob_hashes.len());
             for expected_hash in &scanned.transaction_blob_hashes {
                 let Some(found) = available
@@ -312,11 +349,28 @@ impl BeaconBlobSource {
     }
 }
 
+#[cfg(test)]
 fn validate_blob_profile(
     tx_hash: B256,
     abi_call_data: &Bytes,
     blob_indices: &[U256],
     transaction_blob_hashes: &[B256],
+) -> L1Result<()> {
+    validate_blob_profile_with_limit(
+        tx_hash,
+        abi_call_data,
+        blob_indices,
+        transaction_blob_hashes,
+        MAX_BLOBS_PER_TRANSACTION,
+    )
+}
+
+fn validate_blob_profile_with_limit(
+    tx_hash: B256,
+    abi_call_data: &Bytes,
+    blob_indices: &[U256],
+    transaction_blob_hashes: &[B256],
+    maximum: usize,
 ) -> L1Result<()> {
     if !abi_call_data.is_empty() {
         return Err(L1Error::Decode(format!(
@@ -328,9 +382,9 @@ fn validate_blob_profile(
             "batch {tx_hash} selects blobs but its transaction has no EIP-4844 versioned hashes"
         )));
     }
-    if transaction_blob_hashes.len() > MAX_BLOBS_PER_TRANSACTION {
+    if transaction_blob_hashes.len() > maximum {
         return Err(L1Error::Decode(format!(
-            "batch {tx_hash} contains {} transaction blobs; supported maximum is {MAX_BLOBS_PER_TRANSACTION}",
+            "batch {tx_hash} contains {} transaction blobs; containing fork maximum is {maximum}",
             transaction_blob_hashes.len()
         )));
     }
@@ -619,6 +673,98 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(scanned[0].operations_payload, expected_payload);
+    }
+
+    #[tokio::test]
+    async fn historical_nine_blob_batch_uses_containing_fork_and_checks_each_transaction() {
+        use alloy_eips::eip7840::BlobParams;
+        let rollup_id = 7;
+        let payload = Bytes::from(vec![0; 8 * eez_blob_codec::DATA_BYTES_PER_BLOB + 100]);
+        let blobs =
+            eez_blob_codec::encode_native_payload(rollup_id, payload.clone(), Vec::new()).unwrap();
+        assert_eq!(blobs.len(), 9);
+        let beacon_url = serve_json_responses(vec![
+            serde_json::json!({"data": {"genesis_time": "1000"}}).to_string(),
+            serde_json::json!({"data": {"SECONDS_PER_SLOT": "12"}}).to_string(),
+            serde_json::json!({"data": blobs.iter().map(|blob| format!("0x{}", hex::encode(blob.as_bytes()))).collect::<Vec<_>>()}).to_string(),
+        ]).await;
+        let source =
+            BeaconBlobSource::new(Some(beacon_url)).with_rules(Arc::new(
+                |timestamp| match timestamp {
+                    0..1_000 => None,
+                    1_000..1_072 => Some(BlobParams::prague()),
+                    _ => Some(BlobParams::osaka()),
+                },
+            ));
+        assert!(source.historical_limit(999).is_err());
+        assert_eq!(source.historical_limit(1_071).unwrap(), 9);
+        assert_eq!(source.historical_limit(1_072).unwrap(), 6);
+
+        let block_hash = B256::repeat_byte(0x44);
+        let mut block: alloy_rpc_types_eth::Block = alloy_rpc_types_eth::Block::default();
+        block.header.hash = block_hash;
+        block.header.inner.number = 42;
+        block.header.inner.timestamp = 1_060;
+        let asserter = Asserter::new();
+        asserter.push_success(&block);
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+        let mut batch = ProofSystemBatchPerVerificationEntriesSol {
+            blobIndices: (0..blobs.len()).map(U256::from).collect(),
+            ..Default::default()
+        };
+        let valid = ScannedBatch {
+            l1_block_number: 42,
+            l1_block_hash: block_hash,
+            tx_hash: B256::repeat_byte(0x55),
+            tx_index: 0,
+            submitter: alloy_primitives::Address::ZERO,
+            operations_payload: Bytes::new(),
+            transaction_blob_hashes: blob_versioned_hashes(&blobs).unwrap(),
+            post_batch_input: postAndVerifyBatchCall {
+                batch: batch.clone(),
+            }
+            .abi_encode()
+            .into(),
+            state_applied: true,
+            settlement: crate::scan::Settlement::NONE,
+            claimed_current_root: None,
+            claimed_new_root: None,
+        };
+        // A second event at the same L1 height must not bypass its own
+        // validation just because its containing block's blobs are cached.
+        batch.blobIndices.swap(0, 1);
+        let invalid = ScannedBatch {
+            tx_hash: B256::repeat_byte(0x56),
+            tx_index: 1,
+            post_batch_input: postAndVerifyBatchCall { batch }.abi_encode().into(),
+            ..valid.clone()
+        };
+        let mut scanned = [valid, invalid];
+        let error = source
+            .hydrate_scanned_batches(&provider, rollup_id, &mut scanned)
+            .await
+            .unwrap_err();
+        assert_eq!(scanned[0].operations_payload, payload);
+        assert!(scanned[1].operations_payload.is_empty());
+        assert!(
+            error.to_string().contains("exactly once in order"),
+            "{error}"
+        );
+
+        // Even an authenticated nine-blob carrier becomes invalid if the
+        // containing block is in the fork with a six-blob transaction maximum.
+        block.header.inner.timestamp = 1_072;
+        let asserter = Asserter::new();
+        asserter.push_success(&block);
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+        let error = source
+            .hydrate_scanned_batches(&provider, rollup_id, &mut scanned[..1])
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("containing fork maximum is 6"),
+            "{error}"
+        );
     }
 
     async fn serve_json_responses(responses: Vec<String>) -> Url {

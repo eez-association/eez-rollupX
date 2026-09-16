@@ -1,5 +1,6 @@
 """Opt-in packaging integration test; real Docker, tiny Rust workspace, no GHCR writes."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,9 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[3]
+spec = importlib.util.spec_from_file_location("native_tests", REPO / "scripts/ci/native-tests.py")
+native = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(native)
 
 
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
@@ -72,7 +76,7 @@ class RuntimeDockerTest(unittest.TestCase):
                         '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
                         '}\n'
                     )
-                for test in ({"eez-node-e2e": ("e2e", "cross_chain", "chained_interstate", "resumption"),
+                for test in ({"eez-node-e2e": native.E2E_TARGETS,
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)

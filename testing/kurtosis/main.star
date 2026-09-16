@@ -21,6 +21,28 @@ UI_HTTP_PORT = 8080
 L2_CHAIN_ID = "6290"
 
 
+def settlement_environment(values):
+    # Preserve the node's authoritative parsing and defaults. This layer only
+    # transports explicit strings and catches misspelled deployment keys.
+    allowed = [
+        "EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_SETTLEMENT_PURE_L2_MODE",
+        "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+        "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_MAX_BLOBS_PER_BATCH",
+        "EEZ_MAX_POSTBATCH_GAS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
+        "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+        "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS",
+        "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+        "EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS", "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS",
+        "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS",
+    ]
+    result = {}
+    for name, value in values.items():
+        if name not in allowed or type(value) != "string":
+            fail("settlement_env requires a recognized environment name and a quoted string: " + name)
+        result[name] = value
+    return result
+
+
 def run(plan, args):
     eth_args = args["ethereum_package"]
     eez = args.get("eez", {})
@@ -132,8 +154,14 @@ def run(plan, args):
             "exec eez-proof-signer",
             "--listen-addr=0.0.0.0:{}".format(PROOF_SIGNER_GRPC_PORT),
             "--chain-config=/out/l2-genesis.json",
+            "--l1-chain-config=/genesis/genesis.json",
         ]
     )
+    if "proof_signer_max_request_blocks" in eez:
+        block_limit = eez["proof_signer_max_request_blocks"]
+        if type(block_limit) != "int" or block_limit <= 0:
+            fail("eez.proof_signer_max_request_blocks must be a positive integer")
+        signer_cmd += " --max-request-blocks={}".format(block_limit)
 
     plan.add_service(
         name="eez-proof-signer",
@@ -148,6 +176,7 @@ def run(plan, args):
             },
             files={
                 "/out": deploy.files_artifacts[0],
+                "/genesis": "el_cl_genesis_data",
             },
             env_vars={
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
@@ -163,6 +192,7 @@ def run(plan, args):
     eez_env = {
         "EEZ_L1_CHAIN": "devnet",
         "EEZ_L1_CHAIN_PATH": "/genesis/genesis.json",
+        "EEZ_L1_CHAIN_CONFIG": "/genesis/genesis.json",
         "EEZ_L1_JWT_SECRET": "/jwt/jwtsecret",
         "EEZ_L1_HTTP_PORT": str(EMBEDDED_L1_RPC_PORT),
         "EEZ_L1_AUTH_PORT": str(EMBEDDED_L1_ENGINE_PORT),
@@ -198,6 +228,7 @@ def run(plan, args):
         "EEZL2_ADDRESS": "0x4200000000000000000000000000000000000007",
         "RUST_LOG": eez.get("node_rust_log", "info"),
     }
+    eez_env.update(settlement_environment(eez.get("settlement_env", {})))
 
     node_cmd = " ".join(
         [

@@ -1,0 +1,470 @@
+{
+  "recordedAt": "2026-09-15T21:34:15.836164+00:00",
+  "artifactRoot": "artifacts/chiado-gas-staged-20260915",
+  "protocolCommit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "scope": "Exact requested transaction timing, canonical layer placement, nonces, ownership and receipt costs; protocol semantic verification disabled; independent live follower not run.",
+  "workload": {
+    "prepareParallel": 200,
+    "sendWorkers": 28,
+    "jobs": 770,
+    "setupTransactions": 2850,
+    "crossChainSources": 870,
+    "args": [
+      "--no-verify",
+      "counter:100",
+      "counterL2:100",
+      "nestedCounter:50",
+      "nestedCounterL2:50",
+      "multi-call-nested:50",
+      "multi-call-nestedL2:50",
+      "multi-call-twice:50",
+      "multi-call-twiceL2:50",
+      "counter-multi-tx:50",
+      "reentrant:20",
+      "revertCounter:50",
+      "revertCounterL2:50",
+      "revertFromOtherChain:50",
+      "revertFromOtherChainL2:50"
+    ]
+  },
+  "profiles": {
+    "baseline": {
+      "composerSha256": "98d33366a3f8a6d27335ecf8f1f23b4fb32ef53a3c6b244bd7eaf233e595788b",
+      "jobs": 770,
+      "sources": 870,
+      "directions": {
+        "inbound": 520,
+        "outbound": 350
+      },
+      "terminalReasons": {
+        "Committed": 820,
+        "SourceCompleted": 50
+      },
+      "sourcePostCount": 37,
+      "sourceL1BlockCount": 37,
+      "sourceSyncBlockCount": 37,
+      "maximumObservedSourcesPerSync": 34,
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "73727803012514404",
+        "companions": 520,
+        "physicalBlobs": 37,
+        "postBlobWei": "4849664000000000",
+        "postExecutionGasUsed": 230043097,
+        "postExecutionWei": "276051719853864101",
+        "posts": 37,
+        "totalBlobWei": "4849664000000000",
+        "totalExecutionGasUsed": 303770899,
+        "totalExecutionWei": "349779522866378505",
+        "totalWei": "354629186866378505",
+        "totalXDAI": "0.354629186866378505"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "73727803012514404",
+        "companions": 520,
+        "physicalBlobs": 47,
+        "postBlobWei": "6160384000000000",
+        "postExecutionGasUsed": 230846538,
+        "postExecutionWei": "276968139866265969",
+        "posts": 44,
+        "totalBlobWei": "6160384000000000",
+        "totalExecutionGasUsed": 304574340,
+        "totalExecutionWei": "350695942878780373",
+        "totalWei": "356856326878780373",
+        "totalXDAI": "0.356856326878780373"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 261877.948,
+          "median": 166942.8715,
+          "min": 57784.937,
+          "p95NearestRank": 256912.364
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 259363.517,
+          "median": 164401.5455,
+          "min": 55309.392,
+          "p95NearestRank": 254414.061
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 261162.883,
+          "median": 166312.6925,
+          "min": 57059.151,
+          "p95NearestRank": 256559.596
+        }
+      },
+      "ingressSpanMs": 1210.797,
+      "firstHeldToLastCanonicalCompleteMs": 262973.261,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 2,
+        "eez.composer.admission.submission_backoff": 3,
+        "l1_tx_gas_budget": 27,
+        "preparation_time": 6
+      },
+      "observedOutcomes": {
+        "excluded": 10,
+        "included": 44,
+        "slot_skipped": 2
+      },
+      "sourceSkippedSlotRetentionCount": 2,
+      "startedAt": "2026-09-15T21:06:07.696814+00:00",
+      "finishedAt": "2026-09-15T21:13:23.617868+00:00",
+      "completeCanonicalAudit": true,
+      "evidenceGaps": [],
+      "all770WorkerNonceChecksPassedOnBothLayers": true,
+      "runtimeAndProtocolUnchangedDuringRun": true,
+      "priorSafeStatePreserved": true,
+      "finalQueueEmpty": true,
+      "setup": {
+        "firstHeldAt": "2026-09-15T21:08:53.449593Z",
+        "unsettledL2BlocksBefore": 112,
+        "unsettledL2BlocksAfter": 115,
+        "historicalDrainPostsAfterIngress": 4,
+        "setupTransactionsSharingSourcePostRanges": 0
+      },
+      "fees": {
+        "blobPriceWei": {
+          "1000000000": 37
+        },
+        "companionEffectiveGasPriceWei": {
+          "1000000011": 30,
+          "1000000012": 29,
+          "1000000014": 461
+        },
+        "finalQuoteToDispatchMs": {
+          "count": 37,
+          "max": 155.183,
+          "median": 95.831,
+          "min": 81.146,
+          "p95NearestRank": 143.734
+        },
+        "networkEstimatedPriorityWei": {
+          "1000000000": 20,
+          "999999996": 4,
+          "999999997": 2,
+          "999999998": 4,
+          "999999999": 7
+        },
+        "postPriorityWei": {
+          "1199999996": 4,
+          "1199999997": 2,
+          "1199999998": 4,
+          "1199999999": 7,
+          "1200000000": 20
+        }
+      },
+      "canonicalSkippedTargetSlots": [
+        {
+          "targetBlock": 23074111,
+          "targetTimestamp": 1789506570,
+          "canonicalTargetTimestamp": 1789506575
+        },
+        {
+          "targetBlock": 23074138,
+          "targetTimestamp": 1789506710,
+          "canonicalTargetTimestamp": 1789506715
+        }
+      ]
+    },
+    "candidate": {
+      "composerSha256": "3694f4ec562a2511d9c763745719497921084f5926ae65ec00f76666bd0e940a",
+      "jobs": 770,
+      "sources": 870,
+      "directions": {
+        "inbound": 520,
+        "outbound": 350
+      },
+      "terminalReasons": {
+        "Committed": 820,
+        "SourceCompleted": 50
+      },
+      "sourcePostCount": 38,
+      "sourceL1BlockCount": 38,
+      "sourceSyncBlockCount": 38,
+      "maximumObservedSourcesPerSync": 34,
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "88258786188391904",
+        "companions": 520,
+        "physicalBlobs": 38,
+        "postBlobWei": "5029887990169600",
+        "postExecutionGasUsed": 212827709,
+        "postExecutionWei": "306471902779975196",
+        "posts": 38,
+        "totalBlobWei": "5029887990169600",
+        "totalExecutionGasUsed": 286376697,
+        "totalExecutionWei": "394730688968367100",
+        "totalWei": "399760576958536700",
+        "totalXDAI": "0.3997605769585367"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "88258786188391904",
+        "companions": 520,
+        "physicalBlobs": 48,
+        "postBlobWei": "6356991986892800",
+        "postExecutionGasUsed": 214958024,
+        "postExecutionWei": "309055473987317433",
+        "posts": 44,
+        "totalBlobWei": "6356991986892800",
+        "totalExecutionGasUsed": 288507012,
+        "totalExecutionWei": "397314260175709337",
+        "totalWei": "403671252162602137",
+        "totalXDAI": "0.403671252162602137"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 252127.764,
+          "median": 157230.2195,
+          "min": 3331.811,
+          "p95NearestRank": 247144.725
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 249252.934,
+          "median": 154530.8185,
+          "min": 846.91,
+          "p95NearestRank": 244487.28
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 251393.273,
+          "median": 156816.0345,
+          "min": 2489.291,
+          "p95NearestRank": 246517.931
+        }
+      },
+      "ingressSpanMs": 1317.568,
+      "firstHeldToLastCanonicalCompleteMs": 253347.6,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 4,
+        "eez.composer.admission.submission_backoff": 4,
+        "l1_tx_gas_budget": 26,
+        "preparation_time": 6
+      },
+      "observedOutcomes": {
+        "excluded": 11,
+        "included": 44,
+        "slot_skipped": 6
+      },
+      "sourceSkippedSlotRetentionCount": 4,
+      "startedAt": "2026-09-15T21:16:56.754717+00:00",
+      "finishedAt": "2026-09-15T21:23:56.451551+00:00",
+      "completeCanonicalAudit": true,
+      "evidenceGaps": [],
+      "all770WorkerNonceChecksPassedOnBothLayers": true,
+      "runtimeAndProtocolUnchangedDuringRun": true,
+      "priorSafeStatePreserved": true,
+      "finalQueueEmpty": true,
+      "setup": {
+        "firstHeldAt": "2026-09-15T21:19:38.276827Z",
+        "unsettledL2BlocksBefore": 86,
+        "unsettledL2BlocksAfter": 90,
+        "historicalDrainPostsAfterIngress": 0,
+        "setupTransactionsSharingSourcePostRanges": 2
+      },
+      "fees": {
+        "blobPriceWei": {
+          "1000000000": 35,
+          "1124999975": 3
+        },
+        "companionEffectiveGasPriceWei": {
+          "1200000008": 520
+        },
+        "finalQuoteToDispatchMs": {
+          "count": 38,
+          "max": 179.723,
+          "median": 93.154,
+          "min": 77.54,
+          "p95NearestRank": 143.312
+        },
+        "networkEstimatedPriorityWei": {
+          "1199999991": 3,
+          "1199999992": 15,
+          "1199999993": 14,
+          "1199999994": 6
+        },
+        "postPriorityWei": {
+          "1439999990": 3,
+          "1439999991": 15,
+          "1439999992": 14,
+          "1439999993": 6
+        }
+      },
+      "canonicalSkippedTargetSlots": [
+        {
+          "targetBlock": 23074214,
+          "targetTimestamp": 1789507125,
+          "canonicalTargetTimestamp": 1789507130
+        },
+        {
+          "targetBlock": 23074220,
+          "targetTimestamp": 1789507160,
+          "canonicalTargetTimestamp": 1789507165
+        },
+        {
+          "targetBlock": 23074228,
+          "targetTimestamp": 1789507205,
+          "canonicalTargetTimestamp": 1789507210
+        },
+        {
+          "targetBlock": 23074230,
+          "targetTimestamp": 1789507220,
+          "canonicalTargetTimestamp": 1789507230
+        },
+        {
+          "targetBlock": 23074233,
+          "targetTimestamp": 1789507245,
+          "canonicalTargetTimestamp": 1789507250
+        },
+        {
+          "targetBlock": 23074248,
+          "targetTimestamp": 1789507325,
+          "canonicalTargetTimestamp": 1789507330
+        }
+      ]
+    }
+  },
+  "observedDeltasPercent": {
+    "fullSourceWaveCompletion": -3.660319290028502,
+    "medianCanonicalCompletion": -5.817949525326094,
+    "sourceBundleExecutionGas": -5.726092281143758,
+    "sourceBundleNativeCost": 12.726360875977004,
+    "sourcePostExecutionGas": -7.483549049941718
+  },
+  "interpretation": [
+    "Both exact 770-job/870-source workloads passed canonical placement, nonce, ordered-handoff, receipt-cost and prior-safe/runtime checks without evidence gaps.",
+    "This single sequential pair does not demonstrate improved maximum packing or fewer posts: source posts increased 37 to 38 and maximum Sync size remained 34.",
+    "Observed gas decreased but currency cost increased. The fee estimator sampled a higher tip in the candidate run; final exact-parent quotes, signed fees and canonical receipts agree. This is not evidence of a gas-cost regression from the accounting change.",
+    "Setup readiness and calibration differed. Baseline retained a learned selection before ingress and had four post-ingress historical drain posts; candidate restarted, first selected one cold-start source from a pool of 31, then selected the remaining 869. Its first source post also settled two setup transactions.",
+    "Candidate first selection of one agrees with AutomaticAdmission::limit cold-start behavior (admission.rs:87); the next selected 869, so it is not a fixed one-transaction cap.",
+    "Parallel source ingress and relative slot timing differed. Source semantic job counts match; source ordering, proxy addresses, sender nonces and batch grouping are not byte-identical.",
+    "Candidate had six independently verified skipped target slots versus two baseline, plus eleven versus ten other exclusions. Four candidate skipped attempts contained user sources and retained automatic admission; historical/empty attempts do not require that event.",
+    "The narrower obsolete DA-as-calldata projection correction is validated by local tests. These live timings and gas totals must not be presented as an isolated causal speedup or direct gas saving from deleting calldata bytes; native postBatch calldata was already blob-only.",
+    "Remaining observed constraints are transaction-gas projection, preparation reserve and live slot/exclusion availability. This measurement does not justify lowering the universal proxy reserve or weakening final execution validation."
+  ],
+  "build": {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "build",
+      "--release",
+      "-p",
+      "eez-node",
+      "-p",
+      "eez-follower",
+      "-p",
+      "eez-proof-signer",
+      "--bins",
+      "--offline",
+      "--locked",
+      "-j",
+      "3",
+      "--message-format=json"
+    ],
+    "exitCode": 0,
+    "runtimeSha256": {
+      "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+      "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+      "eez-composer": "3694f4ec562a2511d9c763745719497921084f5926ae65ec00f76666bd0e940a"
+    },
+    "composerSourceSha256": "43cee4598de207c57cc800547dd25f47d579adc60748f89bc37427e42f3b7c56"
+  },
+  "nativeRegressions": [
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "passed": true,
+      "exitCode": 0
+    },
+    {
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "passed": true,
+      "exitCode": 0
+    },
+    {
+      "test": "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+      "passed": true,
+      "exitCode": 0
+    }
+  ],
+  "analyzerChecksPassed": 13,
+  "funding": {
+    "verified": true,
+    "operatorToTesterWei": "5610000000000000000",
+    "bridgedFromThatAmountWei": "2200000000000000000",
+    "settlementCostsExcludeFundingAndStandaloneSetup": true
+  },
+  "deployment": {
+    "composerSha256": "3694f4ec562a2511d9c763745719497921084f5926ae65ec00f76666bd0e940a",
+    "startedAt": "2026-09-15T21:14:52.180910034Z",
+    "settings": {
+      "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
+      "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+      "EEZ_PREPARATION_TIME_MS": "500",
+      "EEZ_PROOF_TIME_MS": "500",
+      "EEZ_SUBMISSION_SLACK_MS": "700",
+      "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+      "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "500000000000"
+    },
+    "sameAssignedEnvironment": true,
+    "sameDataMounts": true,
+    "priorSafeStatePreserved": true,
+    "normalComposeUpdated": ".runtime/chiado-settlement-20260913/runtime.compose.json"
+  },
+  "finalHealth": {
+    "checkedAt": "2026-09-15T21:25:57.440514+00:00",
+    "queueEmpty": true,
+    "l1Height": 23074291,
+    "l2Height": 170167,
+    "safeL2Height": 170040,
+    "syncing": {
+      "l1": false,
+      "l2": false
+    },
+    "beacon": {
+      "syncing": {
+        "is_syncing": false,
+        "is_optimistic": false,
+        "el_offline": false,
+        "head_slot": "24822251",
+        "sync_distance": "0"
+      },
+      "peer_count": {
+        "connected": "25",
+        "connecting": "0",
+        "disconnected": "4",
+        "disconnecting": "0"
+      }
+    }
+  },
+  "evidenceSha256": {
+    "comparison.json": "261e77f3ccd9545629f1d276a87e4263ad364ce1e0e844dd8245d817a328c1ba",
+    "comparison.md": "143d50cc154fb32ba48d6c1359cd8e9daf18aee2b51f8ecfae96ed761973a4fa",
+    "baseline/canonical-evidence.json": "9cd9fd6f98340ac10bed4fd87f2d74a66bec609bc313c2d212276c9ef68a3e05",
+    "baseline/canonical-audit.json": "f34e73c622b598772601c5f1a8b2c60c18be7a663e2aef3716a3d0ac6bc35cd6",
+    "baseline/execution.json": "0c97eeee85429395a73f537b27f9e4b7a266aebd815359df6e3b6db2868f9e29",
+    "candidate/canonical-evidence.json": "920a4bcb7b9f29dd0aea08911bd7504c88766a3cc45f6807e250af6eccb5e677",
+    "candidate/canonical-audit.json": "5005b0bb8f276a6d7c1a20f2f4f448e64f83bec503e3fc2aa35a9f6900138848",
+    "candidate/execution.json": "09e8413d825d899509423156a15b47d47a188124943f1637cd50e198a6724719",
+    "build/build.json": "d80d7fb95931c122ae1de40b01fac5dbd1705793eb10233e80dd513c9dd6245a",
+    "build/runtime-identities.json": "154e5db83af77f2a952969ea4de639544186d4cee74a286913ef0f75fd6daf50",
+    "build/source-identities.json": "c57a2bac76e3d261ca73f421e04a0ea02d8f366c1b8817d85028e48fa64d52ed",
+    "build/runtime-source-identities.json": "57250f55bc41adb9df32f9d3fb23050a865844575208e3ffec20445ff00f2838",
+    "build/production-change.patch": "d435550f4841b7d89b6be574de9842681dbb59ba63bd983ac66041f5e4b1243c",
+    "native/results.json": "07b9582e2f14d5f1a50aad0ffff4606447de50534e74b09453b875b25b9e7518",
+    "analyzer-checks.json": "99e74b308c8af2ff4bbe89e10593bc8746faa6cdff806d03025441a211b3bf71",
+    "harness-identities.json": "9da624b445c1572ad3dfb7eacc2f64d99312c53f10b3be1e9e4254e83470fe3c",
+    "initial-funding.json": "ec1376dd38ff2f1a6853a7ef95ca2707f045b8c99d54ab7e3f619e6a2a59e43f",
+    "second-funding.json": "b6bf51a721318370e5e5bdf02d422e34cda57475d56c5c926fc0926686949f02",
+    "final-health.json": "4fdf5309f0002e0c51576a1cfed612d7c6dc17737fd6510a971f5b9c85cc038f",
+    "persist-candidate.json": "81bc34457b7ca6a6a4b68d21ef74c094fcdf0bd9020ffa2fe4e903a19101adac",
+    "request.json": "5c4625ae990d398f1a40e372c4910bfbe8a4b33e4931b2a2cb0f2a5a30d5c88f",
+    "config-baseline.json": "f6f038fa1fc7d5402b02437e0b0cdf8e85ab9342e079da815ccd3a8ac002b649",
+    "config-candidate.json": "7098bca3fea5bcc9502055d0fdd495a54cb5b91be0d5bea80cc9f335a38492e9"
+  }
+}

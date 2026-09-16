@@ -31,7 +31,10 @@ fn header(from: u64, to: u64) -> ProveChunk {
             rollup_id: 1,
             from_block: from,
             to_block: to,
-            post_batch: Some(PostBatch::default()),
+            post_batch: Some(PostBatch {
+                posting_context: Some(crate::testkit::posting_context()),
+                ..Default::default()
+            }),
         })),
     }
 }
@@ -59,6 +62,19 @@ fn assemble(chunks: impl IntoIterator<Item = ProveChunk>) -> Result<AdmittedWind
         assembler.push(chunk)?;
     }
     assembler.finish()
+}
+
+#[test]
+fn missing_posting_context_is_rejected_before_reading_blocks() {
+    let mut first = header(1, 2);
+    let Some(prove_chunk::Kind::Header(header)) = first.kind.as_mut() else {
+        unreachable!()
+    };
+    header.post_batch.as_mut().unwrap().posting_context = None;
+    assert!(matches!(
+        WindowAssembler::start(generous_limits(), first),
+        Err(WindowError::MissingPostingContext)
+    ));
 }
 
 #[test]

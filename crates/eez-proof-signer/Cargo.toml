@@ -7,6 +7,7 @@ rust-version.workspace = true
 description            = "EEZ attestation daemon: re-executes composer-streamed windows, binds supported settlement effects fail-closed, and signs the independently recomputed public-input hash."
 
 [dependencies]
+eez-l1 = { workspace = true, features = ["chain-spec"] }
 # The `prove.v1` wire this daemon serves.
 eez-control-rpc.workspace = true
 eez-blob-codec.workspace = true

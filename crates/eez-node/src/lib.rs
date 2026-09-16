@@ -8,6 +8,7 @@
 mod bundle_rpc;
 mod ingress;
 mod l1_embedded;
+mod queue_rpc;
 mod witness_source;
 
 use std::{collections::HashMap, env, str::FromStr, sync::Arc, time::Duration};
@@ -16,11 +17,11 @@ use alloy_primitives::{Address, B256};
 use alloy_provider::Provider as _;
 use alloy_signer_local::PrivateKeySigner;
 use eez_composer::composer::CrossChainWiring;
-use eez_composer::{Composer, HeldPool, RollupConfig, RollupState};
+use eez_composer::{Composer, ComposerSettings, HeldPool, RollupConfig, RollupState};
 use eez_deriver::Deriver;
 use eez_driver::{
-    BlockCommitterHandle, DEFAULT_MAX_SPECULATIVE_DEPTH, EthAttributesBuilder, RollupTiming,
-    Sequencer, SyncSlotComposerHandle, spawn_l1_anchored,
+    BlockCommitterHandle, EthAttributesBuilder, RollupTiming, Sequencer, SyncSlotComposerHandle,
+    spawn_l1_anchored,
 };
 use eez_l1::{
     L1CanonicalHead, L1HeadStream, L1Watcher, L1WatcherConfig, Submitter, SubmitterConfig,
@@ -30,9 +31,11 @@ use eez_node_common::{
     correlation_store, node_cli, read_checkpoint_dir, validate_system_address, wait_for_l1_ready,
     warn_on_deprecated_env,
 };
+use reth_chainspec::EthChainSpec as _;
 use reth_ethereum_cli::chainspec::EthereumChainSpecParser;
 use reth_node_builder::components::BasicPayloadServiceBuilder;
 use reth_node_ethereum::EthereumNode;
+use reth_provider::CanonStateSubscriptions as _;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
@@ -126,6 +129,11 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     );
 
     warn_on_deprecated_env();
+    let timing = RollupTiming::from_env()?;
+    let composer_settings = ComposerSettings::from_env(timing)?;
+    let rollup_config = RollupConfig::from_env()?;
+    let depth = composer_settings.max_speculative_depth();
+    let retain_pure_l2_history = composer_settings.settlement_policy_enabled();
     // Fail before launching either reth if no usable prover is configured.
     let ComposerProving {
         prover,
@@ -218,7 +226,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
                 );
                 EmbeddedL1::Ethereum(l1_handle)
             }
-            l1_embedded::L1ChainKind::Chiado => {
+            l1_embedded::L1ChainKind::Chiado | l1_embedded::L1ChainKind::TestingGnosis => {
                 let node_cfg = l1_embedded::build_chiado_node_config(&l1_cfg)?;
                 let db = reth_db::init_db(
                     node_cfg.datadir().db(),
@@ -235,10 +243,17 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
                     "launching embedded L1 reth (chiado via reth_gnosis::GnosisNode); \
                      external lighthouse CL must connect to authrpc",
                 );
+                let testing = l1_cfg.kind == l1_embedded::L1ChainKind::TestingGnosis;
                 let chiado_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
                     .with_launch_context(build_l1_runtime()?)
                     .node(reth_gnosis::GnosisNode::default())
+                    .extend_rpc_modules(move |ctx| {
+                        if testing {
+                            bundle_rpc::install_dev_bundle_rpc(ctx)?;
+                        }
+                        Ok(())
+                    })
                     .launch_with_debug_capabilities()
                     .await?;
                 event!(
@@ -264,17 +279,38 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let l1_head = Arc::new(L1CanonicalHead::default());
     let rpc_correlations = Arc::clone(&correlations);
     let rpc_l1_head = Arc::clone(&l1_head);
+    // The L2 pool and ingress/composer consult the same source ownership.
+    // Reorged cross-chain users require a Sync block, not ordinary sequencing.
+    let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
+    let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
+    let reserved_sources = Arc::clone(&held_pool);
+    let rpc_held_pool = Arc::clone(&held_pool);
+    let data_guard = retain_pure_l2_history.then(|| {
+        Arc::new(eez_node_common::SequencingDataGuard::new(
+            rollup_config.rollup_id,
+        ))
+    });
     let handle = builder
         .with_types::<EthereumNode>()
         .with_components(
             EthereumNode::components()
                 // Reorged-out system transactions must not leak from reth's
                 // reinjection path into an ordinary Live block.
-                .pool(EezPoolBuilder::new(system_address))
-                .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder::default())),
+                .pool(
+                    EezPoolBuilder::new(system_address)
+                        .with_data_guard(data_guard.clone())
+                        .with_cross_chain_filter(move |hash| {
+                            reserved_sources.is_cross_chain_source(hash)
+                        }),
+                )
+                .payload(BasicPayloadServiceBuilder::new(
+                    EezPayloadBuilder::default().with_data_guard(data_guard.clone()),
+                )),
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .extend_rpc_modules(move |ctx| {
+            ctx.modules
+                .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
             correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
         })
         .launch_with_debug_capabilities()
@@ -287,8 +323,6 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
 
-    let timing = RollupTiming::from_env()?;
-
     let attributes = EthAttributesBuilder::new(chain_spec.clone());
 
     let block_committer = BlockCommitterHandle::spawn_from_provider(
@@ -297,24 +331,42 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         payload_builder_handle,
         Some(witness_capture.sender()),
     )?;
-    let depth = env::var("EEZ_MAX_SPECULATIVE_DEPTH")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_MAX_SPECULATIVE_DEPTH);
-
     let submitter_config = SubmitterConfig::from_env()?;
     let deploy_block = submitter_config.reader.deploy_block;
-    let rollup_config = RollupConfig::from_env()?;
     let l1_watcher_config = L1WatcherConfig::from_env()?;
 
-    let submitter = Submitter::new(
+    let posting_l1_spec = match &embedded_l1 {
+        EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
+        EmbeddedL1::Chiado(handle) => Arc::new(handle.node.chain_spec().inner.clone()),
+    };
+    let blob_rules: eez_l1::BlobRuleSource =
+        Arc::new(move |timestamp| posting_l1_spec.blob_params_at_timestamp(timestamp));
+    let submitter = Submitter::new_with_blob_rules(
         submitter_config,
         timing.l1_block_time(),
         timing.submission_slack(),
+        Arc::clone(&blob_rules),
     )?;
     // Handle only — polling starts after boot catch-up fixes the
     // seed and every consumer has subscribed.
-    let l1_watcher = L1Watcher::new(l1_watcher_config);
+    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules);
+    // Policy catch-up needs canonical settlement evidence before the next
+    // proof cutoff. Wake the existing scanner as soon as the embedded L1
+    // changes, retaining periodic HTTP scans for retries and recovery.
+    if composer_settings.settlement_policy_enabled() {
+        match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => task_executor.spawn_task(
+                l1_watcher
+                    .clone()
+                    .wake_on_canonical_changes(handle.node.provider.subscribe_to_canonical_state()),
+            ),
+            EmbeddedL1::Chiado(handle) => task_executor.spawn_task(
+                l1_watcher
+                    .clone()
+                    .wake_on_canonical_changes(handle.node.provider.subscribe_to_canonical_state()),
+            ),
+        };
+    }
 
     // Build the Composer and Sequencer around the same binary-owned
     // BlockCommitter handle. The Deriver receives another clone below, so all
@@ -327,8 +379,6 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
         };
         // Share the SAME HeldPool the ingress middleware pushes into.
-        let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
-        let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
         let rollup_state = RollupState {
             config: rollup_config.clone(),
             l2_provider: Arc::new(provider.clone()),
@@ -387,19 +437,10 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
                 )
             }
             EmbeddedL1::Chiado(chiado_handle) => {
-                // `GnosisChainSpec.inner` is the standard
-                // reth `ChainSpec` (via `#[deref]`); wrap it
-                // fresh as `Arc<ChainSpec>` for the
-                // standard `EthEvmConfig` simulation envs.
-                let gnosis_chain_spec = chiado_handle.node.chain_spec();
-                let l1_chain_spec: Arc<reth_chainspec::ChainSpec> =
-                    Arc::new(gnosis_chain_spec.inner.clone());
                 let l1_provider = GnosisL1Adapter::new(chiado_handle.node.provider.clone());
-                let l1_evm_config =
-                    reth_evm_ethereum::EthEvmConfig::new(Arc::clone(&l1_chain_spec));
-                LocalChainClient::new_entry(
+                LocalChainClient::new_gnosis_entry(
                     l1_provider,
-                    l1_evm_config,
+                    chiado_handle.node.evm_config.clone(),
                     l1_rollup_id,
                     eez_registry,
                     eez_protocol::ChainDialect::EvmL1Style,
@@ -608,16 +649,19 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
                     as Arc<dyn eez_prover::ProvingWitnessSource>)
             }
         };
-        let composer = Composer::new(
+        let composer = Composer::new_with_settings(
             rollups,
             prover,
             evm_config,
             cross_chain,
             block_committer.clone(),
             witness_source,
-            timing,
+            composer_settings,
         )?;
         let sync_slot_handle: SyncSlotComposerHandle = Arc::new(composer.clone());
+        if let Some(guard) = &data_guard {
+            guard.bind(&sync_slot_handle)?;
+        }
 
         let schedule_rx = spawn_l1_anchored(
             L1HeadStream::from_watcher(&l1_watcher),
@@ -714,8 +758,29 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let mut catch_up_attempts = 0_u64;
     let mut transport_failures = 0_u32;
     let (l1_seed_number, l1_seed_hash) = loop {
-        match deriver.catch_up_with_seed().await {
-            Ok(seed) => break seed,
+        let catch_up = if retain_pure_l2_history {
+            deriver.catch_up_with_seed_retaining_pure_l2().await
+        } else {
+            deriver.catch_up_with_seed().await
+        };
+        match catch_up {
+            Ok(seed) => {
+                match composer.validate_settlement_policy_bootstrap().await {
+                    Ok(()) => break seed,
+                    Err(error) => {
+                        event!(
+                            name: "eez.node.settlement.bootstrap_not_ready",
+                            Level::WARN,
+                            event_name = "eez.node.settlement.bootstrap_not_ready",
+                            %error,
+                            "canonical settlement anchor unavailable; readiness remains closed before sequencing or posting"
+                        );
+                        tokio::time::sleep(catch_up_retry_delay).await;
+                        // Repeat canonical catch-up as well: registration and
+                        // external settlements can arrive while readiness waits.
+                    }
+                }
+            }
             Err(err)
                 if err.is_l1_transport() && {
                     transport_failures += 1;
@@ -766,6 +831,7 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
             }
         }
     };
+    composer.validate_settlement_policy_startup().await?;
     correlations.mark_ready();
     event!(
         name: "eez.node.deriver.spawned",

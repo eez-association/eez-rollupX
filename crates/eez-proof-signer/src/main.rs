@@ -43,6 +43,7 @@ async fn main() -> eyre::Result<()> {
     let expected_l2_system_address = config.expected_l2_system_address;
     let validator =
         validate::Validator::stateless(&config.chain_document_path, expected_l2_system_address)?;
+    let l1_chain_spec = eez_l1::chain_config::load_l1_chain_spec(&config.l1_chain_document_path)?;
     if !listen_addr.ip().is_loopback() {
         warn!(
             listen = %listen_addr,
@@ -75,6 +76,7 @@ async fn main() -> eyre::Result<()> {
             config.expected_rollup_id,
             config.attester,
             config.system_transaction_key,
+            l1_chain_spec,
         )?),
         limits,
     );

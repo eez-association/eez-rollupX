@@ -1,0 +1,71 @@
+{
+  "baseline": {
+    "idle": {
+      "batch_hashes": [
+        "0x563d5c0c1eb7a9ddee9fe8017032acd11c6bf77cf6fa04d5f031d357aaf12101",
+        "0x3bba656b18b967b7ab5acc1dbff76ff274aea90ebf062ad9321a64c04d504c1f",
+        "0x596992a7b6b5f0ac44751dbfda8bec3a48126cd05c3b87c33f850f06bf74c3b4",
+        "0xbf5ac8ea86b544f35218bbf61759bb7a7e3bdd9ea147892fc988fb47c5db9980",
+        "0x84ee10081d84786d735f2f1b000d6875d7a8a7c892b91a9309070860e1283414",
+        "0x10d7efc6843eba015681d68f1eb25ac2bd1d06c05e38e51bf0f965d5c6a51e4f",
+        "0x002f3e37047f5eaee354b711e6ad1f16c4f9ee8c26e487249af2a3e581633300",
+        "0x49e6604607b5b80faae1b777fec1cf5feb6976006147758433785e4150e6f6a0"
+      ],
+      "bundle_cost": "0x23b3997d64d000",
+      "execution_gas": 900052,
+      "from": 66,
+      "included_l2_transactions": 0,
+      "physical_blob_gas": 1048576,
+      "poster_cost": "0x23b3997d64d000",
+      "through": 105
+    },
+    "transactions": {
+      "batch_hashes": [
+        "0xb22bd2fe7cd4cac5f992cf93cb8df691ed556d81affdaffe48803297deeb7e0c",
+        "0x595113a99828bd23fad3097614fd9542a71372df97e2488e2591289ad03ca585",
+        "0x13dde91b3864840da4bffdf1e277b16c06533ee21f8f73bbd8f70de504c712e2",
+        "0x12631b056aca45770beea7f9f57e2448707893f71e6f0b5d3ce3dc973b28382f",
+        "0x2acb6735c3fb8ac338ae3dae974629b79d7f0064481395fb5dcfb3b2d0a76419",
+        "0xafc634bc7cefa5f512acaf2eb1db3ddab39d3fb1938b6e80eda4c29cba30a210",
+        "0x8506df6a48f4bc54d4c2965744eb32f49257066389ddae03cb5dd49a74c577e1",
+        "0x0443a9da94649eeaec36d31a20d2979478e22256cc8e167120f47f2ba2fcd939"
+      ],
+      "bundle_cost": "0x23b425302e4000",
+      "execution_gas": 900112,
+      "from": 106,
+      "included_l2_transactions": 2,
+      "physical_blob_gas": 1048576,
+      "poster_cost": "0x23b425302e4000",
+      "through": 145
+    }
+  },
+  "execution_base_fee": 0,
+  "policy": {
+    "idle": {
+      "batch_hashes": [
+        "0x8ceb1f54a25d11cdbf0966e36ec51886ae3b35425cc73d68a16774abc270d73b"
+      ],
+      "bundle_cost": "0xdd8a49009400",
+      "execution_gas": 112514,
+      "from": 87,
+      "included_l2_transactions": 0,
+      "physical_blob_gas": 131072,
+      "poster_cost": "0xdd8a49009400",
+      "through": 126
+    },
+    "transactions": {
+      "batch_hashes": [
+        "0x7b61f3f2e557e5936e2a28361e30199297fdcefbc40b94f8735f5345ef24acfb"
+      ],
+      "bundle_cost": "0xdd8a49009400",
+      "execution_gas": 112514,
+      "from": 127,
+      "included_l2_transactions": 2,
+      "physical_blob_gas": 131072,
+      "poster_cost": "0xdd8a49009400",
+      "through": 166
+    }
+  },
+  "profile": "GnosisPrague",
+  "range_blocks": 40
+}

@@ -272,6 +272,7 @@ fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
         crate::window::AdmittedBlocks::for_test(inputs),
         b"not ABI calldata".to_vec(),
         Vec::new(),
+        eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
         deadline,
         &CancellationToken::default(),
     );

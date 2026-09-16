@@ -13,9 +13,10 @@ miss (Anvil doesn't replay-protect), but the Composer's cursor-race guard +
 pending-nonce read keeps it correct.
 
 With `--passthrough-bundles`, the upstream must implement `eth_sendBundle`;
-the request is forwarded unchanged so its atomic semantics are preserved.
-Either mode can capture accepted pooled blob envelopes for the Beacon test
-fixture. Suitable for tests; not for production.
+the request is forwarded with the upstream's execution semantics. That native
+test endpoint can accept a prefix before returning an error. Pooled blob
+envelopes are therefore captured before forwarding; the Beacon fixture exposes
+only captures with canonical receipts. Suitable for tests; not for production.
 
 Usage:
     builder-stub.py --listen 127.0.0.1:9001 --upstream http://127.0.0.1:8545
@@ -102,10 +103,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(400)
             return
 
-        if body.get("method") == "eth_sendBundle":
+        errors = (os.path.join(self.test_control_dir, "rpc-errors.json")
+                  if self.test_control_dir else None)
+        failed_methods = []
+        if errors:
+            try:
+                with open(errors) as source:
+                    failed_methods = json.load(source)
+            except FileNotFoundError:
+                pass
+        if body.get("method") in failed_methods:
+            resp = json.dumps({
+                "jsonrpc": "2.0", "id": body.get("id"),
+                "error": {"code": -32000, "message": "injected temporary RPC failure"},
+            }).encode()
+        elif body.get("method") == "eth_sendBundle":
             params = body["params"][0]
             txs = params.get("txs", [])
             if self.passthrough_bundles:
+                drop_path = (os.path.join(self.test_control_dir, "drop-next.json")
+                             if self.test_control_dir else None)
+                drop_next = False
+                if drop_path and os.path.exists(drop_path):
+                    try:
+                        os.replace(drop_path, drop_path + ".used")
+                        drop_next = True
+                    except FileNotFoundError:
+                        pass
+                if drop_next:
+                    # A relay acknowledgment is not proof of L1 inclusion.
+                    captured = os.path.join(self.test_control_dir, "dropped-bundle.json")
+                    with open(captured + ".new", "w") as output:
+                        json.dump(body, output)
+                    os.replace(captured + ".new", captured)
+                    resp = json.dumps({
+                        "jsonrpc": "2.0", "id": body.get("id"),
+                        "result": {"bundleHash": "0x" + "00" * 32},
+                    }).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
                 hold_path = (os.path.join(self.test_control_dir, "hold-next.json")
                              if self.test_control_dir else None)
                 hold_next = False
@@ -170,18 +210,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         output.flush()
                         os.fsync(output.fileno())
                     os.replace(destination + ".new", destination)
-                resp = urllib.request.urlopen(
-                    urllib.request.Request(
-                        self.upstream,
-                        data=json.dumps(body).encode(),
-                        headers={"Content-Type": "application/json"},
-                    ),
-                    timeout=10,
-                ).read()
-                forwarded_result = json.loads(resp)
-                if "error" not in forwarded_result:
-                    for raw in txs:
-                        self._capture_blob(raw)
+                # The native dev endpoint is intentionally non-atomic: a
+                # prefix may enter its pool even when a later companion fails
+                # or the HTTP response is lost. Retain blob carriers before
+                # forwarding; the Beacon fixture exposes canonical receipts only.
+                for raw in txs:
+                    self._capture_blob(raw)
+                single = (self.test_control_dir and os.path.exists(
+                    os.path.join(self.test_control_dir, "single-transaction.json")))
+                # The controlled-consensus native fixture uses a standard EL
+                # Engine API. Keep the same proof/hold/Beacon barriers, but use
+                # the existing single-transaction relay semantics on that EL.
+                if single and len(txs) != 1:
+                    resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
+                        "error": {"code": -32602, "message": "controlled native relay requires exactly one transaction"}}).encode()
+                else:
+                    forwarded = {"jsonrpc": "2.0", "id": body.get("id"),
+                        "method": "eth_sendRawTransaction", "params": txs} if single else body
+                    resp = urllib.request.urlopen(
+                        urllib.request.Request(
+                            self.upstream,
+                            data=json.dumps(forwarded).encode(),
+                            headers={"Content-Type": "application/json"},
+                        ),
+                        timeout=10,
+                    ).read()
             elif len(txs) != 1:
                 resp = json.dumps({
                     "jsonrpc": "2.0",

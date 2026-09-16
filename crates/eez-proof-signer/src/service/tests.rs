@@ -78,6 +78,53 @@ fn test_system_transaction_key() -> settlement::SystemTransactionKey {
 }
 
 #[test]
+fn posting_rules_use_the_trusted_profile_and_exact_target_fork() {
+    use eez_control_rpc::v1::L1PostingContext;
+    let context = L1PostingContext {
+        chain_id: 100,
+        target_timestamp: 999,
+    };
+    let mut genesis = alloy_genesis::Genesis::default();
+    genesis.config.chain_id = 100;
+    genesis.config.cancun_time = Some(10);
+    genesis.config.prague_time = Some(20);
+    genesis.config.osaka_time = Some(1_000);
+    let state = ServiceState::new(
+        Validator::stub(Vec::new()),
+        expected_rollup_id(1),
+        test_attester(),
+        test_system_transaction_key(),
+        Arc::new(reth_chainspec::ChainSpec::from(genesis)),
+    )
+    .unwrap();
+    assert_eq!(state.posting_blob_limit(&context).unwrap(), 9);
+    assert_eq!(
+        state
+            .posting_blob_limit(&L1PostingContext {
+                target_timestamp: 1_000,
+                ..context
+            })
+            .unwrap(),
+        6
+    );
+    for invalid in [
+        L1PostingContext {
+            target_timestamp: 0,
+            ..context
+        },
+        L1PostingContext {
+            chain_id: 1,
+            ..context
+        },
+    ] {
+        assert_eq!(
+            state.posting_blob_limit(&invalid).unwrap_err().code(),
+            Code::InvalidArgument
+        );
+    }
+}
+
+#[test]
 fn service_state_rejects_a_validator_for_another_system_identity() {
     let other_address = address!("6f4c950442e1Af093BcfF730381E63Ae9171b87a");
     let other_key = settlement::SystemTransactionKey::new(
@@ -91,6 +138,7 @@ fn service_state_rejects_a_validator_for_another_system_identity() {
         expected_rollup_id(1),
         test_attester(),
         other_key,
+        crate::testkit::l1_chain_spec(),
     )
     .unwrap_err();
 
@@ -115,6 +163,7 @@ fn service_state_rejects_an_attester_bound_to_another_system_identity() {
         expected_rollup_id(1),
         attester,
         test_system_transaction_key(),
+        crate::testkit::l1_chain_spec(),
     )
     .unwrap_err();
 
@@ -420,6 +469,7 @@ fn public_input_post_batch_for_semantics(
             .into_iter()
             .map(|blob| blob.into_bytes().into_vec())
             .collect(),
+        posting_context: Some(crate::testkit::posting_context()),
         ..PostBatch::default()
     }
 }
@@ -930,6 +980,7 @@ fn inner_with_rollup(validator: Validator, expected_rollup_id: NonZeroU64) -> Ar
             expected_rollup_id,
             test_attester(),
             test_system_transaction_key(),
+            crate::testkit::l1_chain_spec(),
         )
         .unwrap(),
     )

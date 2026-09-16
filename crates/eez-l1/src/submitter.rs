@@ -25,7 +25,7 @@ use crate::l1_reader::L1Reader;
 /// Wall-clock cap on the target-block + inclusion check.
 const TARGET_WAIT_BUDGET: Duration = Duration::from_secs(30);
 const TARGET_POLL_INTERVAL: Duration = Duration::from_millis(500);
-/// L1 block offset for [`BundleTarget::NextBlock`]. slack=2 (over the
+/// Legacy L1 block offset for [`BundleTarget::NextBlock`]. slack=2 (over the
 /// minimal latest+1) gives a one-block cushion for when our local
 /// `latest` is stale by the time the relay sees the bundle.
 const NEXT_BLOCK_SLACK: u64 = 2;
@@ -147,6 +147,8 @@ pub struct CanonicalSourceReceipt {
     pub success: bool,
     /// Persisted mutable queue consumptions in this exact source transaction.
     pub consumed: Vec<(B256, usize)>,
+    /// Observability failure must not change canonical ownership evidence.
+    pub cost: Result<crate::posting_fees::ReceiptCost, crate::posting_fees::PostingFeeError>,
 }
 
 /// Source nonce and optional receipt read against one immutable L1 state.
@@ -284,6 +286,55 @@ async fn rpc_block<P: Provider>(
         .map_err(|error| L1Error::Provider(format!("get_block_by_number({number}): {error}")))
 }
 
+/// Select the first slot with room for preparation and submission slack.
+/// Read the clock after the head RPC so its latency consumes the budget.
+/// Builder lead opens the dispatch window; it is not a minimum preparation
+/// duration (on Chiado it can exceed an entire slot).
+async fn select_policy_target<P: Provider, C: Clock>(
+    provider: &P,
+    timing: SubmissionTiming,
+    preparation_time: Duration,
+    clock: &C,
+) -> L1Result<BundleTarget> {
+    let tip = rpc_block(provider, BlockNumberOrTag::Latest)
+        .await?
+        .ok_or_else(|| L1Error::Provider("policy target L1 head is unavailable".into()))?;
+    let now_ms = clock.now_unix_ms()?;
+    let preparation_ms = duration_millis("policy preparation time", preparation_time)?;
+    let ready_ms = now_ms
+        .checked_add(preparation_ms)
+        .and_then(|value| value.checked_add(timing.deadline_slack_ms))
+        .ok_or_else(|| L1Error::Provider("policy preparation deadline overflow".into()))?;
+    let tip_ms = tip
+        .header
+        .timestamp
+        .checked_mul(1_000)
+        .ok_or_else(|| L1Error::Provider("policy head timestamp overflow".into()))?;
+    // The submission deadline is exclusive. Even at equality, choose the
+    // following slot rather than start with an already exhausted budget.
+    let offset = (ready_ms.saturating_sub(tip_ms) / timing.l1_block_time_ms)
+        .checked_add(1)
+        .ok_or_else(|| L1Error::Provider("policy target offset overflow".into()))?;
+    let block = tip
+        .header
+        .number
+        .checked_add(offset)
+        .ok_or_else(|| L1Error::Provider("policy target height overflow".into()))?;
+    let timestamp_ms = offset
+        .checked_mul(timing.l1_block_time_ms)
+        .and_then(|value| tip_ms.checked_add(value))
+        .ok_or_else(|| L1Error::Provider("policy target timestamp overflow".into()))?;
+    let timestamp = timestamp_ms / 1_000;
+    event!(name: "eez.submitter.policy.target_selected", Level::INFO,
+        event_name = "eez.submitter.policy.target_selected",
+        head_number = tip.header.number, head_timestamp = tip.header.timestamp,
+        selected_at_ms = now_ms, preparation_ms,
+        submission_slack_ms = timing.deadline_slack_ms,
+        target_block = block, target_timestamp = timestamp, block_offset = offset,
+        "selected earliest policy target with preparation and submission time");
+    Ok(BundleTarget::Exact { block, timestamp })
+}
+
 async fn wait_for_block<P: Provider, C: Clock>(
     provider: &P,
     number: u64,
@@ -307,6 +358,49 @@ async fn wait_for_block<P: Provider, C: Clock>(
         }
         clock.sleep(TARGET_POLL_INTERVAL).await;
     }
+}
+
+/// A policy proof may be prepared before its target's parent exists. This is
+/// especially common when Chiado's builder lead exceeds one five-second slot.
+/// Wait within the existing deadline, then use the normal final gate.
+async fn prepare_policy_submission<P: Provider, C: Clock>(
+    provider: &P,
+    target: BundleTarget,
+    timing: SubmissionTiming,
+    clock: &C,
+) -> L1Result<bool> {
+    let BundleTarget::Exact { block, timestamp } = target else {
+        return Err(L1Error::Submission(
+            "policy target must be resolved before preparation".into(),
+        ));
+    };
+    let parent_number = block
+        .checked_sub(1)
+        .ok_or_else(|| L1Error::Submission("target cannot be genesis".into()))?;
+    loop {
+        if matches!(
+            submission_window_state(clock.now_unix_ms()?, timestamp, timing),
+            SubmissionWindowState::Expired
+        ) {
+            return Ok(false);
+        }
+        if let Some(parent) = rpc_block(provider, BlockNumberOrTag::Number(parent_number)).await? {
+            if parent
+                .header
+                .timestamp
+                .checked_add(timing.l1_block_time_secs())
+                != Some(timestamp)
+            {
+                return Ok(false);
+            }
+            break;
+        }
+        clock.sleep(TARGET_POLL_INTERVAL).await;
+    }
+    Ok(matches!(
+        prepare_submission_target(provider, target, timing, clock, B256::ZERO).await?,
+        TargetPreparation::Ready(_)
+    ))
 }
 
 async fn prepare_submission_target<P: Provider, C: Clock>(
@@ -429,7 +523,29 @@ impl Submitter {
         l1_block_time: Duration,
         submission_slack: Duration,
     ) -> L1Result<Self> {
-        let reader = L1Reader::new(config.reader.clone());
+        Self::new_inner(config, l1_block_time, submission_slack, None)
+    }
+
+    /// Share the same selected network rules with canonical derivation.
+    pub fn new_with_blob_rules(
+        config: SubmitterConfig,
+        l1_block_time: Duration,
+        submission_slack: Duration,
+        rules: crate::BlobRuleSource,
+    ) -> L1Result<Self> {
+        Self::new_inner(config, l1_block_time, submission_slack, Some(rules))
+    }
+
+    fn new_inner(
+        config: SubmitterConfig,
+        l1_block_time: Duration,
+        submission_slack: Duration,
+        rules: Option<crate::BlobRuleSource>,
+    ) -> L1Result<Self> {
+        let mut reader = L1Reader::new(config.reader.clone());
+        if let Some(rules) = rules {
+            reader = reader.with_blob_rules(rules);
+        }
         let submission_timing = SubmissionTiming::new(
             l1_block_time,
             config.bundle_submission_lead,
@@ -470,6 +586,47 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
+    /// Choose the earliest feasible target before policy evaluation and proof
+    /// preparation, reserving the caller's existing proof-time budget and the
+    /// network's submission slack. A timely historical batch can target the
+    /// immediate next L1 block without the legacy one-block cushion.
+    /// Exact timestamp pinning rejects skipped slots through the normal retry
+    /// path instead of silently moving the policy deadline at send time.
+    pub async fn next_policy_target(&self, preparation_time: Duration) -> L1Result<BundleTarget> {
+        select_policy_target(
+            &self.inner.target_provider,
+            self.inner.submission_timing,
+            preparation_time,
+            &SystemClock,
+        )
+        .await
+    }
+
+    /// Pin a deferred target before proving, retaining the existing two-block
+    /// offset. The signer and sender must use the same fork timestamp. Skipped
+    /// slots fail the exact-target check and are retried with a fresh proof.
+    pub async fn resolve_target(&self, target: BundleTarget) -> L1Result<BundleTarget> {
+        if matches!(target, BundleTarget::Exact { .. }) {
+            return Ok(target);
+        }
+        let tip = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
+        let block = tip
+            .header
+            .number
+            .checked_add(NEXT_BLOCK_SLACK)
+            .ok_or_else(|| L1Error::Provider("L1 target block overflow".into()))?;
+        let timestamp = self
+            .inner
+            .submission_timing
+            .l1_block_time_secs()
+            .checked_mul(NEXT_BLOCK_SLACK)
+            .and_then(|offset| tip.header.timestamp.checked_add(offset))
+            .ok_or_else(|| L1Error::Provider("L1 target timestamp overflow".into()))?;
+        Ok(BundleTarget::Exact { block, timestamp })
+    }
+
     /// Submit only after the caller has recorded the exact target.
     /// The callback runs before external dispatch and may veto it on error.
     /// Only signed L1 users following the required postBatch may revert.
@@ -478,6 +635,43 @@ impl Submitter {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+    ) -> L1Result<SendOutcome> {
+        self.send_bundle_checked(raw_txs, target, None, record_dispatch)
+            .await
+    }
+
+    /// Reuse the normal eligibility gate before refreshing an unsent policy
+    /// attempt. The composer calls this from its existing submission observer,
+    /// so waiting for a future L1 parent does not stall L2 block production.
+    pub async fn wait_for_policy_submission(&self, target: BundleTarget) -> L1Result<bool> {
+        prepare_policy_submission(
+            &self.inner.target_provider,
+            target,
+            self.inner.submission_timing,
+            &SystemClock,
+        )
+        .await
+    }
+
+    /// Dispatch a final simulated bundle only while its fee/state sample is
+    /// still the selected network's canonical head and the target is unchanged.
+    pub async fn send_bundle_quoted(
+        &self,
+        raw_txs: &[alloy_primitives::Bytes],
+        target: BundleTarget,
+        quote: crate::posting_fees::FeeQuote,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+    ) -> L1Result<SendOutcome> {
+        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch)
+            .await
+    }
+
+    async fn send_bundle_checked(
+        &self,
+        raw_txs: &[alloy_primitives::Bytes],
+        target: BundleTarget,
+        quote: Option<crate::posting_fees::FeeQuote>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
@@ -529,7 +723,22 @@ impl Submitter {
         // deadline again immediately before the HTTP request. We may send
         // after the not-before boundary; we must never knowingly send after
         // the latest-safe boundary and then blame user transactions for it.
-        record_dispatch(prepared.block, prepared.timestamp)?;
+        if let Some(quote) = quote {
+            let head = rpc_block(target_provider, BlockNumberOrTag::Latest)
+                .await?
+                .ok_or_else(|| L1Error::Provider("fee sample head is unavailable".into()))?;
+            let current = crate::L1BlockRef {
+                number: head.header.number,
+                hash: head.header.hash,
+            };
+            if !quote.is_current(chain_id, current, target) {
+                return Ok(dropped(
+                    post_batch_hash,
+                    prepared.block,
+                    BundleDropReason::TargetChanged,
+                ));
+            }
+        }
         if !matches!(
             submission_window_state(
                 clock.now_unix_ms()?,
@@ -544,6 +753,7 @@ impl Submitter {
                 BundleDropReason::SubmissionWindowMissed,
             ));
         }
+        record_dispatch(prepared.block, prepared.timestamp)?;
         // Dispatch breadcrumb: correlate this postBatch tx to the L1 block we
         // aim it at. `SendOutcome::Included` later carries the ACTUAL inclusion
         // block, so joining on tx_hash gives the N+1 next-slot targeting hit-rate.
@@ -587,6 +797,27 @@ impl Submitter {
         Ok(block.transactions.hashes().any(|hash| hash == tx_hash))
     }
 
+    /// Prove that no canonical block could satisfy the dispatched timestamp.
+    /// A different timestamp at the target height alone is insufficient: a
+    /// stale height can point past a slot that was actually built. Require the
+    /// pin to lie strictly between consecutive canonical headers, inside the
+    /// deriver's completed scan. This is scheduling evidence, not a source
+    /// disposition or permission to reuse the missed composition.
+    pub async fn canonical_target_was_skipped(
+        &self,
+        target_block: u64,
+        target_timestamp: u64,
+        at: crate::L1BlockRef,
+    ) -> L1Result<bool> {
+        canonical_target_was_skipped(
+            &self.inner.target_provider,
+            target_block,
+            target_timestamp,
+            at,
+        )
+        .await
+    }
+
     /// Read a signed source transaction and nonce at the deriver's completed
     /// L1 snapshot. Pending nonces, future receipts and reorg-straddling reads
     /// cannot establish exclusion or completion at this snapshot.
@@ -626,6 +857,51 @@ impl Submitter {
     }
 }
 
+async fn canonical_target_was_skipped<P: Provider>(
+    provider: &P,
+    target_block: u64,
+    target_timestamp: u64,
+    at: crate::L1BlockRef,
+) -> L1Result<bool> {
+    let Some(parent_number) = target_block.checked_sub(1) else {
+        return Ok(false);
+    };
+    if target_block > at.number {
+        return Ok(false);
+    }
+    require_canonical_block(provider, at).await?;
+    let target = provider
+        .get_block_by_number(BlockNumberOrTag::Number(target_block))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical target header: {error}")))?
+        .ok_or_else(|| L1Error::Provider("canonical target header is unavailable".into()))?;
+    if target.header.number != target_block {
+        return Err(L1Error::Provider(
+            "canonical target height disagrees".into(),
+        ));
+    }
+    if target_block == at.number && target.header.hash != at.hash {
+        return Err(L1Error::Provider(
+            "canonical target differs from the completed scan".into(),
+        ));
+    }
+    if target.header.timestamp <= target_timestamp {
+        return Ok(false);
+    }
+    let parent = provider
+        .get_block_by_number(BlockNumberOrTag::Number(parent_number))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical target parent: {error}")))?
+        .ok_or_else(|| L1Error::Provider("canonical target parent is unavailable".into()))?;
+    if parent.header.number != parent_number || target.header.parent_hash != parent.header.hash {
+        return Err(L1Error::Provider(
+            "canonical target and parent headers disagree".into(),
+        ));
+    }
+    require_canonical_block(provider, at).await?;
+    Ok(parent.header.timestamp < target_timestamp)
+}
+
 /// Keep all nonce/receipt reads inside the same canonical-hash bracket.
 async fn read_canonical_source<P: Provider>(
     provider: &P,
@@ -641,10 +917,20 @@ async fn read_canonical_source<P: Provider>(
         .block_id(at.hash.into())
         .await
         .map_err(|error| L1Error::Provider(format!("canonical source nonce: {error}")))?;
-    let receipt = provider
-        .get_transaction_receipt(tx_hash)
+    // Alloy defaults a missing effectiveGasPrice to zero. Keep field presence
+    // for accounting while still accepting the receipt's ownership evidence.
+    let raw_receipt: serde_json::Value = provider
+        .raw_request("eth_getTransactionReceipt".into(), (tx_hash,))
         .await
         .map_err(|error| L1Error::Provider(format!("canonical source receipt: {error}")))?;
+    let price_present = raw_receipt
+        .get("effectiveGasPrice")
+        .or_else(|| raw_receipt.get("gasPrice"))
+        .is_some_and(|value| !value.is_null());
+    let receipt: Option<alloy_rpc_types_eth::TransactionReceipt> =
+        serde_json::from_value(raw_receipt).map_err(|error| {
+            L1Error::Provider(format!("canonical source receipt encoding: {error}"))
+        })?;
     let receipt = match receipt {
         Some(receipt) => {
             let number = receipt
@@ -688,6 +974,13 @@ async fn read_canonical_source<P: Provider>(
                 transaction_index,
                 success: receipt.status(),
                 consumed,
+                cost: if price_present {
+                    crate::posting_fees::ReceiptCost::from_receipt(&receipt)
+                } else {
+                    Err(crate::posting_fees::PostingFeeError::Unavailable(
+                        "execution price in canonical receipt",
+                    ))
+                },
             })
         }
         None => None,
@@ -1256,6 +1549,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deferred_proof_target_is_pinned_once_with_the_network_slot_time() {
+        for slot_secs in [5, 12] {
+            let (url, server) = rpc_server(
+                vec![serde_json::json!({
+                    "result": mock_block(41, PIN, B256::ZERO)
+                })],
+                false,
+            )
+            .await;
+            let mut submitter = test_submitter(url);
+            std::sync::Arc::get_mut(&mut submitter.inner)
+                .unwrap()
+                .submission_timing = timing(slot_secs * 1_000);
+            let target = submitter
+                .resolve_target(BundleTarget::NextBlock)
+                .await
+                .unwrap();
+            assert_eq!(
+                target,
+                BundleTarget::Exact {
+                    block: 43,
+                    timestamp: PIN + 2 * slot_secs
+                }
+            );
+            let requests = server.await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0]["method"], "eth_getBlockByNumber");
+            // The RPC is gone: an already pinned target must never be retargeted.
+            assert_eq!(submitter.resolve_target(target).await.unwrap(), target);
+        }
+    }
+
+    #[tokio::test]
+    async fn deferred_proof_target_refuses_missing_heads_and_overflow() {
+        for result in [
+            serde_json::Value::Null,
+            serde_json::to_value(mock_block(u64::MAX, PIN, B256::ZERO)).unwrap(),
+            serde_json::to_value(mock_block(41, u64::MAX, B256::ZERO)).unwrap(),
+        ] {
+            let (url, server) =
+                rpc_server(vec![serde_json::json!({ "result": result })], false).await;
+            assert!(
+                test_submitter(url)
+                    .resolve_target(BundleTarget::NextBlock)
+                    .await
+                    .is_err()
+            );
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn every_submission_records_dispatch_and_requires_a_relay() {
         use std::sync::Arc;
         use std::sync::atomic::AtomicBool;
@@ -1333,6 +1678,93 @@ mod tests {
                 assert_eq!(
                     requests[2],
                     bundle_request(&hex_refs, 42, timestamp, &hashes)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn quoted_dispatch_checks_network_head_and_target_before_recording_or_sending() {
+        use crate::posting_fees::FeeQuote;
+        use std::sync::{Arc, atomic::AtomicBool};
+        for mismatch in ["none", "chain", "hash", "height", "target"] {
+            let now = super::SystemClock.now_unix_ms().unwrap() / 1_000;
+            let target = BundleTarget::Exact {
+                block: 42,
+                timestamp: now + 30,
+            };
+            let hash = B256::repeat_byte(41);
+            let mut quote = FeeQuote {
+                chain_id: 1,
+                sample: crate::L1BlockRef { number: 41, hash },
+                target,
+                max_priority_fee_per_gas: 2,
+                max_fee_per_gas: 10,
+                max_fee_per_blob_gas: 3,
+                estimated_effective_gas_price: 4,
+                estimated_blob_gas_price: 1,
+            };
+            match mismatch {
+                "chain" => quote.chain_id = 10200,
+                "hash" => quote.sample.hash = B256::repeat_byte(40),
+                "height" => quote.sample.number = 40,
+                "target" => {
+                    quote.target = BundleTarget::Exact {
+                        block: 42,
+                        timestamp: now + 31,
+                    }
+                }
+                _ => {}
+            }
+            let mut responses = vec![
+                serde_json::json!({"result": "0x1"}),
+                serde_json::json!({"result": mock_block(41, now, hash)}),
+                serde_json::json!({"result": mock_block(41, now, hash)}),
+            ];
+            if mismatch == "none" {
+                responses.push(
+                    serde_json::json!({"error": {"code": -32601, "message": "method not found"}}),
+                );
+            }
+            let (url, server) = rpc_server(responses, false).await;
+            let mut submitter = test_submitter(url);
+            Arc::get_mut(&mut submitter.inner)
+                .unwrap()
+                .submission_timing
+                .lead_ms = 60_000;
+            let raw = vec![signed_user(1, 0).0, signed_user(1, 1).0];
+            let recorded = AtomicBool::new(false);
+            let outcome = tokio::time::timeout(
+                Duration::from_secs(5),
+                submitter.send_bundle_quoted(&raw, target, quote, |_, _| {
+                    recorded.store(true, Ordering::SeqCst);
+                    Ok(())
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(recorded.load(Ordering::SeqCst), mismatch == "none");
+            if mismatch == "none" {
+                assert!(outcome.is_err());
+            } else {
+                assert!(
+                    matches!(
+                        outcome,
+                        Ok(super::SendOutcome::Dropped {
+                            reason: super::BundleDropReason::TargetChanged,
+                            ..
+                        })
+                    ),
+                    "{mismatch}: {outcome:?}"
+                );
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests.len(), if mismatch == "none" { 4 } else { 3 });
+            if mismatch == "none" {
+                assert_eq!(requests[3]["method"], "eth_sendBundle");
+                assert_eq!(
+                    requests[3]["params"][0]["txs"],
+                    serde_json::json!(raw.iter().map(ToString::to_string).collect::<Vec<_>>())
                 );
             }
         }
@@ -1807,6 +2239,163 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skipped_slot_requires_a_strict_gap_between_canonical_headers() {
+        for cadence in [5, 12] {
+            for missed_slots in [1, 3] {
+                for scan_number in [42, 45] {
+                    let parent = mock_block(41, PIN, B256::with_last_byte(1));
+                    let mut target = mock_block(
+                        42,
+                        PIN + (missed_slots + 1) * cadence,
+                        B256::with_last_byte(2),
+                    );
+                    target.header.inner.parent_hash = parent.header.hash;
+                    let scan = if scan_number == 42 {
+                        target.clone()
+                    } else {
+                        mock_block(scan_number, PIN + 10 * cadence, B256::with_last_byte(3))
+                    };
+                    let replies = Asserter::new();
+                    for block in [&scan, &target, &parent, &scan] {
+                        replies.push_success(block);
+                    }
+                    let provider = ProviderBuilder::new().connect_mocked_client(replies);
+                    assert!(
+                        super::canonical_target_was_skipped(
+                            &provider,
+                            42,
+                            PIN + cadence,
+                            crate::L1BlockRef {
+                                number: scan_number,
+                                hash: scan.header.hash,
+                            },
+                        )
+                        .await
+                        .unwrap(),
+                        "cadence={cadence}, missed_slots={missed_slots}, scan={scan_number}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn timestamp_mismatch_without_a_skipped_slot_does_not_exempt_backoff() {
+        for (parent_ts, target_ts) in [
+            (PIN - 5, PIN),
+            (PIN - 10, PIN - 5),
+            (PIN, PIN + 5),
+            (PIN + 5, PIN + 10),
+        ] {
+            let parent = mock_block(41, parent_ts, B256::with_last_byte(1));
+            let mut target = mock_block(42, target_ts, B256::with_last_byte(2));
+            target.header.inner.parent_hash = parent.header.hash;
+            let replies = Asserter::new();
+            replies.push_success(&target);
+            replies.push_success(&target);
+            if target_ts > PIN {
+                replies.push_success(&parent);
+                replies.push_success(&target);
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                !super::canonical_target_was_skipped(
+                    &provider,
+                    42,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: target.header.hash
+                    },
+                )
+                .await
+                .unwrap(),
+                "parent={parent_ts}, target={target_ts}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_evidence_rejects_unavailable_or_reorged_headers() {
+        let parent = mock_block(41, PIN - 5, B256::with_last_byte(1));
+        let mut target = mock_block(42, PIN + 5, B256::with_last_byte(2));
+        target.header.inner.parent_hash = parent.header.hash;
+        for failure in [
+            "initial",
+            "target",
+            "target height",
+            "target hash",
+            "parent",
+            "parent hash",
+            "parent height",
+            "final",
+        ] {
+            let replies = Asserter::new();
+            if failure == "initial" {
+                replies.push_success(&mock_block(42, PIN + 5, B256::with_last_byte(3)));
+            } else {
+                replies.push_success(&target);
+                if failure == "target" {
+                    replies.push_success(&serde_json::Value::Null);
+                } else if failure == "target height" {
+                    replies.push_success(&mock_block(43, PIN + 5, target.header.hash));
+                } else if failure == "target hash" {
+                    replies.push_success(&mock_block(42, PIN + 5, B256::ZERO));
+                } else {
+                    replies.push_success(&target);
+                    match failure {
+                        "parent" => replies.push_failure_msg("header unavailable"),
+                        "parent hash" => replies.push_success(&mock_block(41, PIN - 5, B256::ZERO)),
+                        "parent height" => {
+                            replies.push_success(&mock_block(40, PIN - 5, parent.header.hash))
+                        }
+                        "final" => {
+                            replies.push_success(&parent);
+                            replies.push_success(&mock_block(42, PIN + 5, B256::with_last_byte(3)));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                super::canonical_target_was_skipped(
+                    &provider,
+                    42,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: target.header.hash
+                    },
+                )
+                .await
+                .is_err(),
+                "{failure} cannot prove a canonical skipped slot"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_evidence_cannot_precede_the_completed_scan() {
+        let provider = ProviderBuilder::new().connect_mocked_client(Asserter::new());
+        for target in [0, 43] {
+            assert!(
+                !super::canonical_target_was_skipped(
+                    &provider,
+                    target,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: B256::ZERO
+                    },
+                )
+                .await
+                .unwrap()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn canonical_source_reads_reject_reorgs_and_rpc_errors() {
         let block = mock_block(42, PIN, B256::with_last_byte(1));
         let at = crate::L1BlockRef {
@@ -1862,6 +2451,7 @@ mod tests {
             "reverted",
             "wrong hash",
             "missing index",
+            "missing price",
         ] {
             let replies = Asserter::new();
             replies.push_success(&block);
@@ -1875,11 +2465,11 @@ mod tests {
                     "blockHash": at.hash,
                     "blockNumber": if kind == "future" { "0x2b" } else { "0x2a" },
                     "from": alloy_primitives::Address::ZERO, "to": alloy_primitives::Address::ZERO,
-                    "gasUsed": "0x5208", "effectiveGasPrice": "0x1", "cumulativeGasUsed": "0x5208",
+                    "gasUsed": "0x5208", "effectiveGasPrice": if kind == "missing price" { None } else { Some("0x1") }, "cumulativeGasUsed": "0x5208",
                     "type": "0x2", "status": "0x0", "logs": [],
                     "logsBloom": alloy_primitives::Bloom::ZERO,
                 }));
-                if matches!(kind, "reverted" | "missing index") {
+                if matches!(kind, "reverted" | "missing index" | "missing price") {
                     replies.push_success(&block);
                 }
             }
@@ -1899,12 +2489,23 @@ mod tests {
             } else {
                 let source = result.unwrap();
                 assert_eq!(source.nonce, 1);
-                if kind == "reverted" {
+                if matches!(kind, "reverted" | "missing price") {
                     let receipt = source.receipt.unwrap();
                     assert!(!receipt.success, "included revert spends its nonce");
                     assert_eq!(receipt.block, at);
                     assert_eq!(receipt.transaction_index, 2);
                     assert!(receipt.consumed.is_empty());
+                    if kind == "missing price" {
+                        assert!(
+                            receipt.cost.is_err(),
+                            "missing price must not become free execution"
+                        );
+                    } else {
+                        assert_eq!(
+                            receipt.cost.unwrap().paid.total,
+                            alloy_primitives::U256::from(21_000)
+                        );
+                    }
                 } else {
                     assert!(source.receipt.is_none());
                 }
@@ -1966,6 +2567,225 @@ mod tests {
             submission_window_state(deadline, PIN, timing),
             SubmissionWindowState::Expired
         );
+    }
+
+    #[tokio::test]
+    async fn policy_target_uses_the_first_slot_with_a_complete_preparation_budget() {
+        for (slot_ms, proof_ms, slack_ms) in [(5_000, 1_500, 700), (12_000, 4_000, 500)] {
+            let timing = SubmissionTiming::new(
+                Duration::from_millis(slot_ms),
+                Duration::from_millis(7_500),
+                Duration::from_millis(slack_ms),
+            )
+            .unwrap();
+            let cutoff = slot_ms - proof_ms - slack_ms;
+            for (elapsed_ms, offset) in [
+                (0, 1),
+                (cutoff - 1, 1),
+                (cutoff, 2),
+                (cutoff + 1, 2),
+                (slot_ms, 2),
+                (3 * slot_ms + cutoff, 5),
+            ] {
+                let replies = Asserter::new();
+                replies.push_success(&mock_block(100, PIN, B256::with_last_byte(1)));
+                let provider = ProviderBuilder::new().connect_mocked_client(replies);
+                let clock = FakeClock::new(PIN * 1_000 + elapsed_ms);
+                let target = super::select_policy_target(
+                    &provider,
+                    timing,
+                    Duration::from_millis(proof_ms),
+                    &clock,
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    target,
+                    BundleTarget::Exact {
+                        block: 100 + offset,
+                        timestamp: PIN + offset * slot_ms / 1_000,
+                    },
+                    "slot={slot_ms}, elapsed={elapsed_ms}"
+                );
+                assert!(
+                    clock.sleeps().is_empty(),
+                    "selection must not stall sequencing"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn policy_drain_can_prepare_and_submit_in_consecutive_l1_blocks() {
+        for slot_ms in [5_000, 12_000] {
+            let timing = SubmissionTiming::new(
+                Duration::from_millis(slot_ms),
+                Duration::from_millis(7_500),
+                Duration::from_millis(700),
+            )
+            .unwrap();
+            let mut selected = Vec::new();
+            // Each preceding post has reconciled two seconds into its slot.
+            // Follow selection through proof preparation and the real parent /
+            // dispatch gate, without speculating on an unconfirmed predecessor.
+            for index in 0..6 {
+                let head = mock_block(
+                    100 + index,
+                    PIN + index * slot_ms / 1_000,
+                    B256::with_last_byte(u8::try_from(index).unwrap()),
+                );
+                let clock = FakeClock::new(head.header.timestamp * 1_000 + 2_000);
+                let replies = Asserter::new();
+                replies.push_success(&head); // selection
+                replies.push_success(&head); // canonical parent before final pricing
+                replies.push_success(&head); // head recheck at dispatch window
+                let provider = ProviderBuilder::new().connect_mocked_client(replies);
+                let target = super::select_policy_target(
+                    &provider,
+                    timing,
+                    Duration::from_millis(1_500),
+                    &clock,
+                )
+                .await
+                .unwrap();
+                clock.sleep(Duration::from_millis(1_500)).await;
+                assert!(
+                    super::prepare_policy_submission(&provider, target, timing, &clock)
+                        .await
+                        .unwrap()
+                );
+                let BundleTarget::Exact { block, timestamp } = target else {
+                    panic!("policy target must retain the exact timestamp pin");
+                };
+                assert_eq!(timestamp, head.header.timestamp + slot_ms / 1_000);
+                selected.push(block);
+            }
+            assert_eq!(selected, vec![101, 102, 103, 104, 105, 106]);
+        }
+    }
+
+    #[tokio::test]
+    async fn policy_target_missing_head_or_overflow_fails_without_a_fallback() {
+        let clock = FakeClock::new(PIN * 1_000);
+        let replies = Asserter::new();
+        replies.push_success(&serde_json::Value::Null);
+        let provider = ProviderBuilder::new().connect_mocked_client(replies);
+        assert!(
+            super::select_policy_target(&provider, timing(5_000), Duration::ZERO, &clock)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("head is unavailable")
+        );
+        for (height, timestamp, now_ms, preparation) in [
+            (u64::MAX, PIN, PIN * 1_000, Duration::ZERO),
+            (100, u64::MAX, PIN * 1_000, Duration::ZERO),
+            (100, PIN, u64::MAX, Duration::ZERO),
+            (100, PIN, PIN * 1_000, Duration::MAX),
+            (100, u64::MAX / 1_000, 0, Duration::ZERO),
+        ] {
+            let replies = Asserter::new();
+            replies.push_success(&mock_block(height, timestamp, B256::ZERO));
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                super::select_policy_target(
+                    &provider,
+                    timing(5_000),
+                    preparation,
+                    &FakeClock::new(now_ms),
+                )
+                .await
+                .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn selected_policy_target_still_rejects_late_preparation_and_skipped_slots() {
+        for late_preparation in [true, false] {
+            let clock = FakeClock::new(PIN * 1_000 + 2_000);
+            let replies = Asserter::new();
+            replies.push_success(&mock_block(100, PIN, B256::with_last_byte(1)));
+            if !late_preparation {
+                // Same height, different slot after a head change. Never slide
+                // the proof's timestamp to make it fit the new canonical chain.
+                replies.push_success(&mock_block(100, PIN + 5, B256::with_last_byte(2)));
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let target = super::select_policy_target(
+                &provider,
+                timing(5_000),
+                Duration::from_millis(1_500),
+                &clock,
+            )
+            .await
+            .unwrap();
+            if late_preparation {
+                clock.sleep(Duration::from_millis(2_500)).await;
+            }
+            assert!(
+                !super::prepare_policy_submission(&provider, target, timing(5_000), &clock)
+                    .await
+                    .unwrap()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn policy_waits_for_chiado_parent_inside_an_already_open_window() {
+        let clock = FakeClock::new(PIN * 1_000 - 6_000);
+        let replies = Asserter::new();
+        replies.push_success(&serde_json::Value::Null);
+        replies.push_success(&serde_json::Value::Null);
+        let parent = mock_block(41, PIN - 5, B256::with_last_byte(1));
+        replies.push_success(&parent);
+        replies.push_success(&parent);
+        let provider = ProviderBuilder::new().connect_mocked_client(replies);
+        assert!(
+            super::prepare_policy_submission(
+                &provider,
+                BundleTarget::Exact {
+                    block: 42,
+                    timestamp: PIN
+                },
+                timing(5_000),
+                &clock,
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(clock.sleeps(), vec![Duration::from_millis(500); 2]);
+    }
+
+    #[tokio::test]
+    async fn policy_parent_wait_expires_and_rejects_changed_slot_timing() {
+        let target = BundleTarget::Exact {
+            block: 42,
+            timestamp: PIN,
+        };
+        let clock = FakeClock::new(PIN * 1_000 - 1_000);
+        let replies = Asserter::new();
+        replies.push_success(&serde_json::Value::Null);
+        let provider = ProviderBuilder::new().connect_mocked_client(replies);
+        assert!(
+            !super::prepare_policy_submission(&provider, target, timing(5_000), &clock)
+                .await
+                .unwrap()
+        );
+        assert_eq!(clock.sleeps(), vec![Duration::from_millis(500)]);
+
+        for timestamp in [PIN - 6, PIN - 4] {
+            let clock = FakeClock::new(PIN * 1_000 - 4_000);
+            let replies = Asserter::new();
+            replies.push_success(&mock_block(41, timestamp, B256::with_last_byte(1)));
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                !super::prepare_policy_submission(&provider, target, timing(5_000), &clock)
+                    .await
+                    .unwrap()
+            );
+            assert!(clock.sleeps().is_empty());
+        }
     }
 
     #[tokio::test]

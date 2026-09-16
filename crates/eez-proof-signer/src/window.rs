@@ -85,6 +85,7 @@ pub(crate) struct AdmittedHeader {
     /// Untrusted physical blobs retained for KZG and native semantic-profile
     /// validation inside the settlement worker.
     pub(crate) submitted_blobs: Vec<Vec<u8>>,
+    pub(crate) posting_context: eez_control_rpc::v1::L1PostingContext,
 }
 
 /// A complete, structurally checked window ready for backend validation.
@@ -158,6 +159,8 @@ pub(crate) enum WindowError {
     DuplicateHeader,
     #[error("header carries no post_batch")]
     MissingPostBatch,
+    #[error("post batch is missing the required L1 posting context")]
+    MissingPostingContext,
     #[error("header post_batch carries a {actual}-byte l1_block_hash; it must be empty")]
     NonemptyL1BlockHash { actual: usize },
     #[error("invalid window bounds {from}..={to}")]
@@ -329,7 +332,9 @@ impl WindowAssembler<false> {
             l1_block_hash: submitted_l1_block_hash,
             abi_calldata: submitted_post_batch_calldata,
             blobs: submitted_blobs,
+            posting_context,
         } = submitted_post_batch;
+        let posting_context = posting_context.ok_or(WindowError::MissingPostingContext)?;
         let l1_block_hash_len = submitted_l1_block_hash.len();
         if l1_block_hash_len != 0 {
             return Err(WindowError::NonemptyL1BlockHash {
@@ -363,6 +368,7 @@ impl WindowAssembler<false> {
                 declared_to_block,
                 submitted_post_batch_calldata,
                 submitted_blobs,
+                posting_context,
             },
             declared_block_count,
         })

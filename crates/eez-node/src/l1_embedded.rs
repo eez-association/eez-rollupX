@@ -39,6 +39,9 @@ pub enum L1ChainKind {
     Devnet,
     /// Vanilla `EthereumNode` in dev mode (5s auto-mine, --chain dev) with the non-atomic mock bundle RPC.
     Testing,
+    /// Private native Gnosis execution fixture, with the same five-second
+    /// auto-mining and non-atomic test relay as `Testing`.
+    TestingGnosis,
 }
 
 impl L1ChainKind {
@@ -46,6 +49,7 @@ impl L1ChainKind {
         match std::env::var("EEZ_L1_CHAIN").as_deref() {
             Ok("chiado") => Self::Chiado,
             Ok("devnet") => Self::Devnet,
+            Ok("testing-gnosis") => Self::TestingGnosis,
             _ => Self::Testing,
         }
     }
@@ -96,6 +100,11 @@ pub fn build_testing_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Ch
         .with_rpc(rpc_args)
         .dev();
     node_cfg.dev.block_time = Some(TESTING_L1_BLOCK_TIME);
+    // The private dev bundle endpoint inserts through this pool. Its default
+    // per-sender spam limit (16) is not an L1 bundle validity constraint and
+    // must not reject an otherwise fitting nonce chain partway through.
+    // Global pool size and actual block gas limits still bound testing nodes.
+    node_cfg.txpool.max_account_slots = usize::MAX;
     // Synchronous state-root path for dev determinism.
     node_cfg.engine.legacy_state_root_task_enabled = true;
     Ok(node_cfg)
@@ -117,7 +126,13 @@ pub fn build_chiado_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Gno
     // (host-network mode) can reach it. JWT secret guards access.
     rpc_args.auth_addr = "0.0.0.0".parse().expect("static addr");
     rpc_args.auth_jwtsecret = cfg.jwtsecret.clone();
-    let chain_spec: Arc<GnosisChainSpec> = Arc::new(GnosisChainSpec::from(CHIADO_GENESIS.clone()));
+    let testing = cfg.kind == L1ChainKind::TestingGnosis;
+    let chain_spec: Arc<GnosisChainSpec> = Arc::new(GnosisChainSpec::from(if testing {
+        cfg.dev_chain_spec.genesis.clone()
+    } else {
+        CHIADO_GENESIS.clone()
+    }));
+    eez_l1::chain_config::validate_gnosis_execution_config(&chain_spec.inner.genesis)?;
     let mut node_cfg = NodeConfig::new(chain_spec)
         .with_datadir_args(DatadirArgs {
             datadir: cfg.datadir.clone().into(),
@@ -129,6 +144,11 @@ pub fn build_chiado_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Gno
     // in this reth pin (→ "incorrect state root" / SIGABRT on chiado
     // newPayload); force the legacy synchronous path (as the Testing L1 does).
     node_cfg.engine.legacy_state_root_task_enabled = true;
+    if testing {
+        node_cfg = node_cfg.dev();
+        node_cfg.dev.block_time = Some(TESTING_L1_BLOCK_TIME);
+        node_cfg.txpool.max_account_slots = usize::MAX;
+    }
     Ok(node_cfg)
 }
 
@@ -205,5 +225,30 @@ mod tests {
         let modules = rpc_args.http_api.unwrap().to_string();
         assert!(modules.contains("debug"), "HTTP modules: {modules}");
         assert!(modules.contains("eth"), "HTTP modules: {modules}");
+        assert_eq!(
+            build_testing_node_config(&cfg)
+                .unwrap()
+                .txpool
+                .max_account_slots,
+            usize::MAX
+        );
+        let mut gnosis = cfg.clone();
+        gnosis.kind = L1ChainKind::TestingGnosis;
+        gnosis.dev_chain_spec = Arc::new(ChainSpec::from(CHIADO_GENESIS.clone()));
+        assert_eq!(
+            build_chiado_node_config(&gnosis)
+                .unwrap()
+                .txpool
+                .max_account_slots,
+            usize::MAX
+        );
+        gnosis.kind = L1ChainKind::Chiado;
+        assert_eq!(
+            build_chiado_node_config(&gnosis)
+                .unwrap()
+                .txpool
+                .max_account_slots,
+            reth_node_core::args::TxPoolArgs::default().max_account_slots
+        );
     }
 }

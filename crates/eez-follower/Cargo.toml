@@ -10,7 +10,7 @@ default-run            = "eez-follower"
 [dependencies]
 eez-deriver.workspace = true
 eez-driver.workspace  = true
-eez-l1.workspace      = true
+eez-l1 = { workspace = true, features = ["chain-spec"] }
 eez-node-common = { workspace = true, features = ["l1-startup"] }
 eez-protocol.workspace = true
 

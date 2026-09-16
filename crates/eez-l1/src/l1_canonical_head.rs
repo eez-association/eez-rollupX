@@ -4,7 +4,7 @@
 //! can authorize user ownership changes. Publication and reorg invalidation use
 //! one mutex; the deriver also holds the shared engine reconciliation lock.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -30,12 +30,53 @@ pub struct SettlementSnapshot {
     pub settlements: HashMap<B256, ReconciledBatchSettlement>,
 }
 
+/// Exact canonical occurrence that last changed the L2 commitment. The
+/// containing block supplies its timestamp; a receipt alone cannot create it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitmentRef {
+    pub l1: L1BlockRef,
+    pub tx_hash: B256,
+    pub tx_index: u64,
+    pub endpoint: L2Endpoint,
+}
+
+/// Small consistent view for settlement scheduling, without cloning all user
+/// evidence on every idle tick. `through == None` blocks policy evaluation.
+#[derive(Debug, Clone, Copy)]
+pub struct PolicyAnchorSnapshot {
+    pub generation: u64,
+    pub through: Option<L1BlockRef>,
+    pub endpoint: Option<L2Endpoint>,
+    pub commitment: Option<CommitmentRef>,
+}
+
 #[derive(Debug, Default)]
 struct CanonicalState {
     batches: Vec<BatchRecord>,
     evidence: SettlementSnapshot,
     pending_l1_blocks: HashSet<L1BlockRef>,
     last_scanned: Option<L1BlockRef>,
+    commitments: BTreeMap<(u64, u64), CommitmentRef>,
+    latest_commitment: Option<CommitmentRef>,
+}
+
+impl CanonicalState {
+    fn refresh_commitment(&mut self) {
+        let mut entries = self.commitments.values().rev();
+        let Some(mut latest) = entries.next().copied() else {
+            self.latest_commitment = None;
+            return;
+        };
+        // Repeated source completions that leave the commitment unchanged do
+        // not restart the timer. Same-height *different* hashes do.
+        for previous in entries {
+            if previous.endpoint != latest.endpoint {
+                break;
+            }
+            latest = *previous;
+        }
+        self.latest_commitment = Some(latest);
+    }
 }
 
 /// Deriver-owned canonical state shared with the composer.
@@ -135,7 +176,21 @@ impl L1CanonicalHead {
             .expect("canonical evidence generation exhausted");
         state.evidence.through = None;
         state.pending_l1_blocks.insert(evidence.l1_block);
+        if let Some(previous) = state.evidence.settlements.get(&evidence.tx_hash) {
+            let previous_position = (previous.l1_block.number, previous.tx_index);
+            state.commitments.remove(&previous_position);
+        }
         if let Some(endpoint) = evidence.endpoint {
+            state.commitments.insert(
+                (evidence.l1_block.number, evidence.tx_index),
+                CommitmentRef {
+                    l1: evidence.l1_block,
+                    tx_hash: evidence.tx_hash,
+                    tx_index: evidence.tx_index,
+                    endpoint,
+                },
+            );
+            state.refresh_commitment();
             if !state.batches.iter().any(|b| b.tx_hash == evidence.tx_hash) {
                 let position = state
                     .batches
@@ -160,6 +215,7 @@ impl L1CanonicalHead {
                 .insert(evidence.tx_hash, evidence);
             self.cursor.store(cursor, Ordering::Release);
         } else {
+            state.refresh_commitment();
             state
                 .evidence
                 .settlements
@@ -214,6 +270,16 @@ impl L1CanonicalHead {
         self.state.lock().unwrap().evidence.clone()
     }
 
+    pub fn policy_anchor_snapshot(&self) -> PolicyAnchorSnapshot {
+        let state = self.state.lock().unwrap();
+        PolicyAnchorSnapshot {
+            generation: state.evidence.generation,
+            through: state.evidence.through,
+            endpoint: state.evidence.endpoint,
+            commitment: state.latest_commitment,
+        }
+    }
+
     /// Recheck immediately before changing ownership under the engine
     /// reconciliation lock. RPC reads made against an older snapshot are
     /// inconclusive after publication or reorg.
@@ -227,6 +293,10 @@ impl L1CanonicalHead {
         let mut state = self.state.lock().unwrap();
         let original_len = state.batches.len();
         state.batches.retain(|b| b.l1_block <= ancestor);
+        state
+            .commitments
+            .retain(|&(number, _), _| number <= ancestor);
+        state.refresh_commitment();
         state
             .evidence
             .settlements
@@ -289,6 +359,57 @@ mod tests {
             }),
             selection: crate::ReplaySelection::default(),
         }
+    }
+
+    #[test]
+    fn policy_anchor_orders_same_block_events_and_requires_complete_scan() {
+        let head = L1CanonicalHead::default();
+        let first = evidence(100, 1, Some(50));
+        let second = evidence(100, 2, Some(50));
+        // This also checks arrival ordering does not replace transaction order.
+        head.publish(second.clone());
+        head.publish(first);
+        let snapshot = head.policy_anchor_snapshot();
+        assert!(snapshot.through.is_none());
+        assert_eq!(snapshot.commitment.unwrap().tx_hash, second.tx_hash);
+        head.mark_scanned(second.l1_block, second.endpoint.unwrap());
+        let snapshot = head.policy_anchor_snapshot();
+        assert!(snapshot.through.is_some());
+        assert_eq!(snapshot.endpoint, second.endpoint);
+        head.publish(second);
+        assert_eq!(
+            head.policy_anchor_snapshot().generation,
+            snapshot.generation
+        );
+    }
+
+    #[test]
+    fn unchanged_commitment_and_source_only_completion_do_not_reset_anchor() {
+        let head = L1CanonicalHead::default();
+        let first = evidence(100, 1, Some(50));
+        let mut same = evidence(101, 2, Some(50));
+        same.endpoint = first.endpoint;
+        head.publish(first.clone());
+        head.publish(same.clone());
+        head.publish(evidence(102, 3, None));
+        head.mark_scanned(same.l1_block, same.endpoint.unwrap());
+        assert_eq!(
+            head.policy_anchor_snapshot().commitment.unwrap().tx_hash,
+            first.tx_hash
+        );
+        let changed = evidence(103, 4, Some(50));
+        head.publish(changed.clone());
+        head.mark_scanned(changed.l1_block, changed.endpoint.unwrap());
+        assert_eq!(
+            head.policy_anchor_snapshot().commitment.unwrap().tx_hash,
+            changed.tx_hash
+        );
+        head.retreat_on_l1_reorg(101);
+        assert!(head.policy_anchor_snapshot().through.is_none());
+        assert_eq!(
+            head.policy_anchor_snapshot().commitment.unwrap().tx_hash,
+            first.tx_hash
+        );
     }
 
     #[test]

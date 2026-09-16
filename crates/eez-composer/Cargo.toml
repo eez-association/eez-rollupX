@@ -18,6 +18,7 @@ eez-prover.workspace         = true
 
 # gnosis — chiado L1 header type for GnosisL1Adapter
 gnosis-primitives.workspace = true
+reth_gnosis.workspace = true
 
 # alloy
 alloy-consensus.workspace        = true
@@ -50,6 +51,7 @@ async-trait.workspace = true
 thiserror.workspace   = true
 tokio.workspace       = true
 tracing.workspace     = true
+serde_json.workspace  = true
 
 [dev-dependencies]
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state
