@@ -4,8 +4,9 @@ The executable schema is [`eez-telemetry::schema`](../../crates/eez-telemetry/sr
 Serde rejects unknown fields and unknown variants. Schema version is `1`; an
 observer must retain unknown/invalid records with their original segment/offset
 for quarantine and operator-directed replay, never interpret them as success.
-The transport implementation is tested; native transition wiring and PostgreSQL
-ingestion remain open in the [requirement ledger](../requirements.md).
+The transport and [PostgreSQL ingestion](lifecycle-ingestion.md) have isolated
+recovery tests; native transition wiring and canonical outcome validation remain
+open in the [requirement ledger](../requirements.md).
 
 ## Identity and records
 
@@ -160,6 +161,6 @@ a retention gap. No file descriptor survives the pass or a subsequent SQL commit
 On Unix, segment opens and epoch-lock probes use no-follow/nonblocking flags and
 verify regular files, including when a path changes after inventory. Failed lock
 access remains unknown liveness. These are blocking filesystem APIs: the async
-observer must run them on a bounded blocking worker. The database importer and
-its transactional checkpoints/gap classification are still an open R18 gate;
-this API alone does not persist or validate lifecycle outcomes.
+observer must run them on a bounded blocking worker. The [database importer](lifecycle-ingestion.md) uses this API for transactional
+checkpoints and gap classification. Complete transport alone does not validate
+canonical lifecycle outcomes.

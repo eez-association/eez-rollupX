@@ -10,6 +10,7 @@ description = "Read-only EEZ RPC telemetry and canonical receipt indexer."
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 eez-protocol.workspace = true
+eez-telemetry.workspace = true
 axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio"] }
 clap.workspace = true
 reqwest.workspace = true

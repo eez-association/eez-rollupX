@@ -54,6 +54,7 @@ async fn scrape(
         let status = index.read().await;
         rendered.push_str(&indexer::render(&status.chains, now));
         rendered.push_str(&indexer::render_settlements(&status, now));
+        rendered.push_str(&indexer::lifecycle::render(&status.lifecycle, now));
     }
     (
         [(

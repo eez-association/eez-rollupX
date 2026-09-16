@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod ledger;
+pub mod lifecycle;
 mod settlements;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,6 +99,8 @@ pub struct Config {
     pub l2: Selection,
     #[serde(default = "batch_default")]
     pub batch_blocks: u64,
+    #[serde(default)]
+    pub lifecycle: Vec<lifecycle::SourceConfig>,
 }
 fn batch_default() -> u64 {
     16
@@ -130,6 +133,7 @@ impl Config {
         self.exporter.validate()?;
         self.l1.validate()?;
         self.l2.validate()?;
+        lifecycle::validate_sources(self)?;
         for value in [&self.environment, &self.deployment] {
             if value.is_empty()
                 || value.len() > 64
@@ -298,6 +302,7 @@ pub struct Status {
 pub struct RuntimeStatus {
     pub chains: [Status; 2],
     pub settlements: Option<Status>,
+    pub lifecycle: Vec<lifecycle::Status>,
 }
 pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
 
@@ -473,6 +478,7 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     if !config.l1.contracts.is_empty() {
         settlements::poll(config, rpc, status).await;
     }
+    lifecycle::once(config, status).await;
     l1.and(l2)
 }
 
@@ -493,7 +499,8 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
     tokio::join!(
         worker(&config, &rpc, &status, 0),
         worker(&config, &rpc, &status, 1),
-        settlements::run(&config, &rpc, &status)
+        settlements::run(&config, &rpc, &status),
+        lifecycle::run(&config, &status)
     );
 }
 

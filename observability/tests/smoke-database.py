@@ -12,6 +12,7 @@ import pathlib
 import subprocess
 import time
 import uuid
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGES = json.loads((ROOT / 'images.lock.json').read_text())
@@ -65,7 +66,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '3'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '4'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -88,6 +89,10 @@ def main():
     report = {'scope': 'isolated database only; no live services', 'image': IMAGE, 'checks': [],
               'binary_sha256': binary_digest, 'validated_at': datetime.now(timezone.utc).isoformat(),
               'migration_sha256': {path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted((ROOT / 'migrations').glob('*.sql'))}}
+    spool_temp = tempfile.TemporaryDirectory(prefix=name + '-spool-')
+    spool = pathlib.Path(spool_temp.name)
+    spool.chmod(0o755)  # Public synthetic records only; container reads this mount read-only.
+    writer_process = None
     try:
         check_profile(args.binary, report)
         run(['docker', 'network', 'create', '--internal', network])
@@ -100,7 +105,8 @@ def main():
         run(['docker', 'run', '--detach', '--rm', '--name', name, '--network', network, '--user', 'postgres',
              '--memory', '512m', '--cpus', '1', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
              '--env', 'POSTGRES_PASSWORD=fixture-only', '--env', 'POSTGRES_DB=eez_observer',
-             '--mount', f'type=bind,src={args.binary.resolve()},dst=/observer,readonly', IMAGE])
+             '--mount', f'type=bind,src={args.binary.resolve()},dst=/observer,readonly',
+             '--mount', f'type=bind,src={spool},dst=/lifecycle,readonly', IMAGE])
         deadline = time.monotonic() + 60
         # The entrypoint's temporary bootstrap server is Unix-socket-only and can
         # report ready before the database exists. Wait for the final TCP server.
@@ -430,6 +436,182 @@ def main():
         assert settled("SELECT count(*) FROM eez.settlements s" + scope + " AND s.finality_done",'settlement-budget') == '17'
         assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",'settlement-budget') == '2'
         report['checks'].append('bounded_range_validation_and_finality_backlog_progress_without_duplicate_blocks')
+        # Lifecycle files are local public fixtures, mounted read-only into the
+        # observer container. A separate owned process holds the real writer lock.
+        variant['deployment'] = 'lifecycle'
+        variant['lifecycle'] = [{'service':'composer','instance':'node-1','directory':'/lifecycle'}]
+        write_index(variant)
+        control(phase='healthy',correlation='valid',finalize=False,post_count=1)
+        identity = {'environment':'fixture','deployment':'lifecycle','service':'composer','instance':'node-1'}
+        epoch, segment = '01' * 16, '02' * 16
+        path = spool / (epoch + '-' + segment + '.active')
+        lock_path = spool / (epoch + '.lock')
+        lock_path.touch(mode=0o644)
+        writer_process = subprocess.Popen([sys.executable,'-c',
+            "import fcntl,sys,time; f=open(sys.argv[1],'r'); fcntl.flock(f,fcntl.LOCK_EX); print('ready',flush=True); time.sleep(3600)",str(lock_path)],stdout=subprocess.PIPE,text=True)
+        assert writer_process.stdout.readline().strip() == 'ready'
+        def line(value):
+            return json.dumps(value,separators=(',',':')).encode() + b'\n'
+        def header(epoch_value=epoch, segment_value=segment):
+            return line({'record':'header','version':1,'identity':identity,'epoch':epoch_value,'segment_id':segment_value,
+                'process_id':123,'started_at_unix_ms':10000,'segment_created_at_unix_ms':10001})
+        def chunks(sequence, pieces=1, payload=None, epoch_value=epoch):
+            if payload is None:
+                payload = {'observed_at_unix_ms':10002,'trace':None,'event':{'event':'reorg','ancestor':{'number':1,'hash':'03' * 32}}}
+            encoded = json.dumps(payload,separators=(',',':')).encode()
+            step = (len(encoded) + pieces - 1) // pieces
+            parts = [encoded[offset:offset + step] for offset in range(0,len(encoded),step)]
+            return [line({'record':'data','version':1,'identity':identity,'epoch':epoch_value,'sequence':sequence,'chunk_index':i,
+                'chunk_count':len(parts),'payload_hex':part.hex(),'complete':i + 1 == len(parts),
+                'digest':hashlib.sha256(encoded).hexdigest() if i + 1 == len(parts) else None}) for i,part in enumerate(parts)]
+        def control_line(sequence, highest, epoch_value=epoch):
+            return line({'record':'control','version':1,'identity':identity,'epoch':epoch_value,'control_sequence':sequence,
+                'observed_at_unix_ms':10003,'status':'active','stats':{'attempted_records':highest,'dropped_records':0,
+                'written_records':highest,'last_assigned_sequence':highest,'dropped_sequence_min':None,'dropped_sequence_max':None,'io_errors':0}})
+        first = chunks(1,2)
+        three = chunks(3)[0]
+        path.write_bytes(header() + control_line(1,0) + control_line(2,5) + three + first[0] + three)
+        def lifecycle(sql):
+            return scalar(sql + " AND source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='node-1');")
+        def rescan():
+            # Advance only the test scheduler clock; no production timeout is weakened.
+            run(psql,data="UPDATE eez.lifecycle_segments SET last_scan_at='epoch';")
+            run(index)
+        run(index)
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='complete'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_chunks WHERE true") == '2'
+        assert lifecycle("SELECT liveness FROM eez.lifecycle_epochs WHERE true") == 'live'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_gaps WHERE status='provisional'") == '3'
+        offset = lifecycle("SELECT offset_bytes FROM eez.lifecycle_segments WHERE true")
+        run(index)
+        assert lifecycle("SELECT offset_bytes FROM eez.lifecycle_segments WHERE true") == offset
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_chunks WHERE true") == '2'
+        run(psql,data="UPDATE eez.lifecycle_events SET first_seen_at=now()-interval '61 seconds'; UPDATE eez.lifecycle_controls SET observed_at=now()-interval '61 seconds';")
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_gaps WHERE status='suspected_missing'") == '3'
+        closed = path.with_suffix('.closed')
+        with path.open('ab') as stream:
+            stream.write(first[1] + chunks(2)[0] + chunks(5)[0])
+        path.rename(closed)
+        rescan()
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='complete'") == '4'
+        assert lifecycle("SELECT first_sequence::text||':'||last_sequence::text FROM eez.lifecycle_gaps WHERE true") == '4:4'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_segments WHERE true") == '1'
+        report['checks'].append('lifecycle_atomic_offsets_rotation_duplicate_chunks_out_of_order_reassembly_and_late_gap_recovery')
+        # Unknown wire and payload versions retain their bytes and positions.
+        unknown = json.loads(chunks(6)[0]); unknown['version'] = 99
+        future_payload = {'observed_at_unix_ms':10002,'trace':None,'event':{'event':'future_event'}}
+        partial = chunks(4)[0][:-8]
+        with closed.open('ab') as stream:
+            stream.write(line(unknown) + chunks(7,payload=future_payload)[0] + control_line(3,7) + partial)
+        rescan()
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_records WHERE reason='invalid_or_unknown_record'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_records WHERE reason='invalid_payload'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='invalid'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_records WHERE reason='truncated_ended_epoch'") == '0'
+        assert lifecycle("SELECT pending_segments FROM eez.lifecycle_coverage WHERE true") == '1'
+        held_offset = lifecycle("SELECT offset_bytes FROM eez.lifecycle_segments WHERE true")
+        run(psql,data="UPDATE eez.lifecycle_segments SET partial_since=now()-interval '61 seconds';")
+        assert lifecycle("SELECT stale_partial_segments FROM eez.lifecycle_coverage WHERE true") == '1'
+        writer_process.kill(); writer_process.wait(timeout=5); writer_process = None
+        rescan()
+        assert lifecycle("SELECT liveness FROM eez.lifecycle_epochs WHERE true") == 'ended'
+        assert lifecycle("SELECT offset_bytes FROM eez.lifecycle_segments WHERE true") == held_offset
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_records WHERE reason='truncated_ended_epoch'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_gaps WHERE status='quarantined'") == '3'
+        assert lifecycle("SELECT unknown_trailing_epochs FROM eez.lifecycle_coverage WHERE true") == '1'
+        report['checks'].append('unknown_schema_payload_quarantine_and_real_writer_crash_partial_tail_and_unknown_trailing_window')
+        # A later segment contradicting an already complete event retracts only
+        # that observation. Other lifecycle events and paid receipts survive.
+        conflict_segment = '04' * 16
+        conflicting = json.loads(three); conflicting['payload_hex'] = '00' + conflicting['payload_hex'][2:]
+        (spool / (epoch + '-' + conflict_segment + '.closed')).write_bytes(header(segment_value=conflict_segment) + line(conflicting))
+        rescan()
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='conflict'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='complete'") == '3'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='lifecycle' AND role='l1';") == '738216'
+        # Missing locks and age do not prove epoch death. Two complete inventories
+        # are needed before an unseen partially read segment becomes a retention gap.
+        unknown_epoch, unknown_segment = '05' * 16, '06' * 16
+        unknown_path = spool / (unknown_epoch + '-' + unknown_segment + '.active')
+        unknown_path.write_bytes(header(unknown_epoch,unknown_segment) + chunks(1,epoch_value=unknown_epoch)[0][:-8])
+        rescan()
+        assert lifecycle("SELECT liveness FROM eez.lifecycle_epochs WHERE epoch=decode('" + unknown_epoch + "','hex')") == 'unknown'
+        unknown_path.unlink()
+        run(index)
+        assert lifecycle("SELECT lost_segments FROM eez.lifecycle_coverage WHERE true") == '0'
+        run(index)
+        assert lifecycle("SELECT lost_segments FROM eez.lifecycle_coverage WHERE true") == '1'
+        report['checks'].append('conflicting_late_chunk_retracts_transport_success_and_retention_never_infers_writer_death')
+        # Administrative/read-only contracts remain enforced for the new schema.
+        assert run(psql,data="SET ROLE eez_observer_reader; SELECT raw FROM eez.lifecycle_records;",check=False).returncode != 0
+        run(psql,data="SET ROLE eez_observer_reader; SELECT count(*) FROM eez.lifecycle_coverage; SELECT count(*) FROM eez.lifecycle_event_history;")
+        # Repeated/concurrent readers leave one copy of each logical event.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: run(index,check=False),range(2)))
+        run(index)
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE state='complete'") == '3'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_chunks WHERE sequence=3") == '1'
+        report['checks'].append('lifecycle_reader_permissions_and_concurrent_replay_preserve_unique_events')
+        # Keep unresolved opaque records quarantined, not declared lost. A clean
+        # ended epoch proves one missing interval even at the full u64 boundary.
+        boundary_epoch, boundary_segment = '08' * 16, '09' * 16
+        (spool / (boundary_epoch + '.lock')).touch(mode=0o644)
+        (spool / (boundary_epoch + '-' + boundary_segment + '.closed')).write_bytes(header(boundary_epoch,boundary_segment) + control_line(1,18446744073709551615,boundary_epoch))
+        rescan()
+        assert lifecycle("SELECT first_sequence::text||':'||last_sequence::text FROM eez.lifecycle_gaps WHERE epoch=decode('" + boundary_epoch + "','hex') AND status='unrecoverable_from_spool'") == '1:18446744073709551615'
+        assert lifecycle("SELECT unknown_liveness_epochs FROM eez.lifecycle_coverage WHERE true") == '1'
+        report['checks'].append('opaque_evidence_stays_quarantined_and_full_u64_sequence_gap_is_one_bounded_interval')
+
+        # Kill the reader after staging a data chunk but before the file offset
+        # commits. Neither the chunk/event nor any byte progress may survive.
+        crash_segment = '07' * 16
+        (spool / (epoch + '-' + crash_segment + '.closed')).write_bytes(header(segment_value=crash_segment) + chunks(8)[0])
+        run(psql,data="""CREATE FUNCTION eez.fixture_pause_lifecycle() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN
+          IF NEW.segment_id=decode(repeat('07',16),'hex') AND NEW.offset_bytes>0 THEN PERFORM pg_sleep(8); END IF;
+          RETURN NEW; END $$;
+          CREATE TRIGGER fixture_pause_lifecycle BEFORE INSERT ON eez.lifecycle_records FOR EACH ROW EXECUTE FUNCTION eez.fixture_pause_lifecycle();""")
+        run(['docker','exec','-d',name,'sh','-c','echo $$ > /tmp/observer.pid; exec /observer indexer --config /tmp/index.json --once > /tmp/observer.log 2>&1'])
+        deadline = time.monotonic() + 20
+        while scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name='eez-observer' AND wait_event='PgSleep';") != '1':
+            if time.monotonic() >= deadline:
+                raise RuntimeError('lifecycle importer did not reach controlled pre-commit pause')
+            time.sleep(0.1)
+        run(['docker','exec',name,'sh','-c','kill -KILL "$(cat /tmp/observer.pid)"'])
+        deadline = time.monotonic() + 12
+        while scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name='eez-observer';") != '0':
+            if time.monotonic() >= deadline:
+                raise RuntimeError('killed lifecycle reader left a connection open')
+            time.sleep(0.1)
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE sequence=8") == '0'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_chunks WHERE sequence=8") == '0'
+        assert lifecycle("SELECT offset_bytes FROM eez.lifecycle_segments WHERE segment_id=decode('" + crash_segment + "','hex')") == '0'
+        run(psql,data='DROP TRIGGER fixture_pause_lifecycle ON eez.lifecycle_records; DROP FUNCTION eez.fixture_pause_lifecycle();')
+        rescan()
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_events WHERE sequence=8 AND state='complete'") == '1'
+        assert lifecycle("SELECT count(*) FROM eez.lifecycle_chunks WHERE sequence=8") == '1'
+        report['checks'].append('killed_lifecycle_reader_rolls_back_chunks_events_and_offset_then_replays_once')
+        # New source failures do not disable canonical scans or another spool.
+        variant['lifecycle'].append({'service':'signer','instance':'missing-files','directory':'/missing-lifecycle'})
+        write_index(variant)
+        run(['docker','exec','-d',name,'sh','-c','echo $$ > /tmp/observer.pid; exec /observer indexer --config /tmp/index.json > /tmp/observer.log 2>&1'])
+        deadline = time.monotonic() + 30
+        good = 'eez_observer_lifecycle_collection_success{source_service="composer",source_instance="node-1"} 1'
+        bad = 'eez_observer_lifecycle_error{source_service="signer",source_instance="missing-files",reason="spool_inventory"} 1'
+        while True:
+            metrics = run(fetch,check=False).stdout
+            if good in metrics and bad in metrics and 'eez_observer_index_collection_success{chain="l1"} 1' in metrics:
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('lifecycle failure isolation or process metrics did not become visible')
+            time.sleep(0.2)
+        run(['docker','exec',name,'sh','-c','kill -TERM "$(cat /tmp/observer.pid)"'])
+        deadline = time.monotonic() + 5
+        while run(['docker','exec',name,'sh','-c','kill -0 "$(cat /tmp/observer.pid)"'],check=False).returncode == 0:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('lifecycle observer did not shut down')
+            time.sleep(0.1)
+        report['checks'].append('continuous_lifecycle_metrics_isolate_missing_spool_from_other_sources_and_shutdown')
+        variant.pop('lifecycle')
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0
@@ -445,6 +627,9 @@ def main():
         print(run(['docker', 'logs', '--tail', '20', name], check=False).stdout)
         raise
     finally:
+        if writer_process is not None and writer_process.poll() is None:
+            writer_process.kill()
+            writer_process.wait(timeout=5)
         run(['docker', 'rm', '--force', '--volumes', name], check=False)
         run(['docker', 'rm', '--force', '--volumes', rpc_name], check=False)
         run(['docker', 'network', 'rm', network], check=False)
@@ -454,6 +639,7 @@ def main():
         remaining = remaining or remaining_rpc or remaining_network
         if remaining:
             report['status'] = 'cleanup_failed'
+        spool_temp.cleanup()
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + '\n')
         if remaining:

@@ -176,3 +176,8 @@ are `eez_observer_settlement_collection_success`,
 `eez_observer_settled_finalized_l2_number`. Pending/finality gauges are absent on
 failure, staleness or a cursor change since correlation verification. Successful
 collection can coexist with coverage gaps; neither is a source-completion claim.
+
+
+Schema 4 adds optional [local lifecycle ingestion](lifecycle-ingestion.md), with
+independent workers and transactional file checkpoints. Receipt collection and
+cost views remain independent of lifecycle delivery or claimed outcomes.

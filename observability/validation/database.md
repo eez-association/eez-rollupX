@@ -113,3 +113,42 @@ uses real observer processes/PostgreSQL but synthetic RPC history. It does not
 prove independent protocol replay, live deployment capacity or per-source success.
 Lifecycle ingestion, companion/source allocation, authenticated blobs and the
 remaining [acceptance gates](../requirements.md) are still open.
+
+
+Schema-4 lifecycle follow-up, 2026-09-16: optional source configuration now reaches
+independent file workers, shared wire validation, PostgreSQL chunk/control/raw
+storage, logical assembly and HTTP metrics. The current [report](database.json)
+records the final default-feature executable and all four migration digests.
+27 observer tests and 21 all-feature telemetry tests pass. Workspace all-target
+Clippy, formatting, preparation tests (six), `cargo deny` and `cargo audit` pass;
+audit retains the existing 14 allowed warnings with no new exception or package
+version change. The observer now directly depends on the existing telemetry crate.
+
+The process suite still runs every canonical/settlement regression. Added lifecycle
+checks use public synthetic JSONL on a local read-only container mount and real
+filesystem locks/PostgreSQL/observer processes:
+
+| Requirement | Observable evidence |
+| --- | --- |
+| R16/R18 | Out-of-order chunks assemble only when complete; repeated identical chunks and concurrent readers preserve one event; `.active` to `.closed` retains the checkpoint |
+| R18 | Killing the importer after chunk staging but before commit rolls back event, chunk and byte offset; restart imports exactly once |
+| R17/R18 | Killing a separate lock-holding fixture process establishes end; partial trailing bytes become explicit gaps; a missing lock remains unknown |
+| R18 | Holes are provisional, then suspected using an injected database observation age; late valid records repair them; two successful absent inventories establish retention loss |
+| R16/R18 | Unknown wire/payload schemas preserve raw bytes and positions; a conflicting late chunk retracts transport success; opaque evidence stays quarantined |
+| R18 | A clean ended epoch with a full-u64 high-water value yields one interval, without enumerating sequences |
+| R01/R13 | Header/config identities agree; reader views are allowed while raw quarantine bytes remain inaccessible to Grafana |
+| R18/R28 | Continuous metrics show one working and one unavailable spool while chain scanning stays healthy; pending segments are visible; SIGTERM completes within the fixture bound |
+
+An initial real database run exposed PostgreSQL type inference for an untyped
+parameter inside `SELECT DISTINCT`. Explicit `bigint` casts fixed inventory
+registration; the full suite passed thereafter. Local first-failure evidence is
+`/tmp/eez-observability-lifecycle-database-first-failure.{log,json}` (not guaranteed
+retention). Later review tightened unknown-schema gap classification and added
+full-u64 and unread-segment backlog regressions; the final report includes those
+changes. No production node, database or wallet was changed.
+
+The [ingestion contract](../contracts/lifecycle-ingestion.md) describes bounds,
+health versus coverage, immutable evidence and reviewed quarantine replay. Tests
+cover the running importer; they do not establish native queue/attempt capture,
+canonical outcome assurance, native restart ownership history, workload capacity,
+physical-volume limits or the production baseline. Those remain explicit gates.

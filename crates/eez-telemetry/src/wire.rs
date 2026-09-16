@@ -75,32 +75,44 @@ pub(crate) fn line(record: &Record) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Validate one bounded wire chunk before durable staging. This does not prove
+/// payload completeness or authenticity; [`assemble`] checks the complete set.
+pub fn validate_chunk(record: &Data) -> Result<(), &'static str> {
+    record.identity.validate()?;
+    if record.version != VERSION
+        || record.sequence == 0
+        || record.chunk_count == 0
+        || record.chunk_count as usize > MAX_EVENT_BYTES.div_ceil(CHUNK_BYTES)
+        || record.chunk_index >= record.chunk_count
+        || record.payload_hex.is_empty()
+        || record.payload_hex.len() > CHUNK_BYTES * 2
+        || !record.payload_hex.len().is_multiple_of(2)
+        || !record
+            .payload_hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || record.complete != (record.chunk_index + 1 == record.chunk_count)
+        || record.digest.is_some() != record.complete
+    {
+        return Err("invalid lifecycle chunk");
+    }
+    Ok(())
+}
+
 /// Assemble only a complete, consistent chunk set. Exact duplicates are safe;
 /// conflicting duplicates, mismatched scope/version/digest and incomplete input
 /// fail without yielding a partly trusted event. Callers retain/quarantine raw
 /// records and their original replay position on error.
 pub fn assemble(records: &[Data]) -> Result<Payload, &'static str> {
     let first = records.first().ok_or("missing chunks")?;
-    first.identity.validate()?;
-    if first.version != VERSION
-        || first.sequence == 0
-        || first.chunk_count == 0
-        || first.chunk_count as usize > MAX_EVENT_BYTES.div_ceil(CHUNK_BYTES)
-    {
-        return Err("invalid lifecycle header or unsupported version");
-    }
+    validate_chunk(first)?;
     let mut chunks = BTreeMap::new();
     for record in records {
-        if record.version != VERSION
-            || record.identity != first.identity
+        validate_chunk(record)?;
+        if record.identity != first.identity
             || record.epoch != first.epoch
             || record.sequence != first.sequence
             || record.chunk_count != first.chunk_count
-            || record.chunk_index >= record.chunk_count
-            || record.payload_hex.len() > CHUNK_BYTES * 2
-            || record.payload_hex.is_empty()
-            || record.complete != (record.chunk_index + 1 == record.chunk_count)
-            || record.digest.is_some() != record.complete
         {
             return Err("inconsistent lifecycle chunks");
         }

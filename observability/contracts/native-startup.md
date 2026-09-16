@@ -94,7 +94,8 @@ gate; no tracing export is enabled by this configuration yet.
 
 This startup foundation emits process/segment metadata. It does not yet emit
 native queue/attempt transitions or authorize any protocol-success claims.
-PostgreSQL ingestion, native transitions, trace export, service-log adapters,
+[PostgreSQL transport ingestion](lifecycle-ingestion.md) is implemented with
+isolated recovery evidence. Native transitions, trace export, service-log adapters,
 devnet neutrality/performance evidence and live rollout remain in the requirement
 ledger. The initialization change does not modify consensus encoding, signed
 inputs, ingress decisions, attempt ownership or the signer's request drain.

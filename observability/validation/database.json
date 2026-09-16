@@ -23,15 +23,23 @@
     "same_block_posts_reorg_history_exact_l2_finality_and_derived_only_freeze",
     "empty_duplicate_mismatched_or_conflicting_ranges_never_fabricate_finality_or_change_receipt_costs",
     "bounded_range_validation_and_finality_backlog_progress_without_duplicate_blocks",
+    "lifecycle_atomic_offsets_rotation_duplicate_chunks_out_of_order_reassembly_and_late_gap_recovery",
+    "unknown_schema_payload_quarantine_and_real_writer_crash_partial_tail_and_unknown_trailing_window",
+    "conflicting_late_chunk_retracts_transport_success_and_retention_never_infers_writer_death",
+    "lifecycle_reader_permissions_and_concurrent_replay_preserve_unique_events",
+    "opaque_evidence_stays_quarantined_and_full_u64_sequence_gap_is_one_bounded_interval",
+    "killed_lifecycle_reader_rolls_back_chunks_events_and_offset_then_replays_once",
+    "continuous_lifecycle_metrics_isolate_missing_spool_from_other_sources_and_shutdown",
     "newer_schema_refuses_migration_downgrade_and_old_indexer",
     "incompatible_migration_checksum_refused"
   ],
-  "binary_sha256": "75352e040a649696d2829ebe35d815f72014af6ae59424d7062d3047ff5671a6",
-  "validated_at": "2026-09-16T23:14:58.862136+00:00",
+  "binary_sha256": "20c09cdb50a9fca142f437367b3ff3f80207d5053252d10e7fa7880119bd2922",
+  "validated_at": "2026-09-16T23:55:50.507506+00:00",
   "migration_sha256": {
     "0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
     "0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
-    "0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257"
+    "0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257",
+    "0004-lifecycle.sql": "dc8944466e3d022e0cf8566a431b2f257f47045171b8743d9a83a83fa594db25"
   },
   "status": "passed"
 }

@@ -94,3 +94,13 @@ A derived L2 finalized contradiction freezes the correlation source, separately
 from the receipt chain's freeze state. Preserve both records when investigating.
 See the [applied-range contract](../contracts/canonical-indexer.md#applied-ranges-and-l2-finality-schema-3)
 for source assurance, bounded replay and view semantics.
+
+
+Schema 4 adds optional lifecycle imports. Stop the old observer, preserve a backup,
+run the new binary's explicit `migrate`, then start it with the same receipt
+configuration and optional `lifecycle` entries. An omitted/empty array disables
+file ingestion. Provision local read-only spool access before enabling entries;
+a missing directory remains a visible collection failure and does not stop chain
+indexing. All prior schema binaries refuse schema 4. Reverting the executable
+alone is not a database rollback. See the [ingestion contract](../contracts/lifecycle-ingestion.md)
+for bounded replay, quarantine investigation, freshness and writer-liveness limits.
