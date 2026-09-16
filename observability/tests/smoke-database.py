@@ -65,7 +65,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '2'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '3'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -135,7 +135,7 @@ def main():
         assert run(psql + ['-Atq'], data="SELECT count(*) FROM eez.posting_analysis WHERE state='pending';").stdout.strip() == '5'
         if args.previous_binary:
             assert run(['docker','exec',name,'/observer-v1','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
-            report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_v2_downgrade')
+            report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_current_downgrade')
         report['checks'].append('explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown')
         report['checks'].append('explicit_migration_and_idempotent_reapplication')
         run(psql, data="ALTER ROLE eez_observer_writer LOGIN PASSWORD 'fixture-writer';")
@@ -158,7 +158,7 @@ def main():
         write_index(index_config)
         if args.previous_binary:
             assert run(['docker','exec',name,'/observer-v1','indexer','--config','/tmp/index.json','--once'],check=False).returncode != 0
-            report['checks'].append('saved_v1_indexer_refuses_v2_schema_without_touching_receipts')
+            report['checks'].append('saved_v1_indexer_refuses_current_schema_without_touching_receipts')
         run(psql, data='CREATE DATABASE empty_observer;')
         empty_config = {**writer, 'connection_string': writer['connection_string'].replace('dbname=eez_observer', 'dbname=empty_observer')}
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/empty.json'], data=json.dumps(empty_config))
@@ -365,6 +365,71 @@ def main():
                 raise RuntimeError('continuous observer did not shut down')
             time.sleep(0.2)
         report['checks'].append('continuous_indexer_serves_both_chain_metrics_and_exits_on_sigterm')
+        # Applied ranges require exact hashes and a successful post; the node's
+        # height-based l2Finalized flag is never used as finality evidence.
+        variant['deployment'] = 'settlement'
+        write_index(variant)
+        control(phase='healthy',correlation='valid',post_success=True,finalize=False,post_count=2)
+        run(index)
+        def settled(sql, deployment='settlement'):
+            return scalar(sql + " AND c.deployment_id=(SELECT id FROM eez.deployments WHERE name='" + deployment + "');")
+        assert settled("SELECT count(*) FROM eez.settlements s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true") == '2'
+        assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true") == '0'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='settlement' AND role='l1';") == '1329432'
+        run(index)
+        assert settled("SELECT count(*) FROM eez.settlements s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true") == '2'
+        control(phase='fork')
+        run(index)
+        assert settled("SELECT count(*) FROM eez.settlements s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true") == '4'
+        assert settled("SELECT count(DISTINCT b.hash) FROM eez.canonical_settled_l2_blocks b JOIN eez.chain_instances c ON c.id=b.l2_chain_id WHERE b.source_valid") == '2'
+        control(finalize=True,correlation='reported_unfinalized')
+        run(index)
+        assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true") == '2'
+        # Only L2 changes next: derived finality freezes, while both independent
+        # receipt scanners may continue reconciling paid facts.
+        # Test the contradiction in a separate namespace with unchanged L1 history.
+        variant['deployment'] = 'settlement-finality'
+        write_index(variant)
+        control(phase='healthy',correlation='valid',post_count=1,finalize=True)
+        run(index)
+        assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",'settlement-finality') == '2'
+        control(phase='l2_fork')
+        run(index)
+        assert settled("SELECT s.frozen_reason FROM eez.correlation_sources s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true",'settlement-finality') == 'l2_finalized_contradiction'
+        assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",'settlement-finality') == '0'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='settlement-finality' AND role='l2';") == '804216'
+        assert scalar("SELECT source_valid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='settlement-finality' AND role='l2';") == 't'
+        assert settled("SELECT c.frozen_reason IS NULL FROM eez.correlation_sources s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true",'settlement-finality') == 't'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='settlement-finality' AND role='l1';") == '738216'
+        report['checks'].append('same_block_posts_reorg_history_exact_l2_finality_and_derived_only_freeze')
+        for mode in ('missing','wrong_anchor','duplicate','wrong_hash'):
+            variant['deployment'] = 'settlement-' + mode.replace('_','-')
+            write_index(variant)
+            control(phase='healthy',correlation=mode,finalize=False)
+            run(index)
+            assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",variant['deployment']) == '0'
+            assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='" + variant['deployment'] + "' AND role='l1';") == '738216'
+            control(correlation='valid',finalize=True)
+            run(index)
+            expected = '0' if mode == 'wrong_hash' else '2'
+            assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",variant['deployment']) == expected
+            if mode == 'wrong_hash':
+                assert settled("SELECT count(*) FROM eez.settlements s JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true",variant['deployment']) == '2'
+        report['checks'].append('empty_duplicate_mismatched_or_conflicting_ranges_never_fabricate_finality_or_change_receipt_costs')
+        # More pending ranges than a cycle's validation/finality budget must
+        # advance fairly on restart, without charging duplicate range membership.
+        variant['deployment'] = 'settlement-budget'
+        write_index(variant)
+        control(phase='healthy',correlation='valid',finalize=True,post_count=17)
+        run(index)
+        scope = " JOIN eez.chain_instances c ON c.id=s.l2_chain_id WHERE true"
+        assert settled("SELECT count(*) FROM eez.settlements s" + scope,'settlement-budget') == '17'
+        assert settled("SELECT count(*) FROM eez.settlements s" + scope + " AND s.range_verified_at IS NOT NULL",'settlement-budget') == '16'
+        assert settled("SELECT count(*) FROM eez.settlements s" + scope + " AND s.finality_done",'settlement-budget') == '16'
+        run(index)
+        assert settled("SELECT count(*) FROM eez.settlements s" + scope + " AND s.finality_done",'settlement-budget') == '17'
+        assert settled("SELECT count(*) FROM eez.verified_l2_finality f JOIN eez.chain_instances c ON c.id=f.l2_chain_id WHERE true",'settlement-budget') == '2'
+        report['checks'].append('bounded_range_validation_and_finality_backlog_progress_without_duplicate_blocks')
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0

@@ -82,3 +82,15 @@ than attempting a downgrade. Keep a backup of the database and original runtime
 credentials before migration; reverting only the executable is not a schema
 rollback. Existing exact charges survive migration while method coverage can
 initially be unknown. The scanner fills that evidence in bounded passes.
+
+Schema 3 adds independent applied-range collection and exact L2 finality views.
+The same stop/backup/explicit-migrate/start order applies to schema 1 or 2 upgrades;
+older binaries reject schema 3. Receipt costs and selections are preserved.
+Configure the node's correlation RPC capability before expecting range coverage.
+Absent/unsupported history remains a visible gap while receipt scans continue.
+Do not treat a successful `--once` receipt scan as proof that correlation is healthy;
+check `eez.settlement_coverage` and the settlement collection metric explicitly.
+A derived L2 finalized contradiction freezes the correlation source, separately
+from the receipt chain's freeze state. Preserve both records when investigating.
+See the [applied-range contract](../contracts/canonical-indexer.md#applied-ranges-and-l2-finality-schema-3)
+for source assurance, bounded replay and view semantics.

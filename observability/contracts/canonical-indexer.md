@@ -45,7 +45,7 @@ An exact contradiction of a previously stored finalized L1 anchor freezes that
 chain. An inconsistent in-flight fetch is a retryable collection failure, not a
 finality alarm. L2's `finalized` RPC tag is deliberately unused: exact applied
 settlement hashes and finalized L1 anchors are required for L2 finality.
-That settlement integration remains an open acceptance gate.
+Schema 3 adds the separately verified settlement evidence described below.
 
 Missing/pruned blocks stop advancement at that height and persist a chain gap.
 Missing or incomplete receipts persist receipt gaps without blocking subsequent
@@ -85,7 +85,7 @@ Metrics in indexer mode:
 Lag/gap/finality gauges are absent when the scan is stale or failed; default
 exporter mode has no indexer metrics. RPC requests share a four-call semaphore
 with the exporter and retain five-second deadlines, no redirects, and bounded
-responses (8 MiB for full blocks, 1 MiB for other calls). A block above 10,000
+responses (8 MiB for full blocks and transactions, 1 MiB for other calls). A block above 10,000
 transactions is explicitly rejected. Workers wait 15 seconds on success and
 back off 15/30/60 seconds on failure. DB connection, statement, lock and client
 request deadlines are respectively 5/10/5/15 seconds. HTTP drain is capped at two
@@ -126,3 +126,53 @@ transaction fetch leaves an explicit pending/error state and does not block
 header/receipt progress. Decoding never reconstructs source ownership from sender
 or transaction order. Decoded classifications are immutable for the same logical
 transaction; a contradictory later observation is an inconsistency.
+
+## Applied ranges and L2 finality (schema 3)
+
+When L1 recipient contracts are configured, a third independent worker queries
+`eez_getSettledL2RangesByL1Block` on the L2 node. Wallet-only indexing leaves this
+capability disabled. Its failures do not stop either receipt scanner. In `--once`
+mode correlation runs after the two bounded receipt cycles; its errors appear in
+SQL/logs and do not change the successful receipt scan's exit code.
+
+A claim must identify an indexed, successful, current-ABI posting receipt at the
+exact L1 block hash and transaction position. Its nonempty L2 array must contain
+contiguous numbers, unique hashes and an exactly matching range summary. The
+worker verifies both endpoint identities and both cursor hashes around collection,
+then locks the chain/cursor pairs in ID order and compares their snapshots before
+committing. RPC calls happen outside these database locks. Claims are bounded to
+1,024 posts and 4,096 total L2 blocks per response, within the RPC byte limit.
+
+`eez.settlement_evidence` retains node-reconciled claims. Different ranges for one
+receipt inclusion remain separate observations and invalidate the stronger claim.
+The diagnostic `canonicalL2` and `l2Finalized` flags do not establish finality.
+`eez.canonical_settled_l2_blocks` requires a range previously verified against the
+canonical L2 ledger and selects each member's current exact hash. It is an evidence
+view: multiple posts may identify the same block, so count distinct block identities.
+These views do not establish per-source ownership or successful cross-chain effects.
+
+`eez.verified_l2_finality` deduplicates exact L2 block identities whose applied-range
+L1 anchor is canonical and finalized, with fresh, healthy L1/L2/correlation sources.
+Use this separate view for L2 finality; the base receipt view's `finalized` field
+continues to describe the receipt scanner's L1 finality only. A contradiction of a
+persisted finalized L2 hash freezes correlation/finality for investigation while
+ordinary L2 receipt indexing can still reconcile fees. Original evidence survives
+unfinalized reorgs, and orphaned anchors immediately leave canonical views.
+
+Each cycle retries up to three pending L1 blocks and rereads one previously
+observed block to detect changed claims. An empty response is an explicit
+`no_applied_range_observed` gap, never proof of no application: the existing RPC
+has no processed-L1 watermark. Range verification and finality promotion each
+visit at most 16 ranges in oldest-attempt order; finality inserts at most 4,096
+members per cycle. Restart resumes these persisted backlogs. SQL statements and
+locks retain the scanner deadlines.
+
+`eez.settlement_coverage` exposes posts without observations, collection errors,
+missing verified ranges and pending finality ranges. The corresponding metrics
+are `eez_observer_settlement_collection_success`,
+`eez_observer_settlement_last_success_timestamp_seconds`,
+`eez_observer_settlement_error{reason}`, `eez_observer_settlement_pending_posts`,
+`eez_observer_settlement_finality_pending_ranges`, and
+`eez_observer_settled_finalized_l2_number`. Pending/finality gauges are absent on
+failure, staleness or a cursor change since correlation verification. Successful
+collection can coexist with coverage gaps; neither is a source-completion claim.

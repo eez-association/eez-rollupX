@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod ledger;
+mod settlements;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -155,6 +156,7 @@ pub enum Error {
     Database,
     Schema,
     SelectionChanged,
+    SettlementFinality,
     Inconsistent,
     ConflictingFact,
     Frozen,
@@ -167,6 +169,7 @@ impl Error {
             Self::Database => "database",
             Self::Schema => "schema_or_role",
             Self::SelectionChanged => "selection_changed",
+            Self::SettlementFinality => "settled_l2_finality_contradiction",
             Self::Inconsistent => "inconsistent_chain_facts",
             Self::ConflictingFact => "conflicting_fact",
             Self::Frozen => "finalized_contradiction_or_frozen",
@@ -285,10 +288,75 @@ pub struct Status {
     pub error: Option<Error>,
     pub head: Option<u64>,
     pub cursor: Option<u64>,
+    pub cursor_hash: Option<B256>,
+    pub verified_cursors: Option<[B256; 2]>,
     pub gaps: Option<i64>,
     pub finalized: Option<u64>,
+    pub finality_pending: Option<i64>,
 }
-pub type SharedStatus = Arc<RwLock<[Status; 2]>>;
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeStatus {
+    pub chains: [Status; 2],
+    pub settlements: Option<Status>,
+}
+pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
+
+pub fn render_settlements(status: &RuntimeStatus, now: u64) -> String {
+    use std::fmt::Write;
+    let Some(state) = &status.settlements else {
+        return String::new();
+    };
+    let fresh = |state: &Status| {
+        state.error.is_none()
+            && state
+                .last_success
+                .is_some_and(|t| t <= now.saturating_add(5000) && now.saturating_sub(t) <= 90000)
+    };
+    let same_cursors = state.verified_cursors.is_some_and(|expected| {
+        status
+            .chains
+            .iter()
+            .zip(expected)
+            .all(|(chain, hash)| chain.cursor_hash == Some(hash))
+    });
+    let valid = fresh(state) && status.chains.iter().all(fresh) && same_cursors;
+    let mut text = format!(
+        "eez_observer_settlement_collection_success {}\n",
+        u8::from(valid)
+    );
+    if let Some(time) = state.last_success {
+        writeln!(
+            text,
+            "eez_observer_settlement_last_success_timestamp_seconds {}",
+            time / 1000
+        )
+        .unwrap();
+    }
+    if let Some(error) = state.error {
+        writeln!(
+            text,
+            "eez_observer_settlement_error{{reason=\"{}\"}} 1",
+            error.label()
+        )
+        .unwrap();
+    }
+    if valid {
+        if let Some(gaps) = state.gaps {
+            writeln!(text, "eez_observer_settlement_pending_posts {gaps}").unwrap();
+        }
+        if let Some(pending) = state.finality_pending {
+            writeln!(
+                text,
+                "eez_observer_settlement_finality_pending_ranges {pending}"
+            )
+            .unwrap();
+        }
+        if let Some(number) = state.finalized {
+            writeln!(text, "eez_observer_settled_finalized_l2_number {number}").unwrap();
+        }
+    }
+    text
+}
 
 pub fn render(status: &[Status; 2], now: u64) -> String {
     use std::fmt::Write;
@@ -382,11 +450,11 @@ async fn publish_result(
     let mut states = status.write().await;
     match result {
         Ok(state) => {
-            states[index] = state;
+            states.chains[index] = state;
             Ok(())
         }
         Err(error) => {
-            states[index].error = Some(error);
+            states.chains[index].error = Some(error);
             tracing::warn!(
                 chain = if index == 0 { "l1" } else { "l2" },
                 reason = error.label(),
@@ -402,6 +470,9 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     let (l1, l2) = tokio::join!(cycle_role(config, rpc, 0), cycle_role(config, rpc, 1));
     let l1 = publish_result(status, 0, l1).await;
     let l2 = publish_result(status, 1, l2).await;
+    if !config.l1.contracts.is_empty() {
+        settlements::poll(config, rpc, status).await;
+    }
     l1.and(l2)
 }
 
@@ -421,7 +492,8 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
     // Slow history/reorg discovery on one chain cannot hold up the other chain.
     tokio::join!(
         worker(&config, &rpc, &status, 0),
-        worker(&config, &rpc, &status, 1)
+        worker(&config, &rpc, &status, 1),
+        settlements::run(&config, &rpc, &status)
     );
 }
 
@@ -633,8 +705,11 @@ async fn scan_chain(
         last_success: Some(crate::now_ms()),
         error: None,
         head: Some(head.number),
+        cursor_hash: cursor.as_ref().map(|block| block.hash),
         cursor: cursor.map(|block| block.number),
+        verified_cursors: None,
         gaps: Some(ledger::gaps(database, id).await?),
+        finality_pending: None,
         finalized: ledger::finalized(database, id)
             .await?
             .map(|block| block.number),
@@ -851,6 +926,9 @@ mod tests {
                 cursor: Some(7),
                 gaps: Some(2),
                 finalized: Some(5),
+                finality_pending: None,
+                cursor_hash: None,
+                verified_cursors: None,
             },
             Status::default(),
         ];
@@ -866,5 +944,47 @@ mod tests {
         }
         states[0].error = Some(Error::Database);
         assert!(!render(&states, 100_000).contains("eez_observer_lag_blocks"));
+    }
+    #[test]
+    fn settlement_finality_metrics_require_fresh_chain_and_correlation_sources() {
+        let mut state = RuntimeStatus::default();
+        assert!(render_settlements(&state, 100_000).is_empty());
+        let fresh = Status {
+            last_success: Some(100_000),
+            cursor_hash: Some(B256::ZERO),
+            ..Status::default()
+        };
+        state.chains = [fresh.clone(), fresh.clone()];
+        state.settlements = Some(Status {
+            finalized: Some(42),
+            gaps: Some(0),
+            verified_cursors: Some([B256::ZERO; 2]),
+            ..fresh
+        });
+        assert!(
+            render_settlements(&state, 100_000)
+                .contains("eez_observer_settled_finalized_l2_number 42")
+        );
+        assert!(
+            !render_settlements(&state, 190_001)
+                .contains("eez_observer_settled_finalized_l2_number")
+        );
+        state.chains[1].cursor_hash = Some(B256::repeat_byte(1));
+        assert!(
+            !render_settlements(&state, 100_000)
+                .contains("eez_observer_settled_finalized_l2_number")
+        );
+        state.chains[1].cursor_hash = Some(B256::ZERO);
+        state.chains[1].error = Some(Error::Rpc(Failure::Identity));
+        assert!(
+            !render_settlements(&state, 100_000)
+                .contains("eez_observer_settled_finalized_l2_number")
+        );
+        state.chains[1].error = None;
+        state.settlements.as_mut().unwrap().error = Some(Error::SettlementFinality);
+        let text = render_settlements(&state, 100_000);
+        assert!(!text.contains("eez_observer_settled_finalized_l2_number"));
+        assert!(text.contains("settled_l2_finality_contradiction"));
+        assert!(text.contains("eez_observer_settlement_last_success_timestamp_seconds 100"));
     }
 }

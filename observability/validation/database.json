@@ -4,10 +4,10 @@
   "checks": [
     "opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence",
     "canonical_revert_reorg_reinclusion_missing_fees_full_width_sums_and_readonly_roles",
-    "saved_v1_binary_migrates_original_schema_and_refuses_v2_downgrade",
+    "saved_v1_binary_migrates_original_schema_and_refuses_current_downgrade",
     "explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown",
     "explicit_migration_and_idempotent_reapplication",
-    "saved_v1_indexer_refuses_v2_schema_without_touching_receipts",
+    "saved_v1_indexer_refuses_current_schema_without_touching_receipts",
     "unmigrated_schema_refused_without_implicit_ddl_in_both_runtime_modes",
     "legacy_posting_evidence_backfills_from_real_rpc_without_recharging_receipt",
     "changed_bootstrap_selection_and_administrative_indexer_credentials_refused",
@@ -20,14 +20,18 @@
     "concurrent_scanners_preserve_single_inclusions_and_monotonic_cursor",
     "killed_scanner_rolls_back_block_receipt_and_cursor_then_recovers",
     "continuous_indexer_serves_both_chain_metrics_and_exits_on_sigterm",
+    "same_block_posts_reorg_history_exact_l2_finality_and_derived_only_freeze",
+    "empty_duplicate_mismatched_or_conflicting_ranges_never_fabricate_finality_or_change_receipt_costs",
+    "bounded_range_validation_and_finality_backlog_progress_without_duplicate_blocks",
     "newer_schema_refuses_migration_downgrade_and_old_indexer",
     "incompatible_migration_checksum_refused"
   ],
-  "binary_sha256": "7678e18e2e0f9aeb5a1e304a9c3c898965b79a9a7e9e2aa6ec9beda65488155c",
-  "validated_at": "2026-09-16T22:09:49.896087+00:00",
+  "binary_sha256": "75352e040a649696d2829ebe35d815f72014af6ae59424d7062d3047ff5671a6",
+  "validated_at": "2026-09-16T23:14:58.862136+00:00",
   "migration_sha256": {
     "0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
-    "0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909"
+    "0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
+    "0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257"
   },
   "status": "passed"
 }

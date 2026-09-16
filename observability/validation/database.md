@@ -77,3 +77,39 @@ Unavailable method data, invalid calldata and noncanonical layouts keep wallet
 charges while reducing posting classification coverage. Wallet and posting costs
 are overlapping views, never two amounts to sum. Exact applied settlement ranges,
 companion membership and source allocation still remain open.
+
+Schema-3 follow-up, 2026-09-16, aligned to frozen main `5469c88` via merge
+`5cbdd02`: 25 observer tests and 14 telemetry tests pass with Rust 1.94.0 and
+`--all-features`. Their all-target/all-feature Clippy check and workspace format
+check pass. The default-feature run has 36 tests, not 39; the extra three exercise
+native telemetry integration. A first sandbox attempt could not bind its three
+local RPC fixture listeners; rerunning with socket permission passed without a
+code/test relaxation. Observer build succeeds with default shipping features.
+
+The latest [database report](database.json) records the tested binary and all three
+migration hashes. It verifies populated v1-to-v3 upgrade and old-binary refusal,
+multiple posts in one block without fee/finality multiplication, exact L2 hash
+membership, unfinalized forks and derived-finality-only freeze. Empty, duplicate,
+wrong-anchor and conflicting range evidence cannot fabricate finality. Seventeen
+same-block posts prove the sixteen-range validation/promotion budget resumes on
+the next invocation. The node's `l2Finalized` flag is ignored in both directions.
+An earlier schema-3 fixture assertion used an ambiguous unqualified SQL column;
+qualifying the source fixed the test query. The full suite passed thereafter,
+including after adding persisted bounded promotion.
+
+Executed current commands (from the implementation worktree):
+
+```bash
+cargo +1.94.0 test --locked --offline -p eez-observer -p eez-telemetry --all-features
+cargo +1.94.0 clippy --locked --offline -p eez-observer -p eez-telemetry --all-features --all-targets -- -D warnings
+cargo +1.94.0 fmt --all --check
+cargo +1.94.0 build --locked --offline -p eez-observer
+python3 -u observability/tests/smoke-database.py --previous-binary /tmp/eez-observer-schema-v1
+```
+
+The saved v1 executable is local-only; without it, the test constructs the exact
+v1 schema/checksum and still exercises populated migration. The fixture suite
+uses real observer processes/PostgreSQL but synthetic RPC history. It does not
+prove independent protocol replay, live deployment capacity or per-source success.
+Lifecycle ingestion, companion/source allocation, authenticated blobs and the
+remaining [acceptance gates](../requirements.md) are still open.

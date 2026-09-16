@@ -46,7 +46,7 @@ async fn main() -> std::process::ExitCode {
             Err(error) => Err(error),
         },
         Command::Migrate { database_config } => migrate(&database_config).await,
-        Command::Indexer { config, once } => index(&config, once).await,
+        Command::Indexer { config, once } => Box::pin(index(&config, once)).await,
     };
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -61,10 +61,9 @@ async fn index(path: &std::path::Path, once: bool) -> Result<(), &'static str> {
     let config = eez_observer::indexer::Config::load(path)?;
     if once {
         let rpc = eez_observer::rpc::Rpc::new()?;
-        let status = std::sync::Arc::new(tokio::sync::RwLock::new([
-            eez_observer::indexer::Status::default(),
-            eez_observer::indexer::Status::default(),
-        ]));
+        let status = std::sync::Arc::new(tokio::sync::RwLock::new(
+            eez_observer::indexer::RuntimeStatus::default(),
+        ));
         eez_observer::indexer::once(&config, &rpc, &status)
             .await
             .map_err(eez_observer::indexer::Error::label)

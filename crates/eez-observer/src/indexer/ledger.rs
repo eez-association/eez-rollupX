@@ -7,7 +7,7 @@ use tokio_postgres::{GenericClient, Row};
 // Server statement timeouts do not bound a stalled network response. Each SQL
 // operation also has a client deadline; dropping the failed scan's dedicated
 // connection rolls back any transaction whose commit was not acknowledged.
-trait Deadline<T, E>: Future<Output = Result<T, E>> + Sized {
+pub(super) trait Deadline<T, E>: Future<Output = Result<T, E>> + Sized {
     async fn bounded(self) -> Result<T, Error>
     where
         E: Into<Error>,
@@ -105,7 +105,7 @@ pub(super) async fn parent(db: &Database, id: i64, child: &Block) -> Result<Opti
     rows.first().map(block).transpose()
 }
 
-async fn lock_cursor(
+pub(super) async fn lock_cursor(
     transaction: &tokio_postgres::Transaction<'_>,
     id: i64,
     expected: Option<&Block>,

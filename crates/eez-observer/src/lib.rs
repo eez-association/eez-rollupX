@@ -1,6 +1,7 @@
 //! Read-only chain observer with optional durable canonical receipt indexing.
 pub mod accounting;
 pub mod config;
+mod correlation;
 pub mod database;
 pub mod indexer;
 pub mod metrics;
@@ -50,7 +51,9 @@ async fn scrape(
     let now = now_ms();
     let mut rendered = metrics::render(&snapshot, now);
     if let Some(index) = state.index {
-        rendered.push_str(&indexer::render(&*index.read().await, now));
+        let status = index.read().await;
+        rendered.push_str(&indexer::render(&status.chains, now));
+        rendered.push_str(&indexer::render_settlements(&status, now));
     }
     (
         [(
@@ -99,12 +102,9 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         .await
         .map_err(|_| "cannot bind observer metrics listener")?;
     let mut tasks = JoinSet::new();
-    let index_status = index.as_ref().map(|_| {
-        Arc::new(RwLock::new([
-            indexer::Status::default(),
-            indexer::Status::default(),
-        ]))
-    });
+    let index_status = index
+        .as_ref()
+        .map(|_| Arc::new(RwLock::new(indexer::RuntimeStatus::default())));
     if let Some(index) = index {
         let status = Arc::clone(index_status.as_ref().expect("index status initialized"));
         let rpc = rpc.clone();
