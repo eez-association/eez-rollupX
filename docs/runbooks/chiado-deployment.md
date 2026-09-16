@@ -1,114 +1,158 @@
-# Deploy and operate a Chiado rollup
+# Chiado deployment and operation
 
-This procedure covers the packaged Linux Docker stack: an `eez-node` containing
-the Composer, embedded Chiado execution client and L2, an independent
-`eez-proof-signer`, and Lighthouse. Use
-[`docker-compose.chiado-node.yml`](../../docker-compose.chiado-node.yml).
-`docker-compose.chiado.yml` is the standalone Beacon profile and is not this stack.
-The implementing scripts are [deploy](../../scripts/deploy.sh),
-[startup](../../scripts/chiado-up.sh), and [teardown](../../scripts/teardown-chiado.sh).
+Use [`docker-compose.chiado-node.yml`](../../docker-compose.chiado-node.yml):
+`eez-node` runs the Composer, embedded Chiado L1 execution client, and L2;
+`eez-proof-signer` independently validates batches; Lighthouse drives L1 consensus
+and reconstructs blobs. `docker-compose.chiado.yml` is a different, Beacon-only
+profile. Entry points: [deploy](../../scripts/deploy.sh),
+[start](../../scripts/chiado-up.sh), [stop](../../scripts/teardown-chiado.sh).
 
-Source reviewed on 2026-09-16 against fork runtime commit
-`ddf40bc2eb5fac8f7973b112eb383256cd8aac74` and protocol pin
-`3c0cdf4955941a5c23639346932b55b33babebbd`. Validation covered relative links,
-Bash example syntax, and `scripts/check-chiado-blob-config.sh`. A fresh-host
-deployment and restart rehearsal remain to be performed and recorded in a
-dated deployment audit.
-
-## Choose the operation
-
-| Intent | Start here | State to retain |
-| --- | --- | --- |
-| Create a new registry and rollup | [First deployment](#first-deployment) | Use unused deployment paths and keys selected for this deployment |
-| Start or restart the same rollup | [Restart and stop](#restart-and-stop) | Existing keys, deployment bindings, genesis, JWT, and datadirs |
-| Move hosts, change binaries, or recover missing state | [Recovery and upgrades](#recovery-and-upgrades) | Establish the deployment inventory and recovery source before changes |
-
-Run commands from the root of the intended deployment checkout, in Bash, and
-stop on a failed check. Use a shell without stale exported `EEZ_*`, path, or
-Compose overrides. The packaged scripts use `.env`, `.env.chiado`, and
-`deployments.env`; this procedure keeps those filenames and the example paths.
-Only operate the deployment and resources covered by the task's authorization.
-
-Do not remove `deployments.env` to restart. `make deploy-protocol` always attempts
-a new deployment, even when that file exists. `chiado-up.sh` can deploy when it
-is missing and then **delete the configured L2 and Lighthouse datadirs**.
-Missing bindings require recovery of the deployment inventory, not a blind rerun.
-
-## Prerequisites
-
-- A Linux host with Docker Engine, the Compose plugin, BuildKit, and access to
-  its local Docker daemon. This profile uses host networking and fixed container names.
-  A second Compose project name or Git worktree does not isolate its ports or
-  containers; use a separate host or an explicitly adapted profile.
-- Bash, Git, Make, `curl`, `jq`, Python 3, OpenSSL, and standard GNU utilities
-  (including `realpath`, `sha256sum`, and `cmp`). Use host `forge` and `cast` from
-  **Foundry 1.7.1**; the `forge` version is enforced by
-  [`update-eezl2-genesis.sh`](../../scripts/update-eezl2-genesis.sh).
-  Docker builds use the toolchains in the two Dockerfiles; a separate host Rust
-  build is unnecessary with the genesis-tool wrappers below.
-- Disk and memory for the Rust image builds, the L1 snapshot, Lighthouse's
-  PeerDAS data, and growing L1/L2 databases. This procedure does not establish
-  a measured minimum hardware size; record available capacity and monitor it.
-- Outbound access for dependencies, images, the snapshot/checkpoint sources,
-  a synchronized Chiado deployment RPC, and a builder supporting `eth_sendBundle`.
-  The RPC must report chain ID **10200**. A general Ethereum RPC is not a builder.
-- P2P connectivity for embedded L1 port **30544 TCP/UDP** and Lighthouse
-  **9205 TCP/UDP**, **9206 UDP**. Check host firewall/NAT configuration.
-  See [discovery troubleshooting](#troubleshooting) if automatic advertisement fails.
-
-The default local service ports are:
-
-| Port | Purpose |
+| Verification record | Value |
 | --- | --- |
-| 18645 | Embedded Chiado L1 HTTP RPC |
-| 18688 / 18689 | L2 HTTP / WebSocket RPC |
-| 18999 / 18998 | L1-to-L2 / L2-to-L1 cross-chain fronts |
-| 18551 / 18684 | L1 / L2 engine APIs |
-| 50061 / 6152 | Proof signer gRPC / Beacon HTTP API |
-| 30640 / 30641 | Reserved L2 P2P/discovery ports in the profile |
+| Runtime source reviewed | 2026-09-16; fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`; protocol `3c0cdf4955941a5c23639346932b55b33babebbd` |
+| Checked | Source/configuration consistency, relative links, Bash syntax, stubbed startup/health/blob examples, `scripts/check-chiado-blob-config.sh` |
+| Pending | Full fresh-host deployment and restart rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
 
-Check for existing listeners and the three named containers before first startup.
-The L2 HTTP RPC, cross-chain fronts, and L1 engine API bind all host interfaces
-in this profile. Restrict access using the host's network policy; host networking
-does not provide Docker port isolation. Engine JWT and signer/Beacon endpoints
-belong on the operator network. A public gateway is a separate deployment; see
-the [gateway's Chiado notes](../../testing/public-gateway/README.md#chiado-deployment).
+## Select the procedure
 
-### Keys and funding
-
-| Input | Role | Funding |
+| Operation | Procedure | Required starting state |
 | --- | --- | --- |
-| `EEZ_L1_POSTER_KEY` | Sends settlement transactions | Chiado native gas funds |
-| `EEZ_DEPLOY_KEY` (optional) | Deploys and owns contracts; defaults to poster | Chiado native gas funds if separate |
-| `EEZ_PROOF_SIGNER_KEY` | Attests batches; its address is registered in the proof system | No L1 transaction funding needed for attestation |
-| `EEZ_L2_SYSTEM_KEY` | Signs L2 system transactions | Its address is funded by the generated L2 genesis |
+| Create a new registry and rollup | [First deployment](#first-deployment), then [start and verify](#start-and-verify) | Unused deployment paths; no existing stack on these names/ports |
+| Start/restart the same rollup | [Restart and stop](#restart-and-stop), then [start and verify](#start-and-verify) | Original bindings, genesis, keys, JWT, images, and datadirs |
+| Move hosts, upgrade, or recover missing state | [Recovery and upgrades](#recovery-and-upgrades) | Deployment inventory, preserved state, and an identified recovery source |
 
-Use dedicated keys. Proof signer and L2 system addresses **must differ**. Keep
-the poster separate from the proof signer. A separate deploy key avoids nonce
-competition with an already active poster. Do not share a posting wallet with
-concurrent traffic generators. Obtain testnet funds through an operator-approved
-source and check balances before broadcasting; no fixed gas cost is assumed here.
+**Deployment is not idempotent.** `make deploy-protocol` broadcasts a new deployment
+even if `deployments.env` exists. If that file is missing, `chiado-up.sh` can deploy
+and **delete `L2_DATA_DIR` and `LIGHTHOUSE_DATA`**. Do not use `make clean-deploy`,
+`make clean-l2`, or removal of bindings as a restart/recovery procedure.
 
-The base [`genesis.json`](../../genesis.json) also contains funded development
-accounts, and some test drivers use public development keys. This is a testnet
-profile. Review allocations before deployment if those accounts are unsuitable;
-changing genesis after registration changes the rollup's identity.
+## Shell, host, and network prerequisites
+
+Run commands in Bash from the intended deployment checkout's root. Use a checkout
+path without whitespace or commas: generated bindings contain unquoted paths and
+Docker's mount syntax uses commas. Use the default paths and ports below. Custom
+layouts require adapting Compose, the startup wrapper (which hardcodes the L1/L2
+health-check ports), and the commands together.
+A worktree or `COMPOSE_PROJECT_NAME` does not isolate fixed container names,
+host-network ports, or bind-mounted databases.
+
+Use a fresh shell without inherited `EEZ_*`, `LH_*`, `COMPOSE_*`, or data-path
+overrides. Define this helper in **each operator shell**; it gives direct Compose
+commands the same `.env` then `.env.chiado` precedence as startup:
+
+```bash
+chiado_compose() (
+  set -euo pipefail
+  set -a
+  source .env
+  source .env.chiado
+  set +a
+  docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml "$@"
+)
+```
+
+Stop at a failed command/check; do not paste all alternative procedures into one
+shell. Deploying, funding traffic, stopping services, and recovery must be within
+the task's authorization.
+
+| Requirement | Check/constraint |
+| --- | --- |
+| Linux, local Docker Engine, Compose, BuildKit | `docker info`; `docker compose version`. Bind mounts refer to this host; CI runtime artifacts target Linux amd64. |
+| Host tools | Bash, Git, Make, `curl`, `jq`, Python 3, OpenSSL, GNU utilities (`realpath`, `sha256sum`, `cmp`), `ss` (iproute2) |
+| Foundry | `forge` and `cast` from **1.7.1**; genesis generation enforces the `forge` version |
+| Build/storage capacity | Space and memory for Rust image builds, L1 snapshot, PeerDAS data, and growing databases. Check `df -h .` and Docker storage; no measured minimum is established here. |
+| Network access | Dependencies/images, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers |
+| Deployment RPC | Synchronized Chiado execution RPC, chain ID **10200**; remains required by startup even when the embedded L1 is running |
+| Builder | Separate endpoint implementing `eth_sendBundle`; an ordinary execution RPC is insufficient |
+| Beacon | Packaged Lighthouse **v8.1.3**, checked-in `configs/chiado`, `--semi-supernode`, full-blob API; built-in Chiado config in this image leaves Fulu disabled |
+
+### Ports and service ownership
+
+Run `ss -lntup` and `docker ps -a --format '{{.Names}}'` before first deployment.
+The fixed containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
+`eez-chiado-lighthouse`. Resolve existing owners before proceeding.
+
+| Default port | Service/access |
+| --- | --- |
+| 18645 / 18646 | Embedded Chiado L1 HTTP / WebSocket RPC |
+| 18688 / 18689 | L2 HTTP / WebSocket RPC |
+| 18999 / 18998 | L1-to-L2 / L2-to-L1 transaction fronts; ordinary RPC calls proxy to the source chain |
+| 18551 / 18684 | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
+| 50061 / 6152 | Proof signer gRPC / Beacon HTTP; loopback |
+| 30544 TCP/UDP, 30554 UDP | Embedded L1 P2P/discv4 and discv5 (`EEZ_L1_P2P_PORT + 10`) |
+| 9205 TCP/UDP, 9206 UDP | Lighthouse P2P/discovery and QUIC |
+| 30640 / 30641 | L2 P2P/discovery settings reserved by the profile; discovery disabled |
+
+L2 HTTP, both fronts, and the L1 engine API bind all host interfaces. Restrict
+unintended access with the host firewall; host networking provides no Docker port
+isolation. Permit required P2P traffic and configure NAT where needed. Public
+HTTPS, explorers, and UI routing are separate; see the
+[gateway's Chiado notes](../../testing/public-gateway/README.md#chiado-deployment).
+
+### Keys, funding, and files
+
+| Key | Purpose | Funding |
+| --- | --- | --- |
+| `EEZ_L1_POSTER_KEY` | Settlement sender | Chiado native gas funds (test xDAI) |
+| `EEZ_DEPLOY_KEY` (optional) | Contract deployer/owner; defaults to poster | Chiado gas funds if separate |
+| `EEZ_PROOF_SIGNER_KEY` | Batch attestation; registered in proof system | No transaction funding needed for attestation |
+| `EEZ_L2_SYSTEM_KEY` | L2 system transactions | Address funded in generated L2 genesis |
+
+Generate dedicated keys with your wallet tooling. Proof signer and L2 system
+addresses **must differ**; keep the poster separate from the proof signer.
+A separate deploy key avoids nonce competition with an active poster. Do not
+share a posting wallet with concurrent workloads. Fund deployer and poster before
+broadcasting; the [environment example](../../.env.chiado.example) identifies a
+Chiado faucet. The preflight below prints addresses/balances; choose a gas budget
+for the intended deployment and posting duration rather than assuming a fixed cost.
+
+The base [`genesis.json`](../../genesis.json) contains funded development accounts;
+some workloads use public development keys. Review allocations **before** creating
+the rollup. Changing genesis after registration changes its identity.
+
+| File/variable | Default location and ownership |
+| --- | --- |
+| `.env` | Private deployment RPC/keys; read by `make deploy-protocol` |
+| `.env.chiado` | Private service keys and Compose settings; overrides `.env` during startup |
+| `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
+| `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
+| Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
+| `L1_SNAPSHOT_DIR` | `./data/chiado-l1`; writable embedded L1 database |
+| `L2_DATA_DIR` | `./data/eez-l2`; writable L2 database, witnesses, and correlations |
+| `LIGHTHOUSE_DATA` | `./data/chiado-lighthouse`; writable consensus/PeerDAS data |
+| `JWT_FILE` | `./data/jwt.hex`; private, shared by node and Lighthouse; create once |
+| `CHIADO_CONFIG_DIR` | `./configs/chiado`; versioned network config, including `bootstrap_nodes.yaml` alias |
+
+The bare-binary `EEZ_L2_DATADIR` example does not replace Docker's `L2_DATA_DIR`.
+Keep `EEZ_ENV_FILE`, `EEZ_DEPLOYMENTS_FILE`, `EEZ_GENESIS_OUT`,
+`EEZ_GENESIS_PROFILE_OUT`, and `EEZ_CHIADO_ENV_FILE` unset for this procedure;
+the scripts do not all consume those overrides. Generated genesis paths in
+`deployments.env` are absolute: moving a checkout requires path reconciliation.
 
 ## First deployment
 
-### 1. Record source and build the images
+Complete steps 1–4 in order. Keep the stack stopped until **Start and verify**.
+After a partial failure, inspect retained outputs and resume only the uncompleted
+setup step; do not repeat contract deployment without reconciling broadcasts.
 
-Confirm the target commit and existing changes before initializing the pinned
-submodule. Do not update it to upstream `main` as part of deployment.
+### 1. Check the checkout and build
+
+Inspect local changes before initializing the pinned submodule. Do not substitute
+upstream `main`. The guard below refuses an existing deployment/configuration:
 
 ```bash
 (
   set -euo pipefail
+  for path in .env .env.chiado deployments.env datadir/genesis.json \
+      data/chiado-l1 data/eez-l2 data/chiado-lighthouse data/jwt.hex; do
+    [[ ! -e "$path" ]] || { echo "Existing state: $path; identify the deployment first"; exit 1; }
+  done
   git status --short
   git rev-parse HEAD
   git ls-tree HEAD eez-core-protocol
-  git submodule update --init --recursive
+  git submodule update --init --recursive eez-core-protocol
   git submodule status --recursive
+  docker info --format '{{.ServerVersion}}'
   docker compose version
   forge --version
   cast --version
@@ -119,16 +163,16 @@ submodule. Do not update it to upstream `main` as part of deployment.
 )
 ```
 
-Expected: submodule matches the recorded gitlink, both builds succeed, and the
-static check prints `Chiado post-Fulu blob deployment configuration: PASS`.
-Record image IDs: `:local` tags can later point to different builds. This static
-check uses example configuration and does not check a live network.
+**Pass:** submodule matches the gitlink, both builds succeed, static check prints
+`Chiado post-Fulu blob deployment configuration: PASS`. Record image IDs;
+`:local` tags are mutable. This check uses examples, not the live configuration.
 
-The host deployment script also needs `eez-genesis-state-root` and
-`eez-genesis-block-hash`. Without them it falls back to a host Cargo build,
-potentially after contracts have already been broadcast. The node image includes
-both tools. These local wrappers run that image with only the supplied genesis
-file mounted and networking disabled:
+#### Host genesis tools
+
+Deployment runs on the host and needs `eez-genesis-state-root` and
+`eez-genesis-block-hash`. Supply them from the built node image to avoid a host
+Cargo build after contracts have already been broadcast. These wrappers mount
+only the input file, with networking and image pulling disabled:
 
 ```bash
 export PATH="$PWD/.runtime/chiado-tools:$PATH"
@@ -153,55 +197,44 @@ SH
 )
 ```
 
-Expected: each helper prints a 32-byte hex hash, and contracts compile. The two
-hashes have different meanings; registration uses the **genesis block hash**.
-These checks use the repository fixture only to verify tools, not as the new
-deployment's genesis. Re-export this `PATH` if deploying from a new shell.
+**Pass:** two 32-byte hex hashes and a successful contract build. The repository
+fixture here tests tools; it is not the deployment's genesis. Re-export `PATH`
+in a new shell. On restart, reuse the recorded node image; if wrappers are missing,
+recreate only this wrapper block, without rebuilding/retagging the images.
 
-### 2. Configure the deployment
+### 2. Configure and preflight
 
-Create private configuration only when no deployment configuration already exists:
+Create private files, then edit them:
 
 ```bash
 (
   set -euo pipefail
-  for path in .env .env.chiado deployments.env; do
-    [[ ! -e "$path" ]] || { echo "Already exists: $path; inspect the existing deployment"; exit 1; }
-  done
+  [[ ! -e .env && ! -e .env.chiado && ! -e deployments.env ]]
   umask 077
   cp .env.example .env
   cp .env.chiado.example .env.chiado
 )
 ```
 
-Edit both files before continuing:
-
-| File | Required settings |
+| File | Required edits |
 | --- | --- |
-| [`.env`](../../.env.example) | Set `EEZ_L1_RPC_URL` to your synchronized Chiado RPC; replace all three key placeholders; optionally set a separate `EEZ_DEPLOY_KEY`. Replace the example RPC address rather than assuming it is available. |
-| [`.env.chiado`](../../.env.chiado.example) | Set the **same three keys**, unused host data paths, the builder URL, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. Keep `FRESH_GENESIS=./datadir/genesis.json`. |
+| `.env` | Replace the example `EEZ_L1_RPC_URL` with your synchronized Chiado RPC; set the three required keys; optionally set `EEZ_DEPLOY_KEY`. |
+| `.env.chiado` | Set the **same three keys**, verify `EEZ_L1_BUILDER_RPC_URL`, and retain the default paths above, `EEZ_L1_BEACON_URL=http://127.0.0.1:6152/`, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`. |
 
-For this default path, leave `EEZ_ENV_FILE`, `EEZ_DEPLOYMENTS_FILE`,
-`EEZ_GENESIS_OUT`, and `EEZ_GENESIS_PROFILE_OUT` unset. Their deploy-script
-overrides are not consistently consumed by the packaged startup wrapper.
-`L2_DATA_DIR` is the Docker host data path; the bare-binary `EEZ_L2_DATADIR`
-example is not a replacement for it.
+Checkpoint sync defaults to `https://checkpoint.chiadochain.net/`; set
+`LH_CHECKPOINT_URL` in `.env.chiado` to use another trusted checkpoint source.
 
-`make deploy-protocol` reads `.env`. `chiado-up.sh` reads `.env` followed by
-`.env.chiado`, so the latter wins. Compose gives the running node the embedded
-L1 RPC; the external tip RPC is still needed by the startup checks. Keep files
-consistent and do not paste expanded Compose configuration or environment dumps
-into reports: they include secrets.
+Keep policy disabled for initial bring-up unless another policy is part of the
+operation. For opt-in policy, use the [configuration guide](../configurable-settlement-policy.md):
+remove `EEZ_MAX_BLOCKS_PER_BATCH`, set required fee ceilings and scheduling rules,
+and distinguish omitted values from empty strings. Compose explicitly supplies
+the running node's embedded L1 RPC, so do not replace the external deployment
+RPC with an unsynchronized local endpoint. Do not publish expanded Compose
+configuration or environment dumps; they contain keys.
 
-Keep the example settlement policy disabled for the first deployment unless a
-different policy is part of the task. To enable it, follow the
-[settlement configuration guide](../configurable-settlement-policy.md), including
-removing the legacy block cap and setting the required fee ceilings. Omitted
-settings and empty strings are not interchangeable; changes require recreation
-of the affected service.
-
-Before spending gas, check the deployment RPC and key addresses, then rehearse
-genesis rendering into an ignored directory:
+Before spending gas, verify RPC identity, key consistency, funding, builder method
+availability, and genesis rendering. Output labels public addresses and balances
+in wei; the empty builder probe submits no transactions:
 
 ```bash
 (
@@ -213,98 +246,115 @@ genesis rendering into an ignored directory:
   deployer="$(cast wallet address --private-key "${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}")"
   attester="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
   system="$(cast wallet address --private-key "$EEZ_L2_SYSTEM_KEY")"
-  [[ "${attester,,}" != "${system,,}" ]]
+  [[ "${attester,,}" != "${system,,}" && "${attester,,}" != "${poster,,}" ]]
+  printf 'deployer=%s balance(wei)=' "$deployer"
   cast balance "$deployer" --rpc-url "$EEZ_L1_RPC_URL"
+  printf 'poster=%s balance(wei)=' "$poster"
   cast balance "$poster" --rpc-url "$EEZ_L1_RPC_URL"
   source .env.chiado
   [[ "$poster" == "$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")" ]]
   [[ "$attester" == "$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")" ]]
   [[ "$system" == "$(cast wallet address --private-key "$EEZ_L2_SYSTEM_KEY")" ]]
+  [[ "$EEZ_L1_BLOB_SIDECAR_ENCODING" == eip7594 ]]
+  builder_probe="$(curl -fsS --max-time 15 -H 'content-type: application/json' \
+    --data '{"jsonrpc":"2.0","method":"eth_sendBundle","params":[{"txs":[],"blockNumber":"0x0"}],"id":1}' \
+    "$EEZ_L1_BUILDER_RPC_URL")"
+  jq -e 'has("result") or (has("error") and .error.code != -32601)' >/dev/null <<<"$builder_probe"
   bash scripts/update-eezl2-genesis.sh --render \
-    --rollup-id 1 --system-address "$system" \
-    --base "$PWD/genesis.json" \
+    --rollup-id 1 --system-address "$system" --base "$PWD/genesis.json" \
     --output "$PWD/.runtime/chiado-tools/preflight-genesis.json" \
     --profile-output "$PWD/.runtime/chiado-tools/preflight-profile.json"
 )
 ```
 
-Expected: chain ID 10200, a recent advancing L1 head, balances sufficient for
-deployment/posting, matching keys in both files, and successful genesis rendering.
-Check head freshness against a trusted tip source; chain ID alone is insufficient.
-The preflight genesis is disposable and must not become `FRESH_GENESIS`.
+**Pass:** chain ID 10200, recent advancing head, sufficient deployer/poster funds,
+matching keys, builder responding without method-not-found, successful render.
+Compare the RPC head with a trusted tip source;
+chain ID alone does not establish freshness. The `.runtime/` genesis is disposable;
+never use it as `FRESH_GENESIS`.
 
-### 3. Prepare L1 data and the shared JWT
+### 3. Download the L1 snapshot and create JWT
 
-The following uses the default paths. It refuses existing paths so an old
-deployment is not overwritten. If you selected custom paths, adapt this block
-to those exact paths before executing it.
+This populates unused host paths; it must not run over an existing L1 database:
 
 ```bash
 (
   set -euo pipefail
-  for path in data/chiado-l1 data/eez-l2 data/chiado-lighthouse data/jwt.hex datadir/genesis.json; do
-    [[ ! -e "$path" ]] || { echo "Already exists: $path; identify its owner first"; exit 1; }
-  done
+  [[ ! -e data/chiado-l1 && ! -e data/jwt.hex ]]
   mkdir -p data
   docker run --rm -v "$PWD/data/chiado-l1:/data" \
     ghcr.io/gnosischain/reth_gnosis:v2.0.0 \
     download --chain chiado --minimal --datadir /data
   (umask 077; openssl rand -hex 32 > data/jwt.hex)
+  test -d data/chiado-l1
+  test "$(wc -c < data/jwt.hex)" -eq 65
   test -s configs/chiado/bootstrap_nodes.yaml
   cmp configs/chiado/bootstrap_nodes.yaml configs/chiado/bootnodes.yaml
 )
 ```
 
-Expected: snapshot download completes, the JWT is created once, and the
-bootstrap alias matches. Retain the checked-in Chiado config with the pinned
-Lighthouse v8.1.3 image: its built-in Chiado profile does not activate Fulu.
-Refreshing network config or upgrading Lighthouse needs separate validation.
-Both node and Beacon must use the same JWT. Do not download over a running L1
-database or regenerate its JWT as a routine restart step.
+**Pass:** download exits successfully, JWT contains 64 hex characters plus newline,
+and bootstrap alias matches. Both services mount the same JWT. Preserve the
+checked-in network config with the pinned Lighthouse image; validate config/image
+upgrades separately. Do not regenerate JWT or redownload the snapshot on restart.
 
-### 4. Deploy contracts and generate the bound genesis
+### 4. Deploy and verify registration — broadcasts transactions
 
-This step broadcasts Chiado transactions and spends the deployer's gas funds.
-The script creates a fresh registry, proof system, manager, first rollup (ID 1),
-and L1 bridge contracts. It renders the deployment's system address into genesis,
-aligns the timestamp to the recorded L1 deploy block, and registers the resulting
-**block hash**, not just its state root.
+This spends deployer gas and creates a fresh registry, proof system, manager,
+rollup ID **1**, and L1 bridge contracts. It generates genesis with the configured
+L2 system address and a timestamp from the recorded L1 deploy block, then registers
+its **block hash**, not just its state root.
 
 ```bash
 (
   set -euo pipefail
-  [[ ! -e deployments.env ]] || { echo "Existing deployment: use the restart procedure"; exit 1; }
+  [[ ! -e deployments.env ]] || { echo 'Existing deployment; use restart'; exit 1; }
   umask 077
   mkdir -p .runtime/chiado-deployment
   EEZ_DEPLOY_SKIP_SIMULATION=1 make deploy-protocol \
     2>&1 | tee ".runtime/chiado-deployment/deploy-$(date -u +%Y%m%dT%H%M%SZ).log"
+  source .env
+  source deployments.env
+  registered="$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
+    "$EEZ_ROLLUP_ID" --rpc-url "$EEZ_L1_RPC_URL" | sed -n '2p' | tr -d '[:space:]')"
+  [[ "$registered" == "$EEZ_INITIAL_BLOCK_HASH" ]]
 )
 ```
 
-`EEZ_DEPLOY_SKIP_SIMULATION=1` bypasses Foundry's pre-broadcast simulation to work
-around RPC block-availability failures. It is **not a dry run**. Omit it when
-using a deployment RPC on which simulation works reliably.
+`EEZ_DEPLOY_SKIP_SIMULATION=1` is the RPC block-availability workaround: it skips
+Foundry simulation, **not broadcasting**. Omit it when simulation works reliably.
+The initial-commitment equality is valid only before the first settlement.
 
-Expected outputs: `deployments.env`, `datadir/genesis.json`,
-`datadir/genesis.profile.json`, and receipts under `contracts/broadcast/`.
-The bindings contain public addresses and hashes; the keys remain in private
-configuration. Keep the deployment log private until sanitized because it may
-include an authenticated RPC URL. Optional Blockscout verification is best effort
-and does not determine deployment success.
+**Pass:** completed `deployments.env`, `datadir/genesis.json`,
+`datadir/genesis.profile.json`, `contracts/broadcast/` receipts, and matching
+registered initial block hash. Optional `EEZ_BLOCKSCOUT_URL` verification is best
+effort; its failure does not undo deployment. Retain raw logs privately because
+an authenticated RPC URL may appear in them.
 
-The script is not atomic or resumable: a failure can leave contracts on L1
-without a completed `deployments.env`. Preserve logs and broadcast receipts,
-inspect actual transaction outcomes and nonces, and reconcile the deployment
-before deciding how to continue. Repeating the command creates another deployment.
+**Failure:** contracts can exist even when no complete bindings file was written.
+The script is not resumable. Preserve receipts/logs and inspect confirmed
+transactions, contract addresses, and deployer nonce before planning continuation.
+Do not blindly rerun. On success, continue below.
 
-### 5. Verify identity and start the stack
+## Start and verify
 
-The non-root signer must be able to read the **public** generated genesis.
-The following also checks the registered block hash before any node starts:
+Required state: deployment bindings and genesis/profile exist; L1 snapshot, JWT,
+and network config are prepared; images match the inventory. For an existing
+rollup, first complete the preservation checks in [Restart and stop](#restart-and-stop).
+This step starts/recreates the three services and can begin spending poster funds.
+
+Check keys and genesis against deployment identity before starting. The signer
+runs as UID 65532 and needs read access to the public genesis; only that file is
+made world-readable. The on-chain proof-system signer must match the configured
+attester, and the system key must match the genesis binding:
 
 ```bash
+export PATH="$PWD/.runtime/chiado-tools:$PATH"
 (
   set -euo pipefail
+  test -s .env
+  test -s .env.chiado
+  test -s deployments.env
   source .env
   source .env.chiado
   source deployments.env
@@ -312,96 +362,120 @@ The following also checks the registered block hash before any node starts:
   cmp "$FRESH_GENESIS" "$EEZ_L2_GENESIS_PATH"
   [[ "$(eez-genesis-block-hash "$FRESH_GENESIS")" == "$EEZ_INITIAL_BLOCK_HASH" ]]
   [[ "$(eez-genesis-state-root "$FRESH_GENESIS")" == "$EEZ_L2_GENESIS_STATE_ROOT" ]]
-  registered="$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
-    "$EEZ_ROLLUP_ID" --rpc-url "$EEZ_L1_RPC_URL" | sed -n '2p' | tr -d '[:space:]')"
-  [[ "$registered" == "$EEZ_INITIAL_BLOCK_HASH" ]]
+  attester="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
+  system="$(cast wallet address --private-key "$EEZ_L2_SYSTEM_KEY")"
+  onchain="$(cast call "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" 'signer()(address)' --rpc-url "$EEZ_L1_RPC_URL")"
+  [[ "${attester,,}" == "${EEZ_ATTESTER_ADDRESS,,}" && "${attester,,}" == "${onchain,,}" ]]
+  [[ "${system,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]
   chmod 644 "$FRESH_GENESIS"
   sha256sum "$FRESH_GENESIS" "$EEZ_L2_GENESIS_PROFILE_PATH"
-  set -a
-  source .env
-  source .env.chiado
-  set +a
-  docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml config --quiet
+  chiado_compose config --quiet
   bash scripts/chiado-up.sh
 )
 ```
 
-Stop if identity/configuration checks fail. The initial registered-hash equality
-above applies **before the first settlement**; after operation the registry's
-commitment should have advanced. Keep secret files restricted; the `chmod`
-above only changes the genesis file mounted into the signer.
+`chiado-up.sh` requires `FRESH_GENESIS` before its optional deploy branch; first
+registration must therefore be explicit. With the bindings file present it skips
+deployment/data deletion and creates missing initial L2/Lighthouse directories.
 
-Initial deployment must precede `chiado-up.sh`: that wrapper checks that
-`FRESH_GENESIS` exists before reaching its optional deployment branch. On this
-path, the existing `deployments.env` makes it skip deployment and data deletion.
+**Startup pass:** `chiado L2 is UP`, L2 height greater than 3, changed registry
+commitment, and a new `BatchPosted` transaction of type 3 whose versioned-hash-selected
+full blobs are retrievable. Retain its transaction hash. The empty-bundle builder
+probe establishes method availability only; it does not prove inclusion.
 
-## Health and acceptance
+A timeout does **not** stop containers. Inspect [health](#health-checks) and logs;
+do not redeploy. Startup allows 90 Beacon polls (5-second sleeps plus HTTP timeouts)
+and 90 settlement polls (10-second sleeps plus RPC time). Enabled policy with no
+due work or a long interval can exceed the settlement wait while services remain
+operational; inspect policy rather than weakening it to obtain the success banner.
 
-Startup checks builder method availability, the post-Fulu Beacon API, L2 block
-production, and a changed registry commitment. It then finds a new `BatchPosted`
-transaction, checks type 3, and retrieves each selected full blob by its versioned
-hash. Success ends with `chiado L2 is UP` and the settlement transaction hash.
+### Health checks
 
-The builder probe uses an intentionally empty bundle; its response only checks
-method availability. A new settlement provides stronger pipeline evidence.
-Neither that probe nor startup success establishes all cross-chain semantics or
-independent follower replay. A startup timeout can leave all containers running;
-inspect them before another operation.
-
-Useful read-only checks:
+Read-only diagnostics; no funding or workload generation:
 
 ```bash
-docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml ps
-docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml logs --tail=100 eez-node eez-proof-signer lighthouse
-cast chain-id --rpc-url http://127.0.0.1:18645
-cast block-number --rpc-url http://127.0.0.1:18645
-cast chain-id --rpc-url http://127.0.0.1:18688
-cast block-number --rpc-url http://127.0.0.1:18688
+chiado_compose ps
+chiado_compose logs --tail=100 eez-node eez-proof-signer lighthouse
+cast rpc eth_syncing --rpc-url http://127.0.0.1:18645
 curl -fsS http://127.0.0.1:6152/eth/v1/node/syncing | jq '.data'
 curl -fsS http://127.0.0.1:6152/eth/v1/node/peer_count | jq '.data'
 ```
 
-Expected: three running services, healthy signer, L1 chain 10200 close to a trusted
-tip and advancing, L2 chain ID matching `.config.chainId` in the generated genesis,
-advancing L2 blocks, connected Beacon peers, and a synchronized non-optimistic
-Beacon without an execution-client-offline flag. Repeat head checks over several
-slots. A TCP health check or a single HTTP response is insufficient.
+**Required:** three running services, signer healthy; execution sync complete;
+Beacon `is_syncing=false`, `is_optimistic=false`, `el_offline=false`, and connected
+peers. Signer health is TCP readiness, not proof of a successful attestation.
 
-Record the settled L2 range using the
-[settlement correlation RPC](../../README.md#l1l2-settlement-correlation-rpc), its
-canonical L1 transaction, and the blob retrieval result. If the task requires
-cross-chain semantics, run an appropriately scoped funded workload and record its
-assertions separately. The [matrix driver](../../scripts/xchain-test.sh) requires
-a funder on **both chains** and has public test-key assumptions; inspect those
-before use. The [staged performance runner](../../scripts/run-chiado-staged-performance.sh)
-uses shared wallet locks and `--no-verify`: its `--check` is readiness-only, and
-its traffic results do not establish semantic correctness. See
-[workload instructions](../../README.md#exercise-it).
+Verify both chain IDs, local genesis identity, L1 agreement at a freshly sampled
+external tip, and advancing L2 height:
+
+```bash
+(
+  set -euo pipefail
+  source .env
+  source .env.chiado
+  source deployments.env
+  l1=http://127.0.0.1:18645
+  l2=http://127.0.0.1:18688
+  [[ "$(cast chain-id --rpc-url "$EEZ_L1_RPC_URL")" == 10200 ]]
+  [[ "$(cast chain-id --rpc-url "$l1")" == 10200 ]]
+  [[ "$(cast chain-id --rpc-url "$l2")" == "$(jq -r '.config.chainId' "$FRESH_GENESIS")" ]]
+  [[ "$(cast block 0 --rpc-url "$l2" --json | jq -r '.hash')" == "$EEZ_INITIAL_BLOCK_HASH" ]]
+  tip="$(cast block-number --rpc-url "$EEZ_L1_RPC_URL")"
+  reference="$(cast block "$tip" --rpc-url "$EEZ_L1_RPC_URL" --json | jq -r '.hash')"
+  [[ "$(cast block "$tip" --rpc-url "$l1" --json | jq -r '.hash')" == "$reference" ]]
+  before="$(cast block-number --rpc-url "$l2")"
+  sleep 10
+  after="$(cast block-number --rpc-url "$l2")"
+  (( after > before ))
+  commitment="$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
+    "$EEZ_ROLLUP_ID" --rpc-url "$l1" | sed -n '2p' | tr -d '[:space:]')"
+  cast rpc eez_getSettlementByL2Block "$commitment" --rpc-url "$l2" \
+    | jq -e 'select(.canonicalL2 == true) | {l1TransactionHash, l2Range, canonicalL2, l2Finalized}'
+)
+```
+
+Retry the tip comparison if L1 is still catching up or the sampled block was
+reorganized. Repeat over several Chiado slots (5 seconds). After settlement,
+correlation must report the committed L2 hash as canonical and identify its L1
+transaction/range. `l2Finalized` can remain false until finality advances. A `null`
+lookup or a latest speculative L2 block does not prove settlement; see the
+[correlation RPC contract](../../README.md#l1l2-settlement-correlation-rpc).
+
+### Optional workloads
+
+Run funded traffic only when the operation includes it. Inspect the
+[matrix driver](../../scripts/xchain-test.sh) before use: its funder must hold funds
+on **both chains**, and it assumes public development accounts. The
+[staged performance runner](../../scripts/run-chiado-staged-performance.sh) locks
+shared wallets; `--check` is readiness-only and normal runs use `--no-verify`.
+Do not run another upstream workload concurrently. See [workload commands](../../README.md#exercise-it).
+Startup/throughput/receipts do not validate all cross-chain semantics or independent
+follower replay; record those checks separately when required.
 
 ## Restart and stop
 
-Use the existing checkout, images, `.env`, `.env.chiado`, `deployments.env`,
-genesis/profile, JWT, and the same data paths. Verify these against the deployment
-inventory. Do not run the first-deployment steps, rebuild images, or regenerate
-genesis for an ordinary restart.
+Use the recorded checkout, image IDs, keys, bindings, genesis/profile, JWT, and data
+paths. Rebuilding a mutable `:local` tag changes the next start into an upgrade.
+Do not rerun first-deployment steps for an ordinary restart.
 
-Pending requests and retry counters are in memory. Before a planned stop, pause
-new submissions and record unsettled requests and their canonical receipt/nonce
-status. After restart, reconcile before resubmission; a database backup does not
-preserve volatile queue ownership. Canonically settled state is reconstructed
-from L1, while the speculative suffix is discarded.
+Before stopping, pause submissions and record unsettled transaction hashes,
+canonical receipts, and sender nonces. Pending requests/retry counters are in memory;
+restart discards the speculative suffix and reconstructs canonical state from L1.
+After startup, reconcile receipts/nonces before resubmitting unsettled work.
+A datadir backup does not retain volatile request ownership.
 
-Stop the owned stack with:
+**Stop changes running services; preserves bind-mounted data:**
 
 ```bash
 bash scripts/teardown-chiado.sh
 ```
 
-Expected: all three named containers are stopped and bind-mounted datadirs remain.
-The signer's shutdown grace period is up to 11 minutes for admitted requests.
-Preserve the configuration and data even if stop fails.
+**Pass:** the script confirms all three containers stopped. The signer's grace
+period is up to 11 minutes to drain admitted requests. If teardown fails, inspect
+remaining containers before proceeding; preserve files and data.
 
-Before starting again, require the existing bindings and genesis:
+Before starting an existing rollup, require its retained data instead of letting
+startup silently create replacement directories:
 
 ```bash
 (
@@ -409,98 +483,134 @@ Before starting again, require the existing bindings and genesis:
   test -s .env
   test -s .env.chiado
   test -s deployments.env
+  source .env
   source .env.chiado
   source deployments.env
-  : "${EEZ_INITIAL_BLOCK_HASH:?missing deployment identity}"
   cmp "$FRESH_GENESIS" "$EEZ_L2_GENESIS_PATH"
+  test -s "$EEZ_L2_GENESIS_PROFILE_PATH"
   test -s "$JWT_FILE"
   test -d "$L1_SNAPSHOT_DIR"
   test -d "$L2_DATA_DIR"
   test -d "$LIGHTHOUSE_DATA"
-  bash scripts/chiado-up.sh
+  docker image inspect --format '{{.RepoTags}} {{.Id}}' eez-node:local eez-proof-signer:local
 )
 ```
 
-Expected: startup skips deployment, retains data, and repeats the health checks.
-It waits for a **new** settlement. With settlement policy enabled, a long interval
-or no due work can outlast that wait; consult the policy and logs rather than
-redeploying or weakening the policy merely to obtain the success banner.
+Compare image IDs and file paths/digests with the inventory, then run
+[Start and verify](#start-and-verify). Missing/empty databases require recovery
+assessment; directory existence alone is not a backup-integrity check.
 
-Configuration changes require `compose up -d` (as used by `chiado-up.sh`) to
-recreate affected services. `docker restart` alone keeps the old container
-environment. Rebuilding a `:local` image turns the next start into an upgrade;
-record that deliberately.
+Configuration changes require `chiado_compose up -d` (also used by startup) to
+recreate affected containers; `docker restart` retains their old environment.
+For planned changes, preserve the previous configuration and repeat health checks.
 
 ## Troubleshooting
 
-| Symptom | Check and next action |
-| --- | --- |
-| Missing genesis or mismatched hash | On a new deployment, finish the explicit deploy step. For an existing one, recover the exact genesis and bindings; do not edit the registered timestamp or substitute the fixture. |
-| Partial deploy; no bindings file | Preserve `contracts/broadcast/` and the private deploy log. Check confirmed transactions, contract addresses, and deployer nonce before planning recovery. |
-| Signer unhealthy | Read signer logs; verify attester and system keys match deployment, proof/system keys differ, the mounted public genesis is readable by UID 65532, and chain config matches. TCP readiness alone does not prove signing succeeds. |
-| Ports busy or database locked | Identify the owner of the listener/container/datadir. Fixed names and host ports collide across worktrees; do not kill unrelated processes or share a writable database. |
-| Beacon has no peers or cannot catch up | Check snapshot catch-up, shared JWT, checkpoint source, Fulu config and bootstrap alias, then `/eth/v1/node/identity`, peer count, and firewall/NAT. |
-| Missing public discovery address | Set `LH_ENR_ADDRESS` and `LH_ENR_UDP_PORT` in `.env.chiado` to the mapped discovery endpoint (default UDP 9205). These settings advertise an endpoint; they do not create port forwarding. Recreate Lighthouse and verify peers and synchronization. |
-| Blob API empty or unavailable | An empty `blobs/head` is valid when the head has no blobs. Check the actual settlement slot and versioned hashes, post-Fulu config, semi-supernode mode, synchronization, and whether data is still retained. |
-| L2 advances but no settlement | Check L1/Beacon freshness, poster funds/nonces, builder submission and inclusion, proof failures, fee/capacity limits, and whether the configured policy has due work. Separate a retained/deferring request from a failed attempt. |
-| Simulation reports an unavailable block | Verify the RPC is at tip. The documented skip-simulation flag bypasses that phase only; inspect broadcast results independently. |
+Start with `chiado_compose ps` and the failing service's logs. Use the first
+matching diagnostic below; do not delete state to clear an unexplained error.
 
-For a discovery-only change, recreate only the owned Beacon service using the
-same environment precedence as startup:
+| Failure | First check and action |
+| --- | --- |
+| Missing/mismatched genesis | Use the [startup block](#start-and-verify) to load all three env files and check hashes; stop before `chiado-up.sh` while diagnosing. Fresh deployment: finish registration. Existing deployment: recover exact bindings/genesis, including timestamp. |
+| Deploy failed before bindings were written | Inspect the timestamped private log and `contracts/broadcast/`. Use `cast receipt` for each broadcast transaction and `cast nonce` for the deployer against the configured deployment RPC. Reconcile confirmed addresses/nonces before another deploy. |
+| Signer unhealthy/rejecting | `chiado_compose logs --tail=100 eez-proof-signer`; repeat the startup key/hash checks. Check genesis mode with `stat -c '%a %n' datadir/genesis.json` (public file should be 644), UID 65532 readability, and L1 chain config `chiado`. |
+| Port in use/database locked | `ss -lntup`; `docker ps -a --format '{{.Names}}'`; `chiado_compose ps`. Identify the owning process/deployment; a worktree/project name cannot isolate this profile. Never share a writable datadir. |
+| L1/Beacon cannot catch up | `chiado_compose logs --tail=100 lighthouse eez-node`; repeat sync/peer checks. Inspect JWT agreement, checkpoint source (`LH_CHECKPOINT_URL`), snapshot backfill, bootstrap alias, and Fulu config before investigating network peers. |
+| Beacon has no peers | `curl -fsS http://127.0.0.1:6152/eth/v1/node/identity \| jq '.data'`; inspect advertised `ip`/`udp`, firewall, NAT, and UDP 9205 reachability. See discovery change below. |
+| Blob retrieval fails | Check the **settlement's slot and versioned hashes**, not only `blobs/head` (an empty array is valid at a blob-free head). Use the blob diagnostic below; check retention, sync, Fulu config, and semi-supernode mode. |
+| L2 advances without settlement | `chiado_compose logs --tail=200 eez-node eez-proof-signer`; repeat L1 tip comparison, check poster balance/nonce on that L1, then builder inclusion, proof failure, policy due-work, fee ceilings, and gas/blob/timing deferrals. |
+| Simulation cannot fetch a block | Verify deployment RPC freshness. Skip-simulation bypasses that phase only; inspect prior broadcasts before retrying. |
+
+### Discovery change — recreates Lighthouse only
+
+If the advertised ENR lacks the externally reachable endpoint, set
+`LH_ENR_ADDRESS` and `LH_ENR_UDP_PORT` in `.env.chiado` to the public address and
+mapped discovery port (default UDP **9205**). These flags do not configure NAT.
+Keep both unset for automatic advertisement when that works. Then:
+
+```bash
+chiado_compose up -d --no-deps lighthouse
+curl -fsS http://127.0.0.1:6152/eth/v1/node/peer_count | jq '.data'
+curl -fsS http://127.0.0.1:6152/eth/v1/node/syncing | jq '.data'
+```
+
+Allow reconnection; require connected peers and successful sync, not just HTTP.
+
+### Blob diagnostic — read-only
+
+Supply the settlement transaction hash from startup output or `l1TransactionHash`
+in the correlation response. This derives its Beacon slot and queries every
+committed versioned hash through the configured Beacon API:
 
 ```bash
 (
   set -euo pipefail
-  set -a
   source .env
   source .env.chiado
-  set +a
-  docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml up -d --no-deps lighthouse
+  read -r -p 'Settlement transaction hash: ' settlement_tx
+  [[ "$settlement_tx" =~ ^0x[[:xdigit:]]{64}$ ]]
+  beacon="${EEZ_L1_BEACON_URL%/}"
+  tx="$(cast rpc eth_getTransactionByHash "$settlement_tx" --rpc-url http://127.0.0.1:18645)"
+  jq -e '(.type == "0x3" or .type == "0x03") and (.blobVersionedHashes | length > 0)' <<<"$tx"
+  block="$(jq -er '.blockHash' <<<"$tx")"
+  timestamp="$(cast block "$block" --rpc-url http://127.0.0.1:18645 --json | jq -er '.timestamp')"
+  genesis="$(curl -fsS "$beacon/eth/v1/beacon/genesis" | jq -er '.data.genesis_time')"
+  seconds="$(curl -fsS "$beacon/eth/v1/config/spec" | jq -er '.data.SECONDS_PER_SLOT')"
+  [[ "$timestamp" =~ ^(0x[[:xdigit:]]+|[0-9]+)$ && "$genesis" =~ ^[0-9]+$ && "$seconds" =~ ^[0-9]+$ ]]
+  (( seconds > 0 && timestamp >= genesis && (timestamp - genesis) % seconds == 0 ))
+  slot=$(( (timestamp - genesis) / seconds ))
+  hashes="$(jq -er '.blobVersionedHashes[]' <<<"$tx")"
+  while read -r versioned_hash; do
+    curl -fsS --max-time 30 --get --data-urlencode "versioned_hashes=$versioned_hash" \
+      "$beacon/eth/v1/beacon/blobs/$slot" \
+      | jq -e '.data | length == 1 and (.[0] | type == "string" and startswith("0x") and length == 262146)'
+  done <<<"$hashes"
 )
 ```
 
+**Pass:** every selected full blob is returned with the expected length. This
+checks retrieval/shape; it does not independently verify KZG proofs or replay.
+
 ## Recovery and upgrades
 
-Preserve the deployment inventory and take a consistent backup before planned
-data or binary changes. Stop writers for a filesystem copy, or use a documented
-database-consistent snapshot method. A copy of an actively written datadir is
-not automatically a usable backup.
+1. Preserve the [inventory](#handoff-record), previous images/configuration, and
+   a consistent backup. Stop database writers for a filesystem copy, or use a
+   documented database-consistent snapshot method; copying live files is insufficient.
+2. Establish history availability before rebuilding L2 state. The semi-supernode
+   serves live blobs within its retention window. Older recovery requires a durable
+   archival Beacon source or a validated protocol snapshot/bootstrap procedure.
+   An execution snapshot does not provide missing blob history. Do not delete the
+   current L2 database until the recovery path has been tested.
+3. For upgrades, check node/signer/protocol compatibility, stored-state formats,
+   configuration changes, and rollout order. Retain previous image IDs and backups;
+   a binary downgrade works only if old code can read the resulting data and speak
+   the deployed protocol. Repeat startup, semantic, and replay checks required by
+   the change; record which actually ran.
+4. For host/checkout moves, restore the exact keys, JWT, genesis/profile, bindings,
+   compatible images and consistent data. Reconcile absolute paths in
+   `deployments.env` with `FRESH_GENESIS` and the restored files, preserving all
+   addresses/commitments. Recompute hashes before starting.
 
-The colocated semi-supernode reconstructs full blobs for live operation within
-its retention window. Recovery beyond retained history needs a durable archival
-Beacon source or a validated protocol snapshot/bootstrap procedure. Neither an
-execution snapshot nor successful startup proves historical blob availability.
-Do not promise full re-derivation until the required history and recovery method
-have been tested. Missing history requires an explicit recovery plan, not deletion
-of the current L2 database.
+New contracts or a changed genesis create a different deployment; neither migrates
+user state automatically. Missing bindings after a partial deploy require receipt
+reconciliation, not the ordinary restart path. Do not claim recovery beyond retained
+history until the complete recovery procedure has been exercised.
 
-Before upgrading, record source/protocol/image identities, inspect configuration
-and persistent-state compatibility, and plan the node/signer/protocol rollout
-together. Keep previous images and backups. A downgrade is only an available
-rollback when the old binaries can read the resulting state and speak the deployed
-protocol. New contracts or a different genesis create a different deployment;
-they are not an in-place restart or an automatic migration of user state.
+## Handoff record
 
-## Handoff and completion record
+Maintain the operational inventory privately; commit only sanitized evidence using
+the [audit template](../audits/TEMPLATE.md), linked to this runbook:
 
-Maintain a private inventory so the next operator can find the deployment without
-searching shell history. Record:
+| Record | Required contents |
+| --- | --- |
+| Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, tool versions, immutable image IDs |
+| Chain identity | L1/L2 chain IDs, registry/rollup/manager, proof system and attester, system/bridge addresses, deploy block, transaction receipts |
+| State/files | Genesis/profile SHA-256 digests, initial block hash and state root; retained locations of bindings, data, JWT, and backups |
+| Credentials | Private secret-manager/access references; never commit keys or authenticated URLs |
+| Configuration | Timing, settlement/fee/blob policy, endpoint ownership, checkpoint/archival dependencies, and retention limits |
+| Results/next actions | Current health, canonical settlement transaction/range, pending requests, executed semantic/restart/recovery checks, failures and untested assumptions |
 
-- UTC date, operator, checkout/host reference, fork commit and dirty changes,
-  protocol pin, tool versions, and immutable image IDs.
-- Network/chain IDs, registry, rollup ID, manager, proof-system/attester and
-  system addresses, bridge addresses, deployment block, and transaction receipts.
-- Genesis/profile SHA-256 digests, initial block hash, state root, and retained
-  locations of `deployments.env`, genesis/profile, datadirs, JWT, and backups.
-- Secret-manager references for keys and private RPC credentials; never the keys
-  themselves in a committed record. Retain access instructions privately.
-- Effective timing, fee, settlement-policy and blob settings; endpoint ownership;
-  health evidence, latest confirmed settlement, pending requests, and next actions.
-- Archival/history dependencies, backup retention, and which restart/recovery or
-  semantic checks were actually performed versus still pending.
-
-For an executed deployment or investigation, use the
-[audit template](../audits/TEMPLATE.md) for sanitized evidence and link back here.
-Keep private raw logs and bulk data outside Git; identify retrievable artifacts
-and their digests. Update this runbook when a verified step changes, and preserve
-the dated audit as the record of what that particular operation established.
+Keep raw logs/databases outside Git. For shared evidence, retain a retrievable
+artifact location and digest; an ignored local path is not available to another
+operator. Update this procedure with verified corrections and preserve the dated
+audit as the record of the particular execution.
