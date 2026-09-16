@@ -129,6 +129,37 @@ impl L1ReorgControl {
         Ok(())
     }
 
+    /// Omit one future consensus slot while preserving the current branch.
+    /// The next block still comes from the real Engine API payload builder.
+    pub async fn skip_slot(&mut self, timestamp: u64) -> Result<()> {
+        self.check_running()?;
+        let result = self.control.path().join("skip-slot-armed.json");
+        if result.exists() {
+            std::fs::remove_file(&result)?;
+        }
+        let request = self.control.path().join("skip-slot.new.json");
+        std::fs::write(
+            &request,
+            serde_json::to_vec(&json!({"timestamp": timestamp}))?,
+        )?;
+        std::fs::rename(request, self.control.path().join("skip-slot.json"))?;
+        let record = wait_for(Duration::from_secs(10), || async {
+            match std::fs::read(&result) {
+                Ok(bytes) => Ok(Some(serde_json::from_slice::<Value>(&bytes)?)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error.into()),
+            }
+        })
+        .await
+        .with_context(|| format!("L1 skip-slot barrier failed: {}", self.diagnostics()))?;
+        self.check_running()?;
+        ensure!(
+            record["timestamp"] == timestamp,
+            "skip-slot identity mismatch"
+        );
+        Ok(())
+    }
+
     /// Replace the current unfinalized branch with a new block on this exact
     /// ancestor. The returned record includes the actual replacement identity.
     pub async fn reorg_to(&mut self, number: u64, hash: B256) -> Result<Value> {

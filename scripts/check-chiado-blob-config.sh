@@ -9,6 +9,14 @@ for tool in docker jq; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
 
+# Lighthouse v8 reads bootstrap_nodes.yaml for custom networks. The older
+# boot_enr.yaml filename alone silently leaves peer discovery without seeds.
+[[ -s configs/chiado/bootstrap_nodes.yaml ]] || {
+    echo "Chiado Lighthouse bootstrap_nodes.yaml is missing or empty" >&2
+    exit 1
+}
+cmp -s configs/chiado/bootstrap_nodes.yaml configs/chiado/bootnodes.yaml
+
 # Compose v2 validates service env_file paths even with --no-env-resolution.
 # Render against an empty fixture, never the checkout's deployment bindings.
 config_dir="$(mktemp -d)"

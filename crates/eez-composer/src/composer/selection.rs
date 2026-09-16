@@ -15,6 +15,7 @@ pub(super) struct Selection {
     blocked: HashSet<(Address, Direction)>,
     visited: HashSet<usize>,
     last_visited: Option<(Address, Direction)>,
+    last_accepted: Option<usize>,
     remaining: usize,
 }
 
@@ -30,6 +31,7 @@ impl Selection {
             blocked: HashSet::new(),
             visited: HashSet::new(),
             last_visited: None,
+            last_accepted: None,
             remaining: limit,
         };
         selection.fill();
@@ -58,7 +60,17 @@ impl Selection {
 
     pub fn accept(&mut self, index: usize) {
         assert!(self.eligible.remove(&index), "accept only eligible groups");
+        self.last_accepted = Some(self.last_accepted.map_or(index, |last| last.max(index)));
         self.remaining -= 1;
+    }
+
+    /// Canonical outbound-first execution can spend the budget before an older
+    /// eligible inbound. Only that kind of cut needs reduced FIFO lookahead.
+    pub fn fifo_bypassed(&self) -> bool {
+        self.eligible
+            .first()
+            .zip(self.last_accepted)
+            .is_some_and(|(first, last)| *first < last)
     }
 
     pub fn discard(&mut self, index: usize) {
@@ -176,6 +188,38 @@ mod tests {
         selection.accept(1);
         assert!(!selection.consider(0));
         assert_eq!(selection.remaining, 0);
+        assert!(!selection.fifo_bypassed());
+    }
+
+    #[test]
+    fn only_bypassed_eligible_fifo_work_needs_capacity_backoff() {
+        let users = vec![
+            tx(1, 0, Direction::Inbound),
+            tx(2, 0, Direction::Outbound),
+            tx(3, 0, Direction::Inbound),
+        ];
+        let mut selection = Selection::new(&users, 3);
+        assert!(!selection.fifo_bypassed());
+        assert!(selection.consider(1));
+        selection.accept(1);
+        assert!(
+            selection.fifo_bypassed(),
+            "outbound bypassed the oldest inbound"
+        );
+        assert!(selection.consider(0));
+        selection.accept(0);
+        assert!(
+            !selection.fifo_bypassed(),
+            "remaining work is a FIFO suffix"
+        );
+
+        let mut blocked = Selection::new(&users, 3);
+        blocked.block(0);
+        blocked.accept(1);
+        assert!(
+            !blocked.fifo_bypassed(),
+            "source waits do not measure capacity"
+        );
     }
 
     #[test]

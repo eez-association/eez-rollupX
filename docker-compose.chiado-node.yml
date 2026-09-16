@@ -140,12 +140,12 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Reserve time for remote stateless validation and relay submission while
-      # leaving ~800ms before the proof cutoff to prepare a full 12-tx bundle.
-      # For other values, preserve measured preparation headroom before the next
-      # whole L2-second boundary; an exact boundary leaves no headroom at all.
+      # Unset preparation preserves the legacy rounded trigger (~800ms for
+      # preparation with these defaults). Set an explicit positive allowance
+      # to reserve preparation independently and trigger at millisecond precision.
       EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-1500}"
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
+      EEZ_PREPARATION_TIME_MS:
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
       # Don't freeze the sequencer when chiado bundles are slow to land.
       EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"
@@ -201,29 +201,29 @@ services:
     volumes:
       - ${LIGHTHOUSE_DATA:?set LIGHTHOUSE_DATA}:/data
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
+      # Lighthouse v8 reads discovery seeds from bootstrap_nodes.yaml here.
       - ${CHIADO_CONFIG_DIR:?set CHIADO_CONFIG_DIR}:/config-dir:ro
-    command:
-      - lighthouse
-      - beacon_node
-      - --testnet-dir=/config-dir
-      - --listen-address=0.0.0.0
-      - --port=9205
-      - --quic-port=9206
-      - --http
-      - --http-address=127.0.0.1
-      - --http-port=6152
-      - --execution-endpoints=http://127.0.0.1:${L1_AUTH_PORT:-18551}
-      - --jwt-secrets=/jwt/jwt.hex
-      - --datadir=/data
-      - --checkpoint-sync-url=${LH_CHECKPOINT_URL:-https://checkpoint.chiadochain.net/}
-      # Fulu/PeerDAS full-blob retrieval is not available from an ordinary
-      # sampling node. A semi-supernode custodies half the data columns and
-      # reconstructs full blobs for /eth/v1/beacon/blobs/{block_id}, reducing
-      # resource use compared with custodying every column as a supernode.
-      - --semi-supernode
-      # Direct Chiado peers supplement sparse discovery. Dial their endpoints
-      # without pinning peer IDs, which can rotate when an operator rebuilds a
-      # node. Lighthouse still validates peers against the configured network.
-      - --libp2p-addresses=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
+    # v8.1.3's built-in Chiado profile does not activate Fulu; use the current
+    # Gnosis config. A semi-supernode reconstructs full PeerDAS blobs for the
+    # deriver. Direct TCP endpoints supplement discovery without pinning IDs.
+    # Optional public ENR settings support hosts where automatic advertisement
+    # cannot bootstrap. Compose splits this scalar into argv, without a shell.
+    command: >-
+      lighthouse beacon_node
+      --testnet-dir=/config-dir
+      --listen-address=0.0.0.0
+      --port=9205
+      --quic-port=9206
+      --http
+      --http-address=127.0.0.1
+      --http-port=6152
+      --execution-endpoints=http://127.0.0.1:${L1_AUTH_PORT:-18551}
+      --jwt-secrets=/jwt/jwt.hex
+      --datadir=/data
+      --checkpoint-sync-url=${LH_CHECKPOINT_URL:-https://checkpoint.chiadochain.net/}
+      --semi-supernode
+      ${LH_ENR_ADDRESS:+--enr-address=}${LH_ENR_ADDRESS:-}
+      ${LH_ENR_UDP_PORT:+--enr-udp-port=}${LH_ENR_UDP_PORT:-}
+      --libp2p-addresses=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
     logging:
       driver: "local"

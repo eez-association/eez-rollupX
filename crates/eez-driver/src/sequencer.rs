@@ -102,9 +102,10 @@ mod tests {
             _: u64,
             parent: ParentContext,
             timestamp: u64,
-            _: Option<u64>,
+            target: Option<u64>,
             mode: SyncSlotMode,
         ) -> SyncSlotOutcome {
+            assert_eq!(target.is_some(), mode == SyncSlotMode::Steady);
             self.calls.lock().unwrap().push(mode);
             if self.result == "end" {
                 return SyncSlotOutcome::EndTick;
@@ -290,6 +291,88 @@ mod tests {
                             3
                         );
                     }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn catchup_can_use_the_current_future_slot_but_never_a_past_or_capped_slot() {
+        for k in [5, 6, 12] {
+            for residue in 0..k {
+                for case in ["aligned", "late", "misaligned", "capped", "speculative_cap"] {
+                    let start = k - 1 + residue;
+                    let target = if case == "capped" { 1000 * k } else { 3 * k } + residue;
+                    let timestamp = if case == "late" {
+                        100_000
+                    } else {
+                        crate::slot::now_unix_millis() / 1000 + 3600
+                    };
+                    let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+                        number: start,
+                        timestamp: timestamp - (target - start) + u64::from(case == "misaligned"),
+                        ..Default::default()
+                    });
+                    let (committer, commands) = crate::block_committer::test_committer(parent);
+                    let calls = Arc::new(Mutex::new(Vec::new()));
+                    let (_, receiver) = mpsc::channel(1);
+                    let timing =
+                        RollupTiming::new(u32::try_from(k * 1000).unwrap(), 1000, 500, 700)
+                            .with_preparation_time_ms(500);
+                    let mut sequencer = Sequencer::composer(
+                        EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+                        committer.clone(),
+                        receiver,
+                        timing,
+                        1,
+                        Arc::new(PolicyComposer {
+                            result: "empty",
+                            calls: Arc::clone(&calls),
+                            guard: true,
+                        }),
+                        u64::from(case == "speculative_cap"),
+                        Arc::default(),
+                    );
+                    sequencer
+                        .advance_sync_slot(target, timestamp, 100)
+                        .await
+                        .unwrap();
+                    let calls = calls.lock().unwrap();
+                    assert_eq!(
+                        *calls.last().unwrap(),
+                        if case == "aligned" {
+                            SyncSlotMode::Steady
+                        } else {
+                            SyncSlotMode::Catchup
+                        },
+                        "K={k}, residue={residue}, {case}",
+                    );
+                    assert!(
+                        calls[..calls.len() - 1]
+                            .iter()
+                            .all(|mode| *mode == SyncSlotMode::Empty)
+                    );
+                    let final_header = committer.last_header();
+                    assert_eq!(final_header.number % k, residue);
+                    assert_eq!(
+                        final_header.transactions_root,
+                        alloy_consensus::constants::EMPTY_ROOT_HASH
+                    );
+                    if case == "capped" {
+                        assert!(final_header.number < target);
+                        assert!(final_header.number - start <= crate::MAX_BLOCKS_PER_CATCHUP);
+                    } else {
+                        assert_eq!(final_header.number, target);
+                    }
+                    assert_eq!(
+                        commands
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .filter(|c| **c == "prebuilt")
+                            .count(),
+                        calls.len()
+                    );
                 }
             }
         }
@@ -623,8 +706,21 @@ where
                 // produce that many Live blocks then the terminal Sync.
                 for _ in 0..live {
                     let last_header = self.committer.last_header();
+                    // Once the burst reaches this target's Future region, use
+                    // the ordinary slot layout even though older intervals had
+                    // to be rebuilt first. Intermediate Sync boundaries remain
+                    // empty through commit_one's existing grid guard.
+                    let live_end = sync_slot_block_height
+                        .saturating_sub(u64::from(self.timing.future_count()) + 1);
+                    let kind = if terminal == Some(sync_slot_block_height)
+                        && last_header.number() >= live_end
+                    {
+                        SlotKind::Future
+                    } else {
+                        SlotKind::Live
+                    };
                     match self
-                        .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
+                        .commit_one(kind, &last_header, sync_slot_block_height)
                         .await
                     {
                         Ok(()) => {}
@@ -636,9 +732,10 @@ where
                     }
                 }
 
-                // Terminal Sync block, parent-paced. Empty
-                // (`SyncSlotMode::Catchup`): a behind block can't ts-align its
-                // postBatch, so cross-chain waits for the next Slot.
+                // A capped/past terminal remains structural-only. If catch-up
+                // reached the actual future target, recheck its timestamp and
+                // deadline now: beginning the tick behind must not cost another
+                // otherwise eligible L1 opportunity.
                 if terminal != Some(self.committer.last_header().number() + 1) {
                     event!(
                         name: "eez.sequencer.sync_slot.off_grid_skipped",
@@ -655,18 +752,21 @@ where
                     .timestamp()
                     .saturating_add(self.timing.l2_block_time().as_secs());
 
+                let can_settle = terminal == Some(sync_slot_block_height)
+                    && sync_ts == sync_slot_timestamp
+                    && !self.sync_block_misses_l1_slot(sync_ts)
+                    && !self.speculative_limit_paused(last_header.number());
+                let (target, mode) = if can_settle {
+                    (Some(l1_head + 1), SyncSlotMode::Steady)
+                } else {
+                    (None, SyncSlotMode::Catchup)
+                };
+
                 let parent = crate::slot::ParentContext {
                     header: last_header.clone(),
                 };
                 let prebuilt = composer
-                    // Catch-up: next-available L1 block (unpinned), empty.
-                    .compose_sync_slot_outcome(
-                        rollup_id,
-                        parent,
-                        sync_ts,
-                        None,
-                        SyncSlotMode::Catchup,
-                    )
+                    .compose_sync_slot_outcome(rollup_id, parent, sync_ts, target, mode)
                     .await;
                 let prebuilt = match prebuilt {
                     crate::SyncSlotOutcome::Built(built) => Some(*built),

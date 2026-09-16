@@ -234,9 +234,9 @@ pub type SyncSlotComposerHandle = Arc<dyn SyncSlotComposer>;
 /// proof-window-open instant.
 #[derive(Debug, Clone, Copy)]
 struct PendingSyncSlot {
-    /// Wall-clock unix second at which to fire
+    /// Wall-clock unix millisecond at which to fire
     /// (`L1.timestamp + proof_window_open`).
-    trigger_at: u64,
+    trigger_at_ms: u64,
     /// L2 block height the Sync block will land at.
     block_height: u64,
     /// Wall-clock unix timestamp the Sync block will advertise.
@@ -245,6 +245,28 @@ struct PendingSyncSlot {
     l1_head: u64,
     /// L1 block timestamp of the anchoring head (logging only).
     l1_timestamp: u64,
+}
+
+impl PendingSyncSlot {
+    fn new(head: eez_l1::L1HeadInfo, timing: RollupTiming, genesis_timestamp: u64) -> Self {
+        let timestamp = head
+            .timestamp
+            .saturating_add(timing.l1_block_time().as_secs());
+        Self {
+            trigger_at_ms: head.timestamp.saturating_mul(1_000).saturating_add(
+                u64::try_from(timing.proof_window_open().as_millis()).unwrap_or(u64::MAX),
+            ),
+            block_height: timestamp.saturating_sub(genesis_timestamp)
+                / timing.l2_block_time().as_secs(),
+            timestamp,
+            l1_head: head.block_number,
+            l1_timestamp: head.timestamp,
+        }
+    }
+
+    fn remaining(self, now_ms: u64) -> Duration {
+        Duration::from_millis(self.trigger_at_ms.saturating_sub(now_ms))
+    }
 }
 
 /// Spawn the L1-anchored scheduler. Returns the receiver side of the
@@ -257,7 +279,7 @@ struct PendingSyncSlot {
 ///    L2_block_time)`. Same formula across all nodes given the same
 ///    genesis.
 /// 2. Arm a trigger for wall-clock `L1.timestamp + proof_window_open`
-///    — the moment the prover should start so its result is ready
+///    — the moment preparation should start so proof and submission finish
 ///    before the next L1 block lands.
 /// 3. When the trigger instant passes, send [`SlotEvent::SyncSlot`].
 ///
@@ -301,8 +323,7 @@ pub fn spawn_l1_anchored(
                 // whole-second sleep wakes N seconds after the loop's
                 // fractional phase, firing the trigger ~0.8s late and
                 // eating the send-lead before the slot.
-                let trigger_at_ms = p.trigger_at.saturating_mul(1_000);
-                Duration::from_millis(trigger_at_ms.saturating_sub(now_unix_millis()))
+                p.remaining(now_unix_millis())
             });
 
             tokio::select! {
@@ -316,10 +337,8 @@ pub fn spawn_l1_anchored(
                         return;
                     };
 
-                    let trigger_at = head.timestamp + timing.proof_window_open().as_secs();
-                    let sync_slot_timestamp = head.timestamp + timing.l1_block_time().as_secs();
-                    let block_height = sync_slot_timestamp.saturating_sub(l2_genesis_timestamp)
-                        / timing.l2_block_time().as_secs();
+                    let next = PendingSyncSlot::new(head, timing, l2_genesis_timestamp);
+                    let block_height = next.block_height;
 
                     if let Some(stale) = pending {
                         // Only reachable when heads arrive faster than
@@ -336,13 +355,7 @@ pub fn spawn_l1_anchored(
                         );
                     }
                     latest_sync_height = Some(block_height);
-                    pending = Some(PendingSyncSlot {
-                        trigger_at,
-                        block_height,
-                        timestamp: sync_slot_timestamp,
-                        l1_head: head.block_number,
-                        l1_timestamp: head.timestamp,
-                    });
+                    pending = Some(next);
                 }
                 () = tokio::time::sleep(trigger_wait), if pending.is_some() => {
                     let fired = pending
@@ -406,4 +419,34 @@ pub(crate) fn now_unix_millis() -> u64 {
             .as_millis(),
     )
     .unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scheduler_preserves_fractional_trigger_and_catches_up_without_extending_it() {
+        let head = eez_l1::L1HeadInfo {
+            block_number: 7,
+            block_hash: [1; 32],
+            timestamp: 100,
+        };
+        let legacy = RollupTiming::new(5000, 1000, 500, 700);
+        let pending = PendingSyncSlot::new(head, legacy.with_preparation_time_ms(500), 1);
+        let old = PendingSyncSlot::new(head, legacy, 1);
+        assert_eq!(
+            (pending.block_height, pending.timestamp, pending.l1_head),
+            (104, 105, 7)
+        );
+        assert_eq!(
+            (old.block_height, old.timestamp),
+            (pending.block_height, pending.timestamp)
+        );
+        assert_eq!(old.remaining(103_100), Duration::ZERO);
+        assert_eq!(pending.remaining(103_100), Duration::from_millis(200));
+        assert_eq!(pending.remaining(103_299), Duration::from_millis(1));
+        assert_eq!(pending.remaining(103_300), Duration::ZERO);
+        assert_eq!(pending.remaining(105_000), Duration::ZERO);
+    }
 }

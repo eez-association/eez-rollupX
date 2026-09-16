@@ -26,6 +26,14 @@ use eez_protocol::{
 use super::provider::{ChainProvider, HeaderReader};
 use super::session::LocalExecutionSession;
 
+/// Composition simulation bypasses proxy consumption on the source chain.
+/// Its gas is a planning estimate; final ordered L1 execution remains required.
+#[derive(Debug)]
+pub(crate) struct SourceSimulation {
+    pub success: bool,
+    pub gas_used: u64,
+}
+
 /// Discriminates how this client operates within the composition.
 ///
 /// Both variants carry the contract holding this chain's
@@ -284,6 +292,7 @@ impl LocalChainClient {
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     ) -> ExecutorResult<bool> {
         self.simulate_source_tx_on_with_retries(raw_tx, dispatcher, state, evm_env, false)
+            .map(|result| result.success)
     }
 
     /// Shared source-simulation body: decode, build the tx env, run under the
@@ -295,7 +304,7 @@ impl LocalChainClient {
         state: &mut State<StateProviderDatabase<StateProviderBox>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
         retry_unavailable_conditions: bool,
-    ) -> ExecutorResult<bool> {
+    ) -> ExecutorResult<SourceSimulation> {
         use alloy_eips::eip2718::Decodable2718;
 
         // Only entry-role clients are authorized to simulate source
@@ -391,7 +400,7 @@ impl LocalChainClient {
         }
 
         tracing::info!(gas_used, success, "source simulation complete");
-        Ok(success)
+        Ok(SourceSimulation { success, gas_used })
     }
 }
 
@@ -515,6 +524,25 @@ mod tests {
     }
 
     #[test]
+    fn source_planning_gas_reports_execution_instead_of_the_signed_limit() {
+        let client = fixture();
+        let slot = L1SlotState::open(&client).unwrap();
+        let (mut state, env) = slot.fork_state(&client).unwrap();
+        let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+        let result = client
+            .simulate_source_tx_on_with_retries(
+                signed_tx(RECIPIENT),
+                &mut dispatcher,
+                &mut state,
+                env,
+                true,
+            )
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.gas_used, 21_000);
+    }
+
+    #[test]
     fn enabled_future_nonce_waits_for_its_predecessor_without_changing_legacy() {
         let client = fixture();
         let slot = L1SlotState::open(&client).unwrap();
@@ -531,6 +559,7 @@ mod tests {
                     false,
                 )
                 .unwrap()
+                .success
         );
         let error = client
             .simulate_source_tx_on_with_retries(
@@ -558,6 +587,7 @@ mod tests {
                     true,
                 )
                 .unwrap()
+                .success
         );
         assert!(
             client
@@ -569,6 +599,7 @@ mod tests {
                     true,
                 )
                 .unwrap()
+                .success
         );
         // A spent nonce cannot be repaired by waiting for a predecessor.
         assert!(
@@ -581,6 +612,7 @@ mod tests {
                     true,
                 )
                 .unwrap()
+                .success
         );
     }
 
@@ -604,11 +636,11 @@ mod tests {
         };
         let funded = U256::from(1_000_000_000u64);
         for (balance, fee) in [(funded, 2), (U256::ZERO, 1)] {
-            assert!(!simulate(balance, fee, false, RECIPIENT).unwrap());
+            assert!(!simulate(balance, fee, false, RECIPIENT).unwrap().success);
             let error = simulate(balance, fee, true, RECIPIENT).unwrap_err();
             assert!(matches!(error.kind(), ExecutorErrorKind::SourceBlocked(_)));
         }
-        assert!(simulate(funded, 1, true, RECIPIENT).unwrap());
-        assert!(!simulate(funded, 1, true, REVERTER).unwrap());
+        assert!(simulate(funded, 1, true, RECIPIENT).unwrap().success);
+        assert!(!simulate(funded, 1, true, REVERTER).unwrap().success);
     }
 }

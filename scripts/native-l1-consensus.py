@@ -90,7 +90,19 @@ def main():
     fcu(head['hash'])
     write('ready.json', {'head': head['hash'], 'number': head['number']})
     alternatives = {}
+    skipped_timestamp = None
     while True:
+        skip_path = args.control / 'skip-slot.json'
+        if skip_path.exists():
+            pending = json.loads(skip_path.read_text())
+            skip_path.rename(args.control / 'skip-slot.used.json')
+            requested = pending['timestamp']
+            if (not isinstance(requested, int) or requested <= int(time.time())
+                    or requested <= int(head['timestamp'], 16)
+                    or (requested - args.genesis_time) % args.block_seconds):
+                raise ValueError('skip request must identify a future aligned slot')
+            skipped_timestamp = requested
+            write('skip-slot-armed.json', pending)
         request_path = args.control / 'reorg.json'
         if request_path.exists():
             pending = json.loads(request_path.read_text())
@@ -109,7 +121,7 @@ def main():
                 'replacement': {'number': head['number'], 'hash': head['hash']}})
         now = int(time.time())
         timestamp = args.genesis_time + ((now - args.genesis_time) // args.block_seconds) * args.block_seconds
-        if timestamp <= int(head['timestamp'], 16):
+        if timestamp <= int(head['timestamp'], 16) or timestamp == skipped_timestamp:
             time.sleep(0.05)
             continue
         head = adopt(build(head, timestamp))

@@ -772,6 +772,27 @@ impl Submitter {
         Ok(block.transactions.hashes().any(|hash| hash == tx_hash))
     }
 
+    /// Prove that no canonical block could satisfy the dispatched timestamp.
+    /// A different timestamp at the target height alone is insufficient: a
+    /// stale height can point past a slot that was actually built. Require the
+    /// pin to lie strictly between consecutive canonical headers, inside the
+    /// deriver's completed scan. This is scheduling evidence, not a source
+    /// disposition or permission to reuse the missed composition.
+    pub async fn canonical_target_was_skipped(
+        &self,
+        target_block: u64,
+        target_timestamp: u64,
+        at: crate::L1BlockRef,
+    ) -> L1Result<bool> {
+        canonical_target_was_skipped(
+            &self.inner.target_provider,
+            target_block,
+            target_timestamp,
+            at,
+        )
+        .await
+    }
+
     /// Read a signed source transaction and nonce at the deriver's completed
     /// L1 snapshot. Pending nonces, future receipts and reorg-straddling reads
     /// cannot establish exclusion or completion at this snapshot.
@@ -809,6 +830,51 @@ impl Submitter {
             .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {e}")))?
             .is_some())
     }
+}
+
+async fn canonical_target_was_skipped<P: Provider>(
+    provider: &P,
+    target_block: u64,
+    target_timestamp: u64,
+    at: crate::L1BlockRef,
+) -> L1Result<bool> {
+    let Some(parent_number) = target_block.checked_sub(1) else {
+        return Ok(false);
+    };
+    if target_block > at.number {
+        return Ok(false);
+    }
+    require_canonical_block(provider, at).await?;
+    let target = provider
+        .get_block_by_number(BlockNumberOrTag::Number(target_block))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical target header: {error}")))?
+        .ok_or_else(|| L1Error::Provider("canonical target header is unavailable".into()))?;
+    if target.header.number != target_block {
+        return Err(L1Error::Provider(
+            "canonical target height disagrees".into(),
+        ));
+    }
+    if target_block == at.number && target.header.hash != at.hash {
+        return Err(L1Error::Provider(
+            "canonical target differs from the completed scan".into(),
+        ));
+    }
+    if target.header.timestamp <= target_timestamp {
+        return Ok(false);
+    }
+    let parent = provider
+        .get_block_by_number(BlockNumberOrTag::Number(parent_number))
+        .await
+        .map_err(|error| L1Error::Provider(format!("canonical target parent: {error}")))?
+        .ok_or_else(|| L1Error::Provider("canonical target parent is unavailable".into()))?;
+    if parent.header.number != parent_number || target.header.parent_hash != parent.header.hash {
+        return Err(L1Error::Provider(
+            "canonical target and parent headers disagree".into(),
+        ));
+    }
+    require_canonical_block(provider, at).await?;
+    Ok(parent.header.timestamp < target_timestamp)
 }
 
 /// Keep all nonce/receipt reads inside the same canonical-hash bracket.
@@ -2093,6 +2159,163 @@ mod tests {
         block.header.inner.timestamp = timestamp;
         block.header.hash = hash;
         block
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_requires_a_strict_gap_between_canonical_headers() {
+        for cadence in [5, 12] {
+            for missed_slots in [1, 3] {
+                for scan_number in [42, 45] {
+                    let parent = mock_block(41, PIN, B256::with_last_byte(1));
+                    let mut target = mock_block(
+                        42,
+                        PIN + (missed_slots + 1) * cadence,
+                        B256::with_last_byte(2),
+                    );
+                    target.header.inner.parent_hash = parent.header.hash;
+                    let scan = if scan_number == 42 {
+                        target.clone()
+                    } else {
+                        mock_block(scan_number, PIN + 10 * cadence, B256::with_last_byte(3))
+                    };
+                    let replies = Asserter::new();
+                    for block in [&scan, &target, &parent, &scan] {
+                        replies.push_success(block);
+                    }
+                    let provider = ProviderBuilder::new().connect_mocked_client(replies);
+                    assert!(
+                        super::canonical_target_was_skipped(
+                            &provider,
+                            42,
+                            PIN + cadence,
+                            crate::L1BlockRef {
+                                number: scan_number,
+                                hash: scan.header.hash,
+                            },
+                        )
+                        .await
+                        .unwrap(),
+                        "cadence={cadence}, missed_slots={missed_slots}, scan={scan_number}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn timestamp_mismatch_without_a_skipped_slot_does_not_exempt_backoff() {
+        for (parent_ts, target_ts) in [
+            (PIN - 5, PIN),
+            (PIN - 10, PIN - 5),
+            (PIN, PIN + 5),
+            (PIN + 5, PIN + 10),
+        ] {
+            let parent = mock_block(41, parent_ts, B256::with_last_byte(1));
+            let mut target = mock_block(42, target_ts, B256::with_last_byte(2));
+            target.header.inner.parent_hash = parent.header.hash;
+            let replies = Asserter::new();
+            replies.push_success(&target);
+            replies.push_success(&target);
+            if target_ts > PIN {
+                replies.push_success(&parent);
+                replies.push_success(&target);
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                !super::canonical_target_was_skipped(
+                    &provider,
+                    42,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: target.header.hash
+                    },
+                )
+                .await
+                .unwrap(),
+                "parent={parent_ts}, target={target_ts}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_evidence_rejects_unavailable_or_reorged_headers() {
+        let parent = mock_block(41, PIN - 5, B256::with_last_byte(1));
+        let mut target = mock_block(42, PIN + 5, B256::with_last_byte(2));
+        target.header.inner.parent_hash = parent.header.hash;
+        for failure in [
+            "initial",
+            "target",
+            "target height",
+            "target hash",
+            "parent",
+            "parent hash",
+            "parent height",
+            "final",
+        ] {
+            let replies = Asserter::new();
+            if failure == "initial" {
+                replies.push_success(&mock_block(42, PIN + 5, B256::with_last_byte(3)));
+            } else {
+                replies.push_success(&target);
+                if failure == "target" {
+                    replies.push_success(&serde_json::Value::Null);
+                } else if failure == "target height" {
+                    replies.push_success(&mock_block(43, PIN + 5, target.header.hash));
+                } else if failure == "target hash" {
+                    replies.push_success(&mock_block(42, PIN + 5, B256::ZERO));
+                } else {
+                    replies.push_success(&target);
+                    match failure {
+                        "parent" => replies.push_failure_msg("header unavailable"),
+                        "parent hash" => replies.push_success(&mock_block(41, PIN - 5, B256::ZERO)),
+                        "parent height" => {
+                            replies.push_success(&mock_block(40, PIN - 5, parent.header.hash))
+                        }
+                        "final" => {
+                            replies.push_success(&parent);
+                            replies.push_success(&mock_block(42, PIN + 5, B256::with_last_byte(3)));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert!(
+                super::canonical_target_was_skipped(
+                    &provider,
+                    42,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: target.header.hash
+                    },
+                )
+                .await
+                .is_err(),
+                "{failure} cannot prove a canonical skipped slot"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_evidence_cannot_precede_the_completed_scan() {
+        let provider = ProviderBuilder::new().connect_mocked_client(Asserter::new());
+        for target in [0, 43] {
+            assert!(
+                !super::canonical_target_was_skipped(
+                    &provider,
+                    target,
+                    PIN,
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: B256::ZERO
+                    },
+                )
+                .await
+                .unwrap()
+            );
+        }
     }
 
     #[tokio::test]

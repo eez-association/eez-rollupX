@@ -350,6 +350,18 @@ impl L1TargetSession {
             .map_err(|e| encoding_err(format!("decode authorizedProxies: {e}")))
     }
 
+    /// Read-only registration lookup for a source identity. Admission opens
+    /// a separate session at the canonical parent so speculative creations
+    /// (including ones later reverted) cannot receive an existing-proxy price.
+    pub(crate) fn proxy_is_registered(
+        &mut self,
+        source: Address,
+        source_rollup: RollupId,
+    ) -> ExecutorResult<bool> {
+        let proxy = self.proxy_address(source, source_rollup)?;
+        self.is_authorized_proxy(proxy)
+    }
+
     /// `EEZ.sol:1152` — the permissionless CREATE2 deployment + registration
     /// the manager performs itself when the proxy is missing.
     fn create_proxy(&mut self, source: Address, source_rollup: RollupId) -> ExecutorResult<()> {

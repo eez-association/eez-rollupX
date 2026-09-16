@@ -61,6 +61,7 @@ use eez_protocol::settlement_manifest::{ManifestInput, ProposedUser, SettlementM
 mod admission;
 mod config;
 mod costs;
+mod gas;
 mod policy;
 mod posting;
 mod selection;
@@ -167,6 +168,24 @@ pub struct CrossChainWiring {
 type SlotSessions =
     HashMap<eez_protocol::RollupId, Box<dyn eez_protocol::TargetExecutionSession + Send>>;
 
+struct CompositionGas {
+    source: u64,
+    l1_target: u64,
+}
+
+/// Only L1 destination frames execute inside the outbound postBatch. Nested
+/// callbacks on L2 execute in the Sync block instead. The composition inspector
+/// returns intercepted calls' gas to their caller, so every recorded L1 frame
+/// must be counted, including re-entry and reverted frames, without charging
+/// the intervening L2 execution to L1. Protocol/proxy overhead remains separate.
+fn l1_target_gas(actions: &[eez_protocol::ExecutedAction]) -> u64 {
+    actions
+        .iter()
+        .filter(|action| action.target_rollup_id.is_mainnet())
+        .filter_map(|action| action.outcome.gas_used())
+        .fold(0, u64::saturating_add)
+}
+
 /// A one-entry [`SlotSessions`] — every drain composition seeds exactly one
 /// target chain.
 fn seed_session(
@@ -184,8 +203,8 @@ fn seed_session(
 /// The sessions come back with the composition: the caller commits their
 /// effects on accept and drops them on eviction.
 ///
-/// Third element is the probed target gas: the call runs again inside
-/// `postAndVerifyBatch`, so the budget charges for it.
+/// Third element reports source and L1 target simulation gas for admission. Source
+/// simulation bypasses proxy consumption; it is not a canonical receipt estimate.
 /// # Errors
 ///
 /// Source-side executor failures and composition/finalize failures, classified
@@ -203,7 +222,7 @@ fn compose_crosschain(
     source_state: &mut crate::local::build::DraftDb,
     source_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     retry_unavailable_conditions: bool,
-) -> eez_protocol::ComposerResult<(eez_protocol::Composition, SlotSessions, u64)> {
+) -> eez_protocol::ComposerResult<(eez_protocol::Composition, SlotSessions, CompositionGas)> {
     use eez_protocol::ChainClient as _;
     use eez_protocol::composition::Rollup;
 
@@ -241,7 +260,7 @@ fn compose_crosschain(
 
     let mut builder =
         eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    let source_success = entry_client
+    let source = entry_client
         .simulate_source_tx_on_with_retries(
             raw_tx.to_vec(),
             &mut builder,
@@ -250,11 +269,10 @@ fn compose_crosschain(
             retry_unavailable_conditions,
         )
         .map_err(eez_protocol::CompositionError::from)?;
-    if !source_success {
+    if !source.success {
         return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
     }
     let recorded_count = builder.recorded_count();
-    let target_gas = builder.recorded_gas_used();
     // Reclaimed before `finalize` consumes the builder — the accepted effects
     // live in the sessions, not in the composition.
     let sessions = builder.take_sessions();
@@ -278,16 +296,24 @@ fn compose_crosschain(
     }
 
     let composition = builder.finalize()?;
+    let target_gas = l1_target_gas(&composition.actions);
 
     tracing::info!(
         name: "composer.simulate.complete",
         target_count = composition.targets.len(),
         recorded = recorded_count,
-        target_gas,
+        l1_target_gas = target_gas,
         "composition complete"
     );
 
-    Ok((composition, sessions, target_gas))
+    Ok((
+        composition,
+        sessions,
+        CompositionGas {
+            source: source.gas_used,
+            l1_target: target_gas,
+        },
+    ))
 }
 
 impl std::fmt::Debug for CrossChainWiring {
@@ -320,8 +346,8 @@ const MAX_PROOF_BYTES: usize = 128;
 /// EIP-7825 per-tx cap, above which no tx is valid at any block gas limit.
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
 
-/// The belt prices bytes the drain cannot see (ABI framing, proof, DA shape), so
-/// the drain must stop earlier or the same set requeues forever. Gap seen: 230k.
+/// The final check prices ABI framing, proof and root metadata the drain cannot
+/// see, so the drain must stop earlier. Observed framing gap: 230k.
 const POSTBATCH_DRAIN_MARGIN: u64 = 600_000;
 
 /// Execution for a batch with just the leading immediate entry, calldata aside.
@@ -366,47 +392,62 @@ const fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas
 struct TxL1Gas {
     /// `batch.entries` rows it contributes, each costing [`POSTBATCH_ENTRY_GAS_PIN`].
     entries: u64,
+    /// Saving justified by a bounded entry shape and canonical-parent evidence.
+    entry_discount: u64,
     /// Standard-rate gas for every byte it puts in the postBatch calldata.
     calldata_gas: u64,
     /// Probed cost of the target call EEZ.sol runs inline (outbound only).
     target_gas: u64,
 }
 
-/// L1 gas one accepted tx adds. `da_entries`/`da_tx` are its DA copies; only
-/// outbound pays `target_gas` inline.
+impl TxL1Gas {
+    /// Incremental work only: the post's intrinsic gas and leading anchor are
+    /// already reserved. Admission and rejected-group diagnostics use this sum.
+    const fn total(self) -> u64 {
+        POSTBATCH_ENTRY_GAS_PIN
+            .saturating_mul(self.entries)
+            .saturating_sub(self.entry_discount)
+            .saturating_add(self.calldata_gas)
+            .saturating_add(self.target_gas)
+    }
+}
+
+/// L1 gas one accepted tx adds. Only `batch.entries` reaches postBatch calldata;
+/// DA entry copies and raw source transactions live in native blobs. Outbound
+/// target calls execute inline; inbound companions keep their separate budget.
 fn projected_tx_l1_gas(
     batch_entries: &[eez_protocol::abi::ExecutionEntrySol],
-    da_entries: &[eez_protocol::abi::ExecutionEntrySol],
-    da_tx: &[u8],
     target_gas: u64,
 ) -> TxL1Gas {
     use alloy_sol_types::SolValue as _;
-    let encoded = |entries: &[eez_protocol::abi::ExecutionEntrySol]| -> u64 {
-        entries
-            .iter()
-            .map(|entry| calldata_gas(&entry.abi_encode()))
-            .sum()
-    };
     TxL1Gas {
         entries: batch_entries.len() as u64,
-        calldata_gas: encoded(batch_entries)
-            .saturating_add(encoded(da_entries))
-            .saturating_add(calldata_gas(da_tx)),
+        entry_discount: 0,
+        calldata_gas: batch_entries
+            .iter()
+            .map(|entry| calldata_gas(&entry.abi_encode()))
+            .fold(0, u64::saturating_add),
         target_gas,
     }
 }
 
-/// Running gas projection, so the drain stops before it builds a batch no L1
-/// block can run (EIP-7825 caps one tx at ~16.7M).
+/// Preflight projection for postBatch plus ordered inbound companions. Protocol
+/// pins include entry work omitted by source simulation. Only final native
+/// bundle execution establishes actual gas consumption and complete effects.
 #[derive(Debug, Clone, Copy)]
 struct PostBatchGasBudget {
     cap: u64,
     /// Running total, seeded with the leading immediate entry every postBatch
     /// carries. The projection is linear, so costs just add.
     projected: u64,
+    entries: u64,
+    entry_discount: u64,
     block_cap: u64,
     transaction_cap: u64,
     companion_gas: u64,
+    /// Largest estimated source prefix plus the next companion's declared gas.
+    /// Recheck it when postBatch grows: postBatch executes before every source.
+    companion_required_gas: u64,
     rejected_constraint: Option<&'static str>,
 }
 
@@ -415,9 +456,12 @@ impl PostBatchGasBudget {
         Self {
             cap: max_gas.saturating_sub(POSTBATCH_DRAIN_MARGIN),
             projected: projected_postbatch_gas(1, 0, 0),
+            entries: 0,
+            entry_discount: 0,
             block_cap: u64::MAX,
             transaction_cap: u64::MAX,
             companion_gas: 0,
+            companion_required_gas: 0,
             rejected_constraint: None,
         }
     }
@@ -425,26 +469,67 @@ impl PostBatchGasBudget {
     /// Charge `cost` if it fits. `false` leaves the projection untouched, so the
     /// caller can defer this tx and stop draining.
     fn try_accept(&mut self, cost: TxL1Gas) -> bool {
-        self.try_accept_with_companion(cost, 0)
+        self.try_accept_with_companion(cost, 0, 0)
     }
 
-    fn try_accept_with_companion(&mut self, cost: TxL1Gas, declared_companion_gas: u64) -> bool {
-        let next = self
-            .projected
-            .saturating_add(POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries))
-            .saturating_add(cost.calldata_gas)
-            .saturating_add(cost.target_gas);
-        let Some(companions) = self.companion_gas.checked_add(declared_companion_gas) else {
+    /// Previous queue storage is temporary work, not evidence that a source
+    /// can never fit. Retain such a first group until an independently due
+    /// consolidation clears the old queue; do not evict its nonce chain.
+    fn blocked_by_cleanup(
+        &self,
+        cost: TxL1Gas,
+        declared: u64,
+        estimated: u64,
+        cleanup: u64,
+    ) -> bool {
+        if self.entries != 0 || cleanup == 0 {
+            return false;
+        }
+        let mut empty = *self;
+        empty.projected = empty.projected.saturating_sub(cleanup);
+        empty.try_accept_with_companion(cost, declared, estimated)
+    }
+
+    fn try_accept_with_companion(
+        &mut self,
+        cost: TxL1Gas,
+        declared_companion_gas: u64,
+        estimated_companion_gas: u64,
+    ) -> bool {
+        let entries = self.entries.saturating_add(cost.entries);
+        let discount = if entries < gas::MAX_SHAPED_ENTRIES {
+            self.entry_discount.saturating_add(cost.entry_discount)
+        } else {
+            0
+        };
+        // Crossing the measured batch-size range restores every entry's old
+        // reserve, not just the last one's. Rejection leaves all totals intact.
+        let next = POSTBATCH_ENTRY_GAS_PIN
+            .checked_mul(cost.entries)
+            .and_then(|gas| gas.checked_add(cost.calldata_gas))
+            .and_then(|gas| gas.checked_add(cost.target_gas))
+            .and_then(|gas| gas.checked_add(self.entry_discount))
+            .and_then(|gas| gas.checked_add(self.projected))
+            .and_then(|gas| gas.checked_sub(discount));
+        let Some(next) = next else {
+            self.rejected_constraint = Some("l1_tx_gas_budget");
+            return false;
+        };
+        let Some(required) = self.companion_gas.checked_add(declared_companion_gas) else {
             self.rejected_constraint = Some("l1_bundle_gas_budget");
             return false;
         };
-        if next > self.cap || declared_companion_gas > self.transaction_cap {
+        let required = required.max(self.companion_required_gas);
+        if next > self.cap
+            || declared_companion_gas > self.transaction_cap
+            || estimated_companion_gas > declared_companion_gas
+        {
             self.rejected_constraint = Some("l1_tx_gas_budget");
             return false;
         }
         if next
             .checked_add(POSTBATCH_DRAIN_MARGIN)
-            .and_then(|gas| gas.checked_add(companions))
+            .and_then(|gas| gas.checked_add(required))
             .is_none_or(|gas| gas > self.block_cap)
         {
             self.rejected_constraint = Some("l1_bundle_gas_budget");
@@ -452,7 +537,11 @@ impl PostBatchGasBudget {
         }
         self.rejected_constraint = None;
         self.projected = next;
-        self.companion_gas = companions;
+        self.entries = entries;
+        self.entry_discount = discount;
+        // estimated <= declared, whose addition was checked above.
+        self.companion_gas += estimated_companion_gas;
+        self.companion_required_gas = required;
         true
     }
 }
@@ -1826,6 +1915,31 @@ where
             }
         }
 
+        // A skipped timestamp cannot reveal a bundle-size limit. Observer
+        // labels alone are insufficient: bind a strict canonical timestamp gap
+        // to this completed scan, and still classify every source below. Any
+        // receipt, uncertain observation or unavailable header keeps backoff.
+        let mut skipped_slot = false;
+        if self.inner.max_user_txs_per_bundle.is_none()
+            && !attempt.txs.is_empty()
+            && post.receipt.is_none()
+            && evidence.is_none()
+            && let Some((target, timestamp)) = attempt.dispatched_target
+            && matches!(attempt.observation,
+                SubmissionObservation::Excluded { block, charge_attempt: false } if block == target)
+        {
+            match submitter
+                .canonical_target_was_skipped(target, timestamp, at)
+                .await
+            {
+                Ok(skipped) => skipped_slot = skipped,
+                Err(error) => {
+                    event!(Level::WARN, rollup_id, target, %error,
+                        "skipped-slot evidence unavailable; retaining conservative admission backoff");
+                }
+            }
+        }
+
         let mut inbound = Vec::with_capacity(attempt.txs.len());
         for tx in &attempt.txs {
             inbound.push(if tx.direction == Direction::Inbound {
@@ -2017,14 +2131,7 @@ where
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
         if self.inner.max_user_txs_per_bundle.is_none()
-            && outcomes.iter().any(|outcome| {
-                !matches!(
-                    outcome,
-                    SourceOutcome::Terminal(
-                        TerminalReason::Committed | TerminalReason::SourceCompleted
-                    )
-                )
-            })
+            && submission_backoff_required(&outcomes, skipped_slot)
         {
             let next_selection_max = self.inner.automatic_admission[&rollup_id]
                 .lock()
@@ -2034,6 +2141,16 @@ where
                 event_name = "eez.composer.admission.submission_backoff", rollup_id,
                 submitted_groups = attempt.txs.len(), next_selection_max,
                 "canonical reconciliation left incomplete sources; reducing the next automatic selection");
+        } else if skipped_slot
+            && !outcomes.is_empty()
+            && outcomes
+                .iter()
+                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. }))
+        {
+            event!(name: "eez.composer.admission.skipped_slot", Level::INFO,
+                event_name = "eez.composer.admission.skipped_slot", rollup_id,
+                submitted_groups = attempt.txs.len(), target = ?attempt.dispatched_target,
+                "canonical target slot was skipped and all sources remain retryable; retaining automatic selection");
         }
         event!(name: "eez.composer.settlement.reconciled", Level::INFO,
             event_name = "eez.composer.settlement.reconciled",
@@ -2191,6 +2308,24 @@ where
                 txs,
             )
         };
+        // Compute each effect's canonical prefix hash once, while admission is
+        // measuring elapsed work. Replaying all prefixes after the drain hid a
+        // quadratic cost in its final-tail estimate. Full blocks, witnesses and
+        // proofs still use the canonical builder below.
+        let hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
+            let txs: Vec<_> = prefix.iter().chain(group).cloned().collect();
+            let positions: Vec<_> = positions.iter().map(|p| prefix.len() + p).collect();
+            sync_block_hashes_at_positions(
+                rollup.l2_provider.as_ref(),
+                &self.inner.evm_config,
+                parent_header,
+                timestamp,
+                suggested_fee_recipient,
+                &txs,
+                &positions,
+            )
+            .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>())
+        };
         let composition_quote = if let Some(posting) = &self.inner.posting {
             Some(
                 posting
@@ -2259,6 +2394,7 @@ where
         // list the prefix is rebuilt from and the keystone assert compares the
         // canonical rebuild against.
         let mut sync_txs: Vec<Bytes> = Vec::new();
+        let mut effect_hashes: Vec<(usize, B256)> = Vec::new();
         // SYSTEM_ADDRESS cursor: one nonce per appended system tx. Phase 1 runs
         // to completion first, so this counts outbound loads N..N+K-1 and then
         // inbound deliveries from N+K — `build_cross_chain_sync_pairs`' split,
@@ -2314,6 +2450,44 @@ where
             posting.fees.estimate_budget(gas_budget)
         });
         let mut budget = PostBatchGasBudget::new(estimated_budget);
+        // This separate view never receives accepted speculative effects.
+        // Failed lookups or unsupported prior queues retain the legacy pins.
+        let mut gas_projection = if self.inner.posting.is_some() {
+            let provider = local.l1_entry.chain_provider();
+            match provider
+                .provider
+                .state_by_block_hash(l1_state.anchor.hash())
+                .map_err(|error| error.to_string())
+                .and_then(|state| {
+                    gas::Projection::open(
+                        state.as_ref(),
+                        local.l1_entry.manager_address(),
+                        rollup_id,
+                    )
+                }) {
+                Ok(projection) => projection,
+                Err(error) => {
+                    event!(Level::WARN, rollup_id, %error, "gas shape evidence unavailable; retaining legacy reserves");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let mut gas_parent = if gas_projection.is_some() {
+            L1TargetSession::new(&l1_state, local.l1_entry.clone(), true).ok()
+        } else {
+            None
+        };
+        if let Some(projection) = &gas_projection {
+            budget.projected = projection.initial_gas();
+        }
+        let prior_cleanup = gas_projection.as_ref().map_or(0, |p| p.cleanup_gas);
+        event!(name: "eez.composer.admission.gas_projection", Level::INFO,
+            event_name = "eez.composer.admission.gas_projection", rollup_id,
+            shaped = gas_projection.is_some(), prior_cleanup_gas = prior_cleanup,
+            initial_gas = budget.projected, l1_anchor_hash = %l1_state.anchor.hash(),
+            "postBatch admission reserves at the canonical parent");
         if let Some(posting) = &self.inner.posting {
             budget.block_cap = l1_state.anchor.gas_limit;
             budget.transaction_cap = posting
@@ -2496,7 +2670,8 @@ where
                 self.inner.policy.is_some(),
             );
             match sim {
-                Ok((composition, mut sessions, target_gas)) => {
+                Ok((composition, mut sessions, gas)) => {
+                    let target_gas = gas.l1_target;
                     if composition.targets.iter().any(|target| {
                         target.rollup_id != eez_protocol::RollupId::MAINNET
                             && target.rollup_id != eez_protocol::RollupId(rollup_id)
@@ -2770,16 +2945,33 @@ where
                     }
                     // Gate before accept: this entry settles inline, so over
                     // the cap the whole bundle dies silently (invariant 7).
-                    let cost =
-                        projected_tx_l1_gas(&l1_entries, &l1_entries, &held.raw_tx, target_gas);
+                    let established = match (&mut gas_projection, &mut gas_parent) {
+                        (Some(projection), Some(parent)) => {
+                            match projection.simple_immediate(
+                                &l1_entries,
+                                &composition.actions,
+                                parent,
+                            ) {
+                                Ok(evidence) => evidence,
+                                Err(error) => {
+                                    event!(Level::DEBUG, %error, "proxy gas evidence unavailable; retaining entry reserve");
+                                    None
+                                }
+                            }
+                        }
+                        _ => None,
+                    };
+                    let cost = gas_projection.as_ref().map_or_else(
+                        || projected_tx_l1_gas(&l1_entries, target_gas),
+                        |projection| projection.cost(&l1_entries, target_gas, true, established),
+                    );
                     let mut next_budget = budget;
                     if !next_budget.try_accept(cost) {
+                        if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
+                            admission_cut = Some("prior_queue_cleanup");
+                        }
                         budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(projected_postbatch_gas(
-                            cost.entries,
-                            cost.calldata_gas,
-                            cost.target_gas,
-                        ));
+                        rejected_cost = Some(cost.total());
                         deferred = abort_rest(
                             Some((idx, held)),
                             &mut out_iter,
@@ -2858,6 +3050,35 @@ where
                             break;
                         }
                     };
+                    let group_hashes = match hash_group(
+                        &sync_txs,
+                        &pair_txs,
+                        &eez_protocol::system_tx::sync_pair_end_positions(&pairs_k),
+                    ) {
+                        Ok(hashes) => hashes,
+                        Err(error) => {
+                            transient = Some((
+                                format!("outbound prefix hashes tx#{idx}: {error}"),
+                                abort_rest(
+                                    Some((idx, held)),
+                                    &mut out_iter,
+                                    std::mem::take(&mut inbounds),
+                                ),
+                            ));
+                            break;
+                        }
+                    };
+                    if let (Some(attempt), Some(next)) = (admission, next_blob)
+                        && !attempt.can_finish_group(survivors.len() + 1, next.required_blobs()?)
+                    {
+                        admission_cut = Some("preparation_time");
+                        deferred = abort_rest(
+                            Some((idx, held)),
+                            &mut out_iter,
+                            std::mem::take(&mut inbounds),
+                        );
+                        break;
+                    }
                     let pair_logs = match append_and_execute(&mut draft, &pair_txs) {
                         Ok(logs) => logs,
                         Err((at, why)) => {
@@ -2945,6 +3166,7 @@ where
                     }
                     budget = next_budget;
                     blob_budget = next_blob;
+                    effect_hashes.extend(group_hashes);
                     sync_txs.extend(pair_txs);
                     system_txs_appended +=
                         eez_protocol::system_tx::sync_pair_system_tx_count(&pairs_k) as u64;
@@ -2981,6 +3203,9 @@ where
                     }
 
                     pending_out.push(outbound_group);
+                    if let Some(projection) = &mut gas_projection {
+                        projection.accept_immediate(l1_entries.len(), established);
+                    }
                     outbound_entries.extend(l1_entries);
                     outbound_entry_traces.extend(l1_target.entry_traces.iter().cloned());
                     outbound_target_gas = outbound_target_gas.saturating_add(target_gas);
@@ -3139,7 +3364,7 @@ where
                 self.inner.policy.is_some(),
             );
             match sim {
-                Ok((composition, _sessions, _probe_gas)) => {
+                Ok((composition, _sessions, gas)) => {
                     if composition
                         .targets
                         .iter()
@@ -3216,25 +3441,30 @@ where
                     }
                     // Same gate, no target gas: a deferred entry only queues
                     // here, and its L1 half is a separate bundled tx.
-                    let cost = projected_tx_l1_gas(
-                        &composition.source.batch.entries,
-                        &target_entries,
-                        &[],
-                        0,
+                    let cost = gas_projection.as_ref().map_or_else(
+                        || projected_tx_l1_gas(&composition.source.batch.entries, 0),
+                        |projection| {
+                            projection.cost(&composition.source.batch.entries, 0, false, None)
+                        },
                     );
-                    let companion_gas = if self.inner.posting.is_some() {
-                        declared_gas_limit(&held.raw_tx)
+                    let (companion_limit, companion_gas) = if self.inner.posting.is_some() {
+                        (declared_gas_limit(&held.raw_tx), gas.source)
                     } else {
-                        0
+                        (0, 0)
                     };
                     let mut next_budget = budget;
-                    if !next_budget.try_accept_with_companion(cost, companion_gas) {
+                    if !next_budget.try_accept_with_companion(cost, companion_limit, companion_gas)
+                    {
+                        if budget.blocked_by_cleanup(
+                            cost,
+                            companion_limit,
+                            companion_gas,
+                            prior_cleanup,
+                        ) {
+                            admission_cut = Some("prior_queue_cleanup");
+                        }
                         budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(projected_postbatch_gas(
-                            cost.entries,
-                            cost.calldata_gas,
-                            cost.target_gas,
-                        ));
+                        rejected_cost = Some(cost.total());
                         deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                         break;
                     }
@@ -3307,6 +3537,27 @@ where
                             break;
                         }
                     };
+                    let group_hashes = match hash_group(
+                        &sync_txs,
+                        &deliveries,
+                        &(0..deliveries.len()).collect::<Vec<_>>(),
+                    ) {
+                        Ok(hashes) => hashes,
+                        Err(error) => {
+                            transient = Some((
+                                format!("inbound prefix hashes tx#{idx}: {error}"),
+                                abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
+                            ));
+                            break;
+                        }
+                    };
+                    if let (Some(attempt), Some(next)) = (admission, next_blob)
+                        && !attempt.can_finish_group(survivors.len() + 1, next.required_blobs()?)
+                    {
+                        admission_cut = Some("preparation_time");
+                        deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
+                        break;
+                    }
                     // The delivery re-runs the on-chain claim compare, so this
                     // append IS the verifier: a revert means the claims and the
                     // block disagree and the tx must go.
@@ -3348,6 +3599,7 @@ where
                     }
                     budget = next_budget;
                     blob_budget = next_blob;
+                    effect_hashes.extend(group_hashes);
                     system_txs_appended += deliveries.len() as u64;
                     sync_txs.extend(deliveries);
                     // The source fork carries the L1 user tx's committed writes;
@@ -3436,6 +3688,9 @@ where
             attempt.phase_finished(
                 survivors.len(),
                 !deferred.is_empty() || !escrow_deferred.is_empty(),
+                selection
+                    .as_ref()
+                    .is_some_and(selection::Selection::fifo_bypassed),
             );
         }
         if let Some((need, avail)) = escrow_cut {
@@ -3475,6 +3730,8 @@ where
                     accepted_count,
                     deferred_count,
                     projected_gas = budget.projected,
+                    entry_discount = budget.entry_discount,
+                    prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
                     constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
@@ -3508,6 +3765,8 @@ where
                     accepted_count,
                     deferred_count,
                     projected_gas = budget.projected,
+                    entry_discount = budget.entry_discount,
+                    prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
                     constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
@@ -3767,15 +4026,18 @@ where
         // entry's `newRoot` ABI slot to commit its own effect-prefix block.
         // Failure here is systemic (like build/prepare) → degrade.
         let effect_end_positions = eez_protocol::system_tx::sync_pair_end_positions(&pairs);
-        let pair_hashes = match sync_block_hashes_at_positions(
-            rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
-            parent_header,
-            timestamp,
-            suggested_fee_recipient,
-            &sync_txs,
-            &effect_end_positions,
-        ) {
+        let cached_hashes = effect_hashes
+            .iter()
+            .map(|(position, _)| *position)
+            .eq(effect_end_positions.iter().copied())
+            .then(|| {
+                effect_hashes
+                    .into_iter()
+                    .map(|(_, hash)| hash)
+                    .collect::<Vec<_>>()
+            })
+            .ok_or("incremental effect positions disagree with the canonical Sync block");
+        let pair_hashes = match cached_hashes {
             Ok(r) => r,
             Err(e) => {
                 event!(
@@ -3853,6 +4115,7 @@ where
                 &pending_out,
                 &semantic_transactions,
                 outbound_target_gas,
+                gas_projection.as_ref(),
                 bundle_target,
                 admission,
             )
@@ -4457,6 +4720,7 @@ where
                 &[], // no outbound L2 sidecars
                 &[], // no cross-chain semantic transactions
                 0,   // no inline outbound target calls
+                None,
                 bundle_target,
                 None,
             )
@@ -4668,6 +4932,7 @@ where
                     &[],
                     &[],
                     0, // no inline outbound target calls
+                    None,
                     bundle_target,
                     None,
                 )
@@ -4854,6 +5119,7 @@ where
         outbound_l2_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
         semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
         outbound_target_gas: u64,
+        gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
     ) -> Result<Bytes, PreparePostBatchError> {
@@ -5654,6 +5920,7 @@ where
 
         // Price before witnesses and proving. Only the typed OverBudget result
         // authorizes capacity-driven selection of a smaller historical prefix.
+        let mut empty_projection = None;
         let ceiling = if let Some(posting) = &self.inner.posting {
             let provider = &posting.chain;
             let number = provider
@@ -5665,6 +5932,16 @@ where
                 .header_by_number(number)
                 .map_err(|error| error.to_string())?
                 .ok_or("L1 header unavailable for target gas budget")?;
+            if gas_projection.is_none() && semantic_transactions.is_empty() {
+                let hash = alloy_consensus::Sealable::hash_slow(&header);
+                empty_projection = provider.provider.state_by_block_hash(hash)
+                    .map_err(|error| error.to_string())
+                    .and_then(|state| gas::Projection::open(state.as_ref(), posting.registry, rollup_id))
+                    .unwrap_or_else(|error| {
+                        event!(Level::WARN, rollup_id, %error, "empty post gas evidence unavailable; retaining legacy reserve");
+                        None
+                    });
+            }
             posting
                 .gas_budget(&header, bundle_target)
                 .map_err(|error| error.to_string())?
@@ -5676,10 +5953,17 @@ where
         let projected = postAndVerifyBatchCall { batch: sized }.abi_encode();
         // EIP-7623 charges max(standard, floor). Standard now covers the bytes the
         // drain could not see; floor is what a fat, entry-light batch hits.
-        let mut projected_gas = projected_postbatch_gas(
-            batch.entries.len() as u64,
-            calldata_gas(&projected),
-            outbound_target_gas,
+        let mut projected_gas = gas_projection.or(empty_projection.as_ref()).map_or_else(
+            || {
+                projected_postbatch_gas(
+                    batch.entries.len() as u64,
+                    calldata_gas(&projected),
+                    outbound_target_gas,
+                )
+            },
+            |projection| {
+                projection.batch_gas(&batch, calldata_gas(&projected), outbound_target_gas)
+            },
         );
         let floor_active = match (&self.inner.posting, bundle_target) {
             (Some(posting), BundleTarget::Exact { timestamp, .. }) => {
@@ -5742,12 +6026,16 @@ where
         {
             return Err("canonical settlement evidence changed while sizing the candidate".into());
         }
+        let blob_preparation_started = std::time::Instant::now();
         let prepared_blob_sidecar = eez_blob_codec::prepare_blob_sidecar_with_limit(
             &transaction_blobs,
             ctx.blob_sidecar_encoding,
             maximum_blobs,
         )
         .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?;
+        if let Some(attempt) = admission {
+            attempt.blobs_prepared(blob_count, blob_preparation_started.elapsed());
+        }
 
         // Prove the assembled window (proofs[] empty — not part of the
         // publicInputsHash). Mock ignores the context; a remote prover re-executes
@@ -6110,6 +6398,27 @@ fn ensure_batch_registry_native(
     Ok(())
 }
 
+/// Only a canonically proven skipped target with every source still retryable
+/// is unrelated to submission capacity. Partial application, spent nonces and
+/// ordinary exclusions retain the existing conservative learning behavior.
+fn submission_backoff_required(
+    outcomes: &[crate::optimistic::SourceOutcome],
+    skipped_slot: bool,
+) -> bool {
+    use crate::optimistic::{SourceOutcome, TerminalReason};
+    let completed = |outcome: &SourceOutcome| {
+        matches!(
+            outcome,
+            SourceOutcome::Terminal(TerminalReason::Committed | TerminalReason::SourceCompleted)
+        )
+    };
+    outcomes.iter().any(|outcome| !completed(outcome))
+        && !(skipped_slot
+            && outcomes
+                .iter()
+                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. })))
+}
+
 /// Mutable consumption belongs to the most recent batch for this rollup in
 /// the same L1 block. Queue indices are reset by every later postBatch.
 fn source_uses_batch(
@@ -6402,6 +6711,113 @@ mod tests {
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
 
+    fn gas_action(
+        source: u64,
+        target: u64,
+        parent_index: Option<usize>,
+        gas_used: u64,
+        success: bool,
+    ) -> eez_protocol::ExecutedAction {
+        eez_protocol::ExecutedAction {
+            parent_index,
+            call_mode: eez_protocol::CallMode::Mutable,
+            source_rollup_id: eez_protocol::RollupId(source),
+            target_rollup_id: eez_protocol::RollupId(target),
+            source_address: Address::repeat_byte(1),
+            target_address: Address::repeat_byte(2),
+            data: Bytes::new(),
+            value: U256::ZERO,
+            outcome: eez_protocol::ExecutionOutcome::Resolved {
+                return_data: Vec::new(),
+                gas_used,
+                success,
+            },
+            revert_span: None,
+        }
+    }
+
+    #[test]
+    fn l1_admission_does_not_charge_l2_callback_execution() {
+        // L2 -> L1 -> L2 -> L1. Both L1 frames execute in postBatch;
+        // the callback's work belongs to the Sync block, however expensive.
+        let mut actions = vec![
+            gas_action(1, 0, None, 80_000, true),
+            gas_action(0, 1, Some(0), 2_000_000, true),
+            gas_action(1, 0, Some(1), 90_000, true),
+        ];
+        let entry = outbound_entry();
+        let cost = projected_tx_l1_gas(std::slice::from_ref(&entry), l1_target_gas(&actions));
+        assert_eq!(cost.target_gas, 170_000);
+        let cap = projected_postbatch_gas(1, 0, 0) + POSTBATCH_DRAIN_MARGIN + cost.total();
+        assert!(PostBatchGasBudget::new(cap).try_accept(cost));
+
+        actions[1] = gas_action(0, 1, Some(0), u64::MAX, true);
+        let same = projected_tx_l1_gas(std::slice::from_ref(&entry), l1_target_gas(&actions));
+        assert_eq!(same.total(), cost.total());
+        assert!(PostBatchGasBudget::new(cap).try_accept(same));
+
+        actions[2] = gas_action(1, 0, Some(1), 90_001, true);
+        let larger = projected_tx_l1_gas(&[entry], l1_target_gas(&actions));
+        assert!(!PostBatchGasBudget::new(cap).try_accept(larger));
+    }
+
+    #[test]
+    fn reverted_l1_frames_still_consume_gas_and_overflow_cannot_wrap() {
+        let mut actions = vec![
+            gas_action(1, 0, None, 60_000, false),
+            gas_action(0, 1, Some(0), 8_000_000, true),
+            gas_action(1, 0, Some(1), 70_000, true),
+            gas_action(1, 0, None, 80_000, true),
+        ];
+        actions[0].revert_span = Some(3);
+        assert_eq!(l1_target_gas(&actions), 210_000);
+        actions[0] = gas_action(1, 0, None, u64::MAX, false);
+        assert_eq!(l1_target_gas(&actions), u64::MAX);
+        assert_eq!(l1_target_gas(&[]), 0);
+    }
+
+    #[test]
+    fn proven_skipped_slot_retains_capacity_only_when_every_source_can_retry() {
+        use crate::optimistic::{SourceOutcome, TerminalReason};
+        let retry = SourceOutcome::Retryable { source_nonce: 4 };
+        assert!(!submission_backoff_required(&[retry, retry], true));
+        assert!(submission_backoff_required(&[retry, retry], false));
+        for reason in [
+            TerminalReason::Committed,
+            TerminalReason::SourceReverted,
+            TerminalReason::SourceCompletedWithMissingEffects,
+            TerminalReason::SourceCompleted,
+            TerminalReason::SourceNonceSpent,
+            TerminalReason::AttemptsExhausted,
+            TerminalReason::NonceGap,
+            TerminalReason::PoolDiscarded,
+        ] {
+            assert!(
+                submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),
+                "partial or independent source consumption must preserve backoff: {reason:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completed_or_empty_attempt_never_trains_failure_backoff() {
+        use crate::optimistic::{SourceOutcome, TerminalReason};
+        for skipped_slot in [false, true] {
+            assert!(!submission_backoff_required(&[], skipped_slot));
+            assert!(!submission_backoff_required(
+                &[
+                    SourceOutcome::Terminal(TerminalReason::Committed),
+                    SourceOutcome::Terminal(TerminalReason::SourceCompleted),
+                ],
+                skipped_slot,
+            ));
+            assert!(submission_backoff_required(
+                &[SourceOutcome::Terminal(TerminalReason::SourceReverted)],
+                skipped_slot,
+            ));
+        }
+    }
+
     #[test]
     fn companion_admission_reserves_the_whole_group_without_spending_a_rejected_budget() {
         let mut budget = PostBatchGasBudget::new(10_000_000);
@@ -6409,15 +6825,16 @@ mod tests {
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
             entries: 1,
+            entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
         };
-        assert!(budget.try_accept_with_companion(cost, 8_000_000));
+        assert!(budget.try_accept_with_companion(cost, 8_000_000, 8_000_000));
         let accepted = budget;
-        assert!(!budget.try_accept_with_companion(cost, 8_000_000));
+        assert!(!budget.try_accept_with_companion(cost, 8_000_000, 8_000_000));
         assert_eq!(budget.projected, accepted.projected);
         assert_eq!(budget.companion_gas, accepted.companion_gas);
-        assert!(budget.try_accept_with_companion(cost, 1_000_000));
+        assert!(budget.try_accept_with_companion(cost, 1_000_000, 1_000_000));
     }
 
     #[test]
@@ -6427,14 +6844,63 @@ mod tests {
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
             entries: 0,
+            entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
         };
-        assert!(!budget.try_accept_with_companion(cost, 16_777_217));
+        assert!(!budget.try_accept_with_companion(cost, 16_777_217, 16_777_217));
         assert_eq!(budget.companion_gas, 0);
         budget.companion_gas = u64::MAX;
-        assert!(!budget.try_accept_with_companion(cost, 1));
+        assert!(!budget.try_accept_with_companion(cost, 1, 1));
         assert_eq!(budget.companion_gas, u64::MAX);
+    }
+
+    #[test]
+    fn companion_admission_uses_estimated_consumption_and_keeps_declared_headroom() {
+        let mut budget = PostBatchGasBudget::new(16_777_216);
+        budget.block_cap = 17_000_000;
+        budget.transaction_cap = 16_777_216;
+        let cost = TxL1Gas {
+            entries: 1,
+            entry_discount: 0,
+            calldata_gas: 5_000,
+            target_gas: 0,
+        };
+        for _ in 0..17 {
+            assert!(budget.try_accept_with_companion(cost, 1_000_000, 160_000));
+        }
+        assert_eq!(budget.companion_gas, 17 * 160_000);
+        assert_eq!(budget.companion_required_gas, 16 * 160_000 + 1_000_000);
+        let accepted = budget;
+        assert!(
+            !budget.try_accept_with_companion(cost, 16_777_216, 21_000),
+            "a cheap next transaction still needs its declared gas available"
+        );
+        assert_eq!(budget.projected, accepted.projected);
+        assert_eq!(budget.companion_gas, accepted.companion_gas);
+        assert_eq!(
+            budget.companion_required_gas,
+            accepted.companion_required_gas
+        );
+    }
+
+    #[test]
+    fn growing_postbatch_rechecks_every_prior_companions_required_headroom() {
+        let mut budget = PostBatchGasBudget::new(16_777_216);
+        budget.block_cap = 10_000_000;
+        let free = TxL1Gas {
+            entries: 0,
+            entry_discount: 0,
+            calldata_gas: 0,
+            target_gas: 0,
+        };
+        assert!(budget.try_accept_with_companion(free, 8_000_000, 21_000));
+        assert!(budget.try_accept_with_companion(free, 100_000, 21_000));
+        let accepted = budget;
+        assert!(!budget.try_accept(TxL1Gas { entries: 3, ..free }));
+        assert_eq!(budget.projected, accepted.projected);
+        assert_eq!(budget.companion_required_gas, 8_000_000);
+        assert!(!budget.try_accept_with_companion(free, 1, 2));
     }
 
     #[test]
@@ -6934,6 +7400,7 @@ mod tests {
         assert!(
             budget.try_accept(TxL1Gas {
                 entries: 1,
+                entry_discount: 0,
                 calldata_gas: 0,
                 target_gas: 0,
             }),
@@ -7026,6 +7493,22 @@ mod tests {
         }
     }
 
+    /// The single no-call anchor inserted by `prepare_post_batch_raw`: one
+    /// own-rollup root update, zero ether delta and no proxy creation.
+    fn gas_projection_anchor() -> eez_protocol::abi::ExecutionEntrySol {
+        eez_protocol::abi::ExecutionEntrySol {
+            rootUpdates: vec![eez_protocol::abi::RootUpdateSol {
+                rollupId: 1,
+                currentRoot: B256::repeat_byte(0x33),
+                newRoot: B256::repeat_byte(0x44),
+                etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
+            }],
+            destinationRollupId: 1,
+            success: true,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn projection_charges_the_pins_the_calldata_and_the_probed_target() {
         // The cheapest postBatch: tx base + base pin + one leading entry.
@@ -7051,19 +7534,103 @@ mod tests {
     }
 
     #[test]
+    fn native_da_changes_only_blob_references_in_postbatch_calldata() {
+        use alloy_sol_types::SolCall as _;
+
+        let entries = vec![gas_projection_anchor(), outbound_entry()];
+        let cost = projected_tx_l1_gas(&entries[1..], MEASURED_TARGET_GAS);
+        let mut batch = eez_protocol::EvmBatch {
+            entries,
+            immediateEntryCount: U256::from(2),
+            proofs: vec![Bytes::from(vec![0xff; MAX_PROOF_BYTES])],
+            ..Default::default()
+        };
+        let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
+        let mut one_blob_calldata = None;
+        let mut previous_calldata_length = 0;
+        for (payload_bytes, expected_blobs) in
+            [(1, 1), (capacity / 2, 1), (capacity, 2), (capacity * 2, 3)]
+        {
+            let encoded = eez_blob_codec::encode_native_stream(
+                1,
+                Bytes::from(vec![0x77; payload_bytes]),
+                Vec::new(),
+            )
+            .unwrap();
+            let blobs = eez_blob_codec::pack(&encoded.blob_portion).unwrap();
+            assert_eq!(blobs.len(), expected_blobs);
+            batch.blobIndices = (0..blobs.len()).map(U256::from).collect();
+            assert!(batch.callData.is_empty());
+            let calldata = eez_protocol::abi::postAndVerifyBatchCall {
+                batch: batch.clone(),
+            }
+            .abi_encode();
+            if expected_blobs == 1 {
+                assert_eq!(
+                    one_blob_calldata
+                        .get_or_insert_with(|| calldata.clone())
+                        .as_slice(),
+                    calldata.as_slice(),
+                    "changing blob payload length must not duplicate it in L1 calldata",
+                );
+            } else {
+                assert_eq!(
+                    calldata.len(),
+                    previous_calldata_length + 32,
+                    "one additional blob adds its ABI index word, not its payload",
+                );
+            }
+            previous_calldata_length = calldata.len();
+            assert_eq!(
+                projected_tx_l1_gas(&batch.entries[1..], MEASURED_TARGET_GAS).total(),
+                cost.total(),
+            );
+        }
+    }
+
+    #[test]
+    fn real_entry_calldata_and_its_floor_remain_part_of_final_gas() {
+        use alloy_sol_types::SolCall as _;
+
+        let mut entry = outbound_entry();
+        let original = projected_tx_l1_gas(std::slice::from_ref(&entry), MEASURED_TARGET_GAS);
+        entry.l2ToL1Calls[0].data = Bytes::from(vec![0xff; 100_000]);
+        let large = projected_tx_l1_gas(std::slice::from_ref(&entry), MEASURED_TARGET_GAS);
+        assert!(large.calldata_gas > original.calldata_gas + 1_500_000);
+        assert_eq!(large.entries, original.entries);
+        assert_eq!(large.target_gas, MEASURED_TARGET_GAS);
+        let calldata = eez_protocol::abi::postAndVerifyBatchCall {
+            batch: eez_protocol::EvmBatch {
+                entries: vec![gas_projection_anchor(), entry],
+                immediateEntryCount: U256::from(2),
+                blobIndices: vec![U256::ZERO],
+                proofs: vec![Bytes::from(vec![0xff; MAX_PROOF_BYTES])],
+                ..Default::default()
+            },
+        }
+        .abi_encode();
+        let standard = projected_postbatch_gas(2, calldata_gas(&calldata), MEASURED_TARGET_GAS);
+        assert!(
+            calldata_floor_gas(&calldata) > standard,
+            "large real L1 calldata still requires the separate final fork-specific floor",
+        );
+        assert!(calldata_gas(&calldata) > large.calldata_gas);
+        assert_eq!(projected_tx_l1_gas(&[], 0).total(), 0);
+    }
+
+    #[test]
     fn drain_budget_cuts_the_accepted_prefix_below_the_cap() {
         let entries = [outbound_entry()];
-        let raw_tx = vec![0x77u8; 180];
-        let cost = projected_tx_l1_gas(&entries, &entries, &raw_tx, MEASURED_TARGET_GAS);
-        // Every term is charged: one entry, the inline call, and the calldata for
-        // the entry in `batch.entries` plus its DA copy and the raw tx.
+        let cost = projected_tx_l1_gas(&entries, MEASURED_TARGET_GAS);
+        // Charge the actual entry ABI and inline call. Its DA copy and source
+        // transaction are blob bytes, so neither adds postBatch calldata gas.
         assert_eq!(cost.entries, 1);
         assert_eq!(cost.target_gas, MEASURED_TARGET_GAS);
         let encoded = {
             use alloy_sol_types::SolValue as _;
             calldata_gas(&entries[0].abi_encode())
         };
-        assert_eq!(cost.calldata_gas, 2 * encoded + calldata_gas(&raw_tx));
+        assert_eq!(cost.calldata_gas, encoded);
 
         let mut budget = PostBatchGasBudget::new(DEFAULT_MAX_POSTBATCH_GAS);
         // The drain leaves the belt's margin below the cap, or the belt refuses
