@@ -132,7 +132,7 @@ pub struct BlockWitness {
 /// The composer fills this and calls [`Prover::prove`]; the whole window's
 /// block data travels in-band ([`blocks`](Self::blocks)) so the prover is a
 /// stateless function of its input — no feed, no cursor, no backfill.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ProvingContext {
     /// The L2 this window settles.
     pub rollup_id: u64,
@@ -150,8 +150,8 @@ pub struct ProvingContext {
     /// `blockhash(N)` for a block-bound batch's `blockNumber = N`; `None` for a
     /// timeless (0) batch.
     pub l1_block_hash: Option<B256>,
-    /// Active-network target context; absent only for the legacy posting path.
-    pub l1_posting: Option<L1PostingContext>,
+    /// Explicit L1 target whose fork rules authorize this request's blob carrier.
+    pub l1_posting: L1PostingContext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

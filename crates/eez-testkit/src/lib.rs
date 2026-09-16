@@ -700,8 +700,7 @@ impl ProofSignerHandle {
         let working_dir = tempfile::tempdir().context("proof signer working directory")?;
         isolate_dotenv(working_dir.path())?;
         // The fixture's L1 uses the same configured fork schedule with the
-        // separate dev chain ID. Give network-aware proofs an operator-owned
-        // profile; legacy requests continue to exercise their existing bounds.
+        // separate dev chain ID. Every proof uses this operator-owned profile.
         let l1_config_path = write_l1_chain_config(working_dir.path())?;
         let l1_profile = cfg.l1_chain_config.as_deref().unwrap_or(
             l1_config_path

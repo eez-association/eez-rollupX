@@ -2,7 +2,7 @@
 //! groups; a blocked source chain never consumes a position. Execution still
 //! visits outbound candidates before inbound candidates.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use alloy_primitives::Address;
 
@@ -17,25 +17,61 @@ pub(super) struct Selection {
     last_visited: Option<(Address, Direction)>,
     last_accepted: Option<usize>,
     remaining: usize,
+    /// First underpriced nonce in each source chain, in snapshot order.
+    fee_blocked: Vec<usize>,
 }
 
 impl Selection {
-    pub fn new(candidates: &[HeldTx], limit: usize) -> Self {
+    pub fn new(candidates: &[HeldTx], limit: usize, l1_base_fee: u64, l2_base_fee: u64) -> Self {
+        // Fees cannot improve through speculative execution within this slot.
+        // Filter before allocating positions: discovering an underpriced inbound
+        // during phase two is too late to admit another outbound in phase one.
+        // Only defer the blocked nonce and its successors, never its predecessors.
+        let mut fee_nonces: HashMap<_, u64> = HashMap::new();
+        for tx in candidates {
+            let base_fee = match tx.direction {
+                Direction::Inbound => l1_base_fee,
+                Direction::Outbound => l2_base_fee,
+            };
+            if tx.max_fee_per_gas < u128::from(base_fee) {
+                fee_nonces
+                    .entry((tx.sender, tx.direction))
+                    .and_modify(|nonce| *nonce = (*nonce).min(tx.nonce))
+                    .or_insert(tx.nonce);
+            }
+        }
+        let mut waiting = VecDeque::new();
+        let mut fee_blocked = Vec::new();
+        for (index, tx) in candidates.iter().enumerate() {
+            match fee_nonces.get(&(tx.sender, tx.direction)) {
+                Some(nonce) if tx.nonce >= *nonce => {
+                    if tx.nonce == *nonce {
+                        fee_blocked.push(index);
+                    }
+                }
+                _ => waiting.push_back(index),
+            }
+        }
         let mut selection = Self {
             chains: candidates
                 .iter()
                 .map(|tx| (tx.sender, tx.direction))
                 .collect(),
-            waiting: (0..candidates.len()).collect(),
+            waiting,
             eligible: BTreeSet::new(),
             blocked: HashSet::new(),
             visited: HashSet::new(),
             last_visited: None,
             last_accepted: None,
             remaining: limit,
+            fee_blocked,
         };
         selection.fill();
         selection
+    }
+
+    pub fn fee_blocked(&self) -> &[usize] {
+        &self.fee_blocked
     }
 
     fn fill(&mut self) {
@@ -137,12 +173,74 @@ mod tests {
     }
 
     #[test]
+    fn underpriced_inbounds_do_not_strand_ready_outbounds_after_the_phase_boundary() {
+        let mut users = (0..361)
+            .map(|nonce| tx(1, nonce, Direction::Inbound))
+            .collect::<Vec<_>>();
+        users.extend((0..17).map(|nonce| tx(2, nonce, Direction::Outbound)));
+        let mut selection = Selection::new(&users, 30, 2, 1);
+        assert_eq!(selection.fee_blocked(), &[0]);
+        // Canonical outbound-first execution fills the window immediately;
+        // it does not need to simulate an inbound to free these positions.
+        for index in 361..378 {
+            assert!(selection.consider(index));
+            selection.accept(index);
+        }
+        for index in 0..361 {
+            assert!(!selection.consider(index));
+        }
+        assert_eq!(selection.remaining, 13);
+        assert!(!selection.fifo_bypassed());
+        assert_eq!(selection.resume_chain(), None);
+    }
+
+    #[test]
+    fn fee_deferral_preserves_predecessors_and_independent_source_chains() {
+        let mut users = vec![
+            tx(1, 0, Direction::Inbound),
+            tx(1, 1, Direction::Inbound),
+            tx(1, 2, Direction::Inbound),
+            tx(1, 0, Direction::Outbound),
+            tx(2, 0, Direction::Inbound),
+        ];
+        users[1].max_fee_per_gas = 0;
+        let mut selection = Selection::new(&users, 3, 1, 1);
+        assert_eq!(selection.fee_blocked(), &[1]);
+        for index in [3, 0, 4] {
+            assert!(selection.consider(index));
+            selection.accept(index);
+        }
+        assert!(!selection.consider(1));
+        assert!(!selection.consider(2));
+        assert_eq!(selection.remaining, 0);
+    }
+
+    #[test]
+    fn target_fees_are_rechecked_for_each_snapshot_and_equal_caps_are_eligible() {
+        let users = [tx(1, 0, Direction::Inbound), tx(2, 0, Direction::Outbound)];
+        let mut expensive_l1 = Selection::new(&users, 1, 2, 1);
+        assert!(expensive_l1.consider(1));
+        assert!(!expensive_l1.consider(0));
+        let mut cheaper_l1 = Selection::new(&users, 1, 1, 2);
+        assert!(cheaper_l1.consider(0));
+        assert!(!cheaper_l1.consider(1));
+
+        let mut replacement = users.clone();
+        replacement[0].max_fee_per_gas = 2;
+        let mut replaced = Selection::new(&replacement, 1, 2, 1);
+        assert!(replaced.consider(0));
+        assert!(!replaced.consider(1));
+        assert!(replaced.fee_blocked().is_empty());
+        assert!(Selection::new(&users, 0, 0, 0).eligible.is_empty());
+    }
+
+    #[test]
     fn blocked_suffix_does_not_consume_limit_one_or_need_per_transaction_simulation() {
         let mut users = (0..10_000)
             .map(|n| tx(1, n, Direction::Outbound))
             .collect::<Vec<_>>();
         users.push(tx(2, 0, Direction::Inbound));
-        let mut selection = Selection::new(&users, 1);
+        let mut selection = Selection::new(&users, 1, 0, 0);
         assert!(selection.consider(0));
         selection.block(0);
         for index in 1..10_000 {
@@ -156,7 +254,7 @@ mod tests {
     #[test]
     fn inbound_priority_and_next_opportunity_preserve_canonical_phase_order() {
         let users = vec![tx(1, 0, Direction::Inbound), tx(2, 0, Direction::Outbound)];
-        let mut selection = Selection::new(&users, 1);
+        let mut selection = Selection::new(&users, 1, 0, 0);
         assert!(
             !selection.consider(1),
             "outbound cannot steal the older inbound's position"
@@ -168,7 +266,7 @@ mod tests {
             Some((users[1].sender, Direction::Outbound))
         );
         // A later slot evaluates the new chain afresh; no cached ready flag.
-        let mut next = Selection::new(&[users[1].clone(), users[0].clone()], 1);
+        let mut next = Selection::new(&[users[1].clone(), users[0].clone()], 1, 0, 0);
         assert!(next.consider(0));
         next.accept(0);
     }
@@ -180,7 +278,7 @@ mod tests {
             tx(1, 0, Direction::Inbound),
             tx(2, 0, Direction::Outbound),
         ];
-        let mut selection = Selection::new(&users, 2);
+        let mut selection = Selection::new(&users, 2, 0, 0);
         selection.block(0);
         assert!(selection.consider(2));
         selection.accept(2);
@@ -198,7 +296,7 @@ mod tests {
             tx(2, 0, Direction::Outbound),
             tx(3, 0, Direction::Inbound),
         ];
-        let mut selection = Selection::new(&users, 3);
+        let mut selection = Selection::new(&users, 3, 0, 0);
         assert!(!selection.fifo_bypassed());
         assert!(selection.consider(1));
         selection.accept(1);
@@ -213,7 +311,7 @@ mod tests {
             "remaining work is a FIFO suffix"
         );
 
-        let mut blocked = Selection::new(&users, 3);
+        let mut blocked = Selection::new(&users, 3, 0, 0);
         blocked.block(0);
         blocked.accept(1);
         assert!(
@@ -228,7 +326,7 @@ mod tests {
             .map(|n| tx(1, n, Direction::Outbound))
             .collect::<Vec<_>>();
         users.push(tx(2, 0, Direction::Outbound));
-        let mut selection = Selection::new(&users, 64);
+        let mut selection = Selection::new(&users, 64, 0, 0);
         assert!(selection.consider(0));
         // No condition was classified before the deadline. The next opportunity
         // must not repeatedly examine this chain's 9,999 successors first.

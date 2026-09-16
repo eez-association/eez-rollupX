@@ -16,3 +16,9 @@ signs the independently recomputed public-input hash.
 The current production backend is in-process Stateless. The service is
 single-flight and fails closed: any admission, validation, settlement,
 deadline, or signing failure returns no signature.
+
+The signer requires `--l1-chain-config` / `EEZ_L1_CHAIN_CONFIG` (`mainnet`,
+`chiado`, or a Genesis/ChainConfig path). Every request must carry an L1 chain ID
+and target timestamp. Upgrade composer and signer together; requests without
+that context are rejected. Existing Chiado and Kurtosis deployment templates
+already provide the trusted L1 profile.

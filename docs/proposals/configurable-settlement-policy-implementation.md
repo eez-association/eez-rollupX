@@ -145,7 +145,7 @@ Paths below are relative to `crates/` unless stated otherwise.
 | R39 Reorg-aware cost attribution and same-workload cost evidence both profiles (§6.3.1,12) | integration harness/cost records | `reorg_retracts_costs_and_same_height_replacement_is_accounted_once`; native equal-range cost matrix on both profiles | artifacts, no promised savings | component/native verified |
 | R40 Ethereum and actual Gnosis/Chiado adapter/fork/timing support (§7,12) | native node Gnosis EVM retained in `ChainProvider`; per-target EVM environment | native Gnosis always + independent replay; Ethereum/Gnosis cost receipts; pinned chain/executor tests; public Chiado audits | [operator configuration](../configurable-settlement-policy.md) | unit/config/native and Chiado verified |
 | R41 Existing witness retention and replay fallback; missing data preserves work (§8.2) | witness source/composer | native retained/315-block witness history; canonical witness replacement/missing-input tests; native empty-cache replay | no retention redesign | unit/native verified |
-| R42 Existing encoding/serialization/CLI unaffected outside opt-in; reversible config (§1,7,11) | all touched paths | existing codec/golden signer fixtures; additive optional target RPC tests; disabled defaults and native legacy partial regressions | migration without data conversion | unit/native verified |
+| R42 Existing encoding/serialization/CLI unaffected outside opt-in; reversible config (§1,7,11) | all touched paths | existing codec/golden signer fixtures; required target RPC and missing-context rejection tests; disabled defaults and native legacy partial regressions | migration without data conversion | unit/native verified |
 | R43 Observability due reasons, lateness, age, bytes/blob/gas/cost, errors and applied coverage (§9,12) | tracing + harness | native assertions on due/idle reasons, timing, admission limits, actual blob count, exact estimates, applied coverage and receipt-normalized costs | operator documentation | unit/native verified |
 | R44 All relevant fmt/lint/build/tests, native receipt/root/follower evidence and final source audit (§12) | existing build/test infrastructure | recorded checks below; final library/native/signing/CI checks, frozen runtime, source review, and Kurtosis receipt/DA/replay evidence | final coverage audit | verified |
 
@@ -230,10 +230,11 @@ Each case must link to executing coverage before completion.
   profile choices. Disabled-only legacy behavior remains separately tested.
 * **Signer trust input (§6.1,7):** the original signer sees an L2 chain document,
   timeless batch and blobs. It cannot independently select an L1 fork. An
-  additive optional protobuf `L1PostingContext` supplies chain ID/timestamp;
-  `EEZ_L1_CHAIN_CONFIG` independently selects a trusted L1 profile. Contextual
-  requests fail closed without that profile. Old requests retain their original
-  admission. The shared strict loader moved from signer to `eez-l1`, retaining
+  explicit protobuf `L1PostingContext` supplies chain ID/timestamp;
+  `EEZ_L1_CHAIN_CONFIG` independently selects a trusted L1 profile. Both are now
+  required for every request, per the subsequent instruction to remove legacy
+  client compatibility. Missing context is rejected at header admission; a
+  missing profile prevents startup. Composer and signer must be upgraded together. The shared strict loader moved from signer to `eez-l1`, retaining
   its tests. Batch payloads, native stream bytes and signed proof inputs are
   unchanged. The proposal should name this additional startup/wire input.
 * **Restart (§3.3,8):** baseline boot discarded every speculative L2 block
@@ -399,7 +400,7 @@ selection delay remains unexplained in the recovery audit.
 | `eez-l1` canonical head/reader/watcher/submitter/scan | Canonical registration/commitment timestamps, complete scan/generation identity, historical fork rules and quote-bound future dispatch |
 | `eez-l1/src/{posting_fees,chain_config}.rs`, `chain_config/tests.rs` | Checked network fee/cost operations and shared strict chain-profile loader |
 | Blob/payload codecs and `eez-blob-codec/src/limits.rs` | Existing-format exact sizing, shared resolved maxima, multi-blob sidecars and authorized poster repricing |
-| Prover RPC/prover-client/prover; signer config/service/settlement/validation | Additive optional L1 target input, independently trusted signer rules, matching >6-blob admission and retained legacy wire fixtures |
+| Prover RPC/prover-client/prover; signer config/service/settlement/validation | Required L1 target input, independently trusted signer rules, matching >6-blob admission and missing-context rejection |
 | Node/follower startup and node witness-source tests | Validate/propagate profiles before readiness; preserve Gnosis adapter and canonical witness/replay behavior |
 | `eez-node-common/src/{payload,pool}.rs`, `eez-payload-codec/src/block_size.rs` | Bound ordinary data before block construction, retain overflow and nonce dependencies, reject individually unpostable transactions, and preserve composer ownership during pool reinjection |
 | Rust node integration tests and testkit | Native modes, exact follower replay, partial/restart, gas/blob/cost/fault matrices, isolated reversible relay controls |

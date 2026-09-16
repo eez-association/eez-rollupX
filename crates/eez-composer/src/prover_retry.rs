@@ -626,6 +626,22 @@ mod tests {
         }
     }
 
+    fn test_context() -> ProvingContext {
+        ProvingContext {
+            rollup_id: 1,
+            from_block: 1,
+            to_block: 1,
+            batch: Default::default(),
+            blobs: Vec::new(),
+            blocks: Vec::new(),
+            l1_block_hash: None,
+            l1_posting: eez_prover::L1PostingContext {
+                chain_id: 1,
+                target_timestamp: 1,
+            },
+        }
+    }
+
     fn test_timing() -> RollupTiming {
         RollupTiming::new(2_000, 1_000, 500, 100)
     }
@@ -641,7 +657,7 @@ mod tests {
 
         let proof = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             test_timing(),
             BundleTarget::NextBlock,
             TEST_NOW_MS,
@@ -661,7 +677,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             test_timing(),
             BundleTarget::NextBlock,
             TEST_NOW_MS,
@@ -686,7 +702,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             test_timing(),
             BundleTarget::NextBlock,
             TEST_NOW_MS,
@@ -704,7 +720,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             test_timing(),
             BundleTarget::Exact {
                 block: 1,
@@ -728,7 +744,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             test_timing(),
             BundleTarget::NextBlock,
             TEST_NOW_MS,
@@ -751,7 +767,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             timing,
             BundleTarget::NextBlock,
             TEST_NOW_MS,
@@ -775,7 +791,7 @@ mod tests {
 
         let error = prove_with_retry_at(
             &prover,
-            ProvingContext::default(),
+            test_context(),
             timing,
             BundleTarget::NextBlock,
             TEST_NOW_MS,

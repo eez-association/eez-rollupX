@@ -45,11 +45,21 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
-| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Absent legacy profile | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Enabled signing requires the selected L1 profile to validate its target context. Historical followers use the containing block's fork. |
+| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
 Margins use checked `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings
 are per-unit prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
+
+Upgrade composer and signer together: requests without L1 posting context are
+rejected, including when the configurable scheduling policy is disabled.
+The batch, DA and signature formats remain unchanged.
+
+Signed execution fee caps are checked against the pinned L1 target and L2 draft
+base fees before allocating the finite selection window. An underpriced nonce
+and its successors stay queued; earlier nonces and independent source chains
+remain eligible. Fees are reevaluated each opportunity. Balance and nonce checks,
+full simulation, and final bundle validation still apply.
 
 With `EEZ_MAX_USER_TXS_PER_BUNDLE=auto`, the composer selects a finite FIFO
 prefix using preparation measurements from previous attempts. It starts with

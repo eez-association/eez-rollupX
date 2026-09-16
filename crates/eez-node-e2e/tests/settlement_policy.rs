@@ -430,8 +430,8 @@ async fn assert_source_deferral_recovery(
     );
     // An independent source must settle while the original sender is still
     // blocked, including when the configured selection limit is exactly one.
-    // Fee cases cross the phase boundary: inbound A can reveal outbound B
-    // only after the outbound phase ended, so B must lead the next discovery.
+    // Fee cases cross the phase boundary: fee eligibility must be resolved
+    // before the finite window so outbound B can use this opportunity.
     let independent_outbound = if funding { outbound } else { !outbound };
     let (independent_rpc, independent_front, independent_target) = if independent_outbound {
         (world.l2_rpc(), world.l2_xchain(), world.outbound_proxy)
@@ -2606,4 +2606,176 @@ async fn ordinary_rpc_rejects_unpostable_data_without_consuming_nonce() {
             .unwrap(),
         0
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_fee_waits_do_not_consume_the_first_outbound_selection() {
+    assert_fee_waits_do_not_consume_selection(eez_testkit::NativeL1Profile::EthereumOsaka).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_fee_waits_do_not_consume_the_first_outbound_selection() {
+    assert_fee_waits_do_not_consume_selection(eez_testkit::NativeL1Profile::GnosisPrague).await;
+}
+
+async fn assert_fee_waits_do_not_consume_selection(profile: eez_testkit::NativeL1Profile) {
+    use alloy_consensus::{SignableTransaction as _, TxEip1559};
+    use alloy_eips::Encodable2718 as _;
+    use alloy_network::TxSignerSync as _;
+    use alloy_primitives::TxKind;
+    use alloy_signer_local::PrivateKeySigner;
+    use eez_testkit::{ANVIL_KEY_2, ANVIL_KEY_4, IValue, onchain_nonce, sign_and_send, wait_for};
+
+    let mut env = policy_env(Vec::new(), "interval");
+    env.extend([
+        ("EEZ_MAX_USER_TXS_PER_BUNDLE", "3".into()),
+        ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()),
+    ]);
+    let world = eez_testkit::setup_cross_chain_with_profile(profile, &env)
+        .await
+        .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
+    let inbound_nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
+    let outbound_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
+    let chain_id = l1.get_chain_id().await.unwrap();
+    let signer: PrivateKeySigner = ANVIL_KEY_2.parse().unwrap();
+    // Construct a complete signed wave first. Queue it immediately after an idle
+    // opportunity so its arrival cannot straddle the next finite snapshot.
+    let blocked = (0..3)
+        .map(|offset| {
+            let mut tx = TxEip1559 {
+                chain_id,
+                nonce: inbound_nonce + offset,
+                gas_limit: 400_000,
+                max_fee_per_gas: 0,
+                max_priority_fee_per_gas: 0,
+                to: TxKind::Call(world.setter_proxy),
+                input: IValue::setValueCall {
+                    v: U256::from(offset + 1),
+                }
+                .abi_encode()
+                .into(),
+                ..Default::default()
+            };
+            let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+            alloy_consensus::TxEnvelope::from(tx.into_signed(signature))
+        })
+        .collect::<Vec<_>>();
+    let idle = world.node.signal_cursor().unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(idle)?
+            .iter()
+            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    let cursor = world.node.signal_cursor().unwrap();
+    for tx in &blocked {
+        assert_eq!(
+            front
+                .send_raw_transaction(&tx.encoded_2718())
+                .await
+                .unwrap()
+                .tx_hash(),
+            tx.tx_hash()
+        );
+    }
+    let mut ready = Vec::new();
+    for offset in 0..2 {
+        ready.push(
+            sign_and_send(
+                &world.l2_xchain(),
+                ANVIL_KEY_4,
+                world.l2_chain_id,
+                outbound_nonce + offset,
+                Some(world.outbound_proxy),
+                U256::ZERO,
+                IValue::setValueCall {
+                    v: U256::from(10 + offset),
+                }
+                .abi_encode(),
+                400_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let mut settled_block = None;
+    for hash in ready {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "ready outbound stalled: {e:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        if let Some(block) = settled_block {
+            assert_eq!(receipt.block_number, Some(block));
+        }
+        settled_block = receipt.block_number;
+    }
+    let events = world.node.signals_since(cursor).unwrap();
+    let drain = events
+        .iter()
+        .position(|e| e.name == "eez.composer.sync_slot.drain")
+        .unwrap();
+    assert_eq!(
+        events[drain].fields["candidate_count"], 5,
+        "wave must reach one snapshot"
+    );
+    assert_eq!(events[drain].fields["selection_limit"], 3);
+    let next = events[drain + 1..]
+        .iter()
+        .find(|e| {
+            matches!(
+                e.name.as_str(),
+                "eez.composer.sync_slot.drain" | "eez.composer.admission.prepared"
+            )
+        })
+        .unwrap();
+    assert_eq!(
+        next.name, "eez.composer.admission.prepared",
+        "ready users must not wait for another selection"
+    );
+    assert_eq!(next.fields["accepted"], 2);
+    assert_eq!(
+        l1.get_transaction_count(signer.address()).await.unwrap(),
+        inbound_nonce
+    );
+    for tx in &blocked {
+        assert!(
+            l1.get_transaction_receipt(*tx.tx_hash())
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    let follower = NodeHandle::start(
+        "fee-selection-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], settled_block.unwrap(), TIMEOUT)
+        .await
+        .unwrap();
+    let queue: serde_json::Value = l2
+        .client()
+        .request("eez_getCrossChainQueueStatus", ())
+        .await
+        .unwrap();
+    assert_eq!(queue["blocked"], 3);
 }

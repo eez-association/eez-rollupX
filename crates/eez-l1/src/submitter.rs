@@ -602,6 +602,31 @@ impl Submitter {
         .await
     }
 
+    /// Pin a deferred target before proving, retaining the existing two-block
+    /// offset. The signer and sender must use the same fork timestamp. Skipped
+    /// slots fail the exact-target check and are retried with a fresh proof.
+    pub async fn resolve_target(&self, target: BundleTarget) -> L1Result<BundleTarget> {
+        if matches!(target, BundleTarget::Exact { .. }) {
+            return Ok(target);
+        }
+        let tip = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
+        let block = tip
+            .header
+            .number
+            .checked_add(NEXT_BLOCK_SLACK)
+            .ok_or_else(|| L1Error::Provider("L1 target block overflow".into()))?;
+        let timestamp = self
+            .inner
+            .submission_timing
+            .l1_block_time_secs()
+            .checked_mul(NEXT_BLOCK_SLACK)
+            .and_then(|offset| tip.header.timestamp.checked_add(offset))
+            .ok_or_else(|| L1Error::Provider("L1 target timestamp overflow".into()))?;
+        Ok(BundleTarget::Exact { block, timestamp })
+    }
+
     /// Submit only after the caller has recorded the exact target.
     /// The callback runs before external dispatch and may veto it on error.
     /// Only signed L1 users following the required postBatch may revert.
@@ -1521,6 +1546,58 @@ mod tests {
             requests
         });
         (url, server)
+    }
+
+    #[tokio::test]
+    async fn deferred_proof_target_is_pinned_once_with_the_network_slot_time() {
+        for slot_secs in [5, 12] {
+            let (url, server) = rpc_server(
+                vec![serde_json::json!({
+                    "result": mock_block(41, PIN, B256::ZERO)
+                })],
+                false,
+            )
+            .await;
+            let mut submitter = test_submitter(url);
+            std::sync::Arc::get_mut(&mut submitter.inner)
+                .unwrap()
+                .submission_timing = timing(slot_secs * 1_000);
+            let target = submitter
+                .resolve_target(BundleTarget::NextBlock)
+                .await
+                .unwrap();
+            assert_eq!(
+                target,
+                BundleTarget::Exact {
+                    block: 43,
+                    timestamp: PIN + 2 * slot_secs
+                }
+            );
+            let requests = server.await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0]["method"], "eth_getBlockByNumber");
+            // The RPC is gone: an already pinned target must never be retargeted.
+            assert_eq!(submitter.resolve_target(target).await.unwrap(), target);
+        }
+    }
+
+    #[tokio::test]
+    async fn deferred_proof_target_refuses_missing_heads_and_overflow() {
+        for result in [
+            serde_json::Value::Null,
+            serde_json::to_value(mock_block(u64::MAX, PIN, B256::ZERO)).unwrap(),
+            serde_json::to_value(mock_block(41, u64::MAX, B256::ZERO)).unwrap(),
+        ] {
+            let (url, server) =
+                rpc_server(vec![serde_json::json!({ "result": result })], false).await;
+            assert!(
+                test_submitter(url)
+                    .resolve_target(BundleTarget::NextBlock)
+                    .await
+                    .is_err()
+            );
+            server.await.unwrap();
+        }
     }
 
     #[tokio::test]

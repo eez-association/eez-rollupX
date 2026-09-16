@@ -1548,6 +1548,19 @@ where
         let parent_number = parent_header.number();
         let suggested_fee_recipient: Address = Address::ZERO;
 
+        let bundle_target = if self.inner.policy.is_some() {
+            // Policy catch-up selects its earliest feasible target below.
+            bundle_target
+        } else {
+            match self.inner.submitter.resolve_target(bundle_target).await {
+                Ok(target) => target,
+                Err(error) => {
+                    event!(Level::WARN, rollup_id, %error, "L1 proof target unavailable; retaining pending work");
+                    return self.build_empty_slot_block(rollup, &parent_header, timestamp);
+                }
+            }
+        };
+
         // All user ownership changes require complete canonical evidence.
         // A matching height, including a competing batch, proves no user nonce.
         if let Some(attempt) = rollup.optimistic.pending_attempt() {
@@ -2538,9 +2551,36 @@ where
             selection::Selection::new(
                 &drained,
                 admission.map_or(drained.len(), |attempt| attempt.selected),
+                l1_state.posting.as_ref().map_or_else(
+                    || l1_state.anchor.base_fee_per_gas.unwrap_or_default(),
+                    |(env, _, _)| env.block_env.basefee,
+                ),
+                draft.base_fee(),
             )
         });
         let mut source_nonces = HashMap::new();
+        let l1_anchor_hash = l1_state.anchor.hash();
+        let mut source_nonce = |held: &HeldTx| -> Result<u64, String> {
+            let key = (held.sender, held.direction);
+            if let Some(nonce) = source_nonces.get(&key) {
+                return Ok(*nonce);
+            }
+            let source = match held.direction {
+                Direction::Outbound => rollup.l2_provider.state_by_block_hash(parent_hash),
+                Direction::Inbound => local
+                    .l1_entry
+                    .chain_provider()
+                    .provider
+                    .state_by_block_hash(l1_anchor_hash),
+            }
+            .map_err(|e| format!("pinned source state: {e}"))?;
+            let nonce = source
+                .account_nonce(&held.sender)
+                .map_err(|e| format!("pinned source nonce: {e}"))?
+                .unwrap_or(0);
+            source_nonces.insert(key, nonce);
+            Ok(nonce)
+        };
         let mut source_deferred = Vec::new();
         let source_state = crate::held_pool::SourceState {
             l1: eez_l1::L1BlockRef {
@@ -2575,27 +2615,7 @@ where
                     selection.block(idx);
                     continue;
                 }
-                let key = (held.sender, held.direction);
-                let baseline = if let Some(nonce) = source_nonces.get(&key) {
-                    *nonce
-                } else {
-                    let source = if held.direction == Direction::Outbound {
-                        rollup.l2_provider.state_by_block_hash(parent_hash)
-                    } else {
-                        local
-                            .l1_entry
-                            .chain_provider()
-                            .provider
-                            .state_by_block_hash(l1_state.anchor.hash())
-                    }
-                    .map_err(|e| format!("pinned source state: {e}"))?;
-                    let nonce = source
-                        .account_nonce(&held.sender)
-                        .map_err(|e| format!("pinned source nonce: {e}"))?
-                        .unwrap_or(0);
-                    source_nonces.insert(key, nonce);
-                    nonce
-                };
+                let baseline = source_nonce(&held)?;
                 if held.nonce < baseline {
                     if pool.recheck_stale_sources(std::slice::from_ref(&held))? {
                         return Err(
@@ -3280,27 +3300,7 @@ where
                     selection.block(idx);
                     continue;
                 }
-                let key = (held.sender, held.direction);
-                let baseline = if let Some(nonce) = source_nonces.get(&key) {
-                    *nonce
-                } else {
-                    let source = if held.direction == Direction::Outbound {
-                        rollup.l2_provider.state_by_block_hash(parent_hash)
-                    } else {
-                        local
-                            .l1_entry
-                            .chain_provider()
-                            .provider
-                            .state_by_block_hash(l1_state.anchor.hash())
-                    }
-                    .map_err(|e| format!("pinned source state: {e}"))?;
-                    let nonce = source
-                        .account_nonce(&held.sender)
-                        .map_err(|e| format!("pinned source nonce: {e}"))?
-                        .unwrap_or(0);
-                    source_nonces.insert(key, nonce);
-                    nonce
-                };
+                let baseline = source_nonce(&held)?;
                 if held.nonce < baseline {
                     if pool.recheck_stale_sources(std::slice::from_ref(&held))? {
                         return Err(
@@ -3663,6 +3663,34 @@ where
             }
         }
 
+        // Eligible work gets the execution budget first. Classify fee waits
+        // afterward, within the same preparation budget, so a large number of
+        // underpriced senders cannot starve already selected independent work.
+        if let Some(selection) = &selection {
+            for &idx in selection.fee_blocked() {
+                if admission.is_some_and(|attempt| !attempt.can_check_source(survivors.len())) {
+                    break;
+                }
+                let held = &snapshot[idx];
+                // A replacement may have arrived since the snapshot. Claim only
+                // the exact envelope, and retain it without charging an attempt.
+                // A blocked successor stays queued behind its ready predecessor.
+                if pool.claim(held) {
+                    // A source mined elsewhere is stale even when its old fee
+                    // cap is now too low. Do not retain it as a permanent fee wait.
+                    if held.nonce < source_nonce(held)? {
+                        if pool.recheck_stale_sources(std::slice::from_ref(held))? {
+                            return Err(
+                                "source nonce advanced; canonical reconciliation required".into()
+                            );
+                        }
+                        continue;
+                    }
+                    pool.record_blocked(held, eez_protocol::SourceCondition::Fee, source_state);
+                    source_deferred.push((idx, held.clone()));
+                }
+            }
+        }
         if let Some(selection) = &selection
             && let Some(chain) = selection.resume_chain()
             && let Some(tx) = snapshot
@@ -3672,7 +3700,12 @@ where
             pool.resume_discovery_at(tx);
         }
         if let Some(attempt) = admission {
-            attempt.source_deferred(!source_deferred.is_empty());
+            attempt.source_deferred(
+                !source_deferred.is_empty()
+                    || selection
+                        .as_ref()
+                        .is_some_and(|s| !s.fee_blocked().is_empty()),
+            );
         }
         self.cancel_historical_predecessor_groups(
             rollup_id,
@@ -4888,7 +4921,11 @@ where
                 .await
                 .map_err(|error| error.to_string())?
         } else {
-            BundleTarget::NextBlock
+            self.inner
+                .submitter
+                .resolve_target(BundleTarget::NextBlock)
+                .await
+                .map_err(|error| error.to_string())?
         };
         let provider = rollup.l2_provider.as_ref();
         let maximum_blobs = self.posting_blob_allowance(bundle_target, 0)?;
@@ -4971,9 +5008,8 @@ where
                 SettlementManifest::empty(boundary, boundary_header.hash()),
                 raw.clone(),
             )?;
-            // A past terminal uses a fresh future settlement target. Enabled
-            // policy resolved it before preparation; legacy NextBlock resolves
-            // and timestamp-pins it at dispatch.
+            // A past terminal uses the future target already pinned for its
+            // proof. Dispatch must not change the timestamp or its fork rules.
             self.spawn_bundle_observer(
                 ctx,
                 rollup_id,
@@ -6165,16 +6201,14 @@ where
             blobs: transaction_blobs.clone(),
             blocks: block_witnesses,
             l1_block_hash: None, // timeless batch (blockNumber 0)
-            l1_posting: if self.inner.policy.is_some() {
+            l1_posting: {
                 let BundleTarget::Exact { timestamp, .. } = bundle_target else {
-                    return Err("enabled policy requires an exact L1 proof target".into());
+                    return Err("proof requires an exact L1 target".into());
                 };
-                Some(eez_prover::L1PostingContext {
+                eez_prover::L1PostingContext {
                     chain_id: ctx.l1_chain_id,
                     target_timestamp: timestamp,
-                })
-            } else {
-                None
+                }
             },
         };
         if let Some(attempt) = admission {

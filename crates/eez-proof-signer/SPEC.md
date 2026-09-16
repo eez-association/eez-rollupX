@@ -149,6 +149,7 @@ The CLI value takes precedence.
 | --- | --- | --- | --- |
 | `--listen-addr` | `EEZ_PROOF_SIGNER_ADDR` | `127.0.0.1:50061` | Valid socket address. |
 | `--chain-config` | `EEZ_CHAIN_CONFIG` | none | Path to a strict Alloy `ChainConfig` or complete `Genesis` document. |
+| `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required trusted L1 profile: `mainnet`, `chiado`, or a Genesis/ChainConfig path. |
 | `--rollup-id` | `EEZ_ROLLUP_ID` | none | Nonzero L1 registry rollup ID. This is not the L2 EIP-155 chain ID. |
 | `--vkey` | `EEZ_VKEY` | none | Nonzero 32-byte proof-system vkey. |
 | `--signer-key` | `EEZ_PROOF_SIGNER_KEY` | none | Valid secp256k1 attestation private key. |
@@ -250,7 +251,10 @@ block, witness, or settlement correctness.
 
 ### 5.1 Header
 
-The first chunk MUST be a `ProveHeader`. It MUST contain `post_batch`.
+The first chunk MUST be a `ProveHeader`. It MUST contain `post_batch` and
+`post_batch.posting_context`. Missing context is rejected before reading blocks.
+Before execution, its chain ID MUST match the trusted L1 profile, and its target
+timestamp MUST select active blob rules. There is no legacy blob-limit fallback.
 
 The header is admitted only if:
 
@@ -725,7 +729,8 @@ terminal block.
 With no authorized effects, no Sync sequence is reconstructed.
 
 The payload is transported only through native blobs. `batch.callData` MUST be
-empty, one to six physical EIP-4844 blobs MUST be supplied, and
+empty, at least one physical EIP-4844 blob MUST be supplied within the trusted
+L1 profile's allowance at `post_batch.posting_context.target_timestamp`, and
 `batch.blobIndices` MUST be exactly the ordered identity selection
 `[0, 1, ...]`. Missing blobs and calldata-only batches are rejected.
 

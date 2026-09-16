@@ -78,65 +78,50 @@ fn test_system_transaction_key() -> settlement::SystemTransactionKey {
 }
 
 #[test]
-fn posting_rules_require_trusted_profile_and_select_target_fork() {
+fn posting_rules_use_the_trusted_profile_and_exact_target_fork() {
     use eez_control_rpc::v1::L1PostingContext;
     let context = L1PostingContext {
         chain_id: 100,
         target_timestamp: 999,
     };
-    let state = ServiceState::new(
-        Validator::stub(Vec::new()),
-        expected_rollup_id(1),
-        test_attester(),
-        test_system_transaction_key(),
-    )
-    .unwrap();
-    assert_eq!(state.posting_blob_limit(None).unwrap(), 6);
-    assert_eq!(
-        state.posting_blob_limit(Some(&context)).unwrap_err().code(),
-        Code::FailedPrecondition
-    );
     let mut genesis = alloy_genesis::Genesis::default();
     genesis.config.chain_id = 100;
     genesis.config.cancun_time = Some(10);
     genesis.config.prague_time = Some(20);
     genesis.config.osaka_time = Some(1_000);
-    let state = state.with_l1_chain_spec(Some(Arc::new(reth_chainspec::ChainSpec::from(genesis))));
-    assert_eq!(
-        state.posting_blob_limit(None).unwrap(),
-        6,
-        "old requests remain compatible"
-    );
-    assert_eq!(state.posting_blob_limit(Some(&context)).unwrap(), 9);
+    let state = ServiceState::new(
+        Validator::stub(Vec::new()),
+        expected_rollup_id(1),
+        test_attester(),
+        test_system_transaction_key(),
+        Arc::new(reth_chainspec::ChainSpec::from(genesis)),
+    )
+    .unwrap();
+    assert_eq!(state.posting_blob_limit(&context).unwrap(), 9);
     assert_eq!(
         state
-            .posting_blob_limit(Some(&L1PostingContext {
+            .posting_blob_limit(&L1PostingContext {
                 target_timestamp: 1_000,
                 ..context
-            }))
+            })
             .unwrap(),
         6
     );
-    assert_eq!(
-        state
-            .posting_blob_limit(Some(&L1PostingContext {
-                target_timestamp: 0,
-                ..context
-            }))
-            .unwrap_err()
-            .code(),
-        Code::InvalidArgument
-    );
-    assert_eq!(
-        state
-            .posting_blob_limit(Some(&L1PostingContext {
-                chain_id: 1,
-                ..context
-            }))
-            .unwrap_err()
-            .code(),
-        Code::InvalidArgument
-    );
+    for invalid in [
+        L1PostingContext {
+            target_timestamp: 0,
+            ..context
+        },
+        L1PostingContext {
+            chain_id: 1,
+            ..context
+        },
+    ] {
+        assert_eq!(
+            state.posting_blob_limit(&invalid).unwrap_err().code(),
+            Code::InvalidArgument
+        );
+    }
 }
 
 #[test]
@@ -153,6 +138,7 @@ fn service_state_rejects_a_validator_for_another_system_identity() {
         expected_rollup_id(1),
         test_attester(),
         other_key,
+        crate::testkit::l1_chain_spec(),
     )
     .unwrap_err();
 
@@ -177,6 +163,7 @@ fn service_state_rejects_an_attester_bound_to_another_system_identity() {
         expected_rollup_id(1),
         attester,
         test_system_transaction_key(),
+        crate::testkit::l1_chain_spec(),
     )
     .unwrap_err();
 
@@ -482,6 +469,7 @@ fn public_input_post_batch_for_semantics(
             .into_iter()
             .map(|blob| blob.into_bytes().into_vec())
             .collect(),
+        posting_context: Some(crate::testkit::posting_context()),
         ..PostBatch::default()
     }
 }
@@ -992,6 +980,7 @@ fn inner_with_rollup(validator: Validator, expected_rollup_id: NonZeroU64) -> Ar
             expected_rollup_id,
             test_attester(),
             test_system_transaction_key(),
+            crate::testkit::l1_chain_spec(),
         )
         .unwrap(),
     )

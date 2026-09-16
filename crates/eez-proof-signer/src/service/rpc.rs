@@ -123,7 +123,7 @@ impl Prover for ProveSvc {
             submitted_blobs,
             posting_context,
         } = header;
-        let maximum_blobs = self.state.posting_blob_limit(posting_context.as_ref())?;
+        let maximum_blobs = self.state.posting_blob_limit(&posting_context)?;
         timing.ensure_before_deadline(
             "pipeline",
             "Prove request deadline exceeded before request pipeline",

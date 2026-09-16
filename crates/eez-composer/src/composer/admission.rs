@@ -207,7 +207,13 @@ impl Attempt {
         self.can_start_at(accepted, self.started.elapsed())
     }
 
-    fn can_start_at(&self, accepted: usize, elapsed: Duration) -> bool {
+    /// Reserve finishing time when checking deferred sources, without recording
+    /// an execution attempt or contaminating accepted-group timing samples.
+    pub fn can_check_source(&self, accepted: usize) -> bool {
+        self.next_group_fits(accepted, self.started.elapsed())
+    }
+
+    fn next_group_fits(&self, accepted: usize, elapsed: Duration) -> bool {
         let remaining = self.available.saturating_sub(elapsed);
         if remaining.is_zero() {
             return false;
@@ -224,7 +230,12 @@ impl Attempt {
         } else {
             elapsed.as_nanos() / accepted as u128
         };
-        let fits = remaining.as_nanos() > group.saturating_add(tail);
+        remaining.as_nanos() > group.saturating_add(tail)
+    }
+
+    fn can_start_at(&self, accepted: usize, elapsed: Duration) -> bool {
+        let fits = self.next_group_fits(accepted, elapsed);
+        let next = accepted.saturating_add(1);
         let mut progress = self.progress.lock().unwrap();
         if fits {
             if let Some(started) = progress.started_groups.checked_add(1) {
@@ -523,6 +534,17 @@ mod tests {
                 ..Default::default()
             }),
         }
+    }
+
+    #[test]
+    fn source_checks_reserve_time_without_recording_execution_work() {
+        let attempt = attempt(3, 0, false, None);
+        assert!(attempt.can_check_source(0));
+        assert_eq!(attempt.progress.lock().unwrap().started_groups, 0);
+        assert!(attempt.progress.lock().unwrap().group_started.is_none());
+        assert!(!attempt.next_group_fits(0, attempt.available));
+        assert!(attempt.can_start_group(0));
+        assert_eq!(attempt.progress.lock().unwrap().started_groups, 1);
     }
 
     #[test]

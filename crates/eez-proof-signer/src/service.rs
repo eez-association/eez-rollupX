@@ -105,7 +105,7 @@ pub(crate) struct ServiceState {
     expected_l2_system_address: Address,
     attester: Attester,
     system_transaction_reconstructor: settlement::SystemTransactionReconstructor,
-    l1_chain_spec: Option<Arc<reth_chainspec::ChainSpec>>,
+    l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
 }
 
 impl ServiceState {
@@ -116,6 +116,7 @@ impl ServiceState {
         expected_rollup_id: NonZeroU64,
         attester: Attester,
         system_transaction_key: settlement::SystemTransactionKey,
+        l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
     ) -> eyre::Result<Self> {
         let expected_l2_system_address = system_transaction_key.address();
         eyre::ensure!(
@@ -134,31 +135,16 @@ impl ServiceState {
             expected_l2_system_address,
             attester,
             system_transaction_reconstructor,
-            l1_chain_spec: None,
+            l1_chain_spec,
         })
-    }
-
-    pub(crate) fn with_l1_chain_spec(
-        mut self,
-        chain_spec: Option<Arc<reth_chainspec::ChainSpec>>,
-    ) -> Self {
-        self.l1_chain_spec = chain_spec;
-        self
     }
 
     fn posting_blob_limit(
         &self,
-        target: Option<&eez_control_rpc::v1::L1PostingContext>,
+        target: &eez_control_rpc::v1::L1PostingContext,
     ) -> Result<usize, tonic::Status> {
         use reth_chainspec::EthChainSpec as _;
-        let Some(target) = target else {
-            return Ok(eez_blob_codec::MAX_BLOBS_PER_TRANSACTION);
-        };
-        let chain_spec = self.l1_chain_spec.as_ref().ok_or_else(|| {
-            tonic::Status::failed_precondition(
-                "network-aware requests require the operator's EEZ_L1_CHAIN_CONFIG",
-            )
-        })?;
+        let chain_spec = &self.l1_chain_spec;
         if target.chain_id != chain_spec.chain().id() {
             return Err(tonic::Status::invalid_argument(
                 "posting context chain does not match trusted L1 chain",

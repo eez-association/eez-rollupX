@@ -388,6 +388,12 @@ impl SyncBlockState {
         self.gas_used
     }
 
+    /// Base fee used by canonical transactions in this draft's execution environment.
+    #[must_use]
+    pub const fn base_fee(&self) -> u64 {
+        self.evm_env.block_env.basefee
+    }
+
     /// Execute one raw EIP-2718 tx with full real-STF semantics and commit it,
     /// extending the prefix by one.
     ///
