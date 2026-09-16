@@ -17,8 +17,12 @@ use crate::local::L1TargetSession;
 // contracts/test/PostBatchGasPins.t.sol. Intrinsic/calldata/target gas and the
 // operator's percentage margin are separate. Unknown shapes keep the old pin.
 const DEFERRED_ENTRY_GAS: u64 = 270_000;
+const SHORT_DEFERRED_ENTRY_GAS: u64 = 230_000;
+const WORD_DEFERRED_ENTRY_GAS: u64 = 250_000;
 const EXISTING_PROXY_ENTRY_GAS: u64 = 70_000;
 const PREVIOUS_ENTRY_CLEANUP_GAS: u64 = 65_000;
+const SHORT_ENTRY_CLEANUP_GAS: u64 = 55_000;
+const WORD_ENTRY_CLEANUP_GAS: u64 = 60_000;
 const MAX_SIMPLE_RESULT_BYTES: usize = 64;
 pub(super) const MAX_SHAPED_ENTRIES: u64 = 128;
 
@@ -146,7 +150,14 @@ impl Projection {
             && entry.destinationRollupId == self.rollup_id
             && entry.l2ToL1Calls.is_empty()
         {
-            return DEFERRED_ENTRY_GAS;
+            // Solidity stores up to 31 bytes in the length slot; 32 bytes
+            // needs one external slot and 33..=64 needs two. Charge only the
+            // measured size class, with the same shape gates and final check.
+            return match entry.returnData.len() {
+                0..=31 => SHORT_DEFERRED_ENTRY_GAS,
+                32 => WORD_DEFERRED_ENTRY_GAS,
+                _ => DEFERRED_ENTRY_GAS,
+            };
         }
         POSTBATCH_ENTRY_GAS_PIN
     }
@@ -245,6 +256,7 @@ fn previous_cleanup<E>(
     }
     let start = U256::from_be_bytes(keccak256(normal.to_be_bytes::<32>()).0);
     let count = length.to::<u64>();
+    let mut cleanup_gas = 0u64;
     for index in 0..count {
         let entry = start.wrapping_add(U256::from(index * 7));
         if read(B256::from(entry))? > U256::from(1)
@@ -261,11 +273,20 @@ fn previous_cleanup<E>(
         let long = low & 1 == 1
             && data >= U256::from(65)
             && data <= U256::from(MAX_SIMPLE_RESULT_BYTES * 2 + 1);
-        if !(short || long) {
+        let entry_gas = if short {
+            SHORT_ENTRY_CLEANUP_GAS
+        } else if long {
+            if data == U256::from(65) {
+                WORD_ENTRY_CLEANUP_GAS
+            } else {
+                PREVIOUS_ENTRY_CLEANUP_GAS
+            }
+        } else {
             return Ok(None);
-        }
+        };
+        cleanup_gas = cleanup_gas.saturating_add(entry_gas);
     }
-    Ok(Some(count.saturating_mul(PREVIOUS_ENTRY_CLEANUP_GAS)))
+    Ok(Some(cleanup_gas))
 }
 
 #[cfg(test)]
@@ -382,6 +403,74 @@ mod tests {
             p.entry_gas(&with_call, false, None),
             POSTBATCH_ENTRY_GAS_PIN
         );
+    }
+
+    #[test]
+    fn deferred_reserves_follow_storage_boundaries_without_expanding_eligibility() {
+        let p = model(0);
+        for (length, expected) in [
+            (0, 230_000),
+            (1, 230_000),
+            (30, 230_000),
+            (31, 230_000),
+            (32, 250_000),
+            (33, 270_000),
+            (63, 270_000),
+            (64, 270_000),
+            (65, 370_000),
+        ] {
+            let mut entry = deferred();
+            entry.returnData = Bytes::from(vec![0xff; length]);
+            assert_eq!(p.entry_gas(&entry, false, None), expected);
+            // Return size alone never grants immediate or failed-entry savings.
+            assert_eq!(p.entry_gas(&entry, true, None), POSTBATCH_ENTRY_GAS_PIN);
+            entry.success = false;
+            assert_eq!(p.entry_gas(&entry, false, None), POSTBATCH_ENTRY_GAS_PIN);
+        }
+    }
+
+    #[test]
+    fn mixed_result_reserves_admit_a_larger_complete_prefix_and_match_final_sizing() {
+        // The same previous short/word/long queue costs 180k to clear, even
+        // after consumption. Two mixed three-entry groups save 120k compared
+        // with reserving 270k for every result. Use an exact budget boundary.
+        let p = model(180_000);
+        let entries: Vec<_> = [31, 32, 64]
+            .into_iter()
+            .map(|length| {
+                let mut entry = deferred();
+                entry.returnData = Bytes::from(vec![0xff; length]);
+                entry
+            })
+            .collect();
+        let cost = p.cost(&entries, 0, false, None);
+        assert_eq!(cost.entry_discount, 360_000);
+        let cap = p.initial_gas() + 2 * cost.total() + POSTBATCH_DRAIN_MARGIN;
+        let mut budget = PostBatchGasBudget::new(cap);
+        budget.projected = p.initial_gas();
+        assert!(budget.try_accept(cost));
+        assert!(budget.try_accept(cost));
+        let before = budget.projected;
+        assert!(!budget.try_accept(cost));
+        assert_eq!(budget.projected, before, "refused group spends no gas");
+        let final_batch = batch(
+            std::iter::once(anchor())
+                .chain(entries.iter().cloned().cycle().take(6))
+                .collect(),
+            1,
+        );
+        assert_eq!(
+            budget.projected,
+            p.batch_gas(&final_batch, 2 * cost.calldata_gas, 0)
+        );
+        let old_cost = TxL1Gas {
+            entry_discount: 3 * (POSTBATCH_ENTRY_GAS_PIN - DEFERRED_ENTRY_GAS),
+            ..cost
+        };
+        let mut old = PostBatchGasBudget::new(cap);
+        old.projected = p.initial_gas();
+        assert!(old.try_accept(old_cost));
+        assert!(!old.try_accept(old_cost));
     }
 
     #[test]
@@ -543,13 +632,28 @@ mod tests {
             })
             .unwrap()
         };
-        assert_eq!(read(&storage), Some(2 * PREVIOUS_ENTRY_CLEANUP_GAS));
-        for length in 32..=MAX_SIMPLE_RESULT_BYTES {
-            storage.insert(
-                B256::from(start + U256::from(6)),
-                U256::from(2 * length + 1),
+        assert_eq!(read(&storage), Some(120_000));
+        for length in 0..=MAX_SIMPLE_RESULT_BYTES {
+            let encoded = if length < 32 {
+                U256::from(length * 2)
+            } else {
+                U256::from(length * 2 + 1)
+            };
+            storage.insert(B256::from(start + U256::from(6)), encoded);
+            let expected = match length {
+                0..=31 => 120_000,
+                32 => 125_000,
+                _ => 130_000,
+            };
+            assert_eq!(read(&storage), Some(expected), "result bytes {length}");
+        }
+        for malformed in [1, 63, 64, 66, 128, 131] {
+            storage.insert(B256::from(start + U256::from(6)), U256::from(malformed));
+            assert_eq!(
+                read(&storage),
+                None,
+                "invalid or oversized result encoding {malformed}"
             );
-            assert_eq!(read(&storage), Some(2 * PREVIOUS_ENTRY_CLEANUP_GAS));
         }
         storage.insert(B256::from(start + U256::from(6)), U256::from(131));
         assert_eq!(read(&storage), None, "65-byte old result needs fallback");
@@ -628,8 +732,12 @@ mod tests {
         let contract = include_str!("../../../../contracts/test/PostBatchGasPins.t.sol");
         for (name, expected) in [
             ("BOUNDED_DEFERRED_GAS_PIN", DEFERRED_ENTRY_GAS),
+            ("SHORT_DEFERRED_GAS_PIN", SHORT_DEFERRED_ENTRY_GAS),
+            ("WORD_DEFERRED_GAS_PIN", WORD_DEFERRED_ENTRY_GAS),
             ("EXISTING_PROXY_GAS_PIN", EXISTING_PROXY_ENTRY_GAS),
             ("SIMPLE_QUEUE_CLEANUP_GAS_PIN", PREVIOUS_ENTRY_CLEANUP_GAS),
+            ("SHORT_QUEUE_CLEANUP_GAS_PIN", SHORT_ENTRY_CLEANUP_GAS),
+            ("WORD_QUEUE_CLEANUP_GAS_PIN", WORD_ENTRY_CLEANUP_GAS),
         ] {
             let prefix = format!("uint256 private constant {name} = ");
             let value = contract

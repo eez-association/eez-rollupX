@@ -43,6 +43,18 @@ waves fit one Sync each on both native profiles. Public peak packing rose
 from 34 to 39, but aggregate post count and gas increased; this is not recorded
 as a general mixed-workload efficiency improvement.
 
+The [result-size reserve refinement](../audits/2026-09-16-chiado-result-reserves/README.md)
+selects measured deferred-entry and cleanup reserves for packed, one-slot and
+two-slot result storage. It adds no configuration and preserves the existing
+eligibility gates and final complete-bundle checks. Its release passes 196
+composer unit tests, 45 contract test runs and eight native cases. Controlled
+Ethereum tests now fit both consecutive 45-source waves; the old release split
+the second into 37 and 8. The exact public Chiado workload completes all 870
+sources with no audit gaps, a largest observed Sync of 43 versus 39, unchanged
+38 source posts and 2.90% less measured bundle gas. The audit distinguishes
+those observations from fee/inclusion effects and explains why further
+position-dependent storage credits were left out of this iteration.
+
 The 2026-09-14 ordinary-sequencing extension in proposal §6.5 has a separate
 [implementation and test mapping](../audits/2026-09-14-sequencing-da-budget/README.md).
 It replaces AC38's former accept-then-report behavior for newly submitted

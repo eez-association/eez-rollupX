@@ -82,8 +82,12 @@ contract PostBatchGasPinsTest is Test {
 
     // Restricted current-entry shapes only. Runtime also charges target gas,
     // exact transaction/ABI gas, prior-queue cleanup and its configured margin.
+    uint256 private constant SHORT_DEFERRED_GAS_PIN = 230_000;
+    uint256 private constant WORD_DEFERRED_GAS_PIN = 250_000;
     uint256 private constant BOUNDED_DEFERRED_GAS_PIN = 270_000;
     uint256 private constant EXISTING_PROXY_GAS_PIN = 70_000;
+    uint256 private constant SHORT_QUEUE_CLEANUP_GAS_PIN = 55_000;
+    uint256 private constant WORD_QUEUE_CLEANUP_GAS_PIN = 60_000;
     uint256 private constant SIMPLE_QUEUE_CLEANUP_GAS_PIN = 65_000;
 
     uint64 private constant ROLLUP_ID = 1;
@@ -275,6 +279,13 @@ contract PostBatchGasPinsTest is Test {
                     assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * BOUNDED_DEFERRED_GAS_PIN);
                     assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
                 }
+                if (resultSizes[r] < 32) {
+                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_DEFERRED_GAS_PIN);
+                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_QUEUE_CLEANUP_GAS_PIN);
+                } else if (resultSizes[r] == 32) {
+                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_DEFERRED_GAS_PIN);
+                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_QUEUE_CLEANUP_GAS_PIN);
+                }
                 console.log("deferred entries / result bytes:", entries[n], resultSizes[r]);
                 console.log("  post / later consumed-queue cleanup:", posted, cleared);
             }
@@ -283,6 +294,8 @@ contract PostBatchGasPinsTest is Test {
 
     function testDeferredQueueCleanupAlsoRemovesUnconsumedEntries() external {
         (uint256 posted, uint256 cleared) = _deferredRung(35, 32, false);
+        assertLe(posted, POSTBATCH_BASE_GAS_PIN + 35 * WORD_DEFERRED_GAS_PIN);
+        assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 35 * WORD_QUEUE_CLEANUP_GAS_PIN);
         assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 35 * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
         assertGt(cleared, POSTBATCH_BASE_GAS_PIN + POSTBATCH_ENTRY_GAS_PIN, "one old anchor pin cannot cover cleanup");
         console.log("35 unconsumed 32-byte entries, post / later cleanup:", posted, cleared);
@@ -290,6 +303,28 @@ contract PostBatchGasPinsTest is Test {
         assertLe(posted, POSTBATCH_BASE_GAS_PIN + 127 * BOUNDED_DEFERRED_GAS_PIN);
         assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 127 * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
         console.log("127 unconsumed 64-byte entries, post / later cleanup:", posted, cleared);
+    }
+
+    function testMixedDeferredQueueReservesAreAdditiveBeforeAndAfterConsumption() external {
+        // Interleave packed bytes, one payload slot and two payload slots at
+        // the measured queue bound. Every payload byte and every root is
+        // nonzero; the reserve must cover cold storage without any refund.
+        uint256[] memory resultSizes = new uint256[](127);
+        for (uint256 i = 0; i < resultSizes.length; i++) {
+            resultSizes[i] = i % 3 == 0 ? 31 : (i % 3 == 1 ? 32 : 64);
+        }
+        uint256 postReserve = POSTBATCH_BASE_GAS_PIN + 43 * SHORT_DEFERRED_GAS_PIN + 42 * WORD_DEFERRED_GAS_PIN + 42
+            * BOUNDED_DEFERRED_GAS_PIN;
+        uint256 cleanupReserve = POSTBATCH_BASE_GAS_PIN + 43 * SHORT_QUEUE_CLEANUP_GAS_PIN + 42
+            * WORD_QUEUE_CLEANUP_GAS_PIN + 42 * SIMPLE_QUEUE_CLEANUP_GAS_PIN;
+        for (uint256 consumed = 0; consumed < 2; consumed++) {
+            (uint256 posted, uint256 cleared) = _deferredRung(resultSizes, consumed == 1);
+            assertLe(posted, postReserve, "mixed queue creation exceeds the sum of result-size reserves");
+            assertLe(cleared, cleanupReserve, "mixed queue cleanup exceeds the sum of result-size reserves");
+            assertLe(posted, POSTBATCH_BASE_GAS_PIN + resultSizes.length * BOUNDED_DEFERRED_GAS_PIN);
+            assertLe(cleared, POSTBATCH_BASE_GAS_PIN + resultSizes.length * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
+            console.log("mixed 127-entry queue, consumed / post / later cleanup:", consumed, posted, cleared);
+        }
     }
 
     function testDeferredDynamicDataOutsideTheBoundNeedsFallback() external {
@@ -413,20 +448,38 @@ contract PostBatchGasPinsTest is Test {
         private
         returns (uint256 posted, uint256 cleared)
     {
+        uint256[] memory resultSizes = new uint256[](entries);
+        for (uint256 i = 0; i < entries; i++) {
+            resultSizes[i] = resultBytes;
+        }
+        return _deferredRung(resultSizes, consume);
+    }
+
+    function _deferredRung(
+        uint256[] memory resultSizes,
+        bool consume
+    )
+        private
+        returns (uint256 posted, uint256 cleared)
+    {
         delete touched;
         (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
         address remote = address(0x9000);
         address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
         touched.push(proxy);
+        uint256 entries = resultSizes.length;
         ProofSystemBatchPerVerificationEntries memory batch =
             _batch(eez, proofSystem, address(0), Rung(entries, 0, false, false, 64));
         batch.immediateEntryCount = 1;
-        bytes memory result = _nonzeroBytes(resultBytes);
+        // Reuse equal-sized fixture payloads as the uniform ladder does: these
+        // caller-side allocations are outside the measured protocol call.
+        bytes memory result = new bytes(0);
         for (uint256 i = 1; i < batch.entries.length; i++) {
             ExecutionEntry memory entry = batch.entries[i];
             entry.proxyEntryHash = eez.computeCrossChainCallHash(
                 false, address(this), eez.MAINNET_ROLLUP_ID(), remote, ROLLUP_ID, 0, 0, abi.encode(i)
             );
+            if (result.length != resultSizes[i - 1]) result = _nonzeroBytes(resultSizes[i - 1]);
             entry.returnData = result;
             bytes32 seed = keccak256(abi.encodePacked(bytes32(0), ROLLUP_ID, entry.rollupUpdates[0].currentRoot));
             entry.rollingHash = keccak256(abi.encodePacked(seed, entry.proxyEntryHash));
@@ -439,7 +492,7 @@ contract PostBatchGasPinsTest is Test {
             for (uint256 i = 1; i <= entries; i++) {
                 (bool ok, bytes memory returned) = proxy.call(abi.encode(i));
                 assertTrue(ok, "every companion must consume its matching deferred entry");
-                assertEq(returned, result, "deferred dynamic result preserved");
+                assertEq(returned, batch.entries[i].returnData, "deferred dynamic result preserved");
             }
             (, bytes32 consumedRoot,) = eez.rollups(ROLLUP_ID);
             assertEq(consumedRoot, batch.entries[entries].rollupUpdates[0].newRoot, "all deferred roots applied");

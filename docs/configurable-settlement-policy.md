@@ -110,9 +110,11 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-With the policy enabled, bounded simple deferred entries reserve 270,000 gas;
-one successful simple call through a proxy registered at the canonical parent
-reserves 70,000, plus its measured L1 target execution. New proxies and complex,
+With the policy enabled, bounded simple deferred entries reserve gas according
+to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
+and 270,000 for 33–64 bytes. One successful simple call through a proxy registered
+at the canonical parent reserves 70,000, plus its measured L1 target execution.
+New proxies and complex,
 nested, reverting or larger entries retain the existing 370,000 reserve.
 The measured simple family permits up to 64 result bytes; an immediate call
 also permits at most 256 input bytes and requires its entry result to be empty.
@@ -122,10 +124,14 @@ tested native ECDSA batch family; they are not network gas limits.
 
 The 160,000 base already includes the leading anchor. Its lower estimate is
 used only with a recognized previous queue: clearing each stored no-call entry
-adds 65,000, even when its consumption cursor has reached the end. Unknown or
+adds 55,000, 60,000 or 65,000 for those respective result sizes, even when its
+consumption cursor has reached the end. Mixed queues sum each stored entry's
+reserve; the result size comes from canonical storage. Unknown or
 static prior queues retain the legacy projection. Queue shape and existing
 proxies are read from pinned canonical state on each attempt, including after
 a restart. Speculative proxy creation never earns the lower reserve.
+The [result-size reserve audit](audits/2026-09-16-chiado-result-reserves/README.md)
+records the measured classes, native replay tests and public Chiado comparison.
 Discounts cover at most 128 total entries, including the anchor; a larger
 candidate restores the old per-entry reserve rather than imposing a transaction
 count cap. A first source blocked only by previous-queue cleanup remains held

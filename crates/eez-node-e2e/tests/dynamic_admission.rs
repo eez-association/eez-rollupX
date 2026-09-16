@@ -3,7 +3,7 @@
 
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
-use alloy_sol_types::{SolCall, sol};
+use alloy_sol_types::{SolCall, SolEvent, sol};
 use eez_testkit::{
     ANVIL_KEY_2, ANVIL_KEY_4, IValue, NativeL1Profile, NodeBinary, NodeConfig, NodeHandle,
     l2_value, onchain_nonce, setup_cross_chain_with_l1_reorg, setup_cross_chain_with_profile,
@@ -245,6 +245,7 @@ async fn single_sync_wave(
     inbound_count: u64,
     outbound_count: u64,
     waves: u64,
+    empty_inbound_return_data: bool,
 ) {
     let mut config = env();
     config.extend([
@@ -267,6 +268,16 @@ async fn single_sync_wave(
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    // Both fixture contracts expose the same setValue/value selectors. Choose
+    // the existing deployment with the required execution return shape.
+    let (inbound_value, inbound_proxy) = if empty_inbound_return_data {
+        (world.inbound_no_ret, world.inbound_no_ret_proxy)
+    } else {
+        (world.value_l2, world.setter_proxy)
+    };
+    let initial_outbound_value = l2_value(&world.l1_rpc(), world.outbound_value)
+        .await
+        .unwrap();
     let chain = l1.get_chain_id().await.unwrap();
     let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
     let warm = sign_and_send(
@@ -274,7 +285,7 @@ async fn single_sync_wave(
         ANVIL_KEY_2,
         chain,
         nonce,
-        Some(world.setter_proxy),
+        Some(inbound_proxy),
         U256::ZERO,
         IValue::setValueCall { v: U256::ZERO }.abi_encode(),
         2_000_000,
@@ -338,7 +349,7 @@ async fn single_sync_wave(
                         ANVIL_KEY_2,
                         chain,
                         nonce + 1 + wave * inbound_count + i,
-                        Some(world.setter_proxy),
+                        Some(inbound_proxy),
                         U256::ZERO,
                         IValue::setValueCall {
                             v: U256::from(wave * inbound_count + i + 1),
@@ -371,6 +382,8 @@ async fn single_sync_wave(
             }
         }
         let mut l1_blocks = std::collections::BTreeSet::new();
+        let mut l1_block_hashes = std::collections::BTreeSet::new();
+        let mut final_inbound_root = None;
         for hash in inbound {
             let receipt = wait_for(TIMEOUT, || async {
                 Ok(l1.get_transaction_receipt(hash).await?)
@@ -379,6 +392,24 @@ async fn single_sync_wave(
             .unwrap_or_else(|e| panic!("{e:#}{}", world.settlement_diagnostics()));
             assert!(receipt.status());
             l1_blocks.insert(receipt.block_number.unwrap());
+            l1_block_hashes.insert(receipt.block_hash.unwrap());
+            if outbound_count == 0 {
+                final_inbound_root = Some(
+                    receipt
+                        .inner
+                        .logs()
+                        .iter()
+                        .rev()
+                        .filter(|log| log.address() == world.cfg.eez_address)
+                        .find_map(|log| {
+                            eez_protocol::abi::L2ExecutionPerformed::decode_log(&log.inner)
+                                .ok()
+                                .filter(|event| event.rollupId == world.cfg.rollup_id)
+                                .map(|event| event.newRoot)
+                        })
+                        .expect("every inbound source must apply its L2 root update"),
+                );
+            }
         }
         let mut syncs = std::collections::BTreeSet::new();
         for hash in outbound {
@@ -390,6 +421,25 @@ async fn single_sync_wave(
             assert!(receipt.status());
             syncs.insert(receipt.block_number.unwrap());
         }
+        if outbound_count == 0 {
+            // Without an outbound source receipt, identify the Sync from the
+            // final inbound's canonical L1 root update, never a dispatch log.
+            let root = final_inbound_root.expect("the wave has inbound sources");
+            let block = wait_for(TIMEOUT, || async { Ok(l2.get_block_by_hash(root).await?) })
+                .await
+                .unwrap_or_else(|e| panic!("{e:#}{}", world.settlement_diagnostics()));
+            assert_eq!(
+                l2.get_block_by_number(block.header.number.into())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .header
+                    .hash,
+                root,
+                "the final source root must identify a canonical L2 block"
+            );
+            syncs.insert(block.header.number);
+        }
         assert_eq!(l1_blocks.len(), 1, "{}", world.settlement_diagnostics());
         assert_eq!(syncs.len(), 1, "{}", world.settlement_diagnostics());
         let l1_block = *l1_blocks.first().unwrap();
@@ -398,6 +448,11 @@ async fn single_sync_wave(
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(
+            l1_block_hashes,
+            std::collections::BTreeSet::from([block.header.hash]),
+            "every source receipt must belong to the canonical L1 block"
+        );
         assert!(
             inbound_count * 2_000_000 > block.header.gas_limit,
             "summed declarations must exceed the real block budget"
@@ -410,13 +465,42 @@ async fn single_sync_wave(
         wait_for_safe_prefix_convergence(&[&world.node, &follower], sync, TIMEOUT)
             .await
             .unwrap();
+        if outbound_count == 0 {
+            // Prove that all inbound calls executed in this one canonical
+            // Sync on both nodes; a matching final setter value alone could
+            // conceal an omitted earlier call.
+            for rpc in [world.l2_rpc(), follower.l2_rpc_url()] {
+                let provider = ProviderBuilder::new().connect_http(rpc.parse().unwrap());
+                let logs = provider
+                    .get_logs(
+                        &alloy_rpc_types_eth::Filter::new()
+                            .address(inbound_value)
+                            .event_signature(IValue::ValueSet::SIGNATURE_HASH)
+                            .from_block(sync)
+                            .to_block(sync),
+                    )
+                    .await
+                    .unwrap();
+                let values: Vec<_> = logs
+                    .iter()
+                    .map(|log| IValue::ValueSet::decode_log(&log.inner).unwrap().newValue)
+                    .collect();
+                let expected: Vec<_> = (1..=inbound_count)
+                    .map(|i| U256::from(wave * inbound_count + i))
+                    .collect();
+                assert_eq!(
+                    values, expected,
+                    "every inbound call must replay in one Sync"
+                );
+            }
+        }
         let expected_inbound = U256::from((wave + 1) * inbound_count);
         assert_eq!(
-            l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+            l2_value(&world.l2_rpc(), inbound_value).await.unwrap(),
             expected_inbound
         );
         assert_eq!(
-            l2_value(&follower.l2_rpc_url(), world.value_l2)
+            l2_value(&follower.l2_rpc_url(), inbound_value)
                 .await
                 .unwrap(),
             expected_inbound
@@ -425,7 +509,11 @@ async fn single_sync_wave(
             l2_value(&world.l1_rpc(), world.outbound_value)
                 .await
                 .unwrap(),
-            U256::from((wave + 1) * outbound_count)
+            if outbound_count == 0 {
+                initial_outbound_value
+            } else {
+                U256::from((wave + 1) * outbound_count)
+            }
         );
         assert_eq!(
             onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
@@ -488,12 +576,12 @@ async fn single_sync_wave(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1, false).await;
 }
 
 /// Two 40-source batches each fit one Sync. The second replaces a consumed but
@@ -501,12 +589,24 @@ async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
 /// 80 sources are independently replayed by the follower.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2, false).await;
+}
+
+/// Empty return data uses short Solidity byte storage. Both 45-source waves
+/// must fit, including the second post's cleanup of all 45 consumed entries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
+    single_sync_wave(NativeL1Profile::GnosisPrague, 45, 0, 2, true).await;
 }
 
 /// A source can depend on an ordinary L2 predecessor seen on the unsafe
