@@ -69,8 +69,15 @@ gas or DA permits. It computes and caches each effect-prefix commitment during
 admission, charging that repeated execution to elapsed time, and reserves time
 for final block construction, encoding, KZG and witnesses before the existing
 proof cutoff. KZG is measured separately and scales with physical blobs. The
-remaining allowance uses the observed relationship between accepted-group work
-and non-KZG finishing time, with the previous finishing sample as a floor.
+composer adds 10% of the actual preparation window to calibrated finishing
+predictions for variation and the handoff to proving. Without a calibrated
+relationship, it takes the larger of a full admission pass and the observed
+non-KZG finishing cost plus that allowance, then adds KZG. This preserves the
+conservative fallback without counting its headroom twice after a small post.
+Group-start and pre-append checks both use that reserve.
+The proof-time budget and absolute cutoff are unchanged. The finishing estimate
+uses the observed relationship between accepted-group work and non-KZG finishing
+time, with the previous finishing sample as a floor.
 Only complete, consistently measured accepted groups train that relationship.
 If the finish-time check refuses the next group before it is appended, discard
 that group's measurement and retain the valid accepted prefix. Its rejected
@@ -81,11 +88,15 @@ contributes no measurement.
 A smaller candidate may scale the prior sample down; growth uses the current
 measured work without multiplying a small post's fixed overhead.
 The `admission.prepared` event reports admission, finishing and blob timings,
-accepted-group work, and whether that sample qualified for calibration.
+the available window and its `jitter_reserve_ms`, accepted-group work, and whether
+that sample qualified for calibration.
 Crossing a blob boundary rechecks the preparation allowance before accepting
 the complete group. Incomplete preparation, failed submission, or a capacity
 cut that bypasses older eligible FIFO work reduces the next selection. A
-successful FIFO prefix does not impose a redundant count cap on the next slot.
+failed preparation halves the actual admitted workload, or the final prepared
+group count after a rebuild, instead of halving a potentially much larger queued
+snapshot. Without an admitted group, the existing lookahead/probe backoff applies.
+A successful FIFO prefix does not impose a redundant count cap on the next slot.
 The backoff still prevents outbound-first execution from indefinitely bypassing
 an older inbound transaction.
 If the time estimate prevents even the first group from being admitted, the
@@ -264,10 +275,15 @@ Intermediate, capped, past and misaligned boundaries remain empty. This avoids
 wasting a usable future slot after rebuilding a missed interval.
 
 Policy-driven historical batches select the earliest future L1 slot that leaves
-the configured proof-time budget and submission slack. Timely reconciliation can
-therefore lead to posts in consecutive L1 blocks; later preparation selects a
-later slot. Builder lead controls when submission opens, not a mandatory block
-gap. Selection is logged as `eez.submitter.policy.target_selected`, including the
+the measured preparation reserve, configured proof-time budget and submission
+slack. The reserve is the largest of the last four anchor-only preparations for
+that rollup, plus 10% for variation. New slow measurements increase it immediately;
+four fresh measurements replace an old peak, so a transient slowdown does not
+force later batches to skip an otherwise usable slot for the process lifetime.
+Timely reconciliation can therefore lead to posts in consecutive L1 blocks;
+later preparation selects a later slot. Builder lead controls when submission
+opens, not a mandatory block gap. Selection is logged as
+`eez.submitter.policy.target_selected`, including the
 observed head, timing budget, and chosen offset. Final timestamp, canonical-head,
 fee, and deadline checks still apply, and missed opportunities preserve pending
 work. No new timing setting is required. Explicit Sync targets and policy-disabled

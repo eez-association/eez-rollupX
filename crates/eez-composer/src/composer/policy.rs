@@ -1,6 +1,6 @@
 //! Composer integration of the pure policy and canonical activity index.
 
-use std::{sync::Mutex, time::Duration};
+use std::{collections::VecDeque, sync::Mutex, time::Duration};
 
 use alloy_rlp::Encodable as _;
 use reth_chainspec::EthChainSpec as _;
@@ -10,6 +10,10 @@ use crate::settlement_policy::{
     CrossChainWork, DrainCoverage, PolicyDecision, PolicySnapshot, PolicyState, SettlementAnchor,
     index::{ActivityIndex, BlockActivity, DaOverhead},
 };
+
+// Keep a recent peak: one fast batch cannot erase a slow observation, while a
+// transient slowdown must not force every later historical target one slot out.
+const PREPARATION_HISTORY: usize = 4;
 
 #[derive(Debug, Default)]
 struct RollupPolicy {
@@ -22,7 +26,7 @@ struct RollupPolicy {
     block_rlps: HashMap<B256, (u64, Vec<u8>)>,
     sequencing_target: Option<u64>,
     /// Observed encoding/KZG/witness preparation, before the proof itself.
-    preparation_time: Duration,
+    preparation_times: VecDeque<Duration>,
 }
 
 /// Urgency belongs to the held groups, not to each newly scheduled empty Sync.
@@ -81,7 +85,10 @@ impl EnabledPolicy {
     pub(super) fn note_preparation(&self, rollup_id: u64, elapsed: Duration) {
         if let Some(rollup) = self.rollups.get(&rollup_id) {
             let mut rollup = rollup.lock().unwrap();
-            rollup.preparation_time = rollup.preparation_time.max(elapsed);
+            if rollup.preparation_times.len() == PREPARATION_HISTORY {
+                rollup.preparation_times.pop_front();
+            }
+            rollup.preparation_times.push_back(elapsed);
         }
     }
 
@@ -94,8 +101,19 @@ impl EnabledPolicy {
             .rollups
             .get(&rollup_id)
             .ok_or("unknown policy rollup")?;
-        proof_time
-            .checked_add(rollup.lock().unwrap().preparation_time)
+        let preparation = rollup
+            .lock()
+            .unwrap()
+            .preparation_times
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or_default();
+        // Reserve 10% above the recent peak for timing variation. This is an
+        // estimate for target selection; proof and submission guards still bind.
+        preparation
+            .checked_add(preparation / 10)
+            .and_then(|reserved| proof_time.checked_add(reserved))
             .ok_or_else(|| "policy preparation duration overflow".into())
     }
 
@@ -859,6 +877,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn historical_recovery_relearns_after_a_slow_preparation() {
+        let policy = EnabledPolicy::new(
+            PolicyConfig {
+                pure_l2: crate::settlement_policy::PureL2Mode::Always,
+                max_unsettled_l2_blocks: 150.try_into().unwrap(),
+                blob_fullness_bps: None,
+                inactive_interval_ms: None,
+            },
+            [1, 2].into_iter(),
+            None,
+        );
+        let proof = Duration::from_millis(500);
+        let slack = Duration::from_millis(700);
+        // Composition wakes with 1.69 seconds to the next five-second slot.
+        let fits_next = || {
+            preparation_fits_target(policy.preparation_budget(1, proof).unwrap(), slack, 5, 3310)
+                .unwrap()
+        };
+        policy.note_preparation(1, Duration::from_millis(986));
+        assert!(!fits_next());
+        for elapsed_ms in [381, 384, 393] {
+            policy.note_preparation(1, Duration::from_millis(elapsed_ms));
+            assert!(
+                !fits_next(),
+                "one fast sample must not erase the slow observation"
+            );
+        }
+        policy.note_preparation(1, Duration::from_millis(417));
+        assert!(
+            fits_next(),
+            "fresh measurements must release the intervening slot"
+        );
+        assert_eq!(
+            policy.preparation_budget(1, proof).unwrap(),
+            proof + Duration::from_micros(458_700)
+        );
+        assert_eq!(policy.preparation_budget(2, proof).unwrap(), proof);
+        policy.note_preparation(1, Duration::from_millis(900));
+        assert!(
+            !fits_next(),
+            "a new slowdown must increase the reserve immediately"
+        );
+    }
+
+    #[test]
     fn measured_preparation_reserves_time_without_changing_proof_or_network_budgets() {
         let policy = EnabledPolicy::new(
             PolicyConfig {
@@ -887,7 +950,7 @@ mod tests {
         policy.note_preparation(1, Duration::from_millis(10));
         assert_eq!(
             policy.preparation_budget(1, proof).unwrap(),
-            Duration::from_millis(2300)
+            Duration::from_millis(2430)
         );
         assert_eq!(policy.preparation_budget(2, proof).unwrap(), proof);
         assert!(policy.preparation_budget(3, proof).is_err());
