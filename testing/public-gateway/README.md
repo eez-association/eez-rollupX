@@ -6,19 +6,20 @@ the enclave's external Docker network to reach its services directly.
 
 ## Endpoints
 
-With the defaults:
+Set `EEZ_DOMAIN` to a hostname you control before running Docker Compose.
+The URLs below use `rollup.example.com` as a placeholder:
 
 | Purpose | URL |
 |---|---|
-| Protocol playground | `https://eez.asuscomm.com/` |
-| Network observatory | `https://eez.asuscomm.com/monitor/` |
-| Canonical L1 RPC | `https://eez.asuscomm.com/rpc/l1` |
-| L2 RPC | `https://eez.asuscomm.com/rpc/l2` |
-| L1 wallet/cross-chain front | `https://eez.asuscomm.com/front/l1` |
-| L2 wallet/cross-chain front | `https://eez.asuscomm.com/front/l2` |
-| Blobscan | `https://eez.asuscomm.com:4443/` |
-| L1 Blockscout | `https://eez.asuscomm.com:4444/` |
-| L2 Blockscout | `https://eez.asuscomm.com:4445/` |
+| Protocol playground | `https://rollup.example.com/` |
+| Network observatory | `https://rollup.example.com/monitor/` |
+| Canonical L1 RPC | `https://rollup.example.com/rpc/l1` |
+| L2 RPC | `https://rollup.example.com/rpc/l2` |
+| L1 wallet/cross-chain front | `https://rollup.example.com/front/l1` |
+| L2 wallet/cross-chain front | `https://rollup.example.com/front/l2` |
+| Blobscan | `https://rollup.example.com:4443/` |
+| L1 Blockscout | `https://rollup.example.com:4444/` |
+| L2 Blockscout | `https://rollup.example.com:4445/` |
 
 The browser UI uses `/composer/l1` and `/composer/l2`. Those routes are exact
 aliases for `/front/l1` and `/front/l2`, respectively.
@@ -29,7 +30,7 @@ and the direct RPC URLs for reads and protocol tooling.
 
 Each public Blockscout origin also routes `/api` and `/socket` to its own
 backend. The Kurtosis launcher configures HTTPS browsers to use that origin,
-including `wss://eez.asuscomm.com:4444/socket/v2/websocket` for L1 and port
+including `wss://rollup.example.com:4444/socket/v2/websocket` for L1 and port
 `4445` for L2. This keeps internal Docker hostnames out of browser connections
 and allows live updates over HTTPS. Local HTTP frontend URLs continue to use
 the Next.js HTTP API proxy.
@@ -86,8 +87,8 @@ docker compose -f testing/public-gateway/docker-compose.yml config
 docker compose -f testing/public-gateway/docker-compose.yml exec gateway \
   caddy validate --config /etc/caddy/Caddyfile
 
-cast chain-id --rpc-url https://eez.asuscomm.com/rpc/l1
-cast chain-id --rpc-url https://eez.asuscomm.com/rpc/l2
+cast chain-id --rpc-url https://rollup.example.com/rpc/l1
+cast chain-id --rpc-url https://rollup.example.com/rpc/l2
 ```
 
 Recreating a Kurtosis enclave disconnects these standalone containers from its
@@ -129,17 +130,17 @@ as any `curl --resolve` checks after a routing change.
 
 The Chiado profile uses the public Gnosis L1 explorer. Its separate
 [EEZ explorer stack](../explorers/README.md) is now published through this gateway:
-Blobscan at `https://eez.asuscomm.com:4443/` and L2 Blockscout at
-`https://eez.asuscomm.com:4445/`. Port 4444 remains unused for Chiado. The gateway
+Blobscan at `https://rollup.example.com:4443/` and L2 Blockscout at
+`https://rollup.example.com:4445/`. Port 4444 remains unused for Chiado. The gateway
 imports `testing/explorers/public.caddy`, joins the explorer Docker network,
 and retains the existing certificate volumes. The monitor links to both
 explorers and reads its blob archive through the private host API.
 
 The monitor also uses WebSockets throughout:
 
-- `wss://eez.asuscomm.com/ws/l1` forwards to the embedded L1 WS port, 18646.
-- `wss://eez.asuscomm.com/ws/l2` forwards to the L2 WS port, 18689.
-- `wss://eez.asuscomm.com/monitor/api/live` carries shared monitor snapshots.
+- `wss://rollup.example.com/ws/l1` forwards to the embedded L1 WS port, 18646.
+- `wss://rollup.example.com/ws/l2` forwards to the L2 WS port, 18689.
+- `wss://rollup.example.com/monitor/api/live` carries shared monitor snapshots.
 
 Both node WS listeners remain on loopback. The host UI nginx proxy forwards
 WebSocket upgrades; Caddy terminates TLS on the existing public port 443.

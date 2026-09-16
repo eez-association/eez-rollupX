@@ -13,13 +13,14 @@ transactions. The stopped Kurtosis devnet is separate.
 
 All four ports bind only to the **server's loopback interface**. PostgreSQL,
 Redis, and the contract verifier have no published ports. The existing HTTPS
-gateway now also publishes the two browser applications:
+gateway can publish the two browser applications. Set `EEZ_DOMAIN` to your
+public hostname; `rollup.example.com` below is a placeholder:
 
 | Service | Public URL |
 | --- | --- |
-| L2 Blockscout | https://eez.asuscomm.com:4445/ |
-| Chiado Blobscan | https://eez.asuscomm.com:4443/ |
-| Monitor with explorer buttons and contextual links | https://eez.asuscomm.com/monitor/ |
+| L2 Blockscout | https://rollup.example.com:4445/ |
+| Chiado Blobscan | https://rollup.example.com:4443/ |
+| Monitor with explorer buttons and contextual links | https://rollup.example.com/monitor/ |
 
 The gateway joins `eez-chiado-explorers_default` and imports
 [public.caddy](public.caddy). The raw Blobscan API and databases remain private.
@@ -95,8 +96,8 @@ The monitor's existing link and archive settings are:
 
 ```dotenv
 EEZ_L1_EXPLORER_URL=https://gnosis-chiado.blockscout.com
-EEZ_L2_EXPLORER_URL=https://eez.asuscomm.com:4445
-EEZ_BLOBSCAN_URL=https://eez.asuscomm.com:4443
+EEZ_L2_EXPLORER_URL=https://rollup.example.com:4445
+EEZ_BLOBSCAN_URL=https://rollup.example.com:4443
 EEZ_BLOBSCAN_API_URL=http://127.0.0.1:18101
 ```
 
@@ -225,12 +226,15 @@ canonical examples when adapting the scripts to a fresh deployment.
 To exercise the public origins with the same Chromium installation:
 
 ```bash
-EEZ_BLOCKSCOUT_BROWSER_URL=https://eez.asuscomm.com:4445 \
-  EEZ_BLOBSCAN_BROWSER_URL=https://eez.asuscomm.com:4443 \
+EEZ_BLOCKSCOUT_BROWSER_URL=https://rollup.example.com:4445 \
+  EEZ_BLOBSCAN_BROWSER_URL=https://rollup.example.com:4443 \
   NODE_PATH="$browser_work/node_modules" \
   PLAYWRIGHT_BROWSERS_PATH="$browser_work/browsers" \
   node testing/explorers/verify-browser.cjs artifacts/public-explorer-browser
-NODE_PATH="$browser_work/node_modules" \
+EEZ_PUBLIC_URL=https://rollup.example.com \
+  EEZ_L2_EXPLORER_URL=https://rollup.example.com:4445 \
+  EEZ_BLOBSCAN_URL=https://rollup.example.com:4443 \
+  NODE_PATH="$browser_work/node_modules" \
   PLAYWRIGHT_BROWSERS_PATH="$browser_work/browsers" \
   node testing/explorers/verify-public-monitor.cjs artifacts/public-monitor-browser
 ```

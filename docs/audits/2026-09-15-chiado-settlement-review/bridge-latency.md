@@ -3,7 +3,7 @@
 A single **0.000001 xDAI** bridge from Chiado L1 to L2 completed in
 **25.284 seconds**, measured from the start of broadcast to the destination
 balance being visible at the L2 `safe` head. The test used the deployed UI bridge
-and the public `https://eez.asuscomm.com/composer/l1` ingress. The sender and
+and the public `/composer/l1` ingress (deployment hostname omitted). The sender and
 recipient were the dedicated test account
 `0x24436d6c505865d057e88DB2940858b7201584AE`, separate from the poster.
 

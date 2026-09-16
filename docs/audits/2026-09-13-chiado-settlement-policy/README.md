@@ -14,9 +14,8 @@ and the final post and matching L2 endpoint reached finality.
 The previous `eez-devnet` enclave was stopped at 21:55:56 UTC with
 `kurtosis enclave stop eez-devnet`; its containers and chain data were preserved.
 The fresh deployment uses Chiado L1 chain ID 10200 and EEZ L2 chain ID 6290.
-The existing HTTPS gateway now serves this deployment at
-[the monitor](https://eez.asuscomm.com/monitor/) and
-[the application](https://eez.asuscomm.com/).
+The existing HTTPS gateway served this deployment through the monitor and
+application. Deployment hostnames are omitted from this public record.
 
 ## Deployment and policy
 

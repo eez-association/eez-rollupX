@@ -12,7 +12,7 @@ services:
       - "0.0.0.0:4444:4444"
       - "0.0.0.0:4445:4445"
     environment:
-      EEZ_DOMAIN: "${EEZ_DOMAIN:-eez.asuscomm.com}"
+      EEZ_DOMAIN: "${EEZ_DOMAIN:?Set EEZ_DOMAIN to your public hostname}"
       EEZ_L1_RPC_UPSTREAM: "${EEZ_L1_RPC_UPSTREAM:-el-1-reth-lighthouse:8545}"
       EEZ_L2_RPC_UPSTREAM: "${EEZ_L2_RPC_UPSTREAM:-eez-node:18688}"
       EEZ_L1_FRONT_UPSTREAM: "${EEZ_L1_FRONT_UPSTREAM:-eez-node:18999}"

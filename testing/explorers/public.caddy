@@ -9,7 +9,7 @@
 	}
 }
 
-https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
+https://{$EEZ_DOMAIN}:4443 {
 	import explorer_headers
 	@read method GET HEAD
 	handle @read {
@@ -21,7 +21,7 @@ https://{$EEZ_DOMAIN:eez.asuscomm.com}:4443 {
 	}
 }
 
-https://{$EEZ_DOMAIN:eez.asuscomm.com}:4445 {
+https://{$EEZ_DOMAIN}:4445 {
 	import explorer_headers
 	reverse_proxy eez-chiado-explorers-blockscout-gateway-1:8080
 }

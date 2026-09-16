@@ -12,8 +12,8 @@ network scenarios passed. A fresh follower independently reconstructed all
 1,584 settled blocks and 267 transaction receipts in the evidence snapshot from
 canonical L1 data.
 
-The [playground](https://eez.asuscomm.com/) and
-[network monitor](https://eez.asuscomm.com/monitor/) passed checks. The existing
+The playground and network monitor passed checks. Deployment hostnames are
+omitted from this public record. The existing
 HTTPS RPCs and three explorer frontends passed checks after the composer
 restart; the monitor reported matching L1 commitment and L2 safe block. See
 public-health.json (`artifacts/audit-evidence/2026-09-13-settlement-policy-devnet/public-health.json`, local evidence). HTTPS checks used the public hostnames

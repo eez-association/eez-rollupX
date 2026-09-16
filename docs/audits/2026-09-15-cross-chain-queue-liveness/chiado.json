@@ -643,8 +643,9 @@
         "unknown": 0
       }
     },
-    "origin": "https://eez.asuscomm.com",
-    "monitorWebSocket": "wss://eez.asuscomm.com/monitor/api/live",
+    "endpointHostnamesRedacted": true,
+    "origin": "https://rollup.example.com",
+    "monitorWebSocket": "wss://rollup.example.com/monitor/api/live",
     "snapshotSamples": [
       {
         "sequence": 253,
