@@ -16,6 +16,9 @@ on:
       published:
         description: Whether the images were published to GHCR
         value: ${{ jobs.build.outputs.published }}
+      images:
+        description: Runtime image manifest entries for promotion after validation
+        value: ${{ jobs.build.outputs.images }}
 
 permissions:
   contents: read
@@ -34,6 +37,7 @@ jobs:
       runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}
       published: ${{ steps.init.outputs.published }}
+      images: ${{ steps.payloads.outputs.images }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -109,6 +113,7 @@ jobs:
         run: |
           bash scripts/ci/ci-payload.sh publish runtime "$EEZ_RUNTIME_OUTPUT_DIR"
           bash scripts/ci/ci-payload.sh publish tests "$EEZ_NATIVE_TEST_DIR"
+          echo "images=$(jq -c .images "$EEZ_RUNTIME_OUTPUT_DIR/manifest.json")" >> "$GITHUB_OUTPUT"
       - name: Install Foundry for no-publication validation
         id: local-foundry
         if: ${{ steps.init.outputs.published == 'false' }}

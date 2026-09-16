@@ -17,10 +17,11 @@ If these disagree, do not loosen a check to make the disagreement disappear.
 Identify whether the implementation or the normative requirement is wrong,
 then update code, tests, and documentation deliberately.
 
-Code comments must explain the current invariant or design reason in plain
-language. Do not cite spec section numbers from source comments, narrate old
-implementations, or leave migration history that will become stale. Links to
-the spec are appropriate in repository documentation.
+Follow the repository's [comments and API documentation guidance](../../AGENTS.md#comments-and-api-documentation).
+At signer trust boundaries, explain a value's source, prior checks, and remaining
+obligations when the types/code do not make them evident. Keep necessary
+compatibility/migration rationale; specification links supplement the explanation
+rather than replace it.
 
 ## Current implementation
 
@@ -32,9 +33,11 @@ the spec are appropriate in repository documentation.
 - Validation and settlement run in one blocking task. Cancellation is
   cooperative between non-interruptible units; graceful shutdown waits for
   detached work rather than terminating it halfway through execution.
-- The active settlement profile accepts an anchor followed by zero or more
-  supported outbound effects and then zero or more supported successful inbound
-  effects. Richer or ambiguous shapes fail closed.
+- The active mutable-entry profile is `anchor, outbound*, (inbound-effect |
+  inbound-lookup)*`. Lookup-only inbound entries retain source outcomes without
+  authorizing L2 effects. Top-level L1-origin static entries are checked separately
+  at their exact FIFO positions. Unsupported or ambiguous shapes fail closed; the complete
+  supported profile is defined in [SPEC.md](SPEC.md#1-purpose-and-supported-profile).
 - Every successful `BackendWindowOutput` associates each block's computed hash,
   post-state root, receipt coverage, selected prefix-block hash checkpoints, and settlement
   evidence in one `BackendBlockOutput`. Preceding-block checkpoint vectors are

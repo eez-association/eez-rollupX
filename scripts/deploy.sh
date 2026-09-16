@@ -122,6 +122,27 @@ compute_genesis_block_hash() {
     fi
 }
 
+# Render and check both genesis tools before spending deployment gas. This
+# fresh registry will register rollup 1; the deploy-block timestamp is applied
+# after the registry exists and before its genesis block hash is registered.
+EXPECTED_ROLLUP_ID=1
+GENESIS_OUT="${EEZ_GENESIS_OUT:-$REPO/datadir/genesis.json}"
+GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.json}"
+GENESIS_BASE="${EEZ_GENESIS_BASE:-$REPO/genesis.json}"
+
+echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
+"$REPO/scripts/update-eezl2-genesis.sh" --render \
+    --rollup-id "$EXPECTED_ROLLUP_ID" \
+    --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
+    --base "$GENESIS_BASE" \
+    --output "$GENESIS_OUT" \
+    --profile-output "$GENESIS_PROFILE_OUT"
+
+EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
+
+compute_genesis_block_hash "$GENESIS_OUT" >/dev/null
+
 # ── 1/5 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/5] DeployEEZ"
 run_forge "DeployEEZ" forge script script/DeployEEZ.s.sol:DeployEEZ \
@@ -150,32 +171,14 @@ EEZ_ROLLUP_MANAGER_ADDRESS="$(extract ROLLUP_CONTRACT "$OUT")"
 [[ -n "$EEZ_ROLLUP_MANAGER_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture ROLLUP_CONTRACT address" >&2; exit 1; }
 echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS"
 
-# ── Generate deployment-bound L2 genesis ────────────────────────────
-# This deploy creates a fresh registry, so the first L2 rollup ID is 1.
-# Generate EEZL2 with that ID and the address derived from the secret system
-# key before registering the resulting genesis block hash on L1.
+# ── Finalize deployment-bound L2 genesis ────────────────────────────
+# Confirm the registry is empty before registering the rendered rollup 1.
 ROLLUP_COUNTER="$(cast call "$EEZ_REGISTRY_ADDRESS" "rollupCounter()(uint256)" \
     --rpc-url "$EEZ_L1_RPC_URL" | awk '{print $1}')"
 [[ "$ROLLUP_COUNTER" == "0" ]] || {
     echo "deploy: fresh EEZ registry unexpectedly has rollupCounter=$ROLLUP_COUNTER" >&2
     exit 1
 }
-EXPECTED_ROLLUP_ID=1
-GENESIS_OUT="${EEZ_GENESIS_OUT:-$REPO/datadir/genesis.json}"
-GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.json}"
-GENESIS_BASE="${EEZ_GENESIS_BASE:-$REPO/genesis.json}"
-
-echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
-"$REPO/scripts/update-eezl2-genesis.sh" --render \
-    --rollup-id "$EXPECTED_ROLLUP_ID" \
-    --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
-    --base "$GENESIS_BASE" \
-    --output "$GENESIS_OUT" \
-    --profile-output "$GENESIS_PROFILE_OUT"
-
-EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
-EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
-
 # Align genesis time before computing the registered commitment. Unlike the
 # state trie root, the genesis block hash commits the timestamp and fork-aware
 # header fields.
