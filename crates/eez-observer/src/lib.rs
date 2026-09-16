@@ -1,6 +1,8 @@
-//! Read-only EEZ observer. This first implementation is an RPC exporter only.
+//! Read-only chain observer with optional durable canonical receipt indexing.
 pub mod accounting;
 pub mod config;
+pub mod database;
+pub mod indexer;
 pub mod metrics;
 pub mod model;
 pub mod rpc;
@@ -34,21 +36,46 @@ pub const fn retry_delay(failures: u32) -> u64 {
 
 type Samples = Arc<RwLock<Vec<Sample>>>;
 
+#[derive(Clone)]
+struct ScrapeState {
+    samples: Samples,
+    index: Option<indexer::SharedStatus>,
+}
+
 async fn scrape(
-    State(samples): State<Samples>,
+    State(state): State<ScrapeState>,
 ) -> ([(header::HeaderName, &'static str); 1], String) {
-    let snapshot = samples.read().await.clone();
+    let snapshot = state.samples.read().await.clone();
+    let now = now_ms();
+    let mut rendered = metrics::render(&snapshot, now);
+    if let Some(index) = state.index {
+        rendered.push_str(&indexer::render(&*index.read().await, now));
+    }
     (
         [(
             header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        metrics::render(&snapshot, now_ms()),
+        rendered,
     )
 }
 
 /// Run only local telemetry services; this function never submits a transaction.
 pub async fn serve(config: Config) -> Result<(), &'static str> {
+    serve_runtime(config, None).await
+}
+
+pub async fn serve_indexer(config: indexer::Config) -> Result<(), &'static str> {
+    config.validate()?;
+    let database_config = database::DatabaseConfig::load(&config.database_config)?;
+    database::Database::connect(&database_config)
+        .await?
+        .verify_writer()
+        .await?;
+    serve_runtime(config.exporter.clone(), Some(config)).await
+}
+
+async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result<(), &'static str> {
     config.validate()?;
     let rpc = Rpc::new()?;
     let mut endpoints = vec![
@@ -71,6 +98,19 @@ pub async fn serve(config: Config) -> Result<(), &'static str> {
         .await
         .map_err(|_| "cannot bind observer metrics listener")?;
     let mut tasks = JoinSet::new();
+    let index_status = index.as_ref().map(|_| {
+        Arc::new(RwLock::new([
+            indexer::Status::default(),
+            indexer::Status::default(),
+        ]))
+    });
+    if let Some(index) = index {
+        let status = Arc::clone(index_status.as_ref().expect("index status initialized"));
+        let rpc = rpc.clone();
+        tasks.spawn(async move {
+            indexer::run(index, rpc, status).await;
+        });
+    }
     for (index, (source, endpoint)) in endpoints.into_iter().enumerate() {
         let rpc = rpc.clone();
         let samples = Arc::clone(&samples);
@@ -101,15 +141,37 @@ pub async fn serve(config: Config) -> Result<(), &'static str> {
             "/healthz",
             get(|| async { "observer process is running; inspect metrics for source health\n" }),
         )
-        .with_state(samples);
+        .with_state(ScrapeState {
+            samples,
+            index: index_status,
+        });
     tracing::info!(listen = %config.listen, "starting read-only EEZ observer");
-    let server = axum::serve(listener, router).with_graceful_shutdown(shutdown());
-    tokio::select! {
-        result = server => { result.map_err(|_| "observer HTTP server failed")?; }
-        _ = tasks.join_next() => { return Err("observer collection task stopped unexpectedly"); }
-    }
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            let _ = stopped.await;
+        })
+        .into_future();
+    tokio::pin!(server);
+    let result = tokio::select! {
+        result = &mut server => result.map_err(|_| "observer HTTP server failed"),
+        _ = tasks.join_next() => Err("observer collection task stopped unexpectedly"),
+        _ = shutdown() => {
+            // Stop readers/transactions promptly; a slow scrape client must not
+            // hold shutdown or a database transaction open without a deadline.
+            tasks.abort_all();
+            let _ = stop.send(());
+            match tokio::time::timeout(Duration::from_secs(2), &mut server).await {
+                Ok(result) => result.map_err(|_| "observer HTTP server failed"),
+                Err(_) => {
+                    tracing::warn!("observer HTTP shutdown drain deadline reached");
+                    Ok(())
+                }
+            }
+        }
+    };
     tasks.abort_all();
-    Ok(())
+    result
 }
 
 async fn shutdown() {

@@ -53,7 +53,38 @@ impl Rpc {
         })
     }
 
-    async fn call(&self, url: &str, method: &'static str, params: Value) -> Result<Value, Failure> {
+    pub(crate) async fn call(
+        &self,
+        url: &str,
+        method: &'static str,
+        params: Value,
+    ) -> Result<Value, Failure> {
+        self.call_bounded(url, method, params, MAX_RESPONSE_BYTES)
+            .await
+    }
+
+    pub(crate) async fn block(
+        &self,
+        endpoint: &Endpoint,
+        selector: Value,
+        full: bool,
+    ) -> Result<Value, Failure> {
+        self.call_bounded(
+            &endpoint.url,
+            "eth_getBlockByNumber",
+            json!([selector, full]),
+            8 * MAX_RESPONSE_BYTES,
+        )
+        .await
+    }
+
+    async fn call_bounded(
+        &self,
+        url: &str,
+        method: &'static str,
+        params: Value,
+        limit: usize,
+    ) -> Result<Value, Failure> {
         let _permit = self
             .permits
             .acquire()
@@ -71,13 +102,13 @@ impl Rpc {
         }
         if response
             .content_length()
-            .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
+            .is_some_and(|size| size > limit as u64)
         {
             return Err(Failure::Oversized);
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Transport)? {
-            if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            if bytes.len().saturating_add(chunk.len()) > limit {
                 return Err(Failure::Oversized);
             }
             bytes.extend_from_slice(&chunk);
@@ -97,6 +128,11 @@ impl Rpc {
     }
 
     pub async fn collect(&self, source: Source, endpoint: &Endpoint) -> Result<Data, Failure> {
+        self.validate_identity(endpoint).await?;
+        self.collect_validated(source, endpoint).await
+    }
+
+    pub(crate) async fn validate_identity(&self, endpoint: &Endpoint) -> Result<(), Failure> {
         // Revalidate on every poll: the same URL can point to a restarted/reset chain.
         let chain_id = self.call(&endpoint.url, "eth_chainId", json!([])).await?;
         if quantity(&chain_id)? != endpoint.chain_id {
@@ -109,6 +145,14 @@ impl Rpc {
         if genesis.number != 0 || !genesis.hash.eq_ignore_ascii_case(&endpoint.genesis_hash) {
             return Err(Failure::Identity);
         }
+        Ok(())
+    }
+
+    async fn collect_validated(
+        &self,
+        source: Source,
+        endpoint: &Endpoint,
+    ) -> Result<Data, Failure> {
         if source == Source::Queue {
             let value = self
                 .call(&endpoint.url, "eez_getCrossChainQueueStatus", json!([]))

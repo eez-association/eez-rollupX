@@ -4,7 +4,9 @@ Implementation branch: `feat/network-observability`. The database-free RPC expor
 and the self-hosted Prometheus/Grafana/Loki/Alloy backend are implemented. Two
 provisioned dashboards cover network and collection health. See the
 [reviewed plan](../docs/proposals/network-observability.md) for canonical accounting
-and tracing, which remain later work. The backend has been exercised with local
+and tracing. The optional canonical receipt indexer and PostgreSQL profile are
+now implemented; settlement attribution, lifecycle ingestion and tracing remain
+in progress. The backend has been exercised with local
 fixtures; it has not been connected to the live Chiado deployment.
 
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
@@ -164,3 +166,13 @@ first. The normal backend deployment uses your separately managed exporter.
 The dedicated [Observability CI workflow](../.github/workflows/observability.yml)
 runs exporter checks and the isolated backend test on relevant pull requests.
 It uploads only the sanitized validation report, not runtime credentials or logs.
+
+**Optional canonical receipt indexing.**
+
+Enable `database_enabled: true` and start the `database` Compose profile using the
+[database runbook](runbooks/database.md). Apply the explicit migration with the
+admin connection, then run `indexer` with its separate writer identity. Read the
+[canonical indexer contract](contracts/canonical-indexer.md) before choosing the
+bootstrap and tracked wallet/contract selection. Indexing does not change the
+existing database-free exporter mode. The [database validation](validation/database.md)
+covers real PostgreSQL recovery fixtures, not live deployment acceptance.

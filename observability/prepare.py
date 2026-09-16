@@ -67,7 +67,7 @@ def validate(config):
     required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory',
                 'alert_webhook_url', 'heartbeat_webhook_url'}
     allowed = required | {'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
-                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes'}
+                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port'}
     if set(config) - allowed or required - set(config):
         raise ValueError('missing or unknown stack configuration fields')
     for key in ('environment', 'deployment', 'observer_instance'):
@@ -95,9 +95,13 @@ def validate(config):
                 valid = False
             if not valid:
                 raise ValueError('invalid webhook/probe URL')
-    for key in ('grafana_port', 'prometheus_port', 'loki_port'):
+    if type(config.get('database_enabled', False)) is not bool:
+        raise ValueError('database_enabled must be a boolean')
+    if 'postgres_port' in config and not config.get('database_enabled', False):
+        raise ValueError('postgres_port requires database_enabled')
+    for key in ('grafana_port', 'prometheus_port', 'loki_port', 'postgres_port'):
         value = config.get(key, 0)
-        if type(value) is not int or not 0 <= value <= 65535:
+        if type(value) is not int or not 0 <= value <= 65535 or (key == 'postgres_port' and key in config and value == 0):
             raise ValueError('ports must be integers between 0 and 65535')
     path = pathlib.Path(config['log_directory']).resolve(strict=True)
     if not path.is_dir() or 'REPLACE' in str(path):
@@ -149,11 +153,14 @@ def prepare(config, runtime, *, fast_test=False):
         'rule_files': ['/etc/prometheus/recording-rules.yaml'], 'scrape_configs': scrape})
     shutil.copyfile(ROOT / 'prometheus/recording-rules.yaml', runtime / 'prometheus/recording-rules.yaml')
     provision = runtime / 'grafana/provisioning'
-    write_json(provision / 'datasources/eez.yaml', {'apiVersion': 1, 'datasources': [
+    datasources = [
         {'name': 'EEZ Prometheus', 'uid': 'eez-prometheus', 'type': 'prometheus', 'access': 'proxy',
          'url': 'http://prometheus:9090', 'isDefault': True, 'editable': False, 'jsonData': {'httpMethod': 'POST', 'timeInterval': interval}},
         {'name': 'EEZ Logs', 'uid': 'eez-loki', 'type': 'loki', 'access': 'proxy',
-         'url': 'http://loki:3100', 'editable': False}]})
+         'url': 'http://loki:3100', 'editable': False}]
+    if config.get('database_enabled', False):
+        prepare_database(config, runtime, datasources)
+    write_json(provision / 'datasources/eez.yaml', {'apiVersion': 1, 'prune': True, 'datasources': datasources})
     write_json(provision / 'dashboards/eez.yaml', {'apiVersion': 1, 'providers': [{'name': 'eez', 'orgId': 1,
         'folder': 'EEZ', 'type': 'file', 'disableDeletion': False, 'updateIntervalSeconds': 10,
         'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards'}}]})
@@ -197,7 +204,7 @@ loki.write "local" {
         alloy = alloy.replace(token, json.dumps(value))
     (runtime / 'alloy').mkdir(exist_ok=True)
     (runtime / 'alloy/config.alloy').write_text(alloy)
-    ports = {key: config.get(key, default) for key, default in [('grafana_port', 19300), ('prometheus_port', 19090), ('loki_port', 19310)]}
+    ports = {key: config.get(key, default) for key, default in [('grafana_port', 19300), ('prometheus_port', 19090), ('loki_port', 19310), ('postgres_port', 19432)]}
     environment = f'OBS_RUNTIME="{runtime}"\nOBS_LOG_DIR="{logs}"\n' + ''.join(f'{key.upper()}={value}\n' for key, value in ports.items())
     (runtime / 'compose.env').write_text(environment)
     (runtime / 'compose.env').chmod(0o600)
@@ -205,8 +212,35 @@ loki.write "local" {
         'observer_instance': config['observer_instance'], 'test_timings': fast_test,
         'native_processes': [name for name, _, _ in native_configs(config)],
         'probes_independent': (config.get('probe_exporter_target') or 'blackbox:9115') != 'blackbox:9115',
+        'database_enabled': config.get('database_enabled', False),
         'node_metrics_configured': bool(config.get('node_exporter_target'))})
     return runtime
+
+
+def prepare_database(config, runtime, datasources):
+    passwords = {}
+    for role in ('admin', 'writer', 'reader'):
+        path = runtime / f'secrets/postgres-{role}-password'
+        if not path.exists():
+            with path.open('x') as stream:
+                stream.write(secrets.token_urlsafe(32))
+            # The private 0700 runtime encloses these individual container mounts.
+            path.chmod(0o644)
+        value = path.read_text()
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{32,128}', value):
+            raise ValueError('invalid existing generated database password; restore the original secret file')
+        passwords[role] = value
+    for role in ('admin', 'writer'):
+        user = 'postgres' if role == 'admin' else 'eez_observer_writer'
+        path = runtime / f'database/{role}.json'
+        write_json(path, {'connection_string': f"host=127.0.0.1 port={config.get('postgres_port',19432)} user={user} dbname=eez_observer password={passwords[role]} sslmode=disable",
+                          'allow_private_plaintext': True})
+        path.chmod(0o600)
+    datasources.append({'name': 'EEZ Canonical ledger', 'uid': 'eez-postgres', 'type': 'postgres', 'access': 'proxy',
+        'url': 'postgres:5432', 'user': 'eez_observer_reader', 'editable': False,
+        'jsonData': {'database': 'eez_observer', 'sslmode': 'disable', 'postgresVersion': 1800,
+                     'maxOpenConns': 5, 'maxIdleConns': 2, 'connMaxLifetime': 300, 'timescaledb': False},
+        'secureJsonData': {'password': passwords['reader']}})
 
 
 def alert_rules(config, *, fast_test=False):

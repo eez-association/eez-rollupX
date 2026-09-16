@@ -86,6 +86,39 @@ class Preparation(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare.prepare({**self.config, 'native_processes': [process, process]}, self.root / 'invalid')
 
+    def test_database_profile_is_opt_in_and_credentials_are_separate_and_stable(self):
+        runtime = prepare.prepare(self.config, self.root / 'runtime')
+        self.assertFalse((runtime / 'database').exists())
+        self.assertFalse((runtime / 'secrets/postgres-admin-password').exists())
+        self.config.update(database_enabled=True, postgres_port=19433)
+        prepare.prepare(self.config, runtime)
+        secret = (runtime / 'secrets/postgres-reader-password').read_text()
+        datasources = json.loads((runtime / 'grafana/provisioning/datasources/eez.yaml').read_text())
+        postgres = next(value for value in datasources['datasources'] if value['uid'] == 'eez-postgres')
+        self.assertEqual(postgres['user'], 'eez_observer_reader')
+        self.assertEqual(postgres['secureJsonData']['password'], secret)
+        writer = json.loads((runtime / 'database/writer.json').read_text())
+        self.assertIn('port=19433', writer['connection_string'])
+        self.assertIn('user=eez_observer_writer', writer['connection_string'])
+        self.assertNotIn(secret, writer['connection_string'])
+        self.assertEqual((runtime / 'database/writer.json').stat().st_mode & 0o777, 0o600)
+        prepare.prepare(self.config, runtime)
+        self.assertEqual((runtime / 'secrets/postgres-reader-password').read_text(), secret)
+        for role in ('admin','writer','reader'):
+            value = (runtime / f'secrets/postgres-{role}-password').read_text()
+            self.assertNotIn(value, (runtime / 'compose.env').read_text())
+            self.assertNotIn(value, (runtime / 'manifest.json').read_text())
+        for fields in ({'database_enabled':'true'}, {'database_enabled':False,'postgres_port':19432},
+                       {'database_enabled':True,'postgres_port':0}):
+            with self.assertRaises(ValueError):
+                prepare.prepare({**self.config,**fields}, self.root / 'invalid')
+        self.config.pop('postgres_port')
+        self.config['database_enabled'] = False
+        prepare.prepare(self.config, runtime)
+        datasources = json.loads((runtime / 'grafana/provisioning/datasources/eez.yaml').read_text())
+        self.assertTrue(datasources['prune'])
+        self.assertFalse(any(value['uid'] == 'eez-postgres' for value in datasources['datasources']))
+
     def test_dashboards_use_stable_datasources_and_do_not_fill_missing_values(self):
         for path in (ROOT / 'grafana/dashboards').glob('*.json'):
             dashboard = json.loads(path.read_text())

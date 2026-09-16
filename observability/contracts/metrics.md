@@ -45,3 +45,7 @@ runbook defines their missing-data behavior.
 The full lifecycle event schema, native durations, per-direction metrics and
 canonical cost metrics remain outside this contract. They retain their proposal
 acceptance gates; absence must not be shown as zero.
+
+Indexer mode adds the separately namespaced canonical collection gauges in
+[the indexer contract](canonical-indexer.md). The RPC queue/head recording rules
+retain their existing producer and semantics.

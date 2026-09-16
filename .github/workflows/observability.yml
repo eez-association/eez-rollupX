@@ -52,6 +52,8 @@ jobs:
         run: cargo clippy --locked -p eez-observer -p eez-telemetry --all-features --all-targets -- -D warnings
       - name: Build exporter
         run: cargo build --locked -p eez-observer
+      - name: Isolated canonical database, recovery and permissions tests
+        run: python3 -u observability/tests/smoke-database.py --report artifacts/observability-database-validation.json
       - name: Isolated backend, query, log and alert tests
         run: python3 -u observability/tests/smoke-stack.py --report artifacts/observability-stack-validation.json
       - name: Preserve sanitized validation report
@@ -59,5 +61,5 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: observability-validation
-          path: artifacts/observability-stack-validation.json
+          path: artifacts/observability-*-validation.json
           if-no-files-found: warn

@@ -1,0 +1,76 @@
+# Private canonical database
+
+Set `database_enabled: true` in the stack input and rerun `prepare.py`. Optionally
+set `postgres_port` (default 19432; 1–65535). The generator preserves separate
+admin/writer/reader passwords across reruns, writes private connection files under
+`database/`, and provisions Grafana's `eez-postgres` data source with the reader
+identity. The enclosing runtime directory stays mode 0700. Do not print or commit
+runtime files. Disabling the option removes the provisioned SQL data source;
+it does not erase an existing database volume.
+
+Start only the optional database before applying its schema:
+
+```bash
+docker compose --project-name eez-observability \
+  --env-file .runtime/observability/compose.env \
+  -f observability/compose.yaml --profile database up -d --wait postgres
+
+cargo run --locked -p eez-observer -- migrate \
+  --database-config .runtime/observability/database/admin.json
+```
+
+The pinned PostgreSQL 18 image initializes unprivileged login identities, not the
+observer schema. Only the explicit administrative `migrate` command applies DDL.
+It locks migrations transactionally, verifies every existing version/checksum,
+and applies pending forward migrations in order. A newer, edited or unknown
+schema is refused. Normal indexer startup verifies the exact supported schema
+and refuses administrative or incompatible credentials. Migrations are append-only
+once released; do not edit a deployed migration to evade a checksum mismatch.
+
+The database uses its own internal Docker network with Grafana. Its host port
+binds only to loopback. On a separate node host, provide a private authenticated
+tunnel to that loopback port; copy only the writer connection file to the observer
+and adjust its host/port for the local tunnel endpoint. The current Rust driver
+uses Unix sockets or explicitly opted-in plaintext TCP inside that private
+transport. It refuses TLS modes rather than silently ignoring them. It does not
+provide encryption for traffic outside the tunnel. Never expose this port on a
+public interface.
+
+Prepare the verified [indexer configuration](../indexer.example.json), set its
+`database_config` to the writer file, and follow the [indexer contract](../contracts/canonical-indexer.md).
+For example, after replacing all placeholders and bootstrap values:
+
+```bash
+cargo run --locked -p eez-observer -- indexer --config /private/eez/indexer.json --once
+cargo run --locked -p eez-observer -- indexer --config /private/eez/indexer.json
+```
+
+The continuous indexer owns the exporter's metrics port; stop a separate exporter
+on that same port before switching. Database-free exporter mode remains available
+if canonical indexing is intentionally disabled. `--once` is restart-safe bounded
+backfill, not a claim that the full historical interval is caught up.
+
+The database container has a 512 MiB memory limit, one CPU, 128 MiB shared buffers
+and 30 connections; Grafana opens at most five. Its persistent volume is mounted
+at PostgreSQL 18's `/var/lib/postgresql` parent. These are initial budgets, not
+measured production capacity. Keep disk space/growth monitored and preserve the
+volume across ordinary restart/upgrade. Changing secret files does not rotate
+roles in an existing cluster: use an explicit coordinated PostgreSQL credential
+rotation and then update generated credentials. Never delete the volume to fix
+a login error.
+
+For a frozen finalized contradiction, stop relying on affected accounting and
+investigate endpoint identity and canonical anchors. Preserve the database and
+source evidence. The scanner will not automatically unfreeze or rewrite finality.
+Restore into a separate instance or perform an explicitly reviewed repair; do not
+clear a flag merely to make a dashboard green. Missing historical blocks require
+a source that retains that interval; changing bootstrap on the existing namespace
+is refused. Receipt gaps retry automatically without blocking new headers.
+
+Backup/clean-host restore, settlement/source attribution, authenticated blob
+measurement and production calibration remain release gates in the
+[requirement ledger](../requirements.md). The isolated tests establish canonical
+receipt persistence/recovery, not those later capabilities.
+
+References checked for this packaging: [Docker PostgreSQL guide](https://docs.docker.com/guides/postgresql/)
+and [Grafana provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/).

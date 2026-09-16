@@ -1,0 +1,25 @@
+{
+  "scope": "isolated database only; no live services",
+  "image": "postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+  "checks": [
+    "opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence",
+    "explicit_migration_and_idempotent_reapplication",
+    "canonical_revert_reorg_reinclusion_missing_fees_full_width_sums_and_readonly_roles",
+    "unmigrated_schema_refused_without_implicit_ddl_in_both_runtime_modes",
+    "changed_bootstrap_selection_and_administrative_indexer_credentials_refused",
+    "real_indexer_restart_receipt_retry_same_height_reorg_reinclusion_identity_and_finality_freeze",
+    "mid_fetch_fork_never_commits_mixed_inclusion",
+    "unavailable_block_range_persisted_and_resolved_on_recovery",
+    "contradictory_receipt_transaction_type_refused_and_retry_recovers",
+    "nondefault_batch_bound_reaches_runtime_and_advances_one_block_per_cycle",
+    "concurrent_scanners_preserve_single_inclusions_and_monotonic_cursor",
+    "killed_scanner_rolls_back_block_receipt_and_cursor_then_recovers",
+    "continuous_indexer_serves_both_chain_metrics_and_exits_on_sigterm",
+    "newer_schema_refuses_migration_downgrade_and_old_indexer",
+    "incompatible_migration_checksum_refused"
+  ],
+  "binary_sha256": "d273cac66568e1c94999fedda50ec0daa0e4ad60df6fb10af9875ab8e21e7714",
+  "validated_at": "2026-09-16T21:50:43.617994+00:00",
+  "migration_sha256": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
+  "status": "passed"
+}

@@ -107,7 +107,7 @@ pub struct Receipt {
     pub cost: Result<ReceiptCost, Gap>,
 }
 
-fn hash(value: &Value) -> Result<B256, Failure> {
+pub(crate) fn hash(value: &Value) -> Result<B256, Failure> {
     let raw = value
         .as_str()
         .filter(|raw| valid_hash(raw))
