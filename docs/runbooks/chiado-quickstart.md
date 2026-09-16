@@ -21,14 +21,10 @@ cp .env.chiado.example .env
 chmod 600 .env
 ```
 
-Edit `.env`:
-
-- Set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
-  proof-signer, and L2-system keys. Proof/system keys must differ; keep the poster
-  separate from the proof signer. Fund the poster with test xDAI; it also deploys
-  unless you set and fund a separate `EEZ_DEPLOY_KEY`.
-- Keep the other defaults. If you change `EEZ_L1_BUILDER_RPC_URL`, use a Chiado
-  builder supporting `eth_sendBundle`.
+Edit `.env`: set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
+proof-signer, and L2-system keys. Proof/system keys must differ; keep the poster
+separate from the proof signer. Fund the poster with test xDAI; it also deploys
+unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 
 The three EEZ images default to `:latest`, which can change on startup.
 To keep a fixed deployment, set all three image references to the same full Git

@@ -121,9 +121,8 @@ chmod 600 .env
 ```
 
 Edit `.env`: set a synchronized external Chiado `EEZ_L1_RPC_URL`, the three keys,
-and optionally `EEZ_DEPLOY_KEY`. Keep the other defaults. A custom
-`EEZ_L1_BUILDER_RPC_URL` must support Chiado `eth_sendBundle`. The deployment RPC
-must remain external: startup queries it before starting the embedded L1.
+and optionally `EEZ_DEPLOY_KEY`. The deployment RPC must remain external:
+startup queries it before starting the embedded L1.
 
 Checkpoint sync defaults to `https://checkpoint.chiadochain.net/`; set
 `LH_CHECKPOINT_URL` to use another trusted source. Keep policy disabled for initial
