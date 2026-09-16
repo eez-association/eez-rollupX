@@ -19,6 +19,7 @@ members = [
     "crates/eez-prover",
     "crates/eez-prover-client",
     "crates/eez-testkit",
+    "crates/eez-telemetry",
 ]
 
 [workspace.package]
@@ -159,6 +160,7 @@ eez-payload-codec  = { path = "crates/eez-payload-codec" }
 eez-protocol       = { path = "crates/eez-protocol" }
 eez-prover         = { path = "crates/eez-prover" }
 eez-testkit        = { path = "crates/eez-testkit" }
+eez-telemetry      = { path = "crates/eez-telemetry" }
 
 # Profiles copied from reth (paradigmxyz/reth Cargo.toml), minus its
 # hivetests/reproducible CI profiles. `release` is the fast-to-build

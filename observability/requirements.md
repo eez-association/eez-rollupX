@@ -1,0 +1,65 @@
+# Implementation and acceptance ledger
+
+Source of truth: [proposal](../docs/proposals/network-observability.md), including
+its final implementation decisions and [review dispositions](../docs/proposals/network-observability-review-disposition.md).
+`Verified` below means the named evidence exists, not production acceptance.
+An open row is a release gate, not an implicitly deferred requirement.
+
+| ID | Requirement / invariant | Implementation and configuration | Tests / evidence / documentation | Status |
+| --- | --- | --- | --- | --- |
+| R01 | One identity source; bounded labels; no secrets or signed pending envelopes | Exporter config, stack prepare; native identity pending | Observer config tests, prepare tests; contracts/metrics.md | Partial |
+| R02 | Existing configurations and protocol behavior unchanged by disabled telemetry | Native initialization and optional configuration | Disabled/enabled devnet comparison and startup tests | Open |
+| R03 | One Reth recorder/subscriber; verified prefix, histogram buckets, embedded attribution | Pinned recorder builder/layer integration | Actual node/signer scrape, bucket and duplicate-init tests; capability matrix | Open |
+| R04 | Read-only exporter; chain/genesis checked each poll; bounded calls/backoff | crates/eez-observer, config.example.json | Nine Rust tests, smoke-exporter.py; validation/initial-slice.md | Verified |
+| R05 | Disjoint queue counts; stale/failed/null means unknown; one recording-rule producer | Observer model/metrics; prometheus/recording-rules.yaml | Rust freshness/partition tests; rules.test.yaml, smoke-stack.py | Verified |
+| R06 | Private pinned self-hosted stack, resource/retention budgets, persistent stores | compose.yaml, images.lock.json, prepare.py | Isolated stack run; validation/backend-stack.md | Partial: node-host agent packaging, database/trace profiles pending |
+| R07 | First two dashboards, explicit no-data/error alerts, recovery and independent heartbeat | Grafana provisioning and network/infrastructure dashboards | smoke-stack.py exercises rules and local receivers | Partial: actual independent host/receivers pending |
+| R08 | Canonical scanner identity, bootstrap, parent-linked consistent fetch, atomic cursor | Observer indexer mode | Restart/crash/duplicate/out-of-order/reorg tests | Open |
+| R09 | Preserve orphan/reinclusion history; finalized contradiction freezes affected views | SQL blocks/receipts/cursor model and scanner | Same-height fork, reinclusion, finality tests | Open |
+| R10 | Exact gas/blob charges, canonical reverts, missing fields gaps; no join multiplication | Checked U256 quantities/full-width products; canonical SQL views | Saved audit with explicit membership; overflow/missing/revert fixtures | Open |
+| R11 | Wallet spend, settlement/companion attribution and L2 fees distinct | Configured wallets/contracts, evidence/provenance and allocation views | Unallocated/missing-membership and shared-batch fixtures | Open |
+| R12 | Authenticated/versioned blob length; measured-subset weighted utilization and coverage | Codec exact boundary, bounded retrieval, measurement states | Terminator/trailing-zero/authentication/pruning/revert fixtures | Open |
+| R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, PostgreSQL profile/migrations | Upgrade, incompatible-schema, permissions and clean restore | Open |
+| R14 | Typed versioned events; epoch/sequence at owned transition; many-to-many membership | eez-telemetry schema; contracts/lifecycle-v1.md | Chunk/schema fixtures in telemetry tests | Partial: native capture points pending |
+| R15 | Bounded nonblocking lifecycle writer independent of logging/sampling | eez-telemetry spool; 4096-record channel, 16 KiB records, 64 MiB segments, 24h/2 GiB retention | validation/lifecycle-transport.md: overflow, ENOSPC, rotation, shutdown, concurrency | Partial: native workload validation pending |
+| R16 | Chunk completion+digest, immutable segment IDs, independent control/drop records | eez-telemetry wire/spool | Missing/reordered/conflicting chunks, bypassed-full-channel control tests | Verified at transport layer; SQL ingestion pending |
+| R17 | Instance/epoch fencing and headers; explicit ended/unknown liveness | OS advisory locks; read-only probe_epoch | Collision and restart-without-traffic tests | Partial: process crash and observer classification pending |
+| R18 | Transactional file offsets, dedup/quarantine, provisional/suspected/recoverable gaps | Observer local bounded reader and SQL ingestion | Crash before/after commit, retention expiry, late events, unknown schema | Open |
+| R19 | Restart admissions unresolved; exact assurance and reorg-retractable outcomes | Native transitions, observer evidence/anchor validation | Outcome matrix, source-only receipt vs cross-chain claim, readmission tests | Open |
+| R20 | Monotonic native ages/stages; direction and outcome counts, pending distributions | Held-pool/composer/signer instrumentation | Queue/attempt regressions, histogram output; completed vs pending tests | Open |
+| R21 | Four protocol dashboards with coverage, links, policy/restart annotations | Cross-chain/settlement/blob/gas dashboards and SQL views | All dashboard queries on audit fixtures; missing/expired trace links | Open |
+| R22 | Stage-2 progress/age/funding/blob/signer/index-gap alerts | Validated native/observer producers, Grafana rules/runbooks | Failure/recovery and upstream suppression fixtures | Open |
+| R23 | Finite OTel spans; W3C gRPC context; batch/retry links; no signed-wire change | Existing subscriber layers, prover client/server metadata | Real connected composer/signer trace, invalid context, unchanged wire tests | Open |
+| R24 | Bounded tracing, explicit sampling/drops and post-drain flush budget | Alloy/Tempo profile (7d), exporter queues/timeouts | Collector outage/overload/shutdown, receipt persistence after expiry | Open |
+| R25 | Optional follower compares exact settled block/root; disabled/lag unknown | Independent follower observer capability | Agreement/disagreement/lag/reorg tests | Open |
+| R26 | Devnet bidirectional canaries check semantic effects; quiet is unexercised | Existing devnet/Kurtosis infrastructure | Both directions, nonce gaps, signer outage, missing blobs | Open |
+| R27 | Telemetry failures never block protocol; bounded physical spool storage | Native queue API, separate 3 GiB volume, bounded reader descriptors | Collector/disk-full and lagging-reader drills; overhead <5% provisional | Open |
+| R28 | CI validates affected crates/features and backend queries | .github/workflows/observability.yml | Current exporter/stack checks pass locally; expand with new packages | Partial |
+| R29 | Clean-host restore including SQL/config/contact points; measured RPO/RTO | Backup/upgrade/rollback tooling and operations runbook | Separate-instance restore and rescan; container persistence already tested | Partial |
+| R30 | Real rollout manifest, owner, endpoints, bootstrap, private network, capped backfill | Deployment inputs pending; preserve chain data/public routes | Seven-day baseline, workload/quiet, cardinality/latency/storage/alert calibration | Open |
+
+## Interpretation and findings
+
+- The earlier proposal-only Claude review is complete. Its unaccepted recommendations
+  (including inferred completion from height and numeric width for products) do not
+  override the final proposal decisions.
+- Native attempt ownership already uses generation plus signed post hash. Telemetry
+  wraps that identity with the boot epoch; it must not introduce a second owner.
+- `OptimisticallyIncluded::update` publishes a cloned state only after validation.
+  Emitting from a fallible mutation closure could report a transition that never
+  committed. Capture after successful publication and allocate sequence while its
+  existing ownership is held; serialize and perform I/O after lock release.
+- The existing queue RPC ages use wall time and committed-only progress. Preserve
+  that compatible API; new native durations use monotonic time, and canonical
+  terminal progress requires the observer's validated evidence.
+- Filesystem retention is not a physical quota. The deployment must provision the
+  separate hard volume budget and test readers that lag across unlink/rotation.
+- Real host allocation, operator/independent heartbeat receiver config paths, and
+  seven days of baseline observations are still needed for R30. Isolated tests do
+  not substitute for this production evidence.
+
+## Scope boundaries
+
+No public dashboard, continuous funded Chiado canary, zero-loss admission journal,
+independent replay verifier, protocol encoding change, or queue durability change.
+These exclusions are in the proposal; they do not defer any row above.

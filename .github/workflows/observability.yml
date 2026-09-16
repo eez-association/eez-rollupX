@@ -5,6 +5,7 @@ on:
     paths:
       - observability/**
       - crates/eez-observer/**
+      - crates/eez-telemetry/**
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/observability.yml
@@ -13,6 +14,7 @@ on:
     paths:
       - observability/**
       - crates/eez-observer/**
+      - crates/eez-telemetry/**
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/observability.yml
@@ -43,11 +45,11 @@ jobs:
       - name: Configuration and dashboard checks
         run: python3 observability/tests/test_prepare.py
       - name: Format
-        run: cargo fmt -p eez-observer --check
+        run: cargo fmt -p eez-observer -p eez-telemetry --check
       - name: Exporter tests
-        run: cargo test --locked -p eez-observer
+        run: cargo test --locked -p eez-observer -p eez-telemetry
       - name: Exporter lint
-        run: cargo clippy --locked -p eez-observer --all-targets -- -D warnings
+        run: cargo clippy --locked -p eez-observer -p eez-telemetry --all-targets -- -D warnings
       - name: Build exporter
         run: cargo build --locked -p eez-observer
       - name: Isolated backend, query, log and alert tests

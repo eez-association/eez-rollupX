@@ -7,6 +7,12 @@ provisioned dashboards cover network and collection health. See the
 and tracing, which remain later work. The backend has been exercised with local
 fixtures; it has not been connected to the live Chiado deployment.
 
+The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
+and [fault-test evidence](validation/lifecycle-transport.md). Native instrumentation
+and durable ingestion are still in progress. The [requirement ledger](requirements.md)
+tracks each implementation and acceptance gate without treating partial work as a
+completed release.
+
 The exporter reads L1/L2 identity and latest heads, the EEZ queue RPC, and an
 optional independent L1 reference. It never submits transactions, reads `.env`
 files, loads node signing keys, or modifies either chain. Its metrics listener
