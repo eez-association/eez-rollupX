@@ -35,8 +35,11 @@ impl Sample {
     /// Otherwise reserve a full admission pass. Keep the prior finishing
     /// observation as a floor, scaling it down for a smaller candidate but never
     /// multiplying a small post's fixed overhead by the new group count. KZG is
-    /// separate. This is an estimate; proof/dispatch deadlines still bind.
-    fn tail_for(self, groups: usize, blobs: usize, work: Duration) -> u128 {
+    /// separate. Add jitter to a calibrated estimate. The uncalibrated full-pass
+    /// fallback is already conservative: it floors the observed tail plus
+    /// jitter, rather than adding both allowances to a small post's fixed cost.
+    /// This is an estimate; proof/dispatch deadlines still bind.
+    fn tail_for(self, groups: usize, blobs: usize, work: Duration, jitter: Duration) -> u128 {
         let variable = self.tail.saturating_sub(self.blob_preparation).as_nanos();
         let observed = variable
             .checked_mul(groups.min(self.groups.max(1)) as u128)
@@ -45,19 +48,24 @@ impl Sample {
         // interrupted observations retain the full-pass estimate. The current
         // work includes setup, classification and canonical appends, while the
         // denominator measures only accepted group simulation/prefix work.
-        let predicted = match self.group_work.map(|d| d.as_nanos()) {
-            Some(measured) if variable > 0 && measured > variable => work
-                .as_nanos()
-                .checked_mul(variable)
-                .map_or(u128::MAX, |n| n.div_ceil(measured)),
-            _ => work.as_nanos(),
+        let finishing = match self.group_work.map(|d| d.as_nanos()) {
+            Some(measured) if variable > 0 && measured > variable => {
+                let predicted = work
+                    .as_nanos()
+                    .checked_mul(variable)
+                    .map_or(u128::MAX, |n| n.div_ceil(measured));
+                observed.max(predicted).saturating_add(jitter.as_nanos())
+            }
+            _ => observed
+                .saturating_add(jitter.as_nanos())
+                .max(work.as_nanos()),
         };
         let kzg = self
             .blob_preparation
             .as_nanos()
             .checked_mul(blobs as u128)
             .map_or(u128::MAX, |n| n.div_ceil(self.blobs.max(1) as u128));
-        observed.max(predicted).saturating_add(kzg)
+        finishing.saturating_add(kzg)
     }
 }
 
@@ -128,21 +136,35 @@ impl AutomaticAdmission {
             // FIFO group next time. Exact resource/deadline guards still apply.
             self.sample = None;
         }
+        self.retry_limit = if !progress.completed
+            || progress
+                .prepared
+                .is_none_or(|s| s.preparation > attempt.available)
+        {
+            // Selected is FIFO lookahead, which may be the whole backlog. A
+            // cutoff miss must reduce the workload that actually reached
+            // preparation, including a smaller rebuilt candidate, rather than
+            // leave enough lookahead to repeat the same oversized prefix.
+            let admitted = progress.prepared.map_or(progress.accepted, |s| s.groups);
+            let workload = if admitted == 0 {
+                attempt.selected
+            } else {
+                admitted.min(attempt.selected)
+            };
+            Some((workload / 2).max(1))
+        } else {
+            None
+        };
         // Shrink lookahead when outbound-first execution bypassed an older
         // eligible group. A successful FIFO prefix already made fair progress;
         // let the next opportunity use its measured budgets, not a count cap.
-        self.retry_limit =
-            if progress.limited && (progress.fifo_bypassed || progress.prepared.is_none()) {
-                Some(progress.accepted.max(1).min((attempt.selected / 2).max(1)))
-            } else if !progress.completed
-                || progress
-                    .prepared
-                    .is_none_or(|s| s.preparation > attempt.available)
-            {
-                Some((attempt.selected / 2).max(1))
-            } else {
-                None
-            };
+        if progress.limited && (progress.fifo_bypassed || progress.prepared.is_none()) {
+            let fair_limit = progress.accepted.max(1).min((attempt.selected / 2).max(1));
+            self.retry_limit = Some(
+                self.retry_limit
+                    .map_or(fair_limit, |limit| limit.min(fair_limit)),
+            );
+        }
     }
 }
 
@@ -199,6 +221,13 @@ pub(super) struct Attempt {
 }
 
 impl Attempt {
+    /// Add 10% of the actual window to measured finishing predictions. The
+    /// conservative full-pass fallback can cover this allowance already.
+    /// The proof budget and absolute cutoff remain authoritative.
+    fn jitter_reserve(&self) -> Duration {
+        self.available / 10
+    }
+
     pub fn source_deferred(&self, deferred: bool) {
         self.progress.lock().unwrap().source_deferred |= deferred;
     }
@@ -220,9 +249,10 @@ impl Attempt {
         }
         let next = accepted.saturating_add(1);
         let blobs = self.progress.lock().unwrap().blobs.max(1);
-        let tail = self
-            .previous
-            .map_or(elapsed.as_nanos(), |s| s.tail_for(next, blobs, elapsed));
+        let jitter = self.jitter_reserve();
+        let tail = self.previous.map_or(elapsed.max(jitter).as_nanos(), |s| {
+            s.tail_for(next, blobs, elapsed, jitter)
+        });
         let group = if accepted == 0 {
             self.previous.map_or(0, |s| {
                 s.preparation.saturating_sub(s.tail).as_nanos() / s.groups.max(1) as u128
@@ -260,9 +290,10 @@ impl Attempt {
 
     fn can_finish_at(&self, groups: usize, blobs: usize, elapsed: Duration) -> bool {
         let remaining = self.available.saturating_sub(elapsed);
-        let tail = self
-            .previous
-            .map_or(0, |s| s.tail_for(groups, blobs, elapsed));
+        let jitter = self.jitter_reserve();
+        let tail = self.previous.map_or(jitter.as_nanos(), |s| {
+            s.tail_for(groups, blobs, elapsed, jitter)
+        });
         let mut progress = self.progress.lock().unwrap();
         let measured = progress
             .group_started
@@ -342,6 +373,7 @@ impl Attempt {
             blob_preparation_ms = progress.blob_preparation.as_millis() as u64,
             blob_count = progress.blobs,
             available_ms = self.available.as_millis() as u64,
+            jitter_reserve_ms = self.jitter_reserve().as_millis() as u64,
             limited = progress.limited,
             "measured automatic admission through the start of proof generation");
     }
@@ -634,12 +666,101 @@ mod tests {
     }
 
     #[test]
+    fn failed_preparation_reduces_admitted_work_even_with_a_large_fifo_snapshot() {
+        // Chiado: 1,164 selected, 60 admitted, 498 ms preparation against
+        // 491 ms available. Halving lookahead to 582 still admits ~60 again.
+        for selected in [60, 1164, usize::MAX] {
+            for prepared in [None, Some(sample(60, 498))] {
+                for fifo_bypassed in [false, true] {
+                    let mut state = AutomaticAdmission {
+                        sample: Some(sample(62, 477)),
+                        retry_limit: None,
+                    };
+                    let mut failed = attempt(selected, 60, true, prepared);
+                    failed.available = Duration::from_millis(491);
+                    {
+                        let mut progress = failed.progress.lock().unwrap();
+                        progress.completed = false;
+                        progress.fifo_bypassed = fifo_bypassed;
+                    }
+                    state.finish(&failed);
+                    assert_eq!(state.limit(1164, failed.available), 30);
+                    // Successful fair progress releases the temporary count cap.
+                    state.finish(&attempt(30, 30, true, Some(sample(30, 300))));
+                    assert_eq!(state.limit(1164, failed.available), 1164);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn failed_rebuilt_candidate_backs_off_from_its_final_prepared_work() {
+        let mut state = AutomaticAdmission::default();
+        let failed = attempt(1164, 60, true, Some(sample(12, 1100)));
+        state.finish(&failed);
+        assert_eq!(state.limit(1164, failed.available), 6);
+    }
+
+    #[test]
+    fn recovery_admission_leaves_room_for_finishing_jitter() {
+        // Last successful Chiado preparation before the 11:46:38 cutoff miss.
+        let previous = Sample {
+            groups: 62,
+            preparation: Duration::from_millis(477),
+            tail: Duration::from_millis(197),
+            blob_preparation: Duration::from_millis(176),
+            blobs: 1,
+            group_work: Some(Duration::from_millis(266)),
+        };
+        let mut a = attempt(1164, 0, false, Some(previous));
+        a.available = Duration::from_millis(491);
+        // A smaller prefix still fits, including a 30 ms finishing overrun.
+        let elapsed = Duration::from_millis(240);
+        assert!(a.can_start_at(49, elapsed));
+        assert!(a.can_finish_at(50, 1, elapsed));
+        assert!(
+            elapsed.as_nanos()
+                + previous.tail_for(50, 1, elapsed, Duration::ZERO)
+                + Duration::from_millis(30).as_nanos()
+                < a.available.as_nanos()
+        );
+        // The old estimate admitted more work with almost no finishing margin.
+        assert!(!a.can_start_at(59, Duration::from_millis(279)));
+        assert!(!a.can_finish_at(60, 1, Duration::from_millis(279)));
+        assert!(!a.can_finish_at(1, 1, a.available));
+    }
+
+    #[test]
     fn group_start_reserves_final_preparation_and_stops_at_the_shared_proof_cutoff() {
         let a = attempt(64, 0, false, Some(sample(10, 500)));
         assert!(a.can_start_at(0, Duration::from_millis(1)));
         assert!(!a.can_start_at(0, Duration::from_secs(1)));
         assert!(a.can_start_at(5, Duration::from_millis(300)));
         assert!(!a.can_start_at(10, Duration::from_millis(700)));
+    }
+
+    #[test]
+    fn full_pass_fallback_covers_jitter_without_splitting_a_fitting_wave() {
+        // Native 45-source regression: the one-source warmup has more fixed
+        // finishing overhead than measured source work. Its conservative full
+        // pass already leaves much more headroom than the 10% jitter allowance.
+        let observed = Sample {
+            groups: 1,
+            preparation: Duration::from_millis(187),
+            tail: Duration::from_millis(181),
+            blob_preparation: Duration::from_millis(172),
+            blobs: 1,
+            group_work: Some(Duration::from_millis(2)),
+        };
+        let mut a = attempt(45, 0, false, Some(observed));
+        a.available = Duration::from_millis(495);
+        assert!(a.can_start_at(44, Duration::from_millis(145)));
+        assert!(a.can_finish_at(45, 1, Duration::from_millis(150)));
+        assert!(!a.can_finish_at(45, 2, Duration::from_millis(150)));
+        assert!(!a.can_finish_at(45, 1, a.available));
+        // Fast source work must still leave jitter above the observed tail.
+        a.available = Duration::from_millis(200);
+        assert!(!a.can_start_at(0, Duration::ZERO));
     }
 
     #[test]
@@ -764,7 +885,10 @@ mod tests {
             blobs: 1,
             ..observed
         };
-        assert_eq!(huge.tail_for(1, usize::MAX, Duration::ZERO), u128::MAX);
+        assert_eq!(
+            huge.tail_for(1, usize::MAX, Duration::ZERO, Duration::ZERO),
+            u128::MAX
+        );
     }
 
     fn measured_attempt() -> Attempt {
@@ -823,7 +947,7 @@ mod tests {
             let progress = a.progress.lock().unwrap();
             let observed = progress.sample(2, progress.phase + Duration::from_millis(200));
             assert_eq!(observed.group_work, Some(Duration::from_millis(65)));
-            let next = observed.tail_for(2, 1, Duration::from_millis(200));
+            let next = observed.tail_for(2, 1, Duration::from_millis(200), Duration::ZERO);
             assert_eq!(
                 *reserve.get_or_insert(next),
                 next,
@@ -861,10 +985,11 @@ mod tests {
             Duration::from_millis(200)
         ));
         for (blobs, elapsed_ms, fits) in [
-            (1, 200, true),
-            (1, 230, false),
-            (2, 100, true),
-            (2, 120, false),
+            // The 500 ms window leaves 450 ms for predicted work.
+            (1, 180, true),
+            (1, 200, false),
+            (2, 70, true),
+            (2, 80, false),
             (1, 500, false),
         ] {
             let next = prefix_with_next_group_started(observed);
@@ -886,8 +1011,8 @@ mod tests {
         assert_eq!(prefix.group_work, Some(Duration::from_millis(65)));
         assert_eq!(prefix.blobs, 1);
         assert_eq!(
-            prefix.tail_for(2, 2, Duration::from_millis(100))
-                - prefix.tail_for(2, 1, Duration::from_millis(100)),
+            prefix.tail_for(2, 2, Duration::from_millis(100), Duration::ZERO)
+                - prefix.tail_for(2, 1, Duration::from_millis(100), Duration::ZERO),
             Duration::from_millis(170).as_nanos()
         );
     }
@@ -956,7 +1081,7 @@ mod tests {
             [(2, 100, 220), (2, 200, 260), (1, 25, 200), (20, 200, 260)]
         {
             assert_eq!(
-                observed.tail_for(groups, 1, Duration::from_millis(work_ms)),
+                observed.tail_for(groups, 1, Duration::from_millis(work_ms), Duration::ZERO),
                 Duration::from_millis(expected_ms).as_nanos()
             );
         }
@@ -966,7 +1091,7 @@ mod tests {
             ..observed
         };
         assert_eq!(
-            fixed.tail_for(20, 1, Duration::from_millis(200)),
+            fixed.tail_for(20, 1, Duration::from_millis(200), Duration::ZERO),
             Duration::from_millis(380).as_nanos()
         );
     }
@@ -981,14 +1106,14 @@ mod tests {
         let mut a = attempt(100, 0, false, Some(observed));
         a.available = Duration::from_millis(500);
         assert!(a.can_start_at(0, Duration::ZERO));
-        assert!(a.can_finish_at(20, 1, Duration::from_millis(220)));
-        assert!(a.can_start_at(20, Duration::from_millis(220)));
+        assert!(a.can_finish_at(20, 1, Duration::from_millis(190)));
+        assert!(a.can_start_at(20, Duration::from_millis(180)));
         assert!(
-            !a.can_finish_at(21, 1, Duration::from_millis(240)),
+            !a.can_finish_at(21, 1, Duration::from_millis(200)),
             "slower current work must increase the finishing allowance"
         );
-        assert!(a.can_finish_at(2, 2, Duration::from_millis(80)));
-        assert!(!a.can_finish_at(2, 2, Duration::from_millis(100)));
+        assert!(a.can_finish_at(2, 2, Duration::from_millis(40)));
+        assert!(!a.can_finish_at(2, 2, Duration::from_millis(50)));
         assert!(!a.can_finish_at(2, 1, a.available));
         // An expensive historical finishing observation remains a floor even
         // when the next candidate's source execution is fast.
@@ -997,7 +1122,7 @@ mod tests {
             ..observed
         };
         assert_eq!(
-            historical.tail_for(2, 1, Duration::from_millis(20)),
+            historical.tail_for(2, 1, Duration::from_millis(20), Duration::ZERO),
             Duration::from_millis(320).as_nanos()
         );
     }
@@ -1022,7 +1147,7 @@ mod tests {
             let observed = progress.sample(2, Duration::from_millis(400));
             assert!(observed.group_work.is_none(), "failure {failure}");
             assert_eq!(
-                observed.tail_for(2, 1, Duration::from_millis(200)),
+                observed.tail_for(2, 1, Duration::from_millis(200), Duration::ZERO),
                 Duration::from_millis(380).as_nanos()
             );
         }
@@ -1076,7 +1201,10 @@ mod tests {
             blobs: 1,
             group_work: Some(Duration::MAX),
         };
-        assert_eq!(huge.tail_for(1, 1, Duration::MAX), u128::MAX);
+        assert_eq!(
+            huge.tail_for(1, 1, Duration::MAX, Duration::ZERO),
+            u128::MAX
+        );
     }
 
     fn signed(size: usize, typed: bool) -> TxEnvelope {

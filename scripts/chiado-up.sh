@@ -1,35 +1,23 @@
 #!/usr/bin/env bash
-#
-# Clean chiado bring-up — one command, start to finish:
-#   1. deploy the protocol on chiado (skipped if deployments.env already
-#      exists — re-running this must not mint new contracts over a live one)
-#   2. prepare the L2 + lighthouse datadirs (fresh, since a fresh deploy means
-#      a new genesis — old chain data under it would just diverge)
-#   3. start the docker compose stack (eez-node + eez-proof-signer + lighthouse)
-#   4. wait until the pipeline is healthy: L2 producing AND a batch has
-#      actually settled on L1 (not just "the RPCs answer")
-#   5. print the RPC URLs + deployed addresses
-#
-# Config (see README):
-#   .env         — deploy inputs: EEZ_L1_RPC_URL (a TIP chiado RPC), keys,
-#                  optionally EEZ_BLOCKSCOUT_URL.
-#   .env.chiado  — docker host paths + funded keys + bundler URL. Consumed by
-#                  `docker compose --env-file .env.chiado`.
+# Start an already deployed Chiado rollup; verify L2 production, L1 settlement,
+# and retrievable post-Fulu blobs. Never deploy contracts or delete datadirs.
+# Setup: docs/runbooks/chiado-quickstart.md. Configuration: .env and deployments.env.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO"
-COMPOSE=(docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml)
+COMPOSE=(docker compose -f docker-compose.chiado-node.yml)
 
-for t in docker cast curl jq make; do command -v "$t" >/dev/null || { echo "✗ $t not in PATH"; exit 1; }; done
-[[ -f .env ]]        || { echo "✗ .env missing — cp .env.example .env and fill it in first"; exit 1; }
-[[ -f .env.chiado ]] || { echo "✗ .env.chiado missing — cp .env.chiado.example .env.chiado and fill it in first"; exit 1; }
+for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t not in PATH"; exit 1; }; done
+[[ -f .env ]] || { echo "✗ .env missing — cp .env.chiado.example .env and fill it in first"; exit 1; }
 
-set -a; source .env; source .env.chiado; set +a
+[[ -s deployments.env ]] || { echo "✗ deployments.env missing — complete explicit deployment or restore the original bindings; startup never redeploys" >&2; exit 1; }
+set -a; source .env; set +a
+"${COMPOSE[@]}" config --quiet
 DEPLOY_RPC="$EEZ_L1_RPC_URL"
 for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR FRESH_GENESIS; do
     [[ -e "${!v:-}" ]] || { echo "✗ $v=${!v:-<unset>} missing — finish the One-time setup steps first"; exit 1; }
 done
-: "${L2_DATA_DIR:?set L2_DATA_DIR in .env.chiado}"
-: "${LIGHTHOUSE_DATA:?set LIGHTHOUSE_DATA in .env.chiado}"
+: "${L2_DATA_DIR:?set L2_DATA_DIR in .env}"
+: "${LIGHTHOUSE_DATA:?set LIGHTHOUSE_DATA in .env}"
 
 # Custom network configs must use the filename consumed by Lighthouse v8.
 # A missing optional seed file otherwise starts a node with empty discovery.
@@ -67,18 +55,11 @@ if ! jq -e 'has("result") or (has("error") and .error.code != -32601)' >/dev/nul
 fi
 echo "==> builder eth_sendBundle endpoint available"
 
-# ── 1. Deploy the protocol ─────────────────────────────────────────────
-if [[ -f deployments.env ]]; then
-    echo "==> [1/5] deployments.env already present — skipping deploy (rm it first to redeploy)"
-    fresh_deploy=0
-else
-    echo "==> [1/5] deploying protocol on chiado"
-    EEZ_DEPLOY_SKIP_SIMULATION="${EEZ_DEPLOY_SKIP_SIMULATION:-1}" make deploy-protocol
-    fresh_deploy=1
-fi
+# ── 1. Verify existing deployment ──────────────────────────────────────
+echo "==> [1/5] using existing deployments.env"
 set -a; source deployments.env; set +a
 : "${EEZ_REGISTRY_ADDRESS:?deploy did not write EEZ_REGISTRY_ADDRESS}"
-: "${EEZ_INITIAL_BLOCK_HASH:?deployments.env predates block-hash commitments; redeploy on a fresh registry}"
+: "${EEZ_INITIAL_BLOCK_HASH:?deployments.env must contain EEZ_INITIAL_BLOCK_HASH; restore or reconcile the deployment bindings}"
 : "${EEZ_L2_GENESIS_PATH:?deploy did not write EEZ_L2_GENESIS_PATH}"
 if ! cmp -s "$FRESH_GENESIS" "$EEZ_L2_GENESIS_PATH"; then
     echo "✗ FRESH_GENESIS must be byte-identical to the genesis rendered and registered by deploy.sh" >&2
@@ -93,15 +74,11 @@ START_ROOT="$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32
 
 # ── 2. Prepare datadirs ─────────────────────────────────────────────────
 echo "==> [2/5] preparing datadirs"
-if [[ "$fresh_deploy" == 1 ]]; then
-    echo "    fresh deploy → wiping L2/lighthouse datadirs (new genesis, old chain data would diverge)"
-    rm -rf "$L2_DATA_DIR" "$LIGHTHOUSE_DATA"
-fi
 mkdir -p "$L2_DATA_DIR" "$LIGHTHOUSE_DATA"
 
 # ── 3. Start the stack ──────────────────────────────────────────────────
 echo "==> [3/5] docker compose up (eez-node + eez-proof-signer + lighthouse)"
-"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" up -d
 "${COMPOSE[@]}" ps
 
 echo "==> validating post-Fulu Chiado Beacon blob API"

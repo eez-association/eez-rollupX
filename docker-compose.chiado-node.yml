@@ -1,32 +1,14 @@
-# Packaged chiado stack: eez-node (embedded chiado L1 + L2 + composer),
-# eez-proof-signer, and lighthouse (drives the embedded L1). Single-L1
-# topology — no standalone
-# tip-follower reth: the bundle target-block oracle falls back to the
-# embedded L1 (EEZ_L1_TARGET_RPC_URL unset), which tracks the canonical
-# tip in steady state. The one-time protocol deploy is done against an
-# external chiado RPC before `up` (see README / scripts/devnet-test.sh).
-#
-# Prereqs (one-time, see README):
-#   1. Download an L1 snapshot into ${L1_SNAPSHOT_DIR}:
-#        docker run --rm -v ${L1_SNAPSHOT_DIR}:/data \
-#          ghcr.io/gnosischain/reth_gnosis:v2.0.0 \
-#          download --chain chiado --minimal --datadir /data
-#   2. Create the shared JWT: openssl rand -hex 32 > ${JWT_FILE}
-#   3. Deploy the protocol on chiado and write deployments.env
-#        (make deploy-protocol against EEZ_L1_RPC_URL=<external chiado RPC>)
-#   4. Fill .env.chiado (keys + bundler) from .env.chiado.example
-#
-# Then: docker compose -f docker-compose.chiado-node.yml up
-#
-# All services use host networking so lighthouse↔eez-node engine API and
-# the embedded L1 / lighthouse libp2p peering work without port mapping.
+# Packaged Chiado: embedded L1 + Composer/L2, independent signer, Lighthouse.
+# Defaults to the fork's latest validated main images. Override EEZ_NODE_IMAGE
+# and EEZ_PROOF_SIGNER_IMAGE with a full commit tag or digest to pin a deployment.
+# This deployment definition never builds images.
+# Local development uses Dockerfile / Dockerfile.signer and explicit :local tags.
+# Services use host networking; container names, ports and datadirs are shared.
 
 services:
   eez-proof-signer:
-    build:
-      context: .
-      dockerfile: Dockerfile.signer
-    image: eez-proof-signer:local
+    image: "${EEZ_PROOF_SIGNER_IMAGE:-ghcr.io/eduadiez/rollupx-proof-signer:latest}"
+    platform: linux/amd64
     container_name: eez-proof-signer-chiado
     network_mode: host
     restart: unless-stopped
@@ -53,10 +35,8 @@ services:
       driver: "local"
 
   eez-node:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: eez-node:local
+    image: "${EEZ_NODE_IMAGE:-ghcr.io/eduadiez/rollupx-node:latest}"
+    platform: linux/amd64
     container_name: eez-node-chiado
     network_mode: host
     restart: unless-stopped
@@ -93,7 +73,7 @@ services:
       EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:?set the mandatory native blob sidecar encoding}"
       # Forwarded but empty by default - the bundle
       # target-block oracle falls back to the embedded L1. Set it in
-      # .env.chiado
+      # .env
       EEZ_L1_TARGET_RPC_URL: "${EEZ_L1_TARGET_RPC_URL:-}"
       # Keep explicit peers available when the embedded L1 backfills on restart.
       EEZ_L1_TRUSTED_PEERS: "${EEZ_L1_TRUSTED_PEERS:-}"
@@ -117,8 +97,8 @@ services:
       # from the process env, and this service takes no env_file beyond
       # deployments.env, so they have to be forwarded explicitly. Defaults track
       # the in-code ones (composer.rs, timing.rs, l1_watcher.rs).
-      # Omitted values stay absent. Legacy mode supplies its old defaults;
-      # enabled policy rejects the old block cap and resolves active gas rules.
+      # Omitted values stay absent. With policy disabled, runtime defaults apply;
+      # enabled policy rejects EEZ_MAX_BLOCKS_PER_BATCH and resolves active gas rules.
       EEZ_MAX_BLOCKS_PER_BATCH:
       EEZ_MAX_POSTBATCH_GAS:
       EEZ_SETTLEMENT_POLICY_ENABLED: "${EEZ_SETTLEMENT_POLICY_ENABLED:-false}"
@@ -140,7 +120,7 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Unset preparation preserves the legacy rounded trigger (~800ms for
+      # Unset preparation uses the rounded trigger (~800ms for
       # preparation with these defaults). Set an explicit positive allowance
       # to reserve preparation independently and trigger at millisecond precision.
       EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-1500}"
