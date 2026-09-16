@@ -81,6 +81,8 @@ Start with the [Chiado quick start](docs/runbooks/chiado-quickstart.md): configu
 `:local` builds are for development. Use the
 [detailed runbook](docs/runbooks/chiado-deployment.md) for preflight checks,
 restart, troubleshooting, and recovery limits.
+To sync and run a Composer for an already registered L2, follow the
+[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md).
 
 First deployment must generate the registered genesis before startup. Restarting
 an existing rollup must preserve its deployment bindings, genesis, keys, and data.

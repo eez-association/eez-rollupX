@@ -20,6 +20,7 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 | Operation | Procedure | Required starting state |
 | --- | --- | --- |
 | Create a new registry and rollup | [First deployment](#first-deployment), then [start and verify](#start-and-verify) | Unused deployment paths; no existing stack on these names/ports |
+| Add or replace a Composer on an existing L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Original deployment files/keys, compatible runtime, and L2 backup or complete replay history |
 | Start/restart the same rollup | [Restart and stop](#restart-and-stop), then [start and verify](#start-and-verify) | Original bindings, genesis, keys, JWT, images, and datadirs |
 | Move hosts, upgrade, or recover missing state | [Recovery and upgrades](#recovery-and-upgrades) | Deployment inventory, preserved state, and an identified recovery source |
 
@@ -270,8 +271,9 @@ startup creates missing L2/Lighthouse directories. Missing or empty databases
 require [recovery assessment](#recovery-and-upgrades) before startup.
 
 Before stopping, pause submissions and record unsettled transaction hashes,
-canonical receipts, and sender nonces. Pending requests/retry counters are in memory;
-restart discards the speculative suffix and reconstructs canonical state from L1.
+canonical receipts, and sender nonces. Pending requests/retry counters are in memory.
+Restart reconciles against canonical L1; with settlement policy enabled it can retain
+a validated pure-L2 prefix, but unowned Sync blocks and their descendants are rolled back.
 After startup, reconcile receipts/nonces before resubmitting unsettled work.
 A datadir backup does not retain volatile request ownership.
 
@@ -439,6 +441,9 @@ empty and cannot diagnose an older settlement. Startup checks every committed
 blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
+
+For the ordered restore/replay setup, use the
+[existing-rollup Composer procedure](chiado-existing-rollup.md).
 
 1. Preserve the [inventory](#handoff-record), previous images/configuration, and
    a consistent backup. Stop database writers for a filesystem copy, or use a

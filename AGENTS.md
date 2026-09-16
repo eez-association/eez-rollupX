@@ -130,8 +130,8 @@ its Solidity implementation/tests and the applicable fork contract:
   rejections; they cannot authorize targeted eviction. During submitted-attempt
   reconciliation, charge eligible users once only for conclusive settlement failure;
   infrastructure uncertainty and source deferrals retain work without that charge.
-- Pending requests and retry counters are **in memory**. Restart reconstructs
-  canonical state and discards the speculative suffix; clients may need to
+- Pending requests and retry counters are **in memory**. Restart reconciles
+  canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.
 
 ### Generated files
@@ -296,7 +296,9 @@ artifact location/digest; label local-only, missing, or expired evidence. Ignore
 
 For Chiado operation or deployment changes, read the
 [quick start](docs/runbooks/chiado-quickstart.md) and
-[deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Preserve these boundaries:
+[deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Before adding or
+replacing a Composer on an existing Chiado L2, read the
+[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). Preserve these boundaries:
 
 - Normal deployment uses the published deploy image's bundled contracts/tools;
   host builds and `:local` images are for development. Match node/signer/deploy
