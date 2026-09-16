@@ -4,12 +4,9 @@
 # nothing is running.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO" || exit 1
-ENV_FILE="${EEZ_CHIADO_ENV_FILE:-.env.chiado}"
-COMPOSE_FILE="docker-compose.chiado-node.yml"
+[[ -f .env ]] || { echo "✗ .env missing — nothing to tear down (or wrong dir)"; exit 1; }
 
-[[ -f "$ENV_FILE" ]] || { echo "✗ $ENV_FILE missing — nothing to tear down (or wrong dir)"; exit 1; }
-
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down || {
+docker compose -f docker-compose.chiado-node.yml down || {
     echo "ERROR: compose teardown failed"; exit 1; }
 
 # A failing `docker ps` would leave `left` empty and read as a clean teardown.

@@ -6,35 +6,44 @@ Baseline: fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`, protocol
 
 ## Behavior and acceptance
 
-- Default `EEZ_NODE_IMAGE` and `EEZ_PROOF_SIGNER_IMAGE` to the fork's `:latest`
-  images. Offer the full Git commit and image digest as explicit
-  pins. Use the images' source revision for the deployment checkout.
+- Default `EEZ_NODE_IMAGE`, `EEZ_PROOF_SIGNER_IMAGE`, and `EEZ_DEPLOY_IMAGE` to
+  the fork's `:latest` images. Offer the full Git commit and image digest as explicit
+  pins. Use the corresponding checkout for configuration; the deploy image supplies
+  matching contract/protocol sources and tools.
 - After every validation lane passes on `main`, add plain commit tags to the
   exact tested node/signer/deploy digests. Update `latest` only if that commit is
   still the `main` head; serialize promotion to prevent an older run rolling it
   back. Keep CI's existing per-run candidates and digest handoffs unchanged.
   Implement promotion in the existing workflow, without another operator script.
 - The base Compose definition has no build rules or implicit local-image fallback.
-- Keep `eez-node:local` / `eez-proof-signer:local` for explicit development builds
-  using existing Dockerfiles. No new operator scripts or image-lock format.
-- Startup requires existing bindings and locally available selected images;
-  it never deploys contracts, deletes datadirs, builds, or pulls images.
-  Contract deployment remains an explicit, non-idempotent Foundry operation.
-- Copy genesis helpers from the selected node image to avoid host Rust builds.
-  Preserve current keys, ports, data paths, blob DA, and settlement configuration.
+- Keep `eez-node:local`, `eez-proof-signer:local`, and `eez-deploy:local` for explicit
+  development builds using existing Dockerfiles. No new operator scripts or image-lock format.
+- Use one `.env` copied from `.env.chiado.example`. Its `COMPOSE_FILE` selects the
+  Chiado topology; ordinary `docker compose` commands need no file flags. Keep
+  service-specific secret mappings so the node never receives the attestation key.
+- Startup requires existing bindings and preserves datadirs. Compose pulls images
+  automatically; `latest` can change on startup. Contract deployment is a separate,
+  non-idempotent operation using the published deploy image.
+- Render genesis and exercise both tools before the first broadcast. Finalize the
+  timestamp/hash against the deployed registry as required. Preserve receipts on
+  the host even if the deployment container fails. No host submodule, Rust build,
+  Forge build, or copied binaries are needed for this path; startup uses host `cast`.
+- Keep static Chiado configuration assertions in the existing Python test suite;
+  normal deployment needs no standalone configuration-check script.
 - Provide a [quick start](../runbooks/chiado-quickstart.md) and keep detailed
   verification/recovery in the [operational runbook](../runbooks/chiado-deployment.md).
 
 ## Compatibility and validation
 
-Existing local deployments must set both `:local` references before startup or
-teardown. Published images and local tags use the same Compose service definitions.
-Changing images is an upgrade; preserve `.env.chiado`, bindings/genesis/databases
+Local deployments use explicit `:local` references in `.env`. Published images
+and local tags use the same Compose service definitions.
+Changing images is an upgrade; preserve `.env`, bindings/genesis/databases
 and assess protocol/storage compatibility. No automatic data migration, downgrade,
 or durable pending-request recovery is introduced.
 
 Validate default/latest and explicit image selection, absence of build rules,
-secret isolation, non-destructive missing-bindings startup, promotion after the
+automatic `.env` loading, secret isolation, pre-broadcast genesis failure handling,
+non-destructive missing-bindings startup, promotion after the
 validation gate, and older-run protection. Run existing Chiado, settlement
 configuration, and CI tooling checks. Real registry promotion and a fresh-host
 rehearsal are separate evidence; a CI candidate is not a fully passed release.
@@ -65,3 +74,18 @@ Evidence for `a90f53e`, before adding commit/latest promotion:
   examples and 64 relative links/anchors passed; `git diff --check` passed.
 - Registry promotion and deployment were not executed. New tags appear only after
   the workflow lands on `main` and its validation/promotion steps succeed.
+
+## Operator simplification validation — 2026-09-16
+
+- CI tooling: 233 selected, 229 passed, four opt-in integration tests skipped.
+  Compose rendering covers automatic `.env` loading, default/pinned/local images,
+  secret isolation, and optional configuration. Mocked startup covers automatic
+  pulls and refusal to start without bindings.
+- Genesis render/hash failure tests reproduce the pre-broadcast ordering problem
+  at `010dd03` and pass with the reordered deployment checks. They exercise the
+  script with tool stubs; no contracts were broadcast.
+- Settlement configuration checks passed for Chiado and Kurtosis, enabled and
+  disabled. Edited scripts and 23 runbook Bash examples passed syntax checks;
+  37 runbook/proposal relative links and anchors resolved; `git diff --check` passed.
+- No real image pull/build, registry publication, contract deployment, stack
+  startup/restart, or fresh-host rehearsal was performed.

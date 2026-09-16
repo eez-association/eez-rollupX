@@ -73,7 +73,7 @@ services:
       EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:?set the mandatory native blob sidecar encoding}"
       # Forwarded but empty by default - the bundle
       # target-block oracle falls back to the embedded L1. Set it in
-      # .env.chiado
+      # .env
       EEZ_L1_TARGET_RPC_URL: "${EEZ_L1_TARGET_RPC_URL:-}"
       # Keep explicit peers available when the embedded L1 backfills on restart.
       EEZ_L1_TRUSTED_PEERS: "${EEZ_L1_TRUSTED_PEERS:-}"

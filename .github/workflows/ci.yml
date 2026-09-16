@@ -107,8 +107,6 @@ jobs:
           version: v1.7.1
       - name: Test CI scripts
         run: python3 -m unittest discover -s scripts/ci/tests -v
-      - name: Validate post-Fulu Chiado blob configuration
-        run: bash scripts/check-chiado-blob-config.sh
       - name: Validate settlement policy configuration propagation
         run: python3 scripts/check-settlement-policy-config.py
       - name: Clippy

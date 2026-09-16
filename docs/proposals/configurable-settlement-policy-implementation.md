@@ -353,7 +353,7 @@ cargo +1.94.0 check --offline --locked -p eez-driver -p eez-node-common \
   -p eez-l1 --no-default-features
 python3 -m unittest discover -s scripts/ci/tests -v
 python3 scripts/check-settlement-policy-config.py
-bash scripts/check-chiado-blob-config.sh
+python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v
 bash scripts/ci/run-protocol-anvil.sh
 git diff --check
 ```
