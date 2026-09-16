@@ -3212,13 +3212,7 @@ async fn wait_for_successful_receipt(
     Ok(receipt)
 }
 
-async fn deploy_raw(
-    rpc_url: &str,
-    key: &str,
-    chain_id: u64,
-    artifact_path: &std::path::Path,
-    constructor_args: Vec<u8>,
-) -> Result<Address> {
+fn deployment_input(artifact_path: &std::path::Path, constructor_args: Vec<u8>) -> Result<Vec<u8>> {
     let artifact: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(artifact_path)
             .with_context(|| format!("read {}", artifact_path.display()))?,
@@ -3230,7 +3224,17 @@ async fn deploy_raw(
         .unwrap_or_default();
     let mut data = hex::decode(bytecode_hex).context("decode bytecode")?;
     data.extend_from_slice(&constructor_args);
+    Ok(data)
+}
 
+async fn deploy_raw(
+    rpc_url: &str,
+    key: &str,
+    chain_id: u64,
+    artifact_path: &std::path::Path,
+    constructor_args: Vec<u8>,
+) -> Result<Address> {
+    let data = deployment_input(artifact_path, constructor_args)?;
     let nonce = onchain_nonce(rpc_url, key).await?;
     let hash = sign_and_send(
         rpc_url,
@@ -3302,72 +3306,95 @@ pub async fn deploy_protocol_dev(
     let signer_addr = signer.address();
     let attester = signer_address(attester_key)?;
     let out = repo_root().join("contracts/out");
-
-    let eez_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("EEZ.sol/EEZ.json"),
-        signer_addr.abi_encode(),
-    )
-    .await?;
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
-    let deploy_block = provider.get_block_number().await?;
-
-    let proof_system_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("ECDSAProofSystem.sol/ECDSAProofSystem.json"),
-        attester.abi_encode(),
-    )
-    .await?;
+    let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
+    let register_nonce = nonce.checked_add(3).context("fixture nonce overflow")?;
+    let eez_address = signer_addr.create(nonce);
+    let proof_system_address = signer_addr.create(nonce + 1);
+    let rollup_manager_address = signer_addr.create(nonce + 2);
 
     let vkeys: Vec<B256> = vec![B256::from_slice(&{
         let mut padded = [0u8; 32];
         padded[12..].copy_from_slice(attester.as_slice());
         padded
     })];
-    let rollup_manager_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("Rollup.sol/Rollup.json"),
+    // CREATE addresses are known before mining. Queue dependent transactions
+    // from one signer in nonce order, then verify every receipt. Waiting after
+    // each send would spend four L1 slots on identical setup in every test.
+    let deployments = [
+        ("EEZ.sol/EEZ.json", signer_addr.abi_encode(), eez_address),
         (
-            eez_address,
-            signer_addr,
-            U256::from(1u64),
-            vec![proof_system_address],
-            vkeys,
+            "ECDSAProofSystem.sol/ECDSAProofSystem.json",
+            attester.abi_encode(),
+            proof_system_address,
+        ),
+        (
+            "Rollup.sol/Rollup.json",
+            (
+                eez_address,
+                signer_addr,
+                U256::from(1u64),
+                vec![proof_system_address],
+                vkeys,
+            )
+                .abi_encode_params(),
+            rollup_manager_address,
+        ),
+    ];
+    let mut pending = Vec::new();
+    for (offset, (artifact, args, address)) in deployments.into_iter().enumerate() {
+        let hash = sign_and_send(
+            l1_rpc,
+            deployer_key,
+            DEV_CHAIN_ID,
+            nonce + u64::try_from(offset)?,
+            None,
+            U256::ZERO,
+            deployment_input(&out.join(artifact), args)?,
+            6_000_000,
         )
-            .abi_encode_params(),
-    )
-    .await?;
+        .await?;
+        pending.push((hash, address, artifact));
+    }
 
     let calldata = IEEZ::registerRollupCall {
         rollupContract: rollup_manager_address,
         initialRoot: initial_state,
     }
     .abi_encode();
-    let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
     let hash = sign_and_send(
         l1_rpc,
         deployer_key,
         DEV_CHAIN_ID,
-        nonce,
+        register_nonce,
         Some(eez_address),
         U256::ZERO,
         calldata,
         1_000_000,
     )
     .await?;
+    let mut deploy_block = None;
+    for (deployment, expected, artifact) in pending {
+        let receipt = wait_for_successful_receipt(l1_rpc, deployment, artifact).await?;
+        ensure!(
+            receipt.contract_address == Some(expected),
+            "unexpected CREATE address for {artifact}"
+        );
+        if deploy_block.is_none() {
+            deploy_block = Some(
+                receipt
+                    .block_number
+                    .context("protocol deployment receipt has no block number")?,
+            );
+        }
+    }
     wait_for_successful_receipt(l1_rpc, hash, "registerRollup").await?;
     let registry = IEEZ::new(eez_address, &provider);
     let rollup_id: u64 = registry.rollupCounter().call().await?.try_into()?;
 
     Ok(Deployment {
         eez_address,
-        deploy_block,
+        deploy_block: deploy_block.context("protocol deployment receipt has no block number")?,
         proof_system_address,
         rollup_manager_address,
         rollup_id,
@@ -3664,34 +3691,62 @@ pub async fn create_cross_chain_proxy(
     target: Address,
     rollup_id: u64,
 ) -> Result<Address> {
-    let calldata = IEEZProxy::createCrossChainProxyCall {
-        originalAddress: target,
-        originalRollupId: rollup_id,
-    }
-    .abi_encode();
+    create_cross_chain_proxies(l1_rpc, key, eez, &[target], rollup_id)
+        .await?
+        .pop()
+        .context("missing created proxy")
+}
+
+/// Submit independent fixture proxies in nonce order before waiting for mining.
+async fn create_cross_chain_proxies(
+    l1_rpc: &str,
+    key: &str,
+    eez: Address,
+    targets: &[Address],
+    rollup_id: u64,
+) -> Result<Vec<Address>> {
     let nonce = onchain_nonce(l1_rpc, key).await?;
-    let hash = sign_and_send(
-        l1_rpc,
-        key,
-        DEV_CHAIN_ID,
-        nonce,
-        Some(eez),
-        U256::ZERO,
-        calldata,
-        2_000_000,
-    )
-    .await?;
-    let receipt = wait_for_successful_receipt(l1_rpc, hash, "createCrossChainProxy").await?;
-    receipt
-        .inner
-        .logs()
-        .iter()
-        .find_map(|log| {
-            IEEZProxy::CrossChainProxyCreated::decode_log(&log.inner)
-                .ok()
-                .map(|e| e.proxy)
-        })
-        .ok_or_else(|| anyhow!("CrossChainProxyCreated event not found in receipt"))
+    let mut pending = Vec::new();
+    for (offset, &target) in targets.iter().enumerate() {
+        let calldata = IEEZProxy::createCrossChainProxyCall {
+            originalAddress: target,
+            originalRollupId: rollup_id,
+        }
+        .abi_encode();
+        pending.push(
+            sign_and_send(
+                l1_rpc,
+                key,
+                DEV_CHAIN_ID,
+                nonce
+                    .checked_add(u64::try_from(offset)?)
+                    .context("fixture nonce overflow")?,
+                Some(eez),
+                U256::ZERO,
+                calldata,
+                2_000_000,
+            )
+            .await?,
+        );
+    }
+    let mut proxies = Vec::new();
+    for hash in pending {
+        let receipt = wait_for_successful_receipt(l1_rpc, hash, "createCrossChainProxy").await?;
+        proxies.push(
+            receipt
+                .inner
+                .logs()
+                .iter()
+                .filter(|log| log.address() == eez)
+                .find_map(|log| {
+                    IEEZProxy::CrossChainProxyCreated::decode_log(&log.inner)
+                        .ok()
+                        .map(|e| e.proxy)
+                })
+                .ok_or_else(|| anyhow!("CrossChainProxyCreated event not found in receipt"))?,
+        );
+    }
+    Ok(proxies)
 }
 
 pub async fn l2_value(l2_rpc: &str, value_addr: Address) -> Result<U256> {
@@ -5363,6 +5418,7 @@ async fn setup_cross_chain_inner(
     reader_faults: bool,
     controlled_consensus: bool,
 ) -> Result<CrossChainWorld> {
+    let setup_started = std::time::Instant::now();
     let mut cfg = CrossChainConfig::new(profile)?;
     if fixed_fee_fixture {
         let mut genesis: alloy_genesis::Genesis =
@@ -5465,56 +5521,70 @@ async fn setup_cross_chain_inner(
         .get_chain_id()
         .await?;
 
-    let value_l2 = deploy_value(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
+    // Nonces are chain-local. Overlap independent L1/L2 setup, but keep each
+    // account's transactions ordered on its own chain.
+    let ((value_l2, inbound_no_ret), (outbound_value, outbound_no_ret)) = tokio::try_join!(
+        async {
+            let value =
+                deploy_value(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
+            let no_ret =
+                deploy_value_no_ret(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64))
+                    .await?;
+            Ok::<_, anyhow::Error>((value, no_ret))
+        },
+        async {
+            let value =
+                deploy_value(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
+            let no_ret =
+                deploy_value_no_ret(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64))
+                    .await?;
+            Ok::<_, anyhow::Error>((value, no_ret))
+        },
+    )?;
     let expected_value = signer_address(TARGET_DEPLOYER)?.create(0);
     if value_l2 != expected_value {
         bail!("Value address not deterministic");
     }
-    let inbound_no_ret =
-        deploy_value_no_ret(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
-    let outbound_value =
-        deploy_value(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
-    let outbound_no_ret =
-        deploy_value_no_ret(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
-
-    let setter_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        value_l2,
-        cfg.rollup_id,
-    )
-    .await?;
-    let deposit_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        recipient,
-        cfg.rollup_id,
-    )
-    .await?;
-    let inbound_no_ret_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        inbound_no_ret,
-        cfg.rollup_id,
-    )
-    .await?;
-    let inbound_wrapper =
-        deploy_setter_wrapper(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, setter_proxy).await?;
-
-    let outbound_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_value, 0).await?;
-    let outbound_no_ret_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_no_ret, 0).await?;
-    let withdrawal_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, withdrawal_recipient, 0).await?;
-    let outbound_wrapper =
-        deploy_setter_wrapper(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, outbound_proxy).await?;
+    let (
+        (setter_proxy, deposit_proxy, inbound_no_ret_proxy, inbound_wrapper),
+        (outbound_proxy, outbound_no_ret_proxy, withdrawal_proxy, outbound_wrapper),
+    ) = tokio::try_join!(
+        async {
+            let proxies: [Address; 3] = create_cross_chain_proxies(
+                &l1_rpc,
+                cfg.deployer_key,
+                cfg.eez_address,
+                &[value_l2, recipient, inbound_no_ret],
+                cfg.rollup_id,
+            )
+            .await?
+            .try_into()
+            .map_err(|_| anyhow!("expected three fixture proxies"))?;
+            let [setter, deposit, no_ret] = proxies;
+            let wrapper =
+                deploy_setter_wrapper(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, setter).await?;
+            Ok::<_, anyhow::Error>((setter, deposit, no_ret, wrapper))
+        },
+        async {
+            let outbound =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_value, 0).await?;
+            let no_ret =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_no_ret, 0).await?;
+            let withdrawal =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, withdrawal_recipient, 0)
+                    .await?;
+            let wrapper =
+                deploy_setter_wrapper(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, outbound).await?;
+            Ok::<_, anyhow::Error>((outbound, no_ret, withdrawal, wrapper))
+        },
+    )?;
 
     wait_for_outbound_fixture_parent(&node, &l2_rpc, outbound_wrapper, outbound_proxy).await?;
 
+    eprintln!(
+        "Native {profile:?} fixture ready in {:.3}s",
+        setup_started.elapsed().as_secs_f64()
+    );
     datadir.fixture_ready();
     Ok(CrossChainWorld {
         node,

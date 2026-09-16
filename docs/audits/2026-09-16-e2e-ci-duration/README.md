@@ -5,7 +5,7 @@
 | Date/status | 2026-09-16 UTC; historical timeout confirmed, partitioned CI execution implemented; full candidate CI pending |
 | Source | `eduadiez/rollupX`, base `5469c88860408daf776ee812156dd280c1a9e262`, with this change |
 | Protocol | `3c0cdf4955941a5c23639346932b55b33babebbd`, unchanged |
-| Scope | Complete native E2E validation within each job's execution deadline; preserve artifact identity and release gating |
+| Scope | Reduce native E2E execution cost and complete validation within each job's deadline; preserve coverage, artifact identity and release gating |
 
 ## Observed baseline
 
@@ -34,7 +34,8 @@ The native logs also contain failures that extra time alone would not resolve:
   failed the assertion that each wave settles in one L1 block on all attempts.
 
 The configured `flaky-result = "fail"` correctly treats retry-only passes as
-failures. This change does not relax those assertions or the retry policy.
+failures. The initial partitioning change preserved assertions and retries;
+the cost follow-up below removes automatic diagnostic retries.
 
 ## Change and validation
 
@@ -80,7 +81,7 @@ failure propagation, rejection of partitioned unit certification, unique
 diagnostic artifact names, and failed/cancelled/skipped matrix results blocking
 promotion. Workflow syntax and shell syntax validation passed.
 
-## Remaining validation
+## Initial remaining validation
 
 - Run the complete candidate CI and record each partition's wall time on the
   actual runner pool. No fourfold speedup or passing release is claimed locally.
@@ -146,3 +147,69 @@ cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings
 cargo +1.94.0 fmt --all --check
 git diff --check
 ```
+
+## Follow-up: reduce repeated fixture work and failed-test cost
+
+At `f6d6258`, [cross-chain shard 2](https://github.com/eduadiez/rollupX/actions/runs/35152624479/job/105000042359)
+failed the short-result forty-five-request single-block assertion on all three
+attempts. Its admission diagnostics report `preparation_time`: the 500-ms budget
+accepted only 42, 40 and 43 of the 45 requests. This capacity test was also
+requiring a particular CPU throughput. Its shared single-wave fixture now starts
+preparation 1,500 ms before the deadline, preserving slot cadence, single-block
+settlement, gas/blob bounds, nonce ordering, receipts, state checks and independent
+follower replay. The separate explicit-preparation mixed-wave tests retain their
+500-ms budget.
+
+The shared native fixture now queues protocol CREATE transactions and registration
+in signer nonce order before waiting for receipts. It also batches the three L1
+proxy creations and overlaps independent L1/L2 setup. Every deployment/proxy
+receipt must succeed; predicted CREATE addresses are checked against receipts.
+Transaction order within each chain, contract addresses, pinned bytecode and
+the final outbound-parent readiness check are retained. This removes repeated
+block waits without changing the 5-second L1 or 1-second L2 cadence.
+
+The six Ethereum/Gnosis capacity cases were run serially before and after this
+fixture change, using the same frozen Composer, follower and signer executables
+from `f6d6258`; their SHA-256 hashes were rechecked after execution. Both runs use
+the 1,500-ms capacity fixture and the local optimized debug test profile. All six
+passed, covering 400 cross-chain requests plus six warmups and independent replay.
+
+| Local paired sample | Execution time, excluding compilation |
+| --- | --- |
+| Original fixture | 534.83 seconds |
+| Batched fixture | 332.17 seconds |
+| Reduction | 202.66 seconds (37.9%) |
+
+This is one local six-case comparison, not a full-suite CI speedup claim. Candidate
+setup diagnostics range from 27.2 to 32.8 seconds; the candidate used `--nocapture`
+to expose those timings. Logs and datadirs remain under
+`/tmp/rollupx-e2e-investigation`, outside the committed evidence.
+
+The CI Nextest profile now runs each case once instead of retrying failures twice.
+Since retry-only passes already failed the gate, retries added cost without making
+a run releasable. All selected tests still run after a failure; explicit diagnostic
+retries still treat flakes as failures. No test is removed or ignored.
+
+[Embedded shard 3](https://github.com/eduadiez/rollupX/actions/runs/35152624479/job/105000042474)
+failed before running tests because fetching the pinned protocol hit a TLS handshake
+error. Both native jobs now use a small shared checkout helper: at most three
+attempts, bounded backoff, the same pinned gitlinks, and a failing job if checkout
+still fails. The helper avoids duplicating this error-prone retry block between
+jobs; it never substitutes a branch tip or changes the protocol pin.
+
+The complete CI tooling suite selected 242 tests: 238 passed and four opt-in checks
+were skipped. The real native relocation fixture was separately enabled and
+passed in 21.03 seconds. Besides complete/disjoint partition coverage, it injects
+permanent failures and verifies that every selected binary executes, each failed
+case executes once, and the consumer returns failure. These are tooling checks,
+not real-node performance measurements. Full candidate release-artifact CI remains
+required before release; image production and runner allocation are unchanged.
+
+Eleven affected local process tests passed without retries: the six capacity cases,
+both explicit 500-ms preparation cases, queue reorg recovery, signer attester
+mismatch rejection, and Gnosis ordinary-burst recovery. The two tight-budget cases
+and the recovery/reorg cases retained their independent follower replay checks.
+Documentation validation resolved 40 local links at the unchanged protocol pin
+and syntax-checked all five Bash examples in `AGENTS.md` and this record. Workflow
+validation, edited shell syntax, Rust formatting and `git diff --check` passed.
+All eight `eez-testkit` unit tests and workspace Clippy with warnings denied passed.

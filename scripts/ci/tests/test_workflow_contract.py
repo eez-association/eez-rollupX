@@ -68,6 +68,19 @@ class WorkflowContractTest(unittest.TestCase):
                 results[name]["result"] = state
                 self.assertNotEqual(self.run_gate(results).returncode, 0)
 
+    def test_native_submodule_retries_precede_payload_consumption_and_fail_closed(self):
+        for name in ("embedded-e2e", "cross-chain-e2e"):
+            steps = self.jobs[name]["steps"]
+            checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+            self.assertFalse(checkout["with"]["persist-credentials"])
+            self.assertNotIn("submodules", checkout["with"])
+            initialize = next(step for step in steps if step.get("run") == "bash scripts/ci/init-submodules.sh")
+            payload = next(step for step in steps if step.get("uses") == "./.github/actions/native-test-artifact")
+            self.assertEqual(initialize["timeout-minutes"], 6)
+            self.assertNotIn("continue-on-error", initialize)
+            self.assertLess(steps.index(checkout), steps.index(initialize))
+            self.assertLess(steps.index(initialize), steps.index(payload))
+
     def test_promotion_is_after_the_gate_and_only_on_main(self):
         job = self.jobs["ci-result"]
         promotion = job["steps"][1]

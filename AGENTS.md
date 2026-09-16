@@ -254,9 +254,9 @@ The [CI gate and promotion](.github/workflows/ci.yml) own this procedure.
 - Require nonzero intended test selection. Empty, ignored-only, skipped, or
   unrelated passing tests do not validate the change. Rejection tests must reach
   the intended component and assert its specific error or state transition.
-- CI's Nextest profile retries twice with `flaky-result = "fail"`; report retry-only
-  passes as flakes. Distinguish static, mocked, process, and live evidence, and
-  state whether semantic assertions and independent replay ran.
+- CI runs each test once; explicit diagnostic retries retain `flaky-result = "fail"`.
+  Report retry-only passes as flakes. Distinguish static, mocked, process, and live
+  evidence, and state whether semantic assertions and independent replay ran.
 - For performance claims, compare the requested fork baseline and candidate with
   comparable workloads, build profiles, concurrency, and environments. Report
   noise and secondary regressions; benchmark success does not replace correctness checks.

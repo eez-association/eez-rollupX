@@ -522,6 +522,14 @@ fn check_node(bin: NodeBinary) {
     let signer = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN").unwrap();
     assert!(std::process::Command::new(signer).status().unwrap().success());
 }
+#[test] fn permanent_failure_is_not_retried() {
+    if let Ok(path) = std::env::var("EEZ_FIXTURE_FAILURE_LOG") {
+        use std::io::Write;
+        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        writeln!(log, "{}", file!()).unwrap();
+        panic!("intentional fixture failure");
+    }
+}
 '''
             node_targets = [target for target in native.TARGETS
                             if f"eez-node-e2e::{target}" in native.E2E_BINARIES]
@@ -622,6 +630,17 @@ fn check_node(bin: NodeBinary) {
                     empty = subprocess.run(command + ["--partition", "slice:100/100"],
                                            cwd=consumer, env=env, capture_output=True, text=True)
                     self.assertEqual(empty.returncode, 4, empty.stdout + empty.stderr)
+                    if suite == "embedded":
+                        env["CARGO_TARGET_DIR"] = str(root / "extract-permanent-failure")
+                        failure_log = root / "permanent-failure.log"
+                        failing = subprocess.run(command, cwd=consumer,
+                                                 env=dict(env, EEZ_FIXTURE_FAILURE_LOG=str(failure_log)),
+                                                 capture_output=True, text=True)
+                        self.assertEqual(failing.returncode, 100, failing.stdout + failing.stderr)
+                        attempts = failure_log.read_text().splitlines()
+                        expected = sum(f"binary(={target})" in native.SUITES[suite] for target in node_targets)
+                        self.assertEqual(len(attempts), expected, "CI must not rerun a failed test")
+                        self.assertEqual(len(set(attempts)), expected, "all selected binaries must run")
                 if suite == "unit":
                     self.assertEqual((consumer / "crates/eez-blob-codec/compatibility.executed").read_text(), "passed")
                     subprocess.run([sys.executable, "scripts/ci/native-tests.py", "export-e2e", str(artifact),

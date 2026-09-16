@@ -193,7 +193,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-          submodules: recursive
+      - name: Initialize pinned submodules
+        timeout-minutes: 6
+        run: bash scripts/ci/init-submodules.sh
       - uses: ./.github/actions/native-test-artifact
         with:
           payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
@@ -244,7 +246,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-          submodules: recursive
+      - name: Initialize pinned submodules
+        timeout-minutes: 6
+        run: bash scripts/ci/init-submodules.sh
       - uses: ./.github/actions/native-test-artifact
         with:
           payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
