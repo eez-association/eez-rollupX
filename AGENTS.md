@@ -8,18 +8,22 @@ and its pinned protocol revision; upstream `main` is not a substitute.
 - Inspect `git status --short` before editing; preserve existing work and operator
   configuration/state. Keep implementation, refactoring, and cleanup within the
   requested scope.
-- Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions configuration.
-  Add a script or abstraction only for repeated, error-prone work or a concrete
-  gap in those tools; state the reason. Simple configuration does not need extra
-  selectors, lock formats, or execution modes.
+- Prefer existing Cargo, Foundry, Docker Compose, `gh`, `jq`, and shell commands,
+  using the repository's scripts and configuration. Inline Python is appropriate
+  for structured-data checks when clearer or less error-prone than an equivalent
+  command or pipeline. Add a persistent script or abstraction only for repeated,
+  error-prone work or a concrete gap in existing tools; state the reason. Simple
+  configuration does not need extra selectors, lock formats, or execution modes.
 - Deploy, fund wallets, restart services, or recover data only within the task's
   authorization. Reading a runbook does not authorize those operations.
 - Worktrees do not isolate container names, ports, databases, or wallets. Identify
   existing resources before lifecycle operations and clean up only owned resources.
   Chiado uses fixed container names and host ports; never share its writable datadirs.
-- Export the intended `KURTOSIS_ENCLAVE` in **every shell** before lifecycle or
-  workload commands; choose an unused name for a new network. The default is
-  `eez-ci`, including destructive `testing/kurtosis/stop.sh`. Follow the
+- For commands that use `KURTOSIS_ENCLAVE` to select a Kurtosis enclave, export
+  the intended value in each shell that runs them; choose an unused name for a
+  new enclave. Ordinary Chiado Docker Compose operations do not require this
+  variable. Kurtosis scripts default to `eez-ci`, including destructive
+  `testing/kurtosis/stop.sh`. Follow the
   [Kurtosis guide](testing/kurtosis/README.md).
 - Concurrent protocol Anvil suites need disjoint `BASE_PORT` ranges: the
   [runner](scripts/ci/run-protocol-anvil.sh) allocates two ports per scenario.
