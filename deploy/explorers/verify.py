@@ -12,6 +12,8 @@ import time
 import urllib.parse
 import urllib.request
 
+from configuration import read_env
+
 
 def http(url, payload=None, method=None, headers=None):
     req = urllib.request.Request(
@@ -34,22 +36,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--complete-backfill", action="store_true")
-    parser.add_argument("--env-file", type=Path)
+    parser.add_argument("--env-file", type=Path, default=Path(".env.explorers"))
+    parser.add_argument("--l2-rpc", default="http://127.0.0.1:18688")
     args = parser.parse_args()
-    l1, l2 = "http://127.0.0.1:18645", "http://127.0.0.1:18688"
-    api, explorer, beacon = "http://127.0.0.1:18101", "http://127.0.0.1:18110", "http://127.0.0.1:6152"
+    values = read_env(args.env_file)
+    l1 = values.get("BLOBSCAN_L1_RPC_URL", "http://127.0.0.1:18645")
+    l2 = args.l2_rpc
+    api = "http://127.0.0.1:" + values.get("BLOBSCAN_API_PORT", "18101")
+    explorer = "http://127.0.0.1:" + values.get("BLOCKSCOUT_WEB_PORT", "18110")
+    beacon = values.get("BLOBSCAN_BEACON_URL", "http://127.0.0.1:6152")
+    check_l2 = "blockscout" in values.get("COMPOSE_PROFILES", "").split(",")
     assert int(rpc(l1, "eth_chainId", []), 16) == 10200
-    assert int(rpc(l2, "eth_chainId", []), 16) == 6290
-    start = 23043686
+    if check_l2:
+        assert int(rpc(l2, "eth_chainId", []), 16) == int(values["L2_CHAIN_ID"])
+    start = int(values["BLOBSCAN_START_BLOCK"])
     snapshot = rpc(l1, "eth_getBlockByNumber", ["finalized", False])
     stop = int(snapshot["number"], 16)
+    assert stop >= start, "Starting block is not finalized yet"
     genesis = http(beacon + "/eth/v1/beacon/genesis")["data"]
     spec = http(beacon + "/eth/v1/config/spec")["data"]
     slot_seconds = int(spec["SECONDS_PER_SLOT"])
     assert slot_seconds == 5 and int(spec["SLOTS_PER_EPOCH"]) == 16
     initial = rpc(l1, "eth_getBlockByNumber", [hex(start), False])
     start_slot = (int(initial["timestamp"], 16) - int(genesis["genesis_time"])) // slot_seconds
-    assert start_slot == 24788218
+    assert start_slot == int(values["BLOBSCAN_START_SLOT"])
+    assert initial["hash"].lower() == values["BLOBSCAN_START_BLOCK_HASH"].lower()
     state = http(api + "/blockchain-sync-state")
     snapshot_slot = (int(snapshot["timestamp"], 16) - int(genesis["genesis_time"])) // slot_seconds
     assert state["lastUpperSyncedSlot"] >= snapshot_slot, "Blobscan is still catching up; retry after indexing finishes"
@@ -126,35 +137,33 @@ def main():
             if len(rows) % 25 < len(batch):
                 print(f"Compared {len(rows)} blob transactions with canonical receipts and beacon bytes", flush=True)
 
-    safe = rpc(l2, "eth_getBlockByNumber", ["safe", False])
-    safe_height = int(safe["number"], 16)
-    # Genesis, the recovery anchor, recovered payloads, and current safe state.
-    heights = sorted({0, 1, 39500, 41961, 41966, 41976, 41981, safe_height})
+    safe_height = None
     l2_blocks, l2_txs = [], []
-    sample_txs = {
-        "0xe8b8ef7220d4b2158f6753cc7a63b02a1a58a6ad36731e3d2a5a15fdd8862e63",
-        "0x828ec55df897f2ae3c64c5e4c71b291db829dc9420cf346f0a49c0c2f41e1cf4",
-        "0xd09c702a1c807c0d8b844bf18a1447813d820acef1dcfa3eff8ca028a4723de3",
-    }
-    for number in heights:
-        actual = rpc(l2, "eth_getBlockByNumber", [hex(number), False])
-        indexed = http(explorer + f"/api/v2/blocks/{number}")
-        assert indexed["hash"] == actual["hash"]
-        assert int(indexed["gas_used"]) == int(actual["gasUsed"], 16)
-        assert indexed["transactions_count"] == len(actual["transactions"])
-        sample_txs.update(actual["transactions"])
-        l2_blocks.append({"number": number, "hash": actual["hash"]})
-    for tx_hash in sorted(sample_txs):
-        tx = rpc(l2, "eth_getTransactionByHash", [tx_hash])
-        receipt = rpc(l2, "eth_getTransactionReceipt", [tx_hash])
-        indexed = http(explorer + "/api/v2/transactions/" + tx_hash)
-        assert indexed["hash"] == tx_hash
-        assert indexed["block_number"] == int(receipt["blockNumber"], 16)
-        assert int(indexed["gas_used"]) == int(receipt["gasUsed"], 16)
-        assert indexed["status"] == ("ok" if int(receipt["status"], 16) else "error")
-        assert int(indexed["fee"]["value"]) == int(receipt["gasUsed"], 16) * int(receipt["effectiveGasPrice"], 16)
-        assert indexed["from"]["hash"].lower() == tx["from"].lower()
-        l2_txs.append({"hash": tx_hash, "block": indexed["block_number"], "status": indexed["status"]})
+    if check_l2:
+        safe = rpc(l2, "eth_getBlockByNumber", ["safe", False])
+        safe_height = int(safe["number"], 16)
+        heights = sorted({0, min(1, safe_height), safe_height // 2, max(0, safe_height - 1), safe_height})
+        l2_blocks, l2_txs = [], []
+        sample_txs = set()
+        for number in heights:
+            actual = rpc(l2, "eth_getBlockByNumber", [hex(number), False])
+            indexed = http(explorer + f"/api/v2/blocks/{number}")
+            assert indexed["hash"] == actual["hash"]
+            assert int(indexed["gas_used"]) == int(actual["gasUsed"], 16)
+            assert indexed["transactions_count"] == len(actual["transactions"])
+            sample_txs.update(actual["transactions"])
+            l2_blocks.append({"number": number, "hash": actual["hash"]})
+        for tx_hash in sorted(sample_txs):
+            tx = rpc(l2, "eth_getTransactionByHash", [tx_hash])
+            receipt = rpc(l2, "eth_getTransactionReceipt", [tx_hash])
+            indexed = http(explorer + "/api/v2/transactions/" + tx_hash)
+            assert indexed["hash"] == tx_hash
+            assert indexed["block_number"] == int(receipt["blockNumber"], 16)
+            assert int(indexed["gas_used"]) == int(receipt["gasUsed"], 16)
+            assert indexed["status"] == ("ok" if int(receipt["status"], 16) else "error")
+            assert int(indexed["fee"]["value"]) == int(receipt["gasUsed"], 16) * int(receipt["effectiveGasPrice"], 16)
+            assert indexed["from"]["hash"].lower() == tx["from"].lower()
+            l2_txs.append({"hash": tx_hash, "block": indexed["block_number"], "status": indexed["status"]})
     assert rpc(l1, "eth_getBlockByNumber", [hex(stop), False])["hash"] == snapshot["hash"]
 
     if args.complete_backfill:
@@ -162,7 +171,6 @@ def main():
             parser.error("--complete-backfill requires the local explorer --env-file")
         state = http(api + "/blockchain-sync-state")
         assert state["lastLowerSyncedSlot"] in (None, start_slot)
-        values = dict(line.split("=", 1) for line in args.env_file.read_text().splitlines() if line and not line.startswith("#"))
         b64 = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=")
         body = b64(b'{"alg":"HS512","typ":"JWT"}') + b"." + b64(json.dumps({"exp": int(time.time()) + 60}).encode())
         token = body + b"." + b64(hmac.digest(values["BLOBSCAN_SECRET_KEY"].encode(), body, hashlib.sha512))
@@ -173,7 +181,6 @@ def main():
         "l1From": start, "l1Through": stop, "l1ThroughHash": snapshot["hash"],
         "canonicalL1BlocksScanned": stop - start + 1,
         "blobTransactions": len(rows), "blobs": sum(len(row["blobs"]) for row in rows),
-        "eezPostingTransactions": sum(row["from"].lower() == "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52" for row in rows),
         "blobBytesAndCommitmentsMatchNativeBeacon": True,
         "independentKzgRecomputation": False,
         "l2SafeAtCheck": safe_height, "l2Blocks": l2_blocks, "l2Transactions": l2_txs,

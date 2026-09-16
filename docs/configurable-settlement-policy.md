@@ -23,6 +23,13 @@ Settings are read once before node launch. Existing environment/config-file
 precedence is unchanged. Invalid values fail startup. An omitted value differs
 from an empty string. Restart is required to change settings.
 
+The table describes runtime defaults. The packaged Chiado env preset enables
+the policy and matches the live deployment: `always`, 300 unsettled blocks,
+fullness `off`, automatic admission, and preparation/proof/slack budgets of
+500/500/700 ms. Its fee ceilings and tip settings are explicit in
+[`.env.chiado.example`](../.env.chiado.example). Existing private env files keep
+their values; changing the template does not update or restart a deployment.
+
 | Setting | Default | Enabled-policy meaning / validation |
 | --- | --- | --- |
 | `EEZ_SETTLEMENT_POLICY_ENABLED` | `false` | Opt in with `true`; disabled mode preserves legacy behavior. Policy-only settings supplied while disabled are errors. |
@@ -32,7 +39,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_SETTLEMENT_BLOB_FULLNESS_BPS` | Off | `off`, or an integer from 1 through 10000. Soft threshold over meaningful unpadded bytes across **all** permitted blobs. |
 | `EEZ_MAX_BLOBS_PER_BATCH` | No operator cap | Optional positive integer, additionally bounded by active network transaction/block and transport limits. Applies only to outgoing posts. |
 | `EEZ_MAX_POSTBATCH_GAS` | No operator cap when enabled | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. Legacy default remains 16,777,216 with its existing validation. |
-| `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado Compose default 12 | Positive integer for the existing count limit, or `auto` with the policy enabled for adaptive resource/time admission. Parsed once; restart to change. |
+| `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` with the policy enabled for adaptive resource/time admission. Compose retains a numeric fallback of 12 for older env files omitting this setting. Parsed once; restart to change. |
 | `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Reserve preparation independently of proof and relay slack, with an exact millisecond trigger. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the previous rounded trigger. Operational timing setting, independent of policy enablement. |
 | `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Enabled policy requires 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Legacy default 300 | Must be absent when enabled. No automatic 300-block split. |
@@ -263,8 +270,8 @@ with a measured preparation allowance. The trigger occurs at the next L1 slot
 minus preparation, proof and submission slack. Block timestamps and the Sync
 grid remain unchanged; the Future suffix covers the combined budget. For
 example, a 5-second/1-second profile with preparation 500 ms, proof 500 ms and
-slack 700 ms triggers at 3.3 seconds after its anchor. This is an operator example,
-not a default or a latency guarantee. Size proof and preparation for large
+slack 700 ms triggers at 3.3 seconds after its anchor. This is the packaged
+Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
 all absolute proof and submission deadlines remain enforced.
 
@@ -322,7 +329,11 @@ reconciliation remain authoritative.
 
 ## Migration
 
-1. Leave the policy disabled to retain existing posting behavior.
+1. To retain legacy posting behavior, set `EEZ_SETTLEMENT_POLICY_ENABLED=false`,
+   remove the policy-only `EEZ_SETTLEMENT_*` and `EEZ_L1_POSTBATCH_*` settings,
+   and select a numeric `EEZ_MAX_USER_TXS_PER_BUNDLE` (for example 12 on Chiado).
+   Copying the Chiado env preset now enables policy; setting only the toggle to
+   false leaves conflicting policy-only inputs and fails startup.
 2. Select the mode, general threshold, and both price ceilings to enable it.
 3. Remove `EEZ_MAX_BLOCKS_PER_BATCH`; adjust speculative depth for `N + K - 1`.
 4. Configure the same reviewed L1 profile for signer/follower deployment, retain

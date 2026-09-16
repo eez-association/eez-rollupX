@@ -27,6 +27,10 @@ proof-signer, and L2-system keys. Proof/system keys must differ; keep the poster
 separate from the proof signer. Fund the poster with test xDAI; it also deploys
 unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 
+The example enables the [live Chiado policy/timing preset](chiado-deployment.md#1-configure):
+automatic admission, `always` settlement, and explicit fee ceilings. Review those
+values for this deployment; preserve existing operator settings when restarting.
+
 The three EEZ images default to `:latest`, which can change on startup.
 To keep a fixed deployment, set all three image references to the same full Git
 commit tag, or pin each image's digest.
@@ -93,3 +97,7 @@ RPC ports: L2 `18688`, embedded L1 `18645`, inbound front `18999`, outbound fron
 receipts, and image references/digests. Use the detailed runbook for
 [failures](chiado-deployment.md#troubleshooting) and
 [local development](chiado-deployment.md#local-source-development).
+
+Optional L2 Blockscout and Chiado Blobscan run separately after startup; see
+[explorers](chiado-deployment.md#optional-explorers) for the deployment inputs
+and setup procedure. They are excluded from CI.

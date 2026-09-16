@@ -1,8 +1,9 @@
+import { historyStartBlock, chiadoHistoryLabel } from "./apps/web/src/utils/history";
 import assert from "node:assert/strict";
 import { getChain } from "./packages/chains/src";
 import { formatWei, prettyFormatWei } from "./packages/eth-format";
 import { env } from "./packages/env";
-import { networkSchema, chainIdSchema } from "./apps/web/src/env";
+import { networkSchema, chainIdSchema, clientEnvVarsSchema, env as webEnv } from "./apps/web/src/env";
 import { getChainIdByName } from "./apps/web/src/utils/web3";
 
 const chiado = getChain(10200);
@@ -25,7 +26,16 @@ assert.equal(getChain(1).getFork("pectra")?.blobParams.minBlobBaseFee, 1n);
 assert.equal(networkSchema.parse("chiado"), "chiado");
 assert.equal(chainIdSchema.parse("10200"), "10200");
 assert.equal(getChainIdByName("chiado"), 10200);
-assert.equal(env.STATS_SYNCER_LOWEST_SLOT, 24788218);
+assert.equal(env.STATS_SYNCER_LOWEST_SLOT, 30000000);
+const configured = clientEnvVarsSchema.parse({ PUBLIC_NETWORK_NAME: "chiado", PUBLIC_BLOBSCAN_START_BLOCK: "25000000" });
+assert.equal(configured.PUBLIC_BLOBSCAN_START_BLOCK, 25000000);
+assert.equal(webEnv.PUBLIC_BLOBSCAN_START_BLOCK, 25000000);
+assert.equal(historyStartBlock("chiado", configured.PUBLIC_BLOBSCAN_START_BLOCK), 25000000);
+assert.equal(chiadoHistoryLabel(configured.PUBLIC_BLOBSCAN_START_BLOCK), "Chiado · test xDAI · history from L1 #25,000,000");
+assert.equal(historyStartBlock("chiado", 26000000), 26000000);
+assert.equal(historyStartBlock("mainnet", 25000000), getChain(1).firstBlobBlock.number);
+assert.match(chiadoHistoryLabel(), /not configured/);
+assert.equal(clientEnvVarsSchema.safeParse({ PUBLIC_BLOBSCAN_START_BLOCK: 0 }).success, false);
 assert.equal(formatWei(1_000_000_000_000_000_001n, { toUnit: "ether" }), "1.000000000000000001 xDAI");
 assert.equal(prettyFormatWei(1_000_000_000_000_000_000n, { toUnit: "ether" }), "1 xDAI");
 console.log("Chiado chain, fork capacity, fee floor, epoch, routing, statistics floor, and exact currency formatting checks passed");

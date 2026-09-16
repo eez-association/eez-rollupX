@@ -43,12 +43,12 @@ docker run --rm --network host \
   -ec 'node node_modules/prisma/build/index.js migrate deploy --schema schema.prisma'
 
 build_args=(--network host --progress plain \
-  --build-arg NEXT_PUBLIC_BLOBSCAN_RELEASE=1.40.3-chiado \
+  --build-arg NEXT_PUBLIC_BLOBSCAN_RELEASE=1.40.3-chiado-configurable \
   --build-arg "GIT_COMMIT=$revision" \
   --build-arg "DATABASE_URL=$build_url" --build-arg "DIRECT_URL=$build_url")
 for target in web api; do
   docker build "${build_args[@]}" --target "$target" \
-    -t "eez-blobscan-$target:1.40.3-chiado" "$work_dir/source"
+    -t "eez-blobscan-$target:1.40.3-chiado-configurable" "$work_dir/source"
 done
 docker build "${build_args[@]}" --target web-builder \
   -t eez-blobscan-build-check:chiado "$work_dir/source"
@@ -57,7 +57,8 @@ docker run --rm --network none \
   -e SECRET_KEY=profile-test-secret \
   -e DATABASE_URL=postgresql://test:test@127.0.0.1/test \
   -e DIRECT_URL=postgresql://test:test@127.0.0.1/test \
-  -e STATS_SYNCER_LOWEST_SLOT=24788218 \
+  -e STATS_SYNCER_LOWEST_SLOT=30000000 \
+  -e PUBLIC_NETWORK_NAME=chiado -e PUBLIC_BLOBSCAN_START_BLOCK=25000000 \
   --mount "type=bind,src=$script_dir/check-chiado-profile.ts,dst=/app/check-chiado-profile.ts,readonly" \
   eez-blobscan-build-check:chiado pnpm exec tsx /app/check-chiado-profile.ts
 docker run --rm --network none \

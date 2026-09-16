@@ -129,7 +129,7 @@ while normal public-DNS requests time out. Validate through normal DNS as well
 as any `curl --resolve` checks after a routing change.
 
 The Chiado profile uses the public Gnosis L1 explorer. Its separate
-[EEZ explorer stack](../explorers/README.md) is now published through this gateway:
+EEZ explorer stack is now published through this gateway:
 Blobscan at `https://rollup.example.com:4443/` and L2 Blockscout at
 `https://rollup.example.com:4445/`. Port 4444 remains unused for Chiado. The gateway
 imports `testing/explorers/public.caddy`, joins the explorer Docker network,

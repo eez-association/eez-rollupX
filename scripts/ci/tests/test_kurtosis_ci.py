@@ -135,45 +135,6 @@ class SettlementEnvironmentTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 exec(compile(command_setup, "signer-command", "exec"), namespace)
 
-class BlobExplorerSelectionTest(unittest.TestCase):
-    def run_selection(self, value=None):
-        script = (REPO / "testing/kurtosis/scripts/verify-blob-da.sh").read_text()
-        start = script.index('VERIFY_BLOBSCAN=')
-        configuration = script[start:script.index('\nfor tool in ', start)]
-        tail = script[script.index('if [[ "$VERIFY_BLOBSCAN" == true ]]; then'):]
-        with tempfile.TemporaryDirectory(prefix="eez-blob-explorer-selection.") as temporary:
-            root = Path(temporary)
-            (root / "scripts").mkdir()
-            verifier = root / "scripts/verify-blobscan.sh"
-            verifier.write_text('#!/bin/sh\necho "explorer verification requested"\nexit 23\n')
-            verifier.chmod(0o755)
-            env = dict(os.environ, KURTOSIS_DIR=str(root), RUN_DIR=str(root), summary_file="verified.json")
-            env.pop("EEZ_VERIFY_BLOBSCAN", None)
-            if value is not None:
-                env["EEZ_VERIFY_BLOBSCAN"] = value
-            return subprocess.run(["bash", "-euo", "pipefail", "-c", configuration + tail],
-                                  env=env, capture_output=True, text=True, timeout=10)
-
-    def test_default_and_explicit_true_preserve_explorer_failures(self):
-        for value in (None, "true"):
-            result = self.run_selection(value)
-            self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
-            self.assertIn("explorer verification requested", result.stdout)
-
-    def test_profile_without_explorers_can_explicitly_skip_only_that_check(self):
-        result = self.run_selection("false")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("explicitly disabled", result.stdout)
-        self.assertNotIn("explorer verification requested", result.stdout)
-
-    def test_invalid_selection_fails_before_verification(self):
-        for value in ("maybe", "", "1"):
-            result = self.run_selection(value)
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("must be true or false", result.stderr)
-            self.assertNotIn("explorer verification requested", result.stdout)
-
-
 class SettlementReadinessTest(unittest.TestCase):
     def run_readiness(self, log, log_status=0):
         script = (REPO / "testing/kurtosis/run-ci.sh").read_text()
