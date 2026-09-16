@@ -1,50 +1,67 @@
 # Agent instructions
 
-Run commands from the repository root. This fork's behavior and the pinned
-protocol revision are the review baseline; upstream `main` is not a substitute.
+Run commands from the repository root unless stated otherwise. Review this fork
+and its pinned protocol revision; upstream `main` is not a substitute.
 
-## Keep changes simple
+## Scope and shared resources
 
-- Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions settings and
-  commands over repository-specific scripts or wrappers.
-- Add a script or abstraction only for repeated, error-prone work or a concrete
-  requirement existing tools cannot cover; state that reason. Do not add release
-  selectors, custom lock files, extra modes, or frameworks for simple configuration.
-- Stay within the requested behavior. Remove unnecessary indirection and duplicated
-  tooling; preserve required protocol checks, invariants, and regression coverage.
-- Keep quick starts to normal setup, run, and check commands. Put defensive guard
-  loops, source auditing, and recovery logic in the detailed runbook.
-- Describe current behavior in comments and operator documentation. Never reference
-  legacy implementations or narrate changes; keep history in audits or commits.
-- Treat the repository and published images as public. Do not add authentication
-  instructions for cloning the repository or pulling images.
+- Inspect `git status --short` before editing; preserve existing work. Keep cleanup
+  within the requested scope.
+- Prefer existing Cargo, Foundry, Docker Compose, and GitHub Actions configuration.
+  Add a script or abstraction only for repeated, error-prone work or a concrete
+  gap in those tools; state the reason. Simple configuration does not need extra
+  selectors, lock formats, or execution modes.
+- Deploy, fund wallets, restart services, or recover data only within the task's
+  authorization. Reading a runbook does not authorize those operations.
+- Worktrees do not isolate container names, ports, databases, or wallets. Identify
+  existing resources before lifecycle operations and clean up only owned resources.
+  Chiado uses fixed container names and host ports; never share its writable datadirs.
+- Export the intended `KURTOSIS_ENCLAVE` in **every shell** before lifecycle or
+  workload commands; choose an unused name for a new network. The default is
+  `eez-ci`, including destructive `testing/kurtosis/stop.sh`. Follow the
+  [Kurtosis guide](testing/kurtosis/README.md).
+- Concurrent protocol Anvil suites need disjoint `BASE_PORT` ranges: the
+  [runner](scripts/ci/run-protocol-anvil.sh) allocates two ports per scenario.
+- Respect the [staged Chiado runner](scripts/run-chiado-staged-performance.sh)'s
+  wallet lock; do not bypass it with the upstream runner. The lock is per protocol
+  checkout, so separate worktrees must still coordinate use of shared wallets.
+  Its `--no-verify` workload measures execution/throughput, not semantic correctness.
+- Keep private keys, authenticated URLs, private hostnames, and bulk logs/databases
+  out of committed records. Do not treat public fixture/workload keys as private
+  operator credentials. The repository and published images are public; do not
+  add authentication instructions for cloning or pulling.
 
-## Before changing code
+## Establish the baseline and read the applicable contract
+
+Before code changes or PR/port reviews, identify the checkout and protocol pin:
 
 ```bash
-git status --short
 git remote -v
 git rev-parse HEAD
 git ls-tree HEAD eez-core-protocol
 git submodule status --recursive
 ```
 
-- For PR reviews and ports, record the PR base/head, intended fork target commit,
-  and protocol gitlink. Trace the diff through production callers and affected
-  tests; identify specification/implementation disagreements explicitly.
-- Before protocol or E2E work, inspect submodule changes and initialize the pinned
-  checkout when needed: `git submodule update --init --recursive eez-core-protocol`.
-  Preserve existing edits; change the pin only within the task's scope. If an
-  isolated worktree cannot initialize it, read the exact gitlink revision from
-  an initialized checkout. `git -C eez-core-protocol rev-parse HEAD` inside an
-  empty submodule directory can report the superproject's HEAD; it does not
-  establish the protocol revision.
-- Preserve dependency alignment in [Cargo.toml](Cargo.toml) and `Cargo.lock`:
-  Reth, Stateless, reth_gnosis, REVM, and Alloy must remain compatible. Use
-  `--locked`; do not upgrade dependencies incidentally to bypass a build failure.
+For reviews/ports, record the PR base/head, target fork commit, and protocol gitlink.
+Trace changes through production callers and affected tests. Normative specifications
+define the accepted contract; implementation and tests establish current behavior.
+Report disagreements instead of silently choosing one. Check proposal status:
+a draft `MUST` does not establish acceptance.
+
+Before protocol inspection, Solidity builds, or source-based E2E work, inspect
+submodule edits and initialize the pinned checkout when needed:
+`git submodule update --init --recursive eez-core-protocol`. Preserve edits and
+change the pin only within scope. If initialization is unavailable, inspect the
+exact gitlink revision in another initialized checkout and report remaining gaps.
+`git -C eez-core-protocol rev-parse HEAD` inside an empty submodule directory can
+report the superproject's HEAD; it does not prove the protocol revision.
+
+Preserve Reth, Stateless, reth_gnosis, REVM, and Alloy compatibility in
+[Cargo.toml](Cargo.toml) and `Cargo.lock`. Use `--locked`; do not upgrade dependencies
+incidentally to bypass a build failure.
 
 For protocol changes, read the relevant **pinned core specification first**, then
-its Solidity implementation/tests and the fork integration contract:
+its Solidity implementation/tests and the applicable fork contract:
 
 | Change | Required sources |
 | --- | --- |
@@ -52,85 +69,102 @@ its Solidity implementation/tests and the fork integration contract:
 | Proof verification/public inputs | [Multi-prover specification](eez-core-protocol/docs/MULTI_PROVER_SPEC.md), pinned verifier implementations |
 | Native blob encoding | [Blob format](eez-core-protocol/docs/blobs/BLOB_FORMAT_SPEC.md), [blob/table tools](eez-core-protocol/script/blob/README.md) |
 | Composer/prover boundary | [RPC specification](crates/eez-control-rpc/SPEC.md), [signer specification](crates/eez-proof-signer/SPEC.md), [signer contributor guide](crates/eez-proof-signer/CONTRIBUTING.md) |
-| Settlement scheduling, retries, queues | [Settlement policy](docs/configurable-settlement-policy.md), [queue requirements](docs/proposals/cross-chain-queue-liveness.md) |
+| Settlement, retries, queues, reorg/restart | [Settlement policy](docs/configurable-settlement-policy.md), RPC [failure handling](crates/eez-control-rpc/SPEC.md#6-failure-handling) and [settlement ownership](crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission), [queue requirements and status](docs/proposals/cross-chain-queue-liveness.md) |
 
 ## Implementation boundaries and invariants
 
-- Keep ABI types, commitments, and shared protocol rules in `eez-protocol` and
-  the codec crates; do not introduce dependencies from them to runtime roles.
-  Keep role-neutral node bootstrap in `eez-node-common`, request scheduling and
-  ownership in `eez-composer`, and runtime wiring in `eez-node`/`eez-follower`.
-  The process/RPC contract belongs in `eez-control-rpc`; independent proof
-  validation belongs in `eez-proof-signer`.
-- Preserve **block-hash commitments**, native blob DA, complete grouped/nested
-  calls, and the binding of proving and submission to the **same L1 target**.
-  A task changing these contracts must update all affected producers/consumers:
-  Solidity, Rust ABI/codecs, Composer, signer, and deriver/follower.
-- The signer supports a narrower profile than the core protocol. Do not relax
-  its checks merely because upstream supports another case. Preserve exact
+- Keep ABI types, commitments, and shared protocol rules in `eez-protocol` and the
+  codec crates, without dependencies on runtime roles. Put role-neutral bootstrap
+  in `eez-node-common`, request scheduling/ownership in `eez-composer`, runtime
+  wiring in `eez-node`/`eez-follower`, the RPC contract in `eez-control-rpc`, and
+  independent proof validation in `eez-proof-signer`.
+- Preserve **block-hash commitments**, native blob DA, whole grouped/nested calls,
+  and proving/submission bound to the **same L1 target**. An authorized contract
+  change must update every affected Solidity/Rust producer and consumer, including
+  ABI/codecs, Composer, signer, and deriver/follower.
+- The signer accepts a narrower profile than the core protocol. Preserve exact
   decoding/byte comparisons, bounded parsing of Composer-controlled input, and
-  independent public-input recomputation. Reject unsupported input explicitly;
-  truncation, skipped work reported as success, and unchecked runtime `unwrap`/
-  `expect` can hide protocol divergence.
-- Keep [contract compiler settings](contracts/foundry.toml) aligned with the pin:
-  Solidity 0.8.34, optimizer runs 1, `via_ir`, and relative remappings. Compiler
-  or metadata drift changes bytecode, CREATE2 addresses, and genesis commitments.
-  Regenerate/check affected fixtures with `scripts/update-eezl2-genesis.sh`;
-  deployment uses `--render`, while the default mode rewrites committed fixtures.
-- For wire/configuration/storage changes, specify mixed-version behavior,
-  historical decoding and follower replay, upgrade order, migrations, and
-  rollback limits. Update affected specifications and operator configuration.
-- Preserve policy-disabled settlement behavior. Separate scheduling triggers
-  from gas, blob, and timing admission limits. Derive limits from network rules
-  or measured budgets; retain final execution validation. An admission estimate
-  is not a consensus limit. Only validated canonical commitment advancement is
+  independent public-input recomputation. Reject unsupported input; do not loosen
+  checks, truncate input, or report skipped validation as success.
+- Keep [integration compiler settings](contracts/foundry.toml) aligned with the
+  pinned protocol: Solidity 0.8.34, optimizer runs 1, `via_ir`, relative remappings.
+  Compiler/metadata drift changes bytecode, CREATE2 addresses, and genesis commitments.
+- For changes affecting wire, configuration, or storage compatibility, document
+  mixed-version behavior, historical decoding/follower replay, upgrade order,
+  migrations, and rollback limits in the affected specification and operator docs.
+- For settlement changes, preserve policy-disabled behavior and separate scheduling
+  triggers from gas/blob/timing admission limits. Derive budgets from active network
+  rules or measured work; admission estimates are not consensus limits. Retain final
+  execution validation. Only validated canonical commitment advancement establishes
   settlement progress.
-- Account for every accepted request: canonical consumption, retention, requeue,
-  or explicit terminal disposition. Preserve attempt identity, whole replay
-  groups, and sender/direction nonce dependencies. **Partial consumption is
-  supported**; one receipt, relay acceptance, or a matching height cannot establish
-  completion of an entire attempt.
-- Separate prover retryability from attribution. Retry statuses are limited to
-  `UNAVAILABLE`, `DEADLINE_EXCEEDED`, and `ABORTED`, within the settlement cutoff;
-  do not classify by error text. Validate actionable `FAILED_PRECONDITION` details
-  against the exact request. Invalid hints follow bounded opaque-rejection handling,
-  not targeted eviction. Preserve one charge per failed prover/relay episode,
-  not per transport retry; `MAX_BUNDLE_ATTEMPTS = 3` evicts exhausted candidates
-  and dependent same-sender/direction nonce suffixes, even if a candidate was valid.
-- During submitted-attempt reconciliation, charge eligible users once only for a
-  conclusive settlement failure. Infrastructure uncertainty and source-state/capacity
-  deferrals retain work without charging that policy. Do not infer execution or
-  eviction authority from an inconclusive chain observation; blocked sources must
-  not starve eligible work.
-- Pending ownership and retry counters are **in memory**. Restart reconstructs
-  canonical state and discards the speculative suffix; unsettled clients may
-  need to resubmit. Do not describe database persistence as durable queue recovery.
+- For queue/reconciliation changes, retain ownership of every accepted request
+  until canonical consumption or explicit disposition, including replacement and
+  resubmission. Preserve attempt identity, whole replay groups, and sender/direction
+  nonce dependencies. **Partial consumption is supported**: a receipt, relay
+  acceptance, or matching height does not complete an attempt. Inconclusive chain
+  observations do not authorize execution or eviction; blocked sources must not
+  starve independent eligible work.
+- For prover/retry changes, preserve the RPC contract's closed retry-status list,
+  settlement cutoff, validated request-local failure attribution, and bounded
+  prover/relay episode accounting. Transport retries do not each charge an attempt;
+  do not classify retryability by error text. Handle invalid hints as bounded opaque
+  rejections; they cannot authorize targeted eviction. During submitted-attempt
+  reconciliation, charge eligible users once only for conclusive settlement failure;
+  infrastructure uncertainty and source deferrals retain work without that charge.
+- Pending requests and retry counters are **in memory**. Restart reconstructs
+  canonical state and discards the speculative suffix; clients may need to
+  resubmit unsettled work. Database persistence does not provide durable queue recovery.
 
-## Build and validation
+### Generated files
 
-Use Rust **1.94.0** (CI's toolchain; the manifest declares minimum 1.93), Foundry
-**1.7.1**, and the pinned submodule. Native Rust builds require the system packages
-listed in [CI](.github/workflows/ci.yml), including `libclang-dev`, `pkg-config`,
-`libssl-dev`, `cmake`, and `protobuf-compiler`. Build workspace binaries with
-`cargo +1.94.0 build --locked --workspace`.
+- Edit the wire schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
+  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` using `protoc`;
+  the [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
+  with `cargo +1.94.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
+- Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
+  then run
+  `bash scripts/update-eezl2-genesis.sh --check`. The script updates `genesis.json`,
+  `crates/eez-node-e2e/tests/fixtures/genesis.json`, and
+  `testing/kurtosis/l2-genesis-profile.json`. It requires the initialized protocol,
+  Foundry 1.7.1, `jq`, Python, and this revision's `eez-genesis-state-root` on `PATH`
+  or a local Cargo build; CI requires the verified helper and disallows that fallback.
+  Deployment uses `--render` to create separate files, not rewrite these fixtures.
 
-Run the applicable checks below. Add a regression for changed behavior; do not
-run runtime suites solely for prose edits. `make test` does not cover all CI lanes.
+## Build and validate
+
+For source builds, use Rust **1.94.0** (CI; manifest minimum 1.93) and Foundry
+**1.7.1**. Native dependencies are listed in [CI](.github/workflows/ci.yml), including
+`libclang-dev`, `pkg-config`, `libssl-dev`, `cmake`, and `protobuf-compiler`.
+Build workspace binaries with `cargo +1.94.0 build --locked --workspace`.
+
+During iteration, run focused packages/targets. Before completing a change, run
+the applicable checks below and regressions for changed behavior; do not repeat
+workspace checks after every edit. CI also owns the full release-artifact and
+Kurtosis matrix; `make test` does not cover every lane. Prose-only changes need
+documentation checks, not runtime suites. Live procedures require their prepared
+environment and task authorization.
 
 | Changed area | Expected checks |
 | --- | --- |
-| Rust code | `cargo +1.94.0 fmt --all --check`; `cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests (for example, `cargo +1.94.0 test --locked -p eez-composer --lib`) |
-| ABI, commitments, blob codecs | `cargo +1.94.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity and process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
-| Signer or prover RPC | `cargo +1.94.0 test --locked -p eez-proof-signer -p eez-control-rpc`; signer contributor checks above; `cross_chain` process tests for rejection/status/signing changes |
+| Rust code | `cargo +1.94.0 fmt --all --check`; `cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.94.0 test --locked -p eez-composer --lib` |
+| ABI, commitments, blob codecs | `cargo +1.94.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
+| Signer or prover RPC | `cargo +1.94.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
 | Settlement/admission | Composer unit tests; relevant `eez-node-e2e` targets: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
-| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `resumption`; `cross_chain`/`chained_interstate` when group semantics change |
+| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `resumption`; `cross_chain` / `chained_interstate` when group semantics change |
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
-| Protocol pin or core-contract integration | Core tests below, `forge build --root eez-core-protocol`, `bash scripts/ci/run-protocol-anvil.sh`, and affected fork/E2E checks |
-| EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`, affected contract tests, and deployment verification in the [Kurtosis guide](testing/kurtosis/README.md) |
-| Chiado/settlement configuration | `bash scripts/check-chiado-blob-config.sh`; `python3 scripts/check-settlement-policy-config.py`; `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v` for Compose/startup changes; affected runtime tests if parsing or behavior changes |
+| Protocol pin or core-contract integration | Core tests below; `forge build --root eez-core-protocol`; `bash scripts/ci/run-protocol-anvil.sh`; affected fork/E2E checks |
+| EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`; affected contract tests; deployment verification in the [Kurtosis guide](testing/kurtosis/README.md#run-the-pinned-protocol-e2e-suite) |
+| Chiado/settlement configuration | `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v`; `python3 scripts/check-settlement-policy-config.py`; affected runtime tests for parsing/behavior changes |
+| Deployment scripts | `python3 -m unittest discover -s scripts/ci/tests -p 'test_deploy_preflight.py' -v`; affected genesis/configuration checks. Mocked preflight tests do not validate a broadcast. |
 | CI tooling/workflows | `python3 -m unittest discover -s scripts/ci/tests -v`; exercise the changed producer/consumer path |
 | Dependencies/lockfile | `cargo deny check advisories bans sources`; `cargo audit`; affected builds and compatibility tests |
-| Documentation | `git diff --check`; resolve relative links at the protocol pin; run `bash -n` on edited shell examples/scripts |
+| Documentation | `git diff --check`; resolve edited links/paths at the protocol pin; run `bash -n` on edited shell examples/scripts. Syntax checking does not execute the procedure. |
+
+Python configuration checks require Docker Compose's CLI, not a daemon or live
+deployment. The full tooling suite also needs the initialized protocol, `jq`, and
+PyYAML; inspect skipped tests rather than treating a successful exit as full coverage.
+
+### Source-based process tests
 
 Core tests use CI's explicit exclusions; report them as exclusions, not coverage:
 
@@ -142,8 +176,8 @@ Core tests use CI's explicit exclusions; report them as exclusions, not coverage
 )
 ```
 
-Local source-built process tests (requires `forge` and `anvil`; clears overrides
-that would otherwise select prebuilt, potentially stale executables):
+Local process tests require `forge` and `anvil`. Clear overrides that can select
+stale prebuilt executables, build integration contracts, and retain diagnostics:
 
 ```bash
 (
@@ -156,67 +190,76 @@ that would otherwise select prebuilt, potentially stale executables):
 )
 ```
 
-Select the affected `--test` targets from the table. Run process suites serially;
+Select affected `--test` targets from the table and run `eez-node-e2e` suites serially;
 [Nextest](.config/nextest.toml) also isolates `eez-node-e2e`. Do not add `--ignored`
 indiscriminately: `kurtosis_policy_replay` requires a live enclave. Follow the
-[Kurtosis guide](testing/kurtosis/README.md) for topology/DA/PBS integration and
-export the intended `KURTOSIS_ENCLAVE` in every shell; lifecycle scripts otherwise
-default to `eez-ci`, including destructive teardown.
+Kurtosis guide for topology/DA/PBS validation.
 
-CI consumes **verified, exact-revision runtime/test artifacts**. In that configured
-CI environment, the execution entrypoints are:
+### CI artifact changes
 
-```bash
-bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
-bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
-```
+Read the [runtime producer](.github/workflows/build-runtime.yml),
+[artifact verifier](scripts/ci/prepare-runtime-artifacts.sh), and
+[native runner](scripts/ci/native-tests.py) before changing this pipeline.
+Consumers must execute verified, exact-revision runtime/test artifacts; do not
+rebuild missing artifacts or substitute cached binaries. Preserve the separate
+Composer unit archive: its Tokio `test-util` feature changes shipping dependencies.
+`scripts/ci/run-native-suite.sh` requires the producer's configured artifact
+environment; it is not a standalone local build command.
 
-Use the [runtime producer](.github/workflows/build-runtime.yml) and
-[native runner](scripts/ci/native-tests.py) for artifact setup; these commands are
-not standalone local builds. Keep the separate Composer unit archive: its Tokio
-`test-util` feature changes dependencies of the shipping binaries. Do not rebuild
-in consumer jobs or treat an arbitrary cached binary as the tested executable.
+Promote deployment tags only from tested digests after **all** CI validation lanes
+pass. Never rebuild during promotion or let older runs roll `latest` backward.
+The [CI gate and promotion](.github/workflows/ci.yml) own this procedure.
 
-For failures, retain logs/datadirs and executable identity before cleanup. Reproduce
-bug fixes at the requested baseline and repeat the same check after the change.
-Require nonzero intended test selection; ignored-only runs do not validate a fix.
-Rejection tests must reach the intended component and assert its specific error
-or state transition. CI's Nextest profile retries twice with `flaky-result = "fail"`;
-preserve first failures and report retry-only passes as flakes. Distinguish static,
-mocked, process, and live evidence; state whether semantic assertions and independent
-replay ran. Throughput or receipts alone
-cannot establish them.
+### Evidence and completion
 
-## Proposals, audits, and operations
+- For a bug fix, reproduce at the requested baseline and repeat the same check
+  after the change; state when that comparison is unavailable. Preserve first
+  failures, logs/datadirs, and executable identity before cleanup.
+- Require nonzero intended test selection. Empty, ignored-only, skipped, or
+  unrelated passing tests do not validate the change. Rejection tests must reach
+  the intended component and assert its specific error or state transition.
+- CI's Nextest profile retries twice with `flaky-result = "fail"`; report retry-only
+  passes as flakes. Distinguish static, mocked, process, and live evidence, and
+  state whether semantic assertions and independent replay ran.
+- Report checks/results and applicable checks not run, including reasons and what
+  remains unverified. Passing throughput, receipts, or startup does not establish
+  semantic correctness, durable recovery, or deployment of the edited revision.
 
-| Record | When and what to write |
+## Documentation and operations
+
+Comments and operator procedures describe current behavior and necessary rationale;
+do not reference replaced implementations in comments. Keep change history in audits
+or commits. When an authorized change invalidates instructions, update the owning
+specification/runbook and affected `AGENTS.md` guidance in the same change. Link
+authoritative procedures instead of duplicating them.
+
+| Record | Use |
 | --- | --- |
-| [Proposal](docs/proposals/TEMPLATE.md): `docs/proposals/<topic>.md` | Before substantial design/behavior changes: scope, invariants, alternatives, acceptance checks. Mark draft/accepted status; a draft `MUST` is not an adopted contract. Existing task authorization applies; a proposal creates no approval gate. |
-| [Audit](docs/audits/TEMPLATE.md): `docs/audits/YYYY-MM-DD-<topic>/README.md` | Investigations, substantial validation, executed operational changes: exact source/protocol/executable identity, commands, results, limits, and unmet criteria/next actions. |
-| [Runbook](docs/runbooks/README.md): `docs/runbooks/<task>.md` | Repeatable operations: prerequisites, ordered commands, expected results, restart/recovery boundaries, verification status. Consult it before operating and add newly verified steps. |
+| [Proposal](docs/proposals/TEMPLATE.md): `docs/proposals/<topic>.md` | Before substantial design/behavior changes, record scope, invariants, alternatives, acceptance checks, and actual draft/accepted status. Extend a relevant existing proposal. |
+| [Audit](docs/audits/TEMPLATE.md): `docs/audits/YYYY-MM-DD-<topic>/README.md` | Record substantial investigations/validation and executed operations that need reproducible evidence: exact source/protocol/executable identity, commands, results, limits, and unmet criteria. |
+| [Runbook](docs/runbooks/README.md): `docs/runbooks/<task>.md` | Maintain repeatable operations: prerequisites, ordered commands, expected results, recovery boundaries, and verification status. Consult before operating; add newly verified steps. |
 
-Link requirements, implementation, and evidence in both directions. Preserve dated
-failures/corrections; older results do not validate newer binaries. Separate
-observations from hypotheses, and implementation from validation/deployment status.
-Retain small sanitized inputs/results or a retrievable artifact location and digest;
-label local-only, missing, or expired evidence. Ignored `artifacts/` paths are not
-available to another checkout. Keep current behavior in the relevant specification
-or `docs/<topic>.md`; link the authoritative procedure from README/AGENTS instead
-of duplicating it. Small fixes/docs edits need no new proposal/audit pair.
+Existing task authorization applies; these records add no approval gate. Small
+fixes and documentation edits need no new proposal/audit pair. Link requirements,
+implementation, and evidence. Preserve dated failures/corrections; older results
+do not validate newer binaries. Keep small sanitized evidence or a retrievable
+artifact location/digest; label local-only, missing, or expired evidence. Ignored
+`artifacts/` paths are unavailable to another checkout.
 
-For Chiado, use the [quick start](docs/runbooks/chiado-quickstart.md) and
-[deployment runbook](docs/runbooks/chiado-deployment.md) within the task's
-deployment/funding/recovery authorization. Chiado defaults to the fork's `:latest`
-images; full Git commit tags and digests are explicit pins.
-Promote deployment tags only from tested CI digests after all validation passes;
-never rebuild during promotion or let older runs roll `latest` backward. Match
-node/signer source revisions with the deployment checkout/protocol. Reserve
-`:local` for development builds.
-Startup must require existing bindings and preserve datadirs; deployment is a
-separate broadcast operation. Worktrees do not isolate fixed container names,
-ports, databases, or shared wallets. Clean up only owned
-resources; preserve deployment bindings and genesis on restart. The
-[staged workload runner](scripts/run-chiado-staged-performance.sh) locks shared
-wallets and uses `--no-verify`; respect its locking and do not report it as semantic
-validation. Keep private keys, authenticated URLs, private hostnames, and bulk
-logs/databases out of committed records.
+For Chiado operation or deployment changes, read the
+[quick start](docs/runbooks/chiado-quickstart.md) and
+[deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Preserve these boundaries:
+
+- Normal deployment uses the published deploy image's bundled contracts/tools;
+  host builds and `:local` images are for development. Match node/signer/deploy
+  source revisions with the configuration checkout and protocol. The default
+  `:latest` can change on Compose startup; full Git commit tags or digests are pins.
+- Copy the Chiado template to `.env`; Compose loads it automatically. Keep private
+  inputs mapped per service; never inject the proof-signing key into the node.
+  Use Docker/Compose's normal image pulling and configuration loading instead of
+  manual preparation those tools already handle.
+- Genesis rendering/tool checks must precede the first deployment broadcast.
+  Startup requires existing bindings and preserves datadirs/genesis; contract
+  deployment is a separate, non-idempotent operation.
+- Keep quick starts to normal setup/run/check commands. Put optional diagnostics
+  and recovery in the detailed runbook, not the normal setup sequence.

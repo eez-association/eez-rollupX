@@ -416,6 +416,8 @@ Run funded traffic only when the operation includes it. Inspect the
 on **both chains**, and it assumes public development accounts. The
 [staged performance runner](../../scripts/run-chiado-staged-performance.sh) locks
 shared wallets; `--check` is readiness-only and normal runs use `--no-verify`.
+The lock is per protocol checkout; it does not coordinate other worktrees or hosts
+using the same wallets.
 Do not run another upstream workload concurrently. See [workload commands](../../README.md#exercise-it).
 Startup/throughput/receipts do not validate all cross-chain semantics or independent
 follower replay; record those checks separately when required.

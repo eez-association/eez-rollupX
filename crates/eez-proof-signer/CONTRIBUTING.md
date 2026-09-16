@@ -32,9 +32,11 @@ the spec are appropriate in repository documentation.
 - Validation and settlement run in one blocking task. Cancellation is
   cooperative between non-interruptible units; graceful shutdown waits for
   detached work rather than terminating it halfway through execution.
-- The active settlement profile accepts an anchor followed by zero or more
-  supported outbound effects and then zero or more supported successful inbound
-  effects. Richer or ambiguous shapes fail closed.
+- The active mutable-entry profile is `anchor, outbound*, (inbound-effect |
+  inbound-lookup)*`. Lookup-only inbound entries retain source outcomes without
+  authorizing L2 effects. Top-level L1-origin static entries are checked separately
+  at their exact FIFO positions. Unsupported or ambiguous shapes fail closed; the complete
+  supported profile is defined in [SPEC.md](SPEC.md#1-purpose-and-supported-profile).
 - Every successful `BackendWindowOutput` associates each block's computed hash,
   post-state root, receipt coverage, selected prefix-block hash checkpoints, and settlement
   evidence in one `BackendBlockOutput`. Preceding-block checkpoint vectors are
