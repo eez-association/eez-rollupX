@@ -1,0 +1,1702 @@
+{
+  "scope": "Transaction placement, uniqueness, successful receipts, source nonces, canonical L1/L2 correlation, safe settlement, packing and runtime timing. Upstream protocol semantic verification was enabled; its result is recorded separately. L1 slot timestamps are not receipt-observation times.",
+  "canonicalAnalysisPassed": true,
+  "protocolVerification": null,
+  "protocolVerificationStatus": "stopped_by_user",
+  "verificationStopped": {
+    "at": "2026-09-15T17:12:00.612981+00:00",
+    "reason": "User requested stopping semantic verification to focus on performance. All 870 source settlements were already independently verified.",
+    "wrapperPid": 732293,
+    "runnerPid": 732475,
+    "stoppedProcessCount": 8,
+    "startedJobs": 543,
+    "passedJobs": 541,
+    "failedJobs": [],
+    "interruptedJobs": [
+      "counter-multi-tx-42",
+      "counter-multi-tx-43"
+    ],
+    "totalJobs": 770,
+    "protocolVerificationComplete": false
+  },
+  "jobVerificationCounts": {
+    "passed": 541,
+    "failed": 0,
+    "unfinished": 229
+  },
+  "runtimeUnchanged": true,
+  "runtimeBefore": [
+    {
+      "name": "/eez-node-chiado",
+      "id": "1ba909f355acc25a9c4bf3277c7b029557276514e8ddaef543c46e7a4ba7c8b0",
+      "image": "sha256:2e77dc97bbb6741d7382f0e57034d0c7078186f6082f0e3e92d1f7708268fcc9",
+      "startedAt": "2026-09-15T16:29:20.251191999Z"
+    },
+    {
+      "name": "/eez-proof-signer-chiado",
+      "id": "f170d9a99ffdf1c78a630cb238d2bbe224c30a122397ed54431d53627896a54f",
+      "image": "sha256:2ea0fbad2f7b08073f2683e6a7bbb08057abbbbffbf91cf3909d359397d436c9",
+      "startedAt": "2026-09-15T08:33:40.549660418Z"
+    },
+    {
+      "name": "/eez-chiado-validation-lighthouse",
+      "id": "c8ee8e58a89745a3255e9835770b2acbf8d8397ae36c480023e42ad96f346e1f",
+      "image": "sha256:44aa773dcf274122c32cc41c4dae7124ed3cab5c267ee82174c6dfd9c688da96",
+      "startedAt": "2026-09-15T10:57:46.925315307Z"
+    }
+  ],
+  "composerSha256": "f6e672458cc14f3c8bd2d01513baae71cc0a8cc6dd087642780fdba8ed12cb3c",
+  "composerBuildProfile": {
+    "opt_level": "1",
+    "debuginfo": "line-tables-only",
+    "debug_assertions": true,
+    "overflow_checks": true,
+    "test": false
+  },
+  "protocolCommit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "sourceFilesMatchingBuild": 193,
+  "request": {
+    "args": [
+      "counter:100",
+      "counterL2:100",
+      "nestedCounter:50",
+      "nestedCounterL2:50",
+      "multi-call-nested:50",
+      "multi-call-nestedL2:50",
+      "multi-call-twice:50",
+      "multi-call-twiceL2:50",
+      "counter-multi-tx:50",
+      "reentrant:20",
+      "revertCounter:50",
+      "revertCounterL2:50",
+      "revertFromOtherChain:50",
+      "revertFromOtherChainL2:50"
+    ],
+    "prepareParallel": 200,
+    "fundEth": "0.005",
+    "floorEth": "0.005",
+    "verification": true,
+    "expectedJobs": 770,
+    "expectedSourceTransactions": 870
+  },
+  "sendWorkers": 28,
+  "verifyParallel": 2,
+  "settings": {
+    "preparationMs": 500,
+    "proofMs": 500,
+    "submissionSlackMs": 700,
+    "consolidationL2Blocks": 300,
+    "pureL2Mode": "always",
+    "maxUserTxsPerBundle": "auto",
+    "maxSpeculativeDepth": 0,
+    "maxPostbatchFeePerGasWei": "500000000000",
+    "effectiveMaxBlobs": 2,
+    "usableBytesPerBlob": 126976
+  },
+  "jobs": 770,
+  "sourceTransactions": 870,
+  "directions": {
+    "inbound": 520,
+    "outbound": 350
+  },
+  "ingressSpanMs": 1351.524,
+  "firstAcceptedAt": "2026-09-15T16:47:23.256508Z",
+  "lastSafeAt": "2026-09-15T16:51:55.524844Z",
+  "nonTestIngressOutsideMeasuredWave": [
+    {
+      "at": "2026-09-15T16:57:32.793050Z",
+      "hash": "0x22a31ee9359d0be2c4d11fbfe8ad7052a4580bde6c5be93c947cd2bfa12444a4"
+    }
+  ],
+  "sourceDispositions": {
+    "Committed": 820,
+    "SourceCompleted": 50
+  },
+  "latencyMs": {
+    "acceptedToDispatchMs": {
+      "count": 870,
+      "min": 10596.318,
+      "median": 139762.14299999998,
+      "p95": 249477.168,
+      "max": 269107.586
+    },
+    "acceptedToSafeMs": {
+      "count": 870,
+      "min": 12405.847,
+      "median": 141500.06900000002,
+      "p95": 251229.014,
+      "max": 270975.275
+    },
+    "acceptedToReconciledMs": {
+      "count": 870,
+      "min": 12524.615,
+      "median": 141676.653,
+      "p95": 251376.226,
+      "max": 271232.847
+    }
+  },
+  "dispatchToSafeMs": {
+    "count": 47,
+    "min": 1582.859,
+    "median": 1783.525,
+    "p95": 2232.979,
+    "max": 2301.882
+  },
+  "sourcePosts": 47,
+  "sourceCountsPerPost": [
+    16,
+    21,
+    20,
+    24,
+    24,
+    21,
+    21,
+    23,
+    11,
+    21,
+    21,
+    22,
+    18,
+    18,
+    18,
+    15,
+    15,
+    14,
+    10,
+    12,
+    10,
+    17,
+    10,
+    16,
+    10,
+    16,
+    9,
+    17,
+    14,
+    26,
+    15,
+    23,
+    12,
+    22,
+    17,
+    13,
+    27,
+    31,
+    30,
+    30,
+    17,
+    34,
+    34,
+    29,
+    23,
+    1,
+    2
+  ],
+  "maximumSourcesPerSync": 34,
+  "sourceWaveL1Blocks": [
+    23071257,
+    23071307
+  ],
+  "sourceWaveL2SyncBlocks": [
+    153465,
+    153725
+  ],
+  "bundleGasUsed": {
+    "count": 47,
+    "min": 905208,
+    "median": 7213970,
+    "p95": 9830194,
+    "max": 11093197
+  },
+  "bundleBlockGasUsePercent": {
+    "count": 47,
+    "min": 5.101,
+    "median": 41.9,
+    "p95": 56.053,
+    "max": 62.756
+  },
+  "encodedBytes": {
+    "count": 47,
+    "min": 9716,
+    "median": 54643,
+    "p95": 76305,
+    "max": 113199
+  },
+  "aggregateBlobUsePercent": {
+    "count": 47,
+    "min": 3.826,
+    "median": 21.517,
+    "p95": 30.047,
+    "max": 44.575
+  },
+  "totalSourcePostBlobs": 47,
+  "totalSourcePostEncodedBytes": 2588791,
+  "totalSourceBundleGasUsed": 333034923,
+  "preparationMs": {
+    "count": 51,
+    "min": 191,
+    "median": 368,
+    "p95": 392,
+    "max": 408
+  },
+  "blobPreparationMs": {
+    "count": 51,
+    "min": 166,
+    "median": 178,
+    "p95": 201,
+    "max": 216
+  },
+  "availablePreparationMs": {
+    "count": 51,
+    "min": 460,
+    "median": 493,
+    "p95": 495,
+    "max": 495
+  },
+  "preparationTimeCuts": 36,
+  "gasProjectionCuts": [
+    {
+      "at": "2026-09-15T16:51:08.426753Z",
+      "sources": 34,
+      "projectedPosterGas": 13350016,
+      "planningBudget": 13381013,
+      "targetBlock": 23071299,
+      "preflightPosterGas": 3910342,
+      "declaredPosterGas": 4692411,
+      "includedPost": null,
+      "receiptPosterGas": null,
+      "receiptBundleGas": null
+    },
+    {
+      "at": "2026-09-15T16:51:23.416325Z",
+      "sources": 34,
+      "projectedPosterGas": 13363536,
+      "planningBudget": 13381013,
+      "targetBlock": 23071301,
+      "preflightPosterGas": 6816995,
+      "declaredPosterGas": 8180394,
+      "includedPost": "0xc202a5f4759119acf366e037f77cc8f044dfcde2c7a64b0b86d2ae6d101ff176",
+      "receiptPosterGas": 6816995,
+      "receiptBundleGas": 11093197
+    },
+    {
+      "at": "2026-09-15T16:51:28.359430Z",
+      "sources": 34,
+      "projectedPosterGas": 13322920,
+      "planningBudget": 13381013,
+      "targetBlock": 23071302,
+      "preflightPosterGas": 4805193,
+      "declaredPosterGas": 5766232,
+      "includedPost": "0xac8afc6c8b224b3b6b29229a34930f88b3ba213f3eda5c54a75f2809f93f64ff",
+      "receiptPosterGas": 4805193,
+      "receiptBundleGas": 9830194
+    }
+  ],
+  "l2BlockGasCuts": 0,
+  "sourceWaveDroppedAttempts": [
+    {
+      "timestamp": "2026-09-15T16:48:15.565715Z",
+      "level": "WARN",
+      "fields": {
+        "message": "bundle dropped; composer will retry on next tick",
+        "target_block": 23071265,
+        "tx_hash": "0x4138f4afcbba524794ec2fc14a0b4776c1421046172084f5249b4817a386fed9",
+        "reason": "excluded"
+      },
+      "target": "eez_l1::submitter"
+    },
+    {
+      "timestamp": "2026-09-15T16:50:40.607943Z",
+      "level": "WARN",
+      "fields": {
+        "message": "bundle dropped; composer will retry on next tick",
+        "target_block": 23071293,
+        "tx_hash": "0xb7191e4a97d6a254ab47381364b3847507f887e5a5fe970517d12fd2939d567d",
+        "reason": "slot_skipped"
+      },
+      "target": "eez_l1::submitter"
+    },
+    {
+      "timestamp": "2026-09-15T16:51:15.576088Z",
+      "level": "WARN",
+      "fields": {
+        "message": "bundle dropped; composer will retry on next tick",
+        "target_block": 23071299,
+        "tx_hash": "0xe8e44ca68fb5010dc0d352d850aa80d2b3ad133acfcc611ccffb074a1d982997",
+        "reason": "slot_skipped"
+      },
+      "target": "eez_l1::submitter"
+    },
+    {
+      "timestamp": "2026-09-15T16:51:45.863989Z",
+      "level": "WARN",
+      "fields": {
+        "message": "bundle dropped; composer will retry on next tick",
+        "target_block": 23071305,
+        "tx_hash": "0x7183772f1b9cd1fdfd88ea7c6863382d73715a5518c9ad73095c33ead4102b8c",
+        "reason": "excluded"
+      },
+      "target": "eez_l1::submitter"
+    }
+  ],
+  "submissionBackoffs": [
+    {
+      "timestamp": "2026-09-15T16:48:15.792729Z",
+      "level": "INFO",
+      "fields": {
+        "message": "canonical reconciliation left incomplete sources; reducing the next automatic selection",
+        "event_name": "eez.composer.admission.submission_backoff",
+        "rollup_id": 1,
+        "submitted_groups": 23,
+        "next_selection_max": 11
+      },
+      "target": "eez_composer::composer"
+    },
+    {
+      "timestamp": "2026-09-15T16:50:40.806943Z",
+      "level": "INFO",
+      "fields": {
+        "message": "canonical reconciliation left incomplete sources; reducing the next automatic selection",
+        "event_name": "eez.composer.admission.submission_backoff",
+        "rollup_id": 1,
+        "submitted_groups": 26,
+        "next_selection_max": 13
+      },
+      "target": "eez_composer::composer"
+    },
+    {
+      "timestamp": "2026-09-15T16:51:15.820828Z",
+      "level": "INFO",
+      "fields": {
+        "message": "canonical reconciliation left incomplete sources; reducing the next automatic selection",
+        "event_name": "eez.composer.admission.submission_backoff",
+        "rollup_id": 1,
+        "submitted_groups": 34,
+        "next_selection_max": 17
+      },
+      "target": "eez_composer::composer"
+    },
+    {
+      "timestamp": "2026-09-15T16:51:46.788518Z",
+      "level": "INFO",
+      "fields": {
+        "message": "canonical reconciliation left incomplete sources; reducing the next automatic selection",
+        "event_name": "eez.composer.admission.submission_backoff",
+        "rollup_id": 1,
+        "submitted_groups": 3,
+        "next_selection_max": 1
+      },
+      "target": "eez_composer::composer"
+    }
+  ],
+  "threeSourceJobsBySettlementCount": {
+    "1": 3,
+    "2": 25,
+    "3": 22
+  },
+  "hostSamplesThroughWaveEnd": {
+    "count": 218,
+    "peakSampledForgeProcesses": 33,
+    "peakSampledForgeRssMiB": 2265.75,
+    "minimumAvailableMemoryMiB": 23251.43359375
+  },
+  "scenarios": [
+    {
+      "name": "counter",
+      "jobs": 100,
+      "verified": 100,
+      "sourceTransactions": 100,
+      "acceptedToSafeMs": {
+        "count": 100,
+        "min": 12405.847,
+        "median": 32501.8665,
+        "p95": 67394.842,
+        "max": 67417.119
+      }
+    },
+    {
+      "name": "counter-multi-tx",
+      "jobs": 50,
+      "verified": 41,
+      "sourceTransactions": 150,
+      "acceptedToSafeMs": {
+        "count": 150,
+        "min": 186634.323,
+        "median": 216459.65149999998,
+        "p95": 241337.332,
+        "max": 246364.366
+      }
+    },
+    {
+      "name": "counterL2",
+      "jobs": 100,
+      "verified": 100,
+      "sourceTransactions": 100,
+      "acceptedToSafeMs": {
+        "count": 100,
+        "min": 17726.776,
+        "median": 37178.8735,
+        "p95": 62351.753,
+        "max": 62376.45
+      }
+    },
+    {
+      "name": "multi-call-nested",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 97196.627,
+        "median": 126876.8715,
+        "p95": 146825.663,
+        "max": 146827.939
+      }
+    },
+    {
+      "name": "multi-call-nestedL2",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 82095.066,
+        "median": 101762.39050000001,
+        "p95": 111781.402,
+        "max": 121604.429
+      }
+    },
+    {
+      "name": "multi-call-twice",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 156713.898,
+        "median": 166685.91950000002,
+        "p95": 186701.806,
+        "max": 186708.401
+      }
+    },
+    {
+      "name": "multi-call-twiceL2",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 111736.598,
+        "median": 131583.804,
+        "p95": 141523.805,
+        "max": 141525.804
+      }
+    },
+    {
+      "name": "nestedCounter",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 67225.233,
+        "median": 82269.445,
+        "p95": 97274.976,
+        "max": 97283.667
+      }
+    },
+    {
+      "name": "nestedCounterL2",
+      "jobs": 50,
+      "verified": 50,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 62272.913,
+        "median": 71997.454,
+        "p95": 82167.035,
+        "max": 82173.309
+      }
+    },
+    {
+      "name": "reentrant",
+      "jobs": 20,
+      "verified": 0,
+      "sourceTransactions": 20,
+      "acceptedToSafeMs": {
+        "count": 20,
+        "min": 216450.254,
+        "median": 241335.3725,
+        "p95": 246376.423,
+        "max": 246376.66
+      }
+    },
+    {
+      "name": "revertCounter",
+      "jobs": 50,
+      "verified": 0,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 221351.868,
+        "median": 246333.064,
+        "p95": 251267.824,
+        "max": 251282.75
+      }
+    },
+    {
+      "name": "revertCounterL2",
+      "jobs": 50,
+      "verified": 0,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 141291.078,
+        "median": 161190.329,
+        "p95": 171078.61,
+        "max": 171101.128
+      }
+    },
+    {
+      "name": "revertFromOtherChain",
+      "jobs": 50,
+      "verified": 0,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 246314.794,
+        "median": 256060.413,
+        "p95": 266044.995,
+        "max": 270975.275
+      }
+    },
+    {
+      "name": "revertFromOtherChainL2",
+      "jobs": 50,
+      "verified": 0,
+      "sourceTransactions": 50,
+      "acceptedToSafeMs": {
+        "count": 50,
+        "min": 161185.062,
+        "median": 181138.093,
+        "p95": 205971.787,
+        "max": 205984.186
+      }
+    }
+  ],
+  "phaseTimings": [
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "build",
+      "start_ms": "1789490675209",
+      "end_ms": "1789490675378",
+      "duration_ms": "169",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "fund",
+      "start_ms": "1789490675379",
+      "end_ms": "1789490695542",
+      "duration_ms": "20163",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "nonce-barrier",
+      "start_ms": "1789490695542",
+      "end_ms": "1789490697276",
+      "duration_ms": "1734",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan-inputs",
+      "start_ms": "1789490697277",
+      "end_ms": "1789490698157",
+      "duration_ms": "880",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan",
+      "start_ms": "1789490698157",
+      "end_ms": "1789490739074",
+      "duration_ms": "40917",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-send",
+      "start_ms": "1789490739075",
+      "end_ms": "1789490741285",
+      "duration_ms": "2210",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-mine",
+      "start_ms": "1789490741286",
+      "end_ms": "1789490835382",
+      "duration_ms": "94096",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-liveness",
+      "start_ms": "1789490835382",
+      "end_ms": "1789490838193",
+      "duration_ms": "2811",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "finish",
+      "start_ms": "1789490843189",
+      "end_ms": "1789490843200",
+      "duration_ms": "11",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "send",
+      "start_ms": "1789490843227",
+      "end_ms": "1789490844619",
+      "duration_ms": "1392",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "monitor",
+      "start_ms": "1789490844620",
+      "end_ms": "1789491115581",
+      "duration_ms": "270961",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "verify",
+      "start_ms": "1789491115586",
+      "end_ms": "1789492320616",
+      "duration_ms": "1205030",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "total",
+      "start_ms": "1789490675196",
+      "end_ms": "1789492320617",
+      "duration_ms": "1645421",
+      "status": "pass"
+    }
+  ],
+  "skippedSlotHeaders": [
+    {
+      "number": "0x1600a3c",
+      "hash": "0xd4c618d164c51d66d976cac1737320a616b4f4abc6bb6d3acaa9fa950e8302cb",
+      "timestamp": "0x6aa97756",
+      "gasLimit": "0x10c69cf",
+      "gasUsed": "0x8465a7"
+    },
+    {
+      "number": "0x1600a3d",
+      "hash": "0x8fa6e68672dd969ac48e401d4c160a14bc0378ea843d61bd90281a463e1a1f31",
+      "timestamp": "0x6aa97760",
+      "gasLimit": "0x10c26b6",
+      "gasUsed": "0x19ae7"
+    },
+    {
+      "number": "0x1600a42",
+      "hash": "0x5d735c062b9bc5a56f04aa7ed9ea15f0277c2018cca740a25e274413b25549c6",
+      "timestamp": "0x6aa97779",
+      "gasLimit": "0x10d7687",
+      "gasUsed": "0x5e7f4c"
+    },
+    {
+      "number": "0x1600a43",
+      "hash": "0x30ede5795be20e58ead753b4fb00a862a0766846e2b25bac5f40e5dd69b7c5d2",
+      "timestamp": "0x6aa97783",
+      "gasLimit": "0x10d332b",
+      "gasUsed": "0x0"
+    }
+  ],
+  "finalQueue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1789491453309,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xad23528648d14337addf0987ed05f8d4b8212ad1504d254cc8a6255ab2ee6009",
+        "number": 23071365
+      },
+      "observedAtMs": 1789491455779
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0xfeb26da109f285db5159e7915614b2194abfcd210d60728f70f29ff86a5c1312",
+        "number": 23071364
+      },
+      "l2": {
+        "hash": "0xae15628a2ceed2d52babe229d488809414be17366d2b015d56538fd33d989d5b",
+        "number": 154064
+      }
+    },
+    "unknown": 0
+  },
+  "finalHealth": {
+    "at": "2026-09-15T17:17:44.072206+00:00",
+    "before": {
+      "l1": {
+        "number": "0x1600b5c",
+        "hash": "0x4c7a3d0288e77a1b04d07b51e4edf0a8b545c93531e11cdd42f23ad63ef5740d",
+        "stateRoot": "0x47fe949b9ec1dfd8fa9b3e0c6eb77457b9e6de59b4a30c2741ed4d5e1bc305fe",
+        "timestamp": "0x6aa97da5"
+      },
+      "l2": {
+        "number": "0x25e7c",
+        "hash": "0x8288ca18c75a675b0f4df1501f1b0989f2a22880431b08f94e20126ae1d79f6a",
+        "stateRoot": "0x6b1428f2beff1fa81051857760fa73878e33d25cda727f8e4a0096e62fd52ee6",
+        "timestamp": "0x6aa97daa"
+      },
+      "safe": {
+        "number": "0x25e4f",
+        "hash": "0x01152bba04dbaac83b59397a08a72ce2d5ffad2d74b220707a8bf85e977aaafa",
+        "stateRoot": "0xb7ece1f4f141af97254c398dc0fa14f6b313a7f56a4624bcb400b5df2e28933e",
+        "timestamp": "0x6aa97d7d"
+      }
+    },
+    "after": {
+      "l1": {
+        "number": "0x1600b5e",
+        "hash": "0x62ee655da61ddecd7a0312c2193835ee188797b0a010ac6e8bab09b694ec82ea",
+        "stateRoot": "0xa9efb873376687137452dae6d7be804a8c1b4b4e797d0503ed71f85491920e17",
+        "timestamp": "0x6aa97db4"
+      },
+      "l2": {
+        "number": "0x25e8b",
+        "hash": "0x47dc72a369c8c62f0c26644910aeaa6d24d2fafc03c84f0ccf2cf353563cfde9",
+        "stateRoot": "0x3aa8212f46f22e9de1d489632448ef42ba991672f6bda7614f3b31c785b8415a",
+        "timestamp": "0x6aa97db9"
+      },
+      "safe": {
+        "number": "0x25e4f",
+        "hash": "0x01152bba04dbaac83b59397a08a72ce2d5ffad2d74b220707a8bf85e977aaafa",
+        "stateRoot": "0xb7ece1f4f141af97254c398dc0fa14f6b313a7f56a4624bcb400b5df2e28933e",
+        "timestamp": "0x6aa97d7d"
+      }
+    },
+    "bothChainsAdvanced": true,
+    "containersUnchanged": true,
+    "containersRunning": true,
+    "oomKilled": false,
+    "composerSha256": "f6e672458cc14f3c8bd2d01513baae71cc0a8cc6dd087642780fdba8ed12cb3c",
+    "settingsUnchanged": true,
+    "settings": {
+      "EEZ_SETTLEMENT_POLICY_ENABLED": "true",
+      "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
+      "EEZ_SUBMISSION_SLACK_MS": "700",
+      "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+      "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+      "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "500000000000",
+      "EEZ_PREPARATION_TIME_MS": "500",
+      "EEZ_PROOF_TIME_MS": "500",
+      "EEZ_MAX_SPECULATIVE_DEPTH": "0"
+    },
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1789492603310,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0x20bde2fc7e7c3467fd2859f7d766b418045d799566f509e55b4e449de4369a7d",
+          "number": 23071573
+        },
+        "observedAtMs": 1789492605831
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x5e58d0d4dfea27a18cda9b7373d613b7ca174c46cb449bb6e0bcbdcfbbe29660",
+          "number": 23071572
+        },
+        "l2": {
+          "hash": "0x638d458fcd5dc3990998606f6f77f11ad438b4e9b114f75e717edfa5b8c7e9ae",
+          "number": 155214
+        }
+      },
+      "unknown": 0
+    },
+    "priorSafeStatePreserved": true,
+    "beacon": {
+      "syncing": {
+        "is_syncing": false,
+        "is_optimistic": false,
+        "el_offline": false,
+        "head_slot": "24819272",
+        "sync_distance": "0"
+      },
+      "peer_count": {
+        "connected": "25",
+        "connecting": "0",
+        "disconnected": "4",
+        "disconnecting": "0"
+      }
+    }
+  },
+  "evidenceDirectory": "artifacts/chiado-large-staged-20260915",
+  "posts": [
+    {
+      "hash": "0x62daf1be194f317bc6dd5a1259b9ed5bddde787308a161dea6c83e3d88ee1d85",
+      "l1Block": 23071257,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153465,
+      "sourceCount": 16,
+      "blobs": 1,
+      "encodedBytes": 113199,
+      "aggregateBlobUtilizationPercent": 44.575,
+      "postGasUsed": 3622310,
+      "companionSourceGasUsed": 2127008,
+      "bundleGasUsed": 5749318,
+      "l1BlockGasLimit": 17033216,
+      "bundleBlockGasUtilizationPercent": 33.754,
+      "dispatchAt": "2026-09-15T16:47:33.864122Z",
+      "safeAt": "2026-09-15T16:47:35.673651Z"
+    },
+    {
+      "hash": "0xc6d48d323411b0e42b2380ccd871bdda4d555f0b728e9bfd7a1374400688fb18",
+      "l1Block": 23071258,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153470,
+      "sourceCount": 21,
+      "blobs": 1,
+      "encodedBytes": 36939,
+      "aggregateBlobUtilizationPercent": 14.546,
+      "postGasUsed": 6999647,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 6999647,
+      "l1BlockGasLimit": 17049849,
+      "bundleBlockGasUtilizationPercent": 41.054,
+      "dispatchAt": "2026-09-15T16:47:38.879980Z",
+      "safeAt": "2026-09-15T16:47:41.181862Z"
+    },
+    {
+      "hash": "0x7bbb7aff2bdf1049bda03ae1b76f8bd797c2f0055e72a5501cde5d980c912dd4",
+      "l1Block": 23071259,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153475,
+      "sourceCount": 20,
+      "blobs": 1,
+      "encodedBytes": 46508,
+      "aggregateBlobUtilizationPercent": 18.314,
+      "postGasUsed": 4599408,
+      "companionSourceGasUsed": 2525822,
+      "bundleGasUsed": 7125230,
+      "l1BlockGasLimit": 17066498,
+      "bundleBlockGasUtilizationPercent": 41.75,
+      "dispatchAt": "2026-09-15T16:47:43.862379Z",
+      "safeAt": "2026-09-15T16:47:45.599076Z"
+    },
+    {
+      "hash": "0x23c948c8cbf52aaeb9184770dc19f622404c7ec915ba90ec57cfb893437ab56a",
+      "l1Block": 23071260,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153480,
+      "sourceCount": 24,
+      "blobs": 1,
+      "encodedBytes": 41641,
+      "aggregateBlobUtilizationPercent": 16.397,
+      "postGasUsed": 7988862,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7988862,
+      "l1BlockGasLimit": 17083163,
+      "bundleBlockGasUtilizationPercent": 46.765,
+      "dispatchAt": "2026-09-15T16:47:48.876838Z",
+      "safeAt": "2026-09-15T16:47:50.660363Z"
+    },
+    {
+      "hash": "0x4a4e1a5e6233b8ac430a4bb0889310ac143b8a178fa85222df7a563c27f5e1d4",
+      "l1Block": 23071261,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153485,
+      "sourceCount": 24,
+      "blobs": 1,
+      "encodedBytes": 55345,
+      "aggregateBlobUtilizationPercent": 21.793,
+      "postGasUsed": 5472074,
+      "companionSourceGasUsed": 3057574,
+      "bundleGasUsed": 8529648,
+      "l1BlockGasLimit": 17099844,
+      "bundleBlockGasUtilizationPercent": 49.881,
+      "dispatchAt": "2026-09-15T16:47:53.937888Z",
+      "safeAt": "2026-09-15T16:47:55.813235Z"
+    },
+    {
+      "hash": "0x47562c66eab53fb7f3912b2b933a5ecd1f65af4037725e6501146f9ebb7ccd46",
+      "l1Block": 23071262,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153490,
+      "sourceCount": 21,
+      "blobs": 1,
+      "encodedBytes": 36923,
+      "aggregateBlobUtilizationPercent": 14.539,
+      "postGasUsed": 7049178,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7049178,
+      "l1BlockGasLimit": 17116542,
+      "bundleBlockGasUtilizationPercent": 41.183,
+      "dispatchAt": "2026-09-15T16:47:58.864814Z",
+      "safeAt": "2026-09-15T16:48:00.711304Z"
+    },
+    {
+      "hash": "0x208be6f23b188ad92150a75c5c8a55fce76a061af77ea130dd1fc3ef6517183a",
+      "l1Block": 23071263,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153495,
+      "sourceCount": 21,
+      "blobs": 1,
+      "encodedBytes": 48873,
+      "aggregateBlobUtilizationPercent": 19.245,
+      "postGasUsed": 4817556,
+      "companionSourceGasUsed": 2658760,
+      "bundleGasUsed": 7476316,
+      "l1BlockGasLimit": 17133256,
+      "bundleBlockGasUtilizationPercent": 43.636,
+      "dispatchAt": "2026-09-15T16:48:03.842126Z",
+      "safeAt": "2026-09-15T16:48:05.898176Z"
+    },
+    {
+      "hash": "0x63fd492259e07105b39e4966dee935b39b7a631379141d3d3f7db911f306af2f",
+      "l1Block": 23071264,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153500,
+      "sourceCount": 23,
+      "blobs": 1,
+      "encodedBytes": 39980,
+      "aggregateBlobUtilizationPercent": 15.743,
+      "postGasUsed": 7673301,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7673301,
+      "l1BlockGasLimit": 17149986,
+      "bundleBlockGasUtilizationPercent": 44.742,
+      "dispatchAt": "2026-09-15T16:48:08.886549Z",
+      "safeAt": "2026-09-15T16:48:10.887930Z"
+    },
+    {
+      "hash": "0xb9fd16c55ea3608787de48d209f5497a755f94082b0b040f22b9928f27e32eb5",
+      "l1Block": 23071266,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153510,
+      "sourceCount": 11,
+      "blobs": 1,
+      "encodedBytes": 31000,
+      "aggregateBlobUtilizationPercent": 12.207,
+      "postGasUsed": 2636333,
+      "companionSourceGasUsed": 1329380,
+      "bundleGasUsed": 3965713,
+      "l1BlockGasLimit": 17149969,
+      "bundleBlockGasUtilizationPercent": 23.124,
+      "dispatchAt": "2026-09-15T16:48:18.768582Z",
+      "safeAt": "2026-09-15T16:48:21.001561Z"
+    },
+    {
+      "hash": "0x5477004e1cab87a3a19390ccadbdbd06db4839d4170222b38d85046eeee172fc",
+      "l1Block": 23071267,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153515,
+      "sourceCount": 21,
+      "blobs": 1,
+      "encodedBytes": 47924,
+      "aggregateBlobUtilizationPercent": 18.871,
+      "postGasUsed": 7385108,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7385108,
+      "l1BlockGasLimit": 17166716,
+      "bundleBlockGasUtilizationPercent": 43.02,
+      "dispatchAt": "2026-09-15T16:48:23.899250Z",
+      "safeAt": "2026-09-15T16:48:25.963026Z"
+    },
+    {
+      "hash": "0x8de4e174a8c2af2e63a03fec7797af1d193d1b91b604edb2ed205551b45ff168",
+      "l1Block": 23071268,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153520,
+      "sourceCount": 21,
+      "blobs": 1,
+      "encodedBytes": 54643,
+      "aggregateBlobUtilizationPercent": 21.517,
+      "postGasUsed": 5287215,
+      "companionSourceGasUsed": 2587000,
+      "bundleGasUsed": 7874215,
+      "l1BlockGasLimit": 17183479,
+      "bundleBlockGasUtilizationPercent": 45.824,
+      "dispatchAt": "2026-09-15T16:48:28.850085Z",
+      "safeAt": "2026-09-15T16:48:30.822142Z"
+    },
+    {
+      "hash": "0xe9c402ec4da905f5fece2d68f19f02d3058ef011f0b57c8d44edf53807f0c085",
+      "l1Block": 23071269,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153525,
+      "sourceCount": 22,
+      "blobs": 1,
+      "encodedBytes": 55811,
+      "aggregateBlobUtilizationPercent": 21.977,
+      "postGasUsed": 7681816,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7681816,
+      "l1BlockGasLimit": 17200258,
+      "bundleBlockGasUtilizationPercent": 44.661,
+      "dispatchAt": "2026-09-15T16:48:33.899882Z",
+      "safeAt": "2026-09-15T16:48:35.708549Z"
+    },
+    {
+      "hash": "0x71ca3f3adfe68c34f55674b6c43abd0bee7a511833ff80dfa76175428b12df8f",
+      "l1Block": 23071270,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153530,
+      "sourceCount": 18,
+      "blobs": 1,
+      "encodedBytes": 53791,
+      "aggregateBlobUtilizationPercent": 21.182,
+      "postGasUsed": 5106514,
+      "companionSourceGasUsed": 2107456,
+      "bundleGasUsed": 7213970,
+      "l1BlockGasLimit": 17217054,
+      "bundleBlockGasUtilizationPercent": 41.9,
+      "dispatchAt": "2026-09-15T16:48:38.897374Z",
+      "safeAt": "2026-09-15T16:48:40.989771Z"
+    },
+    {
+      "hash": "0x312ad969312b4c691c2c4dbd7386680e249ab7b09659a16a28a2c6df5edf7942",
+      "l1Block": 23071271,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153535,
+      "sourceCount": 18,
+      "blobs": 1,
+      "encodedBytes": 57930,
+      "aggregateBlobUtilizationPercent": 22.811,
+      "postGasUsed": 7204026,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7204026,
+      "l1BlockGasLimit": 17233866,
+      "bundleBlockGasUtilizationPercent": 41.802,
+      "dispatchAt": "2026-09-15T16:48:43.891975Z",
+      "safeAt": "2026-09-15T16:48:45.905354Z"
+    },
+    {
+      "hash": "0xc087855fc046a1aeafa61c0b23ca8c97eab22d1ead120196c7963f2eb93a61e2",
+      "l1Block": 23071272,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153540,
+      "sourceCount": 18,
+      "blobs": 1,
+      "encodedBytes": 55972,
+      "aggregateBlobUtilizationPercent": 22.04,
+      "postGasUsed": 5147120,
+      "companionSourceGasUsed": 2107456,
+      "bundleGasUsed": 7254576,
+      "l1BlockGasLimit": 17250694,
+      "bundleBlockGasUtilizationPercent": 42.054,
+      "dispatchAt": "2026-09-15T16:48:48.815342Z",
+      "safeAt": "2026-09-15T16:48:50.804766Z"
+    },
+    {
+      "hash": "0xd75537a05ea08654bab1760345853df65365b5ec9f5f252efb5440c1de816a69",
+      "l1Block": 23071273,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153545,
+      "sourceCount": 15,
+      "blobs": 1,
+      "encodedBytes": 68217,
+      "aggregateBlobUtilizationPercent": 26.862,
+      "postGasUsed": 6454556,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 6454556,
+      "l1BlockGasLimit": 17267539,
+      "bundleBlockGasUtilizationPercent": 37.38,
+      "dispatchAt": "2026-09-15T16:48:53.883818Z",
+      "safeAt": "2026-09-15T16:48:55.690852Z"
+    },
+    {
+      "hash": "0x1847c32461fb8b183320a9a2c78004395ae79bbc7d5287c55d6f21aea76f321c",
+      "l1Block": 23071274,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153550,
+      "sourceCount": 15,
+      "blobs": 1,
+      "encodedBytes": 76168,
+      "aggregateBlobUtilizationPercent": 29.993,
+      "postGasUsed": 7268464,
+      "companionSourceGasUsed": 2419948,
+      "bundleGasUsed": 9688412,
+      "l1BlockGasLimit": 17284400,
+      "bundleBlockGasUtilizationPercent": 56.053,
+      "dispatchAt": "2026-09-15T16:48:58.851903Z",
+      "safeAt": "2026-09-15T16:49:00.944755Z"
+    },
+    {
+      "hash": "0xa579299aee5d3a8c9f692e37bf8425cfee365db8f0ab628c600f4dedd101101c",
+      "l1Block": 23071275,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153555,
+      "sourceCount": 14,
+      "blobs": 1,
+      "encodedBytes": 63859,
+      "aggregateBlobUtilizationPercent": 25.146,
+      "postGasUsed": 6114592,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 6114592,
+      "l1BlockGasLimit": 17301278,
+      "bundleBlockGasUtilizationPercent": 35.342,
+      "dispatchAt": "2026-09-15T16:49:03.939735Z",
+      "safeAt": "2026-09-15T16:49:05.661077Z"
+    },
+    {
+      "hash": "0xb9c1da887321e4ecea3604f2fff6e1dc299eb1df363068afd046b648fb0449ae",
+      "l1Block": 23071276,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153560,
+      "sourceCount": 10,
+      "blobs": 1,
+      "encodedBytes": 76380,
+      "aggregateBlobUtilizationPercent": 30.077,
+      "postGasUsed": 7381352,
+      "companionSourceGasUsed": 2142312,
+      "bundleGasUsed": 9523664,
+      "l1BlockGasLimit": 17318172,
+      "bundleBlockGasUtilizationPercent": 54.992,
+      "dispatchAt": "2026-09-15T16:49:08.950783Z",
+      "safeAt": "2026-09-15T16:49:10.709858Z"
+    },
+    {
+      "hash": "0x4d263a861a7594e757ac0717f04e3ce4cc73b8faf07cb8b97b2e1b6c5547e00d",
+      "l1Block": 23071277,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153565,
+      "sourceCount": 12,
+      "blobs": 1,
+      "encodedBytes": 53720,
+      "aggregateBlobUtilizationPercent": 21.154,
+      "postGasUsed": 5250099,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 5250099,
+      "l1BlockGasLimit": 17335083,
+      "bundleBlockGasUtilizationPercent": 30.286,
+      "dispatchAt": "2026-09-15T16:49:13.913668Z",
+      "safeAt": "2026-09-15T16:49:15.682681Z"
+    },
+    {
+      "hash": "0xa61195f72efd68882e65e8f917b73472786254e600c9f99b27ea406aa34cdaa7",
+      "l1Block": 23071278,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153570,
+      "sourceCount": 10,
+      "blobs": 1,
+      "encodedBytes": 74783,
+      "aggregateBlobUtilizationPercent": 29.448,
+      "postGasUsed": 7307461,
+      "companionSourceGasUsed": 2142300,
+      "bundleGasUsed": 9449761,
+      "l1BlockGasLimit": 17352010,
+      "bundleBlockGasUtilizationPercent": 54.459,
+      "dispatchAt": "2026-09-15T16:49:18.944318Z",
+      "safeAt": "2026-09-15T16:49:20.646653Z"
+    },
+    {
+      "hash": "0xa1c614ac6c90085b9e8a38b119193162bc5417471d8bd1c850e985475d17fdbf",
+      "l1Block": 23071279,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153575,
+      "sourceCount": 17,
+      "blobs": 1,
+      "encodedBytes": 50468,
+      "aggregateBlobUtilizationPercent": 19.873,
+      "postGasUsed": 6170458,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 6170458,
+      "l1BlockGasLimit": 17368954,
+      "bundleBlockGasUtilizationPercent": 35.526,
+      "dispatchAt": "2026-09-15T16:49:23.900989Z",
+      "safeAt": "2026-09-15T16:49:25.586851Z"
+    },
+    {
+      "hash": "0xaff791129dd2b7f08f6ff9f7f85fbdf4d7b2b961b61cdee31a891e6cca118ff6",
+      "l1Block": 23071280,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153580,
+      "sourceCount": 10,
+      "blobs": 1,
+      "encodedBytes": 74946,
+      "aggregateBlobUtilizationPercent": 29.512,
+      "postGasUsed": 7307449,
+      "companionSourceGasUsed": 2142312,
+      "bundleGasUsed": 9449761,
+      "l1BlockGasLimit": 17385914,
+      "bundleBlockGasUtilizationPercent": 54.353,
+      "dispatchAt": "2026-09-15T16:49:28.899745Z",
+      "safeAt": "2026-09-15T16:49:30.676315Z"
+    },
+    {
+      "hash": "0x9619763f7a817e7da2a8d6bd1320f059a8b3a13f085bc9e0be01dde47a63e834",
+      "l1Block": 23071281,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153585,
+      "sourceCount": 16,
+      "blobs": 1,
+      "encodedBytes": 46426,
+      "aggregateBlobUtilizationPercent": 18.281,
+      "postGasUsed": 5758377,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 5758377,
+      "l1BlockGasLimit": 17402891,
+      "bundleBlockGasUtilizationPercent": 33.089,
+      "dispatchAt": "2026-09-15T16:49:33.886591Z",
+      "safeAt": "2026-09-15T16:49:35.632879Z"
+    },
+    {
+      "hash": "0xb12a97fdb5fa43996bdc0d44a48e9640a4e0d88593186f5170b171c9559037a9",
+      "l1Block": 23071282,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153590,
+      "sourceCount": 10,
+      "blobs": 1,
+      "encodedBytes": 74768,
+      "aggregateBlobUtilizationPercent": 29.442,
+      "postGasUsed": 7307329,
+      "companionSourceGasUsed": 2142300,
+      "bundleGasUsed": 9449629,
+      "l1BlockGasLimit": 17419885,
+      "bundleBlockGasUtilizationPercent": 54.246,
+      "dispatchAt": "2026-09-15T16:49:38.929952Z",
+      "safeAt": "2026-09-15T16:49:40.628887Z"
+    },
+    {
+      "hash": "0xaad01544d0b2585295d19a6aedfff5d68a65f2f08f3b86fc646bf015ad499061",
+      "l1Block": 23071283,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153595,
+      "sourceCount": 16,
+      "blobs": 1,
+      "encodedBytes": 44450,
+      "aggregateBlobUtilizationPercent": 17.503,
+      "postGasUsed": 5685111,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 5685111,
+      "l1BlockGasLimit": 17436895,
+      "bundleBlockGasUtilizationPercent": 32.604,
+      "dispatchAt": "2026-09-15T16:49:43.855169Z",
+      "safeAt": "2026-09-15T16:49:45.593095Z"
+    },
+    {
+      "hash": "0x7e6e4f08f8f80583965e5797e4d382df6f42bc2920ab7c3f8bafa43837c287f6",
+      "l1Block": 23071284,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153600,
+      "sourceCount": 9,
+      "blobs": 1,
+      "encodedBytes": 66430,
+      "aggregateBlobUtilizationPercent": 26.158,
+      "postGasUsed": 6510958,
+      "companionSourceGasUsed": 1904276,
+      "bundleGasUsed": 8415234,
+      "l1BlockGasLimit": 17453922,
+      "bundleBlockGasUtilizationPercent": 48.214,
+      "dispatchAt": "2026-09-15T16:49:48.900359Z",
+      "safeAt": "2026-09-15T16:49:50.670150Z"
+    },
+    {
+      "hash": "0xf5bdd819d7471b44d1c50ce439ef515fbf243352afbf7a45c72c22a72313f8f5",
+      "l1Block": 23071285,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153605,
+      "sourceCount": 17,
+      "blobs": 1,
+      "encodedBytes": 35135,
+      "aggregateBlobUtilizationPercent": 13.835,
+      "postGasUsed": 5446881,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 5446881,
+      "l1BlockGasLimit": 17470965,
+      "bundleBlockGasUtilizationPercent": 31.177,
+      "dispatchAt": "2026-09-15T16:49:53.881404Z",
+      "safeAt": "2026-09-15T16:49:55.595592Z"
+    },
+    {
+      "hash": "0x4ee2e097bd1880e382343ef20dec88a6867e01dedbf1e91cc67ca188250c0c65",
+      "l1Block": 23071286,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153610,
+      "sourceCount": 14,
+      "blobs": 1,
+      "encodedBytes": 60845,
+      "aggregateBlobUtilizationPercent": 23.959,
+      "postGasUsed": 6105019,
+      "companionSourceGasUsed": 1719484,
+      "bundleGasUsed": 7824503,
+      "l1BlockGasLimit": 17488025,
+      "bundleBlockGasUtilizationPercent": 44.742,
+      "dispatchAt": "2026-09-15T16:49:58.913017Z",
+      "safeAt": "2026-09-15T16:50:00.651686Z"
+    },
+    {
+      "hash": "0x0e99f670ba9d366ca4a71527d98f1e32ec1238d1439b22579941667a3a97c9e7",
+      "l1Block": 23071287,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153615,
+      "sourceCount": 26,
+      "blobs": 1,
+      "encodedBytes": 51056,
+      "aggregateBlobUtilizationPercent": 20.105,
+      "postGasUsed": 8190734,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 8190734,
+      "l1BlockGasLimit": 17505102,
+      "bundleBlockGasUtilizationPercent": 46.791,
+      "dispatchAt": "2026-09-15T16:50:03.904785Z",
+      "safeAt": "2026-09-15T16:50:05.629816Z"
+    },
+    {
+      "hash": "0x469e4eb1975b26206dabc43f0b24de6e70a6f29ac2d26fc9db1063e48ef64d0a",
+      "l1Block": 23071288,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153620,
+      "sourceCount": 15,
+      "blobs": 1,
+      "encodedBytes": 64872,
+      "aggregateBlobUtilizationPercent": 25.545,
+      "postGasUsed": 6571031,
+      "companionSourceGasUsed": 1851716,
+      "bundleGasUsed": 8422747,
+      "l1BlockGasLimit": 17522195,
+      "bundleBlockGasUtilizationPercent": 48.069,
+      "dispatchAt": "2026-09-15T16:50:08.916687Z",
+      "safeAt": "2026-09-15T16:50:10.624793Z"
+    },
+    {
+      "hash": "0x42d17809447d9bb04683962ae68b0edf3c6b8707b93cf93283ffcef223f6c7cd",
+      "l1Block": 23071289,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153625,
+      "sourceCount": 23,
+      "blobs": 1,
+      "encodedBytes": 41461,
+      "aggregateBlobUtilizationPercent": 16.326,
+      "postGasUsed": 7774468,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7774468,
+      "l1BlockGasLimit": 17539305,
+      "bundleBlockGasUtilizationPercent": 44.326,
+      "dispatchAt": "2026-09-15T16:50:13.897705Z",
+      "safeAt": "2026-09-15T16:50:15.554280Z"
+    },
+    {
+      "hash": "0x0e10529b0a14ceb9fba4b36fc95b91dbf71c1e817651203d1c1d1db0d57fa1f5",
+      "l1Block": 23071290,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153630,
+      "sourceCount": 12,
+      "blobs": 1,
+      "encodedBytes": 52132,
+      "aggregateBlobUtilizationPercent": 20.528,
+      "postGasUsed": 5262225,
+      "companionSourceGasUsed": 1454948,
+      "bundleGasUsed": 6717173,
+      "l1BlockGasLimit": 17556432,
+      "bundleBlockGasUtilizationPercent": 38.26,
+      "dispatchAt": "2026-09-15T16:50:18.864944Z",
+      "safeAt": "2026-09-15T16:50:21.110235Z"
+    },
+    {
+      "hash": "0x30f95eb73b15a56f9a008e0d78f718a0a4867f8f9e47424c32c6e7b9ba309f40",
+      "l1Block": 23071291,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153635,
+      "sourceCount": 22,
+      "blobs": 1,
+      "encodedBytes": 38452,
+      "aggregateBlobUtilizationPercent": 15.141,
+      "postGasUsed": 7549082,
+      "companionSourceGasUsed": 0,
+      "bundleGasUsed": 7549082,
+      "l1BlockGasLimit": 17573575,
+      "bundleBlockGasUtilizationPercent": 42.957,
+      "dispatchAt": "2026-09-15T16:50:23.862319Z",
+      "safeAt": "2026-09-15T16:50:25.713035Z"
+    },
+    {
+      "hash": "0x8b835af2d47ebe6e28cf970dba1e40eeb74674a2778e943d6afba9b37414453c",
+      "l1Block": 23071292,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153640,
+      "sourceCount": 17,
+      "blobs": 1,
+      "encodedBytes": 64862,
+      "aggregateBlobUtilizationPercent": 25.541,
+      "postGasUsed": 6571019,
+      "companionSourceGasUsed": 2084756,
+      "bundleGasUsed": 8655775,
+      "l1BlockGasLimit": 17590735,
+      "bundleBlockGasUtilizationPercent": 49.206,
+      "dispatchAt": "2026-09-15T16:50:28.887411Z",
+      "safeAt": "2026-09-15T16:50:30.697887Z"
+    },
+    {
+      "hash": "0xf7bd7c842f47a5bbb38cb1a7d48333096736bb3bac15d174f75af63c2c7451b8",
+      "l1Block": 23071294,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153655,
+      "sourceCount": 13,
+      "blobs": 1,
+      "encodedBytes": 39617,
+      "aggregateBlobUtilizationPercent": 15.6,
+      "postGasUsed": 1390485,
+      "companionSourceGasUsed": 1488794,
+      "bundleGasUsed": 2879279,
+      "l1BlockGasLimit": 17590718,
+      "bundleBlockGasUtilizationPercent": 16.368,
+      "dispatchAt": "2026-09-15T16:50:43.803102Z",
+      "safeAt": "2026-09-15T16:50:45.610570Z"
+    },
+    {
+      "hash": "0x2b01bf87d8c5d2f9dc10cbe00ce5ae9b09e63ad1e75c56f45caa4f4b67a69286",
+      "l1Block": 23071295,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153660,
+      "sourceCount": 27,
+      "blobs": 1,
+      "encodedBytes": 59333,
+      "aggregateBlobUtilizationPercent": 23.364,
+      "postGasUsed": 4445644,
+      "companionSourceGasUsed": 2582636,
+      "bundleGasUsed": 7028280,
+      "l1BlockGasLimit": 17607895,
+      "bundleBlockGasUtilizationPercent": 39.916,
+      "dispatchAt": "2026-09-15T16:50:48.882558Z",
+      "safeAt": "2026-09-15T16:50:50.568017Z"
+    },
+    {
+      "hash": "0x1b594ee3b84bf44ffdefbe98ea7cd2f3bc8abe0b22bedbea71fdefda935dbbb9",
+      "l1Block": 23071296,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153665,
+      "sourceCount": 31,
+      "blobs": 1,
+      "encodedBytes": 70948,
+      "aggregateBlobUtilizationPercent": 27.938,
+      "postGasUsed": 3285162,
+      "companionSourceGasUsed": 3402878,
+      "bundleGasUsed": 6688040,
+      "l1BlockGasLimit": 17625089,
+      "bundleBlockGasUtilizationPercent": 37.946,
+      "dispatchAt": "2026-09-15T16:50:53.899234Z",
+      "safeAt": "2026-09-15T16:50:55.673451Z"
+    },
+    {
+      "hash": "0xbc88be9fe341e72e0ea9b937981a18e0faea4e0b82a996b81f2f36b86cfdab38",
+      "l1Block": 23071297,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153670,
+      "sourceCount": 30,
+      "blobs": 1,
+      "encodedBytes": 76305,
+      "aggregateBlobUtilizationPercent": 30.047,
+      "postGasUsed": 2786543,
+      "companionSourceGasUsed": 3459440,
+      "bundleGasUsed": 6245983,
+      "l1BlockGasLimit": 17642300,
+      "bundleBlockGasUtilizationPercent": 35.403,
+      "dispatchAt": "2026-09-15T16:50:58.900315Z",
+      "safeAt": "2026-09-15T16:51:00.641796Z"
+    },
+    {
+      "hash": "0x71ff8edb44aa4fa7e57cff37a2c2526306fdbddafb24a40c8c90a62d3b1bd914",
+      "l1Block": 23071298,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153675,
+      "sourceCount": 30,
+      "blobs": 1,
+      "encodedBytes": 70703,
+      "aggregateBlobUtilizationPercent": 27.841,
+      "postGasUsed": 2665497,
+      "companionSourceGasUsed": 3506475,
+      "bundleGasUsed": 6171972,
+      "l1BlockGasLimit": 17659527,
+      "bundleBlockGasUtilizationPercent": 34.95,
+      "dispatchAt": "2026-09-15T16:51:03.987743Z",
+      "safeAt": "2026-09-15T16:51:05.570602Z"
+    },
+    {
+      "hash": "0x672e1135e847c7c7331e13af8954522636c89fd13895488c1d463e7180a57b41",
+      "l1Block": 23071300,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153690,
+      "sourceCount": 17,
+      "blobs": 1,
+      "encodedBytes": 39156,
+      "aggregateBlobUtilizationPercent": 15.419,
+      "postGasUsed": 1873201,
+      "companionSourceGasUsed": 1937771,
+      "bundleGasUsed": 3810972,
+      "l1BlockGasLimit": 17659510,
+      "bundleBlockGasUtilizationPercent": 21.58,
+      "dispatchAt": "2026-09-15T16:51:18.772000Z",
+      "safeAt": "2026-09-15T16:51:20.681729Z"
+    },
+    {
+      "hash": "0xc202a5f4759119acf366e037f77cc8f044dfcde2c7a64b0b86d2ae6d101ff176",
+      "l1Block": 23071301,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153695,
+      "sourceCount": 34,
+      "blobs": 1,
+      "encodedBytes": 66578,
+      "aggregateBlobUtilizationPercent": 26.217,
+      "postGasUsed": 6816995,
+      "companionSourceGasUsed": 4276202,
+      "bundleGasUsed": 11093197,
+      "l1BlockGasLimit": 17676754,
+      "bundleBlockGasUtilizationPercent": 62.756,
+      "dispatchAt": "2026-09-15T16:51:23.823000Z",
+      "safeAt": "2026-09-15T16:51:25.601444Z"
+    },
+    {
+      "hash": "0xac8afc6c8b224b3b6b29229a34930f88b3ba213f3eda5c54a75f2809f93f64ff",
+      "l1Block": 23071302,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153700,
+      "sourceCount": 34,
+      "blobs": 1,
+      "encodedBytes": 45260,
+      "aggregateBlobUtilizationPercent": 17.822,
+      "postGasUsed": 4805193,
+      "companionSourceGasUsed": 5025001,
+      "bundleGasUsed": 9830194,
+      "l1BlockGasLimit": 17694015,
+      "bundleBlockGasUtilizationPercent": 55.557,
+      "dispatchAt": "2026-09-15T16:51:28.793857Z",
+      "safeAt": "2026-09-15T16:51:30.686254Z"
+    },
+    {
+      "hash": "0x0c581e486c044e0f674e58185e58e7cccfb1cafb121009bffb4ac0bbdff2614d",
+      "l1Block": 23071303,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153705,
+      "sourceCount": 29,
+      "blobs": 1,
+      "encodedBytes": 73373,
+      "aggregateBlobUtilizationPercent": 28.892,
+      "postGasUsed": 5392624,
+      "companionSourceGasUsed": 4849289,
+      "bundleGasUsed": 10241913,
+      "l1BlockGasLimit": 17711293,
+      "bundleBlockGasUtilizationPercent": 57.827,
+      "dispatchAt": "2026-09-15T16:51:33.914148Z",
+      "safeAt": "2026-09-15T16:51:35.665994Z"
+    },
+    {
+      "hash": "0x36d170fb426de03b44e2454b4baa8cf679e4eff637c7d7b3af7c88bbf14363f3",
+      "l1Block": 23071304,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153710,
+      "sourceCount": 23,
+      "blobs": 1,
+      "encodedBytes": 71300,
+      "aggregateBlobUtilizationPercent": 28.076,
+      "postGasUsed": 3188548,
+      "companionSourceGasUsed": 4024931,
+      "bundleGasUsed": 7213479,
+      "l1BlockGasLimit": 17728588,
+      "bundleBlockGasUtilizationPercent": 40.688,
+      "dispatchAt": "2026-09-15T16:51:38.920746Z",
+      "safeAt": "2026-09-15T16:51:40.597781Z"
+    },
+    {
+      "hash": "0xb735c0713453a14cdbffd72c1a7fe8cc01a8e9a8d9fd78b68f45a9d58d334a94",
+      "l1Block": 23071306,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153720,
+      "sourceCount": 1,
+      "blobs": 1,
+      "encodedBytes": 10593,
+      "aggregateBlobUtilizationPercent": 4.171,
+      "postGasUsed": 1589468,
+      "companionSourceGasUsed": 174997,
+      "bundleGasUsed": 1764465,
+      "l1BlockGasLimit": 17728571,
+      "bundleBlockGasUtilizationPercent": 9.953,
+      "dispatchAt": "2026-09-15T16:51:48.658531Z",
+      "safeAt": "2026-09-15T16:51:50.599345Z"
+    },
+    {
+      "hash": "0xf246e530514af433c8044114e594d805dd7e1b9d07529a66950c8b8016e47745",
+      "l1Block": 23071307,
+      "l1TransactionIndex": 0,
+      "l2SyncBlock": 153725,
+      "sourceCount": 2,
+      "blobs": 1,
+      "encodedBytes": 9716,
+      "aggregateBlobUtilizationPercent": 3.826,
+      "postGasUsed": 555214,
+      "companionSourceGasUsed": 349994,
+      "bundleGasUsed": 905208,
+      "l1BlockGasLimit": 17745883,
+      "bundleBlockGasUtilizationPercent": 5.101,
+      "dispatchAt": "2026-09-15T16:51:53.657155Z",
+      "safeAt": "2026-09-15T16:51:55.524844Z"
+    }
+  ],
+  "evidenceSha256": {
+    "request.json": "c3ae4405d0d74a024f7b3d71569e3fc107d9530d8ba60ec2f4a6251d1f93b711",
+    "manifest.json": "746215dfe56d4ea409a8c6393d3d8987c00e8907b1241fcc4a6b0dc01c046efa",
+    "preflight.json": "9d4a17b12ac724890afdf2c46a6ceff95129dc28e3ba759bb0d6c4b9dd863d3e",
+    "execution.json": "847d28beb5b8af0a19a0bf472f8c68dd2934eefa2577fa98f0232cbee6ec4108",
+    "execution-analysis.json": "9485c41213d8caef6a7dacf447c2c82395c5c548edfc2e289f99a94233c633de",
+    "source-observations.json": "6c970db0cbcb98e0a4bc8dfa430c9d355c09993e27c7b05b02da8b491f6b864f",
+    "summary.json": "35ee0c2647e7e5e908769ef033b121156325456bc076bdf6a8e3d288db8dc295",
+    "canonical-rpc.json": "5693d98bb5e2d7c1f65127e093e2a9ead4eb93269b5c51fcc63c7d7860213937",
+    "staged.log": "024fae70edf8a67a4c50d7d486c648266c3d9957193791be43a5f5c31354d2a0",
+    "node.log": "baac7f23fea47b064325fbd2dae33863ebc64fcb15eaed3648f909ef98285b00",
+    "context-node.log": "7bdcc5c5922744219c2c8a88d67cbfdda221c3142ba84b41ef546f7b0152ebf3",
+    "signer.log": "c579b4480e3dcac7ff9cc9219c5bb710ac835dcc4b2d6693fd47f8204b221164",
+    "timings.csv": "3e02041b21b06615eea4ebd4d6ea35c009dbd89afd539fafcdf5ae3cd758f0fe",
+    "sent.csv": "6cb930e8ccad80d584b091815189c32fb9b1719e21c8e585c9f55137f1b87f7b",
+    "mined.csv": "213cdde7d5f19df844de7c841287999cafc2c1a4d8ce1d52c54ed54211948dac",
+    "deploy-sent.csv": "d021ba723e784512f44042bb6eddfb976a9b673735c2b3a79bbe0f59888e42cc",
+    "deploy-mined.csv": "5d98645f9694d270b7ba50fe15bd52ab34e41be29b4b02cc614c58236f1a9eeb",
+    "transaction-timings.csv": "fd7bf79f513741694d73f154860c1ecf310a35e41908ec4146f2342e096a9797",
+    "skipped-slot-headers.json": "69a783adb153494fc077e10760e25c2687bbccc9ab24505b1630c7328ba4b5ba",
+    "observations.jsonl": "1d833ffbdc99e6520a598958d40f55c5d185daf228ca10370ebb55f643a46415",
+    "run.py": "7a8969813164f11c80d2cd0828dc0e13ead767c299d292650d0b2f3483bd3712",
+    "observe.py": "9d5df841328dc54c8ee6b330d8bdaafc6c961d5768b6ebfcacf24c59cfa55526",
+    "collect-sources.py": "e0a52048b733af7cbabc4456be691b798572847ed096becc487b01952d815e39",
+    "make-analysis-input.py": "d81a44e0cd163c8192c9c029f9b1357f528325cbdb6c0fd72065bc9192dc21ad",
+    "analyze.py": "96a37f2c5f2a2f18684e39743dd41e458d664f038a43276495e5b92081493228",
+    "metrics.py": "0626a024e0943f17c25acd39255b50e278a80f4fcf10632c6c30bc262aa2626e",
+    "verification-stopped.json": "ccb05d9b9befaf7feae2925fa1dfa2cfcd9c21602d1af3ec6e06f0b31660a527",
+    "final-health.json": "abc5a18414e2ca337c8a03a183f4f1cfe201546eb7c1db31b7b4483c8dc8b6ea",
+    "final-health.py": "15b7c9d6bc9e0b96b5bd2aee19b05731f616407189f159d6b8de8e01911224e7",
+    "after-capture-node.log": "6d95a70ecac11627befe8ae3ab7ac0c06fe37b883abcf0dce849555f76034cb7"
+  }
+}

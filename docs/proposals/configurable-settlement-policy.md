@@ -178,7 +178,7 @@ required minimum; do not silently change the policy or disable the guard.
 This is a conservative configuration check that keeps steady production able
 to reach the general trigger. The current node default is 64, while the existing
 Chiado and Kurtosis profiles explicitly use zero. Preserve those explicit
-profile settings. Existing catch-up behavior remains unchanged; a guard-induced
+profile settings. Catch-up production bounds remain unchanged; a guard-induced
 pause must not be treated as a new reason to post an otherwise not-due batch.
 
 ### 3.2 Per-rollup state
@@ -411,9 +411,68 @@ can carry fresh cross-chain work:
 | Slot mode | Fresh cross-chain composition | Already-due historical consolidation |
 | --- | --- | --- |
 | Steady, target deadline available | Allowed after admission checks | Allowed |
-| Catch-up | Held for a steady opportunity | Allowed against a fresh future L1 target |
+| Catch-up at a past/capped terminal | Held for a steady opportunity | Allowed against a fresh future L1 target |
 | Late/empty Sync | Held for a steady opportunity | Allowed against a fresh future L1 target |
 | Previous attempt unresolved | No overlapping attempt | Retain intent; no overlapping attempt |
+
+The user authorized a latency follow-up on 2026-09-15 after a measured Chiado
+bridge wave. Completing catch-up MUST NOT discard an otherwise eligible future
+opportunity: if the terminal equals the requested height and timestamp and still
+satisfies the existing deadline and speculative guard, classify that terminal
+as steady and use its normal Future suffix. Intermediate, capped, past or
+misaligned terminals remain empty; canonical parent checks and single-attempt
+ownership remain mandatory. This refines slot classification without changing
+the Sync grid, catch-up production bound, or settled derivation.
+
+This follow-up also permits optional operational `EEZ_PREPARATION_TIME_MS`:
+positive integer milliseconds, unset by default. Unset MUST preserve the existing
+rounded trigger. Supplied MUST reserve preparation + proof + relay slack with
+millisecond precision, while retaining whole-second L2 timestamps. Their sum
+MUST fit `(K - 1)` L2 blocks. Invalid/empty/zero/overflowing values MUST fail
+startup. The Future suffix must cover the combined budget. This setting is
+startup-only and does not add a worker, automatic proof tuning, or permission
+to miss existing proof/submission deadlines. Operators size it from measured
+workloads, including multi-blob historical batches.
+
+Automatic cross-chain admission MUST distinguish per-blob KZG preparation from
+transaction-dependent work. After one cold-start sample it considers the finite
+FIFO snapshot rather than imposing a doubling ramp from the previous small
+post. Before accepting each complete group it checks remaining measured time,
+including any additional physical blob, alongside the existing gas/DA limits.
+Effect-prefix commitments MAY be computed incrementally and reused after the
+canonical transaction/position checks, so their repeated execution is charged
+to elapsed admission time instead of extrapolating the entire finishing tail
+quadratically. The finishing allowance MAY use the currently measured admission
+work and the previous finishing sample, keeping physical-blob KZG separate;
+growing a candidate must not multiply a small prior post's fixed overhead.
+The allowance MAY use a measured relationship between accepted-group work and
+non-KZG finishing time, retaining the previous finishing observation as a floor
+with the existing proportional reduction for a smaller candidate. Rejected,
+source-deferred, rebuilt or inconsistently measured work MUST NOT train a cheaper
+reserve. An untouched capacity-deferred suffix contributes no measured work and
+does not invalidate a clean accepted prefix. An explicitly time-refused group
+MAY have its matching measurement cancelled before canonical append, preserving
+an otherwise clean accepted prefix. Its rejected duration and prospective blob
+count MUST NOT enter that prefix's sample, and final accepted/measured group
+counts MUST still agree. Unknown refusals, source-state deferrals and rebuilt
+candidates retain the full-pass fallback. Record the relevant measured phases
+and calibration eligibility; no scenario-specific counts, fixed timing ratio
+or test identity governs admission.
+Exclusion/incomplete-preparation backoff remains mandatory.
+An uncharged exclusion whose exact target is proven absent between consecutive
+canonical L1 timestamps MAY retain the existing admission estimate when no post
+or settlement was applied and all sources remain retryable. Bind that proof to the completed
+canonical scan. A relay label, uncertain outcome, partial consumption or missing
+canonical evidence MUST NOT grant this exception.
+A successful capacity-limited FIFO prefix need not cap the next selection;
+cuts that bypass older eligible work MUST retain shrinking FIFO lookahead to
+prevent starvation under outbound-first execution. Nonce order, source ownership,
+and final exact validation remain authoritative; local deferral does not consume retry attempts.
+A performance estimate MUST NOT permanently block all opportunities to learn:
+if it prevents admission of even the first group, discard that estimate and
+allow a bounded one-group probe next time, subject to the same hard guards.
+Source-state waits and transport failures must retain their existing retry
+semantics rather than resetting performance estimates indiscriminately.
 
 Do not remove the old 300-block branch and accidentally put all historical
 settlement behind the late-slot early return. A chronically late sequencer must
@@ -610,6 +669,12 @@ Do not confuse gas used, declared gas limits, or gas remaining for later
 transactions. A conservative bound may reject a candidate early; final ordered
 simulation must model the actual target fork and required outcomes. Account for
 all supplied blob sidecars, sender balances, fees, and nonce dependencies too.
+Admission MAY use source simulation gas plus the existing protocol-work
+projections instead of summing companion declarations. Such simulation bypasses
+source proxy consumption and MUST be labelled as an estimate. Preserve declared
+headroom for every ordered companion, including when postBatch's projected cost
+grows. Final native bundle execution, with actual cumulative gas and complete
+effects, remains the authority for dispatch.
 
 For pure L2/empty consolidation the L1 bundle normally contains only `postBatch`.
 For inbound cross-chain work it can be `[postBatch, inbound_tx_1, inbound_tx_2]`.
@@ -617,8 +682,8 @@ Each is a separate L1 transaction and all must fit together in the intended
 block. Outbound target calls are different: they execute inside `postBatch` and
 their gas belongs to that transaction's existing gas check. This requirement
 does not create a new submission mechanism; the current composer already builds
-these ordered bundles. The Chiado profile already limits the admitted user
-count as a conservative allowance for companion gas. Final capacity checks
+these ordered bundles. An explicit user-count cap is an additional operator
+ceiling, not a substitute for companion gas accounting. Final capacity checks
 must account for actual admitted work rather than assume every user costs the
 same amount of gas.
 

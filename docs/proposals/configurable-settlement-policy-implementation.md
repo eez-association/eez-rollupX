@@ -17,6 +17,32 @@ follower convergence and deployment on September 15. The original incident's
 initiating event remains unproven; the reproduced failures and final correction
 are distinguished from that historical uncertainty.
 
+The 2026-09-15 bridge-latency follow-up in proposal §4.2 has a separate
+[implementation and validation mapping](../audits/2026-09-15-chiado-settlement-review/bridge-latency-fix.md).
+It separates physical-blob preparation cost, adds an optional precise
+preparation allowance, and reclassifies a caught-up, aligned future terminal
+as steady only after the existing guards pass. Its current validation status
+is recorded in that audit; earlier executable results are not substituted.
+
+The later [packing refinement and coverage](../audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
+extends §4.2 and §6.3: effect-prefix work is measured during admission, fixed
+finishing overhead is not multiplied by group count, successful FIFO prefixes
+avoid redundant count backoff, and companion planning distinguishes estimated
+consumption from declared headroom. Its final binary passed 216 unit tests and
+46 native cases, including one-Sync fitting workloads on both profiles. The
+separate live 28-scenario wave required two posts; the audit preserves its
+remaining gas-estimation constraint and the timing experiment's skipped slots.
+
+The subsequent [bounded admission reserve audit](../audits/2026-09-15-chiado-settlement-review/shaped-admission.md)
+records measured simple-entry estimates, canonical prior-queue cleanup and
+per-occurrence existing-proxy evidence. It preserves the disabled-policy path,
+network limits and final complete-bundle checks. Validation includes 194
+composer unit tests, 42 contract test runs across three forks, six native
+scenarios and the exact 870-source Chiado cohort. Two consecutive 40-source
+waves fit one Sync each on both native profiles. Public peak packing rose
+from 34 to 39, but aggregate post count and gas increased; this is not recorded
+as a general mixed-workload efficiency improvement.
+
 The 2026-09-14 ordinary-sequencing extension in proposal §6.5 has a separate
 [implementation and test mapping](../audits/2026-09-14-sequencing-da-budget/README.md).
 It replaces AC38's former accept-then-report behavior for newly submitted
@@ -85,7 +111,7 @@ Paths below are relative to `crates/` unless stated otherwise.
 | R17 Fullness uses unpadded encoded whole range / all B usable blobs; checked integer arithmetic (§4.1) | payload/blob sizing; activity index; policy fullness arithmetic | `fullness_is_aggregate_integer_soft_trigger_including_empty_history`; exact native/RLP length tests | [operator configuration](../configurable-settlement-policy.md) | unit verified |
 | R18 Fullness soft overshoot, empty history eligible, never padding/admission cap (§4.1,6.5) | packing/evaluator | aggregate fullness arithmetic; native `fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules` | soft target docs | unit/native verified |
 | R19 Incremental hash/codec-keyed activity and byte index; idle path avoids expensive work (§4.1,9) | composer index | index new-block/reorg/codec tests; native interval suppresses preparation/fees/submission; cache-pruning append/reorg assertions passed in the 402-test library sweep | metrics | unit/native verified |
-| R20 Steady X composition; catch-up/late hold fresh X but allow due historical posts (§4.2) | composer Sync integration | driver outcome matrix across Steady/Empty/Catchup; native late Sync below 300 and finite predecessor | existing timing | component/native verified |
+| R20 Steady X composition; past/capped catch-up and late modes hold fresh X but allow due history (§4.2) | composer Sync integration; future-terminal recheck in Sequencer | driver outcome matrix; native late Sync below 300 and finite predecessor; [September 15 refinement](../audits/2026-09-15-chiado-settlement-review/bridge-latency-fix.md) | optional preparation allowance described in refinement | component/native verified; refinement also verified on Chiado |
 | R21 Explicit no-emission outcome; empty Sync and failed/stale build never pool fallback (§4.2) | driver slot/sequencer/composer | `explicit_policy_outcomes_never_use_sync_pool_fallback_in_any_slot_mode` (12 outcomes); native idle suppression | none | component/native verified |
 | R22 Existing one-in-flight/nonce/ownership reconciliation precedes new attempt (§3.3,5,8) | composer/optimistic/submitter | `policy_restart_after_partial_keeps_accounting_and_rebuilds_intent` crashes after send while relay response is held; canonical adoption/ownership and submitter deadline tests | no new journal | unit/native verified |
 | R23 Executable/prerequisite/temporary/capacity/invalid X classification; invalid pool not perpetual empty trigger (§5) | cross-chain admission | finite predecessor ownership/cancellation tests; native underpriced/underfunded recovery and complete-group gas deferral; finite predecessor native test | diagnostics | unit/native verified |

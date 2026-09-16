@@ -1,0 +1,126 @@
+{
+  "verified": true,
+  "transactionHash": "0x6bd0ae1b17c38303f87bc918bd4a31db8c320ea85d0f8b62211b636b6c08369a",
+  "sender": "0xf35960302a07022aba880dffaec2fdd64d5bf1c1",
+  "recipient": "0xf35960302a07022aba880dffaec2fdd64d5bf1c1",
+  "valueWei": "1234000000000000",
+  "l1Block": 23069299,
+  "l2Block": 142590,
+  "l2TransactionHash": "0xcc240272b7f3b6283504acceb202bfeacbb665512e87829de1ed17f0fcd465cb",
+  "receivedAt": "2026-09-15T13:44:59.119749Z",
+  "l2SafeAt": "2026-09-15T13:46:21.018843Z",
+  "reconciledAt": "2026-09-15T13:46:21.173125Z",
+  "receivedToSafeMs": 81899.09400000001,
+  "receivedToReconciledMs": 82053.376,
+  "firstSelectionUnsettledBlocks": 1300,
+  "generalConsolidationBlocks": 1800,
+  "emptyPureTransactionCount": 0,
+  "historicalPosts": 4,
+  "successfulPostsIncludingBridge": 5,
+  "totalIncludedBlobs": 9,
+  "posts": [
+    {
+      "hash": "0xefa0e5f0945a987d74221c65fcd1cc4e739df45a02ad88edf4abb847b9adc296",
+      "dispatchAt": "2026-09-15T13:45:05.492280Z",
+      "targetBlock": 23069286,
+      "targetCanonicalSlotTimestamp": 1789479910,
+      "includedAtTarget": true,
+      "firstL2": 141216,
+      "lastL2": 141545,
+      "blobs": 2,
+      "safeAt": "2026-09-15T13:45:11.287935Z"
+    },
+    {
+      "hash": "0xd55c3baa13e6e852f67a84030a753ff69a5ae0ca3135ea554de77ed56b7ffcbb",
+      "dispatchAt": "2026-09-15T13:45:15.830497Z",
+      "targetBlock": 23069288,
+      "targetCanonicalSlotTimestamp": 1789479920,
+      "includedAtTarget": false,
+      "reason": "excluded",
+      "targetBlockTransactions": 0,
+      "targetBlockBlobs": 0
+    },
+    {
+      "hash": "0xd55c3baa13e6e852f67a84030a753ff69a5ae0ca3135ea554de77ed56b7ffcbb",
+      "dispatchAt": "2026-09-15T13:45:25.337732Z",
+      "targetBlock": 23069290,
+      "targetCanonicalSlotTimestamp": 1789479930,
+      "includedAtTarget": true,
+      "firstL2": 141546,
+      "lastL2": 141875,
+      "blobs": 2,
+      "safeAt": "2026-09-15T13:45:31.267291Z"
+    },
+    {
+      "hash": "0x61b18395ad490949885f5464791dbf58dd6a7eeee4b5829326a8b3c42f07f018",
+      "dispatchAt": "2026-09-15T13:45:35.842116Z",
+      "targetBlock": 23069292,
+      "targetCanonicalSlotTimestamp": 1789479945,
+      "includedAtTarget": false,
+      "reason": "slot_skipped",
+      "targetBlockTransactions": 0,
+      "targetBlockBlobs": 0
+    },
+    {
+      "hash": "0x61b18395ad490949885f5464791dbf58dd6a7eeee4b5829326a8b3c42f07f018",
+      "dispatchAt": "2026-09-15T13:45:50.683811Z",
+      "targetBlock": 23069294,
+      "targetCanonicalSlotTimestamp": 1789479955,
+      "includedAtTarget": true,
+      "firstL2": 141876,
+      "lastL2": 142205,
+      "blobs": 2,
+      "safeAt": "2026-09-15T13:45:56.121493Z"
+    },
+    {
+      "hash": "0x94c569f436e59639f81375fbbf8987174c7658b5fbae799df0f61721f04c773e",
+      "dispatchAt": "2026-09-15T13:46:00.745309Z",
+      "targetBlock": 23069296,
+      "targetCanonicalSlotTimestamp": 1789479965,
+      "includedAtTarget": false,
+      "reason": "excluded",
+      "targetBlockTransactions": 0,
+      "targetBlockBlobs": 0
+    },
+    {
+      "hash": "0x94c569f436e59639f81375fbbf8987174c7658b5fbae799df0f61721f04c773e",
+      "dispatchAt": "2026-09-15T13:46:10.685503Z",
+      "targetBlock": 23069298,
+      "targetCanonicalSlotTimestamp": 1789479975,
+      "includedAtTarget": true,
+      "firstL2": 142206,
+      "lastL2": 142535,
+      "blobs": 2,
+      "safeAt": "2026-09-15T13:46:16.126363Z"
+    },
+    {
+      "hash": "0x256523bffbe893c9fdae1e6339cff242d8675eac83fc21618048d2fe12764917",
+      "dispatchAt": "2026-09-15T13:46:18.668980Z",
+      "targetBlock": 23069299,
+      "targetCanonicalSlotTimestamp": 1789479980,
+      "includedAtTarget": true,
+      "firstL2": 142536,
+      "lastL2": 142590,
+      "blobs": 1,
+      "safeAt": "2026-09-15T13:46:21.018843Z"
+    }
+  ],
+  "canonicalBalanceIncreaseWei": "1234000000000000",
+  "sourceNonceBefore": 47,
+  "sourceNonceAfter": 48,
+  "sourceExecutionCostWei": "872144",
+  "runtime": {
+    "container": "577ea05fd62eeff772ad3c4acf0ea5011c27fb0b870a6440cadf30b3af631ca9",
+    "image": "sha256:51f0a76e97a744ecf17c9cda62d7c4a478f93bd6d81545a432e3dcad875566e0",
+    "startedAt": "2026-09-15T13:18:02.678101332Z",
+    "composerSha256": "321025bcd368c0dfc8f11d24f79e677d5ea1f98db41eae1d2629deb0ce398840"
+  },
+  "scope": "Read-only investigation. Canonical source and destination receipts, pinned balance/nonce deltas and matching settlement correlation; no new independent follower launched for this transaction.",
+  "evidenceSha256": {
+    "rpc-initial.json": "e7f26496da4f130b5bdb3502152a7874175a6e23cda6463b8a5e065c3466b733",
+    "verification-rpc.json": "c224b7e5e6d8e7f18d737eea8160f5f16000fba71f1bbedbde7c8db59a4fffba",
+    "final-verification.json": "6ebd9b67f14a5aaf52fb3178110bb3939164f489ca4b790aae23b4b7330b9aff",
+    "events.json": "2070015d6abac5ba81a48d1b5e1ba671992c7f69a2a2ebb8b0fe25a092148d46",
+    "node.log": "c48d7938f03d367495dca52e8d64c7a1225532c60ce802616461da5431678d55"
+  }
+}

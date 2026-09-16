@@ -1,0 +1,1177 @@
+{
+  "recordedAt": "2026-09-15T22:28:20.532989+00:00",
+  "artifactRoot": "artifacts/chiado-composer-next-20260915",
+  "scope": "L1 destination gas attribution and a manual launcher; prior branch changes retained.",
+  "workload": {
+    "args": [
+      "counter:100",
+      "counterL2:100",
+      "nestedCounter:50",
+      "nestedCounterL2:50",
+      "multi-call-nested:50",
+      "multi-call-nestedL2:50",
+      "multi-call-twice:50",
+      "multi-call-twiceL2:50",
+      "counter-multi-tx:50",
+      "reentrant:20",
+      "revertCounter:50",
+      "revertCounterL2:50",
+      "revertFromOtherChain:50",
+      "revertFromOtherChainL2:50"
+    ],
+    "prepareParallel": 200,
+    "fundEth": "0.005",
+    "floorEth": "0.005",
+    "verification": false,
+    "expectedJobs": 770,
+    "expectedSourceTransactions": 870,
+    "expectedDirections": {
+      "inbound": 520,
+      "outbound": 350
+    },
+    "expectedSetupTransactions": 2850,
+    "sendWorkers": 28,
+    "pollIntervalSeconds": 1,
+    "sourceObservationSeconds": 5,
+    "sourceObservationBatch": 100
+  },
+  "protocolCommit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "profiles": {
+    "baseline": {
+      "composerSha256": "3694f4ec562a2511d9c763745719497921084f5926ae65ec00f76666bd0e940a",
+      "startedAt": "2026-09-15T21:16:56.754717+00:00",
+      "finishedAt": "2026-09-15T21:23:56.451551+00:00",
+      "verifiedSourceCount": 870,
+      "jobs": 770,
+      "directions": {
+        "inbound": 520,
+        "outbound": 350
+      },
+      "terminalReasons": {
+        "Committed": 820,
+        "SourceCompleted": 50
+      },
+      "sourcePostCount": 38,
+      "sourceL1BlockCount": 38,
+      "sourceSyncBlockCount": 38,
+      "maximumObservedSourcesPerSync": 34,
+      "meanSourcesPerPost": 22.894736842105264,
+      "sourceCountsPerPost": [
+        1,
+        18,
+        18,
+        15,
+        25,
+        30,
+        30,
+        27,
+        26,
+        26,
+        23,
+        23,
+        11,
+        23,
+        23,
+        27,
+        27,
+        27,
+        15,
+        32,
+        6,
+        31,
+        10,
+        29,
+        11,
+        11,
+        15,
+        16,
+        17,
+        27,
+        34,
+        33,
+        34,
+        34,
+        34,
+        34,
+        34,
+        13
+      ],
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "88258786188391904",
+        "companions": 520,
+        "physicalBlobs": 38,
+        "postBlobWei": "5029887990169600",
+        "postExecutionGasUsed": 212827709,
+        "postExecutionWei": "306471902779975196",
+        "posts": 38,
+        "totalBlobWei": "5029887990169600",
+        "totalExecutionGasUsed": 286376697,
+        "totalExecutionWei": "394730688968367100",
+        "totalWei": "399760576958536700",
+        "totalXDAI": "0.3997605769585367"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "88258786188391904",
+        "companions": 520,
+        "physicalBlobs": 48,
+        "postBlobWei": "6356991986892800",
+        "postExecutionGasUsed": 214958024,
+        "postExecutionWei": "309055473987317433",
+        "posts": 44,
+        "totalBlobWei": "6356991986892800",
+        "totalExecutionGasUsed": 288507012,
+        "totalExecutionWei": "397314260175709337",
+        "totalWei": "403671252162602137",
+        "totalXDAI": "0.403671252162602137"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 252127.764,
+          "median": 157230.2195,
+          "min": 3331.811,
+          "p95NearestRank": 247144.725
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 249252.934,
+          "median": 154530.8185,
+          "min": 846.91,
+          "p95NearestRank": 244487.28
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 251393.273,
+          "median": 156816.0345,
+          "min": 2489.291,
+          "p95NearestRank": 246517.931
+        }
+      },
+      "latencyByDirectionMs": {
+        "inbound": {
+          "count": 520,
+          "max": 252127.764,
+          "median": 212565.071,
+          "min": 3331.811,
+          "p95NearestRank": 247189.691
+        },
+        "outbound": {
+          "count": 350,
+          "max": 182079.716,
+          "median": 107758.564,
+          "min": 8147.933,
+          "p95NearestRank": 182055.34
+        }
+      },
+      "firstHeldToLastCanonicalCompleteMs": 253347.6,
+      "firstToLastSuccessfulSourcePostMs": 250015.789,
+      "ingressSpanMs": 1317.568,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 4,
+        "eez.composer.admission.submission_backoff": 4,
+        "l1_tx_gas_budget": 26,
+        "preparation_time": 6
+      },
+      "observedOutcomes": {
+        "excluded": 11,
+        "included": 44,
+        "slot_skipped": 6
+      },
+      "sourcePostsCapacity": {
+        "aggregateBlobCapacityBytes": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 253952,
+            "median": 253952.0,
+            "min": 253952,
+            "p95NearestRank": 253952
+          }
+        },
+        "aggregateBlobUtilizationPercent": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 39.764994959677416,
+            "median": 28.488651398689516,
+            "min": 12.583086567540322,
+            "p95NearestRank": 38.76677482358871
+          }
+        },
+        "blockGasLimit": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 17522081,
+            "median": 17233785.5,
+            "min": 17033216,
+            "p95NearestRank": 17504988
+          }
+        },
+        "bundleBlockGasUtilizationPercent": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 71.28347645825293,
+            "median": 45.59332107425374,
+            "min": 2.8403972567482265,
+            "p95NearestRank": 66.00871388465232
+          }
+        },
+        "declaredPostGas": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 16777216,
+            "median": 10268070.0,
+            "min": 421048,
+            "p95NearestRank": 16777216
+          }
+        },
+        "effectiveMaxBlobs": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 2,
+            "median": 2.0,
+            "min": 2,
+            "p95NearestRank": 2
+          }
+        },
+        "encodedBytes": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 100984,
+            "median": 72347.5,
+            "min": 31955,
+            "p95NearestRank": 98449
+          }
+        },
+        "finalQuotedGasBudget": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 16777216,
+            "median": 16777216.0,
+            "min": 16777216,
+            "p95NearestRank": 16777216
+          }
+        },
+        "networkTransactionGasMax": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 16777216,
+            "median": 16777216.0,
+            "min": 16777216,
+            "p95NearestRank": 16777216
+          }
+        },
+        "physicalBlobs": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 1,
+            "median": 1.0,
+            "min": 1,
+            "p95NearestRank": 1
+          }
+        },
+        "postCalldataBytes": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 42980,
+            "median": 23908.0,
+            "min": 2180,
+            "p95NearestRank": 42884
+          }
+        },
+        "postedBlobUtilizationPercent": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 79.52998991935483,
+            "median": 56.97730279737903,
+            "min": 25.166173135080644,
+            "p95NearestRank": 77.53354964717742
+          }
+        },
+        "usableBytesPerBlob": {
+          "known": 38,
+          "missing": 0,
+          "stats": {
+            "count": 38,
+            "max": 126976,
+            "median": 126976.0,
+            "min": 126976,
+            "p95NearestRank": 126976
+          }
+        }
+      },
+      "ingressJobOrderSha256": "6484cf4f4a0559b945e5c59960d9da3d921f14f019b6e3421ee9c8ebc0927057",
+      "canonicallySkippedSlots": 6,
+      "fees": {
+        "postPriorityWei": {
+          "1439999990": 3,
+          "1439999991": 15,
+          "1439999992": 14,
+          "1439999993": 6
+        },
+        "companionEffectiveGasPriceWei": {
+          "1200000008": 520
+        },
+        "blobPriceWei": {
+          "1000000000": 35,
+          "1124999975": 3
+        }
+      },
+      "setup": {
+        "phaseTimings": [
+          {
+            "attempt": "1",
+            "duration_ms": 132,
+            "end_ms": 1789507017019,
+            "name": "build",
+            "scope": "run",
+            "start_ms": 1789507016887,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 8962,
+            "end_ms": 1789507025982,
+            "name": "fund",
+            "scope": "run",
+            "start_ms": 1789507017020,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 1586,
+            "end_ms": 1789507027568,
+            "name": "nonce-barrier",
+            "scope": "run",
+            "start_ms": 1789507025982,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 812,
+            "end_ms": 1789507028381,
+            "name": "plan-inputs",
+            "scope": "run",
+            "start_ms": 1789507027569,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 46494,
+            "end_ms": 1789507074876,
+            "name": "plan",
+            "scope": "run",
+            "start_ms": 1789507028382,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 2418,
+            "end_ms": 1789507077294,
+            "name": "deploy-send",
+            "scope": "run",
+            "start_ms": 1789507074876,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 93383,
+            "end_ms": 1789507170678,
+            "name": "deploy-mine",
+            "scope": "run",
+            "start_ms": 1789507077295,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 2636,
+            "end_ms": 1789507173315,
+            "name": "deploy-liveness",
+            "scope": "run",
+            "start_ms": 1789507170679,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 10,
+            "end_ms": 1789507178225,
+            "name": "finish",
+            "scope": "run",
+            "start_ms": 1789507178215,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 1352,
+            "end_ms": 1789507179605,
+            "name": "send",
+            "scope": "run",
+            "start_ms": 1789507178253,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 251845,
+            "end_ms": 1789507431450,
+            "name": "monitor",
+            "scope": "run",
+            "start_ms": 1789507179605,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 414577,
+            "end_ms": 1789507431457,
+            "name": "total",
+            "scope": "run",
+            "start_ms": 1789507016880,
+            "status": "pass"
+          }
+        ],
+        "unsettledHeightBrackets": {
+          "after": 90,
+          "before": 86
+        },
+        "sharedSetupSourcePosts": 1,
+        "setupL2TransactionsInSourcePostRanges": {
+          "0x23dad22b612a4d75046a266dc17be0e5d4c082e72928b5b373b00fb8b5fc2949": [
+            "0xfd4b2c3a60fde8342695efc0207f4f630f1f80ec6eb5f1be1447f39aacf817da",
+            "0x4da0180283826dfb627942337c14102355ef9309dfa6b396a6178549b699b2a3"
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "composerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+      "startedAt": "2026-09-15T22:13:07.365079+00:00",
+      "finishedAt": "2026-09-15T22:21:54.058471+00:00",
+      "verifiedSourceCount": 870,
+      "jobs": 770,
+      "directions": {
+        "inbound": 520,
+        "outbound": 350
+      },
+      "terminalReasons": {
+        "Committed": 820,
+        "SourceCompleted": 50
+      },
+      "sourcePostCount": 37,
+      "sourceL1BlockCount": 37,
+      "sourceSyncBlockCount": 37,
+      "maximumObservedSourcesPerSync": 34,
+      "meanSourcesPerPost": 23.513513513513512,
+      "sourceCountsPerPost": [
+        1,
+        30,
+        30,
+        30,
+        24,
+        30,
+        29,
+        29,
+        28,
+        25,
+        25,
+        22,
+        22,
+        27,
+        23,
+        23,
+        31,
+        2,
+        31,
+        2,
+        30,
+        16,
+        11,
+        11,
+        11,
+        12,
+        17,
+        17,
+        21,
+        34,
+        34,
+        34,
+        34,
+        34,
+        27,
+        34,
+        29
+      ],
+      "sourcePostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "174998012523998",
+        "companions": 520,
+        "physicalBlobs": 37,
+        "postBlobWei": "4849664000000000",
+        "postExecutionGasUsed": 202157413,
+        "postExecutionWei": "202157415543423798",
+        "posts": 37,
+        "totalBlobWei": "4849664000000000",
+        "totalExecutionGasUsed": 275858229,
+        "totalExecutionWei": "202332413555947796",
+        "totalWei": "207182077555947796",
+        "totalXDAI": "0.207182077555947796"
+      },
+      "allCapturedPaidPostCosts": {
+        "companionBlobWei": "0",
+        "companionExecutionWei": "174998012523998",
+        "companions": 520,
+        "physicalBlobs": 47,
+        "postBlobWei": "6160384000000000",
+        "postExecutionGasUsed": 202835589,
+        "postExecutionWei": "202835591551335372",
+        "posts": 43,
+        "totalBlobWei": "6160384000000000",
+        "totalExecutionGasUsed": 276536405,
+        "totalExecutionWei": "203010589563859370",
+        "totalWei": "209170973563859370",
+        "totalXDAI": "0.20917097356385937"
+      },
+      "latencyMs": {
+        "heldToCanonicalCompleteMs": {
+          "count": 870,
+          "max": 261555.722,
+          "median": 126250.18950000001,
+          "min": 7350.689,
+          "p95NearestRank": 256602.014
+        },
+        "heldToDispatchMs": {
+          "count": 870,
+          "max": 259590.957,
+          "median": 124362.8985,
+          "min": 5337.617,
+          "p95NearestRank": 254722.014
+        },
+        "heldToSafeMs": {
+          "count": 870,
+          "max": 261279.659,
+          "median": 126138.9055,
+          "min": 7290.189,
+          "p95NearestRank": 256407.249
+        }
+      },
+      "latencyByDirectionMs": {
+        "inbound": {
+          "count": 520,
+          "max": 261555.722,
+          "median": 214663.5685,
+          "min": 7350.689,
+          "p95NearestRank": 261493.184
+        },
+        "outbound": {
+          "count": 350,
+          "max": 151192.034,
+          "median": 79306.896,
+          "min": 12180.846,
+          "p95NearestRank": 136215.686
+        }
+      },
+      "firstHeldToLastCanonicalCompleteMs": 262406.119,
+      "firstToLastSuccessfulSourcePostMs": 255055.43,
+      "ingressSpanMs": 1229.801,
+      "admissionReasonCounts": {
+        "eez.composer.admission.skipped_slot": 7,
+        "eez.composer.admission.submission_backoff": 1,
+        "l1_tx_gas_budget": 23,
+        "preparation_time": 8
+      },
+      "observedOutcomes": {
+        "excluded": 2,
+        "included": 43,
+        "slot_skipped": 8
+      },
+      "sourcePostsCapacity": {
+        "aggregateBlobCapacityBytes": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 253952,
+            "median": 253952.0,
+            "min": 253952,
+            "p95NearestRank": 253952
+          }
+        },
+        "aggregateBlobUtilizationPercent": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 44.69860446068548,
+            "median": 28.994061869959676,
+            "min": 3.291173135080645,
+            "p95NearestRank": 43.054986769153224
+          }
+        },
+        "blockGasLimit": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 17487909,
+            "median": 17267506.0,
+            "min": 17016600,
+            "p95NearestRank": 17470849
+          }
+        },
+        "bundleBlockGasUtilizationPercent": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 65.0052050846956,
+            "median": 51.40729781883896,
+            "min": 2.843170786173501,
+            "p95NearestRank": 62.57464715367908
+          }
+        },
+        "declaredPostGas": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 16777216,
+            "median": 11231535.0,
+            "min": 421048,
+            "p95NearestRank": 16777216
+          }
+        },
+        "effectiveMaxBlobs": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 2,
+            "median": 2.0,
+            "min": 2,
+            "p95NearestRank": 2
+          }
+        },
+        "encodedBytes": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 113513,
+            "median": 73631.0,
+            "min": 8358,
+            "p95NearestRank": 109339
+          }
+        },
+        "finalQuotedGasBudget": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 16777216,
+            "median": 16777216.0,
+            "min": 16777216,
+            "p95NearestRank": 16777216
+          }
+        },
+        "networkTransactionGasMax": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 16777216,
+            "median": 16777216.0,
+            "min": 16777216,
+            "p95NearestRank": 16777216
+          }
+        },
+        "physicalBlobs": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 1,
+            "median": 1.0,
+            "min": 1,
+            "p95NearestRank": 1
+          }
+        },
+        "postCalldataBytes": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 46564,
+            "median": 27652.0,
+            "min": 2180,
+            "p95NearestRank": 41732
+          }
+        },
+        "postedBlobUtilizationPercent": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 89.39720892137096,
+            "median": 57.98812373991935,
+            "min": 6.58234627016129,
+            "p95NearestRank": 86.10997353830645
+          }
+        },
+        "usableBytesPerBlob": {
+          "known": 37,
+          "missing": 0,
+          "stats": {
+            "count": 37,
+            "max": 126976,
+            "median": 126976.0,
+            "min": 126976,
+            "p95NearestRank": 126976
+          }
+        }
+      },
+      "ingressJobOrderSha256": "3edbc04cfca1e2719c476c8b52bd655530b4d7e337faedc4ac815f2efdd33b85",
+      "canonicallySkippedSlots": 8,
+      "fees": {
+        "postPriorityWei": {
+          "1000000000": 37
+        },
+        "companionEffectiveGasPriceWei": {
+          "11": 23,
+          "12": 29,
+          "13": 147,
+          "14": 34,
+          "15": 255,
+          "500000014": 2,
+          "8": 1,
+          "9": 29
+        },
+        "blobPriceWei": {
+          "1000000000": 37
+        }
+      },
+      "setup": {
+        "phaseTimings": [
+          {
+            "attempt": "1",
+            "duration_ms": 155,
+            "end_ms": 1789510387661,
+            "name": "build",
+            "scope": "run",
+            "start_ms": 1789510387506,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 13025,
+            "end_ms": 1789510400687,
+            "name": "fund",
+            "scope": "run",
+            "start_ms": 1789510387662,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 1616,
+            "end_ms": 1789510402303,
+            "name": "nonce-barrier",
+            "scope": "run",
+            "start_ms": 1789510400687,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 817,
+            "end_ms": 1789510403121,
+            "name": "plan-inputs",
+            "scope": "run",
+            "start_ms": 1789510402304,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 48068,
+            "end_ms": 1789510451190,
+            "name": "plan",
+            "scope": "run",
+            "start_ms": 1789510403122,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 2268,
+            "end_ms": 1789510453458,
+            "name": "deploy-send",
+            "scope": "run",
+            "start_ms": 1789510451190,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 182241,
+            "end_ms": 1789510635700,
+            "name": "deploy-mine",
+            "scope": "run",
+            "start_ms": 1789510453459,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 2695,
+            "end_ms": 1789510638396,
+            "name": "deploy-liveness",
+            "scope": "run",
+            "start_ms": 1789510635701,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 9,
+            "end_ms": 1789510643329,
+            "name": "finish",
+            "scope": "run",
+            "start_ms": 1789510643320,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 1273,
+            "end_ms": 1789510644631,
+            "name": "send",
+            "scope": "run",
+            "start_ms": 1789510643358,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 261702,
+            "end_ms": 1789510906334,
+            "name": "monitor",
+            "scope": "run",
+            "start_ms": 1789510644632,
+            "status": "pass"
+          },
+          {
+            "attempt": "1",
+            "duration_ms": 518843,
+            "end_ms": 1789510906341,
+            "name": "total",
+            "scope": "run",
+            "start_ms": 1789510387498,
+            "status": "pass"
+          }
+        ],
+        "unsettledHeightBrackets": {
+          "after": 140,
+          "before": 137
+        },
+        "sharedSetupSourcePosts": 0,
+        "setupL2TransactionsInSourcePostRanges": {}
+      }
+    }
+  },
+  "observedDeltasPercent": {
+    "firstHeldToLastCompletionMs": 3.5755298254256207,
+    "medianHeldToCanonicalMs": -19.703610475465876,
+    "p95HeldToCanonicalMs": 3.826619807483247,
+    "sourceBlobs": -2.6315789473684212,
+    "sourceBundleChargedWei": -48.173459441090216,
+    "sourceBundleGas": -3.672948291599299,
+    "sourcePostGas": -5.013584015979799,
+    "sourcePosts": -2.6315789473684212
+  },
+  "limitations": [
+    "This is one sequential public Chiado pair on the same continuing deployment, not a randomized causal benchmark or native Gnosis-profile result.",
+    "The semantic cohort and worker settings match; parallel source order, sender nonces, proxy addresses, accumulated state and batch grouping need not match. Ingress order hashes and scenario counts are retained.",
+    "Setup wall time is separate from held-source latency, but unsettled setup history and shared setup transactions remain in source-post ranges and costs. Initial selection/calibration and observer readiness brackets are retained.",
+    "Receipt gas and charged xDAI are separate measurements. Exact final fee quotes, signed fees and receipts are joined; a changed estimator or blob price is not attributed to this gas-accounting fix.",
+    "Source-bearing cost includes whole posts and every canonical companion; it does not isolate a marginal per-source charge. All-captured cost additionally includes setup/history and any other paid attempts covered by the audit.",
+    "Admission cuts and preparation measurements include retries/rejected candidates and are not unique-source counts. Excluded does not establish a capacity failure. Skipped slots require canonical parent/child timestamp-gap evidence.",
+    "Physical blob count is taken from canonical transactions and receipts. Encoding estimates and active capacity remain null when their matching evidence is ambiguous; no missing cost or capacity is replaced with zero.",
+    "Held-to-safe and held-to-canonical-ownership completion are reported separately. Protocol semantic assertions were disabled with --no-verify; an independent live follower was not run."
+  ],
+  "build": {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "build",
+      "--release",
+      "-p",
+      "eez-node",
+      "-p",
+      "eez-follower",
+      "-p",
+      "eez-proof-signer",
+      "--bins",
+      "--offline",
+      "--locked",
+      "-j",
+      "3",
+      "--message-format=json"
+    ],
+    "exitCode": 0,
+    "changedCompilerInputs": [
+      "crates/eez-composer/src/composer.rs"
+    ],
+    "runtimeInputs": 193,
+    "profile": "normal release; unchanged Cargo profile and Rust 1.94.0",
+    "sourceIdentityChecksPassed": true,
+    "freshComposerArtifactsConfirmed": true,
+    "unchangedFollowerAndSigner": true
+  },
+  "runtimeSha256": {
+    "eez-proof-signer": "6ba20c409ce3b7b85f6220969326419449e29579934ee2b86393dc6fc372c120",
+    "eez-follower": "b111471f43a5fb255be911ee42b747b3c666c80449c5a4c85bcb320f05104ed7",
+    "eez-composer": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85"
+  },
+  "sourceValidation": {
+    "recordedAt": "2026-09-15T22:01:13.976019+00:00",
+    "composerSourceSha256": "60bb6311e32b5fbe610f3bae369816902e0ec469cb33b3fe1d32587ae272293f",
+    "checks": [
+      {
+        "command": "cargo +1.94.0 test -p eez-composer --lib --offline --locked -j2",
+        "passed": 185,
+        "failed": 0,
+        "exitCode": 0,
+        "testBinary": "target/debug/deps/eez_composer-f603ce308b2f47fe"
+      },
+      {
+        "command": "cargo +1.94.0 clippy -p eez-composer --all-targets --offline --locked -j2 -- -D warnings",
+        "exitCode": 0
+      }
+    ],
+    "scope": "Only the new L1 target-gas attribution delta; prior branch changes are retained."
+  },
+  "nativeRegressions": [
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "passed": true,
+      "exitCode": 0,
+      "durationSeconds": 82.2670889343135,
+      "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3"
+    },
+    {
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "passed": true,
+      "exitCode": 0,
+      "durationSeconds": 115.94458387326449,
+      "harnessSha256": "4167221ece2c896c063433920cdaf0dcc56288351270d23e5db1dadaba7aee83"
+    },
+    {
+      "test": "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+      "passed": true,
+      "exitCode": 0,
+      "durationSeconds": 77.95778293069452,
+      "harnessSha256": "e4579cecca30ef064fee785efd95a70cc3b35880ae75e722d5914cacf74d6cd3"
+    }
+  ],
+  "deployment": {
+    "appliedAt": "2026-09-15T22:11:47.533603+00:00",
+    "beforeComposerSha256": "3694f4ec562a2511d9c763745719497921084f5926ae65ec00f76666bd0e940a",
+    "candidateComposerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+    "actualComposerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+    "sameAssignedEnvironment": true,
+    "sameOriginalDataMounts": true
+  },
+  "runtimeSettings": {
+    "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
+    "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
+    "EEZ_PREPARATION_TIME_MS": "500",
+    "EEZ_PROOF_TIME_MS": "500",
+    "EEZ_SUBMISSION_SLACK_MS": "700",
+    "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+    "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "500000000000"
+  },
+  "normalComposeUpdated": {
+    "at": "2026-09-15T22:12:39.841983+00:00",
+    "updatedFile": ".runtime/chiado-settlement-20260913/runtime.compose.json",
+    "beforeSha256": "58b16e39b558b683c6c380fc1592a95b03b2dd0d381aba87f987e8cf87f651ec",
+    "afterSha256": "626eb4baf771f17b64c8ac67854e551c144daaa6699f3849e988081e19e8d14b",
+    "onlyChange": "composer read-only bind updated to tested L1 gas-attribution binary",
+    "composerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+    "runningContainerRestarted": false
+  },
+  "runChecks": {
+    "allScenariosSent": true,
+    "allSourcesTerminal": true,
+    "runtimeUnchanged": true,
+    "protocolUnchanged": true,
+    "priorSafeStatePreserved": true,
+    "finalNonceChecks": {
+      "l1": {
+        "passed": true,
+        "pinnedBlock": "0x1601849",
+        "wallets": 770,
+        "transactions": 1910
+      },
+      "l2": {
+        "passed": true,
+        "pinnedBlock": "0x2a5cb",
+        "wallets": 770,
+        "transactions": 1810
+      }
+    }
+  },
+  "finalHealth": {
+    "at": "2026-09-15T22:24:58.254946+00:00",
+    "composerSha256": "1eae6cdab8deb034140a41f4ea02d211c6829542d42aceca66231e00e879bd85",
+    "l1": {
+      "number": "0x160186c",
+      "hash": "0x152f197899230bfebb900b2546c129d47324318a0651fda2fddbc1cf0f1c9114",
+      "stateRoot": "0x46ddd0a19bce1d08f157a4fa959a57f11de4143f1af5e4f5986fa2078f01100a",
+      "timestamp": "0x6aa9c5b7"
+    },
+    "l2": {
+      "number": "0x2a68e",
+      "hash": "0x604c4b5f347cc5f42bf3590abdf02bb2074ed483bb31b00a4fa51db7d5ca88e9",
+      "stateRoot": "0x5eb338ea306abe5e3fdfdf366c1bd1d1199911a923c96f7ed2d11d66ee222303",
+      "timestamp": "0x6aa9c5bc"
+    },
+    "safe": {
+      "number": "0x2a5cb",
+      "hash": "0x796a5d73fd29104b0368c30ec7cfc6fbe54f2c6999364633957e3e4574773f18",
+      "stateRoot": "0x5258d2a5427a40990475f8e9180fe14b8eb1418fb157c1ed4ba57505efce906e",
+      "timestamp": "0x6aa9c4f9"
+    },
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1789510903308,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0xfacb05d49e0a427689cba6e9be6755ebba8c858b7ca58ab48f8f6e1b9b572e87",
+          "number": 23074888
+        },
+        "observedAtMs": 1789510905796
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x427d97b5ba2e0b96d9aed1f96242bf7eea14bac5afdeb0181704b15dbf5f5b0b",
+          "number": 23074887
+        },
+        "l2": {
+          "hash": "0x0cd5657308fd89b50af5b4a5b8972b3ebb714fbc70089409cd277b92af61d6ca",
+          "number": 173514
+        }
+      },
+      "unknown": 0
+    },
+    "queueEmpty": true,
+    "syncing": {
+      "l1": false,
+      "l2": false
+    },
+    "priorSafeHashAndStatePreserved": true,
+    "beacon": {
+      "is_syncing": false,
+      "is_optimistic": false,
+      "el_offline": false,
+      "head_slot": "24822959",
+      "sync_distance": "0"
+    },
+    "peers": {
+      "connected": "25",
+      "connecting": "0",
+      "disconnected": "4",
+      "disconnecting": "0"
+    }
+  },
+  "manualReadiness": {
+    "at": "2026-09-15T22:23:35.970215+00:00",
+    "command": [
+      "bash",
+      "scripts/run-chiado-staged-performance.sh",
+      "--check"
+    ],
+    "exitCode": 0,
+    "helperSha256": "72397f24017b110724244b3f3bd0ddcc8ac1a5fde7b6cd9a294adc1ba49fdac6",
+    "funding": {
+      "hash": "0x5898b20cc7b1c828be90d25851a100b7105a231ea5f2d130a3a44e33660b37ed",
+      "valueWei": "350000000000000000"
+    }
+  },
+  "feeAccounting": "Receipt charges exclude standalone setup/funding; transferred and refundable reserves are not expenditure.",
+  "evidenceSha256": {
+    "comparison.json": "8851930a8307bb2588760d12b73d59df3c5c3582bacbe4ab5a97f151d40087cf",
+    "comparison.md": "749fcacd22a2f0cdc5fbd4097b4df029153b9076cb9ed8bcaf39fb0da3ffd324",
+    "comparison-checks-final.json": "e4cb7b5a7a2d1d5dfc1e9f00d76bc45c312b89eaca76e9c38647460d921fc8b6",
+    "candidate/canonical-evidence.json": "1a0a3d0841c5a586b45adb6519b30472e02980508415776a3989b56159a5a82b",
+    "candidate/canonical-audit.json": "f11dbec3f0e969a80c80f74633bd10dc33af852af99a9b5a403ff12058b8e607",
+    "candidate/execution.json": "9db1041574f78ae108fbec8257826fd3ae4f1ac054788693734c5ae016419545",
+    "build/build.json": "caa75a5fa0a10448dcd4782bb200c20fec908cd743ca61f3b572446132c45fb8",
+    "build/runtime-identities.json": "dd8591eb8399e3a02a8b9eb60319a33f0305b3fa89d8453dc2dbe0bbc12d93e0",
+    "build/runtime-source-identities.json": "8faa831922c3282f58bb79392dae595841d0db912f63c7adfa36679c79e45085",
+    "build/production-change.patch": "d68e1f8efc775cec6247b4ce95987c2bc236ff6b029f7b52ae8ffd594af3f92b",
+    "source-checks.json": "c8f232cddccb3893d6ab8b9d584d15afa89ec20ad08e3ec1bb8d797d4a8ca270",
+    "native/results.json": "e9cf2cff5b1fde603e66443627405f70462c17ecaa94d8561ae5e6f327b3ce43",
+    "native/final-verification.json": "5e7ff695a07960869146baaa74075137fb18474f5be9b06f94c869838fe60f5c",
+    "deployment.json": "e6e2406b65e7ec190727614cc350f626f962cd1f3d6b736d095c7400a60cb256",
+    "deployment-health.json": "a4ff033256bbacf7b9ff6ec6fc9d7ac8c2e17ceed2d0b07475196f6221d05d32",
+    "persist-candidate.json": "9164a782b5c441f76f2a2042707690ce2482febc0f8fdf4af4f16a22478797c3",
+    "final-health.json": "e7ff9c981b49a51a85b088136861e061c29eacea8fdc4db3c63bd6392407597b",
+    "manual-readiness.json": "6c9565534608c3f23c63da0bf1fe1d868e63189f9c52e55e83c327393145b0ef",
+    "manual-readiness.log": "3af0384cea3d252fbd497d06a7f994f3cce7fb9c1bd44f60a8bc4ddccf34da58",
+    "manual-readiness-funding.json": "0ef0a68d9b4f8649fc4bd2b3f12bf8f6991dcf902c653c23d4d3d2eeb52eefc7",
+    "attribution-analysis.json": "06cd4e1e9834de827cada83834ee5db5966cfa28dfadd5d0a7c9db07d47581ea",
+    "exclusions.json": "9a7f6baf50f031e854320affc0b6ea9efa83a120e7b13aa2621d0676db93fb5b",
+    "prefix-checkpoints.md": "9af8339ed8146a0fd3642f61a8a9aca9c66279729b8e6851c6beb8ae687701ab",
+    "candidate/attribution-analysis.json": "a6fa05118748924d2b860a8b4e6de952fc40a525d63915719c3b019af826dcfa",
+    "candidate/attribution-analysis.md": "9b44e35e3ca44b1e6f2d0ade38d3be11d86c00254db56f6821f4da2728f453bc",
+    "analyze-candidate-attribution.py": "427fd9aa53a3a74f645e4133229fe69d1f91005f18833a22bafacbf929ed2d6b",
+    "candidate/fee-readiness.json": "2f051f31fa3d02f4ed7202eb44f543c0f470ede8c7c5dce04ad2b44299bda663",
+    "candidate/fee-readiness.md": "d72e6a480b2748f177b37180ed8fb6a228c3a865838221bc81306857c0a22c7e",
+    "analyze-fee-readiness.py": "436a3d4b2c22e1bec13cb1a2c0685a4b7bb800fad589b607e60c1a3ca683dd27",
+    "final-validation.json": "8dda08334f05d9ab87c1858fd5649e9eff25603eb71aaad09cafd51132e6c700"
+  },
+  "candidateAttribution": {
+    "allCompletedCompositionBracketsMatched": true,
+    "compositionBracketsVerified": 1025,
+    "proxyCallEventsVerified": 1895,
+    "outbound": {
+      "allDestinationGas": 31622041,
+      "compositionExecutions": 391,
+      "executionsWithL2TargetWork": 131,
+      "l1DestinationGas": 24573433,
+      "l2DestinationGas": 7048608,
+      "loggedL1TargetGas": 24573433,
+      "recordedActions": 678,
+      "revertedL1DestinationGas": 1313853
+    },
+    "unfinishedPreTargetStarts": 1009,
+    "unfinishedWithExplicitBlockedTransition": 291,
+    "limitations": [
+      "Every completed composition matched one noninterleaved start/end bracket, exact span metadata, action count and the saturating sum of MAINNET (rollup 0) destination gas.",
+      "Starts without a completion are retained separately, bounded by the next start/drain. Every such interval contains zero target actions. Some carry an explicit source-blocked transition; others have no terminal log. Their gas is not invented or added to completed totals.",
+      "These are repeated composition executions, including candidates later refused by time, gas or blob checks. Neither the composition span nor this analysis establishes a unique-source or accepted-group count.",
+      "Containing drain observations are diagnostic inclusion/exclusion categories, not per-source canonical receipt proofs; the independent canonical audit provides placement proofs.",
+      "L2 work is excluded from the logged L1-only total for both entry directions. Inbound already budgeted its L1 source separately, so only outbound planning directly gains from this correction.",
+      "The omitted L2 sum quantifies a planning term, not gas removed from actual execution receipts. It cannot predict packing, total fee savings or isolated latency benefit."
+    ]
+  }
+}

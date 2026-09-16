@@ -1,0 +1,645 @@
+{
+  "recordedAt": "2026-09-15T10:18:25.055233+00:00",
+  "sourceBaseCommit": "f46e40bad4d49e365ca6f62296ab07f57bd9b259",
+  "settlementVerification": {
+    "verified": true,
+    "first_l2_block": 124116,
+    "covered_l2_blocks": 5360,
+    "last_l2_block": 129475,
+    "last_l1_block": 23066987,
+    "last_l1_hash": "0xeb700c8bd36425245cb145b2e94d92cc6597f68c7bd1af434203b56f4aca31cc",
+    "native_kzg_semantics_and_canonical_hashes_verified": true,
+    "unique_da_transaction_hashes": 107,
+    "verifier_sha256": "39165bfe05b59a56cf91c92074a4f92e2025b5e28df66749302f7de09cdd6986",
+    "finished_at": "2026-09-15T10:12:46.368517+00:00"
+  },
+  "canonicalPosts": [
+    {
+      "hash": "0xbd6684c513bcafea0cdc27cab4b1dfaf9ec1f0f734f0db9897d2c0aefdb74256",
+      "l1_block": 23066308,
+      "l1_block_hash": "0xea736583a2bfb42c326abfaae87b7ff3ab41404b10567a9c13a1174b728a0bd7",
+      "timestamp": 1789463305,
+      "blobs": 2,
+      "l2_from": 124116,
+      "l2_to": 124445,
+      "gas_used": 113281,
+      "execution_cost_wei": "113281000792967",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "ad7add5918a63065805ef5181a6200713bc025ace4a137ef7ccd5609141a637b",
+      "output_sha256": "fe9d99f054994627f08108ffa3f56d430956357d8a348205929e846c221de531"
+    },
+    {
+      "hash": "0x5917825af46e52d58854276e20ebf8bd511616c8d8ac11f33c58ce691930dd39",
+      "l1_block": 23066313,
+      "l1_block_hash": "0x5b9c70eab345b868d9691daa3854408b54954f10aeb65ebd6a6fbc65f02d26cf",
+      "timestamp": 1789463335,
+      "blobs": 2,
+      "l2_from": 124446,
+      "l2_to": 124775,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "eb6f04532af3934426be789314ccec71ca6c262bf4fde69473bc4c91663d40a9",
+      "output_sha256": "3b91f368d4ab06526c7deee4d1113412992ecdf8ef4673a211a498e19206f4e8"
+    },
+    {
+      "hash": "0x0079dafb81be42f5a0fb5a1f94786cbb83503de59a3c9f7aca8a95550e39d0ce",
+      "l1_block": 23066318,
+      "l1_block_hash": "0xb59b81287bf2afd6d29d59d6001ed96045c396c80c221a4de49dfdf0e7f29df0",
+      "timestamp": 1789463375,
+      "blobs": 2,
+      "l2_from": 124776,
+      "l2_to": 125105,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "3f7c405c917be8e291cadd3365ce0dfbc2fec4d5bb9114cdc73eeb160ded2977",
+      "output_sha256": "3d9ff05d2abfee5c3ae8c67e5ad676587f39102c7c9c4918a74fec9f8e892f58"
+    },
+    {
+      "hash": "0xa3c7b0ad1a80bb8086f55930502ec684139973c6417d18eecb351511b8040ce4",
+      "l1_block": 23066319,
+      "l1_block_hash": "0xa052d9cd5036c7cee9479e9abe5a6180ad8c8e8a33747da5cb68ffcc63493d86",
+      "timestamp": 1789463380,
+      "blobs": 2,
+      "l2_from": 125106,
+      "l2_to": 125435,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "294911993446400",
+      "input_sha256": "20a4145a05724e35bd46ac233d2758adeedd1414210b5b321d468b8de574f7ca",
+      "output_sha256": "0a8bb6e80c6dda12ddda4cee11f7e6a0a3de38f966c34798be5371ac02d28270"
+    },
+    {
+      "hash": "0x99363c4d4b81414c319fa55c3954501f47849ff8d03525dba06abab72d5d8950",
+      "l1_block": 23066320,
+      "l1_block_hash": "0xdf4c9c4fe28b43de95c2787385e835d811157a03f7774f86b3ff3790b831027c",
+      "timestamp": 1789463385,
+      "blobs": 2,
+      "l2_from": 125436,
+      "l2_to": 125765,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "331775985319936",
+      "input_sha256": "486d95c06206e79ffd23b742c4e249e10ee43aa3072bf7f758293077c75f0367",
+      "output_sha256": "d8583b10c3abb4b5403ab03b5118e981849d28262d985116dd3f47c040a8076f"
+    },
+    {
+      "hash": "0x54b6661227c937a73fc76812d980c623d62afa99706c61e89ee36977a47d4713",
+      "l1_block": 23066321,
+      "l1_block_hash": "0x0fbb280ceb03bc6bf8c93159073057e19652aa258675f44e6ccba5b767554a95",
+      "timestamp": 1789463390,
+      "blobs": 2,
+      "l2_from": 125766,
+      "l2_to": 126000,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "373247975358464",
+      "input_sha256": "9558d258c5f18d5a8b5c753040eeb838ff845e049f43f64e5f285e681f08257b",
+      "output_sha256": "d36983b73e35c330780f301d5b1910155c37ee183162092ffae5f4f2d7962a8d"
+    },
+    {
+      "hash": "0x419a04706651a6b0637cc4e3b5e394681e16ffc9d91ec582f1540d66fa016218",
+      "l1_block": 23066578,
+      "l1_block_hash": "0x0701460277de9ac69c6fb706fbb7f2dd28140ea0f0fff04c2968b8314e5cd9da",
+      "timestamp": 1789464790,
+      "blobs": 2,
+      "l2_from": 126001,
+      "l2_to": 126330,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "dd567a5f7bbd4b96cbf9e464c6f2568eff016aa86f98efe99ac91b79f50095b0",
+      "output_sha256": "725ef2914e9f649d2022011bff4030087cb36f44895b7703e540e21d93f51683"
+    },
+    {
+      "hash": "0x8730fa989d029bcf80625fc13ae8daa0d799b3264289eea618c64ec821c3a990",
+      "l1_block": 23066580,
+      "l1_block_hash": "0x536409812d7059d4234425150078a97c9a7e96e4722b5ed3f940258101f00da8",
+      "timestamp": 1789464805,
+      "blobs": 2,
+      "l2_from": 126331,
+      "l2_to": 126660,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "ee9f5c9729e7a781a18ec4f2e93bda791a5a28afe27870a860cb56b178e0f3a5",
+      "output_sha256": "4075724b663f7ee2adb8d09b294a8d072e30ffd32aff9f54b05d85f1921ca89f"
+    },
+    {
+      "hash": "0x6fe5aebe00f4b19120fd0ab250420d69c5a6008315afb67890d3711a4ca37a31",
+      "l1_block": 23066582,
+      "l1_block_hash": "0x33a26c5ec14a05f3adffcefb06613888f3324c77a3a8bbb27357105aa9774dd8",
+      "timestamp": 1789464815,
+      "blobs": 2,
+      "l2_from": 126661,
+      "l2_to": 126990,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "04ee3373d463e35ea8cffa1436e6cada292f1222f91d00f0ac613d56c6777717",
+      "output_sha256": "590b1fe36d2df4c44176156c7c751ea0de1f23d3776ff4a55135b58159d1d320"
+    },
+    {
+      "hash": "0xdc6fee50d9c119a5c61826479e72ddf3b644ed230dcbfb4ad1f8931d8be41df8",
+      "l1_block": 23066583,
+      "l1_block_hash": "0x96c74248f2f8d48ca7aa58ba421d9ab8fea0075071a070ab6c3ce84cc7f05dbb",
+      "timestamp": 1789464820,
+      "blobs": 2,
+      "l2_from": 126991,
+      "l2_to": 127320,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "294911993446400",
+      "input_sha256": "815d0e80e487678021c5d0c50c03611e31dbc2eaf1d8a94679548f2ebc6b08f7",
+      "output_sha256": "e33f6575388681b220922e0f0bf17bb67162ad8835f75671f350d86e67c75b7d"
+    },
+    {
+      "hash": "0x4edefdb2fba6db62b2d72da59bd8ab70c66bc1cdd86625b449226419989e61a3",
+      "l1_block": 23066585,
+      "l1_block_hash": "0xcc6541a4aec4db487fe2d77c78d85d24f5b7556803d778f86e299dcc820b23bf",
+      "timestamp": 1789464835,
+      "blobs": 2,
+      "l2_from": 127321,
+      "l2_to": 127440,
+      "gas_used": 113305,
+      "execution_cost_wei": "113305000793135",
+      "blob_cost_wei": "294911993446400",
+      "input_sha256": "8bc22d55c8fa12be89b77d3c2acf1fb54d6aca9a475ce8655d8805f41414264a",
+      "output_sha256": "25a059dd7d54027b46abaedc78368ef57055b2a8cea14d24c6dd317ca40234e4"
+    },
+    {
+      "hash": "0xa6e4dd3dff8ea86bff37684b24ad5ae07201a4b4bbf55819ba2781ad7e1057dd",
+      "l1_block": 23066590,
+      "l1_block_hash": "0x9fe2b4197d5b83f8daf47bc5ca7b96cc8b17d3a2bf9f8aed864e7855ec138f67",
+      "timestamp": 1789464865,
+      "blobs": 1,
+      "l2_from": 127441,
+      "l2_to": 127475,
+      "gas_used": 431272,
+      "execution_cost_wei": "431272003018904",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "25102be766faf66e47d15ac3762611a11da1ee9be9c7c9120417276816389617",
+      "output_sha256": "dfd05a412a48f0407659683cacdec16a1c17578a79e202bc913c9a7cd0fb68d4"
+    },
+    {
+      "hash": "0x5caf7519b2e4815e170f65cb832bf3b213ba849a9a0c2f6ac64ad7679656012a",
+      "l1_block": 23066591,
+      "l1_block_hash": "0x1169ce607098228f32605b1a4d730b8a242805fef29960d030a07e4a0e8de660",
+      "timestamp": 1789464870,
+      "blobs": 1,
+      "l2_from": 127476,
+      "l2_to": 127480,
+      "gas_used": 520542,
+      "execution_cost_wei": "520542003643794",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "fef45dcff1c33e83768891d88fabac816c129fb21268124fbf99064d81395df8",
+      "output_sha256": "45657b5d851bfdc6f6511715cd5ccf7040ca1f52ec70780b588a442e920f2003"
+    },
+    {
+      "hash": "0xcc69343a403dc3077cea2daa307c30d861d50967d84cbc099deb7f9578d050dc",
+      "l1_block": 23066592,
+      "l1_block_hash": "0x1bbdb86ffa706d0c1cecf6f3e8c9d7fe6ec1f9d499c5a9417fbd8f8f81fe4278",
+      "timestamp": 1789464875,
+      "blobs": 1,
+      "l2_from": 127481,
+      "l2_to": 127485,
+      "gas_used": 233811,
+      "execution_cost_wei": "233811001636677",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "6fff64db2a0d9838f2e9b2db42e1b234f374fbd7f41f26c1255f3ff59e733a38",
+      "output_sha256": "c62189048d83127249c702d8bdd3c5c8290cc00b5d3b62c15f78fdca2028c901"
+    },
+    {
+      "hash": "0xec50b3f927673ffb740f786470d2e52acfd8e5a277c7032f3caf3a58bafd695d",
+      "l1_block": 23066593,
+      "l1_block_hash": "0xcc8d87586801954763c14a4518b4efb80723d1e85ee98e14572fad8909eef06a",
+      "timestamp": 1789464880,
+      "blobs": 1,
+      "l2_from": 127486,
+      "l2_to": 127490,
+      "gas_used": 222619,
+      "execution_cost_wei": "222619001558333",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "6599e17ba9c3d3e1b0daee6ffea979e3075cecdccd9222e96ccd340f8bf401d6",
+      "output_sha256": "64cded8f6d18b2eb2ec3e81a56669c57174e12ef394d277cbefbddb93039b73f"
+    },
+    {
+      "hash": "0xe490cec7a9cec813ddccac94caff09144e41de264322b2c943a47f14a5fccede",
+      "l1_block": 23066596,
+      "l1_block_hash": "0xe1900fc70f622de6114b066b4a73eec84dd5280de84145b9cb5ffc52e47b6004",
+      "timestamp": 1789464900,
+      "blobs": 1,
+      "l2_from": 127491,
+      "l2_to": 127510,
+      "gas_used": 563213,
+      "execution_cost_wei": "563213003942491",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "34f0fb0d583180c21fd37cb5e151b69373781cce588262a3e3cc712883679514",
+      "output_sha256": "a0dd4e17e044fb6a04f3461ecd3c5056ec6e882137f2f5868c705e613194160e"
+    },
+    {
+      "hash": "0xb7a3575f01f541a8b39996d0d1a387ccc3e8d75ebe2a0cf02771574f16934d7e",
+      "l1_block": 23066598,
+      "l1_block_hash": "0x954ff8880eb25a8c24587ca54dea191e2efbe7e2d91c155deea361899f5db8cb",
+      "timestamp": 1789464910,
+      "blobs": 1,
+      "l2_from": 127511,
+      "l2_to": 127520,
+      "gas_used": 676636,
+      "execution_cost_wei": "676636004736452",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "d1685925ef04632b1acb82b5bdfaf20e90d98c2c7c3d39121adca0195504640b",
+      "output_sha256": "92cbf22876949c1eaa9e87303c1c3d6bbd56c6de81abe0417c6c15b1e59267ef"
+    },
+    {
+      "hash": "0x5591dc9d2f82081eaacdae9ed905b338ca99120ccf71a9c32ca61704c829dd84",
+      "l1_block": 23066600,
+      "l1_block_hash": "0x6b044b04707c127815e25253d78a37ae8dfb320275afdd8ca171992c2edab97c",
+      "timestamp": 1789464920,
+      "blobs": 1,
+      "l2_from": 127521,
+      "l2_to": 127530,
+      "gas_used": 1746717,
+      "execution_cost_wei": "1746717012227019",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "303558954e11fa7170ee316864312e2f87b846f0ac3aa83410ba052125046708",
+      "output_sha256": "3bbaa59742c6bf7e6bc46904fc7a5c76ab8e131894b4f177b884560249d80005"
+    },
+    {
+      "hash": "0xb3f0d66f3a940691dcf56ad87f5b436d1e8d7b21cf79a20c2ac9538e5669a45b",
+      "l1_block": 23066601,
+      "l1_block_hash": "0x57d0892622efa7dd67ba79978dac64f3242961f43704d2a2bf7947d759e859f2",
+      "timestamp": 1789464925,
+      "blobs": 1,
+      "l2_from": 127531,
+      "l2_to": 127535,
+      "gas_used": 1341507,
+      "execution_cost_wei": "1341507009390549",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "8d7dad5e38a244555dd6c2b36c0cecc4ca0bad6ad3d1d473018095d67ddbbb49",
+      "output_sha256": "c1f6b32acb84a97db5a420764296a1923cfcf01c5cd5903abb7d19d318b06798"
+    },
+    {
+      "hash": "0x083f8c55515763b7aadb174f537da1cedf64b13c6d8558ee603da0b5fc42f9a2",
+      "l1_block": 23066605,
+      "l1_block_hash": "0x46d2b4a32bd52f14fb9f360dab9b494456c3d515fb596151819f762abdb5b24a",
+      "timestamp": 1789464955,
+      "blobs": 1,
+      "l2_from": 127536,
+      "l2_to": 127565,
+      "gas_used": 1829579,
+      "execution_cost_wei": "1829579012807053",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "6735add7cbe4f8ccf13f890afa3f3a407267301b6effb05c03c6e626cce2c3db",
+      "output_sha256": "aa9649ea2bae3a9c6aebc49bc32a96bf1297b1a95176712a07b301ee15498bee"
+    },
+    {
+      "hash": "0x50a608d4782090ee05a2f51485311778abd5ccf3084eacb8bb22cbc2765f131b",
+      "l1_block": 23066607,
+      "l1_block_hash": "0x4d673bc2922e4693d5d88ed143444dca16ece66a5b728a79d12a09c7b5153845",
+      "timestamp": 1789464965,
+      "blobs": 1,
+      "l2_from": 127566,
+      "l2_to": 127575,
+      "gas_used": 1633629,
+      "execution_cost_wei": "1633629011435403",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "136db8b4ede5c613ba46cb3fbc985594bd9066c04fc2bfe04e5d730d4683198f",
+      "output_sha256": "1726abba74fad4fffd8ada603150d275d6f488a2a119e4759ad2d490fdb88796"
+    },
+    {
+      "hash": "0xe6c30510aed7c5f83af9ae3ee31b8c21fd92e09d47739096b6df81abdf4338c8",
+      "l1_block": 23066613,
+      "l1_block_hash": "0x3bf97e4fe1d7d01ff88b5e339991b2653c7c6e1696fbe8d708ad4d8953dce85a",
+      "timestamp": 1789464995,
+      "blobs": 1,
+      "l2_from": 127576,
+      "l2_to": 127605,
+      "gas_used": 188239,
+      "execution_cost_wei": "188239001317673",
+      "blob_cost_wei": "131072000000000",
+      "input_sha256": "1d3a8fd21def811e63a6d7b64762fca7992b46960b7afe5f3f9f2b400e917d4f",
+      "output_sha256": "04a589e25a3e2c4d7bc74e004160c846d73c95847e7fe64d628819c7e4cdbd78"
+    },
+    {
+      "hash": "0x8917673d82731e7fd6529c940c07d8504e3382a6a72ff586967d4cdf7b9c1bdf",
+      "l1_block": 23066931,
+      "l1_block_hash": "0x3dd29efffbccfb6f2bb14282f816c809b028148919c57a089fbd2b590bd9de29",
+      "timestamp": 1789466810,
+      "blobs": 2,
+      "l2_from": 127606,
+      "l2_to": 127935,
+      "gas_used": 126696,
+      "execution_cost_wei": "126696000886872",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "bb58cd233582fef78cd7faf699b24ed4e15b5543fd2934cc108be232bdd96901",
+      "output_sha256": "248ef6afc9a4c4dc960d859f15d260004922c9e2e248e934a9b70eabcb4f444a"
+    },
+    {
+      "hash": "0x33a920747beb2721a9bba30ccee3069aec6ef97cc6b5681a7ef8332948f26728",
+      "l1_block": 23066933,
+      "l1_block_hash": "0x2348f09e46285f543f2e9330da275ff07c6117abdeebbea6ee73903505122649",
+      "timestamp": 1789466820,
+      "blobs": 2,
+      "l2_from": 127936,
+      "l2_to": 128265,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "cdb4ab7173a23753d54a6094c51678607dc5d2e75ea1d82274263ce1ee267f6c",
+      "output_sha256": "90b021469fd9da3bd3a8a38c407441e3e7214caf2ab3545cc341aa0161ea0d90"
+    },
+    {
+      "hash": "0xeeec29effdaa74875b3755e0efc2cc23aa668e4d317899a2cea1dadd884e8575",
+      "l1_block": 23066935,
+      "l1_block_hash": "0xf6b90d91b4b2ddb70c047b8b78449bffc42cd5f9cc93c942ad729c83242eb071",
+      "timestamp": 1789466830,
+      "blobs": 2,
+      "l2_from": 128266,
+      "l2_to": 128595,
+      "gas_used": 113281,
+      "execution_cost_wei": "113281000792967",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "ff1ee096e369a818d1cf1238629ebeed91d2bf871f40b26583e58102fd00ed8b",
+      "output_sha256": "7c110ae5ad024c4a1bdefcdf8c163ff0d60babe4abf962e4b2e0bc88940b0bd9"
+    },
+    {
+      "hash": "0x9e9070874a50375f0748a98377ab0bb071f0549862c56ac770fd3cbb0c4e2551",
+      "l1_block": 23066937,
+      "l1_block_hash": "0xa7788af84e77a507aa679befa5e1652e248737be5d3de46bf8c332b2dfbe6f7c",
+      "timestamp": 1789466840,
+      "blobs": 2,
+      "l2_from": 128596,
+      "l2_to": 128925,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "4e059d631a8a5ab3f8ac660d547ae374ee0b35f7cc2ba61eb1e3a691cf55d277",
+      "output_sha256": "d3501edaa49a9f8bec05f175fd4856ee1d1b5364f6f7807e444e6d6c40071096"
+    },
+    {
+      "hash": "0xe7e911c3929798353addcf0a1b75fc3970dbc6e1a1ce897530d8570a91cda987",
+      "l1_block": 23066939,
+      "l1_block_hash": "0x58691fac5523f7831c0f7a82837f79fb35dabe82ddc3f167761a46590b19c70b",
+      "timestamp": 1789466855,
+      "blobs": 2,
+      "l2_from": 128926,
+      "l2_to": 129255,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "4979635bb70ea881e4ca6b1cd5ab5438043445b94c79bcc2d134b7db2a4200ac",
+      "output_sha256": "b871e91175e3a09c51eeeab9ab4aec605273db1eeda85e9275bbc4cb7592ea6f"
+    },
+    {
+      "hash": "0x976e74f3e682d1c757f1b6d4eb1bf1401c9f425a39be386879fc218ba9cb1670",
+      "l1_block": 23066941,
+      "l1_block_hash": "0x981e1744f5b83f8f25060d8b1afd3b10369826b545c4be1e4874a18a8c6e813b",
+      "timestamp": 1789466865,
+      "blobs": 2,
+      "l2_from": 129256,
+      "l2_to": 129475,
+      "gas_used": 113293,
+      "execution_cost_wei": "113293000793051",
+      "blob_cost_wei": "262144000000000",
+      "input_sha256": "943bd2c84fc4fe53ccb542d89013bb0821c267ce827c021ea57d6344a95fc60f",
+      "output_sha256": "155c748c65081ae5471e90b7d40d0e71e7655dbfe0b41b7d7d9866e1ae5f6bc5"
+    }
+  ],
+  "independentReplay": {
+    "verified": true,
+    "endpoint": {
+      "number": 129475,
+      "hash": "0x120a888673345db6cbc77009d69d3100c273497d53a84d6d8c01a05eada99aa5",
+      "stateRoot": "0xbebcdc84c2f97e022e6c36aac9955adf86765fa741e2b565adda390d5354e2ed"
+    },
+    "binarySha256": "7c7006c70c386c3ce45f9cbda53b7f8bf857c586119f80e0caf518c0c71e65fd",
+    "finishedAt": "2026-09-15T10:12:54.801769+00:00"
+  },
+  "crossChainSources": {
+    "count": 31,
+    "canonicalSuccessful": 31,
+    "initiatorOfTestWorkload": "unconfirmed"
+  },
+  "beaconRepair": {
+    "filenameCorrectionDeployed": true,
+    "restartAt": "2026-09-15T10:09:19.281117+00:00",
+    "composerProcessUnchanged": true,
+    "confirmedL2HashPreserved": true,
+    "discoveryFullyRecovered": false,
+    "remainingIssue": "Bootnodes returned records outside requested discovery distance buckets; Lighthouse filters and bans these responders. Live block gossip mesh remains small.",
+    "publicEnrCorrectionDeployed": true,
+    "publicEnrCorrectionAt": "2026-09-15T10:57:46.925315307Z",
+    "automaticPeerDiscoveryNowAddsPeers": true
+  },
+  "arrivalSamples": {
+    "before": {
+      "count": 106,
+      "medianMs": 423.866,
+      "p95Ms": 6821.507,
+      "maxMs": 9358.315,
+      "laterThan2800Ms": 20
+    },
+    "after": {
+      "count": 29,
+      "medianMs": 203.72,
+      "p95Ms": 1306.479,
+      "maxMs": 4298.904,
+      "laterThan2800Ms": 1
+    }
+  },
+  "validation": {
+    "chiadoConfigurationTests": {
+      "passed": 6
+    },
+    "ciUnitTests": {
+      "run": 222,
+      "passed": 218,
+      "skipped": 4
+    },
+    "staticChiadoProfile": "pass",
+    "diffCheck": "pass"
+  },
+  "evidence": {
+    "artifacts/chiado-settlement-review-20260915/post-verification.json": "b8eae7b64d5acaf93bd6585ba42043af2bfd099f6309ce89b9c7df3677f57f17",
+    "artifacts/chiado-settlement-review-20260915/post-verification-after-repair.json": "b0acfe733da322a6b9e5937c84ae41efadfa985cacb1a29d880fbe0dfc2b2a13",
+    "artifacts/chiado-settlement-review-20260915/independent-follower.json": "8ba95b485223e6a30c3b158d48185b63152b3e00a9a848c673d6958bece7c58f",
+    "artifacts/chiado-settlement-review-20260915/independent-follower-after-repair.json": "1c29a82abc065cb27de51ea575290d9efa6cfaff49f1453d7b781c5229538015",
+    "artifacts/chiado-settlement-review-20260915/beacon-repair.json": "aea1866f5aac18c432064b5429225541bd35260f418254ddec834f48ce39109f",
+    "artifacts/chiado-settlement-review-20260915/beacon-repair-observation.json": "31ab578fbe209059a707925a0a46d0fe162144223f4e9af34b5517426b174f42",
+    "artifacts/chiado-settlement-review-20260915/arrival-comparison.json": "bb0ea3b7836049cc7612bdb5db0b9e45977c43769d08386e06144276df271fd4",
+    "artifacts/chiado-settlement-review-20260915/cross-chain-outcomes.json": "2b7096a659f451df1366be849cd04abe285b615e82fa62ff26dc30ad54373d4e",
+    "artifacts/chiado-settlement-review-20260915/queue-after-repair.json": "b50bb3184bb9c862e53316b810157590cabf7b80eda443123f6364eb37a0bd1e",
+    "artifacts/chiado-settlement-review-20260915/ci-unit-tests.log": "4e4717137cd6d134b138536a3aa46ffafd30a620bd8ec3b94d9a0471a3398692",
+    "artifacts/chiado-settlement-review-20260915/beacon-block-mesh.log": "48fa64f52429420e85bf51c59936e19fdb6d08d7d9365c819df925b9a0ebcace",
+    "artifacts/chiado-settlement-review-20260915/mounted-config-files.txt": "71cc02c762cb6df79f40647f9ef361672308273c94213d4e64cb33db0fedb515",
+    "artifacts/chiado-settlement-review-20260915/beacon-repair-startup.log": "6891678cd4b3928ec5183ee9dff95cb885e25e247b7d8236e85794477d30cc8f",
+    "artifacts/chiado-settlement-review-20260915/discv5-after-repair.log": "0ce970affe1440f88ac39d29cb251a79a6e3b94d036827ca3b89dcf5073284df"
+  },
+  "updatedAt": "2026-09-15T11:07:43.811888+00:00",
+  "discoveryFollowup": {
+    "officialEnrsMatch": true,
+    "canonicalConfigMatches": true,
+    "builtinProfileUsable": false,
+    "builtinFuluEpoch": "18446744073709551615",
+    "activeFuluEpoch": 1353216,
+    "versionDowngradeImprovedDiscovery": false,
+    "removedSemiSupernodeImprovedDiscovery": false,
+    "addressProbes": [
+      {
+        "profile": "automatic",
+        "connectedAtEnd": 0,
+        "discovery": {
+          "lookupRequests": 36,
+          "requestTimeouts": 32,
+          "sessionsEstablished": 33,
+          "noKnownClosestPeers": 0
+        }
+      },
+      {
+        "profile": "advertised",
+        "connectedAtEnd": 3,
+        "discovery": {
+          "lookupRequests": 6804,
+          "requestTimeouts": 898,
+          "sessionsEstablished": 1263,
+          "noKnownClosestPeers": 0
+        }
+      }
+    ],
+    "liveObservation": {
+      "from": "2026-09-15T10:58:21.688737+00:00",
+      "through": "2026-09-15T11:03:21.784224+00:00",
+      "samples": 31,
+      "peersFrom": 3,
+      "peersTo": 5,
+      "syncDistances": {
+        "0": 23,
+        "1": 7,
+        "3": 1
+      },
+      "executionOnlineAllSamples": true,
+      "composerUnchanged": true,
+      "finalizedL2Preserved": {
+        "number": "0x1fec3",
+        "hash": "0x66d0b89a36de22263be295be24a9821c9aa797f28d21a6af1230959bdf19a21a",
+        "stateRoot": "0x5292dd0d64b78ee2a3810ed0246397e10f7fbfe02c2dc400ba0f699d91f8cf45"
+      }
+    },
+    "postAfterRecreation": {
+      "verified": true,
+      "recordedAt": "2026-09-15T11:03:08.680315+00:00",
+      "transactionHash": "0xe1bbfe7226ebc3e51a84608306d2a8a86a8ac0e4d0ccd1e2eea525cc10b95ddb",
+      "l1Block": 23067525,
+      "beaconSlot": 24814772,
+      "blobCount": 1,
+      "coveredL2Blocks": 135,
+      "firstL2": 132636,
+      "lastL2": 132770,
+      "verifierSha256": "39165bfe05b59a56cf91c92074a4f92e2025b5e28df66749302f7de09cdd6986",
+      "queue": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1789470157040,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0xa17a7e03684d1975cadc0c64a23b462ecd2c930db39b52192f47565d2a70b4a0",
+            "number": 23067525
+          },
+          "observedAtMs": 1789470162000
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0x64e5bff317adb035c94cbcc6cf2728e0bc4ac58648b58511257de814c4e228c0",
+            "number": 23067524
+          },
+          "l2": {
+            "hash": "0x5a94fe6480c81b090b3797a78d47b26122c48ddeff83e655c49309f0814449d7",
+            "number": 132769
+          }
+        },
+        "unknown": 0
+      }
+    },
+    "invalidDistanceExamples": [
+      {
+        "bootnode": "57.129.70.222",
+        "requestedDistances": [
+          254,
+          255,
+          253
+        ],
+        "returnedDistance": 256,
+        "timestamp": "2026-09-15 10:52:46"
+      },
+      {
+        "bootnode": "57.128.252.123",
+        "requestedDistances": [
+          253,
+          254,
+          252
+        ],
+        "returnedDistance": 255,
+        "timestamp": "2026-09-15 10:52:46"
+      },
+      {
+        "bootnode": "54.39.148.98",
+        "requestedDistances": [
+          254,
+          255,
+          253
+        ],
+        "returnedDistance": 256,
+        "timestamp": "2026-09-15 10:52:46"
+      },
+      {
+        "bootnode": "51.75.246.2",
+        "requestedDistances": [
+          254,
+          255,
+          253
+        ],
+        "returnedDistance": 256,
+        "timestamp": "2026-09-15 10:54:16"
+      }
+    ],
+    "evidenceSha256": {
+      "artifacts/lighthouse-version-comparison-20260915/comparison.json": "87bf91eccbabea9cdff0365560118e8278dd1757a7b137f8e4e1b9d26ff49a30",
+      "artifacts/chiado-upstream-peer-investigation-20260915/comparison.json": "0f61d97b6a737505371cba5395cb1fed946558651aa56e3e69019b94d49bcb4c",
+      "artifacts/chiado-builtin-profile-20260915/comparison-summary.json": "3406f6e30b7705b740a6915d6eb0b032c97181ee202df7aa87baccff4a796c38",
+      "artifacts/chiado-enr-address-comparison-20260915/comparison.json": "84882b26851ba507870b8d9917a1788f5e6f0a73ada180bab941799398b48a5b",
+      "artifacts/chiado-enr-address-comparison-20260915/analysis.json": "5ed33b38b4d58672023de4b6c9dbc151617a3fd007055a74390835773cfafafd",
+      "artifacts/chiado-enr-address-comparison-20260915/invalid-distance-evidence.json": "3ef31971ea0fc70d8a87846f1c6f22cbbaa19f05d1acc9690254c6b3d8935e4d",
+      "artifacts/chiado-enr-address-comparison-20260915/live-beacon-deployment.json": "cf0fbf1757e289ec2f1de9541c993b4d03ce27ea7f5c8e3f50ad015c9b7f02e9",
+      "artifacts/chiado-enr-address-comparison-20260915/live-observation.json": "2ced1a04bd13a9bda320b75d55ff155b2dc5e47c8ebc0fa8d9a83a3267ee8803",
+      "artifacts/chiado-enr-address-comparison-20260915/live-correctness.json": "7b8c05408e2efd06e7e9ba159127ee5eb695badd9e19534945be2712885bbed5",
+      "artifacts/chiado-enr-address-comparison-20260915/default-argv-compatibility.json": "a0682839ef801f882bfd899c1753c15556cca83a7d6caa1c0739b1b526701dd9",
+      "artifacts/chiado-enr-address-comparison-20260915/invalid-enr-port.json": "7a36a8c9785385687c4eb5164204c2b50789b3577cad2804fa16879259c84f0d",
+      "artifacts/chiado-enr-address-comparison-20260915/python-tests.log": "ee5ad0e3e99152b4350b04610e38740248c0b1b9dc8140315034d045897b874d",
+      "artifacts/chiado-enr-address-comparison-20260915/final-status.json": "973e6f4ac01c1cdf5339101b69a5a39532fd0a6d3862b3d0c35369b3ecc5618d"
+    },
+    "finalStatus": {
+      "at": "2026-09-15T11:08:17.990242+00:00",
+      "peerCount": {
+        "connected": "6",
+        "connecting": "0",
+        "disconnected": "1",
+        "disconnecting": "0"
+      },
+      "syncing": {
+        "is_syncing": false,
+        "is_optimistic": false,
+        "el_offline": false,
+        "head_slot": "24814839",
+        "sync_distance": "0"
+      },
+      "probeContainersRemaining": []
+    }
+  }
+}

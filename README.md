@@ -81,6 +81,24 @@ retained only as a compatibility fallback.
 > prints the RPC URLs. The numbered steps below are that same flow done by
 > hand.
 
+For the 770-job / 870-source staged performance workload against an existing
+Chiado deployment, configure `eez-core-protocol/chain.env` (or set
+`DEVNET_ENV` to its absolute path), then run:
+
+```bash
+bash scripts/run-chiado-staged-performance.sh --check # read-only readiness
+bash scripts/run-chiado-staged-performance.sh         # fund, prepare, send, monitor
+```
+
+The [helper](scripts/run-chiado-staged-performance.sh) uses the existing test
+wallets, locks the shared worker pool for the complete run, and defaults to
+`PREPARE_PARALLEL=200`, `FUND_ETH=0.005`, and `FLOOR_ETH=0.005`. It passes
+`--no-verify` before the 14 scenario targets, retaining upstream preparation
+and receipt monitoring while skipping semantic verification. The upstream run
+directory under `eez-core-protocol/tmp/e2e-staged-net/` contains its phase and
+job timings. The reported faucet reserve includes refundable funds and is not
+the expected cost. Do not start another upstream network runner concurrently.
+
 ### One-time setup
 
 ```bash
@@ -99,12 +117,31 @@ docker run --rm -v "$PWD/data/chiado-l1:/data" \
 # 3. Shared engine-API JWT for eez-node <-> lighthouse.
 openssl rand -hex 32 > data/jwt.hex
 
-# 4. Current Chiado consensus config (including the activated Fulu epoch).
-git clone https://github.com/gnosischain/configs.git /tmp/gnosis-configs
-mkdir -p configs && cp -r /tmp/gnosis-configs/chiado configs/chiado
+# 4. Use the checked-in Chiado config, including the activated Fulu epoch
+# and Lighthouse's bootstrap_nodes.yaml alias. To refresh it from Gnosis:
+# git clone https://github.com/gnosischain/configs.git /tmp/gnosis-configs
+# cp -a /tmp/gnosis-configs/chiado/. configs/chiado/
+# ln -sfn bootnodes.yaml configs/chiado/bootstrap_nodes.yaml
 
 # 5. Fund the operator/poster keys with xDAI (https://faucet.chiadochain.net).
 ```
+
+The custom directory is required with the pinned Lighthouse v8.1.3: its built-in
+Chiado profile leaves Fulu disabled. The checked-in chain parameters and
+`bootnodes.yaml` come from [Gnosis's Chiado configuration](https://github.com/gnosischain/configs/tree/main/chiado).
+Lighthouse reads the seeds through the `bootstrap_nodes.yaml` alias; the other
+execution-client files in that snapshot are not used by this beacon. Bootnodes
+introduce peers through UDP discovery. The direct TCP endpoints in Compose
+supplement that discovery and do not restrict it to those peers.
+
+If discovery stalls and `/eth/v1/node/identity` advertises no public `ip`/`udp`,
+set `LH_ENR_ADDRESS` and `LH_ENR_UDP_PORT` in `.env.chiado` to the host's public
+address and mapped discovery port (9205 for the packaged stack). Both are
+optional; unset or empty values preserve automatic advertisement. These settings
+do not configure port forwarding. Recreate only the beacon with
+`docker compose --env-file .env.chiado -f docker-compose.chiado-node.yml up -d --no-deps lighthouse`.
+Verify discovery finds additional peers and the beacon stays synchronized;
+an HTTP response alone does not establish network health.
 
 ### Deploy the protocol (once, against a fully-synced chiado RPC)
 

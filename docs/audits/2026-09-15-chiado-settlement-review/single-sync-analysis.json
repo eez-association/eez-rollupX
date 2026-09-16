@@ -1,0 +1,280 @@
+{
+  "scope": "Read-only explanation of observed splitting and an additional admission constraint; no merged-batch simulation or runtime change.",
+  "observed": {
+    "availablePreparationMs": [
+      494,
+      496,
+      496,
+      495,
+      494
+    ],
+    "actualPreparationMs": [
+      209,
+      194,
+      237,
+      246,
+      188
+    ],
+    "selected": [
+      30,
+      3,
+      24,
+      10,
+      4
+    ],
+    "accepted": [
+      3,
+      3,
+      10,
+      10,
+      4
+    ],
+    "cutConstraints": [
+      "preparation_time",
+      "preparation_time"
+    ]
+  },
+  "additionalGasConstraint": {
+    "inboundCount": 17,
+    "sumDeclaredCompanionGas": 17000000,
+    "sumReceiptCompanionGas": 2672889,
+    "sumMeasuredPostGasAcrossFivePosts": 10966699,
+    "sumMeasuredBundleGasAcrossFivePosts": 13639588,
+    "includedL1BlockGasLimits": [
+      17033216,
+      17049849,
+      17066498,
+      17083163,
+      17099844
+    ],
+    "minimumPostProjectionAndMargin": 1151000,
+    "absoluteMinimumPlannerGasForAll17Companions": 18151000,
+    "actualMergedBatchGas": null,
+    "comment": "Pre-admission sums signed companion gas limits; final simulation uses actual cumulative gas and checks each next transaction against remaining block gas. This additional guard did not cause the two observed preparation_time cuts."
+  },
+  "data": {
+    "sumEncodedBytesAcrossFivePosts": 110789,
+    "usableBytesPerBlob": 126976,
+    "usableBytesAcrossTwoBlobs": 253952,
+    "actualMergedEncodingBytes": null
+  },
+  "sources": [
+    {
+      "hash": "0x89f45deea34cd106ab8acd44adec859d0a9ed8b731c48f462fe10d5c64a3055f",
+      "job": "flash-loan-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 503083
+    },
+    {
+      "hash": "0x2ba20eefac9506c9bebe6aa0dc7c189ca2273b4c23f396e97249e97fa49b4beb",
+      "job": "multi-call-nested-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 238036
+    },
+    {
+      "hash": "0x7f525415011b2a313fa3115bb92bd56a8a7b6a68f68607f4ee42965bbac46be7",
+      "job": "nestedCallRevert-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 105200
+    },
+    {
+      "hash": "0x5423a4a8d12769ff204267899f4f3c4155acf2d3912d0883afa291e2757e70ec",
+      "job": "multi-call-two-diff-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 137182
+    },
+    {
+      "hash": "0x01d370241e95320acc4f69ad29e5098b495866184ae9743ef6d9bedf3c979e50",
+      "job": "nestedCounterL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 119818
+    },
+    {
+      "hash": "0x1855c2f3d5661cbdf527c113b92b36133a7a94e8d9dbef921d29c1b9376c684b",
+      "job": "revertCounter-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 134943
+    },
+    {
+      "hash": "0x0cdf95f674d8ad4edf96f24470e5bbd7164b1b43d2e7857581a8e170bd207353",
+      "job": "nestedStaticCounterL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 170617
+    },
+    {
+      "hash": "0x4fda721eb203e53e032adc28f1b20d64f95fc635d1a5dfd214296fad302237d1",
+      "job": "nestedStaticCounter-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 106095
+    },
+    {
+      "hash": "0x50275ebeae25d0fd17305f8d120122fdc7bd2168ebc0a0dbbb893cdd7dac6d52",
+      "job": "bridge-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 102257
+    },
+    {
+      "hash": "0x4c9a871eb8ae28b8411bb2967bb1946021d751ca5a7bf0a89c3b962f9983eac9",
+      "job": "reentrant-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 163213
+    },
+    {
+      "hash": "0xe89986662ce1961e133ee4861e40b33d5ca80490a0d03563c98b9a02e53de05c",
+      "job": "topLevelStaticCounter-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 107759
+    },
+    {
+      "hash": "0xaaa67ebbf2195b0de58bc9b9376c9920798e57b2ae56123c9730a8775dbe3f07",
+      "job": "counter-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 132938
+    },
+    {
+      "hash": "0xec54189e481a63fe063829a6aca64c2f25c73acebb564629cfba0d6fcaae11c3",
+      "job": "revertFromOtherChainAndCallAgainL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 170573
+    },
+    {
+      "hash": "0x0ca256cd8b96f21ff147780c406913c21a2661f33866d1b270f84148b5ee7816",
+      "job": "multi-call-two-diffL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 116608
+    },
+    {
+      "hash": "0x38d255ada4ccb316c5d823db8a1d1c6db181bb2888642129cbffbf8ed9c4a493",
+      "job": "bridgeL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 102408
+    },
+    {
+      "hash": "0x1ea3ebae243ff901ea8dd34f946af59053a019d03a05e4f0b276f8ccee5aaaef",
+      "job": "deepNested-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 180536
+    },
+    {
+      "hash": "0xa046e2a7e77313a700f4edf0b22350963a5fc946513081b3c7b0f720462d2577",
+      "job": "multi-call-twice-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 132268
+    },
+    {
+      "hash": "0xe9e2233b2feeb763b89abecc1b6e3620377eba67944d3772ef939a50eb288c53",
+      "job": "counterL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 128801
+    },
+    {
+      "hash": "0x31761ff38b814553bd948ca4e339b8bfc2fde75ef1cd454f638fa0fe683240c8",
+      "job": "revertCounterL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 134132
+    },
+    {
+      "hash": "0xe4c4c667a75391c85b322821848ea9ec3a80de070acb7a8225fbc59445078870",
+      "job": "staticCounterL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 97979
+    },
+    {
+      "hash": "0xbdd659c470fc08a6cb8fd748aa25db75b8f53be4a3ead385381aff8baf75ef03",
+      "job": "nestedCallRevertL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 98600
+    },
+    {
+      "hash": "0x799f361e316dd44b56058fde8ffff3722cb2d478068f80f6aae69cca972c4f99",
+      "job": "multi-call-nestedL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 193351
+    },
+    {
+      "hash": "0xaeb425f249211f8a9dac1fb6d012c036db95f9f74017c95c7cd09c99bccabf13",
+      "job": "nestedCounter-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 123968
+    },
+    {
+      "hash": "0xce018fd29120a9a0ec4ad357e56b23a2379dc9fbe45a2322e36e693c5aab4918",
+      "job": "revertFromOtherChainNested-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 170726
+    },
+    {
+      "hash": "0xf2641c0b845a2a470dce5d5b22873e4e730111c7bf8138f0e6e061cb7966911f",
+      "job": "multi-call-twiceL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 111694
+    },
+    {
+      "hash": "0x7b9d21a309c6b17471aeff501cde8e3df50c587b22c24b17bf9c5259e46470e8",
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 132938
+    },
+    {
+      "hash": "0x8cc816a75e0ae3a4461b5d448de40a40d3d05f29122f9000d860ecbbe47ae96f",
+      "job": "revertFromOtherChainL2-1",
+      "chain": "L2",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 90148
+    },
+    {
+      "hash": "0x73c917de6ce3b0c1cc638d039bbb5ca7ad91434e490c4b90c3bcc7291d4ef074",
+      "job": "revertFromOtherChain-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 174997
+    },
+    {
+      "hash": "0x6e6fb457f41c7d51d9ac7bd42b66b35f2ad0461e1bd24a1dbad83188d60b8fd5",
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 98738
+    },
+    {
+      "hash": "0x520ab98792ce4a1e22e5a71d9c16e6a87fee61d6a40d1c153f6540c5c52cbcde",
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "declaredGas": 1000000,
+      "receiptGasUsed": 98738
+    }
+  ],
+  "code": {
+    "quadraticTail": "crates/eez-composer/src/composer/admission.rs:34",
+    "backoff": "crates/eez-composer/src/composer/admission.rs:120",
+    "declaredGasSum": "crates/eez-composer/src/composer.rs:431",
+    "orderedSimulation": "crates/eez-composer/src/composer/posting.rs:506",
+    "orderedSimulationRegression": "crates/eez-composer/src/composer/posting.rs:832"
+  }
+}
