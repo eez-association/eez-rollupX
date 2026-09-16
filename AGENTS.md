@@ -13,19 +13,40 @@ the repository root. Keep detailed procedures in the linked documents.
   diff and its interaction with that target; do not assume `main` is the target
   or replace fork behavior simply to match upstream files.
 - Treat `eez-core-protocol` as a pinned upstream dependency. Check its gitlink
-  and working tree before protocol or E2E work. Preserve local changes. Change
-  the dependency only when the task includes that scope, and validate consumers
-  and independent compatibility tests at the new pin.
+  and working tree before protocol or E2E work. Read its documentation and code
+  at that pin, including in a worktree with an uninitialized submodule; do not
+  substitute upstream `main`. Preserve local changes. Change the dependency
+  only when the task includes that scope, and validate downstream compatibility.
 - Place shared behavior with its lifecycle owner. Keep roles and required
   dependencies explicit; add abstractions and public APIs for real callers.
 
+## Specifications
+
+For protocol semantics, start with the pinned `eez-core-protocol` specifications,
+then read the fork's integration requirements. Select the relevant material:
+
+| Area | Sources |
+| --- | --- |
+| Execution, ABI, and cross-chain entries | [Core protocol](eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md), [execution entries](eez-core-protocol/docs/EXECUTION_ENTRY_SPEC.md), [static/reverted calls](eez-core-protocol/docs/STATIC_ENTRY.md), and [caveats](eez-core-protocol/docs/CAVEATS.md) |
+| Proof verification and public inputs | [Multi-prover specification](eez-core-protocol/docs/MULTI_PROVER_SPEC.md), checked against the pinned contract implementations |
+| Native blob encoding | [Blob format](eez-core-protocol/docs/blobs/BLOB_FORMAT_SPEC.md) and [blob/table tools](eez-core-protocol/script/blob/README.md) |
+| Fork request construction and verification | [Composer/prover specification](crates/eez-control-rpc/SPEC.md), [signer specification](crates/eez-proof-signer/SPEC.md), and [signer contributor guide](crates/eez-proof-signer/CONTRIBUTING.md) |
+
+Cross-check the relevant specifications against the pinned Solidity interfaces,
+implementations, and tests. The fork's signer profile intentionally supports
+less than the complete protocol; upstream support alone does not justify
+relaxing its checks. Resolve disagreements explicitly across code, tests, and
+specifications.
+
 ## Code Review Rules
 
-- For protocol changes, read the [Composer/prover specification](crates/eez-control-rpc/SPEC.md)
-  and [signer specification](crates/eez-proof-signer/SPEC.md). Preserve block-hash
-  commitments, native blob DA, grouped/nested call semantics, and the binding
-  of proving and submission to the same L1 target unless the task explicitly
-  changes those contracts.
+- Preserve block-hash commitments, native blob DA, grouped/nested call semantics,
+  and the binding of proving and submission to the same L1 target unless the
+  task explicitly changes those contracts.
+- For ABI, hashing, or encoding changes, trace all affected producers and
+  consumers: Solidity, shared Rust types/codecs, Composer, signer, and
+  deriver/follower. Update compatibility vectors and affected specifications
+  together; a local encoder/decoder round trip alone cannot prove compatibility.
 - For settlement or queue work, also read the [settlement policy](docs/configurable-settlement-policy.md)
   and [queue requirements](docs/proposals/cross-chain-queue-liveness.md). Preserve
   policy-disabled behavior; distinguish scheduling triggers from gas, DA, and
@@ -52,6 +73,32 @@ the repository root. Keep detailed procedures in the linked documents.
 - Write comments and docs about current behavior and rationale. Update affected
   specifications and operator examples when their contract changes.
 
+## Proposals and audits
+
+- For substantial design or behavior changes, create or update
+  `docs/proposals/<topic>.md` before implementation. Record status, date, source
+  baseline, problem, scope/non-goals, invariants, design/tradeoffs, failure and
+  recovery behavior, and acceptance checks. Distinguish draft ideas from accepted
+  requirements; a draft containing `MUST` is not an adopted contract. Use the
+  task's existing authorization; writing a proposal creates no extra approval gate.
+- For investigations, substantial validation, or operational changes, record
+  evidence in `docs/audits/YYYY-MM-DD-<topic>/README.md`. Include source and
+  protocol revisions, relevant uncommitted changes, tested binary/image identity,
+  environment/configuration, exact commands, results, evidence locations, and
+  limitations. Separate observed facts, reproduced behavior, and hypotheses;
+  reproducing a possible failure path does not prove it caused a past incident.
+- Link proposals, implementation/coverage records, and audits in both directions.
+  Map important requirements to production paths, checks, and results. Use small
+  machine-readable evidence summaries when useful; retain sanitized reproduction
+  inputs and diagnostics without committing databases or bulk logs.
+- Keep intended design, implementation, validation, and deployment status
+  distinct. Preserve dated findings and failed checks; add dated corrections or
+  links to superseding evidence. Older results do not validate later changes.
+- Maintain current behavior and operator instructions in `docs/<topic>.md` or
+  the relevant crate specification/README. Link supporting proposals and audits
+  instead of duplicating their history. Small fixes and documentation edits can
+  update existing records without creating a proposal and audit pair.
+
 ## Validation
 
 - Choose checks from [CI](.github/workflows/ci.yml) and its reusable workflows.
@@ -62,8 +109,9 @@ the repository root. Keep detailed procedures in the linked documents.
   for the devnet. `make test` is not all CI.
 - For behavior changes, use regressions that exercise production code and would
   fail without the fix. Cover changed process/RPC boundary semantics with
-  cross-process evidence. Keep compatibility oracles independent. Documentation
-  changes need relevant documentation checks, not new runtime tests.
+  cross-process evidence. Keep compatibility oracles independent. Confirm the
+  intended tests actually ran; zero selected tests or ignored-only runs do not
+  validate the change. Documentation edits need no new runtime tests.
 - Rejection tests must establish that the request reached the intended component
   and assert the specific error or state transition. Lack of success, a timeout,
   or logs alone do not establish correct rejection.
@@ -74,8 +122,8 @@ the repository root. Keep detailed procedures in the linked documents.
 - Run process-spawning suites serially unless their harness proves isolation.
   Retain first-failure diagnostics and report retry-only passes as flakes.
   Match tested executable/artifact identities to the source being evaluated.
-- Report exact commands, results, relevant skips, and evidence paths. Distinguish
-  static, unit/mocked, embedded, cross-process, and live evidence. Report whether
+- Summarize checks and relevant skips, linking the audit when present. Distinguish
+  static, unit, mocked, embedded, cross-process, and live evidence. Report whether
   semantic assertions ran; receipt success and throughput alone do not establish
   all intended effects or independent follower agreement. The
   [staged Chiado runner](scripts/run-chiado-staged-performance.sh) uses
