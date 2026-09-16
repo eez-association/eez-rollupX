@@ -25,8 +25,8 @@ Edit `.env`:
   proof-signer, and L2-system keys. Proof/system keys must differ; keep the poster
   separate from the proof signer. Fund the poster with test xDAI; it also deploys
   unless you set and fund a separate `EEZ_DEPLOY_KEY`.
-- Verify `EEZ_L1_BUILDER_RPC_URL` supports `eth_sendBundle`. Keep the default
-  `COMPOSE_FILE`, paths, Beacon URL, and `eip7594`. Compose loads `.env` automatically.
+- Keep the other defaults. If you change `EEZ_L1_BUILDER_RPC_URL`, use a Chiado
+  builder supporting `eth_sendBundle`. Startup probes the builder automatically.
 
 The three EEZ images default to `:latest`. Docker downloads images automatically;
 Compose can update `latest` on startup. To keep a fixed deployment, set all three
