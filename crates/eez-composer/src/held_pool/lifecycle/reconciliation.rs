@@ -58,7 +58,7 @@ fn receipt(value: &CanonicalSourceReceipt) -> schema::ReceiptRef {
     }
 }
 
-fn outcome(value: TerminalReason) -> schema::Outcome {
+pub(super) fn outcome(value: TerminalReason) -> schema::Outcome {
     match value {
         TerminalReason::Committed => schema::Outcome::Committed,
         TerminalReason::SourceReverted => schema::Outcome::SourceReverted,
@@ -374,10 +374,9 @@ impl HeldPool {
         if !is_canonical() {
             return Err("canonical settlement changed before ownership transfer".into());
         }
-        let before = state
-            .lifecycle
-            .as_ref()
-            .and_then(|_| state.ledger.read(|ledger| Before::capture(ledger, id)));
+        let before = (state.lifecycle.is_some() || state.telemetry.native_enabled())
+            .then(|| state.ledger.read(|ledger| Before::capture(ledger, id)))
+            .flatten();
         let gaps = state
             .ledger
             .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
@@ -405,10 +404,30 @@ impl HeldPool {
                                 && *nonce >= gap.nonce
                         })
                     })
-                    .map(|(hash, _, _, _)| (hash, schema::Outcome::NonceGap)),
+                    .map(|(hash, _, direction, _)| (hash, schema::Outcome::NonceGap, direction)),
             )
         };
         state.apply_resolution(&gaps);
+        let mut terminal_metrics = Vec::new();
+        let metric_gap = state.telemetry.native_enabled() && matches!(&before, Some(Err(_)));
+        if let Some(Ok(before)) = &before {
+            state.ledger.read(|ledger| {
+                for (hash, owner, previous) in &before.users {
+                    if let Some(user) = ledger.users.get(hash)
+                        && user.owner == *owner
+                        && user.location != *previous
+                        && let UserLocation::Terminal { reason, .. } = user.location
+                        && let Some(observation) = state.telemetry.native_terminal(
+                            *hash,
+                            user.tx.direction,
+                            outcome(reason),
+                        )
+                    {
+                        terminal_metrics.push(observation);
+                    }
+                }
+            });
+        }
         let pending = before.and_then(|before| {
             state.lifecycle.as_ref().and_then(|lifecycle| {
                 state
@@ -420,6 +439,12 @@ impl HeldPool {
         let ledger = std::sync::Arc::clone(&state.ledger);
         state.telemetry.observe_completion(&ledger);
         drop(state);
+        for observation in terminal_metrics {
+            observation.publish();
+        }
+        if metric_gap {
+            eez_telemetry::operational::terminal_capture_gap(CaptureFailure::Limit);
+        }
         if let Some(pending) = pending {
             pending.publish();
         }

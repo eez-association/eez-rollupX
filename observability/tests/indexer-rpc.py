@@ -9,12 +9,15 @@ import time
 
 POST_CALL = pathlib.Path('/post-calldata.hex').read_text().strip()
 MULTI_ROLLUP_CALL = pathlib.Path('/multi-rollup-post-calldata.hex').read_text().strip()
+BLOB_FIXTURES = json.loads(pathlib.Path('/blob-carriers.json').read_text())
 
 def digest(number):
     return '0x' + f'{number:064x}'
 
 
 class RPC(http.server.BaseHTTPRequestHandler):
+    blob_mode = 'disabled'
+    blob_requests = 0
     multi_rollup = False
     protocol_logs = 'missing'
     phase = 'missing'
@@ -40,10 +43,42 @@ class RPC(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_GET(self):
+        if self.path == '/fixture/blob-requests':
+            self.send({'requests': self.blob_requests})
+            return
+        if self.path == '/eth/v1/beacon/genesis':
+            self.send({'data': {'genesis_time': '100'}})
+            return
+        if self.path == '/eth/v1/config/spec':
+            self.send({'data': {'SECONDS_PER_SLOT': '5'}})
+            return
+        if self.path in ('/eth/v1/beacon/blobs/2', '/eth/v1/beacon/blob_sidecars/2'):
+            with self.lock:
+                type(self).blob_requests += 1
+                mode = self.blob_mode
+            legacy = '/blob_sidecars/' in self.path
+            status = 410 if mode == 'pruned' else 404 if mode in ('disabled', 'unavailable', 'missing_metadata') or (mode == 'legacy' and not legacy) else 200
+            if status != 200:
+                self.send_response(status)
+                self.end_headers()
+                return
+            blobs = [blob for fixture in BLOB_FIXTURES for blob in fixture['blobs']]
+            commitments = [commitment for fixture in BLOB_FIXTURES for commitment in fixture['commitments']]
+            if mode == 'corrupt':
+                blobs[0] = blobs[0][:-2] + ('01' if blobs[0][-2:] != '01' else '02')
+            self.send({'data': [{'blob':blob,'kzg_commitment':commitment} for blob,commitment in zip(blobs,commitments)] if legacy else blobs})
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/control':
             with self.lock:
+                if 'blob_mode' in request:
+                    assert request['blob_mode'] in ('disabled','valid','legacy','unavailable','pruned','corrupt','missing_metadata')
+                    type(self).blob_mode = request['blob_mode']
                 if 'protocol_logs' in request:
                     assert request['protocol_logs'] in ('missing','valid','malformed','conflict','third','limit')
                     type(self).protocol_logs = request['protocol_logs']
@@ -69,6 +104,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
             return
         chain = 1 if self.path == '/l1' else 2
         with self.lock:
+            blob_mode = self.blob_mode
             protocol_logs = self.protocol_logs
             post_call = MULTI_ROLLUP_CALL if self.multi_rollup else POST_CALL
             phase, finalize = self.phase, self.finalize
@@ -80,9 +116,14 @@ class RPC(http.server.BaseHTTPRequestHandler):
         def block_hash(height):
             return digest(chain * 100 + height + (10 if fork and height >= 2 else 0))
         def transaction(height, index=0):
-            return {'hash': digest(chain * 1000 + height + index), 'blockHash': block_hash(height),
+            carrier = BLOB_FIXTURES[index % len(BLOB_FIXTURES)] if blob_mode != 'disabled' and chain == 1 and height == 2 else None
+            selected_call = carrier['calldata'] if carrier else post_call
+            tx = {'hash': digest(chain * 1000 + height + index), 'blockHash': block_hash(height),
                 'blockNumber': hex(height), 'transactionIndex': hex(index), 'from': '0x' + ('cc' if source_unselected and chain == 1 and height == 2 else 'aa') * 20,
-                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1 + index), 'type': '0x3' if height == 2 else '0x2', 'input': (post_call[:10] if phase == 'invalid_post' else post_call + '00' * 32 if phase == 'unverified_post' else post_call) if height == 2 else '0x12345678'}
+                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1 + index), 'type': '0x3' if height == 2 else '0x2', 'input': (selected_call[:10] if phase == 'invalid_post' else selected_call + '00' * 32 if phase == 'unverified_post' else selected_call) if height == 2 else '0x12345678'}
+            if carrier and blob_mode != 'missing_metadata':
+                tx['blobVersionedHashes'] = carrier['blob_hashes']
+            return tx
         method, params = request['method'], request['params']
         if method == 'eth_chainId':
             value = hex(chain + (10 if phase == 'wrong_identity' else 0))
@@ -129,7 +170,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 if phase == 'wrong_type' and height == 2:
                     value['type'] = '0x2'
                 if height == 2:
-                    value.update(blobGasUsed=hex(131072), blobGasPrice='0x3')
+                    value.update(blobGasUsed=hex(131072 * (len(BLOB_FIXTURES[index % len(BLOB_FIXTURES)]['blobs']) if blob_mode != 'disabled' and chain == 1 else 1)), blobGasPrice='0x3')
                     if chain == 1 and source_cost_missing:
                         value.pop('blobGasPrice')
                 if protocol_logs != 'missing':

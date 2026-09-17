@@ -204,11 +204,12 @@ impl super::PoolState {
         source: SourceState,
         blocked: Option<BlockReason>,
     ) -> Option<Pending> {
-        let lifecycle = self.lifecycle.as_mut()?;
         if !self.by_hash.contains(&hash) && !self.in_flight.contains_key(&hash) {
             return None;
         }
-        lifecycle.readiness(hash, source, blocked)
+        self.telemetry
+            .native_readiness(hash, source, blocked.is_none());
+        self.lifecycle.as_mut()?.readiness(hash, source, blocked)
     }
 }
 

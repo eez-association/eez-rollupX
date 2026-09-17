@@ -89,10 +89,13 @@ impl RequestTiming {
 
 #[tonic::async_trait]
 impl Prover for ProveSvc {
-    #[tracing::instrument(
-        name = "prove",
-        skip_all,
-        fields(
+    async fn prove(
+        &self,
+        request: Request<Streaming<ProveChunk>>,
+    ) -> Result<Response<ProveResponse>, Status> {
+        let span = tracing::info_span!(target: "eez_trace", "prove",
+            otel.kind = "server",
+            trace_id = tracing::field::Empty,
             request_id = next_request_id(),
             peer_addr = ?request.remote_addr(),
             validator = self.state.validator.label(),
@@ -101,9 +104,15 @@ impl Prover for ProveSvc {
             declared_from_block = tracing::field::Empty,
             declared_to_block = tracing::field::Empty,
             declared_blocks = tracing::field::Empty,
-        )
-    )]
-    async fn prove(
+        );
+        eez_telemetry::traces::attach_remote_parent(&span, request.metadata());
+        eez_telemetry::traces::record_trace_id(&span);
+        tracing::Instrument::instrument(self.prove_request(request), span).await
+    }
+}
+
+impl ProveSvc {
+    async fn prove_request(
         &self,
         request: Request<Streaming<ProveChunk>>,
     ) -> Result<Response<ProveResponse>, Status> {

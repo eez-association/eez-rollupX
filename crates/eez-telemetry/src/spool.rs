@@ -243,6 +243,8 @@ impl Publisher {
         if ticket.epoch != self.shared.epoch {
             return false;
         }
+        #[cfg(feature = "traces")]
+        let trace = trace.or_else(crate::traces::current);
         let payload = Payload {
             observed_at_unix_ms: ticket.observed_at,
             trace,

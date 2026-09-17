@@ -48,3 +48,18 @@ addresses remain diagnostic fields, as allowed by the proposal.
 signature or real request. The RPC fixture uses it to distinguish decoded posting
 calls from other methods, invalid calldata and noncanonical trailing data. A Rust
 test verifies it still matches the protocol encoder.
+
+
+`blob-carriers.json` is synthetic public data for the isolated Beacon/RPC fixture.
+It contains a one-blob and a two-blob current-ABI carrier with zero-valued operation
+payloads, exact stream lengths, physical blobs and KZG content identifiers. It is
+not a valid proof, broadcast transaction or captured live workload. Reproduce with:
+
+```bash
+cargo +1.94.0 run --locked -p eez-observer --example blob-fixture \
+  > observability/tests/fixtures/blob-carriers.json
+```
+
+SHA-256: `820293de4c9f628efda1fe2ab75bab6a8b4c81d8cb50a4596bf7f0b46b0d5caf`.
+The Beacon fixture wraps the same bodies as full-blob and legacy sidecar responses;
+corruption/pruning and missing metadata are explicit fixture controls.

@@ -49,8 +49,9 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, Streaming};
 
+use crate::artifacts::FailureDatadir;
+pub use crate::ports::PortLease;
 pub use crate::signals::NodeSignal;
-use crate::{artifacts::FailureDatadir, ports::PortLease};
 
 /// Anvil's first default account (mnemonic `test test test test test test test test test test test junk`).
 pub const ANVIL_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

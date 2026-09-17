@@ -5,6 +5,7 @@ mod attestation;
 mod golden;
 mod pipeline;
 mod runtime;
+mod trace_export;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
 use alloy_primitives::{B256, Bytes, Signature, U256, address, b256, keccak256};

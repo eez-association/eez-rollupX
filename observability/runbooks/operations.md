@@ -68,8 +68,10 @@ runtime config and admin-password file together with Grafana's data and the
 monitoring volumes. For consistent filesystem backups, stop this Compose
 project first or use storage snapshots with the backend's documented consistency
 requirements. Do not delete node data or reset the chain to recover monitoring.
-The integration test verifies container replacement with preserved volumes, not clean-host
-backup restoration; a live deployment still needs a measured restore drill.
+The [restore drill](restore.md) additionally verifies SQL/configuration and cold
+volume restoration into a fresh isolated project. Its measured fixture timings
+do not establish production recovery objectives; test off-host transfer and the
+actual deployment's dataset and keys before relying on a recovery target.
 
 Changing `secrets/grafana-admin-password` does not rotate an existing Grafana
 user's password: the environment bootstrap secret applies when its database is

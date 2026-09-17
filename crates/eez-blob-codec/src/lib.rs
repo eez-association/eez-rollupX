@@ -18,8 +18,8 @@ pub use limits::{BlobLimitError, BlobLimits};
 pub use transport::{
     BlobSidecarEncoding, BlobTransactionParams, MAX_BLOBS_PER_TRANSACTION, PreparedBlobSidecar,
     PreparedBlobTransaction, SignedBlobTransaction, TransportError, blob_kzg_commitments,
-    blob_versioned_hashes, pooled_blob_transaction_hash, prepare_blob_sidecar,
-    prepare_blob_sidecar_with_limit, prepare_blob_transaction,
+    blob_versioned_hashes, physical_blob_versioned_hash, pooled_blob_transaction_hash,
+    prepare_blob_sidecar, prepare_blob_sidecar_with_limit, prepare_blob_transaction,
     prepare_blob_transaction_with_sidecar, reprice_blob_transaction, sign_blob_transaction,
 };
 
@@ -239,6 +239,24 @@ pub fn encode(messages: &[Message]) -> Result<EncodedStream, Error> {
 
 /// Decode and validate the complete logical stream.
 pub fn decode(blob_portion: &[u8], call_data_tail: &[u8]) -> Result<Vec<Message>, Error> {
+    decode_with_blob_len(blob_portion, call_data_tail, true).map(|(messages, _)| messages)
+}
+
+/// Validate the entire stream and return its exact meaningful blob-byte length.
+///
+/// The length includes the version and `CloseBlobStream` marker, excludes field
+/// packing, zero padding and the calldata tail, and measures the original wire
+/// representation, without retaining decoded messages. Non-minimal varints are valid and must not be re-encoded to
+/// estimate this boundary. The whole stream, including the tail, must validate.
+pub fn validated_blob_len(blob_portion: &[u8], call_data_tail: &[u8]) -> Result<usize, Error> {
+    decode_with_blob_len(blob_portion, call_data_tail, false).map(|(_, length)| length)
+}
+
+fn decode_with_blob_len(
+    blob_portion: &[u8],
+    call_data_tail: &[u8],
+    retain_messages: bool,
+) -> Result<(Vec<Message>, usize), Error> {
     let Some((&version, _)) = blob_portion.split_first() else {
         return Err(Error::EmptyStream);
     };
@@ -246,16 +264,17 @@ pub fn decode(blob_portion: &[u8], call_data_tail: &[u8]) -> Result<Vec<Message>
         return Err(Error::UnknownProtocolVersion(version));
     }
 
-    let mut state = DecodeState::default();
+    let mut state = DecodeState {
+        retain_messages,
+        ..Default::default()
+    };
     decode_segment(&mut state, blob_portion, 1, Segment::Blob)?;
-    if !state.close_seen {
-        return Err(Error::CloseBlobStreamMissing);
-    }
+    let blob_len = state.close_end.ok_or(Error::CloseBlobStreamMissing)?;
     decode_segment(&mut state, call_data_tail, 0, Segment::CallData)?;
     if !state.context.is_empty() || !state.snapshot_depths.is_empty() {
         return Err(Error::UnclosedBracket);
     }
-    Ok(state.messages)
+    Ok((state.messages, blob_len))
 }
 
 /// Pack the unpadded blob portion into full-size serialized EIP-4844 blobs.
@@ -455,7 +474,8 @@ struct DecodeState {
     messages: Vec<Message>,
     context: Vec<u64>,
     snapshot_depths: Vec<usize>,
-    close_seen: bool,
+    close_end: Option<usize>,
+    retain_messages: bool,
 }
 
 fn decode_segment(
@@ -473,11 +493,13 @@ fn decode_segment(
             if matches!(kind, Segment::CallData) {
                 return Err(Error::CloseBlobStreamInCallData);
             }
-            if state.close_seen {
+            if state.close_end.is_some() {
                 return Err(Error::DuplicateCloseBlobStream);
             }
-            state.close_seen = true;
-            state.messages.push(Message::CloseBlobStream);
+            state.close_end = Some(position);
+            if state.retain_messages {
+                state.messages.push(Message::CloseBlobStream);
+            }
             if let Some(relative) = segment[position..].iter().position(|byte| *byte != 0) {
                 return Err(Error::NonZeroPadding {
                     offset: position + relative,
@@ -488,7 +510,9 @@ fn decode_segment(
 
         let message = decode_one(message_type, segment, &mut position)?;
         apply_message(state, &message)?;
-        state.messages.push(message);
+        if state.retain_messages {
+            state.messages.push(message);
+        }
     }
     Ok(())
 }
@@ -592,14 +616,12 @@ fn validate_messages(messages: &[Message]) -> Result<(), Error> {
             if in_tail {
                 return Err(Error::DuplicateCloseBlobStream);
             }
-            state.close_seen = true;
-            state.messages.push(message.clone());
             in_tail = true;
             continue;
         }
         apply_message(&mut state, message)?;
     }
-    if !state.close_seen {
+    if !in_tail {
         return Err(Error::CloseBlobStreamMissing);
     }
     if !state.context.is_empty() || !state.snapshot_depths.is_empty() {
@@ -1009,5 +1031,81 @@ mod tests {
         }
         messages.push(Message::CloseBlobStream);
         assert_eq!(encode(&messages), Err(Error::DepthLimitExceeded));
+    }
+    #[test]
+    fn exact_blob_boundary_preserves_nonminimal_lengths_and_zero_payloads() {
+        // ChainOperation(chain=7, operations=[0,0]); the two-byte length is
+        // legal per pinned spec §5.8 and differs from the honest encoder.
+        let stream = alloy_primitives::hex::decode("000207000000000000008200000001").unwrap();
+        let mut padded = stream.clone();
+        padded.resize(DATA_BYTES_PER_BLOB, 0);
+        let (messages, length) = decode_with_blob_len(&padded, &[], true).unwrap();
+        assert_eq!(length, stream.len());
+        assert_eq!(validated_blob_len(&padded, &[]).unwrap(), length);
+        assert_eq!(encode(&messages).unwrap().blob_portion.len(), length - 1);
+        assert_eq!(messages, decode(&padded, &[]).unwrap());
+        padded[length] = 2;
+        assert!(matches!(
+            decode_with_blob_len(&padded, &[], true),
+            Err(Error::NonZeroPadding { .. })
+        ));
+    }
+
+    #[test]
+    fn exact_boundary_crosses_blobs_and_excludes_validated_calldata_tail() {
+        for size in [
+            0,
+            30,
+            DATA_BYTES_PER_BLOB - 12,
+            DATA_BYTES_PER_BLOB,
+            2 * DATA_BYTES_PER_BLOB,
+        ] {
+            let messages = vec![
+                Message::ChainOperation {
+                    chain_id: 7,
+                    operations: vec![0; size].into(),
+                },
+                Message::CloseBlobStream,
+                Message::ChainOperation {
+                    chain_id: 8,
+                    operations: vec![0; 31].into(),
+                },
+            ];
+            let encoded = encode(&messages).unwrap();
+            let blobs = pack(&encoded.blob_portion).unwrap();
+            let stream = unpack(&blobs).unwrap();
+            let (decoded, length) =
+                decode_with_blob_len(&stream, &encoded.call_data_tail, true).unwrap();
+            assert_eq!(decoded, messages);
+            assert_eq!(length, encoded.blob_portion.len());
+            assert_eq!(
+                validated_blob_len(&stream, &encoded.call_data_tail).unwrap(),
+                length
+            );
+            assert!(validated_blob_len(&stream, &[1]).is_err());
+        }
+        assert_eq!(validated_blob_len(&[0, 1, 0, 0], &[]).unwrap(), 2);
+        assert!(matches!(
+            validated_blob_len(&[1, 1], &[]),
+            Err(Error::UnknownProtocolVersion(1))
+        ));
+        assert!(matches!(
+            validated_blob_len(&[0], &[]),
+            Err(Error::CloseBlobStreamMissing)
+        ));
+    }
+    #[test]
+    fn measurement_does_not_retain_an_unbounded_list_of_small_messages() {
+        let mut stream = vec![PROTOCOL_VERSION, 3];
+        stream.extend_from_slice(&7u64.to_le_bytes());
+        stream.push(0); // empty transaction data
+        for _ in 0..100_000 {
+            stream.extend_from_slice(&[8, 9]);
+        }
+        stream.extend_from_slice(&[10, 1]);
+        let (messages, length) = decode_with_blob_len(&stream, &[], false).unwrap();
+        assert!(messages.is_empty());
+        assert_eq!(length, stream.len());
+        assert_eq!(validated_blob_len(&stream, &[]).unwrap(), stream.len());
     }
 }

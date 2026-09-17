@@ -10,7 +10,7 @@ use crate::{
     database::{Database, DatabaseConfig},
 };
 use alloy_primitives::B256;
-use eez_telemetry::schema::{Direction, Event, Payload, Source};
+use eez_telemetry::schema::{Direction, Source};
 use serde_json::json;
 use std::time::Duration;
 
@@ -21,6 +21,7 @@ pub struct Status {
     chains: [ChainStatus; 2],
     identity_errors: i64,
     pending_admissions: i64,
+    pending_references: i64,
 }
 #[derive(Debug, Clone, Default)]
 struct ChainStatus {
@@ -112,6 +113,12 @@ pub fn render(state: Option<&Status>, now: u64) -> String {
             result,
             "eez_observer_source_receipt_pending_admissions {}",
             state.pending_admissions
+        )
+        .unwrap();
+        writeln!(
+            result,
+            "eez_observer_source_receipt_pending_references {}",
+            state.pending_references
         )
         .unwrap();
     }
@@ -283,7 +290,8 @@ async fn cycle(config: &Config, rpc: &Rpc, mut state: Status) -> Result<Status, 
     state.error = None;
     state.last_projection = Some(crate::now_ms());
     state.pending_admissions=db.client.query_one("SELECT count(*) FROM eez.lifecycle_events e WHERE e.source_id=ANY($1) AND e.state='complete' AND e.payload->'event'->>'event'='admitted' AND NOT EXISTS(SELECT FROM eez.lifecycle_source_links link WHERE link.source_id=e.source_id AND link.epoch=e.epoch AND link.sequence=e.sequence AND link.context_l1=$2 AND link.context_l2=$3 AND link.source=e.payload->'event'->'source')", &[&source_ids,&chains[0],&chains[1]]).bounded().await?.try_get(0)?;
-    state.identity_errors=db.client.query_one("SELECT count(*) FROM eez.lifecycle_source_links link JOIN eez.lifecycle_events event USING(source_id,epoch,sequence) WHERE link.source_id=ANY($1) AND link.context_l1=$2 AND link.context_l2=$3 AND link.state='identity_mismatch' AND event.state='complete' AND link.source=event.payload->'event'->'source'",&[&source_ids,&chains[0],&chains[1]]).bounded().await?.try_get(0)?;
+    state.pending_references=db.client.query_one("SELECT count(*) FROM eez.lifecycle_declared_sources e WHERE e.source_id=ANY($1) AND NOT EXISTS(SELECT FROM eez.lifecycle_source_links link WHERE link.source_id=e.source_id AND link.epoch=e.epoch AND link.sequence=e.sequence AND link.context_l1=$2 AND link.context_l2=$3 AND link.source=e.source)", &[&source_ids,&chains[0],&chains[1]]).bounded().await?.try_get(0)?;
+    state.identity_errors=db.client.query_one("SELECT count(*) FROM eez.lifecycle_source_link_status link WHERE link.source_id=ANY($1) AND link.context_l1=$2 AND link.context_l2=$3 AND link.state='identity_mismatch'",&[&source_ids,&chains[0],&chains[1]]).bounded().await?.try_get(0)?;
     Ok(state)
 }
 
@@ -314,7 +322,7 @@ async fn collect_chain(
     rpc.validate_identity(endpoint).await?;
     // Prefer missing/gapped receipts after a reorg or provider recovery;
     // retain one fair recheck lane for already complete observations.
-    let rows=db.client.query("WITH candidates AS (SELECT request.transaction_hash,request.last_attempt_at,NOT EXISTS(SELECT FROM eez.canonical_receipt_facts r WHERE r.chain_instance_id=request.chain_instance_id AND r.transaction_hash=request.transaction_hash AND r.accounting_gap IS NULL) AS pending FROM eez.source_receipt_requests request WHERE request.chain_instance_id=$1 AND EXISTS(SELECT FROM eez.lifecycle_source_admissions a WHERE a.chain_instance_id=request.chain_instance_id AND a.transaction_hash=request.transaction_hash)) (SELECT transaction_hash::bytea FROM candidates WHERE pending ORDER BY last_attempt_at,transaction_hash LIMIT 31) UNION ALL (SELECT transaction_hash::bytea FROM candidates WHERE NOT pending ORDER BY last_attempt_at,transaction_hash LIMIT 1)",&[&chain]).bounded().await?;
+    let rows=db.client.query("WITH candidates AS (SELECT request.transaction_hash,request.last_attempt_at,NOT EXISTS(SELECT FROM eez.canonical_receipt_facts r WHERE r.chain_instance_id=request.chain_instance_id AND r.transaction_hash=request.transaction_hash AND r.accounting_gap IS NULL) AS pending FROM eez.source_receipt_requests request WHERE request.chain_instance_id=$1 AND EXISTS(SELECT FROM eez.lifecycle_source_references a WHERE a.chain_instance_id=request.chain_instance_id AND a.transaction_hash=request.transaction_hash)) (SELECT transaction_hash::bytea FROM candidates WHERE pending ORDER BY last_attempt_at,transaction_hash LIMIT 31) UNION ALL (SELECT transaction_hash::bytea FROM candidates WHERE NOT pending ORDER BY last_attempt_at,transaction_hash LIMIT 1)",&[&chain]).bounded().await?;
     for row in rows {
         let hash = decode_hash(row.try_get(0)?)?;
         db.client.execute("UPDATE eez.source_receipt_requests SET last_attempt_at=now() WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea",&[&chain,&hash.as_slice()]).bounded().await?;
@@ -341,18 +349,15 @@ async fn project(
     source_id: i64,
     chains: [i64; 2],
 ) -> Result<(), Error> {
-    // An admitted event has only fixed-size fields. Other event kinds, notably
-    // large manifests, are not fetched by this projection.
-    let rows=db.client.query("SELECT e.epoch::bytea,e.sequence::text,e.payload::text,e.payload->'event'->'source' FROM eez.lifecycle_events e WHERE e.source_id=$1 AND e.state='complete' AND e.payload->'event'->>'event'='admitted' AND NOT EXISTS(SELECT FROM eez.lifecycle_source_links link WHERE link.source_id=e.source_id AND link.epoch=e.epoch AND link.sequence=e.sequence AND link.context_l1=$2 AND link.context_l2=$3 AND link.source=e.payload->'event'->'source') ORDER BY e.epoch,e.sequence LIMIT 64",&[&source_id,&chains[0],&chains[1]]).bounded().await?;
+    // Return at most 64 distinct event/source objects, not their potentially
+    // large enclosing manifests. Repeated members share a single receipt link.
+    let rows=db.client.query("SELECT e.epoch::bytea,e.sequence::text,e.source FROM eez.lifecycle_declared_sources e WHERE e.source_id=$1 AND NOT EXISTS(SELECT FROM eez.lifecycle_source_links link WHERE link.source_id=e.source_id AND link.epoch=e.epoch AND link.sequence=e.sequence AND link.context_l1=$2 AND link.context_l2=$3 AND link.source=e.source) ORDER BY e.epoch,e.sequence,e.source LIMIT 64",&[&source_id,&chains[0],&chains[1]]).bounded().await?;
     for row in rows {
         let epoch: Vec<u8> = row.try_get(0)?;
         let sequence: String = row.try_get(1)?;
-        let raw: String = row.try_get(2)?;
-        let payload: Payload = serde_json::from_str(&raw).map_err(|_| Error::Inconsistent)?;
-        let Event::Admitted { source, .. } = payload.event else {
-            return Err(Error::Inconsistent);
-        };
-        let source_value: serde_json::Value = row.try_get(3)?;
+        let source_value: serde_json::Value = row.try_get(2)?;
+        let source: Source =
+            serde_json::from_value(source_value.clone()).map_err(|_| Error::Inconsistent)?;
         let chain = source_role(config, &source).map(|index| chains[index]);
         let state = if chain.is_some() {
             "linked"
@@ -360,10 +365,8 @@ async fn project(
             "identity_mismatch"
         };
         let transaction = db.client.transaction().bounded().await?;
-        let current=transaction.query_one("SELECT state,payload::text FROM eez.lifecycle_events WHERE source_id=$1 AND epoch=$2::bytea AND sequence=$3::text::numeric FOR SHARE",&[&source_id,&epoch,&sequence]).bounded().await?;
-        if current.try_get::<_, String>(0)? != "complete"
-            || current.try_get::<_, Option<String>>(1)?.as_deref() != Some(&raw)
-        {
+        let current=transaction.query_one("SELECT state='complete' AND EXISTS(SELECT FROM eez.lifecycle_event_sources(payload) source WHERE source=$4::jsonb) FROM eez.lifecycle_events WHERE source_id=$1 AND epoch=$2::bytea AND sequence=$3::text::numeric FOR SHARE",&[&source_id,&epoch,&sequence,&source_value]).bounded().await?;
+        if !current.try_get::<_, bool>(0)? {
             continue;
         }
         transaction.execute("INSERT INTO eez.lifecycle_source_links(source_id,epoch,sequence,state,chain_instance_id,transaction_hash,context_l1,context_l2,source) VALUES($1,$2::bytea,$3::text::numeric,$4,$5,$6::bytea,$7,$8,$9) ON CONFLICT DO NOTHING",&[&source_id,&epoch,&sequence,&state,&chain,&source.transaction_hash.0.as_slice(),&chains[0],&chains[1],&source_value]).bounded().await?;
@@ -519,6 +522,7 @@ mod tests {
             last_projection: Some(100_000),
             identity_errors: 9,
             pending_admissions: 10,
+            pending_references: 11,
             chains: [
                 ChainStatus {
                     last_success: Some(100_000),
@@ -538,6 +542,7 @@ mod tests {
         assert!(text.contains("eez_observer_source_receipt_lookup_errors{chain=\"l2\"} 8"));
         assert!(text.contains("eez_observer_source_receipt_identity_errors 9"));
         assert!(text.contains("eez_observer_source_receipt_pending_admissions 10"));
+        assert!(text.contains("eez_observer_source_receipt_pending_references 11"));
         for now in [190_001, 94_999] {
             let text = render(Some(&state), now);
             assert!(!text.contains("known_sources"));

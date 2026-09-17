@@ -21,8 +21,10 @@ use crate::{
     rpc::{Failure, Rpc},
 };
 
+pub mod blobs;
 mod ledger;
 pub mod lifecycle;
+pub mod outcomes;
 pub mod protocol_logs;
 mod settlements;
 pub mod source_receipts;
@@ -103,6 +105,8 @@ pub struct Config {
     pub batch_blocks: u64,
     #[serde(default)]
     pub lifecycle: Vec<lifecycle::SourceConfig>,
+    #[serde(default)]
+    pub blobs: Option<blobs::BlobConfig>,
 }
 fn batch_default() -> u64 {
     16
@@ -136,6 +140,12 @@ impl Config {
         self.l1.validate()?;
         self.l2.validate()?;
         lifecycle::validate_sources(self)?;
+        if let Some(blobs) = &self.blobs {
+            blobs.validate()?;
+            if self.l1.contracts.is_empty() {
+                return Err("blob collection requires configured L1 posting contracts");
+            }
+        }
         for value in [&self.environment, &self.deployment] {
             if value.is_empty()
                 || value.len() > 64
@@ -164,6 +174,7 @@ pub enum Error {
     SelectionChanged,
     SettlementFinality,
     SourceBudget,
+    OutcomeBudget,
     Inconsistent,
     ConflictingFact,
     Frozen,
@@ -178,6 +189,7 @@ impl Error {
             Self::SelectionChanged => "selection_changed",
             Self::SettlementFinality => "settled_l2_finality_contradiction",
             Self::SourceBudget => "source_receipt_budget_exhausted",
+            Self::OutcomeBudget => "native_outcome_budget_exhausted",
             Self::Inconsistent => "inconsistent_chain_facts",
             Self::ConflictingFact => "conflicting_fact",
             Self::Frozen => "finalized_contradiction_or_frozen",
@@ -324,6 +336,8 @@ pub struct RuntimeStatus {
     pub lifecycle: Vec<lifecycle::Status>,
     pub source_receipts: Option<source_receipts::Status>,
     pub protocol_logs: Option<protocol_logs::Status>,
+    pub outcomes: Option<outcomes::Status>,
+    pub blobs: Option<blobs::Status>,
 }
 pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
 
@@ -502,6 +516,8 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     lifecycle::once(config, status).await;
     source_receipts::poll(config, rpc, status).await;
     protocol_logs::poll(config, rpc, status).await;
+    outcomes::poll(config, status).await;
+    blobs::poll(config, rpc, status).await;
     l1.and(l2)
 }
 
@@ -525,7 +541,9 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
         settlements::run(&config, &rpc, &status),
         lifecycle::run(&config, &status),
         source_receipts::run(&config, &rpc, &status),
-        protocol_logs::run(&config, &rpc, &status)
+        protocol_logs::run(&config, &rpc, &status),
+        outcomes::run(&config, &status),
+        blobs::run(&config, &rpc, &status)
     );
 }
 

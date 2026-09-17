@@ -13,6 +13,9 @@ use serde_json::{Value, json};
 
 use super::{Direction, HeldPool, HeldTx, OptimisticallyIncluded, TerminalReason, UserLocation};
 
+mod native;
+use native::NativeQueue;
+
 /// Exact states used for readiness evaluation, independent of wall-clock age.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceState {
@@ -38,6 +41,7 @@ struct Blocked {
 
 #[derive(Default, Debug)]
 pub(super) struct QueueTelemetry {
+    native: Option<NativeQueue>,
     admitted_at: HashMap<B256, u64>,
     blocked: HashMap<(Address, Direction), Blocked>,
     ready: HashMap<B256, (SourceState, u64)>,
@@ -64,12 +68,23 @@ fn direction_name(direction: Direction) -> &'static str {
 }
 
 impl QueueTelemetry {
+    pub(super) fn new() -> Self {
+        Self {
+            native: eez_telemetry::operational::enabled().then(NativeQueue::default),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn has_admission(&self, hash: &B256) -> bool {
         self.admitted_at.contains_key(hash)
     }
 
     pub fn admitted(&mut self, hash: B256) {
         self.admitted_at.insert(hash, now_ms());
+        if let Some(native) = &mut self.native {
+            native.admitted_at.insert(hash, std::time::Instant::now());
+            native.ready.remove(&hash);
+        }
         self.ready.remove(&hash);
     }
 
@@ -85,6 +100,14 @@ impl QueueTelemetry {
                     || in_flight.contains_key(hash)
                     || data.users.contains_key(hash)
             });
+            if let Some(native) = &mut self.native {
+                native
+                    .admitted_at
+                    .retain(|hash, _| self.admitted_at.contains_key(hash));
+                native
+                    .ready
+                    .retain(|hash, _| queued.contains(hash) || in_flight.contains_key(hash));
+            }
             self.ready
                 .retain(|hash, _| queued.contains(hash) || in_flight.contains_key(hash));
             self.blocked.retain(|_, blocked| {
@@ -124,6 +147,11 @@ impl QueueTelemetry {
         }
         self.current = None;
         self.ready.clear();
+        if let Some(native) = &mut self.native {
+            native.current = None;
+            native.evaluated_at = None;
+            native.ready.clear();
+        }
     }
 }
 
@@ -132,6 +160,10 @@ impl HeldPool {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.telemetry.current = Some(source);
         state.telemetry.evaluated_at_ms = Some(now_ms());
+        if let Some(native) = &mut state.telemetry.native {
+            native.current = Some(source);
+            native.evaluated_at = Some(std::time::Instant::now());
+        }
     }
 
     pub(crate) fn record_blocked(
@@ -287,6 +319,14 @@ impl HeldPool {
                     "sourceState": b.source.json(), "current": Some(b.source) == state.telemetry.current}))}))
         })
     }
+}
+
+/// Recorder publication always follows release of the protocol state owner.
+pub(super) fn publish_native_admission(direction: Direction) {
+    eez_telemetry::operational::admitted(match direction {
+        Direction::Inbound => eez_telemetry::schema::Direction::Inbound,
+        Direction::Outbound => eez_telemetry::schema::Direction::Outbound,
+    });
 }
 
 #[cfg(test)]

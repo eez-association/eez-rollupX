@@ -1,0 +1,103 @@
+# Optional native trace pilot
+
+Tracing is disabled unless the native `EEZ_TELEMETRY_CONFIG` JSON contains
+`traces`. The same `identity` supplies service, instance, environment and deployment
+resource attributes; applications do not add these identities to metric labels.
+`prepare.py` accepts this optional section on each `native_processes` entry and
+copies it into the generated native file:
+
+```json
+{
+  "traces": {
+    "receiver": "127.0.0.1:14318",
+    "sample_ratio": 0.1,
+    "queue_capacity": 2048,
+    "export_timeout_ms": 1000
+  }
+}
+```
+
+This is a configuration fragment. The receiver is an explicit IP and nonzero port
+for a private OTLP/HTTP endpoint; export always uses `/v1/traces`. Non-loopback
+addresses require `allow_non_loopback: true`. No endpoint credentials, arbitrary
+headers, proxy environment, redirects, or `OTEL_*` configuration are consumed by
+this exporter. The root sampling ratio is required and must be finite in `[0,1]`;
+parent sampling decisions propagate. The value is an operator pilot choice, not
+an already calibrated production default. Queue capacity defaults to 2048 and
+must be 1–16384. Export timeout defaults to 1000 ms and must be 1–2000 ms.
+
+Composer/follower add a filtered layer through the pinned Reth CLI application's
+existing tracing-layer hook. Its existing stdout/file layers remain installed.
+Native tracing plus Reth's separate `--tracing-otlp` exporter fails configuration
+validation because two OpenTelemetry span layers would make propagation
+ambiguous. The standalone signer adds the same layer beside its existing JSON
+logging layer. `RUST_LOG` controls those logs independently; only explicitly
+instrumented `eez_trace` spans are exported. Diagnostic log events and arbitrary
+error messages are not copied into trace events.
+
+The finite span chain is preparation → proving episode → numbered retry attempt
+→ prover client → signer RPC. W3C `traceparent`/`tracestate` metadata is injected
+on each complete new gRPC request. The signer extracts it before consuming the
+stream and sets the remote parent **before entering** its span; the pinned bridge
+materializes parent identity on entry. Invalid, duplicate or oversized metadata
+is ignored and counted without changing RPC admission, payload validation,
+statuses or deadlines. Baggage is never propagated. No protobuf, calldata,
+signed envelope, proof or consensus commitment changes.
+
+Each captured preparation links finite source-reference spans carrying the exact
+admission epoch/sequence and source chain/genesis/rollup/hash/direction. Links are
+bounded to 128 and overflow is visible. These are observations at preparation,
+not invented admission-to-finality durations. Existing lifecycle records receive
+optional current trace/span IDs on publication, while their delivery remains
+independent of sampling. SQL admission/attempt identities and canonical receipts
+remain usable without any trace; an absent, sampled-out or expired trace is not
+missing accounting.
+
+## Bounds and health
+
+The exporter has one dedicated thread, a bounded nonblocking channel, batches of
+at most 128 spans and no application-side retry queue. SDK limits are 32
+attributes, zero events, 128 links and four attributes per link per span. Callers
+use reviewed finite span names and bounded fields. The worker handles encoding,
+HTTP and bounded protobuf responses, and counts collector partial rejection.
+Failures do not change protocol work or prevent startup. The optional [Tempo/Alloy profile](../runbooks/traces.md) supplies separately
+bounded collector retries, seven-day retention and persistent trace storage.
+
+| Logical metric | Meaning |
+| --- | --- |
+| `eez_trace_export_enabled` | Export worker initialized; not collector health |
+| `eez_trace_sample_ratio` | Configured root sampling ratio |
+| `eez_trace_sampling_decisions_total{decision}` | `sampled` or `sampled_out` SDK decisions |
+| `eez_trace_exported_spans_total` | Collector accepted spans |
+| `eez_telemetry_dropped_events_total{signal="trace",reason}` | `queue_full`, `contention`, `shutdown`, `export_failure`, `collector_rejected`, `invalid_context`, or `link_limit` |
+
+Composer/follower use the existing `reth_` exposition prefix. Identifiers are
+trace/SQL fields, never metric labels. The invalid-context and link-limit
+categories count rejected context/link observations, not whole rejected RPCs.
+
+Shutdown is signaled after protocol draining. The guard accepts a known remaining
+application budget and waits at most `min(2 seconds, remaining / 4)`. Dropping it
+or passing zero performs no wait. The worker owns no Tokio blocking task whose
+join would extend runtime shutdown. Composer/follower use the pinned runner's default graceful duration and a
+launcher-drop timestamp that precedes its drain timer. They subtract all elapsed
+drain/teardown time before calling this guard; errors or missing/exhausted timing
+permit zero wait. The signer still exposes no finite total application deadline
+and passes zero after its existing idle drain. Signer budget integration remains
+an R24 acceptance gap. Trace export remains a pilot until the connected native devnet capture, actual
+retention expiry, clean-host recovery and workload performance gates have been
+exercised. Disposable backend tests cover ingestion, navigation, collector
+overload/outages and persistent storage across container replacement. Component and real gRPC evidence is
+recorded in [the validation report](../validation/tracing.md).
+
+## Mixed versions and rollback
+
+Existing native JSON without `traces` keeps tracing disabled. Upgrade binaries
+before adding the new field: older binaries deliberately reject unknown config
+fields. Remove `traces` before rolling those binaries back. W3C gRPC metadata is
+optional and older signers ignore it; a newer signer receiving no context starts
+a local trace. The protobuf and signed data are identical across these versions.
+Lifecycle v1 already defines optional trace/span IDs, so enabling them needs no
+transport or PostgreSQL schema migration. Metrics must be configured/scraped to
+observe exporter counters; generated native stack configurations include that
+endpoint. A hand-written trace-only file intentionally does not create a new
+metrics listener.

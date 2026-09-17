@@ -88,11 +88,7 @@ enum EmbeddedL1<Ethereum, Chiado> {
 pub fn run_composer() -> eyre::Result<()> {
     let mut cli = node_cli::<NoRoleArgs>()?;
     let telemetry = eez_node_common::telemetry::prepare(&mut cli, "eez-composer")?;
-    let result = cli.run(launch_composer);
-    // Reth owns the drain deadline. Once its runner returns there is no known
-    // remaining budget; signal telemetry shutdown without extending that drain.
-    telemetry.shutdown(std::time::Duration::ZERO);
-    result
+    telemetry.run(cli, launch_composer)
 }
 
 fn composer_proving_from_env() -> eyre::Result<ComposerProving> {
@@ -348,6 +344,19 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
+    if eez_telemetry::operational::enabled() {
+        let metrics_pool = Arc::clone(&held_pool);
+        // Owned by the node executor and cancelled with it. Sampling records only
+        // bounded snapshots; the held-pool owner releases its lock before export.
+        task_executor.spawn_task(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                metrics_pool.publish_native_queue_metrics();
+            }
+        });
+    }
 
     let attributes = EthAttributesBuilder::new(chain_spec.clone());
 

@@ -4,11 +4,12 @@ import argparse
 import hashlib
 import ipaddress
 import json
+import math
 import pathlib
 import re
 import secrets
 import shutil
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LABEL = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}\Z')
@@ -27,7 +28,7 @@ def native_configs(config):
     result, identities, targets = [], set(), set()
     for process in processes:
         required = {'service', 'instance', 'metrics_target', 'metrics_listen'}
-        if not isinstance(process, dict) or required - set(process) or set(process) - required - {'allow_non_loopback', 'lifecycle_directory'}:
+        if not isinstance(process, dict) or required - set(process) or set(process) - required - {'allow_non_loopback', 'lifecycle_directory', 'traces'}:
             raise ValueError('missing or unknown native process fields')
         service, instance = process['service'], process['instance']
         if service not in ('eez-composer', 'eez-follower', 'eez-proof-signer') or not isinstance(instance, str) or not LABEL.fullmatch(instance):
@@ -59,6 +60,29 @@ def native_configs(config):
             if not isinstance(spool, str) or not pathlib.PurePosixPath(spool).is_absolute() or any(c in spool for c in '\x00\n\r') or 'REPLACE' in spool:
                 raise ValueError('lifecycle_directory must be an explicit absolute node-host path')
             value['lifecycle'] = {'directory': spool}
+        if 'traces' in process:
+            traces = process['traces']
+            required_trace = {'receiver', 'sample_ratio'}
+            if not isinstance(traces, dict) or required_trace - set(traces) or set(traces) - required_trace - {'allow_non_loopback', 'queue_capacity', 'export_timeout_ms'}:
+                raise ValueError('missing or unknown native tracing fields')
+            try:
+                host, port = traces['receiver'].rsplit(':', 1)
+                address = ipaddress.ip_address(host.strip('[]'))
+                opt_in = traces.get('allow_non_loopback', False)
+                bracketed = host.startswith('[') and host.endswith(']')
+                if ((address.version == 6) != bracketed or not port.isdecimal() or type(opt_in) is not bool
+                        or not 0 < int(port) < 65536 or (not address.is_loopback and not opt_in)):
+                    raise ValueError('invalid tracing receiver')
+            except (ValueError, TypeError, AttributeError):
+                raise ValueError('native tracing receiver requires explicit IP:port and non-loopback opt-in') from None
+            ratio = traces['sample_ratio']
+            if type(ratio) not in (int, float) or not math.isfinite(ratio) or not 0 <= ratio <= 1:
+                raise ValueError('trace sample_ratio must be between zero and one')
+            for key, default, upper in [('queue_capacity', 2048, 16384), ('export_timeout_ms', 1000, 2000)]:
+                setting = traces.get(key, default)
+                if type(setting) is not int or not 1 <= setting <= upper:
+                    raise ValueError('native trace queue or timeout outside supported bounds')
+            value['traces'] = traces.copy()
         result.append((f'{service}-{instance}', target, value))
     return result
 
@@ -67,7 +91,7 @@ def validate(config):
     required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory',
                 'alert_webhook_url', 'heartbeat_webhook_url'}
     allowed = required | {'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
-                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port'}
+                          'probe_exporter_target', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port', 'traces_enabled', 'tempo_port', 'otlp_http_port', 'explorer_urls'}
     if set(config) - allowed or required - set(config):
         raise ValueError('missing or unknown stack configuration fields')
     for key in ('environment', 'deployment', 'observer_instance'):
@@ -106,6 +130,27 @@ def validate(config):
     path = pathlib.Path(config['log_directory']).resolve(strict=True)
     if not path.is_dir() or 'REPLACE' in str(path):
         raise ValueError('log_directory must be an existing dedicated directory')
+    if type(config.get('traces_enabled', False)) is not bool:
+        raise ValueError('traces_enabled must be boolean')
+    if not config.get('traces_enabled', False) and any(key in config for key in ('tempo_port', 'otlp_http_port')):
+        raise ValueError('trace ports require traces_enabled=true')
+    for key in ('tempo_port', 'otlp_http_port'):
+        if key in config and (type(config[key]) is not int or not 0 <= config[key] <= 65535):
+            raise ValueError('trace ports must be integers between zero and 65535')
+    explorers = config.get('explorer_urls', {})
+    if not isinstance(explorers, dict) or set(explorers) - {'l1', 'l2'}:
+        raise ValueError('explorer_urls must contain only l1/l2 base URLs')
+    for value in explorers.values():
+        if not isinstance(value, str):
+            raise ValueError('explorer URLs must be strings')
+        try:
+            parsed = urlsplit(value)
+            port = parsed.port
+            valid = isinstance(value, str) and parsed.scheme in ('http', 'https') and parsed.hostname and not (parsed.username or parsed.password or parsed.query or parsed.fragment) and not any(c.isspace() or c in '\x00$' for c in value) and (port is None or 0 < port < 65536) and 'REPLACE' not in value
+        except (ValueError, TypeError):
+            valid = False
+        if not valid:
+            raise ValueError('explorer URLs must be explicit HTTP(S) bases without credentials, query or fragment')
     native_configs(config)  # Validate all generated process configs before writing anything.
     return path
 
@@ -131,6 +176,9 @@ def prepare(config, runtime, *, fast_test=False):
     for job, target in [('prometheus', 'prometheus:9090'), ('grafana', 'grafana:3000'),
                         ('loki', 'loki:3100'), ('alloy', 'alloy:12345'), ('blackbox', 'blackbox:9115')]:
         scrape.append({'job_name': job, 'static_configs': [{'targets': [target], 'labels': {**labels, 'service': job}}]})
+    if config.get('traces_enabled', False):
+        for job, target in [('tempo', 'tempo:3200'), ('alloy-traces', 'alloy-traces:12345')]:
+            scrape.append({'job_name': job, 'static_configs': [{'targets': [target], 'labels': {**labels, 'service': job}}]})
     scrape.append({'job_name': 'eez-observer', 'static_configs': [{'targets': [config['observer_target']],
                    'labels': {**labels, 'service': 'eez-observer', 'instance': config['observer_instance']}}]})
     for name, target, native in native_configs(config):
@@ -158,12 +206,24 @@ def prepare(config, runtime, *, fast_test=False):
          'url': 'http://prometheus:9090', 'isDefault': True, 'editable': False, 'jsonData': {'httpMethod': 'POST', 'timeInterval': interval}},
         {'name': 'EEZ Logs', 'uid': 'eez-loki', 'type': 'loki', 'access': 'proxy',
          'url': 'http://loki:3100', 'editable': False}]
+    if config.get('traces_enabled', False):
+        datasources[1]['jsonData'] = {'derivedFields': [{
+            'name': 'TraceID', 'matcherRegex': r'"trace_id"\s*:\s*"([0-9a-f]{32})"',
+            'datasourceUid': 'eez-tempo', 'url': '$${__value.raw}',
+            'urlDisplayLabel': 'View trace (optional; may be unavailable)'}]}
+        datasources.append({'name': 'EEZ Traces', 'uid': 'eez-tempo', 'type': 'tempo', 'access': 'proxy',
+            'url': 'http://tempo:3200', 'editable': False, 'jsonData': {'httpMethod': 'GET',
+            'tracesToLogsV2': {'datasourceUid': 'eez-loki', 'spanStartTimeShift': '-1m', 'spanEndTimeShift': '1m',
+                'tags': [{'key': 'deployment.environment.name', 'value': 'environment'},
+                         {'key': 'eez.deployment', 'value': 'deployment'}],
+                'filterByTraceID': True, 'filterBySpanID': False}, 'nodeGraph': {'enabled': False}}})
     if config.get('database_enabled', False):
         prepare_database(config, runtime, datasources)
     write_json(provision / 'datasources/eez.yaml', {'apiVersion': 1, 'prune': True, 'datasources': datasources})
     write_json(provision / 'dashboards/eez.yaml', {'apiVersion': 1, 'providers': [{'name': 'eez', 'orgId': 1,
         'folder': 'EEZ', 'type': 'file', 'disableDeletion': False, 'updateIntervalSeconds': 10,
         'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards'}}]})
+    prepare_dashboards(config, runtime)
     alerts = alert_rules(config, fast_test=fast_test)
     # Grafana expands $ in provisioning values, including URLs. Escape literal dollars.
     literal = lambda value: value.replace('$', '$$')
@@ -204,7 +264,13 @@ loki.write "local" {
         alloy = alloy.replace(token, json.dumps(value))
     (runtime / 'alloy').mkdir(exist_ok=True)
     (runtime / 'alloy/config.alloy').write_text(alloy)
-    ports = {key: config.get(key, default) for key, default in [('grafana_port', 19300), ('prometheus_port', 19090), ('loki_port', 19310), ('postgres_port', 19432)]}
+    trace_config = runtime / 'alloy/traces.alloy'
+    if config.get('traces_enabled', False):
+        shutil.copyfile(ROOT / 'alloy/traces.alloy', trace_config)
+    elif trace_config.exists():
+        trace_config.unlink()
+
+    ports = {key: config.get(key, default) for key, default in [('grafana_port', 19300), ('prometheus_port', 19090), ('loki_port', 19310), ('postgres_port', 19432), ('tempo_port', 19320), ('otlp_http_port', 14318)]}
     environment = f'OBS_RUNTIME="{runtime}"\nOBS_LOG_DIR="{logs}"\n' + ''.join(f'{key.upper()}={value}\n' for key, value in ports.items())
     (runtime / 'compose.env').write_text(environment)
     (runtime / 'compose.env').chmod(0o600)
@@ -213,8 +279,55 @@ loki.write "local" {
         'native_processes': [name for name, _, _ in native_configs(config)],
         'probes_independent': (config.get('probe_exporter_target') or 'blackbox:9115') != 'blackbox:9115',
         'database_enabled': config.get('database_enabled', False),
+        'traces_enabled': config.get('traces_enabled', False),
         'node_metrics_configured': bool(config.get('node_exporter_target'))})
     return runtime
+
+
+def prepare_dashboards(config, runtime):
+    """Provision only supported profiles, with optional links from explicit config."""
+    destination = runtime / 'grafana/dashboards'
+    destination.mkdir(parents=True, exist_ok=True)
+    names = ['network.json', 'infrastructure.json']
+    if config.get('database_enabled', False):
+        names += ['cross-chain.json', 'settlement.json', 'blobs.json', 'gas.json']
+    # Delete only this generator's known dashboard files on profile downgrade.
+    for name in ['network.json', 'infrastructure.json', 'cross-chain.json', 'settlement.json', 'blobs.json', 'gas.json']:
+        path = destination / name
+        if name not in names and path.exists():
+            path.unlink()
+    explorers = config.get('explorer_urls', {})
+    for name in names:
+        dashboard = json.loads((ROOT / 'grafana/dashboards' / name).read_text())
+        for panel in dashboard['panels']:
+            if panel['title'].startswith('Request timeline'):
+                panes = {'logs': {'datasource': 'eez-loki', 'queries': [{'refId': 'A',
+                    'expr': '{environment="$environment",deployment="$deployment"} |= "$transaction"'}],
+                    'range': {'from': '$__from', 'to': '$__to'}}}
+                url = '/explore?schemaVersion=1&panes=' + quote(json.dumps(panes), safe='')
+                for token, replacement in {'environment': '${environment:percentencode}',
+                    'deployment': '${deployment:percentencode}', 'transaction': '${__value.raw}',
+                    '__from': '${__from}', '__to': '${__to}'}.items():
+                    url = url.replace('%24' + token, replacement)
+                for override in panel['fieldConfig']['overrides']:
+                    if override['matcher']['options'] == 'posting_transaction':
+                        override['properties'][0]['value'].append({'title': 'Diagnostic logs (may be unavailable)',
+                            'url': url, 'targetBlank': True})
+            for target in panel.get('targets', []):
+                if 'rawSql' not in target:
+                    continue
+                for chain in ('l1', 'l2'):
+                    base = explorers.get(chain)
+                    expression = "'" + base.rstrip('/').replace("'", "''") + "/tx/0x'||encode(r.transaction_hash,'hex')" if base else 'NULL::text'
+                    target['rawSql'] = target['rawSql'].replace('__EEZ_' + chain.upper() + '_EXPLORER_SQL__', expression)
+            if panel['title'].startswith('Receipt detail') and explorers:
+                panel['fieldConfig']['overrides'].append({'matcher': {'id': 'byName', 'options': 'explorer_url'},
+                    'properties': [{'id': 'links', 'value': [{'title': 'Canonical source-chain explorer', 'url': '${__value.raw}', 'targetBlank': True}]}]})
+            if panel['title'].startswith('Retained trace references') and config.get('traces_enabled', False):
+                panel['fieldConfig']['overrides'].append({'matcher': {'id': 'byName', 'options': 'trace_id'},
+                    'properties': [{'id': 'links', 'value': [{'title': 'Trace (optional; may be unavailable)',
+                        'url': '/explore?schemaVersion=1&panes={"trace":{"datasource":"eez-tempo","queries":[{"refId":"A","queryType":"traceId","query":"${__value.raw}"}]}}', 'targetBlank': True}]}]})
+        write_json(destination / name, dashboard)
 
 
 def prepare_database(config, runtime, datasources):
@@ -244,6 +357,7 @@ def prepare_database(config, runtime, datasources):
 
 
 def alert_rules(config, *, fast_test=False):
+    trace_window = '30s' if fast_test else '5m'
     labels = {'environment': config['environment'], 'deployment': config['deployment']}
     scope = ','.join(f'{k}="{v}"' for k, v in labels.items())
     observer = scope + f',job="eez-observer",instance="{config["observer_instance"]}"'
@@ -262,15 +376,30 @@ def alert_rules(config, *, fast_test=False):
         specs.append((f'eez-source-{source}', f'EEZCollectionUnavailable_{source}',
                       f'((1 - {metric}) or absent({metric})) and on(environment,deployment,job,instance) ({up} == 1)',
                       'OK', 'warning', f'{source} RPC collection failed or is stale. Check bounded error metrics; never treat missing data as zero.'))
-    for job in ['prometheus', 'grafana', 'loki', 'alloy', 'blackbox']:
+    backend_jobs = ['prometheus', 'grafana', 'loki', 'alloy', 'blackbox']
+    if config.get('traces_enabled', False):
+        backend_jobs += ['tempo', 'alloy-traces']
+    for job in backend_jobs:
         metric = f'up{{{scope},job="{job}"}}'
         specs.append((f'eez-backend-{job}', f'EEZBackendUnavailable_{job}', f'(1 - {metric}) or absent({metric})',
                       'Alerting', 'warning', f'{job} scrape failed. Check monitoring storage, process health and network.'))
+    if config.get('traces_enabled', False):
+        names = 'otelcol_exporter_enqueue_failed_spans_total|otelcol_exporter_send_failed_spans_total|otelcol_receiver_refused_spans_total'
+        failures = f'sum by(environment,deployment) (increase({{__name__=~"{names}",{scope},job="alloy-traces"}}[{trace_window}]))'
+        healthy = f'max by(environment,deployment) (up{{{scope},job="alloy-traces"}}) == 1'
+        specs.append(('eez-trace-loss', 'EEZTraceCollectionLoss', f'({failures}) and on(environment,deployment) ({healthy})',
+            'OK', 'warning', 'Trace collector rejected or failed spans. Counters can overlap; inspect queue, exporter and Tempo health. Receipt accounting is independent.'))
     for name, _, native in native_configs(config):
         metric = f'up{{{scope},job="{name}",instance="{native["identity"]["instance"]}"}}'
         uid = 'eez-native-' + hashlib.sha256(name.encode()).hexdigest()[:16]
         specs.append((uid, f'EEZNativeTelemetryUnavailable_{name}', f'(1 - {metric}) or absent({metric})',
                       'Alerting', 'warning', 'Configured native metrics are unavailable. Check the process, generated telemetry config, private listener and scrape path.'))
+        if native.get('traces') is not None:
+            prefix = '' if native['identity']['service'] == 'eez-proof-signer' else 'reth_'
+            failures = f'sum by(environment,deployment,job,instance) (increase({prefix}eez_telemetry_dropped_events_total{{{scope},job="{name}",signal="trace",reason=~"queue_full|contention|shutdown|export_failure|collector_rejected"}}[{trace_window}]))'
+            specs.append(('eez-trace-native-' + hashlib.sha256(name.encode()).hexdigest()[:16], f'EEZNativeTraceLoss_{name}',
+                f'({failures}) and on(environment,deployment,job,instance) ({metric} == 1)', 'OK', 'warning',
+                'Native trace exporter lost spans. Check the configured receiver, queue pressure and export timeout; lifecycle delivery is independent.'))
     for job, key in [('public-rpc', 'public_rpc_url'), ('signer-listener', 'signer_tcp_target')]:
         if config.get(key):
             metric = f'probe_success{{{scope},job="{job}"}}'

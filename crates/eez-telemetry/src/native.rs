@@ -46,6 +46,7 @@ pub struct Config {
     pub identity: Identity,
     pub metrics: Option<MetricsConfig>,
     pub lifecycle: Option<SpoolConfig>,
+    pub traces: Option<crate::traces::Config>,
 }
 
 impl Config {
@@ -84,8 +85,11 @@ impl Config {
         if let Some(lifecycle) = &self.lifecycle {
             lifecycle.validate()?;
         }
-        if self.metrics.is_none() && self.lifecycle.is_none() {
-            return Err("telemetry config must enable metrics or lifecycle");
+        if let Some(traces) = &self.traces {
+            traces.validate()?;
+        }
+        if self.metrics.is_none() && self.lifecycle.is_none() && self.traces.is_none() {
+            return Err("telemetry config must enable at least one signal");
         }
         Ok(())
     }
@@ -157,6 +161,9 @@ pub struct LifecycleGuard {
 
 impl LifecycleGuard {
     pub fn start(config: &Config) -> Self {
+        if config.metrics.is_some() {
+            crate::operational::enable();
+        }
         let Some(spool) = &config.lifecycle else {
             return Self::default();
         };
@@ -194,6 +201,35 @@ impl LifecycleGuard {
 mod tests {
     use super::*;
     use metrics_util::layers::{Layer, PrefixLayer};
+
+    #[test]
+    fn metrics_activation_is_independent_of_the_lifecycle_writer() {
+        // This is the only telemetry-unit test that enables the process flag.
+        // Pool tests use an instance-local helper in their separate test binary.
+        assert!(!crate::operational::enabled());
+        assert!(LifecycleGuard::default().shutdown(Duration::ZERO));
+        assert!(!crate::operational::enabled());
+        let directory = tempfile::tempdir().unwrap();
+        let mut config: Config = serde_json::from_value(serde_json::json!({
+            "identity": {"environment":"devnet", "deployment":"test", "service":"eez-composer", "instance":"metrics-test"},
+            "lifecycle": {"directory": directory.path().join("spool")}
+        })).unwrap();
+        config.validate("eez-composer").unwrap();
+        let lifecycle = LifecycleGuard::start(&config);
+        assert!(lifecycle.writer.is_some());
+        assert!(!crate::operational::enabled());
+        assert!(lifecycle.shutdown(Duration::from_secs(8)));
+        config.lifecycle = None;
+        config.metrics = Some(MetricsConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            allow_non_loopback: false,
+        });
+        config.validate("eez-composer").unwrap();
+        let metrics_only = LifecycleGuard::start(&config);
+        assert!(metrics_only.writer.is_none());
+        assert!(crate::operational::enabled());
+        assert!(metrics_only.shutdown(Duration::ZERO));
+    }
 
     #[tokio::test]
     async fn standalone_listener_exposes_metrics_and_rejects_duplicate_global_install() {
@@ -290,5 +326,31 @@ mod tests {
             Config::load(&path, "eez-composer").unwrap_err(),
             "invalid EEZ telemetry config"
         );
+    }
+    #[test]
+    fn trace_only_file_reaches_validated_native_config_with_explicit_sampling() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("trace.json");
+        let mut config = serde_json::json!({
+            "identity": {"environment":"devnet","deployment":"test","service":"eez-proof-signer","instance":"one"},
+            "traces": {"receiver":"127.0.0.1:4318", "sample_ratio":0.25}
+        });
+        std::fs::write(&path, config.to_string()).unwrap();
+        let parsed = Config::load(&path, "eez-proof-signer").unwrap();
+        assert!(parsed.metrics.is_none());
+        assert!(parsed.lifecycle.is_none());
+        let traces = parsed.traces.unwrap();
+        assert_eq!(traces.sample_ratio.to_bits(), 0.25_f64.to_bits());
+        assert_eq!(traces.queue_capacity, 2048);
+        assert_eq!(traces.export_timeout_ms, 1000);
+        for fields in [
+            serde_json::json!({"receiver":"127.0.0.1:4318"}),
+            serde_json::json!({"receiver":"127.0.0.1:4318","sample_ratio":2}),
+            serde_json::json!({"receiver":"127.0.0.1:4318","sample_ratio":1,"headers":{"secret":"redacted"}}),
+        ] {
+            config["traces"] = fields;
+            std::fs::write(&path, config.to_string()).unwrap();
+            assert!(Config::load(&path, "eez-proof-signer").is_err());
+        }
     }
 }

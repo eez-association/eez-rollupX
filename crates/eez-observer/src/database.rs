@@ -8,7 +8,7 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 13;
 const MIGRATIONS: &[(i32, &str)] = &[
     (
         1,
@@ -41,6 +41,26 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (
         8,
         include_str!("../../../observability/migrations/0008-admission-status.sql"),
+    ),
+    (
+        9,
+        include_str!("../../../observability/migrations/0009-source-references.sql"),
+    ),
+    (
+        10,
+        include_str!("../../../observability/migrations/0010-native-outcomes.sql"),
+    ),
+    (
+        11,
+        include_str!("../../../observability/migrations/0011-canonical-outcomes.sql"),
+    ),
+    (
+        12,
+        include_str!("../../../observability/migrations/0012-blobs.sql"),
+    ),
+    (
+        13,
+        include_str!("../../../observability/migrations/0013-dashboard-context.sql"),
     ),
 ];
 const CONFIG_LIMIT: u64 = 64 * 1024;
@@ -158,10 +178,13 @@ impl Database {
             client,
             connection: task,
         };
+        // These short, expanded evidence queries spend far more time in JIT
+        // compilation than execution. Keep interpreted execution within the same
+        // fixed deadlines; the schema also sets this for the packaged reader.
         // Set server-side deadlines as well as the connection timeout. If the
         // caller is cancelled, closing this dedicated connection rolls back its
         // transaction; no unbounded orphan query is left on the server.
-        tokio::time::timeout(Duration::from_secs(10), database.client.batch_execute("SET statement_timeout = '10s'; SET lock_timeout = '5s'; SET idle_in_transaction_session_timeout = '10s'; SET search_path = pg_catalog, eez;"))
+        tokio::time::timeout(Duration::from_secs(10), database.client.batch_execute("SET jit = off; SET statement_timeout = '10s'; SET lock_timeout = '5s'; SET idle_in_transaction_session_timeout = '10s'; SET search_path = pg_catalog, eez;"))
             .await.map_err(|_| "observer database session setup timed out")?
             .map_err(|_| "cannot configure observer database session")?;
         Ok(database)

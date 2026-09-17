@@ -118,7 +118,9 @@ fn chunks_for(ctx: &ProvingContext) -> Vec<ProveChunk> {
 
 #[async_trait]
 impl Prover for RemoteProver {
+    #[tracing::instrument(name = "prover_client", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", from_block = ctx.from_block, to_block = ctx.to_block, rollup_id = ctx.rollup_id))]
     async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
+        eez_telemetry::traces::record_trace_id(&tracing::Span::current());
         let chunks = chunks_for(&ctx);
         let n_blocks = chunks.len().saturating_sub(1);
 
@@ -132,8 +134,10 @@ impl Prover for RemoteProver {
             })?
             .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
             .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES);
+        let mut request = tonic::Request::new(tokio_stream::iter(chunks));
+        eez_telemetry::traces::inject(request.metadata_mut());
         let resp = client
-            .prove(tokio_stream::iter(chunks))
+            .prove(request)
             .await
             .map_err(|status| map_rpc_status(ctx.from_block, ctx.to_block, status))?
             .into_inner();

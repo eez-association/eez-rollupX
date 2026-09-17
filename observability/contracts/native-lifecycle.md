@@ -99,8 +99,11 @@ truncates membership, fabricates an admission or rejects the protocol attempt.
 The transport also enforces its independent 8 MiB encoded payload cap. These are
 telemetry limits, not new transaction or protocol admission limits.
 
-Native queue/stage metrics and trace context remain separate capture work. The transport schema names some of those events
-but their presence in the schema is not evidence that the runtime emits them.
+Native queue snapshots and preparation histograms have a separate
+[operational metric contract](native-metrics.md); they work independently of the
+lifecycle writer. Additional stage/terminal metrics and trace context retain their
+separate acceptance gates. A transport schema field alone does not establish that
+the runtime emits it.
 The observer's [transport history](lifecycle-ingestion.md) likewise does not
 establish protocol-success assurance without the required anchor/membership checks.
 

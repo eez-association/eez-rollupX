@@ -11,5 +11,6 @@
   "l1": {"bootstrap": 0, "wallets": ["REPLACE_WITH_POSTER_ADDRESS"], "contracts": ["REPLACE_WITH_ROLLUP_CONTRACT"]},
   "l2": {"bootstrap": 0, "include_all_transactions": true},
   "batch_blocks": 16,
-  "lifecycle": []
+  "lifecycle": [],
+  "blobs": null
 }

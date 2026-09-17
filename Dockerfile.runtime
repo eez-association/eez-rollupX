@@ -25,8 +25,10 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # Composer unit tests embed the Solidity gas pins at compile time.
 COPY contracts/test/PostBatchGasPins.t.sol ./contracts/test/PostBatchGasPins.t.sol
-# Observer tests embed the sanitized canonical audit; migrations are executable inputs.
-COPY observability/tests/fixtures/chiado-accounting-v1.json ./observability/tests/fixtures/chiado-accounting-v1.json
+# Observer unit archives embed these public fixtures and executable migrations.
+COPY observability/tests/fixtures/chiado-accounting-v1.json \
+     observability/tests/fixtures/empty-post-calldata.hex \
+     observability/tests/fixtures/multi-rollup-post-calldata.hex ./observability/tests/fixtures/
 COPY observability/migrations ./observability/migrations
 COPY .config/nextest.toml ./.config/nextest.toml
 COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh ./scripts/ci/

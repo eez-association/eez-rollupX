@@ -12,5 +12,6 @@
   "probe_exporter_target": "blackbox:9115",
   "grafana_port": 19300,
   "prometheus_port": 19090,
-  "loki_port": 19310
+  "loki_port": 19310,
+  "traces_enabled": false
 }

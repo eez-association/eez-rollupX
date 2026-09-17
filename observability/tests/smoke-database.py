@@ -13,6 +13,7 @@ import subprocess
 import time
 import uuid
 import sys
+import lifecycle_wire
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGES = json.loads((ROOT / 'images.lock.json').read_text())
@@ -59,14 +60,16 @@ def check_profile(binary, report):
             run(['docker','exec',name,'/observer','migrate','--database-config','/tmp/admin.json'])
             # Authenticate the actual provisioned reader over TCP; password is
             # read from its mounted secret, never sent as a command-line argument.
-            run(['docker','exec',name,'sh','-c',"export PGPASSWORD=\"$(cat /run/secrets/postgres_reader_password)\"; exec psql -XAtq -h 127.0.0.1 -U eez_observer_reader -d eez_observer -c 'SELECT count(*) FROM eez.canonical_receipts'"])
+            reader = run(['docker','exec',name,'sh','-c',"export PGPASSWORD=\"$(cat /run/secrets/postgres_reader_password)\"; exec psql -XAtq -h 127.0.0.1 -U eez_observer_reader -d eez_observer -c 'SELECT count(*) FROM eez.canonical_receipts' -c 'SHOW jit' -c 'SHOW statement_timeout' -c 'SHOW lock_timeout' -c 'SHOW idle_in_transaction_session_timeout'"])
+            assert reader.stdout.strip().splitlines()[-4:] == ['off','10s','5s','10s'], reader.stdout
+            report['checks'].append('fresh_authenticated_reader_sessions_disable_jit_and_bound_statement_lock_and_idle_transaction_times')
             run(['docker','restart',name])
             deadline = time.monotonic() + 30
             while run(['docker','exec',name,'pg_isready','-h','127.0.0.1','-U','postgres','-d','eez_observer'],check=False).returncode:
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '8'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '13'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -83,6 +86,7 @@ def main():
     parser.add_argument('--previous-v4-binary', type=pathlib.Path, help='Optional saved schema-v4 observer for populated lifecycle upgrade checks')
     parser.add_argument('--previous-v5-binary', type=pathlib.Path, help='Optional saved schema-v5 observer for receipt/log upgrade checks')
     parser.add_argument('--previous-v6-binary', type=pathlib.Path, help='Optional saved schema-v6 observer for verification-table upgrade checks')
+    parser.add_argument('--previous-v8-binary', type=pathlib.Path, help='Optional saved schema-v8 observer for source-reference upgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -105,7 +109,8 @@ def main():
              '--user', '65534', '--memory', '128m', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
              '--mount', f'type=bind,src={ROOT / "tests/indexer-rpc.py"},dst=/rpc.py,readonly',
              '--mount', f'type=bind,src={ROOT / "tests/fixtures/empty-post-calldata.hex"},dst=/post-calldata.hex,readonly',
-             '--mount', f'type=bind,src={ROOT / "tests/fixtures/multi-rollup-post-calldata.hex"},dst=/multi-rollup-post-calldata.hex,readonly', fixture_image, 'python3', '/rpc.py'])
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/multi-rollup-post-calldata.hex"},dst=/multi-rollup-post-calldata.hex,readonly',
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/blob-carriers.json"},dst=/blob-carriers.json,readonly', fixture_image, 'python3', '/rpc.py'])
         run(['docker', 'run', '--detach', '--rm', '--name', name, '--network', network, '--user', 'postgres',
              '--memory', '512m', '--cpus', '1', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
              '--env', 'POSTGRES_PASSWORD=fixture-only', '--env', 'POSTGRES_DB=eez_observer',
@@ -167,8 +172,23 @@ def main():
             assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.posting_analysis a JOIN eez.chain_instances c ON c.id=a.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='rollup-upgrade' AND a.state='decoded';").stdout.strip() == '2'
             run(prior_control,data=json.dumps({'multi_rollup':False}))
 
+        if args.previous_v8_binary:
+            run(['docker','cp',str(args.previous_v8_binary.resolve()),name + ':/observer-v8'])
+            run(['docker','exec',name,'/observer-v8','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '8'
+            run(psql,data="""INSERT INTO eez.lifecycle_sources(deployment_id,service,instance,directory) VALUES(1,'composer','source-upgrade','/source-upgrade');
+              INSERT INTO eez.lifecycle_epochs(source_id,epoch) SELECT id,decode(repeat('18',16),'hex') FROM eez.lifecycle_sources WHERE instance='source-upgrade';
+              INSERT INTO eez.lifecycle_events(source_id,epoch,sequence,chunk_count,state,payload)
+              SELECT id,decode(repeat('18',16),'hex'),1,1,'complete',jsonb_build_object('observed_at_unix_ms',1000,'trace',NULL,'event',jsonb_build_object('event','admitted','source',jsonb_build_object('chain_id',1,'genesis_hash',repeat('01',32),'rollup_id',0,'transaction_hash',repeat('02',32),'direction','inbound'),'previous',NULL,'replaced',NULL)) FROM eez.lifecycle_sources WHERE instance='source-upgrade';
+              INSERT INTO eez.lifecycle_source_links(source_id,epoch,sequence,context_l1,context_l2,source,state,chain_instance_id,transaction_hash)
+              SELECT source_id,epoch,sequence,1,1,payload#>'{event,source}','linked',1,decode(repeat('02',32),'hex') FROM eez.lifecycle_events WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-upgrade');""")
         run(migrate)
         run(migrate)
+        if args.previous_v8_binary:
+            assert run(['docker','exec',name,'/observer-v8','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_source_admissions WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-upgrade');").stdout.strip() == '1'
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_source_references WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-upgrade');").stdout.strip() == '1'
+            report['checks'].append('saved_v8_upgrade_preserves_actual_admission_links_and_refuses_downgrade')
         if args.previous_v6_binary:
             assert run(['docker','exec',name,'/observer-v6','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
             report['checks'].append('saved_v6_binary_upgrade_preserves_receipts_and_refuses_downgrade')
@@ -186,9 +206,20 @@ def main():
             report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_current_downgrade')
         report['checks'].append('explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown')
         report['checks'].append('explicit_migration_and_idempotent_reapplication')
+        reference_result = run(psql,data=(ROOT / 'tests/source-references.sql').read_text())
+        assert 'source reference extraction invariants passed' in reference_result.stdout
+        report['checks'].append('explicit_source_extraction_deduplicates_members_and_never_infers_missing_scope')
+        canonical_result = run(psql,data=(ROOT / 'tests/canonical-outcomes.sql').read_text())
+        assert 'canonical outcome invariants passed' in canonical_result.stdout
+        report['checks'].append('canonical_outcome_assurance_checks_independent_anchors_retracts_reorgs_conflicts_and_preserves_unknowns')
         admission_result = run(psql,data=(ROOT / 'tests/admission-status.sql').read_text())
         assert 'admission status invariants passed' in admission_result.stdout
         report['checks'].append('admission_status_restart_local_policy_parent_validation_conflicts_and_readmission_identity')
+        run(psql,data='SET ROLE eez_observer_reader; SELECT count(*) FROM eez.dashboard_chain_context;')
+        for table in ('deployments','chain_instances'):
+            denied=run(psql,data=f'SET ROLE eez_observer_reader; SELECT count(*) FROM eez.{table};',check=False)
+            assert denied.returncode != 0 and 'permission denied' in denied.stdout, denied.stdout
+        report['checks'].append('dashboard_chain_metadata_view_is_readable_without_raw_deployment_or_chain_access')
         run(psql, data="ALTER ROLE eez_observer_writer LOGIN PASSWORD 'fixture-writer';")
         writer = {**config, 'connection_string': config['connection_string'].replace('user=postgres', 'user=eez_observer_writer').replace('password=fixture-only', 'password=fixture-writer')}
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/writer.json'], data=json.dumps(writer))
@@ -516,20 +547,11 @@ def main():
         writer_process = subprocess.Popen([sys.executable,'-c',
             "import fcntl,sys,time; f=open(sys.argv[1],'r'); fcntl.flock(f,fcntl.LOCK_EX); print('ready',flush=True); time.sleep(3600)",str(lock_path)],stdout=subprocess.PIPE,text=True)
         assert writer_process.stdout.readline().strip() == 'ready'
-        def line(value):
-            return json.dumps(value,separators=(',',':')).encode() + b'\n'
+        line = lifecycle_wire.line
         def header(epoch_value=epoch, segment_value=segment):
-            return line({'record':'header','version':1,'identity':identity,'epoch':epoch_value,'segment_id':segment_value,
-                'process_id':123,'started_at_unix_ms':10000,'segment_created_at_unix_ms':10001})
+            return lifecycle_wire.header(identity, epoch_value, segment_value)
         def chunks(sequence, pieces=1, payload=None, epoch_value=epoch):
-            if payload is None:
-                payload = {'observed_at_unix_ms':10002,'trace':None,'event':{'event':'reorg','ancestor':{'number':1,'hash':'03' * 32}}}
-            encoded = json.dumps(payload,separators=(',',':')).encode()
-            step = (len(encoded) + pieces - 1) // pieces
-            parts = [encoded[offset:offset + step] for offset in range(0,len(encoded),step)]
-            return [line({'record':'data','version':1,'identity':identity,'epoch':epoch_value,'sequence':sequence,'chunk_index':i,
-                'chunk_count':len(parts),'payload_hex':part.hex(),'complete':i + 1 == len(parts),
-                'digest':hashlib.sha256(encoded).hexdigest() if i + 1 == len(parts) else None}) for i,part in enumerate(parts)]
+            return lifecycle_wire.chunks(identity, epoch_value, sequence, pieces, payload)
         def control_line(sequence, highest, epoch_value=epoch):
             return line({'record':'control','version':1,'identity':identity,'epoch':epoch_value,'control_sequence':sequence,
                 'observed_at_unix_ms':10003,'status':'active','stats':{'attempted_records':highest,'dropped_records':0,
@@ -775,6 +797,63 @@ def main():
         assert source_scalar('count(*)','canonical_receipt_facts') == '2'
         run(psql,data="SET ROLE eez_observer_reader; SELECT count(*) FROM eez.source_receipts; SELECT count(*) FROM eez.source_receipt_coverage; SELECT count(*) FROM eez.lifecycle_source_link_status;")
         report['checks'].append('source_receipt_dependencies_preserve_selection_and_fee_gaps_deduplicate_readmissions_verify_membership_and_retract_reorg_or_conflicted_links')
+        # Missing admissions do not prevent independently recovering receipt
+        # facts from later explicit members; none of these records create one.
+        references_dir=spool/'source-references';references_dir.mkdir(mode=0o755)
+        identity={**identity,'deployment':'source-references','instance':'references-node'}
+        references_epoch,references_segment='71'*16,'72'*16
+        scope_l1={'chain_id':1,'genesis_hash':f'{100:064x}','rollup_id':0}
+        scope_l2={'chain_id':2,'genesis_hash':f'{200:064x}','rollup_id':1}
+        def reference_member(tx_hash, outbound=False):
+            return {'source':{**(scope_l2 if outbound else scope_l1),'transaction_hash':f'{tx_hash:064x}',
+                'direction':'outbound' if outbound else 'inbound'},'admission':{'epoch':'70'*16,'sequence':1}}
+        member_in,member_out=reference_member(1002),reference_member(2002,True)
+        attempt={'epoch':references_epoch,'generation':1,'post_batch_hash':f'{1002:064x}'}
+        anchor={'number':2,'hash':f'{102:064x}'}
+        events=[
+            {'event':'readiness','member':member_in,'source_state':{'l1':anchor,'l2':anchor},'blocked':None},
+            {'event':'terminal','member':member_in,'attempt':None,'outcome':'pool_discarded','assurance':'local_policy','anchor':None,'elapsed_ns':1},
+            {'event':'preparation_started','l2_chain_id':2,'l2_genesis_hash':scope_l2['genesis_hash'],'rollup_id':1,'sync':anchor,'members':[member_in,member_in]},
+            {'event':'attempt_prepared','attempt':attempt,'sync_height':2,'members':[member_out,member_out],'encoded_bytes':0,'blob_count':0,'blob_allowance':1},
+            {'event':'reconciled','attempt':attempt,'anchor':anchor,'details':{'l1':scope_l1,'l2':scope_l2,'l2_snapshot':None,'post':None,'applied':None,'sources':[],
+                'resolutions':[{'member':member,'owner':attempt,'disposition':{'state':'requeued','charged_attempts':0},'elapsed_ns':1} for member in [member_in,member_out,member_in]]}},
+            {'event':'attempt_prepared','attempt':attempt,'sync_height':2,'members':[reference_member(value) for value in range(5000,5065)],'encoded_bytes':0,'blob_count':0,'blob_allowance':1},
+        ]
+        records=header(references_epoch,references_segment)
+        for sequence,event in enumerate(events,1):
+            payload={'observed_at_unix_ms':10002,'trace':None,'event':event}
+            pieces=(len(json.dumps(payload,separators=(',',':')).encode())+6143)//6144
+            records+=b''.join(chunks(sequence,pieces=pieces,payload=payload,epoch_value=references_epoch))
+        (references_dir/f'{references_epoch}-{references_segment}.closed').write_bytes(records)
+        references=copy.deepcopy(source_config);references['deployment']='source-references'
+        references['lifecycle']=[{'service':'composer','instance':'references-node','directory':'/lifecycle/source-references'}]
+        write_index(references)
+        control(phase='healthy',post_success=True,source_unselected=True,source_hash_mismatch=False)
+        run(index)
+        ref_where="source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='references-node')"
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_events WHERE {ref_where} AND state='complete';") == '6'
+        projected=scalar(f"SELECT count(*) FROM eez.lifecycle_source_references WHERE {ref_where};")
+        assert projected == '64', projected
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_declared_sources WHERE {ref_where};") == '71'
+        run(index)
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_source_references WHERE {ref_where};") == '71'
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_source_admissions WHERE {ref_where};") == '0'
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_admission_status WHERE {ref_where};") == '0'
+        assert scalar(f"SELECT string_agg(DISTINCT event_kind,',' ORDER BY event_kind) FROM eez.lifecycle_source_references WHERE {ref_where};") == 'attempt_prepared,preparation_started,readiness,reconciled,terminal'
+        assert scalar("SELECT known_total_paid FROM eez.source_receipt_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-references' AND role='l1';") == '591216'
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-references' AND role='l1';") == '147000'
+        assert scalar("SELECT known_sources FROM eez.source_receipt_coverage c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-references' AND role='l1';") == '66'
+        # Change the accepted source of one event as an administrative replay
+        # would. Its old immutable link must retract before a new pass runs.
+        run(psql,data=f"UPDATE eez.lifecycle_events SET payload=jsonb_set(payload,'{{event,member,source,transaction_hash}}',to_jsonb('{1001:064x}'::text)) WHERE {ref_where} AND sequence=1;")
+        assert scalar(f"SELECT count(*) FROM eez.lifecycle_source_references WHERE {ref_where} AND sequence=1;") == '0'
+        run(index)
+        assert scalar(f"SELECT encode(transaction_hash,'hex') FROM eez.lifecycle_source_references WHERE {ref_where} AND sequence=1;") == f'{1001:064x}'
+        run(psql,data=f"UPDATE eez.lifecycle_events SET state='conflict',payload=NULL WHERE {ref_where} AND sequence IN (2,3,5);")
+        assert scalar("SELECT known_total_paid FROM eez.source_receipt_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-references' AND role='l1';") == '147000'
+        assert scalar("SELECT count(*) FROM eez.canonical_receipt_facts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-references' AND role='l1';") == '2'
+        run(psql,data='SET ROLE eez_observer_reader; SELECT count(*) FROM eez.lifecycle_source_references; SELECT count(*) FROM eez.lifecycle_declared_sources;')
+        report['checks'].append('later_explicit_members_recover_receipts_without_admissions_bound_projection_deduplicate_members_and_retract_conflicts_or_changed_sources')
         # Source lookup cannot quietly extend the configured bootstrap interval.
         bounds_dir=spool/'source-bounds';bounds_dir.mkdir(mode=0o755)
         identity={**identity,'deployment':'source-bounds','instance':'bounds-node'}
@@ -810,6 +889,17 @@ def main():
         report['checks'].append('source_receipt_deadline_preserves_partial_commits_and_other_chain_progress_then_recovers_without_duplicate_fees')
         control(source_unselected=False,source_receipt_missing=False,source_cost_missing=False,source_hash_mismatch=False,source_receipt_failure=False,source_receipt_delay_ms=0,post_count=1)
         write_index(index_config)
+        # Native claim coherence is independent of receipt/chain assurance.
+        identity = {'environment':'fixture','deployment':'native-outcomes','service':'composer','instance':'outcomes-node'}
+        native_spec = importlib.util.spec_from_file_location('native_outcomes', ROOT / 'tests/native_outcomes.py')
+        native_outcomes = importlib.util.module_from_spec(native_spec)
+        native_spec.loader.exec_module(native_outcomes)
+        native_outcomes.exercise(run, psql, scalar, index, write_index, source_config, spool, header, chunks, report)
+        write_index(index_config)
+        blob_spec = importlib.util.spec_from_file_location('blob_measurements', ROOT / 'tests/blob_measurements.py')
+        blob_measurements = importlib.util.module_from_spec(blob_spec)
+        blob_spec.loader.exec_module(blob_measurements)
+        blob_measurements.exercise(run, psql, scalar, index, write_index, index_config, control, rpc_name, report)
         # Protocol logs have their own gap/conflict coverage and do not alter
         # selected receipt costs, even when their RPC capture is unavailable.
         logs_config = copy.deepcopy(index_config)

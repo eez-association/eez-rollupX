@@ -1,0 +1,692 @@
+{
+  "uid": "eez-cross-chain",
+  "title": "EEZ \u00b7 Cross-chain operations",
+  "tags": [
+    "eez",
+    "protocol"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "eez"
+      ],
+      "title": "EEZ dashboards",
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT environment AS __text,environment AS __value FROM eez.dashboard_chain_context ORDER BY 1",
+        "definition": "SELECT DISTINCT environment AS __text,environment AS __value FROM eez.dashboard_chain_context ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "deployment",
+        "label": "Deployment",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT deployment AS __text,deployment AS __value FROM eez.dashboard_chain_context WHERE environment=${environment:sqlstring} ORDER BY 1",
+        "definition": "SELECT DISTINCT deployment AS __text,deployment AS __value FROM eez.dashboard_chain_context WHERE environment=${environment:sqlstring} ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "chain",
+        "label": "Source chain",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "rollup",
+        "label": "L2 rollup",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT rollup_id::text AS __text,rollup_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND role='l2' ORDER BY 1",
+        "definition": "SELECT DISTINCT rollup_id::text AS __text,rollup_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND role='l2' ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Native instance",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT s.instance AS __text,s.instance AS __value FROM eez.lifecycle_coverage s WHERE s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) ORDER BY 1",
+        "definition": "SELECT DISTINCT s.instance AS __text,s.instance AS __value FROM eez.lifecycle_coverage s WHERE s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "source_hash",
+        "label": "Source transaction (optional 0x hash)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Populations and assurance",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Native queue panels describe current in-memory ownership for the selected instances; chain/rollup filters apply to source/admission and canonical data. Process-wide event/candidate views use the instance filter. Canonical outcomes below require current independently checked anchors. Native counters are operational observations and can repeat after reorg. An empty queue without a recent completion is **idle / unexercised**, not verified healthy. Pending work without progress is not an idle claim. Lost events remain coverage gaps.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Native queue panels describe current in-memory ownership for the selected instances; chain/rollup filters apply to source/admission and canonical data. Process-wide event/candidate views use the instance filter. Canonical outcomes below require current independently checked anchors. Native counters are operational observations and can repeat after reorg. An empty queue without a recent completion is **idle / unexercised**, not verified healthy. Pending work without progress is not an idle claim. Lost events remain coverage gaps."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Currently anchored outcomes \u00b7 L1 watermark in selected range",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "One currently verified admission per context. Missing rows mean no observed outcome; no synthetic zero. Reorgs retract these counts.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT o.source->>'direction' AS direction,o.outcome,count(*) AS admissions FROM eez.lifecycle_canonical_outcomes o JOIN eez.lifecycle_coverage s USING(source_id) JOIN eez.dashboard_chain_context c ON c.chain_instance_id=CASE WHEN o.source->>'direction'='inbound' THEN o.context_l1 ELSE o.context_l2 END WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND o.evidence_class='node_reconciled' AND (to_timestamp(o.progress_timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Admission history \u00b7 retained observations",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Admission-time cohort. Local policy and unresolved_restart remain distinct; this is not current queue size.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT s.source->>'direction' AS direction,s.status,s.outcome,s.evidence_class,count(*) AS admissions FROM eez.lifecycle_admission_status s JOIN eez.dashboard_chain_context c ON c.deployment_id=s.deployment_id AND c.chain_id=(s.source->>'chain_id')::numeric AND c.genesis_hash=decode(s.source->>'genesis_hash','hex') AND c.rollup_id=(s.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(s.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) GROUP BY 1,2,3,4 ORDER BY 1,2"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Current native queue \u00b7 disjoint states",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "15-second snapshots; values disappear when scrape/sample validity expires. Ready, blocked and unknown partition queued work. In-flight is separate.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Current pending / serviceable ages",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Monotonic maximum age, not a completed latency. Serviceable ages become unavailable with stale evaluation; empty populations are unknown.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_oldest_age_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Current age distribution \u00b7 cumulative populations",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Current bucket gauges: query directly, never rate(). Compare pending/serviceable tails beside completed percentiles; +Inf is the known-age population.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Admission \u2192 reconciliation p50 / p95 / p99",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Native monotonic terminal durations, currently node-reconciled; window uses checked L1 scan watermark. Outcome populations remain separate. Accepted-to-finality duration is unavailable.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "p(50|95|99)_seconds"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT o.source->>'direction' AS direction,o.outcome,count(*) AS completed_admissions,percentile_cont(0.5) WITHIN GROUP(ORDER BY o.elapsed_ns::double precision/1e9) AS p50_seconds,percentile_cont(0.95) WITHIN GROUP(ORDER BY o.elapsed_ns::double precision/1e9) AS p95_seconds,percentile_cont(0.99) WITHIN GROUP(ORDER BY o.elapsed_ns::double precision/1e9) AS p99_seconds FROM eez.lifecycle_canonical_outcomes o JOIN eez.lifecycle_coverage s USING(source_id) JOIN eez.dashboard_chain_context c ON c.chain_instance_id=CASE WHEN o.source->>'direction'='inbound' THEN o.context_l1 ELSE o.context_l2 END WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND o.evidence_class='node_reconciled' AND (to_timestamp(o.progress_timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) GROUP BY 1,2"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Lifecycle coverage \u00b7 history can be incomplete",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Coverage is independent of successful receipts. No record does not establish completion.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT s.instance,s.last_success_at,s.collection_error,s.complete_events,s.gap_intervals,s.quarantined_records,s.lost_segments,s.unknown_trailing_epochs,s.pending_events FROM eez.lifecycle_coverage s WHERE s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Known readiness blockers \u00b7 observations in range",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Readiness event observations, not current blocked source counts; duplicate source-state observations and gaps affect this population.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT e.payload#>>'{event,member,source,direction}' AS direction,COALESCE(e.payload#>>'{event,blocked}','ready') AS reason,count(*) AS observations FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}'='readiness' GROUP BY 1,2"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Request timeline \u00b7 optional source hash",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 8
+      },
+      "description": "At most 200 retained observations in the selected time range. A source lookup uses validated source references and process/epoch/generation or preparation identities to include related dispatches, submissions, fee variants and finishes. Source-reference projection gaps can leave an incomplete timeline; these observations are not canonical-success assurance.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "posting_transaction"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Attempt and settlement details",
+                    "url": "/d/eez-settlement?${__url_time_range}&var-environment=${environment:percentencode}&var-deployment=${deployment:percentencode}&var-source_hash=${source_hash:percentencode}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH source_events AS MATERIALIZED (SELECT e.* FROM eez.lifecycle_source_references r JOIN eez.lifecycle_coverage s USING(source_id) JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.lifecycle_event_history e ON e.deployment_id=s.deployment_id AND e.service=s.service AND e.instance=s.instance AND e.epoch=r.epoch AND e.sequence=r.sequence WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND r.transaction_hash=CASE WHEN lower(regexp_replace(${source_hash:sqlstring},'^0x','','i')) ~ '^[0-9a-f]{64}$' THEN decode(lower(regexp_replace(${source_hash:sqlstring},'^0x','','i')),'hex') END), attempts AS MATERIALIZED (SELECT DISTINCT instance,service,epoch,COALESCE(payload#>>'{event,attempt,generation}',payload#>>'{event,replacement,generation}') AS generation FROM source_events WHERE COALESCE(payload#>>'{event,attempt,generation}',payload#>>'{event,replacement,generation}') IS NOT NULL), preparations AS MATERIALIZED (SELECT instance,service,epoch,sequence FROM source_events WHERE payload#>>'{event,event}'='preparation_started' UNION SELECT instance,service,decode(payload#>>'{event,details,preparation,epoch}','hex'),(payload#>>'{event,details,preparation,sequence}')::numeric FROM source_events WHERE payload#>>'{event,details,preparation,epoch}' IS NOT NULL) SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.instance,encode(e.epoch,'hex') AS epoch,e.sequence::text,e.payload#>>'{event,event}' AS event,e.payload#>>'{event,outcome}' AS outcome,COALESCE(e.payload#>>'{event,attempt,generation}',e.payload#>>'{event,replacement,generation}') AS attempt_generation,COALESCE(e.payload#>>'{event,attempt,post_batch_hash}',e.payload#>>'{event,replacement,post_batch_hash}') AS posting_transaction,e.payload#>>'{trace,trace_id}' AS trace_id FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND (${source_hash:sqlstring}='' OR EXISTS(SELECT FROM source_events matched WHERE matched.instance=e.instance AND matched.service=e.service AND matched.epoch=e.epoch AND matched.sequence=e.sequence) OR EXISTS(SELECT FROM attempts a WHERE a.instance=e.instance AND a.service=e.service AND a.epoch=e.epoch AND a.generation=COALESCE(e.payload#>>'{event,attempt,generation}',e.payload#>>'{event,replacement,generation}',e.payload#>>'{event,previous,generation}')) OR EXISTS(SELECT FROM preparations p WHERE p.instance=e.instance AND p.service=e.service AND p.epoch=decode(e.payload#>>'{event,preparation,epoch}','hex') AND p.sequence=(e.payload#>>'{event,preparation,sequence}')::numeric)) ORDER BY time,e.sequence LIMIT 200"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Indexed coverage",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 6
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.role,c.chain_id::text,c.rollup_id::text,v.indexed_from::text,v.indexed_through::text,v.incomplete_blocks,v.last_success_at,v.collection_error,v.frozen_reason FROM eez.index_coverage v JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) ORDER BY c.role"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Retained trace references \u00b7 optional backend",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 6
+      },
+      "description": "Only records with a valid trace identity appear. Trace links are added when the Tempo profile is enabled; sampled-out or expired traces may be unavailable without affecting receipt history.",
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH source_events AS MATERIALIZED (SELECT e.* FROM eez.lifecycle_source_references r JOIN eez.lifecycle_coverage s USING(source_id) JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.lifecycle_event_history e ON e.deployment_id=s.deployment_id AND e.service=s.service AND e.instance=s.instance AND e.epoch=r.epoch AND e.sequence=r.sequence WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND r.transaction_hash=CASE WHEN lower(regexp_replace(${source_hash:sqlstring},'^0x','','i')) ~ '^[0-9a-f]{64}$' THEN decode(lower(regexp_replace(${source_hash:sqlstring},'^0x','','i')),'hex') END), attempts AS MATERIALIZED (SELECT DISTINCT instance,service,epoch,COALESCE(payload#>>'{event,attempt,generation}',payload#>>'{event,replacement,generation}') AS generation FROM source_events WHERE COALESCE(payload#>>'{event,attempt,generation}',payload#>>'{event,replacement,generation}') IS NOT NULL), preparations AS MATERIALIZED (SELECT instance,service,epoch,sequence FROM source_events WHERE payload#>>'{event,event}'='preparation_started' UNION SELECT instance,service,decode(payload#>>'{event,details,preparation,epoch}','hex'),(payload#>>'{event,details,preparation,sequence}')::numeric FROM source_events WHERE payload#>>'{event,details,preparation,epoch}' IS NOT NULL) SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.payload#>>'{event,event}' AS event,e.payload#>>'{trace,trace_id}' AS trace_id FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND (${source_hash:sqlstring}='' OR EXISTS(SELECT FROM source_events matched WHERE matched.instance=e.instance AND matched.service=e.service AND matched.epoch=e.epoch AND matched.sequence=e.sequence) OR EXISTS(SELECT FROM attempts a WHERE a.instance=e.instance AND a.service=e.service AND a.epoch=e.epoch AND a.generation=COALESCE(e.payload#>>'{event,attempt,generation}',e.payload#>>'{event,replacement,generation}',e.payload#>>'{event,previous,generation}')) OR EXISTS(SELECT FROM preparations p WHERE p.instance=e.instance AND p.service=e.service AND p.epoch=decode(e.payload#>>'{event,preparation,epoch}','hex') AND p.sequence=(e.payload#>>'{event,preparation,sequence}')::numeric)) AND e.payload#>>'{trace,trace_id}' ~ '^[0-9a-f]{32}$' ORDER BY time,e.sequence LIMIT 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 13,
+      "title": "Requests \u00b7 distinct retained admissions",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Discover up to 200 actual admissions without knowing a hash beforehand. Readmission remains a separate row. Local-policy disposition, unresolved restart and currently anchored canonical status stay distinct. Links preserve the selected time range.",
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(s.observed_at_ms/1000.0) AS admitted_at,s.instance,c.chain_instance_id::text,c.chain_id::text,s.source->>'direction' AS direction,'0x'||(s.source->>'transaction_hash') AS source_transaction,encode(s.admission_epoch,'hex') AS admission_epoch,s.admission_sequence::text,s.status,s.outcome,s.evidence_class,s.liveness FROM eez.lifecycle_admission_status s JOIN eez.dashboard_chain_context c ON c.deployment_id=s.deployment_id AND c.chain_id=(s.source->>'chain_id')::numeric AND c.genesis_hash=decode(s.source->>'genesis_hash','hex') AND c.rollup_id=(s.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(s.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY s.observed_at_ms DESC LIMIT 200"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source_transaction"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Request timeline",
+                    "url": "/d/eez-cross-chain?${__url_time_range}&var-environment=${environment:percentencode}&var-deployment=${deployment:percentencode}&var-instance=${__data.fields[\"instance\"]}&var-source_hash=${__value.raw}&var-chain=${__data.fields[\"chain_instance_id\"]}",
+                    "targetBlank": false
+                  },
+                  {
+                    "title": "Related attempts",
+                    "url": "/d/eez-settlement?${__url_time_range}&var-environment=${environment:percentencode}&var-deployment=${deployment:percentencode}&var-instance=${__data.fields[\"instance\"]}&var-source_hash=${__value.raw}",
+                    "targetBlank": false
+                  },
+                  {
+                    "title": "Source receipt and explorer",
+                    "url": "/d/eez-gas?${__url_time_range}&var-environment=${environment:percentencode}&var-deployment=${deployment:percentencode}&var-instance=${__data.fields[\"instance\"]}&var-source_hash=${__value.raw}&var-chain=${__data.fields[\"chain_instance_id\"]}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Native restart observations",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "rawQuery": true,
+        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+      },
+      {
+        "name": "Local policy dispositions",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "enable": true,
+        "iconColor": "yellow",
+        "rawQuery": true,
+        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+      }
+    ]
+  }
+}

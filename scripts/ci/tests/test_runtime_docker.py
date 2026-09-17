@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,9 +18,66 @@ native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 
 
+def observer_compile_inputs():
+    """Literal external include inputs used by the actual workspace unit archive."""
+    inputs = set()
+    for source in (REPO / "crates/eez-observer/src").rglob("*.rs"):
+        for relative in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]*observability/[^"]+)"', source.read_text()):
+            inputs.add((source.parent / relative).resolve().relative_to(REPO).as_posix())
+    if not inputs:
+        raise AssertionError("observer archive must exercise real external include inputs")
+    return sorted(inputs)
+
+
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
+    def test_observer_compile_inputs_survive_runtime_allowlist(self):
+        with tempfile.TemporaryDirectory(prefix="eez-runtime-context.") as temporary:
+            root = Path(temporary)
+            context = root / "context"
+            context.mkdir()
+            inputs = observer_compile_inputs()
+            for name in inputs:
+                target = context / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(REPO / name, target)
+            # Public dummy sentinels prove we did not broaden the Docker context
+            # to arbitrary monitoring configuration or unrelated fixture files.
+            for name in ("observability/operator-config.json", "observability/tests/fixtures/unrelated-private.json"):
+                (context / name).write_text("fixture-only excluded sentinel")
+            instructions = (REPO / "Dockerfile.runtime").read_text().replace("\\\n", " ").splitlines()
+            copies = [line for line in instructions if line.startswith("COPY observability/")]
+            self.assertTrue(copies)
+            (context / "Dockerfile.runtime").write_text(
+                "FROM scratch AS compile-inputs\n" + "\n".join(copies)
+                + "\nFROM scratch AS allowed-context\nCOPY . /\n")
+            ignore = context / "Dockerfile.runtime.dockerignore"
+            rules = (REPO / "Dockerfile.runtime.dockerignore").read_text()
+            command = ["docker", "buildx", "build", "--network=none", "--progress=plain",
+                       "--file", str(context / "Dockerfile.runtime")]
+            # Reproduce the prior omission using Docker's actual matcher,
+            # rather than a Python approximation of dockerignore semantics.
+            ignore.write_text("\n".join(line for line in rules.splitlines()
+                                       if not line.startswith("!observability")) + "\n")
+            missing = subprocess.run(command + ["--target", "compile-inputs", "--output",
+                f"type=local,dest={root / 'missing'}", str(context)],
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+            self.assertNotEqual(missing.returncode, 0, missing.stdout)
+            self.assertIn("not found", missing.stdout)
+            self.assertIn("observability/", missing.stdout)
+            ignore.write_text(rules)
+            for target in ("compile-inputs", "allowed-context"):
+                destination = root / target
+                built = subprocess.run(command + ["--target", target, "--output",
+                    f"type=local,dest={destination}", str(context)],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+                self.assertEqual(built.returncode, 0, built.stdout)
+                for name in inputs:
+                    self.assertEqual((destination / name).read_bytes(), (REPO / name).read_bytes())
+                self.assertFalse((destination / "observability/operator-config.json").exists())
+                self.assertFalse((destination / "observability/tests/fixtures/unrelated-private.json").exists())
+
     def test_real_build_and_same_job_execution(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.") as temporary:
             root = Path(temporary)
@@ -31,7 +89,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
-                "contracts/test/PostBatchGasPins.t.sol",
+                "contracts/test/PostBatchGasPins.t.sol", *observer_compile_inputs(),
             ):
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +108,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
                 "eez-composer": {},
                 "eez-blob-codec": {},
+                "eez-observer": {},
             }
             (repo / "Cargo.toml").write_text(
                 '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
@@ -75,6 +134,14 @@ class RuntimeDockerTest(unittest.TestCase):
                         '    let source = include_str!("../../../contracts/test/PostBatchGasPins.t.sol");\n'
                         '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
                         '}\n'
+                    )
+                if name == "eez-observer":
+                    inputs = observer_compile_inputs()
+                    (package / "src/lib.rs").write_text(
+                        "const INPUTS: &[&str] = &[\n" + "".join(
+                            f'    include_str!("../../../{path}"),\n' for path in inputs
+                        ) + "];\n#[test] fn observer_external_inputs_are_packaged() {\n"
+                        "    assert!(INPUTS.iter().all(|input| !input.is_empty()));\n}\n"
                     )
                 for test in ({"eez-node-e2e": native.E2E_TARGETS,
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),

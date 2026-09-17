@@ -41,7 +41,8 @@ target labels and the process lifecycle identity; do not add duplicate applicati
 labels for environment/deployment/service/instance.
 
 The generated process JSON has `identity`, optional `metrics` (listen and
-allow_non_loopback), and optional `lifecycle` ([spool limits](lifecycle-v1.md)).
+allow_non_loopback), optional `lifecycle` ([spool limits](lifecycle-v1.md)), and optional
+`traces` ([trace pilot](tracing.md)).
 At least one signal must be enabled. Existing Reth `--metrics` takes precedence
 over the file's listener; the selected listener must still satisfy the explicit
 non-loopback opt-in. Existing CLI usage without this new file is unchanged.
@@ -84,13 +85,16 @@ continue selecting only the RPC exporter until side-by-side native validation.
 
 ## Shutdown and remaining integration
 
-The entrypoints signal lifecycle shutdown only after the existing node/service
-drain returns. Those APIs expose no remaining application deadline, so this
-foundation passes a zero remaining budget rather than adding time to the drain.
-The writer attempts to drain asynchronously; process exit can lose trailing data.
-The transport supports bounded waits when a caller has a known remaining budget.
-WP5 must connect tracing flush to the actual shutdown budget before its acceptance
-gate; no tracing export is enabled by this configuration yet.
+The entrypoints signal lifecycle shutdown after the existing node/service drain
+with zero additional wait. Composer/follower tracing computes a conservative
+remaining budget from the launcher's drop boundary, which precedes the pinned
+Reth runner's graceful-drain timer. This application uses its default runner
+configuration; time spent in both protocol drain and runtime teardown consumes
+that budget. The trace guard waits at most 25% of the remaining time, capped at
+two seconds. Startup errors, an unstarted launcher, or an exhausted deadline
+permit no wait. The signer still has no finite total drain deadline and passes
+zero after `wait_until_idle`; protocol-worker ownership is unchanged. See the
+[trace contract](tracing.md) for pilot limits and remaining acceptance gates.
 
 This startup foundation emits process/segment metadata. Composer also wires
 [admission, replacement and readiness capture](native-lifecycle.md) before ingress.

@@ -1,0 +1,30 @@
+{
+  "project": "eez-dash-test-b12ca379c4",
+  "scope": "synthetic data, actual Grafana SQL/Prometheus datasource queries; not native protocol/replay coverage",
+  "checks": [
+    "six_dashboards_loaded_by_grafana",
+    "scoped_endpoint_query_plan_within_reader_budget",
+    "all_generated_panel_variable_annotation_queries_executed",
+    "historical_prefix_and_current_endpoint_preserved_and_textbox_escaped",
+    "request_discovery_and_source_linked_attempt_preparation_timeline",
+    "canonical_outcome_weighted_blob_coverage_exact_costs_and_explorer_links",
+    "stale_sql_sources_and_failed_native_scrape_are_unknown_not_zero"
+  ],
+  "endpoint_grafana_query_seconds": 0.2656466600019485,
+  "queries_executed": 63,
+  "status": "passed",
+  "images_used": {
+    "prom/prometheus:v3.14.0": "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+    "grafana/grafana:13.2.2": "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+    "postgres:18.6-bookworm": "sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+    "python:3.13-slim-trixie": "sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285"
+  },
+  "dashboard_sha256": {
+    "infrastructure.json": "db5a6ce887127eea12e4e9402fade4199d2ce5eb90f1a198ec9c3666ffcec07e",
+    "settlement.json": "e5a328d846556deb7eb63d9232439e6fb3dae2cf5e8ff9399d877ac94d962f97",
+    "network.json": "eee83b1abb9ed3696236f13f259908305125047401125997ac0b348938b0d266",
+    "gas.json": "891806343c0334276913f0cb40dd9d1f6b019b10e00b94cd679d0848f0aa2056",
+    "cross-chain.json": "7098cf5feb9442922f47184fb0fcb951ddcfea22e0a408c1c74bb69e0c1de1a6",
+    "blobs.json": "2adaa2b98d93bc05af9b9993453ae973784ab7297e32b23296038bb649e8b970"
+  }
+}

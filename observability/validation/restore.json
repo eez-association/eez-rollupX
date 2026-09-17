@@ -1,0 +1,69 @@
+{
+  "scope": "new isolated project and empty volumes on the same Docker host; no operator services",
+  "started_at": "2026-09-17T14:54:04.350113+00:00",
+  "binary_sha256": "9de5c53e16545e8e72c5001eb3e8360ccdcf5adb63da9d36eea6b006a6c4f86e",
+  "images": {
+    "prom/prometheus:v3.14.0": "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+    "grafana/grafana:13.2.2": "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+    "grafana/loki:3.7.7": "sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500",
+    "grafana/alloy:v1.19.2": "sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839",
+    "prom/blackbox-exporter:v0.28.0": "sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc",
+    "postgres:18.6-bookworm": "sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+    "grafana/tempo:3.0.3": "sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5"
+  },
+  "checks": [
+    "consistent_sql_dump_and_cold_configuration_diagnostic_archives",
+    "missing_or_corrupt_backup_refused_before_destination_mutation",
+    "fresh_instance_sql_identity_checksums_costs_cursors_roles_deadlines_and_lifecycle_checkpoints",
+    "idempotent_replay_canonical_post_backup_catchup_and_explicit_lifecycle_loss_gap",
+    "grafana_credentials_dashboards_datasources_contact_points_routes_and_retained_trace_log_metric_navigation",
+    "restored_heartbeat_and_operator_fault_recovery_delivery"
+  ],
+  "status": "passed",
+  "projects": [
+    "eez-restore-src-5bdcca41a7",
+    "eez-restore-dst-5bdcca41a7"
+  ],
+  "migration_sha256": {
+    "0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
+    "0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
+    "0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257",
+    "0004-lifecycle.sql": "dc8944466e3d022e0cf8566a431b2f257f47045171b8743d9a83a83fa594db25",
+    "0005-source-receipts.sql": "8d06f7753cc809d27ac6364085a07f9ece020ed3689f7d8c4bc0f30c2631e37a",
+    "0006-protocol-logs.sql": "75fd50542eeed645c6f5fca01b2f7f1d3ab49f035c7ec986977eb4c506b8a7a6",
+    "0007-posting-rollups.sql": "14762b494e5a7aaa86302de6acf1edea711945f3034510747e266f7006c9ab86",
+    "0008-admission-status.sql": "15f56a12adf5d1fe5c20bee067e236496255681fc5e69e534e12884b99e3f9df",
+    "0009-source-references.sql": "a7c9780e8c5e26fd436fd8ed6955a0375500648242471c8e405894d459d47ca1",
+    "0010-native-outcomes.sql": "d61906ce6b94829e541faa6a83795093d057283bf0ac4b2106293e6f9a0a3ad9",
+    "0011-canonical-outcomes.sql": "341a9171e1bf78f8269e5a833922f3560cbb1ecf18c41c2476a737bfe839a052",
+    "0012-blobs.sql": "7aac21922eefdacacb015321f66776acd0b2a1550f3bbf2dd89d262cba968183",
+    "0013-dashboard-context.sql": "45cd1d96a2443a0984e5c2752b2856707cec34e8a6e9f2a5ce22a843b1cab2c3"
+  },
+  "canonical_snapshot_at": "2026-09-17T14:54:45.136069+00:00",
+  "backup_seconds": 32.81081487699703,
+  "archive_bytes": {
+    "spool.tar.gz": 709,
+    "logs.tar.gz": 304,
+    "runtime.tar.gz": 19620,
+    "alloy-traces-data.tar.gz": 425,
+    "tempo-data.tar.gz": 12216,
+    "alloy-data.tar.gz": 660,
+    "loki-data.tar.gz": 1904,
+    "prometheus-data.tar.gz": 163707,
+    "grafana-data.tar.gz": 167485,
+    "ledger.dump": 209008
+  },
+  "snapshot_age_at_restore_seconds": 43.86514561199874,
+  "restore_seconds_until_all_acceptance_checks": 77.48899158499262,
+  "controlled_rpo": {
+    "fork_scenarios_after_snapshot_recovered": 1,
+    "affected_chain_cursors": 2,
+    "post_snapshot_lifecycle_records_not_in_backup": 1,
+    "later_gap_detected": [
+      2,
+      2
+    ],
+    "production_schedule_or_target_established": false
+  },
+  "owned_resource_cleanup": "verified"
+}

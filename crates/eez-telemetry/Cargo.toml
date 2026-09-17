@@ -8,7 +8,8 @@ description = "Bounded, best-effort EEZ lifecycle telemetry independent of proto
 
 [features]
 default = []
-native = ["dep:metrics-exporter-prometheus", "dep:tokio", "dep:tracing"]
+native = ["dep:metrics-exporter-prometheus", "dep:tokio", "traces"]
+traces = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-proto", "dep:prost", "dep:reqwest", "dep:tonic"]
 
 [dependencies]
 getrandom = "0.4.2"
@@ -18,6 +19,14 @@ metrics = "0.24.6"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false, features = ["http-listener"], optional = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-proto = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["blocking"], optional = true }
+tonic = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

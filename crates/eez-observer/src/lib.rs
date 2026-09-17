@@ -1,11 +1,13 @@
 //! Read-only chain observer with optional durable canonical receipt indexing.
 pub mod accounting;
+mod blobs;
 pub mod config;
 mod correlation;
 pub mod database;
 pub mod indexer;
 pub mod metrics;
 pub mod model;
+pub mod outcomes;
 mod posting;
 pub mod protocol_logs;
 pub mod rpc;
@@ -64,6 +66,9 @@ async fn scrape(
             status.source_receipts.as_ref(),
             now,
         ));
+        rendered.push_str(&indexer::outcomes::render(status.outcomes.as_ref(), now));
+        rendered.push_str(&indexer::outcomes::render_progress(&status, now));
+        rendered.push_str(&indexer::blobs::render(status.blobs.as_ref(), now));
     }
     (
         [(

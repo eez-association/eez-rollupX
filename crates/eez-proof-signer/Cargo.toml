@@ -48,6 +48,9 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+eez-prover.workspace = true
+eez-prover-client.workspace = true
+opentelemetry-proto.workspace = true
 # Recorded calldata fixture decoding.
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.

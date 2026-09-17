@@ -378,7 +378,7 @@ impl HeldPool {
             by_hash: HashSet::new(),
             in_flight: HashMap::new(),
             scan_from: None,
-            telemetry: Default::default(),
+            telemetry: status::QueueTelemetry::new(),
             lifecycle: None,
         };
         Self {
@@ -498,6 +498,11 @@ impl HeldPool {
             let replacement_hash = tx.hash;
             let previous_hash = state.txs[queued_idx].hash;
             state.retire_local_owner_for_admission(replacement_hash)?;
+            let terminal_metric = state.telemetry.native_terminal(
+                previous_hash,
+                target_direction,
+                eez_telemetry::schema::Outcome::Replaced,
+            );
             state.telemetry.admitted(replacement_hash);
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
@@ -511,7 +516,14 @@ impl HeldPool {
                 lifecycle.admitted(replacement_hash, target_direction, Some(previous_hash))
             });
             state.update_recovery_ownership();
+            let native_metrics = state.telemetry.native_enabled();
             drop(state);
+            if native_metrics {
+                status::publish_native_admission(target_direction);
+            }
+            if let Some(observation) = terminal_metric {
+                observation.publish();
+            }
             if let Some(pending) = pending {
                 pending.publish();
             }
@@ -548,7 +560,11 @@ impl HeldPool {
             .as_mut()
             .map(|lifecycle| lifecycle.admitted(hash, target_direction, None));
         state.update_recovery_ownership();
+        let native_metrics = state.telemetry.native_enabled();
         drop(state);
+        if native_metrics {
+            status::publish_native_admission(target_direction);
+        }
         if let Some(pending) = pending {
             pending.publish();
         }
@@ -561,9 +577,13 @@ impl HeldPool {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         let capture = lifecycle::LocalCapture::before(
             &state,
-            recovered
-                .iter()
-                .map(|tx| (tx.hash, eez_telemetry::schema::Outcome::PoolDiscarded)),
+            recovered.iter().map(|tx| {
+                (
+                    tx.hash,
+                    eez_telemetry::schema::Outcome::PoolDiscarded,
+                    tx.direction,
+                )
+            }),
         );
         state.recover_batch(recovered);
         state.update_recovery_ownership();
@@ -593,9 +613,13 @@ impl HeldPool {
         });
         let capture = lifecycle::LocalCapture::before(
             &state,
-            retained
-                .iter()
-                .map(|tx: &HeldTx| (tx.hash, eez_telemetry::schema::Outcome::PoolDiscarded)),
+            retained.iter().map(|tx: &HeldTx| {
+                (
+                    tx.hash,
+                    eez_telemetry::schema::Outcome::PoolDiscarded,
+                    tx.direction,
+                )
+            }),
         );
         state.recover_batch(retained);
         state.update_recovery_ownership();
@@ -622,7 +646,7 @@ impl HeldPool {
             &state,
             txs.iter()
                 .filter(|tx| state.in_flight.contains_key(&tx.hash))
-                .map(|tx| (tx.hash, outcome)),
+                .map(|tx| (tx.hash, outcome, tx.direction)),
         );
         for tx in txs {
             state.release_in_flight(tx);
@@ -690,7 +714,7 @@ impl HeldPool {
                         }),
                 )
                 .filter(|(_, s, d, n)| *s == sender && *d == direction && *n >= nonce)
-                .map(|(hash, _, _, n)| {
+                .map(|(hash, _, direction, n)| {
                     (
                         hash,
                         if n == nonce {
@@ -698,6 +722,7 @@ impl HeldPool {
                         } else {
                             eez_telemetry::schema::Outcome::NonceGap
                         },
+                        direction,
                     )
                 }),
         );

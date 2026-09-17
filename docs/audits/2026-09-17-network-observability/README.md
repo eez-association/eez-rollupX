@@ -267,3 +267,134 @@ and [artifact report](../../../observability/validation/admission-status.json)
 record query-level liveness/ownership/late-evidence checks, exact artifact identity
 and the limits of synthetic status fixtures. A new native restart canary and full
 canonical outcome validation remain required.
+
+## Native coherence and parallel implementation in progress
+
+The user requested parallel implementation. Source-reference recovery, native
+metrics and tracing now run in separate coordinated lanes; canonical outcome
+integration remains the primary lane. Shared Cargo checks run serially.
+
+The native decision checker passed both source-built bidirectional lifecycle
+canaries, alongside Composer/protocol and same-block resumption regressions.
+The schema-10 projection caches coherence by exact transport evidence and keeps
+canonical assurance unknown. See the [current validation record](../../../observability/validation/native-outcomes.md)
+for tested revisions, first failures and open acceptance gates. These uncommitted
+changes and the other lanes still require combined validation; no production
+readiness or full R19 acceptance is claimed.
+
+## Later-member source recovery and combined database validation
+
+Dirty worktree based on `5183f56acd0903a10ad085e97d03aef4070e82a3`, with the agreed
+main baseline retained and no new main fetch, adds schema-9 explicit source
+references. Lost admissions remain absent while retained later members permit
+independent receipt recovery. The configured selected-spend population is
+unchanged; duplicate members do not multiply charges. Complete-event conflicts
+and exact-source changes retract their relationships immediately.
+
+The coordinated schema-10 observer executable
+`f9ae02bf9753c4893cfb4ccc66ec081faf79bdba3803da77b556c4528fd4bf3c` passed 47 observer
+tests and all 45 disposable database check groups, including source recovery,
+saved-v4/v5/v6/v8 upgrades and the concurrent native-coherence projection. The
+[validation record](../../../observability/validation/source-references.md) and
+[report](../../../observability/validation/source-references.json) distinguish
+mock/socket, direct SQL and real importer/RPC process evidence and retain exact
+migration hashes. Initial sandbox socket failures and an oversized test chunk
+were corrected without changing runtime acceptance. Workspace validation for
+subsequent concurrent edits remains required; canonical outcome assurance,
+companion allocation and deployment acceptance remain open.
+
+## Canonical anchors and authenticated DA integration
+
+Schema 11 adds canonical outcome anchors, conflict/reorg-aware admission selection
+and progress gauges. Forty anchor assertions, seven admission assertions and five
+supplemental blocks passed with the existing database deadline. The complete
+observer/Beacon/database suite passed 48 check groups at its recorded schema-12
+snapshot. See [canonical outcome evidence](../../../observability/validation/canonical-outcomes.md)
+for exact binary/migration identities and scope limits.
+
+A measured JIT compilation delay exceeded the query budget even on one claim.
+The same query executed in about 160 ms with JIT disabled; observer sessions and
+dedicated database roles now apply that setting without changing deadlines.
+Combined native metrics/tracing checks, later blob duration/schema-13 additions
+and larger-volume acceptance remain separate validation gates.
+
+
+## Authenticated blob bytes and final schema-13 database checkpoint
+
+The dirty worktree based on `5183f56` adds R12's optional bounded Beacon collector,
+immutable content metadata, exact version-00 byte measurement and measured-subset
+weighted utilization. It includes reverted posts, explicit unavailable/pruned/
+authentication/metadata gaps, canonical freshness gates and monotonic retrieval
+latency. The shared parser's count-only path preserves nonminimal varints and real
+zero payload bytes without retaining millions of decoded messages. Physical KZG
+authentication accepts unrelated non-EEZ blobs before selecting the target's
+hashes; EEZ packing applies only to selected content.
+
+The [validation record](../../../observability/validation/blob-measurements.md)
+and [report](../../../observability/validation/blob-measurements.json) record
+56 observer, 24 blob-codec, 15 payload-codec and 169 protocol unit tests, plus the
+Ethereum KZG/public-input/rolling-hash compatibility targets. The final schema-13
+candidate `62012ecb05187fbfb78ef0315b8c8a466cb20297f049f52c46057e610b72dc74`
+passed all 49 disposable database check groups, including source recovery,
+canonical outcomes, authenticated blob recovery/reorg/coverage/duration and safe
+reader metadata access. Original failures and the earlier 48-group schema-12
+checkpoint remain retained. Workspace/native combined validation and production
+archive/performance/rollout gates are still separate; no live services changed.
+
+
+## Runtime compiler-input packaging and observability CI gates
+
+The runtime Docker build excluded observer migrations and omitted two ABI fixtures
+needed by workspace library archives. The narrow allowlist/COPY fix now carries
+all 16 external observer compiler inputs. A real scratch-only Docker regression
+reproduces the old omission, verifies exact exported bytes and rejects unrelated
+monitoring configuration. It caught and corrected an initial overly broad
+directory exception; no Cargo or runtime image build was used for this check.
+
+The observability workflow now runs the context regression, required native build
+dependencies, blob-codec checks and the Tempo/protocol dashboard backend queries.
+Existing runtime/native artifact and workflow tests selected 70 cases: 69 passed,
+one explicitly opt-in relocation case skipped. Focused final workflow assertions
+passed. See [the packaging record](../../../observability/validation/runtime-packaging.md)
+for exact input hashes, original failures, commands and the distinction between
+local context/tooling evidence and still-required full runtime/remote CI gates.
+
+
+The schema-13 database gate was refreshed after the reader deadline hardening.
+Observer `9de5c53e16545e8e72c5001eb3e8360ccdcf5adb63da9d36eea6b006a6c4f86e`
+again passed all 49 check groups; fresh reader sessions now explicitly prove JIT
+off and the 10-second statement, 5-second lock and 10-second idle-transaction
+budgets. The updated [database artifact](../../../observability/validation/blob-measurements.json)
+records migration 13 `45cd1d96a2443a0984e5c2752b2856707cec34e8a6e9f2a5ce22a843b1cab2c3`.
+Previous checkpoint reports and first failures remain retained locally.
+
+## Combined native, dashboard and restore checkpoint
+
+The combined source snapshot passed workspace all-target Clippy and formatting,
+239 Composer tests, 284 signer tests, 36 telemetry tests and 11 node-common
+startup/budget tests. Two source-built bidirectional native canaries passed in
+257.23 seconds with default and configured policy. They retain independent
+destination-value, receipt, position and proof-signature assertions, and also
+check native metrics and outcome coherence. Trace export was disabled in those
+canaries; connected RPC propagation and the isolated Tempo suite provide separate
+tracing evidence. The protocol pin and agreed main baseline are unchanged.
+
+All six Grafana dashboards loaded, and 63 generated panel, variable and annotation
+queries passed through actual datasource APIs. A query that exhausted the fixture
+database's 512 MiB budget was fixed by bounding and materializing its scoped input;
+neither the resource budget nor deadline was increased. See
+[dashboard evidence](../../../observability/validation/protocol-dashboards.md).
+
+The [restore drill](../../../observability/validation/restore.md) passed six groups
+against empty destination volumes with the source stopped: exact SQL costs and
+checkpoints, permissions, idempotent fork recovery, explicit lifecycle loss,
+retained metrics/logs/traces, dashboards and actual heartbeat/fault/recovery
+delivery. Backup took 32.81 seconds and restore through all assertions took 77.49
+seconds on the same Docker host. These fixture measurements do not establish
+off-site or physical-host recovery promises.
+
+This is an implementation checkpoint, not completion of the observability goal.
+The [requirement ledger](../../../observability/requirements.md) retains the open
+allocation, follower provenance, additional metric/alert, integrated failure,
+capacity/overhead, packaging and deployment acceptance gates. No live services
+were changed, and the seven-day deployment baseline has not started.

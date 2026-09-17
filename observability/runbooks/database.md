@@ -67,10 +67,11 @@ clear a flag merely to make a dashboard green. Missing historical blocks require
 a source that retains that interval; changing bootstrap on the existing namespace
 is refused. Receipt gaps retry automatically without blocking new headers.
 
-Backup/clean-host restore, settlement/source attribution, authenticated blob
-measurement and production calibration remain release gates in the
-[requirement ledger](../requirements.md). The isolated tests establish canonical
-receipt persistence/recovery, not those later capabilities.
+The [restore runbook](restore.md) and [isolated restore evidence](../validation/restore.md)
+cover SQL/configuration and retained diagnostic data on a fresh separate instance.
+The drill checks exact receipt totals, cursors, migration checksums and resumed
+ingestion without duplicate charges. Production recovery targets and deployment
+calibration remain release gates in the [requirement ledger](../requirements.md).
 
 References checked for this packaging: [Docker PostgreSQL guide](https://docs.docker.com/guides/postgresql/)
 and [Grafana provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/).
@@ -140,3 +141,15 @@ unresolved histories and positively observed process exits. These statuses do no
 assert queue membership or cross-chain success. Inspect
 `eez.lifecycle_local_policy_evidence` for missing admissions, inconsistent ownership
 or incomplete parent decisions; see the [status contract](../contracts/admission-status.md).
+
+Schema 11 disables PostgreSQL JIT for the dedicated reader/writer roles in the
+observer database; short expanded evidence queries otherwise spend longer than
+the query deadline compiling. Observer sessions also set it explicitly. For a
+custom Grafana login that inherits `eez_observer_reader`, configure `jit=off` on
+that login for this database and reconnect its pool: role settings are not
+inherited by membership or `SET ROLE`. Verify `SHOW jit` returns `off` on a fresh
+reader connection. The existing statement/lock deadlines remain unchanged.
+Schema 13 also gives fresh dedicated reader connections a 10-second statement
+budget, 5-second lock budget and 10-second idle-transaction budget. Apply the same
+settings to any custom Grafana login alongside `jit=off`; reconnect its pool after
+an upgrade. A failed/expired dashboard query must remain unknown, not display zero.

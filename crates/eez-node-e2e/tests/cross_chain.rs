@@ -276,6 +276,8 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
     let directory = tempfile::tempdir().unwrap();
     let spool = directory.path().join("lifecycle");
     let configuration = directory.path().join("telemetry.json");
+    let metrics_lease = eez_testkit::PortLease::tcp();
+    let metrics_address = format!("127.0.0.1:{}", metrics_lease.port());
     let config = serde_json::json!({
         "identity": {
             "environment": "devnet",
@@ -283,7 +285,8 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
             "service": "eez-composer",
             "instance": "fixture"
         },
-        "lifecycle": {"directory": spool}
+        "lifecycle": {"directory": spool},
+        "metrics": {"listen": metrics_address}
     });
     std::fs::write(&configuration, serde_json::to_vec(&config).unwrap()).unwrap();
     let mut env = extra_env.to_vec();
@@ -291,6 +294,9 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
         "EEZ_TELEMETRY_CONFIG",
         configuration.to_string_lossy().into_owned(),
     ));
+    // Keep testkit's process-wide port identity reserved; release its socket
+    // before the helper starts the node child that binds the configured endpoint.
+    drop(metrics_lease);
     let (world, hashes) = bidirectional_cross_chain_smoke(&env).await;
     let genesis = alloy_rpc_types_eth::BlockNumberOrTag::Number(0);
     let expected_genesis = [
@@ -416,6 +422,7 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
         }
     };
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     for (index, hash) in hashes.into_iter().enumerate() {
         let matches = events
             .iter()
@@ -592,6 +599,59 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
                 assurance: *assurance
             }
         );
+        // Feed actual native records through the observer's evidence boundary,
+        // while retaining the independent receipt/hash checks below.
+        fn observer_record(
+            ((epoch, sequence), event): &((eez_telemetry::schema::Epoch, u64), Event),
+        ) -> eez_observer::outcomes::Record<'_> {
+            eez_observer::outcomes::Record {
+                source_id: 1,
+                epoch: *epoch,
+                sequence: *sequence,
+                event,
+            }
+        }
+        let terminal_record=events.iter().find(|(_, event)| matches!(event,Event::Terminal {member: candidate,..} if candidate==member)).expect("terminal transport identity");
+        let mut lineage = events
+            .iter()
+            .filter(|((epoch, sequence), event)| {
+                *epoch == attempt.epoch
+                    && *sequence < parent.0.1
+                    && match event {
+                        Event::AttemptPrepared {
+                            attempt: candidate, ..
+                        } => candidate.generation == attempt.generation,
+                        Event::AttemptRepriced { replacement, .. } => {
+                            replacement.generation == attempt.generation
+                        }
+                        _ => false,
+                    }
+            })
+            .map(observer_record)
+            .collect::<Vec<_>>();
+        lineage.sort_by_key(|record| record.sequence);
+        let scopes = [
+            eez_telemetry::schema::ChainScope {
+                chain_id: l1.get_chain_id().await.unwrap(),
+                genesis_hash: eez_telemetry::schema::Hash32(expected_genesis[0].0),
+                rollup_id: 0,
+            },
+            eez_telemetry::schema::ChainScope {
+                chain_id: l2.get_chain_id().await.unwrap(),
+                genesis_hash: eez_telemetry::schema::Hash32(expected_genesis[1].0),
+                rollup_id: world.cfg.rollup_id,
+            },
+        ];
+        let decision = eez_observer::outcomes::native_decision(
+            &scopes,
+            observer_record(terminal_record),
+            observer_record(parent),
+            &lineage,
+        )
+        .expect("native decision passes observer coherence checks");
+        assert_eq!(decision.member, *member);
+        assert_eq!(decision.outcome, *outcome);
+        assert_eq!(decision.l1_snapshot, *scan);
         let canonical_scan = eez_testkit::block_number_and_hash_at(
             &world.l1_rpc(),
             alloy_rpc_types_eth::BlockNumberOrTag::Number(scan.number),
@@ -714,7 +774,69 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
             "source membership must reach a mined dispatch with the captured nonce/blob count"
         );
     }
+    let metrics = wait_for(std::time::Duration::from_secs(45), || {
+        let metrics_address = metrics_address.clone();
+        async move {
+            let metrics = scrape_native_metrics(&metrics_address).await?;
+            let terminal_and_empty = ["inbound", "outbound"].into_iter().all(|direction| {
+                let admissions = format!("reth_eez_native_admissions_total{{direction=\"{direction}\"}}");
+                let terminal = format!("reth_eez_native_terminal_observations_total{{direction=\"{direction}\",outcome=\"committed\"}}");
+                let completed = format!("reth_eez_request_duration_seconds_count{{direction=\"{direction}\",outcome=\"committed\"}}");
+                let pending = format!("reth_eez_native_queue_age_count{{direction=\"{direction}\",kind=\"pending\"}}");
+                metric_sample(&metrics, &admissions) == Some(1.)
+                    && metric_sample(&metrics, &terminal) == Some(1.)
+                    && metric_sample(&metrics, &completed) == Some(1.)
+                    && metric_sample(&metrics, &pending) == Some(0.)
+                    && ["queued_ready", "queued_blocked", "queued_unknown", "in_flight"].into_iter().all(|state| {
+                        metric_sample(&metrics, &format!("reth_eez_native_queue_transactions{{direction=\"{direction}\",state=\"{state}\"}}")) == Some(0.)
+                    })
+            });
+            Ok((terminal_and_empty && metric_sample(&metrics, "reth_eez_native_queue_sample_valid") == Some(1.)).then_some(metrics))
+        }
+    }).await.expect("real native metrics must retain both completed durations while current pending populations empty");
+    assert!(metrics.contains("# TYPE reth_eez_stage_duration_seconds histogram"));
+    assert!(metrics.contains("# TYPE reth_eez_request_duration_seconds histogram"));
+    assert!(
+        metric_sample(
+            &metrics,
+            "reth_eez_stage_duration_seconds_count{stage=\"preparation\",outcome=\"prepared\"}"
+        )
+        .is_some_and(|count| count >= 1.)
+    );
+    for hash in hashes {
+        assert!(
+            !metrics.contains(&format!("{hash:x}")),
+            "transaction hash leaked into metrics"
+        );
+    }
     world.node.assert_no_divergence_failure_logs();
+}
+
+fn metric_sample(metrics: &str, identity: &str) -> Option<f64> {
+    metrics.lines().find_map(|line| {
+        let (name, value) = line.split_once(' ')?;
+        (name == identity).then(|| value.parse().ok()).flatten()
+    })
+}
+
+async fn scrape_native_metrics(address: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let mut response = client
+        .get(format!("http://{address}/metrics"))
+        .send()
+        .await?
+        .error_for_status()?;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        anyhow::ensure!(
+            body.len().saturating_add(chunk.len()) <= 8 * 1024 * 1024,
+            "native scrape exceeds fixture budget"
+        );
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8(body)?)
 }
 
 async fn assert_real_signer_rejects(mutation: ProverMutation, tampered_input: &str) {

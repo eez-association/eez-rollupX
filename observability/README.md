@@ -22,7 +22,9 @@ completed release.
 Native process endpoints can now be configured explicitly through generated
 `EEZ_TELEMETRY_CONFIG` files; see [startup and precedence](contracts/native-startup.md).
 The composer/follower reuse the pinned Reth recorder and signer uses the compatible
-standalone recorder. No native queue-source handoff or trace export is enabled yet.
+standalone recorder. Native queue-source handoff remains gated. Optional
+[finite tracing](contracts/tracing.md) and the private [Tempo pilot](runbooks/traces.md)
+are disabled until explicitly configured.
 
 The exporter reads L1/L2 identity and latest heads, the EEZ queue RPC, and an
 optional independent L1 reference. It never submits transactions, reads `.env`
@@ -140,8 +142,10 @@ The notification and storage procedures, heartbeat receiver requirements,
 missing-data semantics and recovery limitations are in the
 [operations runbook](runbooks/operations.md). A newly configured receiver still
 needs a delivery test, and production readiness requires a separate-host
-heartbeat receiver and backup/restore drill. The current test proves container-replacement
-persistence, not recovery after loss of the monitoring disk.
+heartbeat receiver and an operator-owned backup/restore drill. The
+[isolated restore test](validation/restore.md) proves recovery into fresh volumes,
+including SQL checkpoints and retained diagnostic history. Off-host transfer,
+physical-host loss and production recovery objectives need deployment validation.
 
 **Validate the complete backend without live services.**
 

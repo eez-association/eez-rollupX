@@ -81,6 +81,10 @@ impl HeldPool {
         drop(state);
         match event {
             Ok(event) => {
+                eez_telemetry::traces::record_preparation(preparation.id);
+                if let Event::PreparationStarted { members, .. } = &event {
+                    eez_telemetry::traces::link_members(members);
+                }
                 preparation.publisher.publish(ticket, event, None);
             }
             Err(failure) => preparation.publisher.discard(ticket, failure),
@@ -103,19 +107,40 @@ impl HeldPool {
         // every enclosing minimal-dispatch future above the repository limit.
         let future = Box::pin(future);
         async move {
-            let mut preparation = self.start_preparation(sync, members);
-            let mut result = future.await;
-            if let Some(preparation) = &mut preparation {
-                let outcome = match &mut result {
-                    Ok((_, facts)) => {
-                        facts.preparation = Some(preparation.id);
-                        PreparationOutcome::Prepared
+            let span = tracing::info_span!(target: "eez_trace", "composer_preparation",
+                trace_id = tracing::field::Empty, sync_number = sync.number, preparation_epoch = tracing::field::Empty,
+                preparation_sequence = tracing::field::Empty,
+            );
+            tracing::Instrument::instrument(
+                async move {
+                    eez_telemetry::traces::record_trace_id(&tracing::Span::current());
+                    let mut metrics = self
+                        .native_metrics_enabled()
+                        .then(eez_telemetry::operational::PreparationTimer::start);
+                    let mut preparation = self.start_preparation(sync, members);
+                    let mut result = future.await;
+                    if preparation.is_some() || metrics.is_some() {
+                        let outcome = match &mut result {
+                            Ok((_, facts)) => {
+                                if let Some(preparation) = &preparation {
+                                    facts.preparation = Some(preparation.id);
+                                }
+                                PreparationOutcome::Prepared
+                            }
+                            Err(error) => failure(error),
+                        };
+                        if let Some(preparation) = &mut preparation {
+                            preparation.finish(outcome);
+                        }
+                        if let Some(metrics) = &mut metrics {
+                            metrics.finish(outcome);
+                        }
                     }
-                    Err(error) => failure(error),
-                };
-                preparation.finish(outcome);
-            }
-            result
+                    result
+                },
+                span,
+            )
+            .await
         }
     }
 }

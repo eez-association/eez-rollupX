@@ -1,14 +1,14 @@
-# Lifecycle-referenced source receipts (schema 5)
+# Lifecycle-referenced source receipts (schemas 5 and 9)
 
 This extends the [canonical indexer](canonical-indexer.md) and
 [lifecycle importer](lifecycle-ingestion.md). It establishes receipt facts for
-transaction hashes named by admitted events. It does not establish companion
+transaction hashes named by explicit scoped source references in retained lifecycle events. It does not establish companion
 ownership, cross-chain completion, or a per-admission allocation of a shared fee.
 
 An existing nonempty `lifecycle` configuration enables the independent source
 receipt worker. An omitted/empty array leaves it disabled. No additional identity,
 endpoint, credential or configuration knob is introduced. Both configured chain
-instances must have been registered before admission projection begins. Later
+instances must have been registered before source projection begins. Later
 receipt failures are handled separately for each chain, while the normal receipt
 scanners and lifecycle importers continue independently.
 
@@ -28,9 +28,21 @@ block flags, including additional source dependencies. The same checked parser,
 transaction/receipt identity checks, exact fee arithmetic and SQL fact guards
 serve both paths. Dependencies cannot change configured bootstrap or selection.
 
-Each source pass projects at most 64 complete `admitted` events per configured
-lifecycle source. Admission payloads contain fixed-size source identifiers;
-large manifests are not fetched here. Direction, chain ID, genesis hash and
+Each source pass projects at most 64 distinct event/source references per
+configured lifecycle source. Eligible records are complete `admitted`,
+`readiness`, `terminal`, `preparation_started`, `attempt_prepared`, and `reconciled`
+events. The first three carry a direct source or member; preparation/attempt
+records carry members; reconciliation carries `details.resolutions[].member`.
+Only those explicit full `Source` objects are used. Bare transaction hashes in
+other fields cannot supply missing chain/genesis/rollup/direction information.
+
+SQL extracts and deduplicates the fixed-size source objects within each event;
+the worker never downloads or deserializes enclosing manifests. Complete payloads
+already have the lifecycle importer's 8 MiB bound, and existing database statement
+deadlines also bound projection queries. A large membership record can take
+multiple passes; no source is silently truncated at the 64-reference pass budget.
+Duplicate members retain one event/source link. An omitted historical
+reconciliation `details` value produces no invented references. Direction, chain ID, genesis hash and
 rollup ID must match the configured pair. A mismatch is recorded and counted,
 and produces no receipt request to an inferred or substituted endpoint.
 
@@ -43,9 +55,12 @@ link version; only the object matching the current complete event is active.
 Original receipt facts remain stored independently of the disputed relationship.
 
 Lookup requests deduplicate by chain instance and transaction hash. Repeated
-admissions and multiple producers therefore share one receipt fact. Existing
+admissions, later lifecycle members and multiple producers therefore share one
+receipt fact. An explicit later member can recover a source receipt despite loss
+of its admission record, including after restart. It does not create an admission,
+reconstruct queue history or validate the claimed terminal outcome. Existing
 requests from formerly configured producers remain eligible while a complete
-admission relationship remains, even if that producer's spool is no longer read.
+source-reference relationship remains, even if that producer's spool is no longer read.
 Disabling the entire lifecycle feature stops these enrichment lookups.
 
 ## Lookup and recovery
@@ -88,9 +103,11 @@ appear in a later canonical history.
 | View | Population / interpretation |
 | --- | --- |
 | `canonical_receipt_facts` | One row per stored canonical inclusion, including selected transactions and dependencies; `source_valid` retains the indexer's freshness/freeze gate |
-| `lifecycle_source_admissions` | Current complete admission/source links; repeated admissions remain separate relationships |
+| `lifecycle_declared_sources` | Explicit source objects extracted from complete eligible events, including references awaiting identity projection |
+| `lifecycle_source_references` | Current complete identity-checked event/source links, with event kind; contains no inferred admissions |
+| `lifecycle_source_admissions` | Subset of references whose actual event kind is `admitted`; repeated admissions remain separate relationships |
 | `lifecycle_source_link_status` | Current projection result and configured context, including identity mismatches |
-| `source_receipts` | Canonical receipt facts referenced by at least one active admission link; `EXISTS` prevents join multiplication |
+| `source_receipts` | Canonical receipt facts referenced by at least one active source link; `EXISTS` prevents join multiplication |
 | `source_receipt_cost_totals` | Exact known source receipt costs, accounted/incomplete/reverted populations; overlaps with wallet spend and must not be added to it |
 | `source_receipt_coverage` | Known sources, missing receipts, accounting gaps, failed lookups and distinct unresolved lookup states |
 | `source_receipt_lookup_status` | Per-transaction lookup state, diagnostic reason and attempt/success timestamps |
@@ -106,7 +123,10 @@ not an instantaneous guarantee about an unsampled chain head.
 
 Metrics use the `eez_observer_source_receipt_` prefix. Projection success,
 last-success time, pending-admission count and identity errors describe the
-bounded projection pass; success does not imply an empty backlog. Receipt
+bounded projection pass; success does not imply an empty backlog. The additional
+`pending_references` gauge counts all unprojected distinct event/source references;
+`pending_admissions` retains its original admission-only meaning. A single
+multi-member event can therefore contribute multiple pending references. Receipt
 collection success, last-success time, errors and coverage counts have only the
 bounded `chain=l1|l2` label. Errors add the existing closed reason label. A failure
 or a snapshot older than 90 seconds hides that chain's data counts while retaining
@@ -116,9 +136,13 @@ counts. Pair these signals with lifecycle gaps and canonical index coverage.
 
 ## Upgrade and limits
 
-Use stop/backup/explicit `migrate`/start. Schema-4 and older binaries refuse schema
-5, and rollback must use a tested compatible binary or a separate restored
-backup. Selected costs, orphan/reinclusion history and complete lifecycle records
+Use stop/backup/explicit `migrate`/start. Schema 9 adds the source extraction and
+reference views, replaces only the affected view definitions, and leaves
+immutable links and requests intact. Existing schema-5-through-8 admission links
+are immediately visible through both the reference and admission views; retained
+later members are recovered by subsequent bounded passes. Earlier binaries refuse
+the newer schema. Rollback must use a tested compatible binary or a separate
+restored backup. Selected costs, orphan/reinclusion history and complete lifecycle records
 survive the upgrade. SQL roles remain separate; no native signing key or raw
 pending envelope is required. The read-only role can inspect the listed views.
 
@@ -127,3 +151,18 @@ Backlog, database growth, request load and retention must be calibrated before
 rollout. Canonical outcome validation, restart disposition, source/companion
 allocation and the protocol dashboards remain separate acceptance work. A complete
 source receipt does not close any of those gates.
+
+## Requirement coverage for later-member recovery
+
+| Requirement | Implementation | Verification |
+| --- | --- | --- |
+| R10/R11 exact independently fetched source costs, no duplicate charge | `source_receipts.rs` shared lookup path; schema-9 `source_receipts` and lookup/coverage view selection use `EXISTS` over active references | `smoke-database.py` later-member case: source fee recovered, selected total unchanged, repeated members and multiple event kinds share receipt |
+| R19 missing admission remains missing | Separate `lifecycle_source_admissions` predicate; no writes to admission history | Same process case asserts zero actual admissions/status rows while later members recover receipts |
+| Scoped identity, replay and conflict retraction | Existing `source_role`; immutable context/source links; complete-current-event extractor joined in active views and rechecked under event lock | Existing identity/context cases plus later-member source replay/conflict cases |
+| Bounded work and repeatability | 64 distinct references per configured source/pass; original chain-specific deadline, retry and request limits unchanged | 71-reference process fixture reaches 64 then 71; duplicate members collapse; existing chain isolation/deadline checks remain |
+| Safe upgrade | Explicit immutable migration 9 and exact schema verification | Optional saved schema-8 binary lane verifies admission-link preservation and rejects downgrade |
+
+The [schema-9 recovery validation record](../validation/source-references.md)
+records the executed observer tests and disposable process/upgrade suite.
+This extension does not implement companion allocation or canonical outcome
+assurance.

@@ -1,0 +1,440 @@
+{
+  "uid": "eez-gas",
+  "title": "EEZ \u00b7 Gas and economics",
+  "tags": [
+    "eez",
+    "protocol"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "eez"
+      ],
+      "title": "EEZ dashboards",
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT environment AS __text,environment AS __value FROM eez.dashboard_chain_context ORDER BY 1",
+        "definition": "SELECT DISTINCT environment AS __text,environment AS __value FROM eez.dashboard_chain_context ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "deployment",
+        "label": "Deployment",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT deployment AS __text,deployment AS __value FROM eez.dashboard_chain_context WHERE environment=${environment:sqlstring} ORDER BY 1",
+        "definition": "SELECT DISTINCT deployment AS __text,deployment AS __value FROM eez.dashboard_chain_context WHERE environment=${environment:sqlstring} ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "chain",
+        "label": "Source chain",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "rollup",
+        "label": "L2 rollup",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT rollup_id::text AS __text,rollup_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND role='l2' ORDER BY 1",
+        "definition": "SELECT DISTINCT rollup_id::text AS __text,rollup_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND role='l2' ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": "all",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Native instance",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "query": "SELECT DISTINCT s.instance AS __text,s.instance AS __value FROM eez.lifecycle_coverage s WHERE s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) ORDER BY 1",
+        "definition": "SELECT DISTINCT s.instance AS __text,s.instance AS __value FROM eez.lifecycle_coverage s WHERE s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) ORDER BY 1",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "source_hash",
+        "label": "Source transaction (optional 0x hash)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Exact charges and allocation boundaries",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees are separate rows; never add them into one external bill. Reverted receipts remain charged. Companion attribution, per-source shared overhead allocation, settled-L2-transaction unit cost, live account balances and spend-based runway are unavailable; no fabricated allocation or fiat conversion is shown.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees are separate rows; never add them into one external bill. Reverted receipts remain charged. Companion attribution, per-source shared overhead allocation, settled-L2-transaction unit cost, live account balances and spend-based runway are unavailable; no fabricated allocation or fiat conversion is shown."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Configured wallet spend \u00b7 separate chain populations",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Configured payer identity defines wallet spend independently of source/companion attribution. Exact sums from canonical receipt inclusions. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.role,c.chain_id::text,'0x'||encode(r.sender,'hex') AS wallet,count(*) AS receipts,count(*) FILTER(WHERE NOT r.success) AS reverted_receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,sum(r.execution_paid)::text AS known_execution_paid_wei,sum(r.blob_paid)::text AS known_blob_paid_wei,sum(r.execution_paid+r.blob_paid)::text AS known_total_paid_wei FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY c.role,c.chain_id,r.sender ORDER BY c.role"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Paid posting calls \u00b7 successful versus reverted",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Per paid posting call, not per source or successful applied batch. Exact known sum and decimal per-call mean; incomplete receipts suppress the mean.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT r.success,count(*) AS calls,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_calls,sum(r.execution_paid+r.blob_paid)::text AS known_total_paid_wei,CASE WHEN count(*) FILTER(WHERE r.accounting_gap IS NOT NULL)=0 THEN sum(r.execution_paid+r.blob_paid)/NULLIF(count(*),0) END::text AS mean_paid_per_call_wei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY r.success"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Daily selected receipt spend \u00b7 chain-separated",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Configured selected receipt population, daily UTC buckets in the selected time range. Source dependencies outside original selection are excluded from this bill. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day',to_timestamp(r.timestamp_seconds::double precision)) AS day,c.role,c.chain_id::text,count(*) AS receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,sum(r.execution_paid)::text AS known_execution_paid_wei,sum(r.blob_paid)::text AS known_blob_paid_wei FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2,3 ORDER BY 1,2"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Receipt detail \u00b7 optional transaction hash",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 8
+      },
+      "description": "One current canonical inclusion per transaction; exact integer values stay strings to avoid floating-point loss. A source receipt proves only source inclusion/status. Explorer links are added only for configured explorer URLs.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,c.role,c.chain_id::text,'0x'||encode(r.transaction_hash,'hex') AS transaction,'0x'||encode(r.block_hash,'hex') AS inclusion_block,r.transaction_index::text,r.success,r.gas_used::text,r.effective_gas_price::text,r.blob_gas_used::text,r.blob_gas_price::text,r.execution_paid::text,r.blob_paid::text,r.accounting_gap,CASE c.role WHEN 'l1' THEN __EEZ_L1_EXPLORER_SQL__ WHEN 'l2' THEN __EEZ_L2_EXPLORER_SQL__ END AS explorer_url FROM eez.canonical_receipt_facts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR encode(r.transaction_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.transaction_index LIMIT 200"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Unallocated posting overhead",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Allocation is not implemented: all included posting overhead remains explicitly unallocated here. This is the same posting receipt population, not an additional bill.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS posting_calls_without_verified_source_allocation,sum(r.execution_paid+r.blob_paid)::text AS known_unallocated_posting_wei,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_posting_receipts FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid HAVING EXISTS(SELECT FROM eez.index_coverage ready JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND c.role='l1' AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND ready.frozen_reason IS NULL AND ready.collection_error IS NULL AND ready.last_success_at BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds')"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Indexed receipt coverage",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.role,c.chain_id::text,c.rollup_id::text,v.indexed_from::text,v.indexed_through::text,v.incomplete_blocks,v.last_success_at,v.collection_error,v.frozen_reason FROM eez.index_coverage v JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) ORDER BY c.role"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Posting classification coverage \u00b7 full indexed interval",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 6
+      },
+      "description": "Decoded posting panels and blob coverage exclude unknown/invalid methods. This lifetime indexed-interval coverage is shown beside them; it is not limited to the dashboard time window. Unknown method rows do not become zero paid costs.",
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.role,v.tracked_contract_receipts,v.decoded_post_receipts,v.invalid_post_calldata_receipts,v.other_method_receipts,v.unknown_method_receipts,v.method_collection_errors,v.last_method_attempt_at,v.source_valid FROM eez.posting_coverage v JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Native restart observations",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "rawQuery": true,
+        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+      },
+      {
+        "name": "Local policy dispositions",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-postgres"
+        },
+        "enable": true,
+        "iconColor": "yellow",
+        "rawQuery": true,
+        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+      }
+    ]
+  }
+}

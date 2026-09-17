@@ -35,6 +35,12 @@ impl Failure {
     }
 }
 
+pub(crate) enum GetResponse {
+    Value(Value),
+    Absent,
+    Pruned,
+}
+
 #[derive(Clone, Debug)]
 pub struct Rpc {
     client: reqwest::Client,
@@ -108,28 +114,35 @@ impl Rpc {
         .await
     }
 
-    async fn call_bounded(
+    /// Bounded read-only Beacon REST retrieval shares the RPC concurrency and
+    /// timeout budgets. Error bodies and credential-bearing URLs are discarded.
+    pub(crate) async fn get_bounded(
         &self,
-        url: &str,
-        method: &'static str,
-        params: Value,
+        url: reqwest::Url,
         limit: usize,
-    ) -> Result<Value, Failure> {
+    ) -> Result<GetResponse, Failure> {
         let _permit = self
             .permits
             .acquire()
             .await
             .map_err(|_| Failure::Transport)?;
-        let mut response = self
+        let response = self
             .client
-            .post(url)
-            .json(&json!({"jsonrpc":"2.0", "id":1, "method":method, "params":params}))
+            .get(url)
             .send()
             .await
             .map_err(|_| Failure::Transport)?;
-        if !response.status().is_success() {
-            return Err(Failure::Http);
+        match response.status().as_u16() {
+            404 | 405 => Ok(GetResponse::Absent),
+            410 => Ok(GetResponse::Pruned),
+            _ if response.status().is_success() => Self::read_json(response, limit)
+                .await
+                .map(GetResponse::Value),
+            _ => Err(Failure::Http),
         }
+    }
+
+    async fn read_json(mut response: reqwest::Response, limit: usize) -> Result<Value, Failure> {
         if response
             .content_length()
             .is_some_and(|size| size > limit as u64)
@@ -143,7 +156,32 @@ impl Rpc {
             }
             bytes.extend_from_slice(&chunk);
         }
-        let value: Value = serde_json::from_slice(&bytes).map_err(|_| Failure::Malformed)?;
+        serde_json::from_slice(&bytes).map_err(|_| Failure::Malformed)
+    }
+
+    async fn call_bounded(
+        &self,
+        url: &str,
+        method: &'static str,
+        params: Value,
+        limit: usize,
+    ) -> Result<Value, Failure> {
+        let _permit = self
+            .permits
+            .acquire()
+            .await
+            .map_err(|_| Failure::Transport)?;
+        let response = self
+            .client
+            .post(url)
+            .json(&json!({"jsonrpc":"2.0", "id":1, "method":method, "params":params}))
+            .send()
+            .await
+            .map_err(|_| Failure::Transport)?;
+        if !response.status().is_success() {
+            return Err(Failure::Http);
+        }
+        let value = Self::read_json(response, limit).await?;
         if value["jsonrpc"] != "2.0" || value["id"] != 1 {
             return Err(Failure::Malformed);
         }

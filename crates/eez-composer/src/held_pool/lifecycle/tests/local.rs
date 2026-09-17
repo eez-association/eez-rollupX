@@ -273,3 +273,88 @@ fn local_capture_limit_loses_whole_snapshot_without_limiting_protocol_eviction()
         "oversized membership must not be partially published"
     );
 }
+
+#[test]
+fn native_terminal_durations_work_without_lifecycle_and_skip_unchanged_reservations() {
+    let (_dir, pool, _, writer) = setup();
+    {
+        let mut state = pool.state.lock().unwrap();
+        state.lifecycle = None;
+        state.telemetry.enable_native_for_test();
+    }
+    let held = tx(1, Direction::Inbound);
+    pool.push_contiguous(held.clone(), 0).unwrap();
+    let capture = {
+        let state = pool.state.lock().unwrap();
+        super::super::LocalCapture::before(
+            &state,
+            [(held.hash, Outcome::PoolDiscarded, held.direction)],
+        )
+        .unwrap()
+    };
+    // Queued work is not removed by the in-flight-only API.
+    pool.release_in_flight_batch(std::slice::from_ref(&held));
+    assert!(
+        capture
+            .after(&pool.state.lock().unwrap())
+            .observations()
+            .is_empty()
+    );
+    let drained = pool.pop_all();
+    let capture = {
+        let state = pool.state.lock().unwrap();
+        super::super::LocalCapture::before(
+            &state,
+            [(held.hash, Outcome::PoolDiscarded, held.direction)],
+        )
+        .unwrap()
+    };
+    pool.release_in_flight_batch(&drained);
+    let pending = capture.after(&pool.state.lock().unwrap());
+    assert_eq!(pending.observations().len(), 1);
+    let observation = &pending.observations()[0];
+    assert_eq!(observation.direction, schema::Direction::Inbound);
+    assert_eq!(observation.outcome, Outcome::PoolDiscarded);
+    assert!(observation.elapsed.is_some());
+    let capture = super::super::LocalCapture::before(
+        &pool.state.lock().unwrap(),
+        [(held.hash, Outcome::PoolDiscarded, held.direction)],
+    )
+    .unwrap();
+    pool.release_in_flight_batch(&drained);
+    assert!(
+        capture
+            .after(&pool.state.lock().unwrap())
+            .observations()
+            .is_empty()
+    );
+    assert!(writer.shutdown(Duration::from_secs(8)));
+}
+
+#[test]
+fn native_local_metrics_cannot_terminate_an_unresolved_canonical_owner() {
+    let (_dir, pool, _, writer) = setup();
+    pool.state
+        .lock()
+        .unwrap()
+        .telemetry
+        .enable_native_for_test();
+    let held = tx(1, Direction::Outbound);
+    pool.push_contiguous(held.clone(), 0).unwrap();
+    let txs = pool.pop_all();
+    let _id = prepare(&pool, txs.clone(), manifest(&txs)).unwrap();
+    pool.state.lock().unwrap().lifecycle = None;
+    let capture = super::super::LocalCapture::before(
+        &pool.state.lock().unwrap(),
+        [(held.hash, Outcome::PoolDiscarded, held.direction)],
+    )
+    .unwrap();
+    pool.release_in_flight_batch(&txs);
+    assert!(
+        capture
+            .after(&pool.state.lock().unwrap())
+            .observations()
+            .is_empty()
+    );
+    assert!(writer.shutdown(Duration::from_secs(8)));
+}

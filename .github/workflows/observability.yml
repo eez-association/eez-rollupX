@@ -6,6 +6,22 @@ on:
       - observability/**
       - crates/eez-observer/**
       - crates/eez-telemetry/**
+      - crates/eez-blob-codec/**
+      - crates/eez-payload-codec/**
+      - crates/eez-protocol/**
+      - crates/eez-composer/**
+      - crates/eez-node/**
+      - crates/eez-follower/**
+      - crates/eez-l1/**
+      - crates/eez-node-common/**
+      - crates/eez-proof-signer/**
+      - crates/eez-prover-client/**
+      - crates/eez-control-rpc/**
+      - eez-core-protocol
+      - Dockerfile.runtime
+      - Dockerfile.runtime.dockerignore
+      - scripts/ci/**
+      - .github/workflows/build-runtime.yml
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/observability.yml
@@ -15,6 +31,22 @@ on:
       - observability/**
       - crates/eez-observer/**
       - crates/eez-telemetry/**
+      - crates/eez-blob-codec/**
+      - crates/eez-payload-codec/**
+      - crates/eez-protocol/**
+      - crates/eez-composer/**
+      - crates/eez-node/**
+      - crates/eez-follower/**
+      - crates/eez-l1/**
+      - crates/eez-node-common/**
+      - crates/eez-proof-signer/**
+      - crates/eez-prover-client/**
+      - crates/eez-control-rpc/**
+      - eez-core-protocol
+      - Dockerfile.runtime
+      - Dockerfile.runtime.dockerignore
+      - scripts/ci/**
+      - .github/workflows/build-runtime.yml
       - Cargo.toml
       - Cargo.lock
       - .github/workflows/observability.yml
@@ -30,11 +62,12 @@ concurrency:
 jobs:
   fixtures:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: "1.94.0"
@@ -44,20 +77,43 @@ jobs:
           shared-key: observability
           cache-targets: "false"
           cache-on-failure: "false"
+      - name: Install native build and tooling dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler python3-yaml
+      - name: Verify private fixture Docker tooling
+        run: |
+          bash scripts/ci/check-docker.sh
+          docker compose version
+          docker buildx version
+          python3 -c 'import yaml'
+      - name: Runtime context and workflow contracts
+        run: |
+          EEZ_TEST_DOCKER_RUNTIME=1 python3 -m unittest scripts.ci.tests.test_runtime_docker.RuntimeDockerTest.test_observer_compile_inputs_survive_runtime_allowlist -v
+          python3 -m unittest scripts.ci.tests.test_workflow_contract.ObservabilityWorkflowContractTest -v
       - name: Configuration and dashboard checks
         run: python3 observability/tests/test_prepare.py
       - name: Format
-        run: cargo fmt -p eez-observer -p eez-telemetry --check
+        run: cargo fmt -p eez-observer -p eez-telemetry -p eez-blob-codec --check
       - name: Exporter and telemetry tests
-        run: cargo test --locked -p eez-observer -p eez-telemetry --all-features
+        run: cargo test --locked -p eez-observer -p eez-telemetry -p eez-blob-codec --all-features
       - name: Exporter and telemetry lint
-        run: cargo clippy --locked -p eez-observer -p eez-telemetry --all-features --all-targets -- -D warnings
+        run: cargo clippy --locked -p eez-observer -p eez-telemetry -p eez-blob-codec --all-features --all-targets -- -D warnings
       - name: Build exporter
         run: cargo build --locked -p eez-observer
       - name: Isolated canonical database, recovery and permissions tests
         run: python3 -u observability/tests/smoke-database.py --report artifacts/observability-database-validation.json
       - name: Isolated backend, query, log and alert tests
         run: python3 -u observability/tests/smoke-stack.py --report artifacts/observability-stack-validation.json
+      - name: Isolated Tempo ingestion, log links, persistence and failure recovery
+        timeout-minutes: 15
+        run: python3 -u observability/tests/smoke-traces.py --report artifacts/observability-tempo-validation.json
+      - name: Protocol dashboards against real PostgreSQL and Grafana queries
+        timeout-minutes: 15
+        run: python3 -u observability/tests/smoke-protocol-dashboards.py --report artifacts/observability-dashboards-validation.json
+      - name: Fresh-instance backup restore and canonical recovery
+        timeout-minutes: 15
+        run: python3 -u observability/tests/smoke-restore.py --binary target/debug/eez-observer --report artifacts/observability-restore-validation.json
       - name: Summarize validation
         if: always()
         run: |
@@ -76,6 +132,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: observability-validation
-          path: artifacts/observability-*-validation.json
+          path: |
+            artifacts/observability-*-validation.json
+            artifacts/observability-*-validation.logs.txt
+            artifacts/observability-*-validation-*.logs.txt
+            artifacts/observability-*-validation-*.log
           if-no-files-found: warn
           retention-days: 3

@@ -6625,30 +6625,22 @@ fn validate_attempt_evidence(
     {
         return Err("reconciliation evidence does not match the signed postBatch".into());
     }
-    let effects = &attempt.manifest.effects;
-    let applied = &evidence.applied_effects;
-    if applied.start > applied.end || applied.end > effects.len() {
-        return Err("reconciliation slice exceeds the user manifest".into());
-    }
-    if !applied.is_empty() {
-        let endpoint = evidence
+    eez_protocol::settlement_manifest::validate_replay_coordinates(
+        attempt.sync_height,
+        &attempt.manifest.effects,
+        &evidence.applied_effects,
+        evidence
             .endpoint
-            .ok_or("producing settlement has no endpoint")?;
-        if endpoint.number != attempt.sync_height || endpoint.hash != effects[applied.end - 1] {
-            return Err("reconciliation endpoint differs from the manifest checkpoint".into());
-        }
-    }
-    for user in &attempt.manifest.users {
-        if let Some(group) = user.outbound_group {
-            let selected = applied.start <= user.effects.start && user.effects.end <= applied.end;
-            if selected != evidence.selection.outbound_groups.contains(&group) {
-                return Err(
-                    "reconciliation splits or misidentifies a signed outbound group".into(),
-                );
-            }
-        }
-    }
-    Ok(())
+            .as_ref()
+            .map(|endpoint| (endpoint.number, &endpoint.hash)),
+        &evidence.selection.outbound_groups,
+        attempt
+            .manifest
+            .users
+            .iter()
+            .map(|user| (user.outbound_group, user.effects.clone())),
+    )
+    .map_err(str::to_owned)
 }
 
 async fn observe_bundle_outcome(
