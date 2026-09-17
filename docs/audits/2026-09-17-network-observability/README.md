@@ -169,3 +169,23 @@ historical fallback branch. Formatting, whitespace, local links and shell-exampl
 syntax checks passed. No dependencies, migrations or protocol pins changed.
 Canonical terminal/reorg capture and validation, native metrics/traces, full fault
 workloads, release/CI/Kurtosis validation and production acceptance remain open.
+
+## Native reconciliation and reorg evidence
+
+Source `4b3acb89df209245d466af63f95091b8a33c76f5` records exact native
+reconciliation facts, actual changed admission dispositions and observed watcher
+reorg references. It preserves the distinction between scan snapshots and receipt
+inclusions, bounds whole snapshots, and publishes after the pool/ledger locks.
+The compatible APIs retain their existing protocol behavior. Height-only
+invalidation cannot fabricate an ancestor hash.
+
+226 Composer tests, 22 all-feature telemetry tests and workspace all-target Clippy
+passed. The source-built legacy-policy, enabled-policy and disabled canaries all
+passed, retaining semantic/proof assertions and adding source/post receipt and
+applied L2 endpoint comparisons with RPC. The
+[validation record](../../../observability/validation/native-reconciliation.md)
+maps requirements to checks, preserves first failures and lists limits; its
+[artifact report](../../../observability/validation/native-reconciliation.json)
+identifies the exact executables. These are native claims and process validation,
+not completed observer outcome assurance, independent replay or production
+acceptance. Later local-disposition edits require their own validation.
