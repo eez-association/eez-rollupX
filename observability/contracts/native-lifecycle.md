@@ -13,6 +13,8 @@ specifications and the existing rollup configuration.
 | `admitted` | Successful `HeldPool::push_contiguous`, under its existing mutex, after nonce/replacement validation and queue mutation | A distinct admission ID is the captured epoch/sequence. Active duplicates, rejected submissions and internal requeues do not create admissions. |
 | `terminal: replaced` | The same successful queued replacement | Explicit local-policy disposition of the prior retained admission; no canonical anchor or settlement claim. |
 | `readiness` | Accepted pool readiness/blocking observation, while the hash remains queued or in flight | Exact evaluated L1/L2 block references and a bounded reason. Identical source/reason observations are deduplicated; changed source hashes are distinct observations. |
+| `preparation_started` | First poll of rich, minimal or historical post-batch preparation | Distinct epoch/sequence preparation identity, proposed L2 endpoint and complete candidate admission membership before a signed attempt exists. |
+| `preparation_finished` | Return or destruction of that preparation future | One typed outcome and monotonic elapsed duration; successful preparation does not imply ledger registration or dispatch. |
 | `attempt_prepared` | Successful existing ledger `begin`, through the held-pool owner | Native generation/signed hash, exact admission membership and manifest coordinates, candidate stream bytes/blob allowance, nonce and proposed L2 endpoint. No receipt charge or canonical completion claim. |
 | `attempt_repriced` | Successful replacement of a never-dispatched candidate with a different signed hash | Explicit previous/replacement IDs in the same native generation. An unchanged hash/byte pair emits no variant; failed replacements emit nothing. |
 | `dispatched` | Accepted existing ledger dispatch callback before the network request | Actual resolved target number/timestamp, signed hash and nonce. Rejected duplicate or superseded callbacks emit nothing. |
@@ -60,6 +62,30 @@ source sender/nonce/charged episodes, outbound group, producing-effect interval,
 source-action coordinates and complete effect endpoint hashes. These coordinates
 are diagnostic node evidence, not independent replay verification.
 
+Preparation identity covers post-batch construction, witness/proof work and signing
+inside `prepare_post_batch_raw`; it starts after source selection and Sync-block
+construction. It is not the entire admission-to-completion duration. The existing
+future retains ownership; no new executor/task is spawned. A small wrapper starts
+on first poll and a move-only guard finishes once on return, cancellation or unwind.
+An unpolled dropped future emits nothing. A process abort/crash can still lose the
+finish; an absent finish stays unknown rather than being inferred as cancellation.
+
+Preparation failure classification matches the existing typed error variants:
+construction failure, capacity limit, prover failure or validation rejection. It
+does not parse or export error strings and does not alter the returned error.
+Cancellation and panic unwinding have separate outcomes. A successfully built
+candidate receives its preparation ID in the later `attempt_prepared.details`,
+even though preparation can also finish without any signed attempt being registered.
+The started event retains candidate membership so failed preparations remain
+discoverable by admission. Missing/oversized membership creates a counted start
+gap while the original work continues; a finish alone cannot prove complete history.
+
+The builder future is boxed once at the shared wrapper boundary to keep enclosing
+futures within the repository's size limit. Boxing happens before polling, while
+event allocation/publication still begins only on first poll. This adds a local
+allocation, not a new task, retry or protocol decision. Resource/overhead acceptance
+remains in the workload gates.
+
 Before copying membership, capture checks limits of 4,096 members, 32,768 effects
 and 32,768 source actions. Exceeding a limit or lacking any admission context loses
 the entire capture with a counted `capture_limit`/`capture_context` gap; it never
@@ -67,7 +93,7 @@ truncates membership, fabricates an admission or rejects the protocol attempt.
 The transport also enforces its independent 8 MiB encoded payload cap. These are
 telemetry limits, not new transaction or protocol admission limits.
 
-Pre-signing preparation identities, canonical reconciliation, other terminal
+Canonical reconciliation, other terminal
 dispositions, exact reorg events, native queue/stage metrics and trace context
 remain separate capture work. The transport schema names some of those events
 but their presence in the schema is not evidence that the runtime emits them.
@@ -88,3 +114,7 @@ dispatch, superseded callbacks, repeated source membership across retry generati
 and capture gaps that preserve protocol ownership. Process acceptance for the
 expanded attempt assertions is recorded separately from the earlier admission-only
 canary; an earlier passing binary does not validate new capture paths.
+Preparation regressions cover unchanged success/error results, source membership,
+signed-attempt linkage, unpolled drop, cancellation, panic unwinding, disabled/closed
+capture and membership gaps. Expanded native canaries require each registered
+attempt to reference one matching start and one successful finish.

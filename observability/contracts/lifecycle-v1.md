@@ -7,6 +7,7 @@ for quarantine and operator-directed replay, never interpret them as success.
 The transport and [PostgreSQL ingestion](lifecycle-ingestion.md) have isolated
 recovery tests; [native capture](native-lifecycle.md) covers admission,
 replacement, readiness, attempt membership, repricing and dispatch observations.
+It also captures post-batch preparation before signed-attempt registration.
 Remaining transition wiring and canonical outcome validation remain
 open in the [requirement ledger](../requirements.md).
 
@@ -53,6 +54,8 @@ events are a counted encoding loss; they never change the protocol decision.
 | --- | --- |
 | `admitted` | Source identity, optional previous admission for explicit readmission, optional replaced admission. Repeated ingress of an already owned hash creates no admission |
 | `readiness` | Admission/source member, exact L1/L2 source-state block references, optional blocking reason (`nonce`, `fee`, `balance`, `escrow`); null means ready |
+| `preparation_started` | L2 chain/genesis/rollup, proposed Sync block and candidate members. The record's epoch/sequence is its distinct preparation ID |
+| `preparation_finished` | Preparation ID, monotonic elapsed nanoseconds and outcome: `prepared`, `construction_failed`, `capacity_limited`, `prover_failed`, `validation_rejected`, `cancelled` or `panicked` |
 | `attempt_prepared` | Existing native generation+post hash wrapped in epoch, sync height, exact member list, candidate encoded bytes/blob count and active blob allowance; optional detailed manifest evidence described below |
 | `attempt_repriced` | Explicit previous/replacement attempt identities; preserves native generation while a never-dispatched candidate's signed hash changes |
 | `dispatched` | Attempt identity, target block number/timestamp, signed transaction hash and nonce. The future target has no known block hash. Each event is a dispatch occurrence, not another paid transaction |
@@ -75,6 +78,11 @@ nonce, already charged failure episodes, optional outbound group, half-open
 producing-effect interval and source-action hash/index pairs. No signed envelope
 is present. Native capture bounds the complete copy before allocation; the
 transport's payload/chunk limits still apply after encoding.
+Its optional `preparation` links the separate pre-signing operation; omission in
+older records means unknown. Successful preparation means the candidate was built,
+not that native ownership was registered or a transaction was sent. Candidate
+memberships in the start and signed-attempt events must agree before a consumer
+claims that relationship. A missing start or finish is incomplete history.
 
 The v1 extension preserves decoding of existing events: omitted `details` remains
 unknown and serialization omits it when absent. New variants and populated details
@@ -84,6 +92,8 @@ positions; upgrading does not automatically reinterpret those quarantined record
 They require explicit operator-directed replay. SQL transport storage needs no
 migration for these additive payload fields. Lack of details never becomes an
 empty verified manifest.
+The same additive compatibility rule applies to optional preparation IDs and the
+new preparation variants; older strict readers quarantine unfamiliar fields/events.
 
 Outcomes preserve `committed`, `source_reverted`,
 `source_completed_with_missing_effects`, `source_completed`, `source_nonce_spent`,

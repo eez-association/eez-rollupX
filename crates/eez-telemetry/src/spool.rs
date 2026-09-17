@@ -20,7 +20,8 @@ pub use crate::schema::StatsSnapshot;
 use crate::{
     encode,
     schema::{
-        AdmissionId, Epoch, Event, Identity, Payload, Record, TraceContext, VERSION, WriterStatus,
+        AdmissionId, Epoch, Event, Identity, Payload, PreparationId, Record, TraceContext, VERSION,
+        WriterStatus,
     },
     wire::{MAX_RECORD_BYTES, line},
 };
@@ -144,6 +145,12 @@ pub struct Ticket {
 }
 
 impl Ticket {
+    pub fn preparation_id(&self) -> PreparationId {
+        PreparationId {
+            epoch: self.epoch,
+            sequence: self.sequence,
+        }
+    }
     pub fn admission_id(&self) -> AdmissionId {
         AdmissionId {
             epoch: self.epoch,

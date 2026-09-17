@@ -311,7 +311,8 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
             let mut chunks = std::collections::BTreeMap::new();
             for id in reader::inventory(&spool)? {
                 let mut offset = 0;
-                for _ in 0..8 {
+                // Controlled fixture budget, including idle preparation history.
+                for _ in 0..64 {
                     let batch = reader::read_segment(&spool, id, offset)?;
                     let Record::Header {
                         identity,
@@ -455,6 +456,7 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
             if let Event::AttemptPrepared {
                 members,
                 details: Some(details),
+                sync_height,
                 encoded_bytes,
                 blob_count,
                 blob_allowance,
@@ -465,6 +467,42 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
                 assert_eq!(details.l2_chain_id, world.l2_chain_id);
                 assert_eq!(details.l2_genesis_hash.0, expected_genesis[1].0);
                 assert_eq!(details.rollup_id, world.cfg.rollup_id);
+                let preparation = details.preparation.expect("native pre-signing identity");
+                let starts = events
+                    .iter()
+                    .filter(|((epoch, sequence), event)| {
+                        *epoch == preparation.epoch
+                            && *sequence == preparation.sequence
+                            && matches!(event, Event::PreparationStarted {sync, members: proposed, l2_chain_id, l2_genesis_hash, rollup_id}
+                            if sync.number == *sync_height && sync.hash == details.sync_hash
+                            && proposed == members && *l2_chain_id == details.l2_chain_id
+                            && *l2_genesis_hash == details.l2_genesis_hash && *rollup_id == details.rollup_id)
+                    })
+                    .count();
+                assert_eq!(
+                    starts, 1,
+                    "attempt must link to its exact pre-signing operation"
+                );
+                let finishes = events
+                    .iter()
+                    .filter(|(_, event)| {
+                        matches!(event,
+                    Event::PreparationFinished {preparation: finished, ..}
+                    if *finished == preparation)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    finishes.len(),
+                    1,
+                    "successful preparation finishes once before attempt registration"
+                );
+                assert!(matches!(
+                    finishes[0].1,
+                    Event::PreparationFinished {
+                        outcome: eez_telemetry::schema::PreparationOutcome::Prepared,
+                        ..
+                    }
+                ));
                 assert!(*encoded_bytes > 0);
                 assert_eq!(
                     encoded_bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB as u64),

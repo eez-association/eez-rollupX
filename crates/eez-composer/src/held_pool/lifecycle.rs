@@ -10,7 +10,9 @@ use eez_telemetry::{
 use std::{collections::HashMap, time::Instant};
 
 mod attempts;
+mod preparation;
 pub(crate) use attempts::PreparationFacts;
+const MAX_MEMBERS: usize = 4096;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ChainIdentity {
@@ -68,6 +70,23 @@ impl Pending {
     }
 }
 impl Lifecycle {
+    fn members(&self, txs: &[crate::HeldTx]) -> Result<Vec<Member>, eez_telemetry::CaptureFailure> {
+        use eez_telemetry::CaptureFailure;
+        if txs.len() > MAX_MEMBERS {
+            return Err(CaptureFailure::Limit);
+        }
+        txs.iter()
+            .map(|tx| {
+                self.admissions
+                    .get(&tx.hash)
+                    .filter(|admission| {
+                        admission.member.source == self.context.source(tx.hash, tx.direction)
+                    })
+                    .map(|admission| admission.member)
+                    .ok_or(CaptureFailure::MissingContext)
+            })
+            .collect()
+    }
     pub(super) fn admitted(
         &mut self,
         hash: B256,
@@ -546,13 +565,240 @@ mod tests {
             txs,
             manifest,
             alloy_primitives::Bytes::from_static(b"signed envelope is never exported"),
-            PreparationFacts {
-                encoded_bytes: 4321,
-                blob_count: 1,
-                blob_allowance: 3,
-                nonce: 77,
-            },
+            preparation_facts(),
         )
+    }
+
+    fn preparation_facts() -> PreparationFacts {
+        PreparationFacts {
+            preparation: None,
+            encoded_bytes: 4321,
+            blob_count: 1,
+            blob_allowance: 3,
+            nonce: 77,
+        }
+    }
+
+    #[tokio::test]
+    async fn preparation_preserves_results_and_links_success_to_native_attempt() {
+        use schema::PreparationOutcome;
+        let (dir, pool, publisher, writer) = setup();
+        let candidate = tx(1, Direction::Inbound);
+        pool.push_contiguous(candidate.clone(), 0).unwrap();
+        let sync = eez_l1::L2Endpoint {
+            number: 10,
+            hash: B256::repeat_byte(80),
+        };
+        let bytes = alloy_primitives::Bytes::from_static(b"private pending envelope");
+        let started = Instant::now();
+        let (returned, facts) = pool
+            .observe_preparation(
+                sync,
+                std::slice::from_ref(&candidate),
+                std::future::ready(Ok::<_, u8>((bytes.clone(), preparation_facts()))),
+                |_| PreparationOutcome::ConstructionFailed,
+            )
+            .await
+            .unwrap();
+        let elapsed_bound = started.elapsed().as_nanos();
+        assert_eq!(returned, bytes);
+        assert_eq!(
+            (
+                facts.encoded_bytes,
+                facts.blob_count,
+                facts.blob_allowance,
+                facts.nonce
+            ),
+            (4321, 1, 3, 77)
+        );
+        let id = facts.preparation.unwrap();
+        assert_eq!(id.epoch, publisher.epoch());
+        let txs = pool.pop_all();
+        let manifest = manifest(&txs);
+        pool.begin_attempt(
+            10,
+            B256::repeat_byte(90),
+            reth_primitives_traits::SealedHeader::seal_slow(alloy_consensus::Header {
+                number: 9,
+                ..Default::default()
+            }),
+            txs,
+            manifest,
+            returned,
+            facts,
+        )
+        .unwrap();
+        let error = "private pending envelope";
+        let result = pool
+            .observe_preparation(
+                sync,
+                std::slice::from_ref(&candidate),
+                std::future::ready(Err::<(alloy_primitives::Bytes, PreparationFacts), _>(error)),
+                |_| PreparationOutcome::CapacityLimited,
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), error);
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let events = events(dir.path());
+        assert_eq!(events.len(), 6);
+        assert_eq!(events[1].0, id.sequence);
+        let Event::PreparationStarted { members, .. } = &events[1].1 else {
+            panic!("preparation membership")
+        };
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].admission.sequence, events[0].0);
+        assert_eq!(members[0].source.transaction_hash.0, candidate.hash.0);
+        assert!(matches!(
+            events[1].1,
+            Event::PreparationStarted {
+                l2_chain_id: 2,
+                rollup_id: 7,
+                sync: schema::BlockRef { number: 10, .. },
+                ..
+            }
+        ));
+        assert!(
+            matches!(events[2].1, Event::PreparationFinished {preparation, outcome:PreparationOutcome::Prepared, elapsed_ns} if preparation == id && u128::from(elapsed_ns) <= elapsed_bound)
+        );
+        assert!(
+            matches!(&events[3].1, Event::AttemptPrepared {details:Some(details), ..} if details.preparation == Some(id))
+        );
+        assert!(matches!(
+            events[5].1,
+            Event::PreparationFinished {
+                outcome: PreparationOutcome::CapacityLimited,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn preparation_first_poll_and_drop_distinguish_unstarted_cancelled_and_panicked() {
+        use schema::PreparationOutcome;
+        use std::task::{Context, Poll, Waker};
+        let (dir, pool, publisher, writer) = setup();
+        let sync = eez_l1::L2Endpoint {
+            number: 10,
+            hash: B256::repeat_byte(80),
+        };
+        let pending =
+            || std::future::pending::<Result<(alloy_primitives::Bytes, PreparationFacts), u8>>();
+        drop(pool.observe_preparation(sync, &[], pending(), |_| {
+            PreparationOutcome::ConstructionFailed
+        }));
+        assert_eq!(publisher.stats().last_assigned_sequence, 0);
+        let mut context = Context::from_waker(Waker::noop());
+        let mut future = Box::pin(pool.observe_preparation(sync, &[], pending(), |_| {
+            PreparationOutcome::ConstructionFailed
+        }));
+        assert!(matches!(future.as_mut().poll(&mut context), Poll::Pending));
+        assert_eq!(publisher.stats().last_assigned_sequence, 1);
+        drop(future);
+        assert_eq!(publisher.stats().last_assigned_sequence, 2);
+        let mut future = Box::pin(pool.observe_preparation(
+            sync,
+            &[],
+            std::future::poll_fn(
+                |_| -> Poll<Result<(alloy_primitives::Bytes, PreparationFacts), u8>> {
+                    panic!("controlled preparation panic")
+                },
+            ),
+            |_| PreparationOutcome::ConstructionFailed,
+        ));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| future
+                .as_mut()
+                .poll(&mut context)))
+            .is_err()
+        );
+        drop(future);
+        assert_eq!(publisher.stats().last_assigned_sequence, 4);
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let events = events(dir.path());
+        assert!(matches!(
+            events[1].1,
+            Event::PreparationFinished {
+                outcome: PreparationOutcome::Cancelled,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[3].1,
+            Event::PreparationFinished {
+                outcome: PreparationOutcome::Panicked,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn disabled_or_closed_preparation_capture_preserves_work_and_errors() {
+        let (dir, pool, publisher, writer) = setup();
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let disabled = HeldPool::new(Default::default());
+        let sync = eez_l1::L2Endpoint {
+            number: 10,
+            hash: B256::repeat_byte(80),
+        };
+        for pool in [&pool, &disabled] {
+            let (_, facts) = pool
+                .observe_preparation(
+                    sync,
+                    &[],
+                    std::future::ready(Ok::<_, u8>((
+                        alloy_primitives::Bytes::new(),
+                        preparation_facts(),
+                    ))),
+                    |_| panic!("success must not classify an error"),
+                )
+                .await
+                .unwrap();
+            assert!(facts.preparation.is_none());
+            let result = pool
+                .observe_preparation(
+                    sync,
+                    &[],
+                    std::future::ready(Err::<(alloy_primitives::Bytes, PreparationFacts), _>(7u8)),
+                    |_| panic!("disabled capture must not classify an error"),
+                )
+                .await;
+            assert_eq!(result.unwrap_err(), 7);
+        }
+        assert_eq!(publisher.stats().last_assigned_sequence, 0);
+        assert!(events(dir.path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn incomplete_preparation_membership_is_a_gap_without_cancelling_work() {
+        use schema::PreparationOutcome;
+        for oversized in [false, true] {
+            let (dir, pool, publisher, writer) = setup();
+            let candidates = vec![tx(1, Direction::Inbound); if oversized { 4097 } else { 1 }];
+            let (_, facts) = pool
+                .observe_preparation(
+                    eez_l1::L2Endpoint {
+                        number: 10,
+                        hash: B256::repeat_byte(80),
+                    },
+                    &candidates,
+                    std::future::ready(Ok::<_, u8>((
+                        alloy_primitives::Bytes::new(),
+                        preparation_facts(),
+                    ))),
+                    |_| PreparationOutcome::ConstructionFailed,
+                )
+                .await
+                .unwrap();
+            let id = facts.preparation.unwrap();
+            assert_eq!(publisher.stats().dropped_records, 1);
+            assert_eq!(publisher.stats().dropped_sequence_min, Some(id.sequence));
+            assert!(writer.shutdown(Duration::from_secs(8)));
+            let events = events(dir.path());
+            assert_eq!(events.len(), 1);
+            assert!(
+                matches!(events[0].1, Event::PreparationFinished {preparation, outcome:PreparationOutcome::Prepared, ..} if preparation == id)
+            );
+        }
     }
 
     #[test]

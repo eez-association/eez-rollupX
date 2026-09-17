@@ -648,6 +648,22 @@ enum PreparePostBatchError {
     },
 }
 
+impl PreparePostBatchError {
+    fn telemetry_outcome(&self) -> eez_telemetry::schema::PreparationOutcome {
+        use eez_telemetry::schema::PreparationOutcome;
+        match self {
+            Self::Build(_) => PreparationOutcome::ConstructionFailed,
+            Self::OverBudget { .. } | Self::CompositionBlobLimit { .. } => {
+                PreparationOutcome::CapacityLimited
+            }
+            Self::Prover(_) => PreparationOutcome::ProverFailed,
+            Self::Actionable(_) | Self::ObservationMismatch { .. } => {
+                PreparationOutcome::ValidationRejected
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SettlementFailureOutcome {
     requeued: usize,
@@ -4136,24 +4152,33 @@ where
             pool.push_front_batch(survivors);
             return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
         }
-        let preparation = self
-            .prepare_post_batch_raw(
-                ctx,
-                rollup_id,
-                &comp_refs,
-                parent_header,
-                built.header.hash(),
-                Some(&built.block),
-                &pair_hashes,
-                &effect_end_positions,
-                &outbound_entries,
-                &outbound_entry_traces,
-                &pending_out,
-                &semantic_transactions,
-                outbound_target_gas,
-                gas_projection.as_ref(),
-                bundle_target,
-                admission,
+        let preparation = rollup
+            .held_pool
+            .observe_preparation(
+                eez_l1::L2Endpoint {
+                    number: built.header.number(),
+                    hash: built.header.hash(),
+                },
+                &survivors,
+                self.prepare_post_batch_raw(
+                    ctx,
+                    rollup_id,
+                    &comp_refs,
+                    parent_header,
+                    built.header.hash(),
+                    Some(&built.block),
+                    &pair_hashes,
+                    &effect_end_positions,
+                    &outbound_entries,
+                    &outbound_entry_traces,
+                    &pending_out,
+                    &semantic_transactions,
+                    outbound_target_gas,
+                    gas_projection.as_ref(),
+                    bundle_target,
+                    admission,
+                ),
+                PreparePostBatchError::telemetry_outcome,
             )
             .await;
         if self.inner.policy.is_some()
@@ -4743,24 +4768,33 @@ where
             bundle_target
         };
 
-        let preparation = self
-            .prepare_post_batch_raw(
-                ctx,
-                rollup_id,
-                &[], // no compositions → leading immediate only
-                parent_header,
-                empty_built.header.hash(),
-                Some(&empty_built.block),
-                &[], // no cross-chain effects → no per-effect roots
-                &[], // no cross-chain effects → no effect positions
-                &[], // no outbound entries
-                &[], // no outbound entry traces
-                &[], // no outbound L2 sidecars
-                &[], // no cross-chain semantic transactions
-                0,   // no inline outbound target calls
-                None,
-                bundle_target,
-                None,
+        let preparation = rollup
+            .held_pool
+            .observe_preparation(
+                eez_l1::L2Endpoint {
+                    number: empty_built.header.number(),
+                    hash: empty_built.header.hash(),
+                },
+                &[],
+                self.prepare_post_batch_raw(
+                    ctx,
+                    rollup_id,
+                    &[], // no compositions → leading immediate only
+                    parent_header,
+                    empty_built.header.hash(),
+                    Some(&empty_built.block),
+                    &[], // no cross-chain effects → no per-effect roots
+                    &[], // no cross-chain effects → no effect positions
+                    &[], // no outbound entries
+                    &[], // no outbound entry traces
+                    &[], // no outbound L2 sidecars
+                    &[], // no cross-chain semantic transactions
+                    0,   // no inline outbound target calls
+                    None,
+                    bundle_target,
+                    None,
+                ),
+                PreparePostBatchError::telemetry_outcome,
             )
             .await;
         if self.inner.policy.is_some()
@@ -4961,24 +4995,33 @@ where
                 .map_err(|e| format!("sealed_header({}): {e}", boundary - 1))?
                 .ok_or_else(|| format!("local L2 header at {} missing", boundary - 1))?;
 
-            let preparation = self
-                .prepare_post_batch_raw(
-                    ctx,
-                    rollup_id,
-                    &[], // no compositions → leading immediate only
-                    &boundary_parent,
-                    boundary_header.hash(),
-                    None, // terminal is committed → witnesses come from the store
+            let preparation = rollup
+                .held_pool
+                .observe_preparation(
+                    eez_l1::L2Endpoint {
+                        number: boundary_header.number(),
+                        hash: boundary_header.hash(),
+                    },
                     &[],
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                    0, // no inline outbound target calls
-                    None,
-                    bundle_target,
-                    None,
+                    self.prepare_post_batch_raw(
+                        ctx,
+                        rollup_id,
+                        &[], // no compositions → leading immediate only
+                        &boundary_parent,
+                        boundary_header.hash(),
+                        None, // terminal is committed → witnesses come from the store
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        0, // no inline outbound target calls
+                        None,
+                        bundle_target,
+                        None,
+                    ),
+                    PreparePostBatchError::telemetry_outcome,
                 )
                 .await;
             let (raw, preparation_facts) = match preparation {
@@ -6351,6 +6394,7 @@ where
         Ok((
             raw,
             PreparationFacts {
+                preparation: None,
                 encoded_bytes: encoded_stream_bytes,
                 blob_count,
                 blob_allowance: maximum_blobs,
@@ -6765,6 +6809,59 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    #[test]
+    fn preparation_failure_telemetry_uses_typed_categories_without_parsing_messages() {
+        use eez_telemetry::schema::PreparationOutcome::*;
+        let cases = [
+            (
+                PreparePostBatchError::Build("capacity exceeded or anything else".into()),
+                ConstructionFailed,
+            ),
+            (
+                PreparePostBatchError::OverBudget {
+                    constraint: "opaque",
+                    required: 2,
+                    maximum: 1,
+                },
+                CapacityLimited,
+            ),
+            (
+                PreparePostBatchError::CompositionBlobLimit {
+                    required: 2,
+                    maximum: 1,
+                },
+                CapacityLimited,
+            ),
+            (
+                PreparePostBatchError::Prover(ProverError::Backend(
+                    "capacity exceeded or anything else".into(),
+                )),
+                ProverFailed,
+            ),
+            (
+                PreparePostBatchError::Actionable(ActionableProverFailure::Outbound {
+                    transaction_index: 1,
+                    transaction_hash: B256::ZERO,
+                }),
+                ValidationRejected,
+            ),
+            (
+                PreparePostBatchError::ObservationMismatch {
+                    composition_index: 0,
+                    observation_index: 0,
+                    expected_success: true,
+                    observed_success: false,
+                    expected_output_hash: B256::ZERO,
+                    observed_output_hash: B256::ZERO,
+                },
+                ValidationRejected,
+            ),
+        ];
+        for (error, outcome) in cases {
+            assert_eq!(error.telemetry_outcome(), outcome);
+        }
+    }
 
     fn gas_action(
         source: u64,

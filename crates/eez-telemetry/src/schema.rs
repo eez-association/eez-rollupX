@@ -104,6 +104,26 @@ pub struct AdmissionId {
     pub sequence: u64,
 }
 
+/// A pre-signing operation may fail without ever creating a native attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PreparationId {
+    pub epoch: Epoch,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreparationOutcome {
+    Prepared,
+    ConstructionFailed,
+    CapacityLimited,
+    ProverFailed,
+    ValidationRejected,
+    Cancelled,
+    Panicked,
+}
+
 /// Existing native attempt identity, scoped by process epoch. Never an alternate
 /// ownership generation or a claim that a dispatch incurred a receipt charge.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,6 +177,8 @@ pub struct SourceAction {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AttemptDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<PreparationId>,
     pub l2_chain_id: u64,
     pub l2_genesis_hash: Hash32,
     pub rollup_id: u64,
@@ -210,6 +232,18 @@ pub enum BlockReason {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Event {
+    PreparationStarted {
+        l2_chain_id: u64,
+        l2_genesis_hash: Hash32,
+        rollup_id: u64,
+        sync: BlockRef,
+        members: Vec<Member>,
+    },
+    PreparationFinished {
+        preparation: PreparationId,
+        outcome: PreparationOutcome,
+        elapsed_ns: u64,
+    },
     Admitted {
         source: Source,
         previous: Option<AdmissionId>,

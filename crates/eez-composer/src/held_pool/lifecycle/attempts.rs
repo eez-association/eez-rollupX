@@ -1,6 +1,6 @@
 //! Capture follows the pool -> ledger lock order used by ownership transfer.
 //! Failed ledger mutations emit nothing; publication happens after both locks.
-use super::{HeldPool, Lifecycle, Pending};
+use super::{HeldPool, Lifecycle, MAX_MEMBERS, Pending};
 use crate::{
     HeldTx,
     optimistic::{AttemptId, AttemptRecord, SubmissionObservation},
@@ -15,7 +15,6 @@ use reth_primitives_traits::SealedHeader;
 
 // Bound copies before allocation under the owner. Serialization still enforces
 // the transport's independent 8 MiB limit. Exceeding either loses telemetry only.
-const MAX_MEMBERS: usize = 4096;
 const MAX_EFFECTS: usize = 32768;
 const MAX_ACTIONS: usize = 32768;
 
@@ -23,6 +22,7 @@ const MAX_ACTIONS: usize = 32768;
 /// signed envelope again. These describe a candidate, never purchased receipts.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PreparationFacts {
+    pub preparation: Option<schema::PreparationId>,
     pub encoded_bytes: usize,
     pub blob_count: usize,
     pub blob_allowance: usize,
@@ -81,19 +81,7 @@ impl Lifecycle {
             .blob_allowance
             .try_into()
             .map_err(|_| CaptureFailure::Limit)?;
-        let members = attempt
-            .txs
-            .iter()
-            .map(|tx| {
-                self.admissions
-                    .get(&tx.hash)
-                    .filter(|admission| {
-                        admission.member.source == self.context.source(tx.hash, tx.direction)
-                    })
-                    .map(|admission| admission.member)
-                    .ok_or(CaptureFailure::MissingContext)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let members = self.members(&attempt.txs)?;
         let plans = manifest
             .users
             .iter()
@@ -122,6 +110,7 @@ impl Lifecycle {
             blob_count,
             blob_allowance,
             details: Some(schema::AttemptDetails {
+                preparation: facts.preparation,
                 l2_chain_id: self.context.l2.chain_id,
                 l2_genesis_hash: Hash32(self.context.l2.genesis_hash.0),
                 rollup_id: self.context.rollup_id,
