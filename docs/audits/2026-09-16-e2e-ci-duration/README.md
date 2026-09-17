@@ -213,3 +213,54 @@ Documentation validation resolved 40 local links at the unchanged protocol pin
 and syntax-checked all five Bash examples in `AGENTS.md` and this record. Workflow
 validation, edited shell syntax, Rust formatting and `git diff --check` passed.
 All eight `eez-testkit` unit tests and workspace Clippy with warnings denied passed.
+
+## Follow-up: complete posted cost windows (2026-09-17)
+
+[CI at `59327b9`](https://github.com/eduadiez/rollupX/actions/runs/35162351415)
+completed with all four cross-chain shards, three embedded shards, and Kurtosis
+passing. Native job execution, including setup, ranged from 14m12s to 22m39s.
+The sole test failure was
+[`ethereum_receipts_compare_equal_idle_and_transaction_workloads`](https://github.com/eduadiez/rollupX/actions/runs/35162351415/job/105024958185):
+its chosen window ended at block 125, while counted batches reached only 120.
+The test discarded any batch ending after 125, even though its initial safe-head
+wait allowed settlement to advance past 125. Settlement does not guarantee a
+post at an arbitrary future height; the general threshold is a posting trigger,
+not a packing limit. The CI log confirms the 121–130 batch was independently
+validated, included, and advanced the canonical safe head to 130 before the
+assertion failed.
+
+The measurement now selects both endpoints from actual posted batches after the
+setup anchor, still requiring exactly 40 L2 blocks. Ordinary traffic is submitted
+inside the window so an adjacent posting boundary can be selected without
+excluding either transaction. The selected window must contain both workload
+receipts, no extra transactions, and continuous complete batches. All existing
+receipt success, applied-root, execution/blob fee, full blob-charge, and cost
+comparison assertions remain. A bounded wait fails if no comparable window is
+available; no receipt is prorated and no partial range is accepted.
+
+A focused regression models a missing endpoint at 125 and a batch spanning
+121–130. It accepts the complete 91–130 window with both transactions inside,
+and rejects missing endpoints, excluded traffic and pre-setup windows. The
+original Ethereum process test passed locally in 239.39 seconds; the failure
+reproduction is the CI log, not a claimed local baseline failure.
+
+At the user's request, the separate Contract Tests job and its gate dependency
+are removed. This also removes that job's automatic Solidity tests and protocol
+Anvil suite; their commands remain available for local checks. Native E2E
+contract compilation remains in `scripts/ci/run-native-suite.sh`. Lint, runtime,
+all native shards and Kurtosis remain required according to the existing
+publication mode. The gate tests cover the updated dependency set.
+
+Validation: the focused range regression passed; both Ethereum and Gnosis process
+comparisons passed without retries (526.46 seconds combined, three other tests
+filtered out). Each retained idle/traffic measurement covers exactly 40 blocks
+and includes zero/two transactions respectively. The same frozen runtime hashes
+were verified against the earlier fixture comparison; no runtime code changed.
+Receipts and logs are local-only under `/tmp/rollupx-e2e-investigation/cost-window`.
+These checks exercise real native settlement and proof validation; they do not
+add an independent follower run or replace release-artifact CI.
+
+All 238 non-optional CI tooling checks passed (four opt-in checks skipped), as did
+workspace Clippy with warnings denied, formatting, workflow validation and
+`git diff --check`. Forty local documentation links resolve and all five Bash
+examples pass syntax validation. Full CI for this follow-up remains pending.

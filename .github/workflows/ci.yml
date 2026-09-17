@@ -126,51 +126,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  contract-tests:
-    name: Contract Tests
-    runs-on: ${{ inputs.runner || vars.CI_AUX_RUNNER || vars.CI_RUNNER || 'homelab-rust' }}
-    # Reuse the checkout, Foundry and protocol outputs for the Anvil suite.
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
-        with:
-          version: v1.7.1
-      - name: Test integration contracts
-        working-directory: contracts
-        run: forge test
-      - name: Test core protocol contracts
-        working-directory: eez-core-protocol
-        run: >-
-          forge test --no-match-path 'script/*'
-          --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'
-      - name: Install system dependencies
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-      - name: Build protocol contracts
-        working-directory: eez-core-protocol
-        run: forge build
-      - name: Run complete protocol Anvil suite
-        # Five minutes per scenario and 40 minutes overall leave time to upload
-        # diagnostics. The wrapper runs every upstream scenario without retries.
-        timeout-minutes: 45
-        run: bash scripts/ci/run-protocol-anvil.sh
-      - name: Upload protocol Anvil logs
-        if: failure()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: protocol-anvil-e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          path: eez-core-protocol/tmp/e2e-*/
-          if-no-files-found: warn
-          retention-days: 3
-
   embedded-e2e:
     name: Embedded E2E Tests (${{ matrix.partition }})
     needs: build-runtime
@@ -277,7 +232,7 @@ jobs:
   ci-result:
     name: CI Result
     if: always()
-    needs: [build-runtime, lint, contract-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
+    needs: [build-runtime, lint, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

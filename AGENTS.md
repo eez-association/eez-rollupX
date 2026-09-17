@@ -193,7 +193,8 @@ PyYAML; inspect skipped tests rather than treating a successful exit as full cov
 
 ### Source-based process tests
 
-Core tests use CI's explicit exclusions; report them as exclusions, not coverage:
+For local core tests, retain these explicit exclusions and report them as
+exclusions, not coverage:
 
 ```bash
 (

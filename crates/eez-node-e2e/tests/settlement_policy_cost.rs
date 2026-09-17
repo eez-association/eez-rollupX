@@ -17,6 +17,53 @@ use eez_testkit::{
 const TIMEOUT: Duration = Duration::from_secs(180);
 const RANGE: u64 = 40;
 
+struct PostedRange {
+    hash: B256,
+    parent: u64,
+    end: u64,
+    end_root: B256,
+}
+
+// A missed posting opportunity can straddle minimum_start + RANGE. Select
+// whole batches covering exactly RANGE blocks, including every workload tx;
+// never prorate a receipt or silently drop the batch crossing a guessed end.
+fn measured_range(
+    batches: &[PostedRange],
+    minimum_start: u64,
+    workload_blocks: &[u64],
+) -> Option<(u64, u64)> {
+    batches.iter().find_map(|batch| {
+        let start = batch.end.checked_sub(RANGE)?;
+        (start >= minimum_start
+            && batches.iter().any(|candidate| candidate.parent == start)
+            && workload_blocks
+                .iter()
+                .all(|&height| start < height && height <= batch.end))
+        .then_some((start, batch.end))
+    })
+}
+
+#[test]
+fn cost_window_handles_a_post_straddling_the_original_endpoint() {
+    let batches: Vec<_> = [85, 90, 100, 110, 120, 130]
+        .windows(2)
+        .map(|pair| PostedRange {
+            hash: B256::ZERO,
+            parent: pair[0],
+            end: pair[1],
+            end_root: B256::ZERO,
+        })
+        .collect();
+    // The old [86, 125] window omitted the final [121, 130] batch and failed
+    // at 120. [91, 130] is equally long and retains the complete workload.
+    assert_eq!(measured_range(&batches, 85, &[105, 106]), Some((90, 130)));
+    assert_eq!(measured_range(&batches, 85, &[]), Some((90, 130)));
+    assert_eq!(measured_range(&batches, 85, &[90, 105]), None);
+    assert_eq!(measured_range(&batches, 85, &[105, 131]), None);
+    assert_eq!(measured_range(&batches[..4], 85, &[]), None);
+    assert_eq!(measured_range(&batches, 91, &[]), None);
+}
+
 #[derive(Debug, serde::Serialize)]
 struct Measurement {
     from: u64,
@@ -34,7 +81,7 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     // Finish every setup transaction before choosing the measured anchor.
     let latest = l2.get_block_number().await.unwrap();
-    let start = wait_for(TIMEOUT, || async {
+    let minimum_start = wait_for(TIMEOUT, || async {
         Ok(l2
             .get_block_by_number(BlockNumberOrTag::Safe)
             .await?
@@ -44,9 +91,15 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
     .unwrap()
     .header
     .number;
-    let through = start + RANGE;
     let mut workload = Vec::new();
     if traffic {
+        // Put traffic inside the window so either boundary can move to an
+        // adjacent actual post after a skipped slot without excluding traffic.
+        wait_for(TIMEOUT, || async {
+            Ok((l2.get_block_number().await? >= minimum_start + RANGE / 2).then_some(()))
+        })
+        .await
+        .unwrap();
         let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
         for offset in 0..2 {
             workload.push(
@@ -65,14 +118,71 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
             );
         }
     }
-    wait_for(TIMEOUT, || async {
-        Ok(l2
+    let mut workload_blocks = Vec::new();
+    for &hash in &workload {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        workload_blocks.push(receipt.block_number.unwrap());
+    }
+    let (start, through, batches) = wait_for(TIMEOUT, || async {
+        let safe = l2
             .get_block_by_number(BlockNumberOrTag::Safe)
             .await?
-            .filter(|block| block.header.number >= through))
+            .unwrap();
+        if safe.header.number < minimum_start + RANGE {
+            return Ok(None);
+        }
+        let logs = l1
+            .get_logs(
+                &alloy_rpc_types_eth::Filter::new()
+                    .address(world.dep.eez_address)
+                    .event_signature(eez_protocol::abi::BatchPosted::SIGNATURE_HASH)
+                    .from_block(0),
+            )
+            .await?;
+        let mut batches = Vec::new();
+        for log in logs {
+            let hash = log.transaction_hash.unwrap();
+            let tx = l1.get_transaction_by_hash(hash).await?.unwrap();
+            let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input())?;
+            let updates: Vec<_> = call
+                .batch
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.rootUpdates)
+                .filter(|update| update.rollupId == world.cfg.rollup_id)
+                .collect();
+            let last = updates.last().unwrap();
+            let Some(endpoint) = l2.get_block_by_hash(last.newRoot).await? else {
+                continue; // L1 can expose a post before local derivation catches up.
+            };
+            if endpoint.header.number <= minimum_start
+                || endpoint.header.number > safe.header.number
+            {
+                continue;
+            }
+            let parent = l2.get_block_by_hash(updates[0].currentRoot).await?.unwrap();
+            batches.push(PostedRange {
+                hash,
+                parent: parent.header.number,
+                end: endpoint.header.number,
+                end_root: last.newRoot,
+            });
+        }
+        Ok(measured_range(&batches, minimum_start, &workload_blocks)
+            .map(|(start, end)| (start, end, batches)))
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|error| {
+        panic!(
+            "no complete equal-length cost window: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
     let mut measurement = Measurement {
         from: start + 1,
         through,
@@ -102,39 +212,15 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
         assert!(receipt.status());
         assert!((measurement.from..=through).contains(&receipt.block_number.unwrap()));
     }
-    let logs = l1
-        .get_logs(
-            &alloy_rpc_types_eth::Filter::new()
-                .address(world.dep.eez_address)
-                .event_signature(eez_protocol::abi::BatchPosted::SIGNATURE_HASH)
-                .from_block(0),
-        )
-        .await
-        .unwrap();
     let mut ends = Vec::new();
-    for log in logs {
-        let hash = log.transaction_hash.unwrap();
-        let tx = l1.get_transaction_by_hash(hash).await.unwrap().unwrap();
-        let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input()).unwrap();
-        let updates: Vec<_> = call
-            .batch
-            .entries
-            .iter()
-            .flat_map(|entry| &entry.rootUpdates)
-            .filter(|update| update.rollupId == world.cfg.rollup_id)
-            .collect();
-        let last = updates.last().unwrap();
-        let endpoint = l2.get_block_by_hash(last.newRoot).await.unwrap().unwrap();
-        if endpoint.header.number <= start || endpoint.header.number > through {
+    for batch in batches {
+        if batch.end <= start || batch.end > through {
             continue;
         }
-        let parent = l2
-            .get_block_by_hash(updates[0].currentRoot)
-            .await
-            .unwrap()
-            .unwrap();
+        let hash = batch.hash;
+        let tx = l1.get_transaction_by_hash(hash).await.unwrap().unwrap();
         assert!(
-            parent.header.number >= start,
+            batch.parent >= start,
             "never charge a batch covering work outside the measured range"
         );
         let receipt = l1.get_transaction_receipt(hash).await.unwrap().unwrap();
@@ -148,7 +234,7 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
                     .log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
                     .ok())
                 .any(|event| event.inner.data.rollupId == world.cfg.rollup_id
-                    && event.inner.data.newRoot == last.newRoot)
+                    && event.inner.data.newRoot == batch.end_root)
         );
         let block = l1
             .get_block_by_hash(receipt.block_hash.unwrap())
@@ -180,7 +266,7 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
             * U256::from(receipt.effective_gas_price)
             + U256::from(blob_gas) * U256::from(receipt.blob_gas_price.unwrap());
         measurement.batch_hashes.push(hash);
-        ends.push((parent.header.number, endpoint.header.number));
+        ends.push((batch.parent, batch.end));
     }
     ends.sort_unstable();
     let mut covered = start;

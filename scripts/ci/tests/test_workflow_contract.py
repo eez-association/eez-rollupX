@@ -175,22 +175,17 @@ elif args[0] != "logout":
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(copies, [])
 
-    def test_three_initial_lanes_keep_all_consolidated_checks(self):
+    def test_two_initial_lanes_keep_lint_and_runtime_checks(self):
         self.assertEqual({name for name, job in self.jobs.items() if not job.get("needs")},
-                         {"build-runtime", "lint", "contract-tests"})
+                         {"build-runtime", "lint"})
         lint = "\n".join(s.get("run", "") for s in self.jobs["lint"]["steps"])
         for command in ("cargo fmt", "cargo deny check", "cargo audit", "cargo clippy",
                         "unittest discover"):
             self.assertIn(command, lint)
-        steps = self.jobs["contract-tests"]["steps"]
-        self.assertEqual(sum(s.get("run", "").startswith("forge test") for s in steps), 2)
-        self.assertFalse(any("update-eezl2-genesis" in s.get("run", "") for s in steps))
+        self.assertNotIn("contract-tests", self.jobs)
         network = (REPO / "testing/kurtosis/run-ci.sh").read_text()
         self.assertIn('bash "$REPO/scripts/update-eezl2-genesis.sh" --check', network)
         self.assertLess(network.index("update-eezl2-genesis.sh"), network.index('bash "$HERE/start.sh"'))
-        self.assertTrue(any(s.get("run") == "bash scripts/ci/run-protocol-anvil.sh" for s in steps))
-        self.assertTrue(any(s.get("run") == "forge build" and s.get("working-directory") == "eez-core-protocol"
-                            for s in steps))
 
     def test_lint_initializes_one_target_and_preserves_optional_hosted_caching(self):
         steps = self.jobs["lint"]["steps"]
@@ -214,9 +209,7 @@ elif args[0] != "logout":
         tests = next(i for i, step in enumerate(steps)
                      if "unittest discover" in step.get("run", ""))
         self.assertLess(install, tests)
-        contracts = next(s for s in self.jobs["contract-tests"]["steps"]
-                         if s.get("uses", "").startswith("foundry-rs/foundry-toolchain@"))
-        self.assertEqual(steps[install]["with"], contracts["with"])
+        self.assertEqual(steps[install]["with"], {"version": "v1.7.1"})
 
     def test_kurtosis_consumer_requires_publication_and_unconditional_login(self):
         caller = self.jobs["kurtosis-e2e"]
@@ -243,7 +236,7 @@ elif args[0] != "logout":
             # Assert the exact supported grammar before evaluating its fallbacks.
             fields = expression.removeprefix("${{ ").removesuffix(" }}").split(" || ")
             expected = ["inputs.runner"]
-            if name in ("lint", "contract-tests"):
+            if name == "lint":
                 expected.append("vars.CI_AUX_RUNNER")
             expected += ["vars.CI_RUNNER", "'homelab-rust'"]
             self.assertEqual(fields, expected)
@@ -259,9 +252,9 @@ elif args[0] != "logout":
                 self.assertEqual(selected(manual="homelab-rust", auxiliary="ubuntu-24.04"), "homelab-rust")
                 self.assertEqual(selected(primary="ubuntu-24.04"), "ubuntu-24.04")
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="ubuntu-24.04"),
-                                 "ubuntu-24.04" if name in ("lint", "contract-tests") else "homelab-rust")
+                                 "ubuntu-24.04" if name == "lint" else "homelab-rust")
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="homelab-small"),
-                                 "homelab-small" if name in ("lint", "contract-tests") else "homelab-rust")
+                                 "homelab-small" if name == "lint" else "homelab-rust")
 
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):
