@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-09-17T09:31:47.189772+00:00",
+  "source_commit": "c7c2782",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rust": "1.94.0",
+  "foundry": "1.7.1",
+  "artifact_sha256": {
+    "target/debug/eez-composer": "228d9953abbbc7e56fbb39c77e5c3e1bef1a0deaf19266ab97d910706c7f127b",
+    "target/debug/eez-proof-signer": "42749e0f1f482387504d59b3e4cb783b913f01239110688d471e5daadb2f05fc",
+    "target/debug/eez-follower": "3bf74ceddd250cff20bd05006ad9688c9e317e414a8c1c1b7c54e44e29172d14",
+    "target/debug/deps/cross_chain-90652da83e702fbe": "0dfe79aaef32063f7c8f44b5b6d366815b9df51786ed169d1bb346b17b92036e",
+    "target/debug/deps/queue_liveness-1983e48488b55ca9": "f7ac2834f1c609349be11168311617dc74085c89f06cdf5cdd4362217161d938"
+  },
+  "component_results": {
+    "composer": 232,
+    "observer": 27,
+    "telemetry_all_features": 22
+  },
+  "workspace_clippy": "passed --all-targets -- -D warnings",
+  "native_runs": [
+    {
+      "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test cross_chain bidirectional_cross_chain_smoke -- --test-threads=1",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 21,
+      "duration_seconds": 335.5,
+      "local_log": "/tmp/eez-observability-local-disposition-e2e.log",
+      "log_sha256": "cf18796ff3b98924123ff867dd11442355fe330f514a9f7741b739d83b35aa6d"
+    },
+    {
+      "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test queue_liveness  -- --test-threads=1",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "duration_seconds": 307.41,
+      "local_log": "/tmp/eez-observability-local-disposition-queue.log",
+      "log_sha256": "5d7a5b1f087c5363ed84e3bfdd0f299beaa028811ef0e1cef997195a9e8036f7"
+    }
+  ],
+  "limits": [
+    "forced local disposal and bounded capture failure are component-level evidence",
+    "bidirectional enabled/disabled process canaries exercise normal lifecycle paths",
+    "queue_liveness is an existing protocol/follower compatibility suite; telemetry is disabled in its fixtures",
+    "no observer outcome assurance, per-source allocation, performance or production acceptance",
+    "later source-receipt observer changes are not covered by this report"
+  ]
+}

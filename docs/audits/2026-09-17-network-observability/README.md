@@ -189,3 +189,19 @@ maps requirements to checks, preserves first failures and lists limits; its
 identifies the exact executables. These are native claims and process validation,
 not completed observer outcome assurance, independent replay or production
 acceptance. Later local-disposition edits require their own validation.
+
+## Explicit local admission dispositions
+
+Source `c7c2782` captures actual local reservation removal before admission
+metadata expires, including pre-submission eviction, recovery conflicts and
+unsubmitted nonce-gap victims of a submitted root. It preserves canonical owners
+and emits no second terminal on repeated release. Missing/oversized capture
+remains a diagnostic gap, never an eviction limit.
+
+232 Composer tests, 27 observer tests, 22 all-feature telemetry tests and workspace
+all-target Clippy passed. Five source-built native tests passed: three
+bidirectional lifecycle canaries and both Ethereum/Gnosis queue-liveness/follower
+compatibility cases. The [validation map](../../../observability/validation/native-local-dispositions.md)
+and [artifact report](../../../observability/validation/native-local-dispositions.json)
+state exact scope, first failure and remaining limits. This evidence predates the
+subsequent observer source-receipt work.
