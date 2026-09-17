@@ -324,3 +324,35 @@ were skipped. Workspace Clippy with warnings denied, Rust formatting and
 `git diff --check` passed. Three local links in the edited documents resolve at
 the unchanged protocol pin, and 35 Bash examples pass syntax validation. The
 complete candidate CI matrix remains required before release.
+
+## Follow-up: failed episodes versus rejection responses (2026-09-17)
+
+At [`1d1b4fc`](https://github.com/eduadiez/rollupX/actions/runs/35219700440), all
+embedded shards and Kurtosis passed. The sole remaining failure was
+[`opaque_prover_rejection_eventually_evicts_the_candidate`](https://github.com/eduadiez/rollupX/actions/runs/35219700440/job/105211166760).
+The retained log shows a Composer `DEADLINE_EXCEEDED` cutoff at 13:03:15, then
+two `ResourceExhausted` rejections at 13:03:20 and 13:03:25. The transaction's
+`eez.composer.recovery.poison_evicted` event reports `attempts: 3`.
+
+The [RPC recovery contract](../../../crates/eez-control-rpc/SPEC.md#61-status-classification)
+counts failed settlement episodes, including an expired proving episode;
+individual RPC responses are not that counter. The test incorrectly required
+three proxy rejection responses. It now waits for the structured eviction event
+for the submitted transaction and prover recovery source, then requires exactly
+three failed episodes. It also requires a new proxy rejection after submission,
+so deadlines alone cannot satisfy this opaque-rejection test. The receipt,
+source nonce, target state, healthy anchor-proof and mismatched-actionable
+diagnostic assertions remain. Runtime retry behavior and the bound are unchanged.
+
+The shared assertion covers both opaque-resource and mismatched-actionable
+rejections. Both original process tests passed locally (87.33 seconds combined);
+the actual failure reproduction is the retained CI log, not a claimed local
+failure-to-pass run.
+
+Both corrected process tests passed without retries (92.79 seconds combined,
+20 other tests filtered out), using the same frozen runtime binaries. The two
+existing Composer unit tests for per-episode increments/FIFO preservation and
+bound-triggered nonce-suffix eviction also passed. Workspace Clippy with warnings
+denied, formatting and `git diff --check` passed. Four local links in this audit
+resolve, including the RPC section anchor, and both Bash examples pass syntax
+validation. Full release-artifact CI remains required for the new head.
