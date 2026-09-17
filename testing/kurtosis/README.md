@@ -651,9 +651,14 @@ wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
 and ARC runners) starts one worker per discovered scenario, including
 `revertCounter` and `staticCounterL2`. Foundry artifacts are warmed before workers
 start. Set a positive integer to bound concurrency, or `1` to run serially with
-the same assertions. No scenarios need a separate scheduling mode.
+the same assertions. When both bridge scenarios are selected, `bridge` runs
+first: its settled deposit supplies the shared rollup escrow required by
+`bridgeL2`. The remaining scenarios then run in parallel with fresh worker
+wallets. A failed deposit skips the dependent release and fails the suite;
+unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
+escrow, as specified by the pinned protocol's scenario.
 
-`EEZ_PROTOCOL_SUITE_TIMEOUT` bounds the upstream phase (default 2400 seconds);
+`EEZ_PROTOCOL_SUITE_TIMEOUT` bounds all upstream phases together (default 2400 seconds);
 a timeout stops its process group and fails the suite. Do not run another
 orchestrator against the same enclave concurrently. The wrapper rejects
 concurrent invocations in the same checkout; each CI job must own its enclave.
@@ -663,7 +668,9 @@ codes and elapsed seconds. Logs live in a fresh `protocol-e2e/network.*` directo
 per invocation, with raw phase output and normalized per-scenario logs; wallet
 CSV files and private keys are not copied into artifacts. Compare protocol-phase
 duration and full Kurtosis time at different worker caps, requiring complete
-passing evidence in each run.
+passing evidence in each run. Failed or missing scenario results also print a
+bounded, prefixed log tail to the job console so artifact quota failures do not
+hide the scenario error.
 
 Parallel scenarios can share settlement and delivery blocks. The collector
 therefore selects table transactions by runtime entry hashes recomputed from

@@ -1066,16 +1066,26 @@ async fn prover_resource_and_transport_failures_preserve_the_whole_due_range() {
     .await
     .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    // `always` deliberately leaves empty blocks unsettled. The follower must
-    // reproduce the settled setup prefix before faults are injected, not wait
-    // for an arbitrary newer empty head to become due.
+    // A snapshot of `safe` can precede an already-proved setup batch still
+    // awaiting inclusion. Settle a marker after all setup transactions before
+    // taking the baseline or blocking the prover. `always` posts this activity
+    // but deliberately leaves later empty blocks unsettled.
+    let setup_tx = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
     let height = l2
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
+        .get_transaction_receipt(setup_tx)
         .await
         .unwrap()
         .unwrap()
-        .header
-        .number;
+        .block_number
+        .unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], height, TIMEOUT)
         .await
         .unwrap();
@@ -2294,7 +2304,6 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l1_before = l1.get_block_number().await.unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
-    let fault_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The combined workload exceeds
@@ -2318,6 +2327,21 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // Missing scheduler ticks must preserve intermediate empty boundaries.
     tokio::time::sleep(Duration::from_secs(12)).await;
     assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
+    let stalled_l2_timestamp = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let recovery_l1_timestamp = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let recovery_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
     for &hash in &hashes {
@@ -2388,15 +2412,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
     // actual empty Sync construction, never assume height % K == 0.
     let signals = world.node.signals_since(0).unwrap();
+    // Recovery may finish in Steady mode once it reaches a usable future slot.
+    // Prove that a missing historical boundary was rebuilt after the outage,
+    // rather than requiring a structural-only Catchup terminal.
     assert!(
         world
             .node
-            .signals_since(fault_cursor)
+            .signals_since(recovery_cursor)
             .unwrap()
             .iter()
             .any(|event| {
-                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Catchup"
-            })
+                event.name == "eez.composer.sync_slot.invoked"
+                    && event.fields["mode"] == "Empty"
+                    && event.fields["timestamp"].as_u64().is_some_and(|timestamp| {
+                        timestamp > stalled_l2_timestamp && timestamp <= recovery_l1_timestamp
+                    })
+            }),
+        "RPC recovery did not rebuild a missing historical Sync boundary{}",
+        world.settlement_diagnostics(),
     );
     let boundaries = signals
         .into_iter()
