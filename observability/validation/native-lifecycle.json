@@ -1,0 +1,65 @@
+{
+  "recorded_at": "2026-09-17T01:04:31.779533+00:00",
+  "source_commit": "e1a098cbd3302f13d42044fe8f69d6a77a709991",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rust": "1.94.0",
+  "foundry": "1.7.1",
+  "profile": "local Cargo test/dev, optimized with debug information",
+  "artifact_sha256": {
+    "target/debug/eez-composer": "5a56c59254499799b040143e6f779cd6c751231bd7cb073001bfced8fca6428d",
+    "target/debug/eez-proof-signer": "a45279229eef4c9dae4b55f456185318f7ce7a263c1f4d7400c5da205b57b1aa",
+    "target/debug/deps/cross_chain-90652da83e702fbe": "16853fd278edb22d452984ef930624f7f5d9cc210a54426cc39156324b23fe7f"
+  },
+  "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test cross_chain bidirectional_cross_chain_smoke -- --test-threads=1",
+  "cleared_overrides": [
+    "EEZ_TEST_PREBUILT",
+    "EEZ_TEST_RUNTIME_BIN_DIR",
+    "EEZ_TEST_PROOF_SIGNER_BIN"
+  ],
+  "result": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 21,
+    "duration_seconds": 242.66
+  },
+  "tests": [
+    "lifecycle_bidirectional_cross_chain_smoke",
+    "minimal_bidirectional_cross_chain_smoke"
+  ],
+  "checks": [
+    "both source receipts succeed",
+    "destination values 41 and 43",
+    "safe L2/L1 root convergence",
+    "independently recomputed proof signature",
+    "no poison/nonce-eviction/divergence logs",
+    "enabled: one admission per source",
+    "enabled: ready observations reference admission IDs",
+    "enabled: chain/genesis/rollup/direction match actual fixture"
+  ],
+  "local_log": "/tmp/eez-observability-native-admission-e2e-fixed.log",
+  "local_log_sha256": "f211e9661b1aa3a1e8098d893d5fc23c38d767208db2820901a9bd4a7c2b7030",
+  "local_process_logs": "artifacts/native-observability/2026-09-17-admission-fixed/logs",
+  "first_failure": {
+    "result": {
+      "passed": 1,
+      "failed": 1,
+      "filtered": 21
+    },
+    "cause": "legacy settlement success path did not emit readiness",
+    "correction": "diagnostic readiness hook preserves legacy queue RPC and scheduling",
+    "local_log": "/tmp/eez-observability-native-admission-e2e-first-failure.log",
+    "local_log_sha256": "facba50ec05c06f4812fdc4e6785929d4760b49cd00cb9df009ca30d42381f01",
+    "spool_retained": false,
+    "process_logs_and_failed_datadir_retained": true
+  },
+  "limits": [
+    "local legacy-policy canaries only",
+    "no overhead claim",
+    "not full cross-chain test selection",
+    "no independent follower replay",
+    "no production acceptance",
+    "canonical lifecycle outcome validation remains incomplete"
+  ]
+}
