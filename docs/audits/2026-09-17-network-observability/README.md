@@ -223,3 +223,17 @@ include migration compatibility, injected errors, timeout recovery, context fenc
 exact sums and first failures. These are independently fetched receipt facts for
 lifecycle-referenced hashes, not completed companion allocation or canonical EEZ
 outcome assurance. No production deployment was performed.
+
+## Independent receipt protocol-log evidence
+
+Source `1be022c` adds bounded L1 receipt-log collection with separate gaps and
+immutable conflict history. Schema 6 preserves fee facts, exposes exact root and
+consumption occurrences, and retracts canonical log views on reorg. It does not
+promote node outcomes or assign source/companion ownership.
+
+36 observer tests, 37 disposable database checks and workspace all-target Clippy
+passed. The [validation map](../../../observability/validation/protocol-logs.md)
+and [artifact report](../../../observability/validation/protocol-logs.json)
+record exact source/binary identities, schema-4/schema-5 upgrade tests, capture
+limits, duplicates, conflicts, restart backlog, permissions and first failures.
+Native protocol execution and live deployment were not performed in this slice.
