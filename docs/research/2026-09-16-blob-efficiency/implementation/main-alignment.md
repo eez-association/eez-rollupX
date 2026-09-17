@@ -61,3 +61,26 @@ The focused [soundness review](soundness-review.md) records subsequent renewal,
 restart seeding, watermark ordering and cache-transition findings and fixes.
 Final process-suite results are recorded in the coverage ledger; release-only
 evidence that remains open is not represented as implementation completion.
+
+## Fork-main rebase, 2026-09-17
+
+The fork's live HTTPS `main` was fetched again at
+`fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7`, 18 commits after the preceding
+checkpoint. The feature commit was rebased onto that exact tip. The fork delta
+contains explorer packaging and CI-duration/test-fixture work; it does not
+change the signer or protocol gitlink.
+
+Twelve paths overlapped textually. Git merged eight without conflict. Four
+configuration/document paths required manual resolution:
+`.env.chiado.example`, `docker-compose.chiado-node.yml`,
+`docs/configurable-settlement-policy.md`, and
+`scripts/check-settlement-policy-config.py`. The resolution retains the fork's
+new explorer, logging, timing, healthcheck and CI behavior while keeping the
+new-network contract: mandatory settlement policy, no enable toggle, and no
+`EEZ_MAX_BLOCKS_PER_BATCH` compatibility path. The fork's Chiado configuration
+test was updated to assert those mandatory defaults.
+
+Post-rebase checks passed: 241 Python CI/tooling tests with four explicit opt-in
+environment probes skipped, 8 Testkit unit tests, all-target `eez-node-e2e`
+checking, Chiado and Kurtosis mandatory-policy Compose rendering, Rustfmt, the
+source manifest, and the diff whitespace check.

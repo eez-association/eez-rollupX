@@ -73,16 +73,13 @@ testnet results do not claim a universal packing maximum or mainnet deployment.
 
 ## Compatibility interpretation
 
-The implementation request explicitly requires existing configurations and
-default behavior to remain compatible. The proposal's mandatory policy settings,
-obsolete-setting rejection, and production fee defaults therefore apply when
-`EEZ_SETTLEMENT_POLICY_ENABLED=true`. The default is `false`, retaining the
-legacy path. Supplying policy-specific settings without enabling the policy is
-an error, preventing configuration that is silently ignored. Enabled profiles
-must select their pure mode and general threshold explicitly; the proposal's
-illustrative 15 minutes / 150 blocks / 10% are not global production defaults.
-This activation boundary is an explicit interpretation of the later user
-instruction, not a change to enabled policy behavior.
+The later implementation scope supersedes compatibility with existing networks:
+this is a new network with one settlement policy from genesis. The
+`EEZ_SETTLEMENT_POLICY_ENABLED` toggle and disabled-policy runtime path are
+removed. Every deployment must select its pure mode, general threshold, and fee
+ceilings explicitly; omitted or conflicting settings fail startup. The
+proposal's illustrative 15 minutes / 150 blocks / 10% remain profile choices,
+not implicit production defaults.
 
 ## Architecture at the starting baseline
 
@@ -228,11 +225,9 @@ Each case must link to executing coverage before completion.
 
 ## Interpretations and architecture
 
-* **Activation and migration (§3.1):** the later implementation request requires
-  unchanged existing defaults. `EEZ_SETTLEMENT_POLICY_ENABLED=false` is therefore
-  the default; all normative policy behavior applies when explicitly enabled.
-  Enabled settings and fee ceilings are required where the proposal requires
-  profile choices. Disabled-only legacy behavior remains separately tested.
+* **Activation and migration (§3.1):** the later new-network requirement removes
+  activation and migration. The policy is mandatory from genesis; required
+  settings and fee ceilings are explicit, and old configurations fail startup.
 * **Signer trust input (§6.1,7):** the original signer sees an L2 chain document,
   timeless batch and blobs. It cannot independently select an L1 fork. An
   explicit protobuf `L1PostingContext` supplies chain ID/timestamp;

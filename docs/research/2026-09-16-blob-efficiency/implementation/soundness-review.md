@@ -2,14 +2,14 @@
 
 Date: 2026-09-17. Scope: the signer, preparation/cache path, producer integration,
 and follower reconstruction changes on branch `feat/derivable-chain-operations`
-relative to `5469c88860408daf776ee812156dd280c1a9e262`. This is the focused
+relative to fork `origin/main` at `fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7`. This is the focused
 change-correctness review required by CO-53. It is not a general security review
 of the repository, dependencies, protocol contracts, key management, host, or
 deployment.
 
 The reviewed implementation files are enumerated by
 [`implementation-source.sha256`](implementation-source.sha256); that manifest's
-SHA-256 is `3937e806238917904051284f47fbb04bbadea228fde3953f90e6fc4abee591ba`.
+SHA-256 is `2c9c5d9dea5b9083931aee82e4d987c893402794e0507ed2c3046ad02902c27d`.
 Any later source edit invalidates this checkpoint until the manifest and focused
 review are repeated.
 

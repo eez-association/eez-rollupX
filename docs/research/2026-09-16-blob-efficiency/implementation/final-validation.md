@@ -1,10 +1,10 @@
 # Final implementation validation
 
-Date: 2026-09-17. Base and freshly fetched fork `origin/main`:
-`5469c88860408daf776ee812156dd280c1a9e262`. Protocol gitlink:
+Date: 2026-09-17. Current integration base and freshly fetched fork `origin/main`:
+`fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7`. Protocol gitlink:
 `3c0cdf4955941a5c23639346932b55b33babebbd`. Reviewed source manifest:
 [`implementation-source.sha256`](implementation-source.sha256), manifest digest
-`3937e806238917904051284f47fbb04bbadea228fde3953f90e6fc4abee591ba`.
+`2c9c5d9dea5b9083931aee82e4d987c893402794e0507ed2c3046ad02902c27d`.
 
 ## Static and component checks
 
@@ -15,7 +15,7 @@ Date: 2026-09-17. Base and freshly fetched fork `origin/main`:
 - Mandatory policy Compose propagation passed for Chiado and Kurtosis; the
   Kurtosis configuration unit suite passed 16 tests with one explicit live probe
   skipped.
-- The complete CI/tooling Python suite passed 234 tests; four opt-in real
+- The complete rebased CI/tooling Python suite passed 241 tests; four opt-in real
   Docker/Kurtosis probes were explicitly skipped because their behavior was
   exercised by the live runs recorded below.
 - Proof signer: 317 passed, zero failed, two explicit measurement/inventory
