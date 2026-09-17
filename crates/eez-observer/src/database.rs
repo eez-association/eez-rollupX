@@ -8,7 +8,7 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 20;
 const MIGRATIONS: &[(i32, &str)] = &[
     (
         1,
@@ -61,6 +61,34 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (
         13,
         include_str!("../../../observability/migrations/0013-dashboard-context.sql"),
+    ),
+    (
+        14,
+        include_str!("../../../observability/migrations/0014-cost-allocation.sql"),
+    ),
+    (
+        15,
+        include_str!("../../../observability/migrations/0015-canonical-revision.sql"),
+    ),
+    (
+        16,
+        include_str!("../../../observability/migrations/0016-cost-claim-invalidation.sql"),
+    ),
+    (
+        17,
+        include_str!("../../../observability/migrations/0017-finality-timing.sql"),
+    ),
+    (
+        18,
+        include_str!("../../../observability/migrations/0018-settled-transaction-costs.sql"),
+    ),
+    (
+        19,
+        include_str!("../../../observability/migrations/0019-finality-query-boundaries.sql"),
+    ),
+    (
+        20,
+        include_str!("../../../observability/migrations/0020-cost-query-boundaries.sql"),
     ),
 ];
 const CONFIG_LIMIT: u64 = 64 * 1024;

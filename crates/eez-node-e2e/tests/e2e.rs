@@ -713,6 +713,90 @@ async fn spawn_follower(
     NodeHandle::start(name, &cfg, &env).await
 }
 
+/// Private fault proxy: only this follower's actual Beacon body requests fail.
+async fn follower_beacon_fault_proxy(
+    upstream: String,
+) -> (
+    String,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    tokio::task::JoinHandle<()>,
+) {
+    use http_body_util::Full;
+    use hyper::{
+        Request, Response,
+        body::{Bytes, Incoming},
+        service::service_fn,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let deny = Arc::new(AtomicBool::new(false));
+    let control = Arc::clone(&deny);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let task = tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            let upstream = upstream.clone();
+            let client = client.clone();
+            let deny = Arc::clone(&deny);
+            tokio::spawn(async move {
+                let handler = service_fn(move |request: Request<Incoming>| {
+                    let upstream = upstream.clone();
+                    let client = client.clone();
+                    let deny = Arc::clone(&deny);
+                    async move {
+                        let path = request.uri().path();
+                        let (status, body) = if deny.load(Ordering::SeqCst)
+                            && (path.contains("/blobs/") || path.contains("/blob_sidecars/"))
+                        {
+                            (
+                                503,
+                                Bytes::from_static(b"fixture required blob unavailable"),
+                            )
+                        } else {
+                            match client
+                                .get(format!(
+                                    "{}{}",
+                                    upstream.trim_end_matches('/'),
+                                    request.uri()
+                                ))
+                                .send()
+                                .await
+                            {
+                                Ok(response) => {
+                                    let status = response.status().as_u16();
+                                    let body = response.bytes().await.unwrap();
+                                    assert!(body.len() <= 4 * 1024 * 1024);
+                                    (status, body)
+                                }
+                                Err(_) => {
+                                    (502, Bytes::from_static(b"fixture upstream unavailable"))
+                                }
+                            }
+                        };
+                        Ok::<_, std::convert::Infallible>(
+                            Response::builder()
+                                .status(status)
+                                .header("content-type", "application/json")
+                                .body(Full::new(body))
+                                .unwrap(),
+                        )
+                    }
+                });
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(hyper_util::rt::TokioIo::new(socket), handler)
+                    .await;
+            });
+        }
+    });
+    (url, control, task)
+}
+
 /// An L1-only follower reconstructs an attested safe state without a sequencer RPC.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn happy_case_follower_l1_derived() {
@@ -726,7 +810,23 @@ async fn happy_case_follower_l1_derived() {
         .await
         .expect("sequencer landed batches");
 
-    let follower = spawn_follower("follower", &harness, None).await.unwrap();
+    let datadir = tempfile::tempdir().unwrap();
+    let mut env = harness.follower_env(None).await.unwrap();
+    let beacon = env
+        .iter()
+        .find(|(key, _)| *key == "EEZ_L1_BEACON_URL")
+        .unwrap()
+        .1
+        .clone();
+    let (fault_beacon, deny_blobs, beacon_task) = follower_beacon_fault_proxy(beacon).await;
+    env = override_env(env, "EEZ_L1_BEACON_URL", &fault_beacon);
+    let cfg = NodeConfig {
+        binary: NodeBinary::Follower,
+        ..Default::default()
+    };
+    let follower = NodeHandle::start_with_datadir("follower", datadir.path(), &cfg, &env)
+        .await
+        .unwrap();
     wait_for_safe_state(
         &follower,
         &chain,
@@ -739,8 +839,131 @@ async fn happy_case_follower_l1_derived() {
         .await
         .expect("follower safe chain did not converge with the sequencer");
 
+    let (reference, evidence) = wait_for(DEFAULT_TIMEOUT, || async {
+        let Some((number, _)) =
+            block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Safe).await?
+        else {
+            return Ok(None);
+        };
+        let Some(record) =
+            settlement_by_l2(&follower, serde_json::json!(format!("0x{number:x}"))).await?
+        else {
+            return Ok(None);
+        };
+        let reference = derivation_reference(&record);
+        let evidence = derivation_evidence(&follower, reference.clone()).await?;
+        Ok((evidence["evidence"]["outcome"] == "settled"
+            && evidence["ready"] == true
+            && !evidence["through"].is_null())
+        .then_some((reference, evidence)))
+    })
+    .await
+    .expect("fresh follower must expose actual STF evidence");
+    assert_eq!(evidence["identity"]["role"], "follower");
+    assert_eq!(evidence["identity"]["mode"], "l1_only");
+    assert_eq!(evidence["evidence"]["reference"], reference);
+    let executed: alloy_consensus::Header =
+        serde_json::from_value(evidence["evidence"]["header"].clone()).unwrap();
+    let canonical = ProviderBuilder::new()
+        .connect_http(seq.l2_rpc_url().parse().unwrap())
+        .get_block_by_number(executed.number.into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(executed.hash_slow(), canonical.header.hash);
+    assert_eq!(executed.state_root, canonical.header.state_root);
+    assert_eq!(
+        derivation_evidence(&seq, reference.clone()).await.unwrap()["identity"]["role"],
+        "composer"
+    );
+    // The current native watcher, not the historical observer audit, must
+    // identify the exact live dependency after repeated failed retrievals.
+    deny_blobs.store(true, std::sync::atomic::Ordering::SeqCst);
+    let blocked = wait_for(DEFAULT_TIMEOUT, || async {
+        let value = derivation_evidence(&follower, reference.clone()).await?;
+        Ok((value["requiredBlob"]["attempts"]
+            .as_u64()
+            .is_some_and(|count| count >= 3))
+        .then_some(value))
+    })
+    .await
+    .expect("live required blob failure must be affirmative and repeated");
+    assert_eq!(blocked["requiredBlob"]["consumer"], "watcher");
+    assert_eq!(blocked["requiredBlob"]["reason"], "beacon_unavailable");
+    let missing_tx: B256 = blocked["requiredBlob"]["transactionHash"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let l1_provider = ProviderBuilder::new().connect_http(chain.rpc_url().parse().unwrap());
+    let missing_receipt: serde_json::Value = l1_provider
+        .client()
+        .request("eth_getTransactionReceipt", (missing_tx,))
+        .await
+        .unwrap();
+    assert_eq!(missing_receipt["status"], "0x1");
+    assert_eq!(
+        missing_receipt["blockHash"],
+        blocked["requiredBlob"]["l1BlockHash"]
+    );
+    assert_eq!(missing_receipt["to"], blocked["identity"]["eez"]);
+    let blocked_block = blocked["requiredBlob"]["l1BlockNumber"].as_u64().unwrap();
+    deny_blobs.store(false, std::sync::atomic::Ordering::SeqCst);
+    wait_for(DEFAULT_TIMEOUT, || async {
+        let value = derivation_evidence(&follower, reference.clone()).await?;
+        Ok((value["requiredBlob"].is_null()
+            && value["through"]["number"]
+                .as_u64()
+                .is_some_and(|through| through >= blocked_block))
+        .then_some(()))
+    })
+    .await
+    .expect("retrieval recovery must clear blocker after reconciliation");
+    wait_for_safe_prefix_convergence(&[&seq, &follower], 1, DEFAULT_TIMEOUT)
+        .await
+        .unwrap();
+    let previous_epoch = evidence["epoch"].clone();
+    // A hard fixture kill may lose the newest in-memory Reth suffix. That
+    // suffix legitimately re-executes at restart. Test reuse on the older first
+    // settled block, whose ancestry is below the two observed settlements.
+    let reused_record = settlement_by_l2(&follower, serde_json::json!("0x1"))
+        .await
+        .unwrap()
+        .expect("first settled block correlation");
+    let reused_reference = derivation_reference(&reused_record);
+    assert_eq!(
+        derivation_evidence(&follower, reused_reference.clone())
+            .await
+            .unwrap()["evidence"]["outcome"],
+        "settled"
+    );
     follower.assert_no_process_death();
+    drop(follower);
+    let restarted =
+        NodeHandle::start_with_datadir("follower-restarted", datadir.path(), &cfg, &env)
+            .await
+            .unwrap();
+    let reused = wait_for(DEFAULT_TIMEOUT, || async {
+        let evidence = derivation_evidence(&restarted, reused_reference.clone()).await?;
+        Ok((evidence["ready"] == true).then_some(evidence))
+    })
+    .await
+    .unwrap();
+    assert_ne!(previous_epoch, reused["epoch"]);
+    assert!(
+        restarted
+            .log_count_matching(&["boot seeded from the persistent L1/L2 correlation index"])
+            .unwrap()
+            > 0,
+        "restart must actually reuse surviving persistent history"
+    );
+    assert!(
+        reused["evidence"].is_null(),
+        "persisted/reused blocks must not fabricate new independent execution"
+    );
+    restarted.assert_no_process_death();
     seq.assert_no_process_death();
+    beacon_task.abort();
 }
 
 /// Sequencer RPC advances unsafe state while L1 remains safe-authoritative.
@@ -782,6 +1005,10 @@ async fn happy_case_follower_sequencer_rpc() {
     wait_for_safe_prefix_convergence(&[&seq, &follower], 1, DEFAULT_TIMEOUT)
         .await
         .expect("follower safe block never matched the sequencer chain");
+
+    let capability = derivation_evidence(&follower,serde_json::json!({"l1BlockNumber":0,"l1BlockHash":B256::ZERO,"transactionHash":B256::ZERO,"transactionIndex":0,"l2BlockNumber":0})).await.unwrap();
+    assert_eq!(capability["identity"]["role"], "follower");
+    assert_eq!(capability["identity"]["mode"], "sequencer_overlay");
 
     let follower_head_signals = [
         signals::FOLLOWER_HEAD_ADVANCED,
@@ -857,6 +1084,23 @@ async fn happy_case_follower_l1_reorg_recovers() {
     follower.wait_for_reorg_seen(DEFAULT_TIMEOUT).await.unwrap();
     follower.assert_no_process_death();
     seq.assert_no_process_death();
+}
+
+fn derivation_reference(record: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"l1BlockNumber":correlation_quantity(record,"l1BlockNumber"),
+        "l1BlockHash":record["l1BlockHash"],"transactionHash":record["l1TransactionHash"],
+        "transactionIndex":correlation_quantity(record,"l1TransactionIndex"),
+        "l2BlockNumber":correlation_quantity(&record["matchedL2Block"],"number")})
+}
+async fn derivation_evidence(
+    node: &NodeHandle,
+    reference: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let provider = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse()?);
+    Ok(provider
+        .client()
+        .request("eez_getDerivationEvidence", (reference,))
+        .await?)
 }
 
 async fn settlement_by_l2(

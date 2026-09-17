@@ -20,7 +20,7 @@ class CIResourcesTest(unittest.TestCase):
         self.commands.touch()
         self.tools = self.root / "bin"
         self.tools.mkdir()
-        for tool in ("sudo", "df", "free", "ps", "find", "sccache", "forge", "python3"):
+        for tool in ("sudo", "df", "free", "ps", "find", "sccache", "forge", "python3", "docker"):
             path = self.tools / tool
             path.write_text(f"#!{sys.executable}\n" + '''
 import json, os, sys
@@ -28,6 +28,9 @@ from pathlib import Path
 tool = Path(sys.argv[0]).name
 with open(os.environ["CI_TEST_COMMANDS"], "a") as stream:
     stream.write(json.dumps([tool] + sys.argv[1:]) + "\\n")
+if tool == "python3" and sys.argv[1:] == ["-"]:
+    # Exercise the real pinned-image selection with Docker itself mocked.
+    os.execv(sys.executable, [sys.executable, "-"])
 if tool in ("forge", "python3"):
     target = Path(os.environ["CARGO_TARGET_DIR"])
     (target / (tool + ".json")).write_text(json.dumps({
@@ -83,7 +86,12 @@ if tool in ("forge", "python3"):
     def test_e2e_suites_publish_their_actual_directory_even_on_failure(self):
         workspace = self.root / "workspace with spaces"
         workspace.mkdir()
-        self.env.update(GITHUB_WORKSPACE=str(workspace), RUNNER_TEMP=str(self.root))
+        self.env.update(GITHUB_WORKSPACE=str(workspace), RUNNER_TEMP=str(self.root),
+                        GITHUB_RUN_ID="fixture", GITHUB_RUN_ATTEMPT="2")
+        for relative in ("scripts/ci/check-docker.sh", "observability/images.lock.json"):
+            destination = workspace / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((REPO / relative).read_bytes())
         self.run_script("init-cargo-target.sh")
         unit_target = Path((self.root / "github-env").read_text().strip().split("=", 1)[1])
         (unit_target / "keep").write_text("unit archive extraction")
@@ -96,10 +104,23 @@ if tool in ("forge", "python3"):
                     self.env.update(RUNNER_ENVIRONMENT=runner, CI_TEST_FORGE_EXIT=str(forge_exit),
                                     CI_TEST_NEXTEST_EXIT=str(test_exit))
                     previous = set(workspace.glob(".cargo-target.*"))
+                    first_call = len(self.calls())
                     result = subprocess.run(["bash", str(REPO / "scripts/ci/run-native-suite.sh"),
                                              suite, str(payload)], cwd=workspace, env=self.env,
                                             capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, forge_exit or test_exit, result.stdout + result.stderr)
+                    docker_calls = [call for call in self.calls()[first_call:] if call[0] == "docker"]
+                    if suite == "cross-chain":
+                        images = json.loads((workspace / "observability/images.lock.json").read_text())
+                        pulls = []
+                        for prefix in ("postgres:", "prom/prometheus:", "grafana/grafana:"):
+                            image, digest = next((name, digest) for name, digest in images.items() if name.startswith(prefix))
+                            pulls.append(["docker", "pull", image + "@" + digest])
+                        self.assertEqual(docker_calls, [["docker", "info"], *pulls,
+                            ["docker", "build", "--tag", "eez-native-quota:fixture-2", "--file",
+                             "observability/tests/spool-quota/Dockerfile", "observability/tests/spool-quota"]])
+                    else:
+                        self.assertEqual(docker_calls, [])
                     # Simulate the runner exporting GITHUB_ENV to the next step.
                     self.env.update(line.split("=", 1) for line in (self.root / "github-env").read_text().splitlines())
                     target = Path(self.env["CARGO_TARGET_DIR"])

@@ -15,6 +15,7 @@ def exercise(run, psql, scalar, index, write_index, source_config, spool, header
     def scan():
         result = run(index)
         assert 'native outcome projection failed' not in result.stdout, result.stdout
+        assert 'native cost membership projection failed' not in result.stdout, result.stdout
         return result
     hash32 = lambda number: f'{number:064x}'
     block = lambda number, value: {'number': number, 'hash': hash32(value)}
@@ -71,6 +72,7 @@ def exercise(run, psql, scalar, index, write_index, source_config, spool, header
     segment(2, [(10, parent)])
     scan()
     assert observed("native_state||':'||evidence_class") == 'coherent:unknown'
+    assert scalar(f"SELECT native_state||':'||evidence_state FROM eez.lifecycle_cost_evidence WHERE source_id={source};") == 'coherent:missing_snapshot'
     assert observed("decision#>>'{l1_snapshot,number}'") == '12'
     assert observed("decision#>>'{post,block,number}'") == '11'
     assert observed("decision#>>'{applied,endpoint,hash}'") == hash32(32)
@@ -120,5 +122,24 @@ def exercise(run, psql, scalar, index, write_index, source_config, spool, header
     segment(4, events)
     scan()
     assert observed('native_state', 'AND sequence=151') == 'limit'
+    # A failed paid post can requeue every source. Cost projection must consume
+    # the reconciliation itself, without requiring a nonexistent terminal row.
+    failed_prepared = copy.deepcopy(prepared)
+    failed_prepared['attempt']['generation'] = 3
+    failed_parent = copy.deepcopy(parent)
+    failed_parent['attempt']['generation'] = 3
+    failed_parent['details']['post']['success'] = False
+    failed_parent['details']['applied'] = None
+    failed_source = failed_parent['details']['sources'][0]
+    failed_source.update(source_block=None, basis='nonce', receipt=None, consumed=[], observed_nonce=3)
+    failed_parent['details']['resolutions'][0]['owner']['generation'] = 3
+    failed_parent['details']['resolutions'][0]['disposition'] = {'state':'requeued','charged_attempts':1}
+    segment(5, [(195, failed_prepared), (200, failed_parent)])
+    scan()
+    assert scalar(f"SELECT state||':'||jsonb_array_length(decision->'population') FROM eez.lifecycle_cost_checks WHERE source_id={source} AND sequence=200;") == 'coherent:1'
+    assert scalar(f"SELECT count(*) FROM eez.source_posting_allocations WHERE l1_chain_id={saved['context_l1']};") == '0'
+    scan()
+    assert scalar(f"SELECT count(*) FROM eez.lifecycle_cost_checks WHERE source_id={source} AND sequence=200;") == '1'
+    report['checks'].append('paid_attempt_projection_requeued_without_terminal_and_missing_chain_evidence_remains_unallocated')
     run(psql, data='SET ROLE eez_observer_reader; SELECT count(*) FROM eez.lifecycle_native_outcomes;')
     report['checks'].append('native_coherence_projection_late_parent_scope_fence_dedup_missing_admission_digest_and_lineage_retraction_without_canonical_promotion')

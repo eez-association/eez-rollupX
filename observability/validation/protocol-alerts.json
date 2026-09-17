@@ -1,0 +1,17 @@
+{
+  "project": "eez-alert-test-4a0af6b62b",
+  "scope": "synthetic metrics with actual pinned Prometheus/Grafana and webhook delivery; no native fault injection",
+  "checks": [
+    "actual_generated_rules_loaded_with_explicit_owner_and_error_policy",
+    "canonical_progress_warning_page_and_recovery_delivery",
+    "missing_history_unknown_and_confirmed_upstream_failure_suppression",
+    "configured_lag_receipt_lifecycle_and_historical_blob_coverage_notifications_recover",
+    "follower_exact_mismatch_policy_age_signer_rejections_and_source_receipt_gaps_delivery_recovery",
+    "fully_authorized_attestation_failures_page_and_success_recovers_without_counter_reset",
+    "separate_observer_runway_and_actual_poster_pages_withdraw_on_unknown_and_recover",
+    "typed_required_current_blob_retry_page_retracts_with_unknown_and_recovers",
+    "trace_and_lifecycle_loss_notifications_recover_without_resetting_counters"
+  ],
+  "status": "passed",
+  "owned_resource_cleanup": "verified"
+}

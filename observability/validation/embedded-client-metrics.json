@@ -1,0 +1,1647 @@
+{
+  "status": "passed",
+  "scope": "two real native bidirectional fixtures, process-global upstream samples; no per-chain attribution; names and label keys only",
+  "canaries": {
+    "legacy": {
+      "sample_names": 880,
+      "intrinsic_chain_labels": [],
+      "pool_sample_names": 41
+    },
+    "policy": {
+      "sample_names": 886,
+      "intrinsic_chain_labels": [],
+      "pool_sample_names": 41
+    }
+  },
+  "samples": {
+    "reth_blockchain_tree_block_buffer_blocks": [],
+    "reth_blockchain_tree_canonical_chain_height": [],
+    "reth_blockchain_tree_finalized_block_height": [],
+    "reth_blockchain_tree_in_mem_state_earliest_block": [],
+    "reth_blockchain_tree_in_mem_state_latest_block": [],
+    "reth_blockchain_tree_in_mem_state_num_blocks": [],
+    "reth_blockchain_tree_latest_reorg_depth": [],
+    "reth_blockchain_tree_reorgs": [
+      "commitment"
+    ],
+    "reth_blockchain_tree_safe_block_height": [],
+    "reth_builder_validation_disallow_hash": [
+      "hash"
+    ],
+    "reth_builder_validation_disallow_size": [],
+    "reth_chain_spec": [
+      "name"
+    ],
+    "reth_consensus_engine_beacon_active_block_downloads": [],
+    "reth_consensus_engine_beacon_backpressure_active": [],
+    "reth_consensus_engine_beacon_backpressure_stall_duration": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_backpressure_stall_duration_count": [],
+    "reth_consensus_engine_beacon_backpressure_stall_duration_sum": [],
+    "reth_consensus_engine_beacon_block_insert_total_duration": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_block_insert_total_duration_count": [],
+    "reth_consensus_engine_beacon_block_insert_total_duration_sum": [],
+    "reth_consensus_engine_beacon_executed_blocks": [],
+    "reth_consensus_engine_beacon_executed_new_block_cache_miss": [],
+    "reth_consensus_engine_beacon_execution_cache_in_use": [],
+    "reth_consensus_engine_beacon_execution_cache_wait_duration": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_execution_cache_wait_duration_count": [],
+    "reth_consensus_engine_beacon_execution_cache_wait_duration_sum": [],
+    "reth_consensus_engine_beacon_failed_forkchoice_updated_response_deliveries": [],
+    "reth_consensus_engine_beacon_failed_new_payload_response_deliveries": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_error": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_interval": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_forkchoice_updated_interval_count": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_interval_sum": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_invalid": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_last": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_latency": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_forkchoice_updated_latency_count": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_latency_sum": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_messages": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_new_payload_time_diff": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_forkchoice_updated_new_payload_time_diff_count": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_new_payload_time_diff_sum": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_syncing": [],
+    "reth_consensus_engine_beacon_forkchoice_updated_valid": [],
+    "reth_consensus_engine_beacon_forkchoice_with_attributes_updated_messages": [],
+    "reth_consensus_engine_beacon_inserted_already_executed_blocks": [],
+    "reth_consensus_engine_beacon_invalid_headers_count": [],
+    "reth_consensus_engine_beacon_invalid_headers_hit_evictions": [],
+    "reth_consensus_engine_beacon_invalid_headers_known_ancestor_inserts": [],
+    "reth_consensus_engine_beacon_invalid_headers_unique_inserts": [],
+    "reth_consensus_engine_beacon_new_payload_accepted": [],
+    "reth_consensus_engine_beacon_new_payload_error": [],
+    "reth_consensus_engine_beacon_new_payload_forkchoice_updated_time_diff": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_forkchoice_updated_time_diff_count": [],
+    "reth_consensus_engine_beacon_new_payload_forkchoice_updated_time_diff_sum": [],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_gas_per_second": [
+      "gas_bucket",
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_gas_per_second_count": [
+      "gas_bucket"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_gas_per_second_sum": [
+      "gas_bucket"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_latency": [
+      "gas_bucket",
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_latency_count": [
+      "gas_bucket"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_bucket_latency_sum": [
+      "gas_bucket"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_per_second": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_gas_per_second_count": [],
+    "reth_consensus_engine_beacon_new_payload_gas_per_second_last": [],
+    "reth_consensus_engine_beacon_new_payload_gas_per_second_sum": [],
+    "reth_consensus_engine_beacon_new_payload_interval": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_interval_count": [],
+    "reth_consensus_engine_beacon_new_payload_interval_sum": [],
+    "reth_consensus_engine_beacon_new_payload_invalid": [],
+    "reth_consensus_engine_beacon_new_payload_last": [],
+    "reth_consensus_engine_beacon_new_payload_latency": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_latency_count": [],
+    "reth_consensus_engine_beacon_new_payload_latency_sum": [],
+    "reth_consensus_engine_beacon_new_payload_messages": [],
+    "reth_consensus_engine_beacon_new_payload_syncing": [],
+    "reth_consensus_engine_beacon_new_payload_total_gas": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_new_payload_total_gas_count": [],
+    "reth_consensus_engine_beacon_new_payload_total_gas_last": [],
+    "reth_consensus_engine_beacon_new_payload_total_gas_sum": [],
+    "reth_consensus_engine_beacon_new_payload_valid": [],
+    "reth_consensus_engine_beacon_persistence_duration": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_persistence_duration_count": [],
+    "reth_consensus_engine_beacon_persistence_duration_sum": [],
+    "reth_consensus_engine_beacon_pipeline_runs": [],
+    "reth_consensus_engine_beacon_time_between_forkchoice_updated": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_time_between_forkchoice_updated_count": [],
+    "reth_consensus_engine_beacon_time_between_forkchoice_updated_sum": [],
+    "reth_consensus_engine_beacon_time_between_new_payloads": [
+      "quantile"
+    ],
+    "reth_consensus_engine_beacon_time_between_new_payloads_count": [],
+    "reth_consensus_engine_beacon_time_between_new_payloads_sum": [],
+    "reth_consensus_engine_persistence_prune_before_duration_seconds": [
+      "quantile"
+    ],
+    "reth_consensus_engine_persistence_prune_before_duration_seconds_count": [],
+    "reth_consensus_engine_persistence_prune_before_duration_seconds_sum": [],
+    "reth_consensus_engine_persistence_remove_blocks_above_duration_seconds": [
+      "quantile"
+    ],
+    "reth_consensus_engine_persistence_remove_blocks_above_duration_seconds_count": [],
+    "reth_consensus_engine_persistence_remove_blocks_above_duration_seconds_sum": [],
+    "reth_consensus_engine_persistence_save_blocks_batch_size": [
+      "quantile"
+    ],
+    "reth_consensus_engine_persistence_save_blocks_batch_size_count": [],
+    "reth_consensus_engine_persistence_save_blocks_batch_size_sum": [],
+    "reth_consensus_engine_persistence_save_blocks_duration_seconds": [
+      "quantile"
+    ],
+    "reth_consensus_engine_persistence_save_blocks_duration_seconds_count": [],
+    "reth_consensus_engine_persistence_save_blocks_duration_seconds_sum": [],
+    "reth_database_operation_calls_total": [
+      "operation",
+      "table"
+    ],
+    "reth_database_operation_large_value_duration_seconds": [
+      "operation",
+      "quantile",
+      "table"
+    ],
+    "reth_database_operation_large_value_duration_seconds_count": [
+      "operation",
+      "table"
+    ],
+    "reth_database_operation_large_value_duration_seconds_sum": [
+      "operation",
+      "table"
+    ],
+    "reth_database_transaction_close_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_close_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_close_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_closed_total": [
+      "mode"
+    ],
+    "reth_database_transaction_commit_audit_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_audit_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_audit_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_ending_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_ending_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_ending_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_gc_cputime_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_gc_cputime_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_gc_cputime_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_gc_wallclock_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_gc_wallclock_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_gc_wallclock_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_preparation_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_preparation_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_preparation_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_sync_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_sync_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_sync_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_whole_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_whole_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_whole_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_write_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_commit_write_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_commit_write_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_open_duration_seconds": [
+      "mode",
+      "outcome",
+      "quantile"
+    ],
+    "reth_database_transaction_open_duration_seconds_count": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_open_duration_seconds_sum": [
+      "mode",
+      "outcome"
+    ],
+    "reth_database_transaction_opened_total": [
+      "mode"
+    ],
+    "reth_db_freelist": [],
+    "reth_db_page_size": [],
+    "reth_db_table_entries": [
+      "table"
+    ],
+    "reth_db_table_pages": [
+      "table",
+      "type"
+    ],
+    "reth_db_table_size": [
+      "table"
+    ],
+    "reth_db_timed_out_not_aborted_transactions": [],
+    "reth_downloaders_bodies_buffered_blocks": [],
+    "reth_downloaders_bodies_buffered_blocks_size_bytes": [],
+    "reth_downloaders_bodies_buffered_responses": [],
+    "reth_downloaders_bodies_in_flight_requests": [],
+    "reth_downloaders_bodies_out_of_order_requests": [],
+    "reth_downloaders_bodies_queued_blocks": [],
+    "reth_downloaders_bodies_timeout_errors": [],
+    "reth_downloaders_bodies_total_downloaded": [],
+    "reth_downloaders_bodies_total_flushed": [],
+    "reth_downloaders_bodies_unexpected_errors": [],
+    "reth_downloaders_bodies_validation_errors": [],
+    "reth_downloaders_headers_buffered_blocks": [],
+    "reth_downloaders_headers_buffered_blocks_size_bytes": [],
+    "reth_downloaders_headers_buffered_responses": [],
+    "reth_downloaders_headers_in_flight_requests": [],
+    "reth_downloaders_headers_out_of_order_requests": [],
+    "reth_downloaders_headers_queued_blocks": [],
+    "reth_downloaders_headers_timeout_errors": [],
+    "reth_downloaders_headers_total_downloaded": [],
+    "reth_downloaders_headers_total_flushed": [],
+    "reth_downloaders_headers_unexpected_errors": [],
+    "reth_downloaders_headers_validation_errors": [],
+    "reth_eez_build_info": [
+      "version"
+    ],
+    "reth_eez_lifecycle_writer_enabled": [],
+    "reth_eez_native_admissions_total": [
+      "direction"
+    ],
+    "reth_eez_native_queue_age_count": [
+      "direction",
+      "kind"
+    ],
+    "reth_eez_native_queue_age_seconds_bucket": [
+      "direction",
+      "kind",
+      "le"
+    ],
+    "reth_eez_native_queue_age_sum_seconds": [
+      "direction",
+      "kind"
+    ],
+    "reth_eez_native_queue_age_unknown_transactions": [
+      "direction",
+      "kind"
+    ],
+    "reth_eez_native_queue_evaluation_age_seconds": [],
+    "reth_eez_native_queue_evaluation_valid": [],
+    "reth_eez_native_queue_oldest_age_seconds": [
+      "direction",
+      "kind"
+    ],
+    "reth_eez_native_queue_sample_timestamp_seconds": [],
+    "reth_eez_native_queue_sample_valid": [],
+    "reth_eez_native_queue_transactions": [
+      "direction",
+      "state"
+    ],
+    "reth_eez_native_terminal_observations_total": [
+      "direction",
+      "outcome"
+    ],
+    "reth_eez_poster_can_fund_candidate": [],
+    "reth_eez_poster_funding_balance_native_units": [],
+    "reth_eez_poster_funding_balance_valid": [],
+    "reth_eez_poster_funding_estimate_timestamp_seconds": [],
+    "reth_eez_poster_funding_estimate_valid": [],
+    "reth_eez_poster_funding_minimum_only": [],
+    "reth_eez_poster_funding_required_native_units": [],
+    "reth_eez_poster_funding_sample_drops_total": [
+      "reason"
+    ],
+    "reth_eez_process_start_timestamp_seconds": [],
+    "reth_eez_request_duration_seconds_bucket": [
+      "direction",
+      "le",
+      "outcome"
+    ],
+    "reth_eez_request_duration_seconds_count": [
+      "direction",
+      "outcome"
+    ],
+    "reth_eez_request_duration_seconds_sum": [
+      "direction",
+      "outcome"
+    ],
+    "reth_eez_settlement_anchor_age_seconds": [
+      "rollup"
+    ],
+    "reth_eez_settlement_blob_allowance": [
+      "rollup"
+    ],
+    "reth_eez_settlement_due": [
+      "rollup"
+    ],
+    "reth_eez_settlement_pending_pure_l2_transactions": [
+      "rollup"
+    ],
+    "reth_eez_settlement_policy_enabled": [],
+    "reth_eez_settlement_policy_evaluation_timestamp_seconds": [
+      "rollup"
+    ],
+    "reth_eez_settlement_policy_evaluation_valid": [
+      "rollup"
+    ],
+    "reth_eez_settlement_policy_info": [
+      "admission",
+      "pure_l2_mode"
+    ],
+    "reth_eez_settlement_policy_setting": [
+      "setting"
+    ],
+    "reth_eez_settlement_unsettled_blocks": [
+      "rollup"
+    ],
+    "reth_eez_stage_duration_seconds_bucket": [
+      "le",
+      "outcome",
+      "stage"
+    ],
+    "reth_eez_stage_duration_seconds_count": [
+      "outcome",
+      "stage"
+    ],
+    "reth_eez_stage_duration_seconds_sum": [
+      "outcome",
+      "stage"
+    ],
+    "reth_eez_target_slot_misses_total": [
+      "reason"
+    ],
+    "reth_eez_telemetry_dropped_events_total": [
+      "reason",
+      "signal"
+    ],
+    "reth_engine_rpc_blobs_blob_count": [],
+    "reth_engine_rpc_blobs_blob_misses": [],
+    "reth_engine_rpc_blobs_get_blobs_requests_blobs_in_blobpool_total": [],
+    "reth_engine_rpc_blobs_get_blobs_requests_blobs_total": [],
+    "reth_engine_rpc_blobs_get_blobs_requests_failure_total": [],
+    "reth_engine_rpc_blobs_get_blobs_requests_success_total": [],
+    "reth_engine_rpc_fork_choice_updated_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_fork_choice_updated_v1_count": [],
+    "reth_engine_rpc_fork_choice_updated_v1_sum": [],
+    "reth_engine_rpc_fork_choice_updated_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_fork_choice_updated_v2_count": [],
+    "reth_engine_rpc_fork_choice_updated_v2_sum": [],
+    "reth_engine_rpc_fork_choice_updated_v3": [
+      "quantile"
+    ],
+    "reth_engine_rpc_fork_choice_updated_v3_count": [],
+    "reth_engine_rpc_fork_choice_updated_v3_sum": [],
+    "reth_engine_rpc_fork_choice_updated_v4": [
+      "quantile"
+    ],
+    "reth_engine_rpc_fork_choice_updated_v4_count": [],
+    "reth_engine_rpc_fork_choice_updated_v4_sum": [],
+    "reth_engine_rpc_get_blobs_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_blobs_v1_count": [],
+    "reth_engine_rpc_get_blobs_v1_sum": [],
+    "reth_engine_rpc_get_blobs_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_blobs_v2_count": [],
+    "reth_engine_rpc_get_blobs_v2_sum": [],
+    "reth_engine_rpc_get_blobs_v3": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_blobs_v3_count": [],
+    "reth_engine_rpc_get_blobs_v3_sum": [],
+    "reth_engine_rpc_get_blobs_v4": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_blobs_v4_count": [],
+    "reth_engine_rpc_get_blobs_v4_sum": [],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v1_count": [],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v1_sum": [],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v2_count": [],
+    "reth_engine_rpc_get_payload_bodies_by_hash_v2_sum": [],
+    "reth_engine_rpc_get_payload_bodies_by_range_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_bodies_by_range_v1_count": [],
+    "reth_engine_rpc_get_payload_bodies_by_range_v1_sum": [],
+    "reth_engine_rpc_get_payload_bodies_by_range_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_bodies_by_range_v2_count": [],
+    "reth_engine_rpc_get_payload_bodies_by_range_v2_sum": [],
+    "reth_engine_rpc_get_payload_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v1_count": [],
+    "reth_engine_rpc_get_payload_v1_sum": [],
+    "reth_engine_rpc_get_payload_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v2_count": [],
+    "reth_engine_rpc_get_payload_v2_sum": [],
+    "reth_engine_rpc_get_payload_v3": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v3_count": [],
+    "reth_engine_rpc_get_payload_v3_sum": [],
+    "reth_engine_rpc_get_payload_v4": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v4_count": [],
+    "reth_engine_rpc_get_payload_v4_sum": [],
+    "reth_engine_rpc_get_payload_v5": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v5_count": [],
+    "reth_engine_rpc_get_payload_v5_sum": [],
+    "reth_engine_rpc_get_payload_v6": [
+      "quantile"
+    ],
+    "reth_engine_rpc_get_payload_v6_count": [],
+    "reth_engine_rpc_get_payload_v6_sum": [],
+    "reth_engine_rpc_new_payload_v1": [
+      "quantile"
+    ],
+    "reth_engine_rpc_new_payload_v1_count": [],
+    "reth_engine_rpc_new_payload_v1_sum": [],
+    "reth_engine_rpc_new_payload_v2": [
+      "quantile"
+    ],
+    "reth_engine_rpc_new_payload_v2_count": [],
+    "reth_engine_rpc_new_payload_v2_sum": [],
+    "reth_engine_rpc_new_payload_v3": [
+      "quantile"
+    ],
+    "reth_engine_rpc_new_payload_v3_count": [],
+    "reth_engine_rpc_new_payload_v3_sum": [],
+    "reth_engine_rpc_new_payload_v4": [
+      "quantile"
+    ],
+    "reth_engine_rpc_new_payload_v4_count": [],
+    "reth_engine_rpc_new_payload_v4_sum": [],
+    "reth_engine_rpc_new_payload_v5": [
+      "quantile"
+    ],
+    "reth_engine_rpc_new_payload_v5_count": [],
+    "reth_engine_rpc_new_payload_v5_sum": [],
+    "reth_execution_block_access_list_account_changes": [],
+    "reth_execution_block_access_list_balance_changes": [],
+    "reth_execution_block_access_list_code_changes": [],
+    "reth_execution_block_access_list_invalid_total": [],
+    "reth_execution_block_access_list_nonce_changes": [],
+    "reth_execution_block_access_list_size_bytes": [],
+    "reth_execution_block_access_list_storage_changes": [],
+    "reth_execution_block_access_list_valid_total": [],
+    "reth_execution_block_access_list_validation_time_seconds": [
+      "quantile"
+    ],
+    "reth_execution_block_access_list_validation_time_seconds_count": [],
+    "reth_execution_block_access_list_validation_time_seconds_sum": [],
+    "reth_executor_spawn_critical_tasks_total": [],
+    "reth_executor_spawn_finished_critical_tasks_total": [],
+    "reth_executor_spawn_finished_regular_blocking_tasks_total": [],
+    "reth_executor_spawn_finished_regular_tasks_total": [],
+    "reth_executor_spawn_regular_blocking_tasks_total": [],
+    "reth_executor_spawn_regular_tasks_total": [],
+    "reth_info": [
+      "build_profile",
+      "build_timestamp",
+      "cargo_features",
+      "git_sha",
+      "target_triple",
+      "version"
+    ],
+    "reth_io_cancelled_write_bytes": [],
+    "reth_io_rchar": [],
+    "reth_io_read_bytes": [],
+    "reth_io_syscr": [],
+    "reth_io_syscw": [],
+    "reth_io_wchar": [],
+    "reth_io_write_bytes": [],
+    "reth_jemalloc_active": [],
+    "reth_jemalloc_allocated": [],
+    "reth_jemalloc_mapped": [],
+    "reth_jemalloc_metadata": [],
+    "reth_jemalloc_resident": [],
+    "reth_jemalloc_retained": [],
+    "reth_network_acc_duration_fetch_pending_hashes": [],
+    "reth_network_acc_duration_poll_commands": [],
+    "reth_network_acc_duration_poll_eth_req_handler": [],
+    "reth_network_acc_duration_poll_fetch_events": [],
+    "reth_network_acc_duration_poll_imported_transactions": [],
+    "reth_network_acc_duration_poll_network_events": [],
+    "reth_network_acc_duration_poll_network_handle": [],
+    "reth_network_acc_duration_poll_pending_pool_imports": [],
+    "reth_network_acc_duration_poll_swarm": [],
+    "reth_network_acc_duration_poll_transaction_events": [],
+    "reth_network_active_session_back_pressure_total": [],
+    "reth_network_active_session_messages_sent_total": [],
+    "reth_network_already_connected": [],
+    "reth_network_backed_off_peers": [],
+    "reth_network_backed_off_peers_connection_error": [],
+    "reth_network_backed_off_peers_graceful_close": [],
+    "reth_network_backed_off_peers_too_many_peers": [],
+    "reth_network_bad_imports": [],
+    "reth_network_capacity_inflight_requests": [],
+    "reth_network_capacity_pending_pool_imports": [],
+    "reth_network_client_quitting": [],
+    "reth_network_closed_sessions": [
+      "direction"
+    ],
+    "reth_network_connected_peers": [],
+    "reth_network_connected_to_self": [],
+    "reth_network_disconnect_requested": [],
+    "reth_network_duration_fill_request_from_hashes_pending_fetch": [],
+    "reth_network_duration_find_idle_fallback_peer_for_any_pending_hash": [],
+    "reth_network_duration_poll_network_manager": [],
+    "reth_network_duration_poll_tx_manager": [],
+    "reth_network_egress_peer_channel_full": [],
+    "reth_network_eth_bodies_requests_received_total": [],
+    "reth_network_eth_headers_requests_received_total": [],
+    "reth_network_eth_node_data_requests_received_total": [],
+    "reth_network_eth_receipts_requests_received_total": [],
+    "reth_network_fetched_transactions": [],
+    "reth_network_hashes_inflight_transaction_requests": [],
+    "reth_network_hashes_pending_fetch": [],
+    "reth_network_inbound_already_connected": [],
+    "reth_network_inbound_client_quitting": [],
+    "reth_network_inbound_connected_to_self": [],
+    "reth_network_inbound_disconnect_requested": [],
+    "reth_network_inbound_incompatible": [],
+    "reth_network_inbound_null_node_identity": [],
+    "reth_network_inbound_ping_timeout": [],
+    "reth_network_inbound_protocol_breach": [],
+    "reth_network_inbound_subprotocol_specific": [],
+    "reth_network_inbound_tcp_subsystem_error": [],
+    "reth_network_inbound_too_many_peers": [],
+    "reth_network_inbound_unexpected_identity": [],
+    "reth_network_inbound_useless_peer": [],
+    "reth_network_incoming_connections": [],
+    "reth_network_incompatible": [],
+    "reth_network_inflight_transaction_requests": [],
+    "reth_network_invalid_messages_received": [],
+    "reth_network_messages_with_hashes_already_seen_by_peer": [],
+    "reth_network_messages_with_transactions_already_seen_by_peer": [],
+    "reth_network_null_node_identity": [],
+    "reth_network_occurrences_hash_already_seen_by_peer": [],
+    "reth_network_occurrences_hashes_already_in_pool": [],
+    "reth_network_occurrences_of_transaction_already_seen_by_peer": [],
+    "reth_network_occurrences_transactions_already_in_pool": [],
+    "reth_network_outbound_already_connected": [],
+    "reth_network_outbound_client_quitting": [],
+    "reth_network_outbound_connected_to_self": [],
+    "reth_network_outbound_disconnect_requested": [],
+    "reth_network_outbound_incompatible": [],
+    "reth_network_outbound_null_node_identity": [],
+    "reth_network_outbound_ping_timeout": [],
+    "reth_network_outbound_protocol_breach": [],
+    "reth_network_outbound_subprotocol_specific": [],
+    "reth_network_outbound_tcp_subsystem_error": [],
+    "reth_network_outbound_too_many_peers": [],
+    "reth_network_outbound_unexpected_identity": [],
+    "reth_network_outbound_useless_peer": [],
+    "reth_network_outgoing_connections": [],
+    "reth_network_pending_outgoing_connections": [],
+    "reth_network_pending_pool_imports": [],
+    "reth_network_pending_session_failures": [
+      "direction"
+    ],
+    "reth_network_ping_timeout": [],
+    "reth_network_pool_import_prepare_duration": [
+      "quantile"
+    ],
+    "reth_network_pool_import_prepare_duration_count": [],
+    "reth_network_pool_import_prepare_duration_sum": [],
+    "reth_network_pool_transactions_messages_received_total": [],
+    "reth_network_pool_transactions_messages_sent_total": [],
+    "reth_network_pool_transactions_send_errors_total": [],
+    "reth_network_propagated_transactions": [],
+    "reth_network_protocol_breach": [],
+    "reth_network_queued_outgoing_messages": [],
+    "reth_network_reported_bad_transactions": [],
+    "reth_network_skipped_transactions_pending_pool_imports_at_capacity": [],
+    "reth_network_subprotocol_specific": [],
+    "reth_network_tcp_subsystem_error": [],
+    "reth_network_too_many_peers": [],
+    "reth_network_total_dial_successes": [],
+    "reth_network_total_dropped_eth_requests_at_full_capacity": [],
+    "reth_network_total_dropped_tx_events_at_full_capacity": [],
+    "reth_network_total_incoming_connections": [],
+    "reth_network_total_outgoing_connections": [],
+    "reth_network_total_outgoing_peer_messages_dropped": [],
+    "reth_network_total_pending_connections": [],
+    "reth_network_total_unbounded_broadcast_msgs": [],
+    "reth_network_tracked_peers": [],
+    "reth_network_transaction_fetcher_eip1559": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_eip1559_count": [],
+    "reth_network_transaction_fetcher_eip1559_sum": [],
+    "reth_network_transaction_fetcher_eip2930": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_eip2930_count": [],
+    "reth_network_transaction_fetcher_eip2930_sum": [],
+    "reth_network_transaction_fetcher_eip4844": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_eip4844_count": [],
+    "reth_network_transaction_fetcher_eip4844_sum": [],
+    "reth_network_transaction_fetcher_eip7702": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_eip7702_count": [],
+    "reth_network_transaction_fetcher_eip7702_sum": [],
+    "reth_network_transaction_fetcher_legacy": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_legacy_count": [],
+    "reth_network_transaction_fetcher_legacy_sum": [],
+    "reth_network_transaction_fetcher_other": [
+      "quantile"
+    ],
+    "reth_network_transaction_fetcher_other_count": [],
+    "reth_network_transaction_fetcher_other_sum": [],
+    "reth_network_unexpected_identity": [],
+    "reth_network_unsolicited_transactions": [],
+    "reth_network_useless_peer": [],
+    "reth_parallel_sparse_trie_subtrie_hash_update_latency": [
+      "quantile"
+    ],
+    "reth_parallel_sparse_trie_subtrie_hash_update_latency_count": [],
+    "reth_parallel_sparse_trie_subtrie_hash_update_latency_sum": [],
+    "reth_parallel_sparse_trie_subtrie_upper_hash_latency": [
+      "quantile"
+    ],
+    "reth_parallel_sparse_trie_subtrie_upper_hash_latency_count": [],
+    "reth_parallel_sparse_trie_subtrie_upper_hash_latency_sum": [],
+    "reth_parallel_sparse_trie_subtries_updated": [
+      "quantile"
+    ],
+    "reth_parallel_sparse_trie_subtries_updated_count": [],
+    "reth_parallel_sparse_trie_subtries_updated_sum": [],
+    "reth_payloads_active_jobs": [],
+    "reth_payloads_best_block": [],
+    "reth_payloads_best_revenue": [],
+    "reth_payloads_failed_jobs": [],
+    "reth_payloads_failed_payload_builds": [],
+    "reth_payloads_initiated_jobs": [],
+    "reth_payloads_initiated_payload_builds": [],
+    "reth_payloads_new_job_duration_seconds": [
+      "quantile"
+    ],
+    "reth_payloads_new_job_duration_seconds_count": [],
+    "reth_payloads_new_job_duration_seconds_sum": [],
+    "reth_payloads_requested_empty_payload": [],
+    "reth_payloads_resolve_duration_seconds": [
+      "quantile"
+    ],
+    "reth_payloads_resolve_duration_seconds_count": [],
+    "reth_payloads_resolve_duration_seconds_sum": [],
+    "reth_payloads_resolved_block": [],
+    "reth_payloads_resolved_revenue": [],
+    "reth_process_cli_args": [
+      "args"
+    ],
+    "reth_process_cpu_seconds_total": [],
+    "reth_process_max_fds": [],
+    "reth_process_open_fds": [],
+    "reth_process_resident_memory_bytes": [],
+    "reth_process_start_time_seconds": [],
+    "reth_process_threads": [],
+    "reth_process_virtual_memory_bytes": [],
+    "reth_process_virtual_memory_max_bytes": [],
+    "reth_pruner_duration_seconds": [
+      "quantile"
+    ],
+    "reth_pruner_duration_seconds_count": [],
+    "reth_pruner_duration_seconds_sum": [],
+    "reth_rocksdb_memtable_size": [
+      "table"
+    ],
+    "reth_rocksdb_pending_compaction_bytes": [
+      "table"
+    ],
+    "reth_rocksdb_provider_calls_total": [
+      "operation",
+      "table"
+    ],
+    "reth_rocksdb_provider_duration_seconds": [
+      "operation",
+      "quantile",
+      "table"
+    ],
+    "reth_rocksdb_provider_duration_seconds_count": [
+      "operation",
+      "table"
+    ],
+    "reth_rocksdb_provider_duration_seconds_sum": [
+      "operation",
+      "table"
+    ],
+    "reth_rocksdb_sst_size": [
+      "table"
+    ],
+    "reth_rocksdb_table_entries": [
+      "table"
+    ],
+    "reth_rocksdb_table_size": [
+      "table"
+    ],
+    "reth_rocksdb_wal_size": [],
+    "reth_rpc_eth_cache_cached_count": [
+      "cache"
+    ],
+    "reth_rpc_eth_cache_hits_total": [
+      "cache"
+    ],
+    "reth_rpc_eth_cache_memory_usage": [
+      "cache"
+    ],
+    "reth_rpc_eth_cache_misses_total": [
+      "cache"
+    ],
+    "reth_rpc_eth_cache_queued_consumers_count": [
+      "cache"
+    ],
+    "reth_rpc_server_calls_failed_total": [
+      "method"
+    ],
+    "reth_rpc_server_calls_started_total": [
+      "method"
+    ],
+    "reth_rpc_server_calls_successful_total": [
+      "method"
+    ],
+    "reth_rpc_server_calls_time_seconds": [
+      "method",
+      "quantile"
+    ],
+    "reth_rpc_server_calls_time_seconds_count": [
+      "method"
+    ],
+    "reth_rpc_server_calls_time_seconds_sum": [
+      "method"
+    ],
+    "reth_rpc_server_connections_batch_response_time_seconds": [
+      "quantile",
+      "transport"
+    ],
+    "reth_rpc_server_connections_batch_response_time_seconds_count": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_batch_response_time_seconds_sum": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_batches_finished_total": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_batches_started_total": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_connections_closed_total": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_connections_opened_total": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_request_time_seconds": [
+      "quantile",
+      "transport"
+    ],
+    "reth_rpc_server_connections_request_time_seconds_count": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_request_time_seconds_sum": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_requests_finished_total": [
+      "transport"
+    ],
+    "reth_rpc_server_connections_requests_started_total": [
+      "transport"
+    ],
+    "reth_sparse_state_trie_multiproof_total_account_nodes": [
+      "quantile"
+    ],
+    "reth_sparse_state_trie_multiproof_total_account_nodes_count": [],
+    "reth_sparse_state_trie_multiproof_total_account_nodes_sum": [],
+    "reth_sparse_state_trie_multiproof_total_storage_nodes": [
+      "quantile"
+    ],
+    "reth_sparse_state_trie_multiproof_total_storage_nodes_count": [],
+    "reth_sparse_state_trie_multiproof_total_storage_nodes_sum": [],
+    "reth_static_files_jar_provider_calls_total": [
+      "operation",
+      "segment"
+    ],
+    "reth_static_files_jar_provider_write_duration_seconds": [
+      "operation",
+      "quantile",
+      "segment"
+    ],
+    "reth_static_files_jar_provider_write_duration_seconds_count": [
+      "operation",
+      "segment"
+    ],
+    "reth_static_files_jar_provider_write_duration_seconds_sum": [
+      "operation",
+      "segment"
+    ],
+    "reth_static_files_segment_entries": [
+      "segment"
+    ],
+    "reth_static_files_segment_files": [
+      "segment"
+    ],
+    "reth_static_files_segment_size": [
+      "segment"
+    ],
+    "reth_storage_providers_database_insert_block": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_block_body_indices": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_block_body_indices_count": [],
+    "reth_storage_providers_database_insert_block_body_indices_sum": [],
+    "reth_storage_providers_database_insert_block_count": [],
+    "reth_storage_providers_database_insert_block_sum": [],
+    "reth_storage_providers_database_insert_hashes": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_hashes_count": [],
+    "reth_storage_providers_database_insert_hashes_sum": [],
+    "reth_storage_providers_database_insert_header_numbers": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_header_numbers_count": [],
+    "reth_storage_providers_database_insert_header_numbers_sum": [],
+    "reth_storage_providers_database_insert_history_indices": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_history_indices_count": [],
+    "reth_storage_providers_database_insert_history_indices_sum": [],
+    "reth_storage_providers_database_insert_state": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_state_count": [],
+    "reth_storage_providers_database_insert_state_sum": [],
+    "reth_storage_providers_database_insert_transaction_hash_numbers": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_transaction_hash_numbers_count": [],
+    "reth_storage_providers_database_insert_transaction_hash_numbers_sum": [],
+    "reth_storage_providers_database_insert_transaction_senders": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_transaction_senders_count": [],
+    "reth_storage_providers_database_insert_transaction_senders_sum": [],
+    "reth_storage_providers_database_insert_tx_blocks": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_insert_tx_blocks_count": [],
+    "reth_storage_providers_database_insert_tx_blocks_sum": [],
+    "reth_storage_providers_database_save_blocks_batch_size": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_batch_size_count": [],
+    "reth_storage_providers_database_save_blocks_batch_size_last": [],
+    "reth_storage_providers_database_save_blocks_batch_size_sum": [],
+    "reth_storage_providers_database_save_blocks_commit_mdbx": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_commit_mdbx_count": [],
+    "reth_storage_providers_database_save_blocks_commit_mdbx_last": [],
+    "reth_storage_providers_database_save_blocks_commit_mdbx_sum": [],
+    "reth_storage_providers_database_save_blocks_commit_rocksdb": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_commit_rocksdb_count": [],
+    "reth_storage_providers_database_save_blocks_commit_rocksdb_last": [],
+    "reth_storage_providers_database_save_blocks_commit_rocksdb_sum": [],
+    "reth_storage_providers_database_save_blocks_commit_sf": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_commit_sf_count": [],
+    "reth_storage_providers_database_save_blocks_commit_sf_last": [],
+    "reth_storage_providers_database_save_blocks_commit_sf_sum": [],
+    "reth_storage_providers_database_save_blocks_insert_block": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_insert_block_count": [],
+    "reth_storage_providers_database_save_blocks_insert_block_last": [],
+    "reth_storage_providers_database_save_blocks_insert_block_sum": [],
+    "reth_storage_providers_database_save_blocks_mdbx": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_mdbx_count": [],
+    "reth_storage_providers_database_save_blocks_mdbx_last": [],
+    "reth_storage_providers_database_save_blocks_mdbx_sum": [],
+    "reth_storage_providers_database_save_blocks_rocksdb": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_rocksdb_count": [],
+    "reth_storage_providers_database_save_blocks_rocksdb_last": [],
+    "reth_storage_providers_database_save_blocks_rocksdb_sum": [],
+    "reth_storage_providers_database_save_blocks_sf": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_sf_count": [],
+    "reth_storage_providers_database_save_blocks_sf_last": [],
+    "reth_storage_providers_database_save_blocks_sf_sum": [],
+    "reth_storage_providers_database_save_blocks_total": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_total_count": [],
+    "reth_storage_providers_database_save_blocks_total_last": [],
+    "reth_storage_providers_database_save_blocks_total_sum": [],
+    "reth_storage_providers_database_save_blocks_update_history_indices": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_update_history_indices_count": [],
+    "reth_storage_providers_database_save_blocks_update_history_indices_last": [],
+    "reth_storage_providers_database_save_blocks_update_history_indices_sum": [],
+    "reth_storage_providers_database_save_blocks_update_pipeline_stages": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_update_pipeline_stages_count": [],
+    "reth_storage_providers_database_save_blocks_update_pipeline_stages_last": [],
+    "reth_storage_providers_database_save_blocks_update_pipeline_stages_sum": [],
+    "reth_storage_providers_database_save_blocks_write_hashed_state": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_write_hashed_state_count": [],
+    "reth_storage_providers_database_save_blocks_write_hashed_state_last": [],
+    "reth_storage_providers_database_save_blocks_write_hashed_state_sum": [],
+    "reth_storage_providers_database_save_blocks_write_state": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_write_state_count": [],
+    "reth_storage_providers_database_save_blocks_write_state_last": [],
+    "reth_storage_providers_database_save_blocks_write_state_sum": [],
+    "reth_storage_providers_database_save_blocks_write_trie_updates": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_save_blocks_write_trie_updates_count": [],
+    "reth_storage_providers_database_save_blocks_write_trie_updates_last": [],
+    "reth_storage_providers_database_save_blocks_write_trie_updates_sum": [],
+    "reth_storage_providers_database_update_pipeline_stages": [
+      "quantile"
+    ],
+    "reth_storage_providers_database_update_pipeline_stages_count": [],
+    "reth_storage_providers_database_update_pipeline_stages_sum": [],
+    "reth_storage_providers_overlay_create_provider_duration": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_create_provider_duration_count": [],
+    "reth_storage_providers_overlay_create_provider_duration_sum": [],
+    "reth_storage_providers_overlay_database_provider_ro_duration": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_database_provider_ro_duration_count": [],
+    "reth_storage_providers_overlay_database_provider_ro_duration_sum": [],
+    "reth_storage_providers_overlay_hashed_state_size": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_hashed_state_size_count": [],
+    "reth_storage_providers_overlay_hashed_state_size_sum": [],
+    "reth_storage_providers_overlay_overlay_cache_misses": [],
+    "reth_storage_providers_overlay_retrieve_hashed_state_reverts_duration": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_retrieve_hashed_state_reverts_duration_count": [],
+    "reth_storage_providers_overlay_retrieve_hashed_state_reverts_duration_sum": [],
+    "reth_storage_providers_overlay_retrieve_trie_reverts_duration": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_retrieve_trie_reverts_duration_count": [],
+    "reth_storage_providers_overlay_retrieve_trie_reverts_duration_sum": [],
+    "reth_storage_providers_overlay_trie_updates_size": [
+      "quantile"
+    ],
+    "reth_storage_providers_overlay_trie_updates_size_count": [],
+    "reth_storage_providers_overlay_trie_updates_size_sum": [],
+    "reth_storage_settings": [
+      "prune_config",
+      "pruning_mode",
+      "storage_v2"
+    ],
+    "reth_sync_block_validation_anchored_overlay_hashed_state_size": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_anchored_overlay_hashed_state_size_count": [],
+    "reth_sync_block_validation_anchored_overlay_hashed_state_size_sum": [],
+    "reth_sync_block_validation_anchored_overlay_trie_updates_size": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_anchored_overlay_trie_updates_size_count": [],
+    "reth_sync_block_validation_anchored_overlay_trie_updates_size_sum": [],
+    "reth_sync_block_validation_deferred_trie_async_ready": [],
+    "reth_sync_block_validation_deferred_trie_compute_duration": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_deferred_trie_compute_duration_count": [],
+    "reth_sync_block_validation_deferred_trie_compute_duration_sum": [],
+    "reth_sync_block_validation_deferred_trie_sync_fallback": [],
+    "reth_sync_block_validation_hashed_post_state_size": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_hashed_post_state_size_count": [],
+    "reth_sync_block_validation_hashed_post_state_size_sum": [],
+    "reth_sync_block_validation_payload_validation_duration": [],
+    "reth_sync_block_validation_payload_validation_histogram": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_payload_validation_histogram_count": [],
+    "reth_sync_block_validation_payload_validation_histogram_sum": [],
+    "reth_sync_block_validation_post_execution_validation_duration": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_post_execution_validation_duration_count": [],
+    "reth_sync_block_validation_post_execution_validation_duration_sum": [],
+    "reth_sync_block_validation_spawn_payload_processor": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_spawn_payload_processor_count": [],
+    "reth_sync_block_validation_spawn_payload_processor_sum": [],
+    "reth_sync_block_validation_state_root_duration": [],
+    "reth_sync_block_validation_state_root_gas_bucket_histogram": [
+      "gas_bucket",
+      "quantile"
+    ],
+    "reth_sync_block_validation_state_root_gas_bucket_histogram_count": [
+      "gas_bucket"
+    ],
+    "reth_sync_block_validation_state_root_gas_bucket_histogram_sum": [
+      "gas_bucket"
+    ],
+    "reth_sync_block_validation_state_root_histogram": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_state_root_histogram_count": [],
+    "reth_sync_block_validation_state_root_histogram_sum": [],
+    "reth_sync_block_validation_state_root_parallel_fallback_total": [],
+    "reth_sync_block_validation_state_root_storage_tries_updated_total": [],
+    "reth_sync_block_validation_state_root_task_fallback_success_total": [],
+    "reth_sync_block_validation_state_root_task_timeout_total": [],
+    "reth_sync_block_validation_total_duration": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_total_duration_count": [],
+    "reth_sync_block_validation_total_duration_sum": [],
+    "reth_sync_block_validation_trie_updates_sorted_size": [
+      "quantile"
+    ],
+    "reth_sync_block_validation_trie_updates_sorted_size_count": [],
+    "reth_sync_block_validation_trie_updates_sorted_size_sum": [],
+    "reth_sync_caching_account_cache_capacity": [
+      "source"
+    ],
+    "reth_sync_caching_account_cache_collisions": [
+      "source"
+    ],
+    "reth_sync_caching_account_cache_hits": [
+      "source"
+    ],
+    "reth_sync_caching_account_cache_misses": [
+      "source"
+    ],
+    "reth_sync_caching_account_cache_size": [
+      "source"
+    ],
+    "reth_sync_caching_code_cache_capacity": [
+      "source"
+    ],
+    "reth_sync_caching_code_cache_collisions": [
+      "source"
+    ],
+    "reth_sync_caching_code_cache_hits": [
+      "source"
+    ],
+    "reth_sync_caching_code_cache_misses": [
+      "source"
+    ],
+    "reth_sync_caching_code_cache_size": [
+      "source"
+    ],
+    "reth_sync_caching_execution_cache_created_total": [
+      "source"
+    ],
+    "reth_sync_caching_execution_cache_creation_duration_seconds": [
+      "quantile",
+      "source"
+    ],
+    "reth_sync_caching_execution_cache_creation_duration_seconds_count": [
+      "source"
+    ],
+    "reth_sync_caching_execution_cache_creation_duration_seconds_sum": [
+      "source"
+    ],
+    "reth_sync_caching_precompile_cache_hits": [
+      "address"
+    ],
+    "reth_sync_caching_precompile_cache_misses": [
+      "address"
+    ],
+    "reth_sync_caching_precompile_cache_size": [
+      "address"
+    ],
+    "reth_sync_caching_precompile_errors": [
+      "address"
+    ],
+    "reth_sync_caching_storage_cache_capacity": [
+      "source"
+    ],
+    "reth_sync_caching_storage_cache_collisions": [
+      "source"
+    ],
+    "reth_sync_caching_storage_cache_hits": [
+      "source"
+    ],
+    "reth_sync_caching_storage_cache_misses": [
+      "source"
+    ],
+    "reth_sync_caching_storage_cache_size": [
+      "source"
+    ],
+    "reth_sync_checkpoint": [
+      "stage"
+    ],
+    "reth_sync_entities_processed": [
+      "stage"
+    ],
+    "reth_sync_entities_total": [
+      "stage"
+    ],
+    "reth_sync_execution_accounts_updated_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_accounts_updated_histogram_count": [],
+    "reth_sync_execution_accounts_updated_histogram_sum": [],
+    "reth_sync_execution_bytecodes_updated_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_bytecodes_updated_histogram_count": [],
+    "reth_sync_execution_bytecodes_updated_histogram_sum": [],
+    "reth_sync_execution_execution_duration": [],
+    "reth_sync_execution_execution_gas_bucket_histogram": [
+      "gas_bucket",
+      "quantile"
+    ],
+    "reth_sync_execution_execution_gas_bucket_histogram_count": [
+      "gas_bucket"
+    ],
+    "reth_sync_execution_execution_gas_bucket_histogram_sum": [
+      "gas_bucket"
+    ],
+    "reth_sync_execution_execution_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_execution_histogram_count": [],
+    "reth_sync_execution_execution_histogram_sum": [],
+    "reth_sync_execution_gas_per_second": [],
+    "reth_sync_execution_gas_processed_total": [],
+    "reth_sync_execution_gas_used_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_gas_used_histogram_count": [],
+    "reth_sync_execution_gas_used_histogram_sum": [],
+    "reth_sync_execution_post_execution_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_post_execution_histogram_count": [],
+    "reth_sync_execution_post_execution_histogram_sum": [],
+    "reth_sync_execution_pre_execution_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_pre_execution_histogram_count": [],
+    "reth_sync_execution_pre_execution_histogram_sum": [],
+    "reth_sync_execution_storage_slots_updated_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_storage_slots_updated_histogram_count": [],
+    "reth_sync_execution_storage_slots_updated_histogram_sum": [],
+    "reth_sync_execution_transaction_execution_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_transaction_execution_histogram_count": [],
+    "reth_sync_execution_transaction_execution_histogram_sum": [],
+    "reth_sync_execution_transaction_wait_histogram": [
+      "quantile"
+    ],
+    "reth_sync_execution_transaction_wait_histogram_count": [],
+    "reth_sync_execution_transaction_wait_histogram_sum": [],
+    "reth_sync_prewarm_bal_slot_iteration_duration": [
+      "quantile"
+    ],
+    "reth_sync_prewarm_bal_slot_iteration_duration_count": [],
+    "reth_sync_prewarm_bal_slot_iteration_duration_sum": [],
+    "reth_sync_prewarm_cache_saving_duration": [],
+    "reth_sync_prewarm_execution_duration": [
+      "quantile"
+    ],
+    "reth_sync_prewarm_execution_duration_count": [],
+    "reth_sync_prewarm_execution_duration_sum": [],
+    "reth_sync_prewarm_prefetch_storage_targets": [
+      "quantile"
+    ],
+    "reth_sync_prewarm_prefetch_storage_targets_count": [],
+    "reth_sync_prewarm_prefetch_storage_targets_sum": [],
+    "reth_sync_prewarm_total_runtime": [
+      "quantile"
+    ],
+    "reth_sync_prewarm_total_runtime_count": [],
+    "reth_sync_prewarm_total_runtime_sum": [],
+    "reth_sync_prewarm_transaction_errors": [],
+    "reth_sync_prewarm_transactions": [],
+    "reth_sync_prewarm_transactions_histogram": [
+      "quantile"
+    ],
+    "reth_sync_prewarm_transactions_histogram_count": [],
+    "reth_sync_prewarm_transactions_histogram_sum": [],
+    "reth_sync_total_elapsed": [
+      "stage"
+    ],
+    "reth_transaction_pool_all_transactions_by_all_senders": [],
+    "reth_transaction_pool_all_transactions_by_hash": [],
+    "reth_transaction_pool_all_transactions_by_id": [],
+    "reth_transaction_pool_base_fee": [],
+    "reth_transaction_pool_basefee_pool_size_bytes": [],
+    "reth_transaction_pool_basefee_pool_transactions": [],
+    "reth_transaction_pool_basefee_transactions_evicted": [],
+    "reth_transaction_pool_blob_base_fee": [],
+    "reth_transaction_pool_blob_pool_size_bytes": [],
+    "reth_transaction_pool_blob_pool_transactions": [],
+    "reth_transaction_pool_blob_transactions_evicted": [],
+    "reth_transaction_pool_blob_transactions_nonce_gaps": [],
+    "reth_transaction_pool_blob_validation_duration": [
+      "quantile"
+    ],
+    "reth_transaction_pool_blob_validation_duration_count": [],
+    "reth_transaction_pool_blob_validation_duration_sum": [],
+    "reth_transaction_pool_blobstore_byte_size": [],
+    "reth_transaction_pool_blobstore_entries": [],
+    "reth_transaction_pool_blobstore_failed_deletes": [],
+    "reth_transaction_pool_blobstore_failed_inserts": [],
+    "reth_transaction_pool_deleted_tracked_finalized_blobs": [],
+    "reth_transaction_pool_dirty_accounts": [],
+    "reth_transaction_pool_drift_count": [],
+    "reth_transaction_pool_inflight_validation_jobs": [],
+    "reth_transaction_pool_inserted_transactions": [],
+    "reth_transaction_pool_invalid_transactions": [],
+    "reth_transaction_pool_pending_pool_size_bytes": [],
+    "reth_transaction_pool_pending_pool_transactions": [],
+    "reth_transaction_pool_pending_transactions_evicted": [],
+    "reth_transaction_pool_performed_state_updates": [],
+    "reth_transaction_pool_queued_pool_size_bytes": [],
+    "reth_transaction_pool_queued_pool_transactions": [],
+    "reth_transaction_pool_queued_transactions_evicted": [],
+    "reth_transaction_pool_reinserted_transactions": [],
+    "reth_transaction_pool_removed_transactions": [],
+    "reth_transaction_pool_total_eip1559_transactions": [],
+    "reth_transaction_pool_total_eip2930_transactions": [],
+    "reth_transaction_pool_total_eip4844_transactions": [],
+    "reth_transaction_pool_total_eip7702_transactions": [],
+    "reth_transaction_pool_total_legacy_transactions": [],
+    "reth_transaction_pool_total_other_transactions": [],
+    "reth_transaction_pool_total_transactions": [],
+    "reth_tree_root_hashing_task_idle_time_seconds": [
+      "quantile"
+    ],
+    "reth_tree_root_hashing_task_idle_time_seconds_count": [],
+    "reth_tree_root_hashing_task_idle_time_seconds_sum": [],
+    "reth_tree_root_into_trie_for_reuse_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_into_trie_for_reuse_duration_histogram_count": [],
+    "reth_tree_root_into_trie_for_reuse_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_account_cache_hits": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_account_cache_hits_count": [],
+    "reth_tree_root_sparse_trie_account_cache_hits_sum": [],
+    "reth_tree_root_sparse_trie_account_cache_misses": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_account_cache_misses_count": [],
+    "reth_tree_root_sparse_trie_account_cache_misses_sum": [],
+    "reth_tree_root_sparse_trie_cache_wait_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_cache_wait_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_cache_wait_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_channel_wait_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_channel_wait_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_channel_wait_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_final_update_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_final_update_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_final_update_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_idle_time_seconds": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_idle_time_seconds_count": [],
+    "reth_tree_root_sparse_trie_idle_time_seconds_sum": [],
+    "reth_tree_root_sparse_trie_process_updates_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_process_updates_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_process_updates_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_proof_coalesce_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_proof_coalesce_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_proof_coalesce_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_retained_memory_bytes": [],
+    "reth_tree_root_sparse_trie_retained_storage_tries": [],
+    "reth_tree_root_sparse_trie_reveal_multiproof_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_reveal_multiproof_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_reveal_multiproof_duration_histogram_sum": [],
+    "reth_tree_root_sparse_trie_storage_cache_hits": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_storage_cache_hits_count": [],
+    "reth_tree_root_sparse_trie_storage_cache_hits_sum": [],
+    "reth_tree_root_sparse_trie_storage_cache_misses": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_storage_cache_misses_count": [],
+    "reth_tree_root_sparse_trie_storage_cache_misses_sum": [],
+    "reth_tree_root_sparse_trie_total_duration_histogram": [
+      "quantile"
+    ],
+    "reth_tree_root_sparse_trie_total_duration_histogram_count": [],
+    "reth_tree_root_sparse_trie_total_duration_histogram_sum": [],
+    "reth_trie_branches_added": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_branches_added_count": [
+      "type"
+    ],
+    "reth_trie_branches_added_sum": [
+      "type"
+    ],
+    "reth_trie_changeset_cache_evictions": [],
+    "reth_trie_changeset_cache_hits": [],
+    "reth_trie_changeset_cache_misses": [],
+    "reth_trie_changeset_cache_size": [],
+    "reth_trie_cursor_operations": [
+      "operation",
+      "quantile",
+      "type"
+    ],
+    "reth_trie_cursor_operations_count": [
+      "operation",
+      "type"
+    ],
+    "reth_trie_cursor_operations_sum": [
+      "operation",
+      "type"
+    ],
+    "reth_trie_cursor_overall_duration": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_cursor_overall_duration_count": [
+      "type"
+    ],
+    "reth_trie_cursor_overall_duration_sum": [
+      "type"
+    ],
+    "reth_trie_duration_seconds": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_duration_seconds_count": [
+      "type"
+    ],
+    "reth_trie_duration_seconds_sum": [
+      "type"
+    ],
+    "reth_trie_hashed_cursor_operations": [
+      "operation",
+      "quantile",
+      "type"
+    ],
+    "reth_trie_hashed_cursor_operations_count": [
+      "operation",
+      "type"
+    ],
+    "reth_trie_hashed_cursor_operations_sum": [
+      "operation",
+      "type"
+    ],
+    "reth_trie_hashed_cursor_overall_duration": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_hashed_cursor_overall_duration_count": [
+      "type"
+    ],
+    "reth_trie_hashed_cursor_overall_duration_sum": [
+      "type"
+    ],
+    "reth_trie_leaves_added": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_leaves_added_count": [
+      "type"
+    ],
+    "reth_trie_leaves_added_sum": [
+      "type"
+    ],
+    "reth_trie_node_iter_branch_nodes_returned_total": [
+      "type"
+    ],
+    "reth_trie_node_iter_leaf_nodes_advanced_total": [
+      "type"
+    ],
+    "reth_trie_node_iter_leaf_nodes_returned_total": [
+      "type"
+    ],
+    "reth_trie_node_iter_leaf_nodes_same_seeked_total": [
+      "type"
+    ],
+    "reth_trie_node_iter_leaf_nodes_seeked_total": [
+      "type"
+    ],
+    "reth_trie_parallel_missed_leaves": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_parallel_missed_leaves_count": [
+      "type"
+    ],
+    "reth_trie_parallel_missed_leaves_sum": [
+      "type"
+    ],
+    "reth_trie_parallel_precomputed_storage_roots": [
+      "quantile",
+      "type"
+    ],
+    "reth_trie_parallel_precomputed_storage_roots_count": [
+      "type"
+    ],
+    "reth_trie_parallel_precomputed_storage_roots_sum": [
+      "type"
+    ],
+    "reth_trie_proof_task_account_worker_idle_time_seconds": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_account_worker_idle_time_seconds_count": [],
+    "reth_trie_proof_task_account_worker_idle_time_seconds_sum": [],
+    "reth_trie_proof_task_account_worker_storage_wait_seconds": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_account_worker_storage_wait_seconds_count": [],
+    "reth_trie_proof_task_account_worker_storage_wait_seconds_sum": [],
+    "reth_trie_proof_task_deferred_encoder_dispatched": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_deferred_encoder_dispatched_count": [],
+    "reth_trie_proof_task_deferred_encoder_dispatched_missing_root": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_deferred_encoder_dispatched_missing_root_count": [],
+    "reth_trie_proof_task_deferred_encoder_dispatched_missing_root_sum": [],
+    "reth_trie_proof_task_deferred_encoder_dispatched_sum": [],
+    "reth_trie_proof_task_deferred_encoder_from_cache": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_deferred_encoder_from_cache_count": [],
+    "reth_trie_proof_task_deferred_encoder_from_cache_sum": [],
+    "reth_trie_proof_task_deferred_encoder_sync": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_deferred_encoder_sync_count": [],
+    "reth_trie_proof_task_deferred_encoder_sync_sum": [],
+    "reth_trie_proof_task_storage_worker_idle_time_seconds": [
+      "quantile"
+    ],
+    "reth_trie_proof_task_storage_worker_idle_time_seconds_count": [],
+    "reth_trie_proof_task_storage_worker_idle_time_seconds_sum": [],
+    "reth_trie_walker_branch_nodes_seeked_total": [
+      "type"
+    ],
+    "reth_trie_walker_out_of_order_subnode": [
+      "type"
+    ]
+  }
+}

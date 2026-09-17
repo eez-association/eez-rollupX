@@ -227,6 +227,7 @@ impl L1WatcherConfig {
 #[derive(Clone)]
 pub struct L1Watcher {
     inner: Arc<Inner>,
+    required_blobs: Option<Arc<crate::blob_diagnostics::RequiredBlobState>>,
 }
 
 struct Inner {
@@ -272,6 +273,7 @@ impl L1Watcher {
             blob_source = blob_source.with_rules(rules);
         }
         Self {
+            required_blobs: None,
             inner: Arc::new(Inner {
                 config,
                 blob_source,
@@ -279,6 +281,16 @@ impl L1Watcher {
                 rescan: Notify::new(),
             }),
         }
+    }
+
+    /// Share process-local current-dependency diagnostics with the deriver/RPC.
+    #[must_use]
+    pub fn with_required_blob_state(
+        mut self,
+        state: Arc<crate::blob_diagnostics::RequiredBlobState>,
+    ) -> Self {
+        self.required_blobs = Some(state);
+        self
     }
 
     /// The polling loop, seeded at
@@ -446,6 +458,33 @@ impl L1Watcher {
     /// costs at most one chunk and the next tick resumes from the ring
     /// tip.
     async fn poll_cycle(
+        &self,
+        provider: &impl Provider,
+        state: &mut WatcherState,
+        tick_count: u64,
+        refresh_finalized: bool,
+    ) -> L1Result<()> {
+        let result = self
+            .poll_cycle_inner(provider, state, tick_count, refresh_finalized)
+            .await;
+        if let Some(diagnostic) = &self.required_blobs {
+            match &result {
+                Ok(()) => {
+                    if let Some((through, _)) = state.tip() {
+                        diagnostic.completed(
+                            Some(crate::blob_diagnostics::BlobConsumer::Watcher),
+                            through,
+                        );
+                    }
+                }
+                Err(error) => {
+                    diagnostic.observe(crate::blob_diagnostics::BlobConsumer::Watcher, Some(error))
+                }
+            }
+        }
+        result
+    }
+    async fn poll_cycle_inner(
         &self,
         provider: &impl Provider,
         state: &mut WatcherState,
@@ -872,6 +911,11 @@ impl L1Watcher {
     }
 
     fn emit(&self, event: L1Event) {
+        if matches!(&event, L1Event::Reorg { .. })
+            && let Some(state) = &self.required_blobs
+        {
+            state.clear();
+        }
         // `send` returns Err if there are no active subscribers, which
         // is fine — events were never observed and that's OK.
         let _ = self.inner.event_tx.send(event);
@@ -1067,9 +1111,55 @@ mod tests {
 
     use alloy_transport::mock::Asserter;
 
+    #[tokio::test]
+    async fn configured_blob_diagnostic_clears_on_unrelated_poll_failure_and_reorg() {
+        use crate::blob_diagnostics::{
+            BlobConsumer, BlobUnavailableReason, RequiredBlob, RequiredBlobState,
+        };
+        let diagnostic = Arc::new(RequiredBlobState::default());
+        let reference = RequiredBlob {
+            block_number: 7,
+            block_hash: B256::repeat_byte(7),
+            transaction_hash: B256::repeat_byte(8),
+            transaction_index: 0,
+            rollup_id: 1,
+        };
+        let error = L1Error::SourceIncomplete {
+            block: 7,
+            tx_hash: reference.transaction_hash,
+            detail: "missing fixture blob".into(),
+        }
+        .with_required_blob(reference, BlobUnavailableReason::BeaconResponse);
+        let (watcher, _events) = test_watcher();
+        let watcher = watcher.with_required_blob_state(Arc::clone(&diagnostic));
+        diagnostic.observe(BlobConsumer::Watcher, Some(&error));
+        let asserter = Asserter::new();
+        asserter.push_failure_msg("unrelated head transport failure");
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+        let mut state = WatcherState::new(3);
+        assert!(
+            watcher
+                .poll_cycle(&provider, &mut state, 1, false)
+                .await
+                .unwrap_err()
+                .is_transport()
+        );
+        assert!(diagnostic.snapshot().is_none());
+        diagnostic.observe(BlobConsumer::Watcher, Some(&error));
+        watcher.emit(L1Event::Reorg {
+            common_ancestor_number: 6,
+            common_ancestor_hash: B256::repeat_byte(6),
+            old_head_hash: reference.block_hash,
+            new_head_number: 7,
+            new_head_hash: B256::repeat_byte(9),
+        });
+        assert!(diagnostic.snapshot().is_none());
+    }
+
     fn test_watcher() -> (L1Watcher, broadcast::Receiver<L1Event>) {
         let (event_tx, rx) = broadcast::channel(256);
         let watcher = L1Watcher {
+            required_blobs: None,
             inner: std::sync::Arc::new(Inner {
                 config: L1WatcherConfig {
                     rpc_url: "http://127.0.0.1:0".parse().expect("static url"),

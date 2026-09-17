@@ -64,7 +64,7 @@ async fn index(path: &std::path::Path, once: bool) -> Result<(), &'static str> {
         let status = std::sync::Arc::new(tokio::sync::RwLock::new(
             eez_observer::indexer::RuntimeStatus::default(),
         ));
-        eez_observer::indexer::once(&config, &rpc, &status)
+        Box::pin(eez_observer::indexer::once(&config, &rpc, &status))
             .await
             .map_err(eez_observer::indexer::Error::label)
     } else {

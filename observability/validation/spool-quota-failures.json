@@ -1,0 +1,101 @@
+[
+  {
+    "status": "failed",
+    "container": "eez-spool-quota-18edbf4924e4",
+    "image_id": "sha256:4755662acb4d03b769d09d71696a3ecdaec6eaf76aa8abdcfc8760c712364e6b",
+    "binary_sha256": "458ccfc4f564f77aba90959b1b45481e9a4a842254f14d6a22a7e3608c926003",
+    "host_available_memory_bytes": 50904010752,
+    "checks": [
+      "rotation_retention_with_two_deliberately_lagging_descriptors",
+      "native_bounded_reader_closes_descriptors_while_returned_buffers_live"
+    ],
+    "image_capacity_bytes": 3221225472,
+    "scope": "physical filesystem and actual telemetry transport only; no protocol-progress or overhead claim",
+    "filesystem_initial": {
+      "capacity_bytes": 3204214784,
+      "free_bytes": 3126837248,
+      "available_bytes": 2804715520,
+      "image_bytes": 3221225472,
+      "image_allocated_bytes": 69652480
+    },
+    "native_pid": 20,
+    "alloy_pid": 22,
+    "visible_retained_bytes": 56523,
+    "held_unlinked_segment_bytes": 36864,
+    "unlinked_segment_links": 0,
+    "physical_after_rotation": {
+      "capacity_bytes": 3204214784,
+      "free_bytes": 3126734848,
+      "available_bytes": 2804613120,
+      "image_bytes": 3221225472,
+      "image_allocated_bytes": 69808128
+    },
+    "reader_pass": {
+      "controls": [],
+      "descriptors_after": 3,
+      "descriptors_before": 3,
+      "lines": 64
+    },
+    "error": "AssertionError('hard filesystem capacity did not include held-unlinked ballast')",
+    "container_state": {
+      "OOMKilled": false,
+      "ExitCode": 1,
+      "Error": ""
+    },
+    "local_report": "/tmp/eez-spool-quota-first.json"
+  },
+  {
+    "status": "failed",
+    "container": "eez-spool-quota-4cf62d5b7a13",
+    "image_id": "sha256:4755662acb4d03b769d09d71696a3ecdaec6eaf76aa8abdcfc8760c712364e6b",
+    "binary_sha256": "458ccfc4f564f77aba90959b1b45481e9a4a842254f14d6a22a7e3608c926003",
+    "host_available_memory_bytes": 52817399808,
+    "checks": [
+      "rotation_retention_with_two_deliberately_lagging_descriptors",
+      "native_bounded_reader_closes_descriptors_while_returned_buffers_live"
+    ],
+    "image_capacity_bytes": 3221225472,
+    "scope": "physical filesystem and actual telemetry transport only; no protocol-progress or overhead claim",
+    "backing_available_bytes": 5042675142656,
+    "filesystem_initial": {
+      "capacity_bytes": 3204214784,
+      "free_bytes": 3126837248,
+      "available_bytes": 2804715520,
+      "image_bytes": 3221225472,
+      "image_allocated_bytes": 69652480
+    },
+    "native_pid": 20,
+    "alloy_pid": 22,
+    "visible_retained_bytes": 56522,
+    "held_unlinked_segment_bytes": 36864,
+    "unlinked_segment_links": 0,
+    "physical_after_rotation": {
+      "capacity_bytes": 3204214784,
+      "free_bytes": 3126734848,
+      "available_bytes": 2804613120,
+      "image_bytes": 3221225472,
+      "image_allocated_bytes": 69808128
+    },
+    "reader_pass": {
+      "controls": [],
+      "descriptors_after": 3,
+      "descriptors_before": 3,
+      "lines": 64
+    },
+    "filesystem_before_ballast_unlink": {
+      "capacity_bytes": 3204214784,
+      "free_bytes": 322125824,
+      "available_bytes": 4096,
+      "image_bytes": 3221225472,
+      "image_allocated_bytes": 2874343424
+    },
+    "filled_bytes_before_unlink": 2804600832,
+    "error": "OSError(28, 'No space left on device')",
+    "container_state": {
+      "OOMKilled": false,
+      "ExitCode": 1,
+      "Error": ""
+    },
+    "local_report": "/tmp/eez-spool-quota-block-tail.json"
+  }
+]

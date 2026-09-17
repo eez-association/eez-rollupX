@@ -99,6 +99,13 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     }
     let system_address = system_config.system_signer.address();
     validate_system_address(system_address)?;
+    let l1_reader_config = L1ReaderConfig::from_env()?;
+    let diagnostic_scope = correlation_rpc::DiagnosticScope::Follower {
+        l1_chain_id: expected_l1_chain_id,
+        eez: l1_reader_config.eez,
+        rollup_id: l1_reader_config.rollup_id,
+        sequencer_overlay: ext.sequencer_rpc.is_some(),
+    };
     let l2_data_dir = read_checkpoint_dir();
     let correlations = correlation_store(l2_data_dir.as_deref())?;
     let l1_head = Arc::new(L1CanonicalHead::default());
@@ -116,7 +123,12 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
         )
         .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
         .extend_rpc_modules(move |ctx| {
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
+            correlation_rpc::install_identified(
+                ctx,
+                Arc::clone(&rpc_correlations),
+                Arc::clone(&rpc_l1_head),
+                diagnostic_scope.clone(),
+            )
         })
         .launch_with_debug_capabilities()
         .await?;
@@ -132,7 +144,6 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
         None,
     )?;
 
-    let l1_reader_config = L1ReaderConfig::from_env()?;
     let deploy_block = l1_reader_config.deploy_block;
     let mut l1_reader = L1Reader::new(l1_reader_config);
     let l1_watcher_config = L1WatcherConfig::from_env()?;
@@ -144,6 +155,7 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     } else {
         L1Watcher::new(l1_watcher_config)
     };
+    let l1_watcher = l1_watcher.with_required_blob_state(Arc::clone(&correlations.required_blobs));
     let system_tx_cfg = system_config.into_context(chain_spec.chain().id());
     event!(
         name: "eez.node.follower.system_tx_cfg",

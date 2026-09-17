@@ -110,9 +110,10 @@ async fn main() -> eyre::Result<()> {
     // A timed-out RPC may leave non-interruptible blocking work running after
     // tonic has drained its request future. Do not terminate that work midway.
     shutdown_service.wait_until_idle().await;
-    // The service drain is authoritative; no extra shutdown deadline is assumed.
+    // This service has no overall shutdown deadline. Preserve its complete
+    // protocol drain, then allow the bounded two-second diagnostic trace flush.
     lifecycle.shutdown(std::time::Duration::ZERO);
-    traces.shutdown(std::time::Duration::ZERO);
+    traces.shutdown_without_application_deadline();
     serve_result.wrap_err_with(|| format!("serve {listen_addr}"))
 }
 

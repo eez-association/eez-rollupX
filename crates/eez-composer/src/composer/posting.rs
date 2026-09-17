@@ -358,6 +358,7 @@ impl PostingRuntime {
         endpoint: B256,
         semantics: &[SemanticTransaction],
     ) -> Result<(Vec<Bytes>, FeeQuote, BundleExecution), PostingError> {
+        let funding = eez_telemetry::funding::Attempt::start();
         let quote = self.quote(target, true).await?;
         let (_, blobs) = decode_transaction(
             raw.first()
@@ -371,6 +372,11 @@ impl PostingRuntime {
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?;
         let blob_reserve = quote.quote.reserve(0, blobs)?.blobs;
+        if balance < blob_reserve {
+            // Even the necessary blob-only reserve cannot be funded. Do not
+            // claim an execution estimate before its simulation has succeeded.
+            funding.minimum_unaffordable(blob_reserve.to_be_bytes(), balance.to_be_bytes());
+        }
         let affordable = balance
             .checked_sub(blob_reserve)
             .and_then(|funds| {
@@ -418,6 +424,7 @@ impl PostingRuntime {
         let (poster, _) = decode_transaction(&raw[0])?;
         let estimate = quote.quote.estimate(execution.gas_used[0], blobs)?;
         let reserve = quote.quote.reserve(poster.gas_limit(), blobs)?;
+        funding.candidate(reserve.total.to_be_bytes(), Some(balance.to_be_bytes()));
         event!(name: "eez.composer.postbatch.preflight", Level::INFO,
             event_name = "eez.composer.postbatch.preflight", rollup_id, target = ?target,
             poster_gas_used = execution.gas_used[0], declared_gas = poster.gas_limit(),

@@ -12,5 +12,7 @@
   "l2": {"bootstrap": 0, "include_all_transactions": true},
   "batch_blocks": 16,
   "lifecycle": [],
-  "blobs": null
+  "blobs": null,
+  "follower": null,
+  "funding": null
 }

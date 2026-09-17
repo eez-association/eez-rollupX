@@ -50,6 +50,14 @@ class NativeArtifactTest(unittest.TestCase):
                 extraction = Path(command[command.index("--extract-to") + 1])
                 self.assertTrue(extraction.is_dir(), "nextest requires an existing extraction directory")
                 shutil.copytree(self.frozen, extraction / "target/release/eez-runtime")
+                if suite == "cross-chain":
+                    metadata = extraction / "target/nextest/binaries-metadata.json"
+                    metadata.parent.mkdir(parents=True)
+                    binary = extraction / "target/release/deps/cross-chain-fixture"
+                    binary.parent.mkdir(parents=True)
+                    binary.write_text("fixture archived executable")
+                    metadata.write_text(json.dumps({"rust-build-meta":{"target-directory":"/producer/target"},
+                        "rust-binaries":{"eez-node-e2e::cross_chain":{"binary-path":"/producer/target/release/deps/cross-chain-fixture"}}}))
             elif command[:3] == ["cargo-nextest", "nextest", "run"]:
                 if any(name in " ".join(command) for name in failures):
                     raise subprocess.CalledProcessError(100, command)
@@ -57,7 +65,7 @@ class NativeArtifactTest(unittest.TestCase):
                 patch.object(native, "check_nextest"), \
                 patch.object(native, "output", return_value="glibc 2.39"), \
                 patch.object(native.subprocess, "run", side_effect=extract) as run, \
-                patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target)):
+                patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target), EEZ_TEST_LOG_DIR=str(self.root / "logs"), EEZ_TEST_QUOTA_IMAGE="fixture-quota:exact"):
             try:
                 native.run(self.root, suite)
             finally:
@@ -133,8 +141,29 @@ class NativeArtifactTest(unittest.TestCase):
                 if self.target.exists():
                     shutil.rmtree(self.target)
                 self.run_archive(suite)
-                self.assertEqual(len(self.calls), 2)
+                self.assertEqual(len(self.calls), 3 if suite == "cross-chain" else 2)
                 self.assertTrue(all("composer-unit-tests" not in " ".join(call.args[0]) for call in self.calls))
+
+    def test_cross_chain_requires_physical_quota_using_verified_archived_inputs(self):
+        self.run_archive("cross-chain")
+        command = self.calls[-1].args[0]
+        self.assertEqual(command[0], sys.executable)
+        self.assertTrue(command[1].endswith("observability/tests/smoke-spool-quota.py"))
+        self.assertEqual(Path(command[command.index("--native-test")+1]),
+                         self.target / "native-tests/target/release/deps/cross-chain-fixture")
+        self.assertEqual(Path(command[command.index("--runtime-bin")+1]),
+                         self.target / "native-tests/target/release/eez-runtime")
+        self.assertEqual(command[command.index("--image")+1], "fixture-quota:exact")
+        self.assertTrue(self.calls[-1].kwargs["check"])
+        self.assertNotIn("cargo", command)
+        extracted = self.target / "native-tests/target"
+        with patch.object(native.subprocess, "run") as invoked:
+            with self.assertRaisesRegex(ValueError, "must be prepared"):
+                native.run_native_quota(extracted, self.frozen, {})
+            (extracted / "release/deps/cross-chain-fixture").unlink()
+            with self.assertRaisesRegex(ValueError, "executable.*missing"):
+                native.run_native_quota(extracted, self.frozen, {"EEZ_TEST_QUOTA_IMAGE":"fixture"})
+            invoked.assert_not_called()
 
     def test_incompatible_glibc_or_native_cpu_flags_are_rejected(self):
         self.manifest["glibc"] = "glibc 99.1"
@@ -431,7 +460,7 @@ class NativeRelocationTest(unittest.TestCase):
                 shutil.copy2(REPO / path, dest)
             (repo / "Cargo.toml").write_text('[workspace]\nresolver="2"\nmembers=["crates/*"]\n'
                                            '[profile.release]\nlto="thin"\nstrip="symbols"\n')
-            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec")
+            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec", "eez-observer")
             for name in packages:
                 package = repo / "crates" / name
                 (package / "src").mkdir(parents=True)
@@ -467,6 +496,7 @@ class NativeRelocationTest(unittest.TestCase):
                 (package / "tests/fixtures/fixture.txt").write_text("relocated fixture")
             signer = repo / "crates/eez-proof-signer/src/main.rs"
             signer.write_text('fn main() { println!("signer"); }\n#[test] fn signer_is_tested() { assert_eq!(2+2,4); }\n')
+            (repo / "crates/eez-observer/src/main.rs").write_text('fn main() { println!("release"); }\n')
             node = repo / "crates/eez-node-e2e"
             for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower"),
                                     ("eez-node-e2e", "eez-composer"), ("eez-node-e2e", "eez-follower")):
@@ -501,7 +531,8 @@ class NativeRelocationTest(unittest.TestCase):
             node_targets = [target for target in native.TARGETS
                             if f"eez-node-e2e::{target}" in native.E2E_BINARIES]
             for target in node_targets:
-                (node / f"tests/{target}.rs").write_text(test_source)
+                extra = "" if target != "cross_chain" else "\n#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { fixture_is_relocated(); nodes_and_signer_are_relocated(); }\n"
+                (node / f"tests/{target}.rs").write_text(test_source + extra)
             for target in (target for target in native.TARGETS if target not in node_targets):
                 package = "eez-blob-codec" if target == "ethereum_kzg_compatibility" else "eez-protocol"
                 (repo / f"crates/{package}/tests/{target}.rs").write_text('''
@@ -510,6 +541,25 @@ class NativeRelocationTest(unittest.TestCase):
     assert_eq!(std::fs::read_to_string(format!("{root}/tests/fixtures/fixture.txt")).unwrap(), "relocated fixture");
     std::fs::write(format!("{root}/compatibility.executed"), "passed").unwrap();
 }
+''')
+            # This tiny test exercises required artifact handoff and ignored
+            # executable selection, not physical ENOSPC. The real quota runner
+            # separately verifies that behavior with actual native processes.
+            quota = repo / "observability/tests/smoke-spool-quota.py"
+            quota.parent.mkdir(parents=True)
+            quota.write_text('''import argparse, json, os, pathlib, subprocess
+parser=argparse.ArgumentParser()
+for name in ('native-test','runtime-bin','image','report'): parser.add_argument('--'+name,required=True)
+a=parser.parse_args()
+assert a.image=='fixture-quota:not-run'
+assert os.environ['EEZ_TEST_PREBUILT']=='1'
+assert pathlib.Path(a.runtime_bin)==pathlib.Path(os.environ['EEZ_TEST_RUNTIME_BIN_DIR'])
+env=dict(os.environ,CARGO_MANIFEST_DIR=str(pathlib.Path.cwd()/'crates/eez-node-e2e'))
+r=subprocess.run([a.native_test,'dynamic_enospc_bidirectional_cross_chain_smoke','--ignored','--exact'],env=env,text=True,stdout=subprocess.PIPE,check=True)
+assert '1 passed; 0 failed' in r.stdout
+pathlib.Path('quota-relocation.executed').write_text('passed')
+pathlib.Path(a.report).parent.mkdir(parents=True,exist_ok=True)
+pathlib.Path(a.report).write_text(json.dumps({'scope':'archived handoff only','passed':True}))
 ''')
             protocol = repo / "eez-core-protocol"
             protocol.mkdir()
@@ -523,9 +573,10 @@ class NativeRelocationTest(unittest.TestCase):
             sha = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
             env = dict(os.environ, GITHUB_SHA=sha, RUSTUP_TOOLCHAIN=native.RUST_VERSION, CARGO_INCREMENTAL="0",
                        RUSTFLAGS=native.RUSTFLAGS, CARGO_TARGET_DIR=str(root / "producer-target"),
-                       EEZ_COMPILER_CACHE="none", EEZ_BUILD_METRICS_DIR=str(root / "metrics"))
+                       EEZ_COMPILER_CACHE="none", EEZ_BUILD_METRICS_DIR=str(root / "metrics"),
+                       EEZ_TEST_LOG_DIR=str(root / "logs"), EEZ_TEST_QUOTA_IMAGE="fixture-quota:not-run")
             artifact = root / "artifact"
-            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eez-node", "-p", "eez-follower", "-p", "eez-proof-signer", "--bins"],
+            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eez-node", "-p", "eez-follower", "-p", "eez-proof-signer", "-p", "eez-observer", "--bins"],
                            cwd=repo, env=env, check=True)
             frozen = root / "shipping"
             frozen.mkdir()
@@ -576,6 +627,8 @@ class NativeRelocationTest(unittest.TestCase):
                 payload = artifact if suite == "unit" else lean
                 subprocess.run([sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite],
                                cwd=consumer, env=env, check=True)
+                if suite == "cross-chain":
+                    self.assertEqual((consumer / "quota-relocation.executed").read_text(), "passed")
                 if suite == "unit":
                     self.assertEqual((consumer / "crates/eez-blob-codec/compatibility.executed").read_text(), "passed")
                     subprocess.run([sys.executable, "scripts/ci/native-tests.py", "export-e2e", str(artifact),

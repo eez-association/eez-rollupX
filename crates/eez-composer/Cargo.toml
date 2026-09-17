@@ -6,6 +6,10 @@ license.workspace      = true
 rust-version.workspace = true
 description            = "Composer umbrella — owns per-rollup Sequencer/Scheduler/HeldPool maps and the shared Aggregator/Submitter/Prover."
 
+[features]
+# Measurement-only variant; absent from shipping defaults.
+benchmark-lock-timing = []
+
 [dependencies]
 # Internal — protocol, EVM port + inspector, and the existing umbrella siblings
 eez-driver = { workspace = true, features = ["witness"] }

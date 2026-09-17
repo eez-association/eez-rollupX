@@ -1,0 +1,202 @@
+{
+  "status": "passed",
+  "project": "eez-restore-src-retention-8a8727c3e4",
+  "binary_sha256": "ece81ef88ea7e7798c9d379b98ead21ca8eab5980064d8c2f79e06b93c0b9f68",
+  "images": {
+    "prom/prometheus:v3.14.0": "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+    "grafana/grafana:13.2.2": "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+    "grafana/loki:3.7.7": "sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500",
+    "grafana/alloy:v1.19.2": "sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839",
+    "prom/blackbox-exporter:v0.28.0": "sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc",
+    "postgres:18.6-bookworm": "sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+    "grafana/tempo:3.0.3": "sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5"
+  },
+  "checks": [
+    "effective_168h_retention_and_populated_sql",
+    "historical_otlp_ingestion_and_initial_trace_query",
+    "persisted_historical_block_metadata_before_deletion",
+    "actual_retention_marked_known_block",
+    "expired_trace_unavailable_recent_trace_and_sql_evidence_preserved",
+    "actual_browser_expired_trace_link_and_durable_sql_reference"
+  ],
+  "retention_hours": 168,
+  "scope": "historical synthetic spans, isolated volumes and SQL; production retention unchanged",
+  "dashboard_sha256": {
+    "blobs.json": "a9c4c505f0e1e1db04a6b7d7dc0512a78b5a286e67daa095a44748e2895827bd",
+    "cross-chain.json": "4e5f830bfc9e6ae8bb5aa7816dc4032919d873d104cee246a4c0db59bc6fea9b",
+    "gas.json": "6b86739891f3b01eefa93d30a8110413f5755d429f91d6debe0c6fe51a27dffc",
+    "infrastructure.json": "0577150f2c25f975dc3365d17a35d56ac4c599e9ee92f468d6124ba7f4dba58b",
+    "network.json": "996053c1835cf603a40db3f6d156bb00590b988a2ab3232480f30a0565120195",
+    "settlement.json": "575b93c6d7dc08be85d3b3ed9f826e44646f450c1dcdcb95b65ac9e187fb53d4"
+  },
+  "historical_blocks": [
+    {
+      "path": "single-tenant/e5868616-1053-4a5e-ac17-27eeeb85205a/meta.json",
+      "meta": {
+        "format": "vParquet4",
+        "blockID": "e5868616-1053-4a5e-ac17-27eeeb85205a",
+        "tenantID": "single-tenant",
+        "startTime": "2026-09-09T18:55:39Z",
+        "endTime": "2026-09-09T18:55:39Z",
+        "totalObjects": 1,
+        "size": 30652,
+        "compactionLevel": 0,
+        "indexPageSize": 0,
+        "totalRecords": 1,
+        "bloomShards": 1,
+        "footerSize": 18553,
+        "dedicatedColumns": [
+          {
+            "n": "http.request.method"
+          },
+          {
+            "n": "url.path"
+          },
+          {
+            "n": "url.route"
+          },
+          {
+            "n": "server.address"
+          },
+          {
+            "n": "http.route"
+          }
+        ],
+        "replicationFactor": 1
+      },
+      "files": [
+        "bloom-0",
+        "data.parquet",
+        "index",
+        "meta.json"
+      ]
+    }
+  ],
+  "marked_blocks": [
+    {
+      "path": "single-tenant/e5868616-1053-4a5e-ac17-27eeeb85205a/meta.compacted.json",
+      "meta": {
+        "format": "vParquet4",
+        "blockID": "e5868616-1053-4a5e-ac17-27eeeb85205a",
+        "tenantID": "single-tenant",
+        "startTime": "2026-09-09T18:55:39Z",
+        "endTime": "2026-09-09T18:55:39Z",
+        "totalObjects": 1,
+        "size": 30652,
+        "compactionLevel": 0,
+        "indexPageSize": 0,
+        "totalRecords": 1,
+        "bloomShards": 1,
+        "footerSize": 18553,
+        "dedicatedColumns": [
+          {
+            "n": "http.request.method"
+          },
+          {
+            "n": "url.path"
+          },
+          {
+            "n": "url.route"
+          },
+          {
+            "n": "server.address"
+          },
+          {
+            "n": "http.route"
+          }
+        ],
+        "replicationFactor": 1
+      },
+      "files": [
+        "bloom-0",
+        "data.parquet",
+        "index",
+        "meta.compacted.json"
+      ]
+    }
+  ],
+  "storage_after_expiry": {
+    "blocks": [
+      {
+        "path": "single-tenant/0aa91bf4-f64f-453e-99bd-502ca321e7f6/meta.json",
+        "meta": {
+          "format": "vParquet4",
+          "blockID": "0aa91bf4-f64f-453e-99bd-502ca321e7f6",
+          "tenantID": "single-tenant",
+          "startTime": "2026-09-17T18:55:46Z",
+          "endTime": "2026-09-17T18:55:46Z",
+          "totalObjects": 1,
+          "size": 30652,
+          "compactionLevel": 0,
+          "indexPageSize": 0,
+          "totalRecords": 1,
+          "bloomShards": 1,
+          "footerSize": 18553,
+          "dedicatedColumns": [
+            {
+              "n": "http.request.method"
+            },
+            {
+              "n": "url.path"
+            },
+            {
+              "n": "url.route"
+            },
+            {
+              "n": "server.address"
+            },
+            {
+              "n": "http.route"
+            }
+          ],
+          "replicationFactor": 1
+        },
+        "files": [
+          "bloom-0",
+          "data.parquet",
+          "index",
+          "meta.json"
+        ]
+      }
+    ],
+    "directories": [
+      "single-tenant/0aa91bf4-f64f-453e-99bd-502ca321e7f6"
+    ]
+  },
+  "browser_verifier_sha256": "5d60394f8823e504f32f5ccaed76f1c7172a7adc9c76c60fcfb14ba32cbc75b3",
+  "browser": {
+    "checks": [
+      "all_numeric_epoch_is_rendered_exactly_without_unit_scaling",
+      "retained_sql_trace_link_opens_exact_expired_trace_and_displays_unavailable",
+      "original_durable_sql_reference_remains_visible_after_trace_expiry"
+    ],
+    "trace_responses": [
+      {
+        "path": "/api/ds/query",
+        "status": 400,
+        "results": {
+          "A": {
+            "error": "failed to get trace with id: 2811c4ff48834909a6854bd9d5c1e088 Status: Not Found",
+            "errorSource": "downstream",
+            "status": 500,
+            "frames": []
+          }
+        }
+      }
+    ],
+    "page_errors": [],
+    "status": "passed"
+  },
+  "elapsed_seconds": 192.34,
+  "test_overrides": {
+    "ingestion_slack_hours": 240,
+    "blocklist_poll_seconds": 2,
+    "retention_job_interval_seconds": 90,
+    "compacted_block_retention_seconds": 10,
+    "live_store_flush_seconds": 1,
+    "live_store_cleanup_seconds": 2,
+    "live_store_block_seconds": 5,
+    "complete_block_timeout_seconds": 5
+  },
+  "owned_resource_cleanup": "verified"
+}

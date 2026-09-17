@@ -14,6 +14,11 @@ import time
 import uuid
 import sys
 import lifecycle_wire
+import follower_comparison
+import chain_locks
+import historical_checkpoints
+import finality_timing
+import cost_query_boundaries
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGES = json.loads((ROOT / 'images.lock.json').read_text())
@@ -69,7 +74,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '13'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '20'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -87,6 +92,8 @@ def main():
     parser.add_argument('--previous-v5-binary', type=pathlib.Path, help='Optional saved schema-v5 observer for receipt/log upgrade checks')
     parser.add_argument('--previous-v6-binary', type=pathlib.Path, help='Optional saved schema-v6 observer for verification-table upgrade checks')
     parser.add_argument('--previous-v8-binary', type=pathlib.Path, help='Optional saved schema-v8 observer for source-reference upgrade checks')
+    parser.add_argument('--previous-v13-binary', type=pathlib.Path, help='Optional saved schema-v13 observer for populated cost-attribution upgrade checks')
+    parser.add_argument('--previous-v14-binary', type=pathlib.Path, help='Optional saved schema-v14 observer for populated canonical-revision upgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -182,8 +189,37 @@ def main():
               SELECT id,decode(repeat('18',16),'hex'),1,1,'complete',jsonb_build_object('observed_at_unix_ms',1000,'trace',NULL,'event',jsonb_build_object('event','admitted','source',jsonb_build_object('chain_id',1,'genesis_hash',repeat('01',32),'rollup_id',0,'transaction_hash',repeat('02',32),'direction','inbound'),'previous',NULL,'replaced',NULL)) FROM eez.lifecycle_sources WHERE instance='source-upgrade';
               INSERT INTO eez.lifecycle_source_links(source_id,epoch,sequence,context_l1,context_l2,source,state,chain_instance_id,transaction_hash)
               SELECT source_id,epoch,sequence,1,1,payload#>'{event,source}','linked',1,decode(repeat('02',32),'hex') FROM eez.lifecycle_events WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-upgrade');""")
+        if args.previous_v13_binary:
+            run(['docker','cp',str(args.previous_v13_binary.resolve()),name + ':/observer-v13'])
+            run(['docker','exec',name,'/observer-v13','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '13'
+            prior_seed=(ROOT / 'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
+            run(psql,data=prior_seed.replace('canonical-outcomes','schema13-upgrade')+'\nCOMMIT;')
+            prior_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema13-upgrade';").stdout.strip()
+            report['previous_v13_binary_sha256']=hashlib.sha256(args.previous_v13_binary.read_bytes()).hexdigest()
+        if args.previous_v14_binary:
+            run(['docker','cp',str(args.previous_v14_binary.resolve()),name + ':/observer-v14'])
+            run(['docker','exec',name,'/observer-v14','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '14'
+            prior14_seed=(ROOT / 'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
+            run(psql,data=prior14_seed.replace('canonical-outcomes','schema14-upgrade')+'\nCOMMIT;')
+            prior14_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema14-upgrade';").stdout.strip()
+            report['previous_v14_binary_sha256']=hashlib.sha256(args.previous_v14_binary.read_bytes()).hexdigest()
         run(migrate)
         run(migrate)
+        if args.previous_v14_binary:
+            refused=run(['docker','exec',name,'/observer-v14','migrate','--database-config','/tmp/database.json'],check=False)
+            assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout
+            assert run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema14-upgrade';").stdout.strip() == prior14_costs
+            assert run(psql + ['-Atq'],data="SELECT bool_and(canonical_revision=0) FROM eez.chain_instances c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='schema14-upgrade';").stdout.strip() == 't'
+            report['checks'].append('saved_v14_populated_upgrade_preserves_costs_initializes_revision_and_refuses_downgrade')
+        if args.previous_v13_binary:
+            refused=run(['docker','exec',name,'/observer-v13','migrate','--database-config','/tmp/database.json'],check=False)
+            assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout
+            assert run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema13-upgrade';").stdout.strip() == prior_costs
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_outcome_anchors a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='schema13-upgrade' AND a.evidence_class='node_reconciled';").stdout.strip() == '1'
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.posting_allocation_status a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='schema13-upgrade' AND a.allocation_state='missing_membership';").stdout.strip() == '2'
+            report['checks'].append('saved_v13_populated_upgrade_preserves_receipts_native_anchors_and_unknown_allocation_refuses_downgrade')
         if args.previous_v8_binary:
             assert run(['docker','exec',name,'/observer-v8','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
             assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_source_admissions WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-upgrade');").stdout.strip() == '1'
@@ -206,12 +242,23 @@ def main():
             report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_current_downgrade')
         report['checks'].append('explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown')
         report['checks'].append('explicit_migration_and_idempotent_reapplication')
+        revision_spec = importlib.util.spec_from_file_location('canonical_revision_fixture', ROOT / 'tests/canonical_revision.py')
+        revision_fixture = importlib.util.module_from_spec(revision_spec)
+        revision_spec.loader.exec_module(revision_fixture)
+        revision_fixture.exercise(run, psql, lambda sql: run(psql + ['-Atq'], data=sql).stdout.strip(), report)
+        chain_locks.exercise(run, psql, lambda sql: run(psql + ['-Atq'], data=sql).stdout.strip(), report)
         reference_result = run(psql,data=(ROOT / 'tests/source-references.sql').read_text())
         assert 'source reference extraction invariants passed' in reference_result.stdout
         report['checks'].append('explicit_source_extraction_deduplicates_members_and_never_infers_missing_scope')
         canonical_result = run(psql,data=(ROOT / 'tests/canonical-outcomes.sql').read_text())
         assert 'canonical outcome invariants passed' in canonical_result.stdout
         report['checks'].append('canonical_outcome_assurance_checks_independent_anchors_retracts_reorgs_conflicts_and_preserves_unknowns')
+        follower_comparison.exercise(run, psql, report)
+        finality_timing.exercise(run, psql, report)
+        cost_query_boundaries.exercise(run, psql, report)
+        historical_checkpoints.exercise(run, psql, report)
+        run(psql,data=(ROOT / 'tests/settled-transaction-costs.sql').read_text())
+        report['checks'].append('settled_transaction_costs_deduplicate_overlaps_and_retract_unknown_prefixes_reorgs_and_coverage_gaps')
         admission_result = run(psql,data=(ROOT / 'tests/admission-status.sql').read_text())
         assert 'admission status invariants passed' in admission_result.stdout
         report['checks'].append('admission_status_restart_local_policy_parent_validation_conflicts_and_readmission_identity')
@@ -895,6 +942,8 @@ def main():
         native_outcomes = importlib.util.module_from_spec(native_spec)
         native_spec.loader.exec_module(native_outcomes)
         native_outcomes.exercise(run, psql, scalar, index, write_index, source_config, spool, header, chunks, report)
+        run(psql, data=(ROOT / 'tests/cost-allocation.sql').read_text())
+        report['checks'].append('exact_equal_share_post_allocation_reverts_companions_duplicate_conflicting_late_claims_stale_and_orphan_retraction')
         write_index(index_config)
         blob_spec = importlib.util.spec_from_file_location('blob_measurements', ROOT / 'tests/blob_measurements.py')
         blob_measurements = importlib.util.module_from_spec(blob_spec)
@@ -1002,6 +1051,10 @@ def main():
         assert scalar("SELECT p.verification_rollups::text FROM eez.posting_rollup_evidence p JOIN eez.chain_instances c ON c.id=p.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting';") == '{}'
         report['checks'].append('posting_verification_rollups_wire_order_full_u64_revert_separation_immutable_binding_restart_and_reorg')
         control(protocol_logs='missing')
+        funding_spec = importlib.util.spec_from_file_location('funding_fixture', ROOT / 'tests/funding.py')
+        funding_fixture = importlib.util.module_from_spec(funding_spec)
+        funding_spec.loader.exec_module(funding_fixture)
+        funding_fixture.exercise(run, scalar, index_config, control, name, rpc_name, report)
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0
@@ -1014,6 +1067,8 @@ def main():
         print('PASS: explicit migrations, canonical accounting invariants, exact sums, and reader permissions')
     except Exception:
         report['status'] = 'failed'
+        report['postgres_memory_evidence'] = run(['docker','exec',name,'cat',
+            '/sys/fs/cgroup/memory.events','/sys/fs/cgroup/memory.peak'],check=False).stdout
         print(run(['docker', 'logs', '--tail', '20', name], check=False).stdout)
         raise
     finally:

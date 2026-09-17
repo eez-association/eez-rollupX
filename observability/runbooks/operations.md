@@ -4,6 +4,25 @@ This stack is private operational tooling. The first dashboards show the RPC
 exporter's aggregate observations, scrape health and explicitly configured log
 files/probes. They do not establish canonical completion or finality.
 
+**Notification links.** `grafana_public_url` is the browser-facing HTTP(S) origin
+used for alert, dashboard, panel and runbook links. It may be a private VPN or
+reverse-proxy origin; Grafana retains authentication and the existing loopback
+binding. Use an origin without credentials, query, fragment or a subpath, for
+example `https://monitoring.example.internal`. If omitted, the configured
+`grafana_port` supplies `http://localhost:<port>` (19300 by default). Use an
+explicit origin when the recipient's browser reaches Grafana through another
+address. Port zero is diagnostic allocation: no public origin can be inferred,
+and `runbook_url` is omitted until an explicit resolved origin is configured.
+Do not treat the internal localhost:3000 fallback as a usable notification link.
+
+The managed **EEZ operator runbooks** dashboard renders this checked-in runbook
+and the protocol alert runbook without a metrics or SQL dependency. Notifications
+use Grafana's standard `runbook_url` annotation to open the matching text panel.
+Other repository references remain explicit checkout paths; no external docs
+host or additional public service is assumed. Regenerate runtime configuration
+and recreate only Grafana after changing its origin; retain the existing password
+and persistent volume.
+
 **Alert ownership and missing data.** Assign an operator for the webhook route
 and a separate owner/host for the heartbeat receiver before live use. Grafana
 owns alert evaluation and delivery; Prometheus owns recording rules. Normal
@@ -18,6 +37,13 @@ Source-collection alerts explicitly suppress no-data when that parent is down,
 but raise query errors; while the exporter is reachable, a missing required
 source metric is a failure. Stale readiness has its own alert. No panel fills
 absent data with zero. A blank error table alone is not a health signal.
+
+The optional [protocol alert set](protocol-alerts.md) adds canonical progress,
+index/receipt/lifecycle coverage, policy age, signer rejection and independent
+follower checks using explicit capabilities and thresholds. Enable it only with
+the corresponding producers and an assigned owner; enabling PostgreSQL alone
+does not enable these alerts. Collection failures suppress dependent symptoms
+while preserving separate source-health warnings.
 
 For an observer/source alert, check the exporter process, private scrape path,
 expected chain/genesis configuration, and its bounded error reason. Fix a bad
@@ -43,6 +69,11 @@ missed minutes. Merely accepting the webhook is insufficient. This repo tests
 the callback and a missing-heartbeat detector in an independent test process;
 it does not provision the receiver host or choose real on-call recipients.
 A same-host receiver cannot detect whole-host failure reliably.
+
+Lifecycle storage has a separate [physical-volume runbook](lifecycle-storage.md)
+and executed disk-full/lagging-reader evidence. Its 3 GiB hard budget must be
+provisioned independently of visible-file retention; the diagnostic log profile
+below does not automatically collect lifecycle `.active`/`.closed` segments.
 
 **Logs and storage.** Alloy tails only `*.jsonl` in the configured dedicated
 read-only directory. It drops the `filename` label to avoid per-rotation indexed

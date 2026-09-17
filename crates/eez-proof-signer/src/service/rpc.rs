@@ -38,9 +38,9 @@ const DEADLINE_EXCEEDED_MESSAGE: &str = "Prove request deadline exceeded";
 
 /// Start instant and absolute request deadline shared by every phase.
 #[derive(Clone, Copy, Debug)]
-struct RequestTiming {
-    started: Instant,
-    deadline: Instant,
+pub(super) struct RequestTiming {
+    pub(super) started: Instant,
+    pub(super) deadline: Instant,
 }
 
 /// Successful blocking-task result together with the still-held request slot.
@@ -107,7 +107,12 @@ impl Prover for ProveSvc {
         );
         eez_telemetry::traces::attach_remote_parent(&span, request.metadata());
         eez_telemetry::traces::record_trace_id(&span);
-        tracing::Instrument::instrument(self.prove_request(request), span).await
+        let mut timer = eez_telemetry::operational::StageTimer::start(
+            eez_telemetry::operational::Stage::Signer,
+        );
+        let result = tracing::Instrument::instrument(self.prove_request(request), span).await;
+        timer.finish(stage_outcome(result.as_ref().err()));
+        result
     }
 }
 
@@ -121,7 +126,12 @@ impl ProveSvc {
         // Ingestion admits stream structure only: exactly the declared block
         // span under the expected rollup identity. Every execution and
         // settlement claim inside it is still unverified.
-        let admitted_window = self.ingest_window(request.into_inner(), timing).await?;
+        let mut ingestion_timer = eez_telemetry::operational::StageTimer::start(
+            eez_telemetry::operational::Stage::SignerIngestion,
+        );
+        let admitted_window = self.ingest_window(request.into_inner(), timing).await;
+        ingestion_timer.finish(stage_outcome(admitted_window.as_ref().err()));
+        let admitted_window = admitted_window?;
         let (header, blocks) = admitted_window.into_parts();
         // The Composer claim already matched `expected_rollup_id`, so it is
         // deliberately not forwarded into validation or settlement.
@@ -156,52 +166,87 @@ impl ProveSvc {
             .await?;
         // Keep the exclusive slot through signing and response construction.
         let _active_request_guard = request_permit;
-        let attestable_public_inputs_hash = attestation_material.attestable_public_inputs;
+        self.finish_authorized_response(
+            attestation_material,
+            declared_from_block,
+            declared_to_block,
+            timing,
+            pipeline_started,
+        )
+    }
 
-        timing.ensure_before_deadline(
-            "attestation",
-            "Prove request deadline exceeded before attestation",
-            Some(pipeline_started),
-        )?;
-        let attestation_signature = self
-            .state
-            .attester
-            .sign(attestable_public_inputs_hash)
-            .map_err(|signing_error| {
-                error!(
-                    phase = "attestation",
-                    grpc_code = ?tonic::Code::Internal,
-                    attester = %self.state.attester.address(),
-                    error = %signing_error,
-                    elapsed_ms = timing.elapsed_ms(),
-                    "public-input hash signing failed",
-                );
-                Status::internal("attestation signing failed")
-            })?;
-        timing.ensure_before_deadline(
-            "attestation",
-            "Prove request deadline exceeded during attestation",
-            None,
-        )?;
+    /// Only fully authorized material can enter the response observation. The
+    /// caller retains its exclusive request permit through this synchronous tail.
+    pub(super) fn finish_authorized_response(
+        &self,
+        attestation_material: AttestationMaterial,
+        declared_from_block: u64,
+        declared_to_block: u64,
+        timing: RequestTiming,
+        pipeline_started: Instant,
+    ) -> Result<Response<ProveResponse>, Status> {
+        use eez_telemetry::operational::{AuthorizedOutcome, AuthorizedRequest};
+        let mut observation = AuthorizedRequest::start();
+        let result = (|| {
+            let attestable_public_inputs_hash = attestation_material.attestable_public_inputs;
 
-        event!(
-            name: "eez.proof_signer.window_signed",
-            Level::INFO,
-            event_name = "eez.proof_signer.window_signed",
-            phase = "attestation",
-            validated_from_block = declared_from_block,
-            validated_to_block = declared_to_block,
-            validated_window_pre_block_hash = %attestation_material.validated_window_pre_block_hash,
-            validated_window_post_block_hash = %attestation_material.validated_window_post_block_hash,
-            recomputed_public_inputs_hash = %attestable_public_inputs_hash.into_inner(),
-            attester = %self.state.attester.address(),
-            elapsed_ms = timing.elapsed_ms(),
-            "window validated and signed",
-        );
-        Ok(Response::new(ProveResponse {
-            public_inputs_hash: attestable_public_inputs_hash.into_inner().to_vec(),
-            signature: attestation_signature.to_vec(),
-        }))
+            timing.ensure_before_deadline(
+                "attestation",
+                "Prove request deadline exceeded before attestation",
+                Some(pipeline_started),
+            )?;
+            let mut signing_timer = eez_telemetry::operational::StageTimer::start(
+                eez_telemetry::operational::Stage::SignerSigning,
+            );
+            let attestation_signature = self
+                .state
+                .attester
+                .sign(attestable_public_inputs_hash)
+                .map_err(|signing_error| {
+                    error!(
+                        phase = "attestation",
+                        grpc_code = ?tonic::Code::Internal,
+                        attester = %self.state.attester.address(),
+                        error = %signing_error,
+                        elapsed_ms = timing.elapsed_ms(),
+                        "public-input hash signing failed",
+                    );
+                    Status::internal("attestation signing failed")
+                });
+            signing_timer.finish(stage_outcome(attestation_signature.as_ref().err()));
+            let attestation_signature = attestation_signature?;
+            timing.ensure_before_deadline(
+                "attestation",
+                "Prove request deadline exceeded during attestation",
+                None,
+            )?;
+
+            event!(
+                name: "eez.proof_signer.window_signed",
+                Level::INFO,
+                event_name = "eez.proof_signer.window_signed",
+                phase = "attestation",
+                validated_from_block = declared_from_block,
+                validated_to_block = declared_to_block,
+                validated_window_pre_block_hash = %attestation_material.validated_window_pre_block_hash,
+                validated_window_post_block_hash = %attestation_material.validated_window_post_block_hash,
+                recomputed_public_inputs_hash = %attestable_public_inputs_hash.into_inner(),
+                attester = %self.state.attester.address(),
+                elapsed_ms = timing.elapsed_ms(),
+                "window validated and signed",
+            );
+            Ok(Response::new(ProveResponse {
+                public_inputs_hash: attestable_public_inputs_hash.into_inner().to_vec(),
+                signature: attestation_signature.to_vec(),
+            }))
+        })();
+        observation.finish(match result.as_ref().err().map(Status::code) {
+            None => AuthorizedOutcome::Success,
+            Some(tonic::Code::DeadlineExceeded) => AuthorizedOutcome::Deadline,
+            Some(tonic::Code::Cancelled) => AuthorizedOutcome::Cancelled,
+            _ => AuthorizedOutcome::Error,
+        });
+        result
     }
 }
 
@@ -377,6 +422,26 @@ impl ProveSvc {
     }
 }
 
+/// Only transport status categories enter metrics; request text and evidence do not.
+pub(super) fn stage_outcome(status: Option<&Status>) -> eez_telemetry::operational::StageOutcome {
+    use eez_telemetry::operational::StageOutcome;
+    match status.map(Status::code) {
+        None | Some(tonic::Code::Ok) => StageOutcome::Success,
+        Some(
+            tonic::Code::InvalidArgument | tonic::Code::OutOfRange | tonic::Code::ResourceExhausted,
+        ) => StageOutcome::Invalid,
+        Some(
+            tonic::Code::FailedPrecondition
+            | tonic::Code::PermissionDenied
+            | tonic::Code::Unauthenticated,
+        ) => StageOutcome::Rejected,
+        Some(tonic::Code::Unavailable) => StageOutcome::Unavailable,
+        Some(tonic::Code::DeadlineExceeded) => StageOutcome::Deadline,
+        Some(tonic::Code::Cancelled) => StageOutcome::Cancelled,
+        _ => StageOutcome::Error,
+    }
+}
+
 fn elapsed_millis(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
@@ -409,5 +474,28 @@ impl Drop for WorkerGuard {
     fn drop(&mut self) {
         self.abort.abort();
         self.cancellation.cancel();
+    }
+}
+
+#[cfg(test)]
+mod metric_tests {
+    use super::*;
+    #[test]
+    fn rejection_labels_follow_status_categories_without_error_text() {
+        assert_eq!(stage_outcome(None).label(), "success");
+        for (code, label) in [
+            (tonic::Code::InvalidArgument, "invalid"),
+            (tonic::Code::ResourceExhausted, "invalid"),
+            (tonic::Code::FailedPrecondition, "rejected"),
+            (tonic::Code::Unavailable, "unavailable"),
+            (tonic::Code::DeadlineExceeded, "deadline"),
+            (tonic::Code::Cancelled, "cancelled"),
+            (tonic::Code::Internal, "internal"),
+        ] {
+            assert_eq!(
+                stage_outcome(Some(&Status::new(code, "untrusted secret/tx evidence"))).label(),
+                label
+            );
+        }
     }
 }

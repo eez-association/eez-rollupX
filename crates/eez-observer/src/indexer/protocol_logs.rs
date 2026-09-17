@@ -122,10 +122,10 @@ async fn cycle(config: &Config, rpc: &Rpc) -> Result<Status, Error> {
     let id = ledger::find_chain(&db, config, endpoint, "l1")
         .await?
         .ok_or(Error::Bootstrap)?;
-    let cursor = ledger::cursor(&db, id).await?.ok_or(Error::Bootstrap)?;
+    let checkpoint = ledger::historical_checkpoint(&db, id).await?;
     {
         let transaction = db.client.transaction().bounded().await?;
-        ledger::lock_cursor(&transaction, id, Some(&cursor)).await?;
+        ledger::lock_historical(&transaction, id, &checkpoint).await?;
         transaction.commit().bounded().await?;
     }
     // Oldest attempted inclusions rotate even when a response is missing or
@@ -150,10 +150,11 @@ async fn cycle(config: &Config, rpc: &Rpc) -> Result<Status, Error> {
             .map_err(|_| Error::Inconsistent)?;
         let success: bool = row.try_get(4)?;
         let kind: i16 = row.try_get(5)?;
-        let cursor = ledger::cursor(&db, id).await?.ok_or(Error::Bootstrap)?;
+        let checkpoint = ledger::historical_checkpoint(&db, id).await?;
+        let cursor = &checkpoint.cursor;
         {
             let transaction = db.client.transaction().bounded().await?;
-            ledger::lock_cursor(&transaction, id, Some(&cursor)).await?;
+            ledger::lock_historical(&transaction, id, &checkpoint).await?;
             transaction.execute("INSERT INTO eez.protocol_log_attempts(chain_instance_id,transaction_hash,block_hash,collection_error) VALUES($1,$2::bytea,$3::bytea,'interrupted') ON CONFLICT(chain_instance_id,transaction_hash,block_hash) DO UPDATE SET last_attempt_at=now(),collection_error='interrupted'", &[&id,&tx_hash.as_slice(),&block_hash.as_slice()]).bounded().await?;
             transaction.commit().bounded().await?;
         }
@@ -182,7 +183,7 @@ async fn cycle(config: &Config, rpc: &Rpc) -> Result<Status, Error> {
             return Err(Error::Inconsistent);
         }
         let transaction = db.client.transaction().bounded().await?;
-        ledger::lock_cursor(&transaction, id, Some(&cursor)).await?;
+        ledger::lock_historical(&transaction, id, &checkpoint).await?;
         let canonical:bool=transaction.query_one("SELECT canonical AND number=$3::text::numeric FROM eez.blocks WHERE chain_instance_id=$1 AND hash=$2::bytea", &[&id,&block_hash.as_slice(),&number.to_string()]).bounded().await?.try_get(0)?;
         if !canonical {
             return Err(Error::Inconsistent);

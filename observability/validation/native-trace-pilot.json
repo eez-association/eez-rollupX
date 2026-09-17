@@ -1,0 +1,105 @@
+{
+  "status": "passed",
+  "test": "traced_bidirectional_cross_chain_smoke",
+  "passed": 1,
+  "failed": 0,
+  "seconds": 87.88,
+  "source_head": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+  "protocol_pin": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "compiler": "rustc 1.94.0 (4a4ef493e 2026-03-02)\nbinary: rustc\ncommit-hash: 4a4ef493e3a1488c6e321570238084b38948f6db\ncommit-date: 2026-03-02\nhost: x86_64-unknown-linux-gnu\nrelease: 1.94.0\nLLVM version: 21.1.8",
+  "runtime_mode": "repository source E2E Composer/follower wrapper binaries and freshly verified native signer; separate shipping-role build passed; not a release-artifact execution claim",
+  "runtime_sha256": {
+    "eez-composer": "865241083c33a1e560e4c5ebeeda9bdd06ee92cb2bd3f63937171afc8bb495d9",
+    "eez-proof-signer": "a8ab85402acd461ef8d37fbb5cdab6a5f7961cabbbff4b064ec8942609ba0c6e",
+    "eez-follower": "029c11620384ed72a769d6cc1b9fc757fa933ce11ba9d3de50e8930aed16b86f"
+  },
+  "shipping_build": {
+    "compiler": "rustc1.94.0",
+    "command": "cargo +1.94.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer --bins",
+    "source_map_sha256": "e7abb4b629f920d2de7e7d4d06e640605a0f06a001db3d425bc372e7eca527ec",
+    "binary_sha256": {
+      "eez-composer": "bc89a0609c09e5c380f1aa62bcc5a3d11844b457237266182f967e406eeca572",
+      "eez-follower": "016bcf20c57ed7c1e91e455626419d3fd114563789051a3c051ffb0aeaaad425",
+      "eez-proof-signer": "a8ab85402acd461ef8d37fbb5cdab6a5f7961cabbbff4b064ec8942609ba0c6e"
+    }
+  },
+  "test_and_fixture_sha256": {
+    "target/debug/deps/cross_chain-7f117aa924f0a582": "cd0eec9668e6658c48650b3c76121dec228fabfba69704e684d08f2c338383ed",
+    "crates/eez-node-e2e/tests/cross_chain.rs": "4f5ef3772c0b6f14c9f2ade3387a2f98286cd802a69399ac01ef3a68232e8eff",
+    "crates/eez-node-e2e/tests/common/traces.rs": "a140f00b739fd415c39b10912623a0b1d4546bc0ce4450ffc2715e3fac0a90a0",
+    "crates/eez-testkit/src/lib.rs": "01125e51ec7852da29e6d3f061dbfe8b10697089e5e621a9db78faf0e54bb462",
+    "crates/eez-testkit/src/l1_reorg.rs": "b1d2635978d55f6d5694442af417e7bb0f29d8c5361a716d214316080ef85b03"
+  },
+  "sample_ratio": 1.0,
+  "capture": {
+    "protobuf_bytes": 40587,
+    "requests": 74,
+    "span_counts": {
+      "eez-composer/batch_member": 2,
+      "eez-composer/composer_preparation": 16,
+      "eez-composer/composer_proving": 16,
+      "eez-composer/prover_attempt": 21,
+      "eez-composer/prover_client": 21,
+      "eez-proof-signer/prove": 19
+    },
+    "spans": 95
+  },
+  "checks": [
+    "inbound_and_outbound_source_receipts_and_expected_destination_effects",
+    "l1_committed_root_matches_l2_safe_hash",
+    "posted_signature_matches_independently_recomputed_public_inputs",
+    "no_poison_eviction_or_divergence",
+    "actual_composer_preparation_proving_retry_client_signer_parent_ids_and_resources",
+    "two_source_links_match_lifecycle_admission_epoch_sequence_chain_genesis_rollup_hash_direction",
+    "both_sources_share_one_preparation_trace",
+    "distinct_numbered_retry_spans_after_real_unavailable_status",
+    "same_trace_id_in_successful_native_client_attested_and_signer_window_signed_json_events",
+    "no_dropped_span_attributes_links_or_arbitrary_log_events",
+    "both_processes_alive_after_checks"
+  ],
+  "logs": {
+    "complete_native_run": "/tmp/eez-native-trace-combined-run.log",
+    "raw_protobuf_and_process_logs": "/tmp/eez-native-trace-combined-logs",
+    "build": "/tmp/eez-native-trace-shutdown-runtime-build.log",
+    "test_build": "/tmp/eez-native-trace-combined-test-build.log",
+    "rpc_tests": "/tmp/eez-native-trace-shutdown-rpc-tests.log",
+    "telemetry_tests": "/tmp/eez-native-trace-shutdown-telemetry-tests.log",
+    "node_agent_actual_backend": "/tmp/eez-native-trace-node-agent.json",
+    "final_clippy": "/tmp/eez-native-trace-shutdown-final-clippy.log"
+  },
+  "previous_attempts": [
+    {
+      "log": "/tmp/eez-native-trace-pilot-run.log",
+      "status": "stopped_before_runtime",
+      "reason": "direct executable inherited host Rust 1.96.1; explicit RUSTUP_TOOLCHAIN=1.94.0 thereafter"
+    },
+    {
+      "log": "/tmp/eez-native-trace-pilot-reviewed-run.log",
+      "seconds": 154.3,
+      "status": "failed",
+      "reason": "assertion expectedOTLP ints; native Reth exposes reviewed numeric attributes as decimal strings"
+    },
+    {
+      "log": "/tmp/eez-native-trace-pilot-numeric-run.log",
+      "seconds": 73.67,
+      "status": "failed",
+      "reason": "native Reth filter omitted span fields; explicit reviewed optional attestation trace_id field fixed actual log correlation"
+    }
+  ],
+  "remaining": [
+    "comparative_native_overhead_and_production_sampling_calibration",
+    "full_shipping_artifact_native_execution",
+    "native_loss_alert_delivery_and_production_rollout_acceptance"
+  ],
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "validation": {
+    "telemetry_tests_passed": 43,
+    "signer_tests_passed": 287,
+    "prover_client_tests_passed": 15,
+    "control_rpc_tests_passed": 4,
+    "node_agent_backend_groups_passed": 10,
+    "node_agent_python_tests_passed": 9,
+    "strict_clippy": "passed all targets for eez-telemetry(native), eez-proof-signer, eez-prover-client, eez-testkit, eez-node-e2e",
+    "format_and_diff_checks": "passed"
+  }
+}

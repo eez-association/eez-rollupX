@@ -7,6 +7,7 @@ rust-version.workspace = true
 description = "Read-only EEZ RPC telemetry and canonical receipt indexer."
 
 [dependencies]
+alloy-consensus.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 eez-protocol.workspace = true

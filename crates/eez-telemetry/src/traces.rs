@@ -166,12 +166,21 @@ impl Guard {
 
     /// Call after protocol draining with the actual remaining application budget.
     /// A zero budget signals stop without extending an unknown/exhausted deadline.
-    pub fn shutdown(mut self, remaining: Duration) -> bool {
-        self.0.take().is_none_or(|provider| {
-            provider
-                .shutdown_with_timeout(flush_budget(remaining))
-                .is_ok()
-        })
+    pub fn shutdown(self, remaining: Duration) -> bool {
+        self.shutdown_with_budget(flush_budget(remaining))
+    }
+
+    /// Call after protocol draining only when the application explicitly has no
+    /// overall shutdown deadline. Adds at most two seconds for telemetry; this
+    /// must not substitute for an unknown or exhausted finite application budget.
+    pub fn shutdown_without_application_deadline(self) -> bool {
+        self.shutdown_with_budget(MAX_FLUSH_BUDGET)
+    }
+
+    fn shutdown_with_budget(mut self, budget: Duration) -> bool {
+        self.0
+            .take()
+            .is_none_or(|provider| provider.shutdown_with_timeout(budget).is_ok())
     }
 }
 impl Drop for Guard {
@@ -181,8 +190,10 @@ impl Drop for Guard {
         }
     }
 }
+const MAX_FLUSH_BUDGET: Duration = Duration::from_secs(2);
+
 pub fn flush_budget(remaining: Duration) -> Duration {
-    Duration::from_secs(2).min(remaining / 4)
+    MAX_FLUSH_BUDGET.min(remaining / 4)
 }
 
 /// The SDK processor hides queue drops until shutdown. This small transport
@@ -476,6 +487,7 @@ mod tests {
         let (guard, layer) = Guard::start(&identity(), None).unwrap();
         assert!(layer.is_none());
         assert!(guard.shutdown(Duration::ZERO));
+        assert!(Guard::default().shutdown_without_application_deadline());
         for ratio in [-0.1, 1.1, f64::NAN, f64::INFINITY] {
             let mut candidate = config.clone();
             candidate.sample_ratio = ratio;
@@ -617,6 +629,15 @@ mod tests {
     }
     #[test]
     fn otlp_http_export_uses_exact_identity_and_excludes_log_events() {
+        assert_otlp_http_export(Some(Duration::from_secs(8)));
+    }
+
+    #[test]
+    fn deadline_free_post_drain_shutdown_flushes_reachable_collector() {
+        assert_otlp_http_export(None);
+    }
+
+    fn assert_otlp_http_export(remaining: Option<Duration>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut config = config();
@@ -660,7 +681,10 @@ mod tests {
             let _entered = span.enter();
             tracing::error!(target: "eez_trace", arbitrary_payload = "must not be exported", "diagnostic only");
         });
-        assert!(guard.shutdown(Duration::from_secs(8)));
+        assert!(match remaining {
+            Some(remaining) => guard.shutdown(remaining),
+            None => guard.shutdown_without_application_deadline(),
+        });
         let request = receiver.join().unwrap();
         assert_eq!(request.resource_spans.len(), 1);
         let resource = request.resource_spans[0].resource.as_ref().unwrap();
@@ -681,6 +705,38 @@ mod tests {
         assert_eq!(spans[0].name, "prover_attempt");
         assert!(spans[0].events.is_empty());
         assert!(!format!("{request:?}").contains("must not be exported"));
+    }
+
+    #[test]
+    fn deadline_free_post_drain_shutdown_is_bounded_when_collector_stalls() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut config = config();
+        config.receiver = listener.local_addr().unwrap();
+        config.export_timeout_ms = 2000;
+        let (accepted, connected) = std::sync::mpsc::sync_channel(1);
+        let (release, finish) = std::sync::mpsc::sync_channel(1);
+        let receiver = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            accepted.send(()).unwrap();
+            // Hold the actual accepted socket without a response until the
+            // caller's bounded shutdown returns; no success-by-sleep assertion.
+            let _ = finish.recv_timeout(Duration::from_secs(5));
+            drop(stream);
+        });
+        let (guard, layer) = Guard::start(&identity(), Some(&config)).unwrap();
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(target: "eez_trace", "prover_attempt"));
+            connected.recv_timeout(Duration::from_secs(3)).unwrap();
+            // A second queued batch ensures one request timeout cannot finish
+            // the export worker before the independent total flush budget.
+            drop(tracing::info_span!(target: "eez_trace", "prover_attempt"));
+        });
+        let start = std::time::Instant::now();
+        assert!(!guard.shutdown_without_application_deadline());
+        assert!(start.elapsed() < Duration::from_millis(2500));
+        release.send(()).unwrap();
+        receiver.join().unwrap();
     }
 
     #[test]

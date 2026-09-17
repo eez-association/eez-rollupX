@@ -70,6 +70,15 @@ impl Selection {
         selection
     }
 
+    /// Count capacity was spent while an otherwise eligible source remains.
+    pub fn count_limited(&self) -> bool {
+        self.remaining == 0
+            && self
+                .waiting
+                .iter()
+                .any(|index| !self.blocked.contains(&self.chains[*index]))
+    }
+
     pub fn fee_blocked(&self) -> &[usize] {
         &self.fee_blocked
     }
@@ -192,6 +201,29 @@ mod tests {
         assert_eq!(selection.remaining, 13);
         assert!(!selection.fifo_bypassed());
         assert_eq!(selection.resume_chain(), None);
+    }
+
+    #[test]
+    fn count_cut_requires_exhaustion_and_an_unblocked_remaining_candidate() {
+        let mut users = vec![tx(1, 0, Direction::Inbound), tx(2, 0, Direction::Outbound)];
+        let mut selection = Selection::new(&users, 1, 1, 1);
+        assert!(!selection.count_limited());
+        assert!(selection.consider(0));
+        selection.accept(0);
+        assert!(selection.count_limited());
+        users[1].max_fee_per_gas = 0;
+        let mut selection = Selection::new(&users, 1, 1, 1);
+        selection.accept(0);
+        assert!(
+            !selection.count_limited(),
+            "fee-blocked work is not a count cut"
+        );
+        let mut selection = Selection::new(&users[..1], 1, 1, 1);
+        selection.accept(0);
+        assert!(
+            !selection.count_limited(),
+            "exact exhaustion without remaining work is not a cut"
+        );
     }
 
     #[test]

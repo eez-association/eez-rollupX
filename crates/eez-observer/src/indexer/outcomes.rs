@@ -222,14 +222,14 @@ pub(super) async fn poll(config: &Config, status: &SharedStatus) -> bool {
     }
 }
 
-struct Loaded {
-    epoch: Epoch,
-    sequence: u64,
-    digest: String,
-    payload: Payload,
+pub(super) struct Loaded {
+    pub(super) epoch: Epoch,
+    pub(super) sequence: u64,
+    pub(super) digest: String,
+    pub(super) payload: Payload,
 }
 impl Loaded {
-    fn record(&self, source_id: i64) -> Record<'_> {
+    pub(super) fn record(&self, source_id: i64) -> Record<'_> {
         Record {
             source_id,
             epoch: self.epoch,
@@ -237,13 +237,13 @@ impl Loaded {
             event: &self.payload.event,
         }
     }
-    fn reference(&self) -> Value {
+    pub(super) fn reference(&self) -> Value {
         json!({"epoch":self.epoch,"sequence":self.sequence,"digest":self.digest})
     }
 }
 
 // Expected absence/limits are evidence gaps; database failures abort the pass.
-async fn load(
+pub(super) async fn load(
     db: &Database,
     source: i64,
     epoch: Epoch,

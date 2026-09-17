@@ -22,6 +22,18 @@ impl<T, E, F: Future<Output = Result<T, E>>> Deadline<T, E> for F {}
 
 const BLOCK_FIELDS: &str = "number::text, hash::bytea, parent_hash::bytea, timestamp_seconds::text";
 
+pub(super) async fn canonical_revision(db: &Database, id: i64) -> Result<i64, Error> {
+    Ok(db
+        .client
+        .query_one(
+            "SELECT canonical_revision FROM eez.chain_instances WHERE id=$1",
+            &[&id],
+        )
+        .bounded()
+        .await?
+        .try_get(0)?)
+}
+
 fn block(row: &Row) -> Result<Block, Error> {
     let parse = |index| -> Result<u64, Error> {
         row.try_get::<_, String>(index)?
@@ -96,6 +108,51 @@ pub(super) async fn cursor(db: &Database, id: i64) -> Result<Option<Block>, Erro
     let rows=db.client.query(&format!("SELECT {BLOCK_FIELDS} FROM eez.blocks WHERE chain_instance_id=$1 AND hash=(SELECT block_hash FROM eez.scan_cursors WHERE chain_instance_id=$1)"),&[&id]).bounded().await?;
     rows.first().map(block).transpose()
 }
+// Enrichment reads historical facts while the scanner keeps appending. Capture
+// the exact anchor and reorg revision together; advancing the tip is not a fork.
+pub(super) struct HistoricalCheckpoint {
+    chain: i64,
+    pub cursor: Block,
+    revision: i64,
+}
+
+pub(super) async fn historical_checkpoint(
+    db: &Database,
+    id: i64,
+) -> Result<HistoricalCheckpoint, Error> {
+    let row = db.client.query_opt("SELECT b.number::text,b.hash::bytea,b.parent_hash::bytea,b.timestamp_seconds::text,c.canonical_revision FROM eez.chain_instances c JOIN eez.scan_cursors s ON s.chain_instance_id=c.id JOIN eez.blocks b ON b.chain_instance_id=c.id AND b.hash=s.block_hash AND b.canonical WHERE c.id=$1", &[&id]).bounded().await?.ok_or(Error::Bootstrap)?;
+    Ok(HistoricalCheckpoint {
+        chain: id,
+        cursor: block(&row)?,
+        revision: row.try_get(4)?,
+    })
+}
+
+// Shared by historical collectors only. Scanner commits retain lock_cursor's
+// exact-tip compare-and-swap. The chain lock serializes revision/anchor checks
+// with retraction, including a reorg that later restores the same anchor hash.
+pub(super) async fn lock_historical(
+    transaction: &tokio_postgres::Transaction<'_>,
+    id: i64,
+    expected: &HistoricalCheckpoint,
+) -> Result<(), Error> {
+    if expected.chain != id {
+        return Err(Error::Inconsistent);
+    }
+    let row = transaction.query_one("SELECT frozen_reason,canonical_revision FROM eez.chain_instances WHERE id=$1 FOR NO KEY UPDATE", &[&id]).bounded().await?;
+    if row.try_get::<_, Option<String>>(0)?.is_some() {
+        return Err(Error::Frozen);
+    }
+    if row.try_get::<_, i64>(1)? != expected.revision {
+        return Err(Error::Inconsistent);
+    }
+    let valid: bool = transaction.query_one("SELECT EXISTS(SELECT FROM eez.blocks anchor JOIN eez.scan_cursors s ON s.chain_instance_id=anchor.chain_instance_id JOIN eez.blocks tip ON tip.chain_instance_id=s.chain_instance_id AND tip.hash=s.block_hash AND tip.canonical WHERE anchor.chain_instance_id=$1 AND anchor.hash=$2::bytea AND anchor.number=$3::text::numeric AND anchor.canonical AND tip.number>=anchor.number)", &[&id,&expected.cursor.hash.as_slice(),&expected.cursor.number.to_string()]).bounded().await?.try_get(0)?;
+    if !valid {
+        return Err(Error::Inconsistent);
+    }
+    Ok(())
+}
+
 pub(super) async fn finalized(db: &Database, id: i64) -> Result<Option<Block>, Error> {
     let rows=db.client.query(&format!("SELECT {BLOCK_FIELDS} FROM eez.blocks WHERE chain_instance_id=$1 AND finalized ORDER BY number DESC LIMIT 1"),&[&id]).bounded().await?;
     rows.first().map(block).transpose()
@@ -105,6 +162,10 @@ pub(super) async fn parent(db: &Database, id: i64, child: &Block) -> Result<Opti
     rows.first().map(block).transpose()
 }
 
+// Canonical writers change chain health/revision/cursors, never identity keys.
+// NO KEY UPDATE still serializes these writers, while allowing enrichment's FK
+// KEY SHARE references in either chain-role order. FOR UPDATE can deadlock with
+// those references when concurrent registration assigns L2 the lower row ID.
 pub(super) async fn lock_cursor(
     transaction: &tokio_postgres::Transaction<'_>,
     id: i64,
@@ -113,7 +174,7 @@ pub(super) async fn lock_cursor(
     // Explicit lock order, shared by registration, block commits and finality.
     let chain = transaction
         .query_one(
-            "SELECT frozen_reason FROM eez.chain_instances WHERE id=$1 FOR UPDATE",
+            "SELECT frozen_reason FROM eez.chain_instances WHERE id=$1 FOR NO KEY UPDATE",
             &[&id],
         )
         .bounded()
@@ -249,7 +310,7 @@ pub(super) async fn finalize(db: &mut Database, id: i64, anchor: &Block) -> Resu
     let transaction = db.client.transaction().bounded().await?;
     transaction
         .query_one(
-            "SELECT id FROM eez.chain_instances WHERE id=$1 AND frozen_reason IS NULL FOR UPDATE",
+            "SELECT id FROM eez.chain_instances WHERE id=$1 AND frozen_reason IS NULL FOR NO KEY UPDATE",
             &[&id],
         )
         .bounded()
@@ -306,7 +367,7 @@ pub(super) async fn repair_block(
     let transaction = db.client.transaction().bounded().await?;
     let chain = transaction
         .query_one(
-            "SELECT frozen_reason FROM eez.chain_instances WHERE id=$1 FOR UPDATE",
+            "SELECT frozen_reason FROM eez.chain_instances WHERE id=$1 FOR NO KEY UPDATE",
             &[&id],
         )
         .bounded()

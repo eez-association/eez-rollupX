@@ -91,6 +91,20 @@ impl BeaconBlobSource {
         let mut sidecars_by_block: HashMap<B256, (usize, Vec<AvailableBlob>)> = HashMap::new();
 
         for scanned in batches {
+            let required = crate::blob_diagnostics::RequiredBlob {
+                block_number: scanned.l1_block_number,
+                block_hash: scanned.l1_block_hash,
+                transaction_hash: scanned.tx_hash,
+                transaction_index: scanned.tx_index,
+                rollup_id,
+            };
+            let classify = |error: L1Error, reason| {
+                if scanned.settlement.is_empty() {
+                    error
+                } else {
+                    error.with_required_blob(required, reason)
+                }
+            };
             let posted =
                 postAndVerifyBatchCall::abi_decode(&scanned.post_batch_input).map_err(|error| {
                     L1Error::Decode(format!(
@@ -147,7 +161,13 @@ impl BeaconBlobSource {
                         scanned.l1_block_number,
                         scanned.tx_hash,
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| {
+                        classify(
+                            error,
+                            crate::blob_diagnostics::BlobUnavailableReason::BeaconResponse,
+                        )
+                    })?;
                 entry.insert((maximum, available));
             }
 
@@ -168,13 +188,16 @@ impl BeaconBlobSource {
                     .iter()
                     .find(|candidate| candidate.versioned_hash == *expected_hash)
                 else {
-                    return Err(L1Error::SourceIncomplete {
-                        block: scanned.l1_block_number,
-                        tx_hash: scanned.tx_hash,
-                        detail: format!(
-                            "beacon blob response does not contain transaction blob {expected_hash}"
-                        ),
-                    });
+                    return Err(classify(
+                        L1Error::SourceIncomplete {
+                            block: scanned.l1_block_number,
+                            tx_hash: scanned.tx_hash,
+                            detail: format!(
+                                "beacon blob response does not contain transaction blob {expected_hash}"
+                            ),
+                        },
+                        crate::blob_diagnostics::BlobUnavailableReason::ExpectedHashMissing,
+                    ));
                 };
                 transaction_blobs.push(found.blob.clone());
             }
@@ -767,16 +790,93 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn only_applied_native_retrieval_failures_have_typed_required_blob_evidence() {
+        for applied in [false, true] {
+            for (status, body, reason) in [
+                (
+                    200,
+                    r#"{"data":[]}"#,
+                    crate::blob_diagnostics::BlobUnavailableReason::ExpectedHashMissing,
+                ),
+                (
+                    410,
+                    r#"{"message":"pruned"}"#,
+                    crate::blob_diagnostics::BlobUnavailableReason::BeaconResponse,
+                ),
+            ] {
+                let beacon = serve_http_responses(vec![
+                    (200, r#"{"data":{"genesis_time":"1000"}}"#.into()),
+                    (200, r#"{"data":{"SECONDS_PER_SLOT":"12"}}"#.into()),
+                    (status, body.into()),
+                ])
+                .await;
+                let mut block: alloy_rpc_types_eth::Block = alloy_rpc_types_eth::Block::default();
+                block.header.hash = B256::repeat_byte(0x44);
+                block.header.inner.number = 42;
+                block.header.inner.timestamp = 1060;
+                let asserter = Asserter::new();
+                asserter.push_success(&block);
+                let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+                let mut batches = vec![ScannedBatch {
+                    l1_block_number: 42,
+                    l1_block_hash: block.header.hash,
+                    tx_hash: B256::repeat_byte(0x55),
+                    tx_index: 7,
+                    submitter: alloy_primitives::Address::ZERO,
+                    operations_payload: Bytes::new(),
+                    transaction_blob_hashes: vec![B256::repeat_byte(1)],
+                    post_batch_input: postAndVerifyBatchCall {
+                        batch: ProofSystemBatchPerVerificationEntriesSol {
+                            blobIndices: vec![U256::ZERO],
+                            ..Default::default()
+                        },
+                    }
+                    .abi_encode()
+                    .into(),
+                    state_applied: applied,
+                    settlement: crate::scan::Settlement {
+                        len: usize::from(applied),
+                        ..crate::scan::Settlement::NONE
+                    },
+                    claimed_current_root: None,
+                    claimed_new_root: None,
+                }];
+                let error = BeaconBlobSource::new(Some(beacon))
+                    .hydrate_scanned_batches(&provider, 9, &mut batches)
+                    .await
+                    .unwrap_err();
+                assert!(error.is_source_incomplete());
+                if applied {
+                    let (reference, observed) =
+                        error.required_blob().expect("actual applied dependency");
+                    assert_eq!(observed, reason);
+                    assert_eq!(reference.transaction_index, 7);
+                    assert_eq!(reference.block_hash, block.header.hash);
+                    assert_eq!(reference.rollup_id, 9);
+                } else {
+                    assert!(
+                        error.required_blob().is_none(),
+                        "unapplied historical posts must not page"
+                    );
+                }
+            }
+        }
+    }
+
     async fn serve_json_responses(responses: Vec<String>) -> Url {
+        serve_http_responses(responses.into_iter().map(|body| (200, body)).collect()).await
+    }
+    async fn serve_http_responses(responses: Vec<(u16, String)>) -> Url {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            for body in responses {
+            for (status, body) in responses {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut request = vec![0_u8; 4_096];
                 let _ = stream.read(&mut request).await.unwrap();
                 let header = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} Fixture\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     body.len()
                 );
                 stream.write_all(header.as_bytes()).await.unwrap();

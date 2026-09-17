@@ -2,6 +2,7 @@
 //! test submodules.
 
 mod attestation;
+mod authorized;
 mod golden;
 mod pipeline;
 mod runtime;

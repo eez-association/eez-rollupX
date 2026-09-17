@@ -1,0 +1,10 @@
+{
+  "scope": "actual optional funding worker with private synthetic RPC/PostgreSQL; no operator accounts",
+  "binary_sha256": "723555148a6afa72fc00d58053a59cc5e1c6c6d9fbe1c6cd28b2a49a734b1099",
+  "checks": [
+    "canonical_revision_append_noop_rollback_concurrent_orphan_delete_and_overflow_are_transactional",
+    "funding_explicit_accounts_hash_pinned_balances_covered_positive_burn_exact_day_boundary_reorg_failure_zero_balance_and_cost_gap_unknown"
+  ],
+  "status": "passed",
+  "owned_resource_cleanup": "verified"
+}

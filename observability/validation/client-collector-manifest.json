@@ -1,0 +1,26 @@
+{
+  "scope": "R03/R06 isolated client and generated node-host collection evidence; native canary executable identity belongs to final native validation record",
+  "checks": {
+    "python_tooling": 29,
+    "lighthouse_clients": 2,
+    "lighthouse_checks_per_client": 3,
+    "node_agent_groups": 10,
+    "native_canaries": 2,
+    "native_inventory_parser": 1
+  },
+  "sha256": {
+    "prepare.py": "0f59621a61b4b586cf08256b18de8340f8192cfb33ea4d67bfa4e0553290287b",
+    "tests/smoke-node-agent.py": "975405db2a30f14de703914eaa0e38a7931fc63e7238a5508dd36e97f3cf204f",
+    "tests/smoke-client-capabilities.py": "ed95285b9506586ac884f4e3550e74880b47be2df0db273e4e1c9041d93bd6bf",
+    "tests/client-images.lock.json": "3eda7e82c283bd3f2658194c4cf5cf984b8dcfcb562e060312d09f3ca9a6ede7",
+    "contracts/native-log-events.json": "cf002d5edc827bf0067c8c23dd0cae619c5201273a120d7c12f098445bee999e",
+    "validation/client-capabilities.json": "5c0d30565aae0c05f25a9b5bc04a06c17d9ef366bd35bb265d1e56a70248bf5c",
+    "validation/node-agent.json": "6365b23c46ddb201c31c9c4b16d295600fe69b1ad0c584eb8a0ceb1f4aaff3e4",
+    "validation/embedded-client-metrics.json": "5329184447f02fd8b6eec02f1d0a8c5b49b835150c991ca663abe411e0563d0d"
+  },
+  "later_configuration_validation": {
+    "change": "reject explicit Loki URL port zero before writing configuration; valid generated profiles unchanged",
+    "prepare_sha256": "03b277d308d0d5ee2926a818e231478e991b0d1dbf96a284a722a6701b805340",
+    "test": "29 Python tooling tests passed; includes new invalid-port regression"
+  }
+}

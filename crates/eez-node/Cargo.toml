@@ -7,6 +7,10 @@ rust-version.workspace = true
 description            = "eez Rollup-0 node — vanilla reth driven by an eez sequencer."
 default-run            = "eez-composer"
 
+[features]
+# Measurement-only variant; absent from shipping defaults.
+benchmark-lock-timing = ["eez-composer/benchmark-lock-timing"]
+
 [dependencies]
 eez-telemetry = { workspace = true, features = ["native"] }
 eez-blob-codec.workspace    = true

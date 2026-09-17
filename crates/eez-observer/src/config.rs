@@ -50,7 +50,7 @@ pub(crate) fn valid_hash(value: &str) -> bool {
         && value[2..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-fn validate_url(value: &str) -> Result<(), &'static str> {
+pub(crate) fn validate_url(value: &str) -> Result<(), &'static str> {
     let url = reqwest::Url::parse(value).map_err(|_| "invalid RPC URL")?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()

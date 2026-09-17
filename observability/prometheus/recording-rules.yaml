@@ -1,31 +1,38 @@
-groups:
-- name: eez-observer-current
-  interval: 15s
-  rules:
-  - record: eez:chain_head_number:current
-    expr: 'eez_observer_chain_head_number and on (environment, deployment, job, instance, source) (eez_observer_collection_success
-      == 1)
-
-      and on (environment, deployment, job, instance) (up{job="eez-observer"} == 1)'
-  - record: eez:queue_transactions:current
-    expr: 'eez_observer_queue_transactions and on (environment, deployment, job, instance) (eez_observer_collection_success{source="queue"}
-      == 1) and on (environment, deployment, job, instance) (eez_observer_queue_evaluation_valid == 1)
-
-      and on (environment, deployment, job, instance) (up{job="eez-observer"} == 1)'
-  - record: eez:queue_oldest_age_seconds:current
-    expr: 'eez_observer_queue_oldest_age_seconds and on (environment, deployment, job, instance) (eez_observer_collection_success{source="queue"}
-      == 1) and on (environment, deployment, job, instance) (eez_observer_queue_evaluation_valid == 1)
-
-      and on (environment, deployment, job, instance) (up{job="eez-observer"} == 1)'
-  - record: eez:collection_success:current
-    expr: eez_observer_collection_success and on (environment, deployment, job, instance) (up{job="eez-observer"}
-      == 1)
-  - record: eez:queue_evaluation_valid:current
-    expr: eez_observer_queue_evaluation_valid and on (environment, deployment, job, instance) (up{job="eez-observer"}
-      == 1)
-  - record: eez:chain_head_timestamp_seconds:current
-    expr: eez_observer_chain_head_timestamp_seconds and on (environment, deployment, job, instance, source) (eez_observer_collection_success
-      == 1) and on (environment, deployment, job, instance) (up{job="eez-observer"} == 1)
-  - record: eez:collection_error:current
-    expr: eez_observer_collection_error and on (environment, deployment, job, instance) (up{job="eez-observer"}
-      == 1)
+{
+  "groups": [
+    {
+      "name": "eez-observer-current",
+      "interval": "15s",
+      "rules": [
+        {
+          "record": "eez:chain_head_number:current",
+          "expr": "eez_observer_chain_head_number and on (environment, deployment, job, instance, source) (eez_observer_collection_success == 1)\nand on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:queue_transactions:current",
+          "expr": "eez_observer_queue_transactions and on (environment, deployment, job, instance) (eez_observer_collection_success{source=\"queue\"} == 1) and on (environment, deployment, job, instance) (eez_observer_queue_evaluation_valid == 1)\nand on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:queue_oldest_age_seconds:current",
+          "expr": "eez_observer_queue_oldest_age_seconds and on (environment, deployment, job, instance) (eez_observer_collection_success{source=\"queue\"} == 1) and on (environment, deployment, job, instance) (eez_observer_queue_evaluation_valid == 1)\nand on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:collection_success:current",
+          "expr": "eez_observer_collection_success and on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:queue_evaluation_valid:current",
+          "expr": "eez_observer_queue_evaluation_valid and on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:chain_head_timestamp_seconds:current",
+          "expr": "eez_observer_chain_head_timestamp_seconds and on (environment, deployment, job, instance, source) (eez_observer_collection_success == 1) and on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        },
+        {
+          "record": "eez:collection_error:current",
+          "expr": "eez_observer_collection_error and on (environment, deployment, job, instance) (up{job=\"eez-observer\"} == 1)"
+        }
+      ]
+    }
+  ]
+}

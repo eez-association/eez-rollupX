@@ -4,7 +4,9 @@
 All chain/native observations are synthetic query fixtures, not protocol replay.
 Uses pinned images, an isolated Docker network and exclusively owned resources.
 """
+import finality_timing
 import argparse
+import hashlib
 import importlib.util
 import json
 import pathlib
@@ -12,6 +14,8 @@ import subprocess
 import tempfile
 import time
 import uuid
+import yaml
+from urllib.parse import urlencode
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare', ROOT / 'prepare.py')
@@ -45,7 +49,8 @@ def until(label, predicate, seconds=60):
 def substitute(query, *, source_hash=''):
     values = {'environment': 'fixture', 'deployment': 'canonical-outcomes', 'chain': 'all', 'rollup': 'all', 'instance': '.*', 'source_hash': source_hash}
     for name, value in values.items():
-        query = query.replace('${' + name + ':sqlstring}', "'" + value.replace("'", "''") + "'")
+        sql_value = 'canonical-outcomes' if name == 'instance' else value
+        query = query.replace('${' + name + ':sqlstring}', "'" + sql_value.replace("'", "''") + "'")
         query = query.replace('${' + name + ':regex}', value)
     return query.replace('$__rate_interval', '1m').replace('$__range', '5m')
 
@@ -61,20 +66,41 @@ def rows(response):
 
 
 METRICS = r'''
-import http.server,time
+import http.server,time,json
 count=0
+follower='agree'
+funding='healthy'
+queue='active'
 class Handler(http.server.BaseHTTPRequestHandler):
+ def do_POST(self):
+  global follower,funding,queue
+  data=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+  follower=data.get('follower',follower);funding=data.get('funding',funding);queue=data.get('queue',queue)
+  self.send_response(200);self.send_header('Content-Length','0');self.end_headers()
  def do_GET(self):
   global count
   count+=1
-  lines=['reth_eez_native_queue_sample_valid 1','reth_eez_native_queue_evaluation_valid 1',f'reth_eez_native_queue_sample_timestamp_seconds {time.time()}']
+  lines=[f'reth_eez_native_queue_sample_valid {int(queue!="unknown")}', 'reth_eez_native_queue_evaluation_valid 1',f'reth_eez_native_queue_sample_timestamp_seconds {time.time()-(100 if queue=="stale" else 0)}']
   for direction in ('inbound','outbound'):
    for state in ('queued_ready','queued_blocked','queued_unknown','in_flight'):
-    lines.append(f'reth_eez_native_queue_transactions{{direction="{direction}",state="{state}"}} {int(direction=="inbound" and state=="queued_ready")}')
+    lines.append(f'reth_eez_native_queue_transactions{{direction="{direction}",state="{state}"}} {int(queue!="idle" and direction=="inbound" and state=="queued_ready")}')
    for kind in ('pending','serviceable'):
-    lines.append(f'reth_eez_native_queue_oldest_age_seconds{{direction="{direction}",kind="{kind}"}} {60 if direction=="inbound" else "NaN"}')
+    lines.append(f'reth_eez_native_queue_oldest_age_seconds{{direction="{direction}",kind="{kind}"}} {60 if queue!="idle" and direction=="inbound" else "NaN"}')
     for bound in ('0.1','1','5','10','30','60','120','300','600','1800','3600','21600','86400','+Inf'):
-     lines.append(f'reth_eez_native_queue_age_seconds_bucket{{direction="{direction}",kind="{kind}",le="{bound}"}} {int(direction=="inbound" and (bound=="+Inf" or float(bound)>=60))}')
+     lines.append(f'reth_eez_native_queue_age_seconds_bucket{{direction="{direction}",kind="{kind}",le="{bound}"}} {int(queue!="idle" and direction=="inbound" and (bound=="+Inf" or float(bound)>=60))}')
+  lines.extend(['reth_eez_settlement_policy_enabled 1', 'reth_eez_settlement_policy_setting{setting="pure_l2_interval_seconds"} 60', 'reth_eez_settlement_policy_evaluation_valid{rollup="1"} 1', f'reth_eez_settlement_policy_evaluation_timestamp_seconds{{rollup="1"}} {time.time()}', 'reth_eez_settlement_anchor_age_seconds{rollup="1"} 75', 'reth_eez_settlement_pending_pure_l2_transactions{rollup="1"} 3', f'reth_eez_admission_cuts_total{{reason="gas"}} {count}', f'reth_eez_target_slot_misses_total{{reason="excluded"}} {count}'])
+  lines.append(f'eez_observer_follower_comparison_known {int(follower in ("agree","mismatch","stale"))}')
+  if follower!='disabled':lines.append(f'eez_observer_follower_last_attempt_timestamp_seconds {time.time()-(100 if follower=="stale" else 0)}')
+  if follower in ('agree','mismatch','stale'):lines.append(f'eez_observer_follower_state_root_agreement {int(follower!="mismatch")}')
+  if follower in ('lag','disabled'):lines.append(f'eez_observer_follower_unknown{{reason="{follower}"}} 1')
+  if follower in ('agree','mismatch','lag'):lines.append(f'eez_observer_follower_settled_lag_blocks {2 if follower=="lag" else 0}')
+  balance_known=funding!='balance_unknown';burn_known=funding not in ('zero_burn','balance_unknown')
+  labels='account="poster",chain="l1"'
+  lines.extend([f'eez_observer_funding_source_valid{{{labels}}} {int(balance_known)}',f'eez_observer_funding_burn_valid{{{labels}}} {int(burn_known)}'])
+  if balance_known:lines.append(f'eez_observer_funding_balance_native_units{{{labels}}} {0 if funding=="underfunded" else 5}')
+  if burn_known:lines.append(f'eez_observer_funding_runway_seconds{{{labels}}} {0 if funding=="underfunded" else 172800}')
+  lines.extend(['reth_eez_poster_funding_estimate_valid 1',f'reth_eez_poster_funding_balance_valid {int(funding!="native_unknown")}',f'reth_eez_poster_funding_estimate_timestamp_seconds {time.time()-(100 if funding=="expired" else 0)}'])
+  if funding!='native_unknown':lines.append(f'reth_eez_poster_can_fund_candidate {int(funding!="underfunded")}')
   lines.append('# TYPE reth_eez_stage_duration_seconds histogram')
   for bound in ('0.1','0.25','1','+Inf'):
    lines.append(f'reth_eez_stage_duration_seconds_bucket{{stage="preparation",outcome="prepared",le="{bound}"}} {0 if bound=="0.1" else count}')
@@ -120,19 +146,37 @@ INSERT INTO eez.lifecycle_source_links(source_id,epoch,sequence,context_l1,conte
 """
 
 
+COSTS = """
+-- Synthetic native-cache rows test dashboard SQL only, not wire/projection.
+UPDATE eez.lifecycle_events e SET payload=jsonb_build_object('observed_at_unix_ms',119000,'event',
+ jsonb_build_object('event','reconciled','attempt',n.decision->'owner','anchor',n.decision->'l1_snapshot',
+ 'details',jsonb_build_object('l1',jsonb_build_object('chain_id',1,'genesis_hash',pg_temp.jh(1),'rollup_id',0),
+ 'l2',jsonb_build_object('chain_id',2,'genesis_hash',pg_temp.jh(2),'rollup_id',1),'post',n.decision->'post')))
+ FROM eez.lifecycle_native_checks n WHERE e.source_id=n.source_id AND n.source_id=:source_id AND e.sequence=10;
+INSERT INTO eez.lifecycle_cost_checks(source_id,epoch,sequence,context_l1,context_l2,state,generation,record_refs,decision)
+ SELECT source_id,epoch,10,context_l1,context_l2,'coherent',generation,record_refs,
+ jsonb_build_object('owner',decision->'owner','snapshot',decision->'l1_snapshot','post',decision->'post',
+ 'population',jsonb_build_array(decision#>'{member,source}',jsonb_build_object('chain_id',2,'genesis_hash',pg_temp.jh(2),'rollup_id',1,'direction','outbound','transaction_hash',pg_temp.jh(1003))),
+ 'sources',jsonb_build_array(jsonb_build_object('transaction_hash',pg_temp.jh(1002),'direction','inbound','receipt',decision#>'{source,receipt}')))
+ FROM eez.lifecycle_native_checks WHERE source_id=:source_id;
+"""
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--report', type=pathlib.Path, required=True)
+    parser.add_argument('--browser', action='store_true', help='Also exercise actual Grafana navigation with installed Playwright/Chromium')
     args = parser.parse_args()
     args.report.parent.mkdir(parents=True, exist_ok=True)
     project = 'eez-dash-test-' + uuid.uuid4().hex[:10]
     owned = []
+    grafana_config = yaml.safe_load((ROOT/'compose.yaml').read_text())['services']['grafana']
     report = {'project': project, 'scope': 'synthetic data, actual Grafana SQL/Prometheus datasource queries; not native protocol/replay coverage', 'checks': []}
     def image(prefix):
         return next(k + '@' + v for k, v in {**IMAGES, **FIXTURE_IMAGES}.items() if k.startswith(prefix))
     def start(name, image_name, options, command=()):
         full = project + '-' + name
-        run(['docker', 'run', '-d', '--rm', '--name', full, '--network', project, '--network-alias', name,
+        run(['docker', 'run', '-d', '--name', full, '--network', project, '--network-alias', name,
              '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL', *options, image(image_name), *command])
         owned.append(full)
         return full
@@ -141,6 +185,11 @@ def main():
             path = pathlib.Path(directory); (path/'logs').mkdir()
             config = {'environment':'fixture','deployment':'canonical-outcomes','observer_instance':'fixture-observer','observer_target':'metrics-fixture:9000','log_directory':str(path/'logs'),'alert_webhook_url':'http://127.0.0.1:9/alerts','heartbeat_webhook_url':'http://127.0.0.1:9/heartbeat','database_enabled':True,'native_processes':[{'service':'eez-composer','instance':'canonical-outcomes','metrics_target':'metrics-fixture:9000','metrics_listen':'127.0.0.1:19101'}],'explorer_urls':{'l1':'https://l1-explorer.invalid','l2':'https://l2-explorer.invalid'}}
             runtime = prepare.prepare(config,path/'runtime',fast_test=True)
+            # Record the provisioned bytes, not whichever sources happen to be
+            # present after a long integration run or concurrent worktree edits.
+            report['dashboard_sha256']={file.name:hashlib.sha256(file.read_bytes()).hexdigest()
+                for file in sorted((runtime/'grafana/dashboards').glob('*.json'))}
+            report['migration_sha256']={}
             (path/'metrics.py').write_text(METRICS)
             password = (runtime/'secrets/grafana-admin-password').read_text()
             run(['docker','network','create','--internal',project])
@@ -148,13 +197,15 @@ def main():
             until('PostgreSQL', lambda: 'accepting connections' in run(['docker','exec',db,'pg_isready','-h','127.0.0.1','-U','postgres','-d','eez_observer'],check=False))
             psql=['docker','exec','-i',db,'psql','-X','-v','ON_ERROR_STOP=1','-U','postgres','-d','eez_observer']
             for migration in sorted((ROOT/'migrations').glob('*.sql')):
-                run(psql,migration.read_text())
+                sql=migration.read_text()
+                report['migration_sha256'][migration.name]=hashlib.sha256(sql.encode()).hexdigest()
+                run(psql,sql)
             seed=(ROOT/'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
             reader_password=(runtime/'secrets/postgres-reader-password').read_text()
-            run(psql,seed+BLOBS+"\nALTER ROLE eez_observer_reader LOGIN PASSWORD '"+reader_password+"';\nCOMMIT;\n")
+            run(psql,seed+BLOBS+COSTS+"\nALTER ROLE eez_observer_reader LOGIN PASSWORD '"+reader_password+"';\nCOMMIT;\n")
             fixture=start('metrics-fixture','python:', ['--user','65534','--memory','64m','--mount',f'type=bind,src={path / "metrics.py"},dst=/metrics.py,readonly'],['python3','/metrics.py'])
             start('prometheus','prom/prometheus:', ['--memory','256m','--tmpfs','/prometheus:rw,mode=1777,size=134217728','--mount',f'type=bind,src={runtime / "prometheus"},dst=/etc/prometheus,readonly'],['--config.file=/etc/prometheus/prometheus.yaml','--storage.tsdb.path=/prometheus','--storage.tsdb.retention.time=1h'])
-            grafana=start('grafana','grafana/grafana:', ['--memory','512m','--tmpfs','/var/lib/grafana:rw,mode=1777,size=134217728','--env','GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/password','--env','GF_AUTH_ANONYMOUS_ENABLED=false','--env','GF_ANALYTICS_REPORTING_ENABLED=false','--env','GF_ANALYTICS_CHECK_FOR_UPDATES=false','--env','GF_PLUGINS_PREINSTALL_DISABLED=true','--mount',f'type=bind,src={runtime / "secrets/grafana-admin-password"},dst=/run/secrets/password,readonly','--mount',f'type=bind,src={runtime / "grafana/provisioning"},dst=/etc/grafana/provisioning,readonly','--mount',f'type=bind,src={runtime / "grafana/dashboards"},dst=/var/lib/grafana/dashboards,readonly'])
+            grafana=start('grafana','grafana/grafana:', ['--memory',grafana_config['mem_limit'],'--cpus',str(grafana_config['cpus']),'--env','GOMEMLIMIT='+grafana_config['environment']['GOMEMLIMIT'],'--tmpfs','/var/lib/grafana:rw,mode=1777,size=134217728','--env','GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/password','--env','GF_AUTH_ANONYMOUS_ENABLED=false','--env','GF_ANALYTICS_REPORTING_ENABLED=false','--env','GF_ANALYTICS_CHECK_FOR_UPDATES=false','--env','GF_PLUGINS_PREINSTALL_DISABLED=true','--mount',f'type=bind,src={runtime / "secrets/grafana-admin-password"},dst=/run/secrets/password,readonly','--mount',f'type=bind,src={runtime / "grafana/provisioning"},dst=/etc/grafana/provisioning,readonly','--mount',f'type=bind,src={runtime / "grafana/dashboards"},dst=/var/lib/grafana/dashboards,readonly'])
             client=start('query-client','python:', ['--user','65534','--memory','64m'],['python3','-c','import time; time.sleep(3600)'])
             def graf(path, data=None):
                 # The client stays inside the isolated network: no exposed host
@@ -175,6 +226,10 @@ except urllib.error.HTTPError as error:
                 except ValueError:raise ValueError('Grafana request failed: '+result[-1500:]) from None
             until('six dashboards provisioned',lambda:len(graf('/api/search?tag=eez'))==6)
             report['checks'].append('six_dashboards_loaded_by_grafana')
+            for environment,deployment,text in [('fixture','canonical-outcomes','fixture release verified'),
+                    ('other','canonical-outcomes','wrong environment'),('fixture','other','wrong deployment')]:
+                created=graf('/api/annotations', {'time':150000,'tags':['eez-release','environment:'+environment,'deployment:'+deployment], 'text':text})
+                assert isinstance(created.get('id'),int),created
             results={}; total=0
             def query(target, datasource, source_hash=""):
                 started = time.monotonic()
@@ -185,7 +240,7 @@ except urllib.error.HTTPError as error:
                 bounds={'from':'100000','to':'200000'} if datasource['uid']=='eez-postgres' else {'from':str(now-300000),'to':str(now)}
                 response = graf('/api/ds/query', {'queries': [target], **bounds})
                 result = rows(response)
-                if target.get('rawSql', '').startswith('WITH scope AS MATERIALIZED'):
+                if target.get('rawSql', '').startswith('WITH scope AS MATERIALIZED') and 'canonical_settlement_endpoints' in target['rawSql']:
                     report['endpoint_grafana_query_seconds'] = time.monotonic() - started
                     executed = response['results']['A']['frames'][0]['schema']['meta']['executedQueryString']
                     plan = run(psql, "SET ROLE eez_observer_reader; SET jit=off; SET statement_timeout='10s'; SET lock_timeout='5s'; EXPLAIN (ANALYZE,BUFFERS,SETTINGS) " + executed + ';')
@@ -200,13 +255,36 @@ except urllib.error.HTTPError as error:
                     if variable['type']=='query':
                         query({'rawSql':variable['query'],'rawQuery':True,'format':'table'},variable['datasource']);total+=1
                 for annotation in dashboard['annotations']['list']:
-                    annotation_rows = query({'rawSql':annotation['rawSql'],'rawQuery':True,'format':'table'},annotation['datasource']);total+=1
+                    if annotation['datasource']['uid']=='-- Grafana --':
+                        tags=[tag.replace('$environment','fixture').replace('$deployment','canonical-outcomes') for tag in annotation['tags']]
+                        params=[('from','100000'),('to','200000'),('limit',str(annotation['limit']))]+[('tags',tag) for tag in tags]
+                        annotation_rows=graf('/api/annotations?'+urlencode(params))
+                        assert len(annotation_rows)==1 and annotation_rows[0]['text']=='fixture release verified',annotation_rows
+                    else:
+                        annotation_rows = query({'rawSql':annotation['rawSql'],'rawQuery':True,'format':'table'},annotation['datasource'])
+                    total+=1
                     if annotation['name'] == 'Local policy dispositions':
                         assert len(annotation_rows) == 1 and annotation_rows[0]['text'] == 'Local disposition: nonce_gap', annotation_rows
                 for panel in dashboard['panels']:
                     for target in panel.get('targets',[]):
                         results[panel['title']]=query(target,panel['datasource']);total+=1
             report['queries_executed']=total
+            report['checks'].append('release_annotation_tag_filters_match_environment_and_deployment_without_cross_scope_leaks')
+            if args.browser:
+                # Linux host access to this owned internal bridge address needs
+                # no published port or connection to any operator deployment.
+                address=json.loads(run(['docker','inspect',grafana]))[0]['NetworkSettings']['Networks'][project]['IPAddress']
+                browser_input=path/'browser.json'
+                browser_output=args.report.with_name(args.report.stem+'-browser').resolve()
+                browser_input.write_text(json.dumps({'url':'http://'+address+':3000','password':password,'output':str(browser_output)}))
+                browser_input.chmod(0o600)
+                run(psql,"UPDATE eez.chain_instances SET last_success_at=now(); UPDATE eez.lifecycle_sources SET last_success_at=now(); UPDATE eez.correlation_sources SET last_success_at=now();")
+                report['browser_verifier_sha256']=hashlib.sha256((ROOT/'tests/verify-browser.cjs').read_bytes()).hexdigest()
+                run(['node',str(ROOT/'tests/verify-browser.cjs'),str(browser_input)])
+                browser_result=json.loads((browser_output/'browser.json').read_text())
+                assert browser_result['status']=='passed',browser_result
+                report['browser']=browser_result
+                report['checks'].append('actual_browser_dashboards_and_source_links_preserve_context_and_time')
             report['checks'].append('all_generated_panel_variable_annotation_queries_executed')
             endpoints = results['Canonical applied endpoints']
             assert len(endpoints) == 2 and {r['applied_endpoint'] for r in endpoints} == {f'0x{32:064x}', f'0x{33:064x}'}, endpoints
@@ -225,6 +303,20 @@ except urllib.error.HTTPError as error:
             assert len(results['Requests · distinct retained admissions']) == 2
             report['checks'].append('request_discovery_and_source_linked_attempt_preparation_timeline')
 
+            activity = next(panel for panel in cross['panels'] if panel['id'] == 19)
+            last_success = next(panel for panel in cross['panels'] if panel['id'] == 20)
+            def activity_values():
+                return sorted(value for row in query(activity['targets'][0],activity['datasource'])
+                              for key,value in row.items() if key.lower()!='time' and isinstance(value,(float,int)))
+            retained_success=query(last_success['targets'][0],last_success['datasource'])
+            assert retained_success==[{'instance':'canonical-outcomes','direction':'inbound',
+                'last_canonical_success':120000,'retained_committed_admissions':1}],retained_success
+            for mode,expected in [('active',[0,1]),('idle',[0,0]),('unknown',[]),('stale',[]),('active',[0,1])]:
+                run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'queue':mode}))
+                until('current activity '+mode,lambda:activity_values()==expected,seconds=30)
+                assert query(last_success['targets'][0],last_success['datasource'])==retained_success
+            report['checks'].append('idle_activity_recent_history_unknown_and_stale_are_distinct_without_synthetic_health')
+
             outcome=results['Currently anchored outcomes · L1 watermark in selected range']
             assert outcome==[{'direction':'inbound','outcome':'committed','admissions':1}],outcome
             weighted=results['Weighted purchased-capacity utilization'][0]
@@ -238,23 +330,133 @@ except urllib.error.HTTPError as error:
             assert len({(r['role'],r['transaction']) for r in detail})==len(detail)
             wallet = results['Configured wallet spend · separate chain populations'][0]
             assert isinstance(wallet['known_total_paid_wei'], str), wallet
+            allocations = results['Shared posting overhead estimates · per source']
+            assert len(allocations) == 2 and {row['direction'] for row in allocations} == {'inbound','outbound'}, allocations
+            assert all(row['allocation_rule'] == 'equal_share_v1' and row['estimated_total_wei'] == '100' for row in allocations), allocations
+            assert sum(int(row['estimated_total_wei']) for row in allocations) == 200
+            companions = results['Attributed L1 companion receipts · exact charges']
+            assert len(companions) == 1 and companions[0]['total_paid_wei'] == '200', companions
+            coverage = results['Posting allocation coverage · per rollup context']
+            assert sum(row['posting_calls'] for row in coverage if row['allocation_state'] == 'allocated') == 1, coverage
+            completed_cost = results['Completed sources · known attributed posting cost']
+            assert completed_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':1,'sources_without_allocation':0,'known_attributed_posting_wei':'100','known_posting_wei_per_measured_source_floor':'100'}], completed_cost
+            allocation_panel = next(panel for panel in gas['panels'] if panel['id'] == 9)
+            assert len(query(allocation_panel['targets'][0], allocation_panel['datasource'], source_hash=f'0x{1003:064x}')) == 1
+            assert query(allocation_panel['targets'][0], allocation_panel['datasource'], source_hash="' OR true --") == []
+            # A known completion without native cost membership has unknown
+            # attributed fees, never a zero-cost contribution to the mean.
+            saved_costs = json.loads(run(psql+['-Atq'],"SELECT jsonb_agg(to_jsonb(c)) FROM eez.lifecycle_cost_checks c;"))
+            run(psql,"DELETE FROM eez.lifecycle_cost_checks;")
+            completed_panel = next(panel for panel in gas['panels'] if panel['id'] == 11)
+            missing_cost = query(completed_panel['targets'][0],completed_panel['datasource'])
+            assert missing_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':0,'sources_without_allocation':1,'known_attributed_posting_wei':None,'known_posting_wei_per_measured_source_floor':None}], missing_cost
+            encoded_costs = json.dumps(saved_costs).replace("'","''")
+            run(psql,"INSERT INTO eez.lifecycle_cost_checks SELECT * FROM jsonb_populate_recordset(NULL::eez.lifecycle_cost_checks,'"+encoded_costs+"'::jsonb);")
+            report['checks'].append('receipt_deduplicated_companions_exact_shared_estimates_and_unallocated_coverage')
             report['checks'].append('canonical_outcome_weighted_blob_coverage_exact_costs_and_explorer_links')
             cross=json.loads((runtime/'grafana/dashboards/cross-chain.json').read_text())
             live=next(p for p in cross['panels'] if p['title']=='Current native queue · disjoint states')
             until('native queue has actual fixture samples',lambda:bool(query(live['targets'][0],live['datasource'])))
+            settlement=json.loads((runtime/'grafana/dashboards/settlement.json').read_text())
+            for title, expected in [('Policy anchor age · candidate target',75),('Included pure-L2 transactions awaiting settlement',3)]:
+                panel=next(p for p in settlement['panels'] if p['title']==title)
+                observed=until('current policy '+title,lambda:query(panel['targets'][0],panel['datasource']))
+                assert any(value==expected for row in observed for value in row.values()),observed
+            for title in ('Stage p95 by typed outcome · native','Planning cuts by reason','Exact target misses by reason'):
+                panel=next(p for p in settlement['panels'] if p['title']==title)
+                until('actual native stage/cut '+title,lambda:query(panel['targets'][0],panel['datasource']))
+            report['checks'].append('native_stage_cut_slot_queries_and_exact_policy_anchor_population')
+            follower_panels={key:next(p for p in cross['panels'] if p['title'].startswith(prefix)) for key,prefix in [('agreement','Follower state-root agreement'),('unknown','Follower comparison unknown'),('lag','Follower lag · measured target deficit')]}
+            def follower_values(key):
+                panel=follower_panels[key]
+                return [value for row in query(panel['targets'][0],panel['datasource']) for name,value in row.items() if name.lower()!='time' and isinstance(value,(float,int))]
+            def follower_control(mode):
+                run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'follower':mode}))
+            for mode,agreement,lag,unknown in [('agree',[1],[0],[]),('mismatch',[0],[0],[]),('lag',[],[2],[1]),('disabled',[],[],[1]),('stale',[],[],[])]:
+                follower_control(mode)
+                until('follower '+mode+' exact current dashboard semantics',lambda:follower_values('agreement')==agreement and follower_values('lag')==lag and follower_values('unknown')==unknown)
+            # Restore a populated comparison, so the later scrape-failure check
+            # proves suppression instead of passing because the fixture was empty.
+            follower_control('agree')
+            until('follower agreement restored',lambda:follower_values('agreement')==[1])
+            report['checks'].append('follower_agreement_actual_mismatch_lag_disabled_and_stale_values_never_coerced')
+
+            funding_panels={number:next(panel for panel in gas['panels'] if panel['id']==number) for number in (12,13,14,15)}
+            def funding_values(number):
+                panel=funding_panels[number]
+                return [value for row in query(panel['targets'][0],panel['datasource']) for key,value in row.items() if key.lower()!='time' and isinstance(value,(float,int))]
+            def funding_control(mode):
+                run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'funding':mode}))
+            for mode,balance,runway,affordable in [('healthy',[5],[172800],[1]),('zero_burn',[5],[],[1]),('balance_unknown',[],[],[1]),('native_unknown',[5],[172800],[]),('expired',[5],[172800],[]),('underfunded',[0],[0],[0])]:
+                funding_control(mode)
+                until('funding '+mode+' exact current dashboard semantics',lambda:funding_values(12)==balance and funding_values(13)==runway and funding_values(14)==affordable)
+            funding_control('healthy')
+            until('funding evidence restored',lambda:funding_values(12)==[5] and funding_values(13)==[172800] and funding_values(14)==[1])
+            report['checks'].append('funding_real_zero_unknown_burn_stale_candidate_and_distinct_account_populations')
+
+            unit_seed=(ROOT/'tests/settled-transaction-costs.sql').read_text().split('SELECT pg_temp.assert(')[0]
+            run(psql,unit_seed+'\nCOMMIT;\n')
+            def unit_cost(number):
+                panel=next(p for p in gas['panels'] if p['id']==number)
+                target={**panel['targets'][0]}
+                target['rawSql']=target['rawSql'].replace('${deployment:sqlstring}',"'settled-cost'")
+                return query(target,panel['datasource'])
+            measured=unit_cost(16)
+            assert len(measured)==1 and measured[0]['posts']==3 and measured[0]['measured_posts']==3 and measured[0]['unmeasured_posts']==0,measured
+            assert measured[0]['settled_transactions']=='3' and measured[0]['measured_posting_wei']=='551' and measured[0]['posting_wei_per_settled_transaction_floor']=='183',measured
+            details=unit_cost(17)
+            assert [row['settled_transactions'] for row in details]==['2','1','0'],details
+            assert [row['posting_wei_per_settled_transaction_floor'] for row in details]==['100','300',None],details
+            run(psql,"UPDATE eez.blocks b SET receipt_coverage='gap' FROM eez.chain_instances c JOIN eez.deployments d ON d.id=c.deployment_id WHERE b.chain_instance_id=c.id AND c.role='l2' AND d.name='settled-cost';")
+            missing=unit_cost(16)
+            assert missing[0]['measured_posts']==1 and missing[0]['unmeasured_posts']==2 and missing[0]['settled_transactions']=='0' and missing[0]['posting_wei_per_settled_transaction_floor'] is None,missing
+            report['checks'].append('settled_transaction_costs_exact_weighted_ratio_overlap_dedup_revert_spend_and_missing_denominator')
+
+            finality_timing.exercise_dashboard(run, psql, query, cross, report)
+
             run(psql,"UPDATE eez.chain_instances SET collection_error='transport';")
             blobs=json.loads((runtime/'grafana/dashboards/blobs.json').read_text())
             for title in ('Purchased and measured populations','Weighted purchased-capacity utilization'):
                 panel=next(p for p in blobs['panels'] if p['title']==title)
                 assert query(panel['targets'][0],panel['datasource'])==[],title
+            for panel in gas['panels']:
+                if panel['id'] in (6,9,10,11,16,17):
+                    assert query(panel['targets'][0],panel['datasource'])==[],panel['title']
+            assert query(last_success['targets'][0],last_success['datasource'])==[]
             run(['docker','stop',fixture])
             until('failed native scrape removes current queue values',lambda:not query(live['targets'][0],live['datasource']),seconds=30)
+            assert activity_values()==[]
+            for title in ('Policy anchor age · candidate target','Included pure-L2 transactions awaiting settlement','Active process policy values'):
+                panel=next(p for p in settlement['panels'] if p['title']==title)
+                assert query(panel['targets'][0],panel['datasource'])==[],title
+            until('failed observer scrape removes follower comparison',lambda:all(follower_values(key)==[] for key in follower_panels),seconds=30)
+            until('failed scrape removes funding evidence',lambda:all(funding_values(number)==[] for number in funding_panels),seconds=30)
             report['checks'].append('stale_sql_sources_and_failed_native_scrape_are_unknown_not_zero')
+            memory_events=dict(line.split() for line in run(['docker','exec',db,'cat','/sys/fs/cgroup/memory.events']).splitlines())
+            report['postgres_memory_events']={key:int(value) for key,value in memory_events.items()}
+            report['postgres_memory_peak_bytes']=int(run(['docker','exec',db,'cat','/sys/fs/cgroup/memory.peak']).strip())
+            assert report['postgres_memory_events']['oom_kill']==0,report['postgres_memory_events']
+            for service, container in [('postgres', db), ('grafana', grafana)]:
+                state=json.loads(run(['docker','inspect',container]))[0]['State']
+                report[service+'_state']={key:state[key] for key in ('Running','OOMKilled','ExitCode')}
+                assert state['Running'] and not state['OOMKilled'],report[service+'_state']
+                report[service+'_memory_evidence']=run(['docker','exec',container,'cat',
+                    '/sys/fs/cgroup/memory.events','/sys/fs/cgroup/memory.peak'])
             report['status']='passed'
             print(json.dumps(report,indent=2),flush=True)
     except BaseException as error:
         report.update(status='failed',error=str(error))
+        if 'db' in locals():
+            report['postgres_memory_evidence']=run(['docker','exec',db,'cat',
+                '/sys/fs/cgroup/memory.events','/sys/fs/cgroup/memory.peak'],check=False)
+        report['container_states']={}
         for container in owned:
+            inspection=run(['docker','inspect',container],check=False)
+            try:
+                state=json.loads(inspection)[0]['State']
+                report['container_states'][container]={key:state[key] for key in ('Running','OOMKilled','ExitCode')}
+            except (ValueError,KeyError,IndexError):
+                report['container_states'][container]={'inspection_unavailable':True}
             log=args.report.with_name(args.report.stem+'-'+container.rsplit('-',1)[-1]+'.log')
             log.write_text(run(['docker','logs',container],check=False))
         raise

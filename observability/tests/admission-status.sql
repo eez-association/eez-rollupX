@@ -1,5 +1,9 @@
 -- Local decision/history queries only. Canonical terminal promotion is separate.
 BEGIN;
+-- Match the actual writer/reader sessions. SET ROLE alone does not inherit
+-- their jit setting; this fixture runs mutations as the administrative login.
+SET LOCAL jit=off;
+SET LOCAL statement_timeout='10s';
 INSERT INTO eez.deployments(environment,name) VALUES('fixture','admission-status') RETURNING id AS deployment \gset
 INSERT INTO eez.lifecycle_sources(deployment_id,service,instance,directory,last_success_at)
  VALUES(:deployment,'composer','history','/history',now()) RETURNING id AS source_id \gset

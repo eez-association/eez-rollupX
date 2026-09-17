@@ -19,8 +19,12 @@
 //! dedupe, and in-flight nonce reservations atomic. Held-pool operations
 //! are infrequent (per sync slot, per L1 event) and never hot-path.
 
+#[cfg(feature = "benchmark-lock-timing")]
+use crate::benchmark_lock::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(not(feature = "benchmark-lock-timing"))]
+use std::sync::Mutex;
 
 use alloy_primitives::{Address, Bytes, TxHash};
 use tracing::{Level, event};

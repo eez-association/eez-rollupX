@@ -397,7 +397,8 @@ async fn lookup(
     } else {
         (&config.exporter.l2, &config.l2)
     };
-    let cursor = ledger::cursor(db, chain).await?.ok_or(Error::Bootstrap)?;
+    let checkpoint = ledger::historical_checkpoint(db, chain).await?;
+    let cursor = &checkpoint.cursor;
     let value = rpc.receipt(endpoint, hash).await?;
     if value.is_null() {
         return Ok(Lookup::NotObserved);
@@ -447,7 +448,7 @@ async fn lookup(
     }
     let selected = selection.includes(&tx);
     let transaction = db.client.transaction().bounded().await?;
-    ledger::lock_cursor(&transaction, chain, Some(&cursor)).await?;
+    ledger::lock_historical(&transaction, chain, &checkpoint).await?;
     let canonical:bool=transaction.query_one("SELECT EXISTS(SELECT FROM eez.blocks WHERE chain_instance_id=$1 AND hash=$2::bytea AND number=$3::text::numeric AND canonical)",&[&chain,&block.hash.as_slice(),&block.number.to_string()]).bounded().await?.try_get(0)?;
     if !canonical {
         return Ok(Lookup::UnindexedBlock);

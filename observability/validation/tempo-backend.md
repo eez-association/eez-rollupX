@@ -50,8 +50,10 @@ context is materialized. Native startup installs the signer's metrics recorder
 before trace gauges/counters; zero loss counters exist before the first failure.
 Composer/follower use a conservative remaining grace budget after Reth drains;
 unit tests cover fast/exhausted drain, errors/no launch, the quarter-budget rule
-and two-second cap. Signer `wait_until_idle` remains unchanged and still permits
-zero telemetry wait because it has no finite total application deadline.
+and two-second cap. This initial checkpoint used zero signer telemetry wait.
+The subsequent [signer shutdown validation](signer-trace-shutdown.md) preserves
+`wait_until_idle` and adds an explicit bounded two-second allowance after draining
+when no overall application deadline exists.
 
 First failures/diagnostics retained outside the repository:
 
@@ -67,11 +69,14 @@ First failures/diagnostics retained outside the repository:
 
 Scope limits: this validates a low-volume disposable backend and synthetic OTLP
 fixtures, not native devnet neutrality or a measured production ingest budget.
-Seven-day configuration was inspected; seven real days did not elapse. The
-unavailable-ID test is not a physical expiry test. Persistent-volume replacement
+This initial unavailable-ID test did not establish physical expiry. The later
+[actual retention fixture](trace-retention.md) proves historical ingestion,
+retention marking, physical block deletion and unavailable trace navigation while
+SQL accounting/lifecycle evidence and a recent trace remain intact. Seven real
+days did not elapse. Persistent-volume replacement
 is not clean-host backup restoration. Native connected workload capture,
-performance/retention calibration, native alert delivery and signer deadline
-integration remain separate R23/R24/R27/R29/R30 gates. SQL accounting independence
+performance/retention calibration and native alert delivery remain separate
+R23/R24/R27/R29/R30 gates. SQL accounting independence
 is architectural here; the trace-backend test does not execute PostgreSQL queries.
 
 [Operator procedure and limits](../runbooks/traces.md) reference the primary Tempo

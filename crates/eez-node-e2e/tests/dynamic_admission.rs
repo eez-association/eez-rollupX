@@ -1,6 +1,9 @@
 //! Automatic admission against native L1 execution, real DA/ECDSA and an
 //! independent follower. Counts describe workloads, not production limits.
 
+#[path = "common/overhead.rs"]
+mod overhead;
+
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall, SolEvent, sol};
@@ -61,7 +64,6 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
     .await
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let chain_id = l1.get_chain_id().await.unwrap();
     if explicit_preparation {
         // Learn from one small post before a busy wave. A sparse sample must
@@ -85,13 +87,67 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
         .unwrap();
         assert!(receipt.status());
     }
+    let evidence = measured_mixed_wave(&world, &follower, 64, 1).await;
+    let events = evidence.events;
+    if explicit_preparation {
+        assert!(events.iter().any(|e| {
+            e.name == "eez.composer.admission.prepared"
+                && e.fields["blob_preparation_ms"]
+                    .as_u64()
+                    .is_some_and(|n| n > 0)
+                && e.fields["blob_count"].as_u64().is_some_and(|n| n > 0)
+        }));
+    }
+    assert!(
+        events
+            .iter()
+            .any(|e| e.name == "eez.composer.admission.prepared"
+                && e.fields["accepted"].as_u64().is_some_and(|n| n > 12)),
+        "automatic packing must grow beyond the old Chiado count: {}",
+        world.settlement_diagnostics()
+    );
+}
+
+#[derive(Debug)]
+struct WaveEvidence {
+    started_unix_ns: u64,
+    finished_unix_ns: u64,
+    elapsed_seconds: f64,
+    source_count: u64,
+    source_hashes: Vec<alloy_primitives::B256>,
+    events: Vec<eez_testkit::NodeSignal>,
+}
+
+fn measurement_unix_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("measurement clock predates epoch")
+        .as_nanos()
+        .try_into()
+        .expect("measurement clock exceeds u64 nanoseconds")
+}
+
+/// Reuse the ordinary automatic-admission workload and its semantic oracle in
+/// both measurement arms. Each wave resolves before reading the next nonces.
+async fn measured_mixed_wave(
+    world: &eez_testkit::CrossChainWorld,
+    follower: &NodeHandle,
+    count: u64,
+    first_value: u64,
+) -> WaveEvidence {
+    assert!((1..=64).contains(&count));
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let chain_id = l1.get_chain_id().await.unwrap();
     let inbound_nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
     let outbound_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
     let cursor = world.node.signal_cursor().unwrap();
     let mut hashes = Vec::new();
-    for i in 0..64u64 {
+    let started_unix_ns = measurement_unix_ns();
+    let started = std::time::Instant::now();
+    for i in 0..count {
         let data = IValue::setValueCall {
-            v: U256::from(i + 1),
+            v: U256::from(first_value + i),
         }
         .abi_encode();
         let inbound = sign_and_send(
@@ -120,6 +176,10 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
         .unwrap();
         hashes.push((inbound, outbound));
     }
+    let source_hashes = hashes
+        .iter()
+        .flat_map(|(inbound, outbound)| [*inbound, *outbound])
+        .collect();
     let mut covered = 0;
     for (inbound, outbound) in hashes {
         let a = wait_for(TIMEOUT, || async {
@@ -148,14 +208,13 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
         );
         covered = covered.max(b.block_number.unwrap());
     }
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
+    wait_for_safe_prefix_convergence(&[&world.node, follower], covered, TIMEOUT)
         .await
         .unwrap();
     wait_for(TIMEOUT, || async {
-        Ok(
-            (l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(64))
-                .then_some(()),
-        )
+        Ok((l2_value(&follower.l2_rpc_url(), world.value_l2).await?
+            == U256::from(first_value + count - 1))
+        .then_some(()))
     })
     .await
     .unwrap();
@@ -163,34 +222,27 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
         l2_value(&world.l1_rpc(), world.outbound_value)
             .await
             .unwrap(),
-        U256::from(64)
+        U256::from(first_value + count - 1)
     );
     assert_eq!(
         onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
-        inbound_nonce + 64
+        inbound_nonce + count
     );
     assert_eq!(
         onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
-        outbound_nonce + 64
+        outbound_nonce + count
     );
+
+    let elapsed_seconds = started.elapsed().as_secs_f64();
+    let finished_unix_ns = measurement_unix_ns();
+    eez_testkit::assert_latest_batch_signature(
+        &world.l1_rpc(),
+        &world.dep,
+        eez_testkit::signer_address(eez_testkit::ANVIL_ATTESTER_KEY).unwrap(),
+    )
+    .await
+    .expect("posted signature must bind independently recomputed public inputs");
     let events = world.node.signals_since(cursor).unwrap();
-    if explicit_preparation {
-        assert!(events.iter().any(|e| {
-            e.name == "eez.composer.admission.prepared"
-                && e.fields["blob_preparation_ms"]
-                    .as_u64()
-                    .is_some_and(|n| n > 0)
-                && e.fields["blob_count"].as_u64().is_some_and(|n| n > 0)
-        }));
-    }
-    assert!(
-        events
-            .iter()
-            .any(|e| e.name == "eez.composer.admission.prepared"
-                && e.fields["accepted"].as_u64().is_some_and(|n| n > 12)),
-        "automatic packing must grow beyond the old Chiado count: {}",
-        world.settlement_diagnostics()
-    );
     for e in events
         .iter()
         .filter(|e| e.name == "eez.composer.bundle.dispatched")
@@ -215,6 +267,15 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
     }
     world.node.assert_no_process_death();
     follower.assert_no_process_death();
+
+    WaveEvidence {
+        started_unix_ns,
+        finished_unix_ns,
+        elapsed_seconds,
+        source_count: count * 2,
+        source_hashes,
+        events,
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

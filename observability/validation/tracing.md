@@ -11,12 +11,12 @@ configuration, scope, exporter limits and remaining acceptance gates.
 | --- | --- | --- |
 | Disabled default, one identity source and validated optional config | `native::Config`, `traces::Config`, `prepare.py` | Native trace-only loader regression; seven preparation tests including absent/default/invalid/nondefault values |
 | Preserve existing subscribers and logging | Reth `CliApp::access_tracing_layers`; signer registry with independently filtered JSON layer | Node/common compile and CLI conflict regression; exporter test excludes arbitrary log events |
-| Finite spans and retry identity | Preparation, proving episode, numbered retry attempt, client and signer spans | Component parent-context test and real gRPC fixture; native workload acceptance remains open |
+| Finite spans and retry identity | Preparation, proving episode, numbered retry attempt, client and signer spans | Component parent-context test and real gRPC fixture; connected native batch/retry and JSON correlation subsequently passed; see native-trace-pilot.md |
 | Bounded source links and persistent diagnostic identity | Preparation membership links; optional lifecycle `Payload.trace` on publication | Two-member link test with exact admission identity; existing lifecycle transport tests remain green |
 | W3C propagation before stream consumption | `traces::inject` and `attach_remote_parent`; no protobuf change | Production `RemoteProver` → actual tonic `ProveSvc` → real OTLP HTTP fixture; invalid/duplicate/oversized metadata unit regression |
 | No effect on validation/signing | Original signer RPC body retained in `prove_request`; client keeps exact signature/public-input verification | 283 existing signer, four control-RPC and 15 prover-client tests; new successful connected RPC test verifies the production client's attestation check |
 | Bounded export and visible loss | One thread, nonblocking bounded channel, 128-span batches, explicit HTTP timeout, SDK limits and closed loss categories | Collector outage/zero-budget shutdown; deterministic queue-full/contention/shutdown counters; actual protobuf export/resource assertions |
-| Budget-aware post-drain flushing | Guard waits at most min(2 seconds, remaining/4); Reth uses conservative launcher-drop timing | Budget boundary/error/exhaustion tests; signer still passes zero because it has no finite total deadline |
+| Budget-aware post-drain flushing | Guard waits at most min(2 seconds, remaining/4); Reth uses conservative launcher-drop timing | Budget boundary/error/exhaustion tests; explicit signer deadline-free two-second post-drain path passed actual reachable/stalled HTTP tests (43 telemetry + 287 signer + 15 client + 4 control tests); validation/signer-trace-shutdown.md |
 
 The connected RPC test uses two separate tracer providers/resource identities
 (`eez-composer` and `eez-proof-signer`) and real loopback gRPC and OTLP/HTTP
@@ -67,8 +67,15 @@ The subsequent [Tempo backend validation](tempo-backend.md) adds the optional
 profile, actual navigation and collector-failure alert delivery, native JSON trace
 IDs, startup health counters and conservative Reth post-drain budgeting.
 
-Remaining R23/R24 scope: a connected native devnet request/batch/retry capture,
-actual retention expiry and clean-host recovery, measured native workload
-sampling/overhead, native exporter alert delivery, and a defined finite signer
-application shutdown budget. These component/backend checks do not prove those
-gates or production deployment readiness.
+The subsequent [native pilot](native-trace-pilot.md) passed the real Composer/client/
+signer shared ancestry, two-source lifecycle links, distinct retries, semantic
+settlement, posted-signature and successful JSON-event correlation gates. The
+[retention fixture](trace-retention.md) now verifies actual block deletion and
+expired-trace browser navigation while canonical accounting remains available.
+
+Remaining R23/R24 scope includes measured native workload sampling/overhead,
+native exporter alert delivery, shipping-artifact and deployment acceptance. The
+explicit deadline-free signer post-drain flush allowance is covered by [its
+component validation](signer-trace-shutdown.md); a finite overall signer deadline
+is not introduced by telemetry. These local checks do not establish production
+deployment readiness.

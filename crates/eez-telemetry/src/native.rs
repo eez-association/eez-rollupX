@@ -163,10 +163,27 @@ impl LifecycleGuard {
     pub fn start(config: &Config) -> Self {
         if config.metrics.is_some() {
             crate::operational::enable();
+            if config.identity.service == "eez-proof-signer" {
+                crate::operational::initialize_signer_metrics();
+            }
         }
         let Some(spool) = &config.lifecycle else {
             return Self::default();
         };
+        if config.metrics.is_some() {
+            for reason in [
+                "capture_limit",
+                "capture_context",
+                "clock",
+                "encoding",
+                "queue_full",
+                "writer_closed",
+                "shutdown",
+                "io",
+            ] {
+                metrics::counter!("eez_telemetry_dropped_events_total", "signal" => "lifecycle", "reason" => reason).increment(0);
+            }
+        }
         match Writer::start(config.identity.clone(), spool.clone()) {
             Ok((publisher, writer)) => {
                 if PUBLISHER.set(publisher).is_err() {

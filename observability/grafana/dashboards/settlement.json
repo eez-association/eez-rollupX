@@ -1,6 +1,6 @@
 {
   "uid": "eez-settlement",
-  "title": "EEZ \u00b7 Settlement pipeline",
+  "title": "EEZ · Settlement pipeline",
   "tags": [
     "eez",
     "protocol"
@@ -64,12 +64,12 @@
           "type": "postgres",
           "uid": "eez-postgres"
         },
-        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
-        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "query": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": "all",
+        "allValue": "'all'",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -88,7 +88,7 @@
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": "all",
+        "allValue": "'all'",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -107,7 +107,6 @@
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -136,7 +135,7 @@
         "w": 24,
         "h": 4
       },
-      "description": "Preparations, repricing and dispatches are operational events. A repeated signed transaction is not a new receipt charge. Canonical posting and applied-range tables below use independent chain anchors. Simulation/witness/submission stage timers, slot-miss/admission-cut metrics, active policy and release annotations are not yet instrumented.",
+      "description": "Preparations, per-group simulation, actual blocking witness work, signer RPC/worker stages and submission observations are operational measurements. They overlap and must not be added into end-to-end latency. Included submission is not canonical request completion. Restarts reset counters and immutable policy settings; missing stages mean unexercised or unavailable, not zero latency. Canonical posting and applied-range tables below use independent chain anchors.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -146,12 +145,12 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Preparations, repricing and dispatches are operational events. A repeated signed transaction is not a new receipt charge. Canonical posting and applied-range tables below use independent chain anchors. Simulation/witness/submission stage timers, slot-miss/admission-cut metrics, active policy and release annotations are not yet instrumented."
+        "content": "Preparations, per-group simulation, actual blocking witness work, signer RPC/worker stages and submission observations are operational measurements. They overlap and must not be added into end-to-end latency. Included submission is not canonical request completion. Restarts reset counters and immutable policy settings; missing stages mean unexercised or unavailable, not zero latency. Canonical posting and applied-range tables below use independent chain anchors."
       }
     },
     {
       "id": 2,
-      "title": "Preparation p95 by typed outcome \u00b7 native",
+      "title": "Stage p95 by typed outcome · native",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -159,7 +158,7 @@
         "w": 12,
         "h": 8
       },
-      "description": "Aggregated histogram buckets, not averaged instance percentiles. Finite preparations; includes failed/cancelled/panicked outcomes. No series means not observed.",
+      "description": "Aggregate compatible histogram buckets per stage/outcome across selected instances, never average percentiles. Simulation observes individual complete-group executions; witness observes the actual blocking worker; signer total includes ingestion/validation/settlement/signing; submission includes relay/inclusion observation. Stages overlap. No series means not observed.",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
@@ -175,7 +174,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by(le,outcome)(rate(reth_eez_stage_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",stage=\"preparation\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by(le,stage,outcome)(rate({__name__=~\"(reth_)?eez_stage_duration_seconds_bucket\",environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=~\"eez-composer|eez-proof-signer\"}[$__rate_interval])))",
           "instant": false,
           "range": true,
           "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
@@ -185,7 +184,7 @@
     },
     {
       "id": 3,
-      "title": "Preparation observations by outcome \u00b7 native",
+      "title": "Stage observations by outcome · native",
       "type": "table",
       "gridPos": {
         "x": 12,
@@ -215,7 +214,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(outcome)(increase(reth_eez_stage_duration_seconds_count{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",stage=\"preparation\"}[$__range]))",
+          "expr": "sum by(stage,outcome)(increase({__name__=~\"(reth_)?eez_stage_duration_seconds_count\",environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=~\"eez-composer|eez-proof-signer\"}[$__range]))",
           "instant": true,
           "range": false,
           "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
@@ -257,7 +256,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT e.payload#>>'{event,event}' AS event,count(*) AS observations FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}' IN ('preparation_started','preparation_finished','attempt_prepared','attempt_repriced','dispatched','submission_observed','reconciled','reorg') GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT e.payload#>>'{event,event}' AS event,count(*) AS observations FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND e.instance IN (${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}' IN ('preparation_started','preparation_finished','attempt_prepared','attempt_repriced','dispatched','submission_observed','reconciled','reorg') GROUP BY 1 ORDER BY 1"
         }
       ]
     },
@@ -301,7 +300,7 @@
     },
     {
       "id": 6,
-      "title": "Attempt membership \u00b7 optional source hash",
+      "title": "Attempt membership · optional source hash",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -352,7 +351,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.instance,encode(e.epoch,'hex') AS epoch,e.payload#>>'{event,attempt,generation}' AS generation,'0x'||(e.payload#>>'{event,attempt,post_batch_hash}') AS posting_transaction,jsonb_array_length(e.payload#>'{event,members}') AS members,e.payload#>>'{event,encoded_bytes}' AS reported_encoded_bytes,e.payload#>>'{event,blob_count}' AS reported_blob_count,e.payload#>>'{event,blob_allowance}' AS reported_blob_allowance FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}'='attempt_prepared' AND (${source_hash:sqlstring}='' OR jsonb_path_exists(e.payload,'$.event.members[*].source.transaction_hash ? (@ == $hash)',jsonb_build_object('hash',lower(regexp_replace(${source_hash:sqlstring},'^0x',''))))) ORDER BY time DESC LIMIT 200"
+          "rawSql": "SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.instance,encode(e.epoch,'hex') AS epoch,e.payload#>>'{event,attempt,generation}' AS generation,'0x'||(e.payload#>>'{event,attempt,post_batch_hash}') AS posting_transaction,jsonb_array_length(e.payload#>'{event,members}') AS members,e.payload#>>'{event,encoded_bytes}' AS reported_encoded_bytes,e.payload#>>'{event,blob_count}' AS reported_blob_count,e.payload#>>'{event,blob_allowance}' AS reported_blob_allowance FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND e.instance IN (${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}'='attempt_prepared' AND (${source_hash:sqlstring}='' OR jsonb_path_exists(e.payload,'$.event.members[*].source.transaction_hash ? (@ == $hash)',jsonb_build_object('hash',lower(regexp_replace(${source_hash:sqlstring},'^0x',''))))) ORDER BY time DESC LIMIT 200"
         }
       ]
     },
@@ -434,7 +433,7 @@
     },
     {
       "id": 9,
-      "title": "Posting classification coverage \u00b7 full indexed interval",
+      "title": "Posting classification coverage · full indexed interval",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -464,6 +463,194 @@
       "options": {
         "showHeader": true
       }
+    },
+    {
+      "id": 10,
+      "title": "Planning cuts by reason",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "description": "One counter per real finite planning cut. Count, gas, DA, preparation deadline and queue cleanup retain request ownership as before. These are not unique failed requests. No sample means unexercised.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(increase(reth_eez_admission_cuts_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Exact target misses by reason",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Scheduled-late slots and submitted-bundle target misses are separate operational observations; do not sum them into a unique failed-admission count. Exclusion can reflect auction loss, relay rejection or simulation failure.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(increase(reth_eez_target_slot_misses_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Active process policy values",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Immutable startup settings until restart. Setting names carry their units. NaN means inactive/unbounded (including interval in always mode), never zero or a consensus limit. Configured process values are not source-chain scoped.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_policy_setting{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Policy anchor age · candidate target",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Actual enabled policy age: candidate L1 target minus last canonical L1 settlement timestamp. This is not the age of the oldest pending transaction. Only valid evaluations within45seconds are shown; rollup labels come from configured native runtime. Cross-chain and pure-L2 work may coexist.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_anchor_age_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Included pure-L2 transactions awaiting settlement",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Fresh canonical policy activity index population, including reverted ordinary transactions. Empty history does not count as pure-L2 activity. Process/native rollup scope only; SQL source-chain selection does not change this process metric.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_pending_pure_l2_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
     }
   ],
   "annotations": {
@@ -477,7 +664,7 @@
         "enable": true,
         "iconColor": "orange",
         "rawQuery": true,
-        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND e.instance IN (${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
       },
       {
         "name": "Local policy dispositions",
@@ -488,7 +675,7 @@
         "enable": true,
         "iconColor": "yellow",
         "rawQuery": true,
-        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND s.instance IN (${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
       }
     ]
   }

@@ -42,6 +42,105 @@ where
     Ok(())
 }
 
+/// Public role/scope metadata is explicit, never inferred from RPC availability.
+#[derive(Debug, Clone)]
+pub enum DiagnosticScope {
+    Composer {
+        l1_chain_id: u64,
+        eez: alloy_primitives::Address,
+        rollup_id: u64,
+    },
+    Follower {
+        l1_chain_id: u64,
+        eez: alloy_primitives::Address,
+        rollup_id: u64,
+        sequencer_overlay: bool,
+    },
+}
+
+/// Additive diagnostic method; the two existing correlation responses are unchanged.
+pub fn install_identified<Node, EthApi>(
+    ctx: RpcContext<'_, Node, EthApi>,
+    correlations: Arc<CorrelationStore>,
+    l1_head: Arc<L1CanonicalHead>,
+    scope: DiagnosticScope,
+) -> eyre::Result<()>
+where
+    Node: FullNodeComponents,
+    EthApi: FullEthApiServer + Clone + Send + Sync + 'static,
+{
+    let mut rpc = module(correlations, l1_head)?;
+    let epoch = eez_telemetry::schema::Epoch::random()?;
+    rpc.register_method(
+        "eez_getDerivationEvidence",
+        move |params, (correlations, l1_head), _| {
+            let reference = params
+                .one::<eez_deriver::diagnostics::Reference>()
+                .map_err(invalid_params)?;
+            Ok::<_, ErrorObjectOwned>(diagnostic_json(
+                correlations,
+                l1_head,
+                &scope,
+                epoch,
+                reference,
+            ))
+        },
+    )?;
+    ctx.modules.merge_configured(rpc)?;
+    Ok(())
+}
+
+fn diagnostic_json(
+    correlations: &CorrelationStore,
+    l1_head: &L1CanonicalHead,
+    scope: &DiagnosticScope,
+    epoch: eez_telemetry::schema::Epoch,
+    reference: eez_deriver::diagnostics::Reference,
+) -> Value {
+    let before = l1_head.policy_anchor_snapshot();
+    let evidence = correlations.replay_evidence.get(reference);
+    let required_blob = correlations.required_blobs.snapshot();
+    let after = l1_head.policy_anchor_snapshot();
+    let identity = match scope {
+        DiagnosticScope::Composer {
+            l1_chain_id,
+            eez,
+            rollup_id,
+        } => {
+            json!({"role":"composer", "mode":"composer","l1ChainId":l1_chain_id,"eez":eez,"rollupId":rollup_id})
+        }
+        DiagnosticScope::Follower {
+            l1_chain_id,
+            eez,
+            rollup_id,
+            sequencer_overlay,
+        } => json!({
+            "role":"follower", "mode": if *sequencer_overlay { "sequencer_overlay" } else { "l1_only" },
+            "l1ChainId":l1_chain_id, "eez":eez, "rollupId":rollup_id,
+        }),
+    };
+    let evidence = evidence
+        .filter(|_| before.generation == after.generation)
+        .map(|entry| {
+            json!({
+                "reference":entry.reference, "header":entry.header,
+                "outcome":if entry.advertised_hash.is_some() {"template_mismatch"} else if entry.settled {"settled"} else {"claimed_state_mismatch"},
+        "advertisedHash":entry.advertised_hash,
+                "ageMs":entry.age_ms(),
+            })
+        });
+    json!({"version":1, "epoch":epoch, "identity":identity,
+    "ready":correlations.is_ready(), "generation":after.generation,
+    "through":after.through.map(|block| json!({"number":block.number,"hash":block.hash})),
+    "evidence":evidence,
+    "requiredBlob":required_blob.filter(|_|before.generation==after.generation).map(|failure|json!({
+        "l1BlockNumber":failure.reference.block_number,"l1BlockHash":failure.reference.block_hash,
+        "transactionHash":failure.reference.transaction_hash,"transactionIndex":failure.reference.transaction_index,
+        "rollupId":failure.reference.rollup_id,"reason":failure.reason.label(),"attempts":failure.attempts,"ageMs":failure.age_ms,
+        "consumer":match failure.consumer {eez_l1::blob_diagnostics::BlobConsumer::Deriver=>"deriver",eez_l1::blob_diagnostics::BlobConsumer::Watcher=>"watcher"}
+    }))})
+}
+
 fn module(
     correlations: Arc<CorrelationStore>,
     l1_head: Arc<L1CanonicalHead>,
@@ -350,5 +449,60 @@ mod tests {
             .unwrap();
         let response: Value = serde_json::from_str(response.get()).unwrap();
         assert!(response["result"].is_null());
+    }
+    #[test]
+    fn diagnostic_roles_scope_and_reused_correlations_never_fabricate_execution() {
+        use eez_deriver::diagnostics::Reference;
+        let correlations = CorrelationStore::in_memory();
+        correlations.put(&record()).unwrap();
+        correlations.mark_ready();
+        let head = L1CanonicalHead::default();
+        let epoch = eez_telemetry::schema::Epoch([1; 16]);
+        let reference = Reference {
+            l1_block_number: 35,
+            l1_block_hash: B256::repeat_byte(0x35),
+            transaction_hash: B256::repeat_byte(0xaa),
+            transaction_index: 2,
+            l2_block_number: 200,
+        };
+        let composer = diagnostic_json(
+            &correlations,
+            &head,
+            &DiagnosticScope::Composer {
+                l1_chain_id: 1,
+                eez: alloy_primitives::Address::repeat_byte(1),
+                rollup_id: 2,
+            },
+            epoch,
+            reference,
+        );
+        assert_eq!(composer["identity"]["role"], "composer");
+        assert!(composer["evidence"].is_null());
+        let scope = DiagnosticScope::Follower {
+            l1_chain_id: 1,
+            eez: alloy_primitives::Address::repeat_byte(1),
+            rollup_id: 2,
+            sequencer_overlay: true,
+        };
+        assert_eq!(
+            diagnostic_json(&correlations, &head, &scope, epoch, reference)["identity"]["mode"],
+            "sequencer_overlay"
+        );
+        correlations.replay_evidence.record(
+            reference,
+            [alloy_consensus::Header {
+                number: 200,
+                ..Default::default()
+            }]
+            .into(),
+            Some(200),
+        );
+        let result = diagnostic_json(&correlations, &head, &scope, epoch, reference);
+        assert_eq!(result["evidence"]["outcome"], "settled");
+        assert_eq!(result["evidence"]["reference"], json!(reference));
+        correlations.remove_after_l1(34).unwrap();
+        assert!(
+            diagnostic_json(&correlations, &head, &scope, epoch, reference)["evidence"].is_null()
+        );
     }
 }

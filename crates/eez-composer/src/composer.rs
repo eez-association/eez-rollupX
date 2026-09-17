@@ -225,94 +225,99 @@ fn compose_crosschain(
     use eez_protocol::ChainClient as _;
     use eez_protocol::composition::Rollup;
 
-    // Overlay snapshots are transaction-local. Clear every participating
-    // client so an unbalanced stack cannot affect this composition.
-    entry_client.reset_composition_state();
-    for (client, _) in cc.rollups.values() {
-        client.reset_composition_state();
-    }
+    eez_telemetry::operational::StageTimer::measure(
+        eez_telemetry::operational::Stage::Simulation,
+        || {
+            // Overlay snapshots are transaction-local. Clear every participating
+            // client so an unbalanced stack cannot affect this composition.
+            entry_client.reset_composition_state();
+            for (client, _) in cc.rollups.values() {
+                client.reset_composition_state();
+            }
 
-    tracing::info!(
-        name: "composer.simulate.start",
-        %entry_rollup_id,
-        tx_len = raw_tx.len(),
-        rollup_count = cc.rollups.len(),
-        "starting composition pipeline"
-    );
+            tracing::info!(
+                name: "composer.simulate.start",
+                %entry_rollup_id,
+                tx_len = raw_tx.len(),
+                rollup_count = cc.rollups.len(),
+                "starting composition pipeline"
+            );
 
-    let seeded: Vec<eez_protocol::RollupId> = sessions.keys().copied().collect();
+            let seeded: Vec<eez_protocol::RollupId> = sessions.keys().copied().collect();
 
-    // Assemble registered clients and configs; the seeded sessions replace the
-    // lazy ones for the rollups this direction dispatches to.
-    let mut rollups: HashMap<eez_protocol::RollupId, Rollup> =
-        HashMap::with_capacity(cc.rollups.len());
-    for (rollup_id, (client, config)) in &cc.rollups {
-        rollups.insert(
-            *rollup_id,
-            Rollup {
-                client: Arc::clone(client),
-                session: None,
-                config: config.clone(),
-            },
-        );
-    }
+            // Assemble registered clients and configs; the seeded sessions replace the
+            // lazy ones for the rollups this direction dispatches to.
+            let mut rollups: HashMap<eez_protocol::RollupId, Rollup> =
+                HashMap::with_capacity(cc.rollups.len());
+            for (rollup_id, (client, config)) in &cc.rollups {
+                rollups.insert(
+                    *rollup_id,
+                    Rollup {
+                        client: Arc::clone(client),
+                        session: None,
+                        config: config.clone(),
+                    },
+                );
+            }
 
-    let mut builder =
-        eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    let source = entry_client
-        .simulate_source_tx_on_with_retries(
-            raw_tx.to_vec(),
-            &mut builder,
-            source_state,
-            source_env,
-            retry_unavailable_conditions,
-        )
-        .map_err(eez_protocol::CompositionError::from)?;
-    if !source.success {
-        return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
-    }
-    let recorded_count = builder.recorded_count();
-    // Reclaimed before `finalize` consumes the builder — the accepted effects
-    // live in the sessions, not in the composition.
-    let sessions = builder.take_sessions();
+            let mut builder = eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups)
+                .with_sessions(sessions);
+            let source = entry_client
+                .simulate_source_tx_on_with_retries(
+                    raw_tx.to_vec(),
+                    &mut builder,
+                    source_state,
+                    source_env,
+                    retry_unavailable_conditions,
+                )
+                .map_err(eez_protocol::CompositionError::from)?;
+            if !source.success {
+                return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
+            }
+            let recorded_count = builder.recorded_count();
+            // Reclaimed before `finalize` consumes the builder — the accepted effects
+            // live in the sessions, not in the composition.
+            let sessions = builder.take_sessions();
 
-    // A session on a rollup nobody seeded means the dispatch opened a lazy one
-    // and ran UNCHAINED — off this slot's states (invariant 6/8). Entry-chain
-    // sessions are legitimate: overlay re-entry opens them there.
-    if let Some(unseeded) = sessions
-        .keys()
-        .find(|id| **id != entry_rollup_id && !seeded.contains(id))
-    {
-        // Unavailable ⇒ classified TRANSIENT: a wiring gap is not the tx's
-        // fault, so the slot aborts and re-queues rather than evicting.
-        return Err(eez_protocol::ExecutorError::from(
-            eez_protocol::ExecutorErrorKind::Unavailable(format!(
-                "composition dispatched to rollup {unseeded}, which has no slot session; \
+            // A session on a rollup nobody seeded means the dispatch opened a lazy one
+            // and ran UNCHAINED — off this slot's states (invariant 6/8). Entry-chain
+            // sessions are legitimate: overlay re-entry opens them there.
+            if let Some(unseeded) = sessions
+                .keys()
+                .find(|id| **id != entry_rollup_id && !seeded.contains(id))
+            {
+                // Unavailable ⇒ classified TRANSIENT: a wiring gap is not the tx's
+                // fault, so the slot aborts and re-queues rather than evicting.
+                return Err(eez_protocol::ExecutorError::from(
+                    eez_protocol::ExecutorErrorKind::Unavailable(format!(
+                        "composition dispatched to rollup {unseeded}, which has no slot session; \
                  it would execute unchained against chain state instead of this slot's state"
-            )),
-        )
-        .into());
-    }
+                    )),
+                )
+                .into());
+            }
 
-    let composition = builder.finalize()?;
-    let target_gas = l1_target_gas(&composition.actions);
+            let composition = builder.finalize()?;
+            let target_gas = l1_target_gas(&composition.actions);
 
-    tracing::info!(
-        name: "composer.simulate.complete",
-        target_count = composition.targets.len(),
-        recorded = recorded_count,
-        l1_target_gas = target_gas,
-        "composition complete"
-    );
+            tracing::info!(
+                name: "composer.simulate.complete",
+                target_count = composition.targets.len(),
+                recorded = recorded_count,
+                l1_target_gas = target_gas,
+                "composition complete"
+            );
 
-    Ok((
-        composition,
-        sessions,
-        CompositionGas {
-            source: source.gas_used,
-            l1_target: target_gas,
+            Ok((
+                composition,
+                sessions,
+                CompositionGas {
+                    source: source.gas_used,
+                    l1_target: target_gas,
+                },
+            ))
         },
-    ))
+    )
 }
 
 impl std::fmt::Debug for CrossChainWiring {
@@ -1243,8 +1248,35 @@ where
             emission,
             ..
         } = settings;
+        eez_telemetry::operational::PolicySettings {
+            enabled: policy_config.is_some(),
+            pure_interval: policy_config
+                .as_ref()
+                .and_then(|config| match config.pure_l2 {
+                    crate::settlement_policy::PureL2Mode::Always => None,
+                    crate::settlement_policy::PureL2Mode::Interval { milliseconds } => {
+                        Some(std::time::Duration::from_millis(milliseconds.get()))
+                    }
+                }),
+            max_unsettled_blocks: policy_config
+                .as_ref()
+                .map(|config| config.max_unsettled_l2_blocks.get()),
+            fullness_bps: policy_config
+                .as_ref()
+                .and_then(|config| config.blob_fullness_bps.map(std::num::NonZeroU16::get)),
+            blob_cap,
+            count_cap: max_user_txs_per_bundle,
+            gas_cap: (emission.max_gas != u64::MAX).then_some(emission.max_gas),
+            proof_time: timing.proof_time(),
+            submission_slack: timing.submission_slack(),
+            slot_time: timing.l1_block_time(),
+        }
+        .publish();
         let policy = policy_config.map(|config| {
             event!(name: "eez.composer.settlement.policy", Level::INFO,
+                event_name = "eez.composer.settlement.policy",
+                pure_l2_mode = match config.pure_l2 { crate::settlement_policy::PureL2Mode::Always => "always", crate::settlement_policy::PureL2Mode::Interval { .. } => "interval" },
+                max_unsettled_l2_blocks = config.max_unsettled_l2_blocks.get(),
                 ?config, "configurable settlement policy enabled; settings apply until restart");
             policy::EnabledPolicy::new(config, rollups.keys().copied(), blob_cap)
         });
@@ -1260,6 +1292,7 @@ where
             })
         });
         event!(name: "eez.composer.emission.limits", Level::INFO,
+            event_name = "eez.composer.emission.limits",
             max_blocks = emission.max_blocks, configured_gas_cap = emission.max_gas,
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
             automatic_admission = max_user_txs_per_bundle.is_none(),
@@ -1669,6 +1702,9 @@ where
         // cannot invalidate it. Checking first would starve a chronically late
         // node (slow prover, relay latency) of settlement entirely.
         if matches!(mode, SyncSlotMode::Empty) {
+            eez_telemetry::operational::slot_miss(
+                eez_telemetry::operational::SlotMiss::ScheduledLate,
+            );
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
         }
 
@@ -1722,6 +1758,11 @@ where
             },
             |attempt| attempt.selected,
         );
+        if self.inner.policy.is_none() && pool_len_before > max_user_txs {
+            eez_telemetry::operational::admission_cut(
+                eez_telemetry::operational::AdmissionCut::Count,
+            );
+        }
         let drained = if self.inner.policy.is_some() && max_user_txs > 0 {
             pool.candidates()
         } else {
@@ -3802,6 +3843,15 @@ where
                     .is_some_and(selection::Selection::fifo_bypassed),
             );
         }
+        if self.inner.max_user_txs_per_bundle.is_some()
+            && selection
+                .as_ref()
+                .is_some_and(selection::Selection::count_limited)
+        {
+            eez_telemetry::operational::admission_cut(
+                eez_telemetry::operational::AdmissionCut::Count,
+            );
+        }
         if let Some((need, avail)) = escrow_cut {
             event!(
                 name: "eez.composer.cc_compose.outbound_awaiting_escrow",
@@ -3822,6 +3872,16 @@ where
                 accepted_count > 0 || block_gas_cut.is_none(),
                 "a block-gas cut cannot happen with nothing accepted"
             );
+            eez_telemetry::operational::admission_cut(match admission_cut {
+                Some("preparation_time") => {
+                    eez_telemetry::operational::AdmissionCut::PreparationDeadline
+                }
+                Some("composition_blob_limit") => eez_telemetry::operational::AdmissionCut::Da,
+                Some("prior_queue_cleanup") => {
+                    eez_telemetry::operational::AdmissionCut::QueueCleanup
+                }
+                _ => eez_telemetry::operational::AdmissionCut::Gas,
+            });
             if let Some(constraint) = admission_cut {
                 event!(name: "eez.composer.admission.cut", Level::INFO,
                     event_name = "eez.composer.admission.cut", rollup_id,
@@ -6035,6 +6095,9 @@ where
                         .map_err(|error| error.to_string())?;
                 let required = minimum_bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB);
                 if required > maximum_blobs {
+                    eez_telemetry::operational::admission_cut(
+                        eez_telemetry::operational::AdmissionCut::Da,
+                    );
                     return Err(PreparePostBatchError::CompositionBlobLimit {
                         required,
                         maximum: maximum_blobs,
@@ -6051,6 +6114,7 @@ where
                 maximum = maximum_blobs,
                 "candidate range exceeds the per-transaction blob limit",
             );
+            eez_telemetry::operational::admission_cut(eez_telemetry::operational::AdmissionCut::Da);
             return Err(PreparePostBatchError::OverBudget {
                 constraint: "blob_limit",
                 required: blob_count as u64,
@@ -6139,6 +6203,9 @@ where
                             .map_err(|error| error.to_string())?,
                     )
                     .map_err(|_| "declared gas overflow")?;
+                    eez_telemetry::operational::admission_cut(
+                        eez_telemetry::operational::AdmissionCut::Gas,
+                    );
                     return Err(PreparePostBatchError::OverBudget {
                         constraint: "l1_tx_gas_budget",
                         required,
@@ -6159,6 +6226,9 @@ where
                 ceiling,
                 calldata_bytes = projected.len(),
                 "candidate range exceeds the postBatch gas budget",
+            );
+            eez_telemetry::operational::admission_cut(
+                eez_telemetry::operational::AdmissionCut::Gas,
             );
             return Err(PreparePostBatchError::OverBudget {
                 constraint: "l1_tx_gas_budget",
@@ -6213,6 +6283,7 @@ where
                 let terminal_block = sync_block.cloned();
                 tokio::task::spawn_blocking(
                     move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
+                        eez_telemetry::operational::StageTimer::measure(eez_telemetry::operational::Stage::Witness, || {
                         let mut ws = (from..sync_block_number)
                             .map(|n| src.block_witness(n))
                             .collect::<Result<Vec<_>, String>>()
@@ -6252,6 +6323,7 @@ where
                             }
                         }
                         Ok((ws, Vec::new()))
+                        })
                     },
                 )
                 .await
@@ -6725,6 +6797,9 @@ async fn observe_bundle_outcome(
             "cannot record dispatch: {error}"
         ))),
     };
+    let mut stage_timer = eez_telemetry::operational::StageTimer::start(
+        eez_telemetry::operational::Stage::Submission,
+    );
     let outcome = if let Some(quote) = fee_quote {
         submitter
             .send_bundle_quoted(&bundle, target, quote, record_dispatch)
@@ -6734,6 +6809,22 @@ async fn observe_bundle_outcome(
             .send_bundle_recorded(&bundle, target, record_dispatch)
             .await
     };
+    stage_timer.finish(match &outcome {
+        Ok(SendOutcome::Included { .. }) => eez_telemetry::operational::StageOutcome::Included,
+        Ok(SendOutcome::Dropped { .. }) => eez_telemetry::operational::StageOutcome::Excluded,
+        Err(_) => eez_telemetry::operational::StageOutcome::Failed,
+    });
+    if let Ok(SendOutcome::Dropped { reason, .. }) = &outcome {
+        use eez_telemetry::operational::{SlotMiss, slot_miss};
+        slot_miss(match reason {
+            eez_l1::submitter::BundleDropReason::Excluded => SlotMiss::Excluded,
+            eez_l1::submitter::BundleDropReason::SlotSkipped => SlotMiss::Skipped,
+            eez_l1::submitter::BundleDropReason::SubmissionWindowMissed => {
+                SlotMiss::SubmissionDeadline
+            }
+            eez_l1::submitter::BundleDropReason::TargetChanged => SlotMiss::TargetChanged,
+        });
+    }
     let observation = match &outcome {
         Ok(SendOutcome::Included {
             l1_block,
@@ -6779,6 +6870,7 @@ async fn sign_post_batch_blob_tx(
     use alloy_eips::{BlockNumberOrTag, eip2930::AccessList, eip4844::DATA_GAS_PER_BLOB};
     use alloy_provider::Provider as _;
 
+    let funding = eez_telemetry::funding::Attempt::start();
     let from = signer.address();
     let latest = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
@@ -6808,7 +6900,20 @@ async fn sign_post_batch_blob_tx(
         .saturating_mul(U256::from(DATA_GAS_PER_BLOB))
         .saturating_mul(U256::from(max_fee_per_blob_gas));
     let required = execution_reserve.saturating_add(blob_reserve);
-    if let Ok(balance) = provider.get_balance(from).await
+    let balance_query = provider.get_balance(from);
+    // This pre-existing balance read is diagnostic only. When funding telemetry
+    // is enabled, bind its comparison to the canonical fee-sample block instead
+    // of combining a later balance with that candidate's reserve.
+    let balance = if eez_telemetry::operational::enabled() {
+        balance_query.hash_canonical(latest.header.hash).await
+    } else {
+        balance_query.await
+    };
+    funding.candidate(
+        required.to_be_bytes(),
+        balance.as_ref().ok().map(U256::to_be_bytes),
+    );
+    if let Ok(balance) = balance
         && balance < required
     {
         event!(

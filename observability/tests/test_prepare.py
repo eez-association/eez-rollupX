@@ -4,6 +4,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare', ROOT / 'prepare.py')
@@ -37,6 +38,135 @@ class Preparation(unittest.TestCase):
         self.assertEqual(alerts['groups'][0]['rules'][0]['data'][1]['model']['expression'], '$A > 0')
         self.assertNotIn(secret, (runtime / 'compose.env').read_text())
         self.assertNotIn(secret, (runtime / 'manifest.json').read_text())
+
+    def test_notification_origin_and_local_runbooks_are_wired_without_secret_urls(self):
+        runtime = prepare.prepare(self.config, self.root / 'links')
+        self.assertIn('GRAFANA_PUBLIC_URL=http://localhost:19300', (runtime / 'compose.env').read_text())
+        rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        self.assertTrue(all(rule['annotations']['runbook_url'] == 'http://localhost:19300/d/eez-runbooks?viewPanel=1' for rule in rules))
+        dashboard = json.loads((runtime / 'grafana/dashboards/runbooks.json').read_text())
+        self.assertEqual(dashboard['uid'], 'eez-runbooks')
+        self.assertTrue(all(panel['type']=='text' and not panel.get('targets') for panel in dashboard['panels']))
+        self.assertIn('Do not delete node data or reset the chain to recover monitoring.', dashboard['panels'][0]['options']['content'])
+        explicit = {**self.config, 'grafana_public_url':'https://monitor.example.test:9443/', 'database_enabled':True,
+                    'protocol_alerts':{'owner':'ops'}}
+        prepare.prepare(explicit, runtime)
+        rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        self.assertEqual(next(rule for rule in rules if rule['uid']=='eez-progress-critical')['annotations']['runbook_url'],
+                         'https://monitor.example.test:9443/d/eez-runbooks?viewPanel=2')
+        self.assertIn('GF_SERVER_ROOT_URL: ${GRAFANA_PUBLIC_URL:', (ROOT / 'compose.yaml').read_text())
+        prepare.prepare({**self.config,'grafana_port':0},runtime)
+        self.assertIsNone(json.loads((runtime/'manifest.json').read_text())['grafana_public_url'])
+        rules=json.loads((runtime/'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        self.assertTrue(all('runbook_url' not in rule['annotations'] for rule in rules))
+        for value in [None, '', 1, 'javascript:alert(1)', 'https://user:secret@monitor.test',
+                      'http://@monitor.test', 'http://:@monitor.test', 'http://monitor.test?', 'http://monitor.test#', 'https://monitor.test?token=secret', 'https://monitor.test/#secret',
+                      'http://monitor.test:0', 'http://monitor.test:bad', 'http://monitor.test/grafana',
+                      'http://bad host', 'http://host/$secret', 'http://host\n', 'http://host\x00']:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prepare.validate({**self.config,'grafana_public_url':value})
+
+    def test_protocol_alerts_opt_in_thresholds_owner_and_no_unknown_zero(self):
+        self.assertFalse(any(rule['uid'] == 'eez-progress-critical' for rule in prepare.alert_rules(self.config)[0]['rules']))
+        config = {**self.config, 'database_enabled': True, 'protocol_alerts': {'owner': 'operations',
+            'index_lag_blocks': 12, 'gap_threshold': 3, 'progress_warning_seconds': 150,
+            'progress_critical_seconds': 420, 'blob_collection': True,
+            'lifecycle_sources': [{'service': 'composer', 'instance': 'node-1'}]}}
+        runtime = prepare.prepare(config, self.root / 'protocol')
+        rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        by_id = {rule['uid']: rule for rule in rules}
+        self.assertEqual(len(by_id), len(rules))
+        self.assertTrue(all(len(rule['uid']) <= 40 for rule in rules))
+        self.assertTrue(all(rule['labels']['owner'] == 'operations' for rule in rules))
+        for uid, value in [('eez-index-lag-l1', 12), ('eez-index-gap-l2', 3), ('eez-progress-critical', 420)]:
+            self.assertIn(str(value), by_id[uid]['data'][0]['model']['expr'])
+        self.assertEqual(by_id['eez-progress-critical']['for'], '0s')
+        self.assertEqual(by_id['eez-progress-critical']['noDataState'], 'OK')
+        self.assertEqual(by_id['eez-progress-critical']['execErrState'], 'Alerting')
+        self.assertIn('unless', by_id['eez-progress-unknown']['data'][0]['model']['expr'])
+        self.assertNotIn('or vector(0)', json.dumps(rules))
+        self.assertEqual(by_id['eez-blob-coverage']['labels']['severity'], 'warning')
+        prepare.prepare(self.config, runtime)
+        rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        self.assertFalse(any(rule['uid'].startswith('eez-progress-') for rule in rules))
+
+    def test_invalid_protocol_alert_configuration_fails_before_writing(self):
+        base = {**self.config, 'database_enabled': True}
+        invalid = [None, {}, {'owner': 'REPLACE_ME'}, {'owner': 'bad"owner'},
+            {'owner': 'ops', 'extra': True}, {'owner': 'ops', 'index_lag_blocks': True},
+            {'owner': 'ops', 'gap_threshold': 0}, {'owner': 'ops', 'progress_warning_seconds': 300},
+            {'owner': 'ops', 'blob_collection': 1}, {'owner': 'ops', 'lifecycle_sources': ['composer']},
+            {'owner': 'ops', 'follower_comparison': 'yes'}, {'owner': 'ops', 'pure_l2_inclusion_grace_seconds': 60},
+            {'owner': 'ops', 'policy_critical_delay_seconds': 300}, {'owner':'ops','signer_authorized_failure_threshold':2}, {'owner': 'ops', 'signer_rejection_threshold': 2},
+            {'owner': 'ops', 'poster_funding_estimates': True}, {'owner': 'ops', 'funding_accounts': [{'account':'poster','chain':'l2'}]},
+            {'owner': 'ops', 'funding_accounts': [{'account':'poster','chain':'l1'}]*2},
+            {'owner': 'ops', 'required_blob_derivation': 1}, {'owner': 'ops', 'required_blob_retry_threshold': 5},
+            {'owner': 'ops', 'required_blob_derivation': True, 'required_blob_retry_threshold': 1},
+            {'owner': 'ops', 'lifecycle_sources': [{'service': 'composer', 'instance': 'x'}] * 2}]
+        for value in invalid:
+            with self.assertRaises(ValueError):
+                prepare.prepare({**base, 'protocol_alerts': value}, self.root / 'invalid-protocol')
+            self.assertFalse((self.root / 'invalid-protocol').exists())
+        with self.assertRaises(ValueError):
+            prepare.prepare({**self.config, 'protocol_alerts': {'owner': 'ops'}}, self.root / 'no-database')
+        self.assertFalse((self.root / 'no-database').exists())
+
+    def test_native_policy_alert_thresholds_reach_rules_and_capabilities_are_explicit(self):
+        config = {**self.config, 'database_enabled': True,
+            'native_processes': [{'service': service, 'instance': 'node', 'metrics_target': target,
+                'metrics_listen': '127.0.0.1:19101'} for service, target in [('eez-composer', 'composer:19101'), ('eez-proof-signer', 'signer:19101')]],
+            'protocol_alerts': {'owner': 'ops', 'pure_l2_inclusion_grace_seconds': 45,
+                'policy_critical_delay_seconds': 90, 'signer_rejection_threshold': 7, 'signer_authorized_failure_threshold':9, 'follower_comparison': True,
+                'poster_funding_estimates': True, 'funding_accounts': [{'account':'poster','chain':'l1'}],
+                'required_blob_derivation': True, 'required_blob_retry_threshold': 5}}
+        runtime = prepare.prepare(config, self.root / 'native-alerts')
+        rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+        policy = next(rule for rule in rules if rule['title'] == 'EEZPureL2PolicyOverdueCritical_node')
+        self.assertEqual(policy['for'], '135s')
+        self.assertIn('reth_eez_settlement_due', policy['data'][0]['model']['expr'])
+        self.assertTrue(all(len(rule['uid']) <= 40 for rule in rules))
+        authorized = next(rule for rule in rules if rule['title'] == 'EEZSignerAuthorizedAttestationFailures_node')
+        self.assertIn('>= bool 9',authorized['data'][0]['model']['expr'])
+        for invalid in (0, 86401, True, '3'):
+            with self.assertRaises(ValueError):
+                prepare.protocol_alert_config({**config, 'protocol_alerts': {**config['protocol_alerts'], 'signer_authorized_failure_threshold': invalid}})
+        signer = next(rule for rule in rules if rule['title'] == 'EEZSignerRepeatedRejections_node')
+        self.assertIn('>= bool 7', signer['data'][0]['model']['expr'])
+        follower = next(rule for rule in rules if rule['uid'] == 'eez-follower-mismatch')
+        self.assertEqual(follower['for'], '30s')
+        self.assertEqual(follower['labels']['severity'], 'critical')
+        blocked = next(rule for rule in rules if rule['uid'] == 'eez-blob-required-blocked')
+        self.assertIn('>= 5', blocked['data'][0]['model']['expr'])
+        self.assertEqual(blocked['for'], '30s')
+        poster = next(rule for rule in rules if rule['title'] == 'EEZActualPosterCannotFundCandidate_node')
+        self.assertIn('reth_eez_poster_can_fund_candidate', poster['data'][0]['model']['expr'])
+        self.assertNotIn('eez_observer_funding', poster['data'][0]['model']['expr'])
+        for invalid in (-1, True, 86401, 1.5):
+            with self.assertRaises(ValueError):
+                prepare.prepare({**config, 'protocol_alerts': {**config['protocol_alerts'], 'pure_l2_inclusion_grace_seconds': invalid}}, self.root / 'bad-grace')
+            self.assertFalse((self.root / 'bad-grace').exists())
+
+    def test_selected_native_queue_alert_never_uses_rpc_readiness(self):
+        config = {**self.config, 'queue_source': 'native', 'native_processes': [{'service': 'eez-composer', 'instance': 'node',
+            'metrics_target': 'composer:19101', 'metrics_listen': '127.0.0.1:19101'}]}
+        rule = next(rule for rule in prepare.alert_rules(config)[0]['rules'] if rule['uid'] == 'eez-queue-stale')
+        expression = rule['data'][0]['model']['expr']
+        self.assertIn('eez:queue_evaluation_valid:current', expression)
+        self.assertIn('absent(', expression)
+        self.assertIn('job="eez-composer-node"', expression)
+        self.assertNotIn('eez_observer_queue_evaluation_valid', expression)
+
+    def test_configured_client_and_node_agent_missing_scrapes_alert_explicitly(self):
+        config = {**self.config, 'client_targets':[{'service':'lighthouse','instance':'beacon','metrics_target':'beacon:5054'}],
+            'node_agent':{'instance':'node-agent','metrics_target':'node:12346','loki_url':'http://private-loki:3100/loki/api/v1/push','read_gid':1234,
+                'sources':[{'service':'eez-composer','instance':'node','kind':'reth_json','directory':'/dedicated/logs'}]}}
+        rules = [rule for rule in prepare.alert_rules(config)[0]['rules'] if rule['uid'].startswith('eez-client-')]
+        self.assertEqual(len(rules),2)
+        for rule in rules:
+            self.assertEqual(rule['noDataState'],'Alerting')
+            self.assertEqual(rule['execErrState'],'Alerting')
+            self.assertIn('absent(up{',rule['data'][0]['model']['expr'])
+            self.assertLessEqual(len(rule['uid']),40)
 
     def test_required_receivers_and_placeholder_targets_fail_before_writing(self):
         for key, value in [('observer_target', 'REPLACE_WITH_PRIVATE_HOST:19100'),
@@ -156,6 +286,8 @@ class Preparation(unittest.TestCase):
         datasources = json.loads((runtime / 'grafana/provisioning/datasources/eez.yaml').read_text())
         postgres = next(value for value in datasources['datasources'] if value['uid'] == 'eez-postgres')
         self.assertEqual(postgres['user'], 'eez_observer_reader')
+        self.assertEqual(postgres['jsonData']['maxOpenConns'], 1)
+        self.assertEqual(postgres['jsonData']['maxIdleConns'], 1)
         self.assertEqual(postgres['secureJsonData']['password'], secret)
         writer = json.loads((runtime / 'database/writer.json').read_text())
         self.assertIn('port=19433', writer['connection_string'])
@@ -182,24 +314,30 @@ class Preparation(unittest.TestCase):
     def test_protocol_dashboards_follow_database_profile_and_optional_links(self):
         runtime = prepare.prepare(self.config, self.root / 'runtime')
         dashboards = runtime / 'grafana/dashboards'
-        self.assertEqual(len(list(dashboards.glob('*.json'))), 2)
+        self.assertEqual(len(list(dashboards.glob('*.json'))), 3)
         self.config['database_enabled'] = True
         prepare.prepare(self.config, runtime)
-        self.assertEqual(len(list(dashboards.glob('*.json'))), 6)
+        self.assertEqual(len(list(dashboards.glob('*.json'))), 7)
         gas = json.loads((dashboards / 'gas.json').read_text())
         detail = next(p for p in gas['panels'] if p['title'].startswith('Receipt detail'))
         self.assertNotIn('__EEZ_', detail['targets'][0]['rawSql'])
         self.assertIn('NULL::text', detail['targets'][0]['rawSql'])
-        self.assertEqual(detail['fieldConfig']['overrides'], [])
+        string_override = {'matcher': {'id': 'byType', 'options': 'string'}, 'properties': [{'id': 'unit', 'value': 'string'}]}
+        self.assertEqual(detail['fieldConfig']['overrides'], [string_override])
         self.config.update(explorer_urls={'l1': "https://explorer.test/it's"}, traces_enabled=True)
         prepare.prepare(self.config, runtime)
         gas = json.loads((dashboards / 'gas.json').read_text())
         detail = next(p for p in gas['panels'] if p['title'].startswith('Receipt detail'))
         self.assertIn("https://explorer.test/it''s/tx/0x", detail['targets'][0]['rawSql'])
-        self.assertEqual(len(detail['fieldConfig']['overrides']), 1)
+        self.assertEqual(len(detail['fieldConfig']['overrides']), 2)
+        self.assertIn(string_override, detail['fieldConfig']['overrides'])
         cross = json.loads((dashboards / 'cross-chain.json').read_text())
         trace = next(p for p in cross['panels'] if p['title'].startswith('Retained trace references'))
         self.assertIn('eez-tempo', json.dumps(trace['fieldConfig']['overrides']))
+        trace_link = trace['fieldConfig']['overrides'][0]['properties'][0]['value'][0]['url']
+        panes = json.loads(parse_qs(urlsplit(trace_link).query)['panes'][0])
+        self.assertEqual(panes['trace']['queries'][0], {
+            'refId': 'A', 'queryType': 'traceql', 'query': '${__value.raw}'})
         timeline = next(p for p in cross['panels'] if p['title'].startswith('Request timeline'))
         links = timeline['fieldConfig']['overrides'][0]['properties'][0]['value']
         self.assertEqual(len(links), 2)
@@ -210,11 +348,11 @@ class Preparation(unittest.TestCase):
         self.config['traces_enabled'] = False
         prepare.prepare(self.config, runtime)
         cross = json.loads((dashboards / 'cross-chain.json').read_text())
-        self.assertEqual(next(p for p in cross['panels'] if p['title'].startswith('Retained trace references'))['fieldConfig']['overrides'], [])
+        self.assertEqual(next(p for p in cross['panels'] if p['title'].startswith('Retained trace references'))['fieldConfig']['overrides'], [string_override])
         (dashboards / 'operator-owned.json').write_text('{}')
         self.config['database_enabled'] = False
         prepare.prepare(self.config, runtime)
-        self.assertEqual({p.name for p in dashboards.glob('*.json')}, {'network.json', 'infrastructure.json', 'operator-owned.json'})
+        self.assertEqual({p.name for p in dashboards.glob('*.json')}, {'network.json', 'infrastructure.json', 'runbooks.json', 'operator-owned.json'})
 
     def test_explorer_urls_reject_invalid_and_secret_bearing_configuration(self):
         for value in [None, [], {'l3': 'https://example.test'}, {'l1': None}, {'l1': 1},

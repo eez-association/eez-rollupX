@@ -13,7 +13,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[3]
 BINARIES = (
-    "eez-composer", "eez-follower", "eez-proof-signer",
+    "eez-composer", "eez-follower", "eez-proof-signer", "eez-observer",
     "eez-genesis-state-root", "eez-genesis-block-hash",
     "e2e-causal-verify", "verify_blob_evidence",
 )
@@ -74,7 +74,7 @@ elif args[:2] == ["buildx", "build"]:
             "archives_sha256": {"native-tests.tar.zst": hashlib.sha256(b"fixture tests").hexdigest(),
                                 "composer-unit-tests.tar.zst": hashlib.sha256(b"fixture composer tests").hexdigest()},
             "runtime_sha256": {name: hashlib.sha256((output / "bin" / name).read_bytes()).hexdigest()
-                               for name in ("eez-composer", "eez-follower", "eez-proof-signer")},
+                               for name in ("eez-composer", "eez-follower", "eez-proof-signer", "eez-observer")},
         }))
 elif args[:2] == ["image", "inspect"]:
     image = args[-1]

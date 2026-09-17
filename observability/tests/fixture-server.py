@@ -11,6 +11,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     events = []
     lock = threading.Lock()
     genesis = '0x' + 'aa' * 32
+    metric_lines = None
 
     def log_message(self, *args):
         pass
@@ -28,7 +29,12 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             if self.mode == 'metrics_error':
                 self.send({'error': 'fixture metrics unavailable'}, status=503)
                 return
-            self.send(b'node_memory_MemAvailable_bytes 10737418240\nnode_filesystem_avail_bytes{fstype="ext4",mountpoint="/fixture"} 107374182400\n', content_type='text/plain; version=0.0.4')
+            if self.metric_lines is not None:
+                now = time.time()
+                body = '\n'.join(self.metric_lines).replace('$NOW', str(now)).replace('$HEAD', str(int(now))) + '\n'
+                self.send(body.encode(), content_type='text/plain; version=0.0.4')
+            else:
+                self.send(b'node_memory_MemAvailable_bytes 10737418240\nnode_filesystem_avail_bytes{fstype="ext4",mountpoint="/fixture"} 107374182400\n', content_type='text/plain; version=0.0.4')
         elif self.path == '/events':
             with self.lock:
                 self.send(self.events)
@@ -44,6 +50,9 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         if self.path == '/control':
             assert data['mode'] in ('healthy', 'stale', 'error', 'metrics_error')
             type(self).mode = data['mode']
+            if 'metric_lines' in data:
+                assert data['metric_lines'] is None or isinstance(data['metric_lines'], list) and all(isinstance(line, str) for line in data['metric_lines'])
+                type(self).metric_lines = data['metric_lines']
             self.send({'ok': True})
             return
         if self.path in ('/alerts', '/heartbeat'):

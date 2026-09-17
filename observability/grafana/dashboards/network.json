@@ -592,7 +592,7 @@
         "w": 6,
         "h": 5
       },
-      "description": "Disjoint queue states plus in-flight requests. Unknown when readiness evaluation or collection is unavailable.",
+      "description": "Disjoint queue states plus in-flight requests. Unknown when readiness evaluation or collection is unavailable. An empty queue is idle, not evidence of a healthy cross-chain execution path. Consult retained canonical successes in the protocol dashboard when enabled.",
       "targets": [
         {
           "refId": "A",
@@ -607,7 +607,17 @@
         "defaults": {
           "unit": "short",
           "noValue": "Unknown",
-          "mappings": [],
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Idle / unexercised",
+                  "color": "text"
+                }
+              }
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -932,7 +942,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "This view shows chain heads and aggregate queue observations. Canonical settlement, costs, finality, per-request timelines and independent replay verification are not yet measured. **Unknown means unavailable or unconfigured, not healthy.**"
+        "content": "This overview uses passive chain-head and aggregate queue observations. **Idle / unexercised means no current queued or in-flight work, not verified cross-chain health. Unknown means unavailable or unconfigured.** When enabled, the protocol dashboards show separately retained canonical outcomes, costs, finality and request history. No continuous active canary is configured by this view."
       }
     }
   ]

@@ -42,7 +42,11 @@ stream and sets the remote parent **before entering** its span; the pinned bridg
 materializes parent identity on entry. Invalid, duplicate or oversized metadata
 is ignored and counted without changing RPC admission, payload validation,
 statuses or deadlines. Baggage is never propagated. No protobuf, calldata,
-signed envelope, proof or consensus commitment changes.
+signed envelope, proof or consensus commitment changes. The existing successful
+`eez.prover_client.attested` event also carries an optional explicit `trace_id`
+field: native Reth log filters can omit `eez_trace` span fields even while the
+separate exporter records those spans. The node-agent's reviewed event allowlist
+and scalar projection retain this field without exporting arbitrary log text.
 
 Each captured preparation links finite source-reference spans carrying the exact
 admission epoch/sequence and source chain/genesis/rollup/hash/direction. Links are
@@ -81,11 +85,19 @@ or passing zero performs no wait. The worker owns no Tokio blocking task whose
 join would extend runtime shutdown. Composer/follower use the pinned runner's default graceful duration and a
 launcher-drop timestamp that precedes its drain timer. They subtract all elapsed
 drain/teardown time before calling this guard; errors or missing/exhausted timing
-permit zero wait. The signer still exposes no finite total application deadline
-and passes zero after its existing idle drain. Signer budget integration remains
-an R24 acceptance gap. Trace export remains a pilot until the connected native devnet capture, actual
-retention expiry, clean-host recovery and workload performance gates have been
-exercised. Disposable backend tests cover ingestion, navigation, collector
+permit zero wait. The signer explicitly has no total application shutdown deadline. After its
+existing tonic and request-slot idle drain completes, it uses the distinct
+`shutdown_without_application_deadline` path, allowing at most two seconds for
+traces. This is an additional bounded post-drain allowance, not an invented
+application deadline or a limit on protocol validation. Unknown/exhausted finite
+budgets still permit zero wait, and Reth's remaining-budget path is unchanged.
+The assumption is that the specification's two-second cap applies when there is
+no finite application budget; if a signer-wide deadline is introduced later,
+its caller must switch to the actual remaining-budget API. Trace export remains a pilot until clean-host recovery, workload performance
+and deployment calibration gates have been exercised. The [native capture](../validation/native-trace-pilot.md)
+verifies connected batch/retry/source identities and successful JSON correlation;
+the [retention fixture](../validation/trace-retention.md) verifies physical expiry
+and accounting independence. Disposable backend tests cover ingestion, navigation, collector
 overload/outages and persistent storage across container replacement. Component and real gRPC evidence is
 recorded in [the validation report](../validation/tracing.md).
 

@@ -2,29 +2,53 @@
 
 Implementation branch: `feat/network-observability`. The database-free RPC exporter
 and the self-hosted Prometheus/Grafana/Loki/Alloy backend are implemented. Two
-provisioned dashboards cover network and collection health. See the
+stage-1 dashboards cover network and collection health; the database profile
+adds cross-chain, settlement, blob and gas dashboards. See the
 [reviewed plan](../docs/proposals/network-observability.md) for canonical accounting
 and tracing. The optional canonical receipt indexer and PostgreSQL profile are
 now implemented, along with durable lifecycle transport and native lifecycle
 capture. [Source-receipt enrichment](contracts/source-receipts.md) has isolated SQL/RPC
 validation. [Protocol-log evidence](contracts/protocol-logs.md) adds separate gap
 and conflict coverage. [Admission-history views](contracts/admission-status.md)
-distinguish local dispositions and unresolved process exits. Companion attribution,
-canonical outcome validation and tracing remain in progress. The backend has been
+distinguish local dispositions and unresolved process exits.
+[Canonical outcome checks](contracts/canonical-outcomes.md),
+[Admission to observed finality](contracts/finality-timing.md),
+[companion/shared-fee attribution](contracts/cost-allocation.md) and optional
+[tracing](contracts/tracing.md) now have fixture evidence. The backend has been
 exercised with local fixtures; it has not been connected to the live Chiado deployment.
 
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
 and [fault-test evidence](validation/lifecycle-transport.md). Native admission, preparation, attempt, reconciliation, reorg and local-disposition
-capture have component/process evidence; canonical outcome validation remains open. The [requirement ledger](requirements.md)
+capture have component/process evidence; integrated mixed-workload and failure
+acceptance remains open. The [requirement ledger](requirements.md)
 tracks each implementation and acceptance gate without treating partial work as a
-completed release.
+completed release. The [implementation checkpoint](validation/implementation-checkpoint.md)
+summarizes completed local checks and the remaining performance, release and
+deployment gates.
 
 Native process endpoints can now be configured explicitly through generated
 `EEZ_TELEMETRY_CONFIG` files; see [startup and precedence](contracts/native-startup.md).
 The composer/follower reuse the pinned Reth recorder and signer uses the compatible
-standalone recorder. Native queue-source handoff remains gated. Optional
+standalone recorder. Stack `queue_source` defaults to `rpc`; explicit `native`
+requires one configured Composer and uses current sample/evaluation/scrape gates
+without RPC fallback. Validate both sources side by side before switching; see
+[the native metric contract](contracts/native-metrics.md). Optional
 [finite tracing](contracts/tracing.md) and the private [Tempo pilot](runbooks/traces.md)
 are disabled until explicitly configured.
+The indexer also supports an optional [independent follower comparison](contracts/follower-comparison.md):
+configure `follower.url` and `follower.eez` only for an L1-only follower. Reused or
+unavailable execution evidence is unknown, including after a follower restart.
+[Current required-blob diagnostics](contracts/required-blobs.md) separately confirm
+a native derivation dependency; historical archive gaps alone cannot page.
+
+The runtime artifact producer now includes `eez-observer` in its verified archive
+and node image. Use a newly built and validated candidate; existing deployed tags
+do not acquire the executable automatically. The [node-host procedure](runbooks/observer-host.md)
+describes read-only mounts, private connectivity and schema-compatible rollback.
+All dashboards include scoped [release annotations](runbooks/annotations.md).
+Operators record verified deployment changes in Grafana; configuration generation
+does not claim a release occurred. Configured Composer diagnostic sources also
+supply startup/active-policy markers through the node-host collector.
 
 The exporter reads L1/L2 identity and latest heads, the EEZ queue RPC, and an
 optional independent L1 reference. It never submits transactions, reads `.env`
@@ -66,10 +90,11 @@ Prometheus target configuration owns `environment`, `deployment`, `service` and
 `instance` labels. No URLs, hashes, addresses or free-form error messages appear
 in metric labels. The [metric contract](contracts/metrics.md) describes the
 initial signals; [recording rules](prometheus/recording-rules.yaml) gate raw
-values on collection/evaluation validity. Do not sum exporter and future native
+values on collection/evaluation validity. Do not sum exporter and native
 producers. Optional host metrics use an existing private node-exporter target.
-Per-chain client attribution, safe/finalized comparisons and full completion
-progress remain future work.
+Embedded upstream client metrics remain process-wide where chain attribution is
+unavailable. Canonical progress/finality have separate observer evidence and must
+not be inferred from native attempt counters.
 
 Checks:
 
@@ -126,6 +151,12 @@ parent directory mode 0700: generated backend configs can contain webhook
 credentials. The password file is readable by the container UID through its
 individual secret mount.
 
+Set `grafana_public_url` to the HTTP(S) origin reached by the operator’s browser
+when it differs from `http://localhost:19300`. This controls delivered alert and
+private **EEZ operator runbooks** links; authentication and loopback binding remain
+in place. See [notification links](runbooks/operations.md) for private origins and
+dynamic-port fixtures.
+
 Open **EEZ · Network overview** or **EEZ · Infrastructure and collection**.
 Both select environment/deployment/instance and display missing stat values as
 **Unknown**. Optional reference-head and host panels remain unknown when not
@@ -135,6 +166,9 @@ points and routing are provisioned from version-controlled inputs.
 Loki/Alloy collect only the explicitly selected JSONL files. This Compose profile
 mounts those files from the backend host; a separate-node topology requires an
 agent on that node and a private transport to Loki, not an assumed shared path.
+The optional [node-host collector](runbooks/node-agent.md) generates that separate
+readonly Alloy profile and explicit pinned Lighthouse scrape targets; absent
+configuration preserves the existing backend behavior.
 The packaged blackbox exporter runs on the backend too; configure a separate
 probe exporter to test availability from an independent network location.
 
@@ -185,3 +219,36 @@ admin connection, then run `indexer` with its separate writer identity. Read the
 bootstrap and tracked wallet/contract selection. Indexing does not change the
 existing database-free exporter mode. The [database validation](validation/database.md)
 covers real PostgreSQL recovery fixtures, not live deployment acceptance.
+
+
+## Browser validation
+
+CI requires real Chromium navigation in addition to datasource query checks. For
+an isolated local run, use the same disposable Playwright installation as the
+[existing explorer verifier](../testing/explorers/README.md):
+
+```bash
+browser_work="$(mktemp -d /tmp/eez-observability-browser.XXXXXXXX)"
+npm install --prefix "$browser_work" --no-audit --no-fund playwright@1.63.0
+PLAYWRIGHT_BROWSERS_PATH="$browser_work/browsers" \
+  "$browser_work/node_modules/.bin/playwright" install chromium
+NODE_PATH="$browser_work/node_modules" \
+  PLAYWRIGHT_BROWSERS_PATH="$browser_work/browsers" \
+  python3 observability/tests/smoke-protocol-dashboards.py --browser \
+    --report /tmp/eez-dashboard-browser.json
+```
+
+This needs Docker, Node/npm, Python with PyYAML and Chromium's system libraries;
+CI installs those libraries through Playwright's `install --with-deps chromium`.
+The fixture creates its own internal network and temporary credentials, publishes
+no service ports, and uses Linux host access to the owned Grafana bridge address.
+It exercises synthetic accounting/native observations, all generated queries,
+and actual request links. It does not access a live deployment. Reports preserve
+failure diagnostics; see [dashboard evidence](validation/protocol-dashboards.md)
+for verified scope and remaining deployment gates.
+
+Before live rollout, complete the private [deployment record](runbooks/deployment.md).
+It collects host/owner/endpoint inputs, ordered rollout checks, backup recovery
+targets and the required seven-day baseline; the template is not live deployment
+evidence. Native trace-loss delivery and semantic recovery are covered separately
+by the [real native alert test](validation/native-loss-alerts.md).

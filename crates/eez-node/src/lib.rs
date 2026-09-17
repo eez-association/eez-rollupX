@@ -87,6 +87,8 @@ enum EmbeddedL1<Ethereum, Chiado> {
 /// Launch a production composer node.
 pub fn run_composer() -> eyre::Result<()> {
     let mut cli = node_cli::<NoRoleArgs>()?;
+    #[cfg(feature = "benchmark-lock-timing")]
+    eez_composer::benchmark_lock::configure_from_env().map_err(eyre::Report::msg)?;
     let telemetry = eez_node_common::telemetry::prepare(&mut cli, "eez-composer")?;
     telemetry.run(cli, launch_composer)
 }
@@ -274,6 +276,15 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
     // yield identical headers.
+    let l1_watcher_config = L1WatcherConfig::from_env()?;
+    let diagnostic_scope = correlation_rpc::DiagnosticScope::Composer {
+        l1_chain_id: match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => handle.node.chain_spec().chain().id(),
+            EmbeddedL1::Chiado(handle) => handle.node.chain_spec().inner.chain().id(),
+        },
+        eez: l1_watcher_config.eez,
+        rollup_id: l1_watcher_config.rollup_id,
+    };
     let l2_data_dir = read_checkpoint_dir();
     let correlations = correlation_store(l2_data_dir.as_deref())?;
     // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
@@ -313,7 +324,12 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
+            correlation_rpc::install_identified(
+                ctx,
+                Arc::clone(&rpc_correlations),
+                Arc::clone(&rpc_l1_head),
+                diagnostic_scope.clone(),
+            )
         })
         .launch_with_debug_capabilities()
         .await?;
@@ -368,7 +384,6 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     )?;
     let submitter_config = SubmitterConfig::from_env()?;
     let deploy_block = submitter_config.reader.deploy_block;
-    let l1_watcher_config = L1WatcherConfig::from_env()?;
 
     let posting_l1_spec = match &embedded_l1 {
         EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
@@ -384,7 +399,8 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
     )?;
     // Handle only — polling starts after boot catch-up fixes the
     // seed and every consumer has subscribed.
-    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules);
+    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules)
+        .with_required_blob_state(Arc::clone(&correlations.required_blobs));
     // Policy catch-up needs canonical settlement evidence before the next
     // proof cutoff. Wake the existing scanner as soon as the embedded L1
     // changes, retaining periodic HTTP scans for retries and recovery.

@@ -153,7 +153,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     try:
                         with open(hold_path) as source:
                             hold = json.load(source)
-                        if hold.get("transaction") is None or hold["transaction"] in txs:
+                        matches = hold.get("transaction") is None or hold["transaction"] in txs
+                        if hold.get("repeat", False):
+                            # Only exact-source restart fixtures may retain this
+                            # control. Every HTTP request still has the 60s bound.
+                            expiry = hold.get("expiresAt")
+                            if not isinstance(hold.get("transaction"), str) or type(expiry) is not int:
+                                raise ValueError("repeated hold requires exact source and integer expiry")
+                            if expiry > time.time() + 300:
+                                raise ValueError("repeated hold exceeds five-minute fixture limit")
+                            hold_next = matches and time.time() < expiry
+                        elif matches:
                             os.replace(hold_path, hold_path + ".used")
                             hold_next = True
                     except FileNotFoundError:

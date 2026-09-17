@@ -153,3 +153,45 @@ Schema 13 also gives fresh dedicated reader connections a 10-second statement
 budget, 5-second lock budget and 10-second idle-transaction budget. Apply the same
 settings to any custom Grafana login alongside `jit=off`; reconnect its pool after
 an upgrade. A failed/expired dashboard query must remain unknown, not display zero.
+
+Schema 15 adds a persisted per-chain canonical revision for funding snapshots.
+Ordinary cursor append preserves valid historical burn; orphaning or deleting
+canonical blocks invalidates it transactionally. Follow the normal explicit
+migration order. Administrative block changes must lock the chain row before
+cursor/block rows, matching the scanner; never edit/reset the revision to retain
+a stale funding result. See the [funding contract](../contracts/funding.md).
+
+Schema 14 adds native cost-population projection, companion attribution and exact
+integer shared-overhead estimates. Use the same backup/stop/explicit-migrate/start
+sequence; schema-13 binaries refuse the new version. Receipt fees and existing
+canonical outcome checks are preserved. Configured lifecycle sources enable the
+bounded cost worker automatically; absent or conflicting historical membership
+stays unallocated. Check `eez_observer_cost_projection_success` and
+`eez.posting_allocation_status` before using per-source estimates. The
+[cost contract](../contracts/cost-allocation.md) distinguishes native provenance,
+receipt-level charges, allocation estimates and overlapping wallet populations.
+
+Schema 16 retains declared cost claims independently of asynchronous projection;
+late conflicts or missing parents cannot silently restore an allocation. Its
+one-time backfill needs a representative database-size timing check before rollout.
+
+Schema 17 records first observed finalization for future canonical finality
+transitions. Already-finalized historical rows keep unknown observation times;
+migration time is not a substitute for finality latency. See the
+[finality timing contract](../contracts/finality-timing.md).
+
+Schema 18 adds settled-transaction cost views without new configuration or a new
+worker. Exact denominators require full-history all-transaction L2 receipt scans
+and verified applied ranges; selective scans and historical gaps remain visible
+as unknown coverage. Existing namespaces keep their immutable selections and
+bootstrap points. Do not change them in place to make a dashboard populate; a
+separate full-history namespace/rescan needs its own capacity plan. None of these
+coverage gaps removes independently recorded fees. Older binaries refuse the new
+schema; rollback requires a compatible binary or a separately restored database.
+
+Schema 19 bounds repeated canonical/finality query expansion and exposes the
+already-selected canonical context on admission status. These statement-local
+query boundaries retain immediate conflict/reorg/freshness checks; they are not
+persisted caches. The earlier schema17/18 migrations are unchanged. Apply the same
+explicit upgrade procedure and verify reader query latency on representative data;
+small-fixture timings do not establish production capacity.

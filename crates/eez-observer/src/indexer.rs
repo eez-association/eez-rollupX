@@ -22,10 +22,14 @@ use crate::{
 };
 
 pub mod blobs;
+pub mod costs;
+pub mod follower;
+pub mod funding;
 mod ledger;
 pub mod lifecycle;
 pub mod outcomes;
 pub mod protocol_logs;
+pub mod required_blobs;
 mod settlements;
 pub mod source_receipts;
 
@@ -107,6 +111,10 @@ pub struct Config {
     pub lifecycle: Vec<lifecycle::SourceConfig>,
     #[serde(default)]
     pub blobs: Option<blobs::BlobConfig>,
+    #[serde(default)]
+    pub follower: Option<follower::FollowerConfig>,
+    #[serde(default)]
+    pub funding: Option<funding::FundingConfig>,
 }
 fn batch_default() -> u64 {
     16
@@ -140,6 +148,12 @@ impl Config {
         self.l1.validate()?;
         self.l2.validate()?;
         lifecycle::validate_sources(self)?;
+        if let Some(funding) = &self.funding {
+            funding.validate(self)?;
+        }
+        if let Some(follower) = &self.follower {
+            follower.validate(self)?;
+        }
         if let Some(blobs) = &self.blobs {
             blobs.validate()?;
             if self.l1.contracts.is_empty() {
@@ -175,6 +189,7 @@ pub enum Error {
     SettlementFinality,
     SourceBudget,
     OutcomeBudget,
+    CostBudget,
     Inconsistent,
     ConflictingFact,
     Frozen,
@@ -190,6 +205,7 @@ impl Error {
             Self::SettlementFinality => "settled_l2_finality_contradiction",
             Self::SourceBudget => "source_receipt_budget_exhausted",
             Self::OutcomeBudget => "native_outcome_budget_exhausted",
+            Self::CostBudget => "native_cost_budget_exhausted",
             Self::Inconsistent => "inconsistent_chain_facts",
             Self::ConflictingFact => "conflicting_fact",
             Self::Frozen => "finalized_contradiction_or_frozen",
@@ -324,6 +340,7 @@ pub struct Status {
     pub head: Option<u64>,
     pub cursor: Option<u64>,
     pub cursor_hash: Option<B256>,
+    pub canonical_revision: Option<i64>,
     pub verified_cursors: Option<[B256; 2]>,
     pub gaps: Option<i64>,
     pub finalized: Option<u64>,
@@ -337,7 +354,11 @@ pub struct RuntimeStatus {
     pub source_receipts: Option<source_receipts::Status>,
     pub protocol_logs: Option<protocol_logs::Status>,
     pub outcomes: Option<outcomes::Status>,
+    pub costs: Option<costs::Status>,
     pub blobs: Option<blobs::Status>,
+    pub follower: Option<follower::Status>,
+    pub required_blobs: Option<required_blobs::Status>,
+    pub funding: Option<funding::Status>,
 }
 pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
 
@@ -517,7 +538,11 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     source_receipts::poll(config, rpc, status).await;
     protocol_logs::poll(config, rpc, status).await;
     outcomes::poll(config, status).await;
+    costs::poll(config, status).await;
     blobs::poll(config, rpc, status).await;
+    follower::poll(config, rpc, status).await;
+    required_blobs::poll(config, rpc, status).await;
+    funding::poll(config, rpc, status).await;
     l1.and(l2)
 }
 
@@ -543,6 +568,10 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
         source_receipts::run(&config, &rpc, &status),
         protocol_logs::run(&config, &rpc, &status),
         outcomes::run(&config, &status),
+        costs::run(&config, &status),
+        follower::run(&config, &rpc, &status),
+        required_blobs::run(&config, &rpc, &status),
+        funding::run(&config, &rpc, &status),
         blobs::run(&config, &rpc, &status)
     );
 }
@@ -756,6 +785,7 @@ async fn scan_chain(
         error: None,
         head: Some(head.number),
         cursor_hash: cursor.as_ref().map(|block| block.hash),
+        canonical_revision: Some(ledger::canonical_revision(database, id).await?),
         cursor: cursor.map(|block| block.number),
         verified_cursors: None,
         gaps: Some(ledger::gaps(database, id).await?),
@@ -1006,6 +1036,7 @@ mod tests {
                 finalized: Some(5),
                 finality_pending: None,
                 cursor_hash: None,
+                canonical_revision: None,
                 verified_cursors: None,
             },
             Status::default(),

@@ -1,0 +1,51 @@
+{
+  "status": "passed",
+  "test": "unavailable_telemetry_bidirectional_cross_chain_smoke",
+  "passed": 1,
+  "failed": 0,
+  "seconds": 90.76,
+  "runtime_mode": "explicitly authorized immutable snapshots of fresh source-built candidate; later signer changes excluded",
+  "source_head": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_pin": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "binaries_sha256": {
+    "eez-composer": "b4dcdda3ef41d080e6c5d85fcc701d3bb854933894af6e4610ffa227378aa5b4",
+    "eez-proof-signer": "c5f46d1f2840dc2d5be1e27a47d01c9fbbbcf6a47c661a6e5232d34c1142c05a",
+    "eez-follower": "039a610ef02519d5242ce5c13dcd1de0710cd26f214ce0f7f125ee5f10760f8d"
+  },
+  "production_source_digest": {
+    "sha256": "909d2ee11a620ddc56e9a71c698e94b617388eda41786666b9cdb94dc41b566c",
+    "scope": "sorted relative file\u2192SHA256 map of Cargo.toml/Cargo.lock, crate Cargo.toml/build.rs, crate src/**/*.rs and crate proto/*.proto; exact map retained with immutable runtime"
+  },
+  "test_executable_sha256": "3a27c24a625e911042ff7bb0ecf080ad03bafca8270a1f88adcd5d62ad40cf94",
+  "test_source_sha256": "794e8cd8d4fe13dc74d137a852981bd03468e54d9bae41b4e1b5d724235bcf30",
+  "checks": [
+    "inbound_and_outbound_source_receipts_succeeded",
+    "both_destination_values_applied",
+    "l1_committed_root_equals_l2_safe_hash",
+    "latest_posted_proof_signature_recomputed_independently",
+    "no_poison_eviction_or_divergence",
+    "one_native_admission_committed_terminal_and_completed_duration_per_direction",
+    "all_current_queue_states_empty",
+    "unavailable_spool_writer_enabled_zero",
+    "stalled_collector_trace_export_failure_drops_positive_and_exported_zero",
+    "startup_failure_plain_stderr_exactly_once",
+    "fixture_body_and_private_path_absent_from_logs",
+    "transaction_hashes_absent_from_metric_text",
+    "node_alive_after_checks"
+  ],
+  "initial_source_run": {
+    "status": "failed",
+    "seconds": 162.76,
+    "reason": "testkit JSON log matcher omitted pre-subscriber plain stderr; protocol and loss-metric checks had passed before final log assertion",
+    "log": "/tmp/eez-observability-native-telemetry-failure.log",
+    "retained_datadir": "/tmp/eez-observability-native-telemetry-failure-datadirs/eez-cross-chain-3794991-iUpHqX"
+  },
+  "reviewed_log": "/tmp/eez-observability-native-telemetry-failure-reviewed.log",
+  "runtime_snapshot": "artifacts/native-telemetry-failure/immutable-runtime-81gkhrug",
+  "remaining": [
+    "native_progress_during_dynamic_ENOSPC_or_lagging_reader",
+    "paired_comparative_overhead_and_protocol_lock_hold_measurement",
+    "production_quota_and_host_deployment_validation"
+  ]
+}

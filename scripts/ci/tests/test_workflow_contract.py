@@ -260,7 +260,7 @@ class ObservabilityWorkflowContractTest(unittest.TestCase):
         self.commands = "\n".join(step.get("run", "") for step in self.steps)
 
     def test_private_backend_and_protocol_query_checks_are_required(self):
-        for command in ("smoke-database.py", "smoke-stack.py", "smoke-traces.py", "smoke-protocol-dashboards.py", "smoke-restore.py"):
+        for command in ("smoke-database.py", "smoke-stack.py", "smoke-traces.py", "smoke-trace-retention.py", "smoke-client-capabilities.py", "smoke-node-agent.py", "smoke-protocol-dashboards.py", "smoke-restore.py", "test_protocol_rules.py", "smoke-alerts.py", "smoke-alert-links.py"):
             matching = [step for step in self.steps if command in step.get("run", "")]
             self.assertEqual(len(matching), 1, command)
             self.assertFalse(matching[0].get("continue-on-error", False), command)
@@ -283,12 +283,24 @@ class ObservabilityWorkflowContractTest(unittest.TestCase):
         self.assertIn("observability-*-validation-*.logs.txt", upload["with"]["path"])
         self.assertIn("observability-*-validation-*.log", upload["with"]["path"])
 
+    def test_browser_navigation_is_required_and_uses_an_isolated_install(self):
+        install = next(step for step in self.steps if "playwright@1.63.0" in step.get("run", ""))
+        self.assertIn("$RUNNER_TEMP/", install["run"])
+        self.assertIn("install --with-deps chromium", install["run"])
+        for command in ("smoke-protocol-dashboards.py", "smoke-trace-retention.py", "smoke-alert-links.py"):
+            browser = next(step for step in self.steps if command in step.get("run", ""))
+            if command != "smoke-alert-links.py":
+                self.assertIn("--browser", browser["run"])
+            self.assertLess(self.steps.index(install), self.steps.index(browser))
+            self.assertIn("NODE_PATH", browser["env"])
+            self.assertIn("PLAYWRIGHT_BROWSERS_PATH", browser["env"])
+
     def test_affected_paths_and_clean_runner_dependencies_are_present(self):
         triggers = self.workflow.get("on", self.workflow.get(True))
         required = {"observability/**", "crates/eez-observer/**", "crates/eez-telemetry/**",
                     "crates/eez-blob-codec/**", "crates/eez-protocol/**", "crates/eez-composer/**",
                     "crates/eez-node-common/**", "crates/eez-proof-signer/**",
-                    "crates/eez-follower/**", "crates/eez-l1/**", "eez-core-protocol",
+                    "crates/eez-follower/**", "crates/eez-deriver/**", "crates/eez-l1/**", "eez-core-protocol",
                     "crates/eez-prover-client/**", "crates/eez-control-rpc/**",
                     "Dockerfile.runtime", "Dockerfile.runtime.dockerignore", "scripts/ci/**",
                     "Cargo.toml", "Cargo.lock"}

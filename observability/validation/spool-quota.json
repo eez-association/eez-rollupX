@@ -1,0 +1,148 @@
+{
+  "status": "passed",
+  "container": "eez-spool-quota-8dc95ab43c08",
+  "image_id": "sha256:4755662acb4d03b769d09d71696a3ecdaec6eaf76aa8abdcfc8760c712364e6b",
+  "binary_sha256": "b59395ff27ecaf9be395b17acd3e4711210c43ea4c29ee85c0766c851a6a449f",
+  "host_available_memory_bytes": 46947475456,
+  "checks": [
+    "rotation_retention_with_two_deliberately_lagging_descriptors",
+    "native_bounded_reader_closes_descriptors_while_returned_buffers_live",
+    "fixed_image_bounds_metadata_and_open_unlinked_bytes",
+    "native_publish_remains_nonblocking_and_loss_is_explicit",
+    "alloy_file_discovery_closes_retained_deleted_inode",
+    "new_segment_control_retains_cumulative_disk_loss_after_recovery"
+  ],
+  "image_capacity_bytes": 3221225472,
+  "scope": "physical filesystem and actual telemetry transport only; no protocol-progress or overhead claim",
+  "mounted_binary_sha256": "b59395ff27ecaf9be395b17acd3e4711210c43ea4c29ee85c0766c851a6a449f",
+  "backing_available_bytes": 5041707483136,
+  "filesystem_tools": "e2fsprogs\t1.47.2-3+b12\nfuse2fs\t1.47.2-3+b12\nfuse3\t3.17.2-3\nlibext2fs2t64:amd64\t1.47.2-3+b12\nlibfuse3-4:amd64\t3.17.2-3\n",
+  "filesystem_initial": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 3126837248,
+    "available_bytes": 2804715520,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 69652480
+  },
+  "native_pid": 20,
+  "reader_before_rotation": {
+    "controls": [
+      {
+        "attempted_records": 0,
+        "dropped_records": 0,
+        "dropped_sequence_max": null,
+        "dropped_sequence_min": null,
+        "io_errors": 0,
+        "last_assigned_sequence": 0,
+        "written_records": 0
+      }
+    ],
+    "descriptors_after": 3,
+    "descriptors_before": 3,
+    "lines": 2
+  },
+  "alloy_pid": 22,
+  "visible_retained_bytes": 56522,
+  "held_unlinked_segment_bytes": 36864,
+  "unlinked_segment_links": 0,
+  "physical_after_rotation": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 3126734848,
+    "available_bytes": 2804613120,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 69808128
+  },
+  "reader_pass": {
+    "controls": [],
+    "descriptors_after": 3,
+    "descriptors_before": 3,
+    "lines": 64
+  },
+  "filesystem_after_initial_unlink": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 3126730752,
+    "available_bytes": 2804609024,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 69808128
+  },
+  "filesystem_with_full_unlinked_ballast": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 322125824,
+    "available_bytes": 4096,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 2874343424
+  },
+  "physical_full": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 322125824,
+    "available_bytes": 4096,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 2874343424
+  },
+  "filled_bytes": 2804600832,
+  "fill_seconds": 31.09215997600404,
+  "held_unlinked_ballast_bytes": 2804604928,
+  "full_publish": {
+    "accepted": 100,
+    "calls": 100,
+    "elapsed_ns": "518440",
+    "stats": {
+      "attempted_records": 2100,
+      "dropped_records": 94,
+      "dropped_sequence_max": 2100,
+      "dropped_sequence_min": 2007,
+      "io_errors": 1,
+      "last_assigned_sequence": 2100,
+      "written_records": 2006
+    }
+  },
+  "failure_stats": {
+    "attempted_records": 2100,
+    "dropped_records": 94,
+    "dropped_sequence_max": 2100,
+    "dropped_sequence_min": 2007,
+    "io_errors": 1,
+    "last_assigned_sequence": 2100,
+    "written_records": 2006
+  },
+  "alloy_cleanup_seconds": 0.05057547500473447,
+  "recovery_reader": {
+    "controls": [
+      {
+        "attempted_records": 2127,
+        "dropped_records": 121,
+        "dropped_sequence_max": 2127,
+        "dropped_sequence_min": 2007,
+        "io_errors": 2,
+        "last_assigned_sequence": 2127,
+        "written_records": 2006
+      }
+    ],
+    "descriptors_after": 3,
+    "descriptors_before": 3,
+    "lines": 67
+  },
+  "recovery_stats": {
+    "attempted_records": 2128,
+    "dropped_records": 121,
+    "dropped_sequence_max": 2127,
+    "dropped_sequence_min": 2007,
+    "io_errors": 2,
+    "last_assigned_sequence": 2128,
+    "written_records": 2007
+  },
+  "filesystem_final": {
+    "capacity_bytes": 3204214784,
+    "free_bytes": 3126759424,
+    "available_bytes": 2804637696,
+    "image_bytes": 3221225472,
+    "image_allocated_bytes": 2874429440
+  },
+  "memory_events": "low 0\nhigh 0\nmax 18676\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n",
+  "memory_peak_bytes": 1073741824,
+  "container_state": {
+    "OOMKilled": false,
+    "ExitCode": 0,
+    "Error": ""
+  }
+}

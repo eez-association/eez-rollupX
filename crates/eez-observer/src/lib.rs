@@ -3,6 +3,7 @@ pub mod accounting;
 mod blobs;
 pub mod config;
 mod correlation;
+pub mod costs;
 pub mod database;
 pub mod indexer;
 pub mod metrics;
@@ -68,7 +69,14 @@ async fn scrape(
         ));
         rendered.push_str(&indexer::outcomes::render(status.outcomes.as_ref(), now));
         rendered.push_str(&indexer::outcomes::render_progress(&status, now));
+        rendered.push_str(&indexer::costs::render(status.costs.as_ref(), now));
         rendered.push_str(&indexer::blobs::render(status.blobs.as_ref(), now));
+        rendered.push_str(&indexer::follower::render(status.follower.as_ref(), now));
+        rendered.push_str(&indexer::required_blobs::render(
+            status.required_blobs.as_ref(),
+            now,
+        ));
+        rendered.push_str(&indexer::funding::render(&status, now));
     }
     (
         [(

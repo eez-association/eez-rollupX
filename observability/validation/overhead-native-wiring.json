@@ -1,0 +1,192 @@
+{
+  "status": "passed",
+  "purpose": "functional native wiring; concurrent workspace/Python checks; not comparative overhead acceptance",
+  "elapsed_seconds": 239.1013295469893,
+  "candidate": {
+    "head": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+    "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "profile": "dev optimized + debuginfo",
+    "benchmark_lock_feature": false,
+    "source_map_sha256": "fcede9f9dfd5ce12849298baa189cadfa2440df31a625ab7f1f84e079a8c68cf",
+    "sha256": {
+      "source-map.json": "fcede9f9dfd5ce12849298baa189cadfa2440df31a625ab7f1f84e079a8c68cf",
+      "dynamic_admission": "90875689852548c762fd40c638606438c0ff77fa935fb2c565a3e8120fb33a81",
+      "rustc.txt": "b75985398e5509a90a7d5d68f8ec6690675f703c5cfa11893b04fc9c3fceca69",
+      "harness/overhead_analysis.py": "ef884e1af96a1319f5f8f340038f88f5666497f3d3217b1c1d3d1dcdd5f479ee",
+      "harness/overhead_lock_analysis.py": "eb4c7a8494c52b14f9fe90f6295a52554061da4fbd8b4a909d1c2011ad7cb85d",
+      "harness/overhead_resources.py": "e53563e177b4af62f3f9bafa2857cfd70cdc06aef46d379f21f709f907ecc2ea",
+      "harness/run-overhead.py": "20fc35e8fd1053d7470d19ff1a66efe6a277a7ed35f5f7b49f6bcfd6750dda3c",
+      "bin/eez-observer": "fabbd0f534806cd17aac325c39a55301c86e303e2d278623e2a10e430933fc70",
+      "bin/eez-proof-signer": "3ee0f1675ecdba5734369401c25f39ccc8d6765a242a068cebea48ab03badda8",
+      "bin/eez-follower": "edf4b9ba1f2de4047c9f535fa137cfc3f9fb561ba423964bdf0157cd4b9efac6",
+      "bin/eez-composer": "bd4ea9cf3a025f1682797d9e7e482d012bec72ea97a3b215ba88020e2718852b"
+    }
+  },
+  "checks": [
+    "actual native preparation_ns and unchanged preparation_ms are from same Duration",
+    "checked nanosecond serialization consumed as exact integer",
+    "actual Gnosis L1/L2 genesis header hashes match existing helper and RPC block0",
+    "effective configuration, public genesis JSON and bounded capture attestations emitted",
+    "B warmup observer drains before measurement",
+    "B exact canonical source identity population checked after cached-counter catchup",
+    "resource reports rendered only after sampler stopped, before native teardown",
+    "owned PostgreSQL cleanup verified"
+  ],
+  "runs": [
+    {
+      "arm": "A",
+      "native_seconds": 91.80198953700892,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 0,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "preparation_clock": {
+        "resolution_ns": 1,
+        "source": "admission.prepared.preparation_ns",
+        "unit": "ns"
+      },
+      "stages": [
+        {
+          "name": "small_queue",
+          "preparation_ns": [
+            83646635
+          ],
+          "preparation_ms": [
+            83
+          ],
+          "preparation_group_counts": [
+            8
+          ],
+          "successful_sources": 8
+        },
+        {
+          "name": "busy_waves",
+          "preparation_ns": [
+            535399482,
+            227336388,
+            108857022
+          ],
+          "preparation_ms": [
+            535,
+            227,
+            108
+          ],
+          "preparation_group_counts": [
+            71,
+            39,
+            18
+          ],
+          "successful_sources": 128
+        }
+      ],
+      "capture_proof": {
+        "logger": "pinned Reth synchronous stdout; no lossy appender",
+        "file": "eez-node-node-1455927-2.log",
+        "sha256": "9c0fb3e6e133e5c648acea0a8410b80b75a8ae4ec89e76cec844eb659efba5ca",
+        "bytes": 526987,
+        "complete_json_records": 1445,
+        "exact_prepared_source_population": true,
+        "native_process_exited_successfully": true
+      },
+      "common_sha256": "d58989d71576d4e89f833205edbe41f7567fb22167d0fc0c1edd5becb4bfeb55",
+      "genesis_evidence": {
+        "l1": {
+          "header_hash": "0xe8cbc1be9add4b42d8ee176a18f87914fb4b531583172cbfec39b06235f78bc1",
+          "header_hash_source": "eez_testkit::genesis_block_hash",
+          "rpc_genesis_hash": "0xe8cbc1be9add4b42d8ee176a18f87914fb4b531583172cbfec39b06235f78bc1",
+          "timestamp_seconds": 1789679104,
+          "json_sha256": "47a593063a469c90595eb403f160d951e52f8c1e5c6c9c6b999c2b9ef30b30b7"
+        },
+        "l2": {
+          "header_hash": "0x45c834627a569b98a83481e40c0f05b01c60dcc0066738e4f38eac78e194e612",
+          "header_hash_source": "eez_testkit::genesis_block_hash",
+          "rpc_genesis_hash": "0x45c834627a569b98a83481e40c0f05b01c60dcc0066738e4f38eac78e194e612",
+          "timestamp_seconds": 1789679104,
+          "json_sha256": "f632af3019c0320e505eec52ac3ba992a9ba0535f2f4bff02fcd9d21a0895574"
+        }
+      },
+      "raw_result_sha256": "518e8af441cf83feab43603e9314dab0d8becc727efb177361c2c25587bbf60b",
+      "resource_report_sha256": "c5bc96e864c4c30883e1a2a9cd0d33b605075efc79f4c88da56fd5d855bdae36"
+    },
+    {
+      "arm": "B",
+      "native_seconds": 143.76463158600382,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 138,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "preparation_clock": {
+        "resolution_ns": 1,
+        "source": "admission.prepared.preparation_ns",
+        "unit": "ns"
+      },
+      "stages": [
+        {
+          "name": "small_queue",
+          "preparation_ns": [
+            227160237,
+            108543820
+          ],
+          "preparation_ms": [
+            227,
+            108
+          ],
+          "preparation_group_counts": [
+            1,
+            7
+          ],
+          "successful_sources": 8
+        },
+        {
+          "name": "busy_waves",
+          "preparation_ns": [
+            556911347,
+            290368218,
+            445416674
+          ],
+          "preparation_ms": [
+            556,
+            290,
+            445
+          ],
+          "preparation_group_counts": [
+            60,
+            43,
+            25
+          ],
+          "successful_sources": 128
+        }
+      ],
+      "capture_proof": {
+        "logger": "pinned Reth synchronous stdout; no lossy appender",
+        "file": "eez-node-node-1463628-2.log",
+        "sha256": "13353ffa69b6f498812ad1fb3017f5392096c6ce2ed4b60b4be934e8b342a05f",
+        "bytes": 562776,
+        "complete_json_records": 1559,
+        "exact_prepared_source_population": true,
+        "native_process_exited_successfully": true
+      },
+      "common_sha256": "d58989d71576d4e89f833205edbe41f7567fb22167d0fc0c1edd5becb4bfeb55",
+      "genesis_evidence": {
+        "l1": {
+          "header_hash": "0x168562296967ad225edf4692e95329408e1194b5e3c639d1dfd4769cb55d7fec",
+          "header_hash_source": "eez_testkit::genesis_block_hash",
+          "rpc_genesis_hash": "0x168562296967ad225edf4692e95329408e1194b5e3c639d1dfd4769cb55d7fec",
+          "timestamp_seconds": 1789679198,
+          "json_sha256": "171b52e07600e443a1b53fce51f49543cbdbff1772ed0864b2169bc08f965954"
+        },
+        "l2": {
+          "header_hash": "0x2fefa7cdaf96b4761601983112e4764fdfa810ceb26634d0ec3aa9be0c8392c5",
+          "header_hash_source": "eez_testkit::genesis_block_hash",
+          "rpc_genesis_hash": "0x2fefa7cdaf96b4761601983112e4764fdfa810ceb26634d0ec3aa9be0c8392c5",
+          "timestamp_seconds": 1789679198,
+          "json_sha256": "2c0669ffa699897d16c0ef01380a4bb43316204f825844997e368541fa0e0dbd"
+        }
+      },
+      "raw_result_sha256": "0d126729a57491a006d3fa2b9389c114c04e9bcb933df3052c948b4c2009126f",
+      "resource_report_sha256": "1ba93e8b4cd048e0a9f7f8002a426c1b2c350b87f2051ed7aa765e82a78f8b8c"
+    }
+  ]
+}

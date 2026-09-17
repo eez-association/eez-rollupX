@@ -1,6 +1,6 @@
 {
   "uid": "eez-blobs",
-  "title": "EEZ \u00b7 Blobs and data availability",
+  "title": "EEZ · Blobs and data availability",
   "tags": [
     "eez",
     "protocol"
@@ -64,12 +64,12 @@
           "type": "postgres",
           "uid": "eez-postgres"
         },
-        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
-        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "query": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": "all",
+        "allValue": "'all'",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -88,7 +88,7 @@
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": "all",
+        "allValue": "'all'",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -107,7 +107,6 @@
         "refresh": 1,
         "multi": false,
         "includeAll": true,
-        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -227,7 +226,7 @@
     },
     {
       "id": 4,
-      "title": "Measurement states \u00b7 canonical posts",
+      "title": "Measurement states · canonical posts",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -265,7 +264,7 @@
     },
     {
       "id": 5,
-      "title": "Execution versus blob fees \u00b7 exact included spend",
+      "title": "Execution versus blob fees · exact included spend",
       "type": "table",
       "gridPos": {
         "x": 12,
@@ -366,7 +365,7 @@
     },
     {
       "id": 7,
-      "title": "Composer-reported allowance utilization \u00b7 candidate population",
+      "title": "Composer-reported allowance utilization · candidate population",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -398,7 +397,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.payload#>>'{event,attempt,generation}' AS generation,e.payload#>>'{event,encoded_bytes}' AS reported_bytes,e.payload#>>'{event,blob_allowance}' AS reported_allowance,(e.payload#>>'{event,encoded_bytes}')::numeric/NULLIF((e.payload#>>'{event,blob_allowance}')::numeric*126976,0) AS reported_allowance_utilization FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}'='attempt_prepared' ORDER BY time DESC LIMIT 100"
+          "rawSql": "SELECT to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) AS time,e.payload#>>'{event,attempt,generation}' AS generation,e.payload#>>'{event,encoded_bytes}' AS reported_bytes,e.payload#>>'{event,blob_allowance}' AS reported_allowance,(e.payload#>>'{event,encoded_bytes}')::numeric/NULLIF((e.payload#>>'{event,blob_allowance}')::numeric*126976,0) AS reported_allowance_utilization FROM eez.lifecycle_event_history e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND e.instance IN (${instance:sqlstring}) AND (to_timestamp((e.payload->>'observed_at_unix_ms')::numeric/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND e.payload#>>'{event,event}'='attempt_prepared' ORDER BY time DESC LIMIT 100"
         }
       ]
     },
@@ -442,7 +441,7 @@
     },
     {
       "id": 9,
-      "title": "Posting classification coverage \u00b7 full indexed interval",
+      "title": "Posting classification coverage · full indexed interval",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -485,7 +484,7 @@
         "enable": true,
         "iconColor": "orange",
         "rawQuery": true,
-        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR e.instance=${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+        "rawSql": "SELECT to_timestamp(e.started_at_ms/1000.0) AS time,'Native process epoch: '||e.liveness AS text,'restart' AS tags FROM eez.lifecycle_epoch_status e WHERE e.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND e.instance IN (${instance:sqlstring}) AND (to_timestamp(e.started_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
       },
       {
         "name": "Local policy dispositions",
@@ -496,7 +495,7 @@
         "enable": true,
         "iconColor": "yellow",
         "rawQuery": true,
-        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND (${instance:sqlstring}='.*' OR s.instance=${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
+        "rawSql": "SELECT to_timestamp(t.observed_at_ms/1000.0) AS time,'Local disposition: '||t.claimed_outcome AS text,t.source->>'direction' AS tags FROM eez.lifecycle_local_policy_evidence t JOIN eez.lifecycle_coverage s USING(source_id) WHERE t.evidence_state='local_policy' AND s.deployment_id IN (SELECT deployment_id FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring}) AND s.instance IN (${instance:sqlstring}) AND (to_timestamp(t.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) ORDER BY time LIMIT 200"
       }
     ]
   }

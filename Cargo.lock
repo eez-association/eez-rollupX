@@ -3516,6 +3516,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "opentelemetry-proto",
+ "prost",
  "reqwest 0.12.28",
  "reth-chainspec 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",
  "serde",
@@ -3530,6 +3532,7 @@ dependencies = [
 name = "eez-observer"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
  "alloy-sol-types",
  "axum",
@@ -3582,6 +3585,7 @@ dependencies = [
  "eez-telemetry",
  "eyre",
  "hex",
+ "metrics",
  "opentelemetry-proto",
  "prost",
  "reth-chainspec 2.2.0 (git+https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb)",

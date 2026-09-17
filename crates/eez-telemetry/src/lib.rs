@@ -7,6 +7,7 @@
 //! call [`Publisher::publish`] to encode and attempt nonblocking delivery.
 //! Delivery may reorder or lose records. It is never a durable admission journal.
 
+pub mod funding;
 #[cfg(feature = "native")]
 pub mod native;
 pub mod operational;

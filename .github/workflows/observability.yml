@@ -12,6 +12,7 @@ on:
       - crates/eez-composer/**
       - crates/eez-node/**
       - crates/eez-follower/**
+      - crates/eez-deriver/**
       - crates/eez-l1/**
       - crates/eez-node-common/**
       - crates/eez-proof-signer/**
@@ -37,6 +38,7 @@ on:
       - crates/eez-composer/**
       - crates/eez-node/**
       - crates/eez-follower/**
+      - crates/eez-deriver/**
       - crates/eez-l1/**
       - crates/eez-node-common/**
       - crates/eez-proof-signer/**
@@ -62,7 +64,7 @@ concurrency:
 jobs:
   fixtures:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -92,25 +94,66 @@ jobs:
           EEZ_TEST_DOCKER_RUNTIME=1 python3 -m unittest scripts.ci.tests.test_runtime_docker.RuntimeDockerTest.test_observer_compile_inputs_survive_runtime_allowlist -v
           python3 -m unittest scripts.ci.tests.test_workflow_contract.ObservabilityWorkflowContractTest -v
       - name: Configuration and dashboard checks
-        run: python3 observability/tests/test_prepare.py
+        run: python3 -m unittest discover -s observability/tests -p 'test_*.py' -v
+      - name: Exact protocol alert expressions, unknown data and suppression
+        timeout-minutes: 5
+        run: |
+          python3 observability/tests/test_queue_source.py --promtool
+          python3 -u observability/tests/test_protocol_rules.py --report artifacts/observability-protocol-rules-validation.json
       - name: Format
         run: cargo fmt -p eez-observer -p eez-telemetry -p eez-blob-codec --check
       - name: Exporter and telemetry tests
         run: cargo test --locked -p eez-observer -p eez-telemetry -p eez-blob-codec --all-features
       - name: Exporter and telemetry lint
         run: cargo clippy --locked -p eez-observer -p eez-telemetry -p eez-blob-codec --all-features --all-targets -- -D warnings
+      - name: Queue lock measurement feature
+        run: |
+          cargo test --locked -p eez-composer --features benchmark-lock-timing --lib
+          cargo check --locked -p eez-node --features benchmark-lock-timing
       - name: Build exporter
         run: cargo build --locked -p eez-observer
       - name: Isolated canonical database, recovery and permissions tests
         run: python3 -u observability/tests/smoke-database.py --report artifacts/observability-database-validation.json
       - name: Isolated backend, query, log and alert tests
         run: python3 -u observability/tests/smoke-stack.py --report artifacts/observability-stack-validation.json
+      - name: Pinned client capability inventory
+        timeout-minutes: 5
+        run: python3 -u observability/tests/smoke-client-capabilities.py --report artifacts/observability-client-capabilities-validation.json
+      - name: Node-host Alloy log permissions and collection
+        timeout-minutes: 5
+        run: python3 -u observability/tests/smoke-node-agent.py --report artifacts/observability-node-agent-validation.json
       - name: Isolated Tempo ingestion, log links, persistence and failure recovery
         timeout-minutes: 15
         run: python3 -u observability/tests/smoke-traces.py --report artifacts/observability-tempo-validation.json
-      - name: Protocol dashboards against real PostgreSQL and Grafana queries
+      - name: Install isolated browser verifier
+        timeout-minutes: 5
+        run: |
+          node --version
+          npm --version
+          browser_work="$RUNNER_TEMP/eez-observability-browser"
+          npm install --prefix "$browser_work" --no-audit --no-fund playwright@1.63.0
+          PLAYWRIGHT_BROWSERS_PATH="$browser_work/browsers" "$browser_work/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Actual Tempo retention expiry preserves durable SQL evidence
+        timeout-minutes: 10
+        env:
+          NODE_PATH: ${{ runner.temp }}/eez-observability-browser/node_modules
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/eez-observability-browser/browsers
+        run: python3 -u observability/tests/smoke-trace-retention.py --browser --binary target/debug/eez-observer --report artifacts/observability-tempo-retention-validation.json
+      - name: Protocol alert delivery, upstream suppression and recovery
         timeout-minutes: 15
-        run: python3 -u observability/tests/smoke-protocol-dashboards.py --report artifacts/observability-dashboards-validation.json
+        run: python3 -u observability/tests/smoke-alerts.py --report artifacts/observability-protocol-alerts-validation.json
+      - name: Delivered alert links and private runbook browser navigation
+        timeout-minutes: 5
+        env:
+          NODE_PATH: ${{ runner.temp }}/eez-observability-browser/node_modules
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/eez-observability-browser/browsers
+        run: python3 -u observability/tests/smoke-alert-links.py --report artifacts/observability-alert-links-validation.json
+      - name: Protocol dashboards and browser navigation against real backends
+        timeout-minutes: 15
+        env:
+          NODE_PATH: ${{ runner.temp }}/eez-observability-browser/node_modules
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/eez-observability-browser/browsers
+        run: python3 -u observability/tests/smoke-protocol-dashboards.py --browser --report artifacts/observability-dashboards-validation.json
       - name: Fresh-instance backup restore and canonical recovery
         timeout-minutes: 15
         run: python3 -u observability/tests/smoke-restore.py --binary target/debug/eez-observer --report artifacts/observability-restore-validation.json
@@ -122,7 +165,7 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               for path in sorted(pathlib.Path('artifacts').glob('observability-*-validation.json')):
                   report = json.loads(path.read_text())
-                  summary.write(f"- {path.stem}: {report.get('status', 'unknown')}; {len(report.get('checks', []))} recorded checks.\n")
+                  summary.write(f"- {path.stem}: {report.get('status', 'unknown')}; {len(report.get('checks', report.get('cases', [])))} recorded checks.\n")
                   if report.get('binary_sha256'):
                       summary.write(f"  Binary SHA-256: `{report['binary_sha256']}`\n")
           PYTHON
@@ -137,5 +180,7 @@ jobs:
             artifacts/observability-*-validation.logs.txt
             artifacts/observability-*-validation-*.logs.txt
             artifacts/observability-*-validation-*.log
+            artifacts/observability-*-validation-browser/*.json
+            artifacts/observability-*-validation-browser/*.png
           if-no-files-found: warn
           retention-days: 3

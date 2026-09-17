@@ -12,6 +12,12 @@ use crate::{
     database::{Database, DatabaseConfig},
 };
 
+// Interleave retries and new inclusions; append-only discovery cannot starve
+// a paid post whose earlier collection raced a reorg or provider failure.
+const CANDIDATES_SQL: &str = "WITH candidates AS (SELECT p.block_number,p.block_hash,bool_or(run.range_observed IS NOT TRUE) AS pending,min(run.last_attempt_at) AS attempted FROM eez.posting_receipts p LEFT JOIN eez.correlation_runs run ON run.l1_chain_id=p.chain_instance_id AND run.l2_chain_id=$2 AND run.transaction_hash=p.transaction_hash AND run.block_hash=p.block_hash WHERE p.chain_instance_id=$1 AND p.success GROUP BY p.block_number,p.block_hash), waiting AS (SELECT *,row_number() OVER(PARTITION BY attempted IS NULL ORDER BY attempted NULLS FIRST,block_number) AS ordinal FROM candidates WHERE pending) (SELECT block_number::text,block_hash::bytea FROM waiting ORDER BY ordinal,(attempted IS NOT NULL) DESC LIMIT 3) UNION ALL (SELECT block_number::text,block_hash::bytea FROM candidates WHERE NOT pending ORDER BY attempted,block_number LIMIT 1)";
+
+const VERIFY_RANGES_SQL: &str = "UPDATE eez.settlements s SET last_validation_at=now(),range_verified_at=CASE WHEN s.block_count=(SELECT count(*) FROM eez.settlement_blocks applied JOIN eez.blocks b ON b.chain_instance_id=$2 AND b.number=applied.number AND b.hash=applied.hash AND b.canonical WHERE applied.settlement_id=s.id) THEN now() ELSE NULL END WHERE s.id IN(SELECT id FROM eez.settlements WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND range_verified_at IS NULL ORDER BY last_validation_at,id LIMIT 16)";
+
 pub(super) async fn run(config: &Config, rpc: &Rpc, status: &SharedStatus) {
     if config.l1.contracts.is_empty() {
         return;
@@ -92,7 +98,11 @@ async fn collect(
             return Err(Error::SettlementFinality);
         }
     }
-    let rows=db.client.query("WITH candidates AS (SELECT p.block_number,p.block_hash,bool_or(run.range_observed IS NOT TRUE) AS pending,COALESCE(min(run.last_attempt_at),'epoch'::timestamptz) AS attempted FROM eez.posting_receipts p LEFT JOIN eez.correlation_runs run ON run.l1_chain_id=p.chain_instance_id AND run.l2_chain_id=$2 AND run.transaction_hash=p.transaction_hash AND run.block_hash=p.block_hash WHERE p.chain_instance_id=$1 AND p.success GROUP BY p.block_number,p.block_hash) (SELECT block_number::text,block_hash::bytea FROM candidates WHERE pending ORDER BY attempted,candidates.block_number LIMIT 3) UNION ALL (SELECT block_number::text,block_hash::bytea FROM candidates WHERE NOT pending ORDER BY attempted,candidates.block_number LIMIT 1)",&[&l1,&l2]).bounded().await?;
+    let rows = db
+        .client
+        .query(CANDIDATES_SQL, &[&l1, &l2])
+        .bounded()
+        .await?;
     let mut pending = Vec::new();
     for row in rows {
         pending.push(BlockRef {
@@ -112,32 +122,22 @@ async fn collect(
             hash: cursor.hash,
         });
     }
+    let mut failure = None;
     for anchor in pending {
-        let cursor1 = ledger::cursor(db, l1).await?.ok_or(Error::Bootstrap)?;
-        let cursor2 = ledger::cursor(db, l2).await?.ok_or(Error::Bootstrap)?;
-        db.client.execute("INSERT INTO eez.correlation_runs(l1_chain_id,l2_chain_id,transaction_hash,block_hash) SELECT $1,$2,transaction_hash,block_hash FROM eez.posting_receipts WHERE chain_instance_id=$1 AND block_hash=$3::bytea AND success ON CONFLICT(l1_chain_id,l2_chain_id,transaction_hash,block_hash) DO UPDATE SET last_attempt_at=now()",&[&l1,&l2,&anchor.hash.as_slice()]).bounded().await?;
-        let result = fetch(rpc, config, anchor).await;
-        let claims = match result {
-            Ok(claims) => claims,
-            Err(error) => {
-                db.client.execute("UPDATE eez.correlation_runs SET collection_error=$4 WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND block_hash=$3::bytea",&[&l1,&l2,&anchor.hash.as_slice(),&error.label()]).bounded().await?;
-                return Err(error);
-            }
-        };
-        verify_cursors(rpc, config, &cursor1, &cursor2).await?;
-        if remote_block(rpc, &config.exporter.l1, anchor.number)
-            .await?
-            .hash
-            != anchor.hash
-        {
-            return Err(Error::Inconsistent);
+        if let Err(error) = collect_anchor(db, config, rpc, l1, l2, anchor).await {
+            db.client.execute("UPDATE eez.correlation_runs SET collection_error=$4 WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND block_hash=$3::bytea", &[&l1,&l2,&anchor.hash.as_slice(),&error.label()]).bounded().await?;
+            failure.get_or_insert(error);
         }
-        save(db, l1, l2, &cursor1, &cursor2, anchor, &claims).await?;
     }
-    let cursor1 = ledger::cursor(db, l1).await?.ok_or(Error::Bootstrap)?;
-    let cursor2 = ledger::cursor(db, l2).await?.ok_or(Error::Bootstrap)?;
-    verify_cursors(rpc, config, &cursor1, &cursor2).await?;
-    promote(db, l1, l2, &cursor1, &cursor2).await?;
+    let checkpoint1 = ledger::historical_checkpoint(db, l1).await?;
+    let checkpoint2 = ledger::historical_checkpoint(db, l2).await?;
+    let cursor1 = &checkpoint1.cursor;
+    let cursor2 = &checkpoint2.cursor;
+    verify_cursors(rpc, config, cursor1, cursor2).await?;
+    promote(db, l1, l2, &checkpoint1, &checkpoint2, failure).await?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
     let coverage = db.client.query_one("SELECT posts_with_gaps,finality_pending_ranges FROM eez.settlement_coverage WHERE l1_chain_id=$1 AND l2_chain_id=$2",&[&l1,&l2]).bounded().await?;
     let gaps: i64 = coverage.try_get(0)?;
     let finality_pending: i64 = coverage.try_get(1)?;
@@ -160,6 +160,29 @@ async fn collect(
             .transpose()?,
         ..Status::default()
     })
+}
+
+async fn collect_anchor(
+    db: &mut Database,
+    config: &Config,
+    rpc: &Rpc,
+    l1: i64,
+    l2: i64,
+    anchor: BlockRef,
+) -> Result<(), Error> {
+    let checkpoint1 = ledger::historical_checkpoint(db, l1).await?;
+    let checkpoint2 = ledger::historical_checkpoint(db, l2).await?;
+    db.client.execute("INSERT INTO eez.correlation_runs(l1_chain_id,l2_chain_id,transaction_hash,block_hash) SELECT $1,$2,transaction_hash,block_hash FROM eez.posting_receipts WHERE chain_instance_id=$1 AND block_hash=$3::bytea AND success ON CONFLICT(l1_chain_id,l2_chain_id,transaction_hash,block_hash) DO UPDATE SET last_attempt_at=now()", &[&l1,&l2,&anchor.hash.as_slice()]).bounded().await?;
+    let claims = fetch(rpc, config, anchor).await?;
+    verify_cursors(rpc, config, &checkpoint1.cursor, &checkpoint2.cursor).await?;
+    if remote_block(rpc, &config.exporter.l1, anchor.number)
+        .await?
+        .hash
+        != anchor.hash
+    {
+        return Err(Error::Inconsistent);
+    }
+    save(db, l1, l2, &checkpoint1, &checkpoint2, anchor, &claims).await
 }
 
 fn decode_hash(bytes: Vec<u8>) -> Result<B256, Error> {
@@ -197,13 +220,13 @@ async fn lock_pair(
     transaction: &tokio_postgres::Transaction<'_>,
     l1: i64,
     l2: i64,
-    cursor1: &Block,
-    cursor2: &Block,
+    checkpoint1: &ledger::HistoricalCheckpoint,
+    checkpoint2: &ledger::HistoricalCheckpoint,
 ) -> Result<(), Error> {
-    let mut cursors = [(l1, cursor1), (l2, cursor2)];
+    let mut cursors = [(l1, checkpoint1), (l2, checkpoint2)];
     cursors.sort_by_key(|(id, _)| *id);
     for (id, cursor) in cursors {
-        ledger::lock_cursor(transaction, id, Some(cursor)).await?;
+        ledger::lock_historical(transaction, id, cursor).await?;
     }
     Ok(())
 }
@@ -212,13 +235,13 @@ async fn save(
     db: &mut Database,
     l1: i64,
     l2: i64,
-    cursor1: &Block,
-    cursor2: &Block,
+    checkpoint1: &ledger::HistoricalCheckpoint,
+    checkpoint2: &ledger::HistoricalCheckpoint,
     anchor: BlockRef,
     claims: &[Settlement],
 ) -> Result<(), Error> {
     let transaction = db.client.transaction().bounded().await?;
-    lock_pair(&transaction, l1, l2, cursor1, cursor2).await?;
+    lock_pair(&transaction, l1, l2, checkpoint1, checkpoint2).await?;
     let records: Vec<_> = claims.iter().map(|claim| {
         let mut digest=Sha256::new();
         digest.update(claim.transaction_index.to_be_bytes());
@@ -247,16 +270,26 @@ async fn promote(
     db: &mut Database,
     l1: i64,
     l2: i64,
-    cursor1: &Block,
-    cursor2: &Block,
+    checkpoint1: &ledger::HistoricalCheckpoint,
+    checkpoint2: &ledger::HistoricalCheckpoint,
+    collection_error: Option<Error>,
 ) -> Result<(), Error> {
     let transaction = db.client.transaction().bounded().await?;
-    lock_pair(&transaction, l1, l2, cursor1, cursor2).await?;
-    let changed=transaction.execute("UPDATE eez.correlation_sources SET last_success_at=now(),collection_error=NULL WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND frozen_reason IS NULL",&[&l1,&l2]).bounded().await?;
+    lock_pair(&transaction, l1, l2, checkpoint1, checkpoint2).await?;
+    let changed=transaction.execute("UPDATE eez.correlation_sources SET last_success_at=CASE WHEN $3::text IS NULL THEN now() ELSE last_success_at END,collection_error=$3 WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND frozen_reason IS NULL",&[&l1,&l2,&collection_error.map(Error::label)]).bounded().await?;
     if changed != 1 {
         return Err(Error::SettlementFinality);
     }
-    transaction.execute("UPDATE eez.settlements s SET last_validation_at=now(),range_verified_at=CASE WHEN s.block_count=(SELECT count(*) FROM eez.settlement_blocks applied JOIN eez.blocks b ON b.chain_instance_id=$2 AND b.number=applied.number AND b.hash=applied.hash AND b.canonical WHERE applied.settlement_id=s.id) THEN now() ELSE NULL END WHERE s.id IN(SELECT id FROM eez.settlements WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND range_verified_at IS NULL ORDER BY last_validation_at,id LIMIT 16)",&[&l1,&l2]).bounded().await?;
+    transaction
+        .execute(VERIFY_RANGES_SQL, &[&l1, &l2])
+        .bounded()
+        .await?;
+    // Independent range work can progress during a partial pass. Its global
+    // source stays unknown and finality cannot advance until collection heals.
+    if collection_error.is_some() {
+        transaction.commit().bounded().await?;
+        return Ok(());
+    }
     let ids:Vec<i64>=transaction.query("SELECT id FROM eez.settlements WHERE l1_chain_id=$1 AND l2_chain_id=$2 AND range_verified_at IS NOT NULL AND NOT finality_done ORDER BY last_finality_attempt_at,id LIMIT 16",&[&l1,&l2]).bounded().await?.iter().map(|row|row.try_get(0)).collect::<Result<_,_>>()?;
     transaction
         .execute(

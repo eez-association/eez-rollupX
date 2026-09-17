@@ -1,0 +1,290 @@
+{
+  "status": "passed",
+  "scope": "generated node-host collector, isolated Loki; synthetic diagnostic records, no native protocol acceptance",
+  "checks": [
+    "generated_compose_owner_only_sources_and_persistent_positions_started",
+    "actual_loki_preserves_reviewed_decision_hash_position_cut_trace_fields",
+    "secret_url_signed_body_invalid_scalar_debug_unknown_event_excluded",
+    "loki_index_contains_only_bounded_common_identity_labels",
+    "actual_generated_grafana_loki_annotation_matches_startup_and_policy_markers",
+    "rotated_policy_annotation_is_queryable_after_collector_restart",
+    "collector_metrics_actual_name_and_label_key_inventory",
+    "actual_prometheus_native_scrape_drops_hash_address_samples_keeps_finite_eez_and_client_series",
+    "actual_prometheus_generated_scrape_drops_rotating_path_series_preserves_health",
+    "default_group_reader_after_owner_reconfiguration_preserves_positions_and_reads_new_event"
+  ],
+  "collector_metrics_inventory": {
+    "format": "metric sample names/types and label keys only; no label/sample values",
+    "types": {
+      "alloy_build_info": "gauge",
+      "alloy_component_controller_evaluating": "gauge",
+      "alloy_component_controller_running_components": "gauge",
+      "alloy_component_dependencies_wait_seconds": "histogram",
+      "alloy_component_evaluation_queue_size": "gauge",
+      "alloy_component_evaluation_seconds": "histogram",
+      "alloy_component_graph_connection": "gauge",
+      "alloy_config_hash": "gauge",
+      "alloy_config_last_load_success_timestamp_seconds": "gauge",
+      "alloy_config_last_load_successful": "gauge",
+      "alloy_config_load_failures_total": "counter",
+      "alloy_labelstore_global_ids_count": "gauge",
+      "alloy_labelstore_last_stale_check_timestamp": "gauge",
+      "alloy_resources_machine_rx_bytes_total": "counter",
+      "alloy_resources_machine_tx_bytes_total": "counter",
+      "alloy_resources_process_cpu_seconds_total": "counter",
+      "alloy_resources_process_resident_memory_bytes": "gauge",
+      "alloy_resources_process_start_time_seconds": "gauge",
+      "alloy_resources_process_virtual_memory_bytes": "gauge",
+      "deprecated_flags_inuse_total": "counter",
+      "go_gc_duration_seconds": "summary",
+      "go_gc_gogc_percent": "gauge",
+      "go_gc_gomemlimit_bytes": "gauge",
+      "go_goroutines": "gauge",
+      "go_info": "gauge",
+      "go_memstats_alloc_bytes": "gauge",
+      "go_memstats_alloc_bytes_total": "counter",
+      "go_memstats_buck_hash_sys_bytes": "gauge",
+      "go_memstats_frees_total": "counter",
+      "go_memstats_gc_sys_bytes": "gauge",
+      "go_memstats_heap_alloc_bytes": "gauge",
+      "go_memstats_heap_idle_bytes": "gauge",
+      "go_memstats_heap_inuse_bytes": "gauge",
+      "go_memstats_heap_objects": "gauge",
+      "go_memstats_heap_released_bytes": "gauge",
+      "go_memstats_heap_sys_bytes": "gauge",
+      "go_memstats_last_gc_time_seconds": "gauge",
+      "go_memstats_mallocs_total": "counter",
+      "go_memstats_mcache_inuse_bytes": "gauge",
+      "go_memstats_mcache_sys_bytes": "gauge",
+      "go_memstats_mspan_inuse_bytes": "gauge",
+      "go_memstats_mspan_sys_bytes": "gauge",
+      "go_memstats_next_gc_bytes": "gauge",
+      "go_memstats_other_sys_bytes": "gauge",
+      "go_memstats_stack_inuse_bytes": "gauge",
+      "go_memstats_stack_sys_bytes": "gauge",
+      "go_memstats_sys_bytes": "gauge",
+      "go_sched_gomaxprocs_threads": "gauge",
+      "go_threads": "gauge",
+      "loki_experimental_features_in_use_total": "counter",
+      "loki_relabel_cache_hits": "counter",
+      "loki_relabel_cache_misses": "counter",
+      "loki_relabel_cache_size": "gauge",
+      "loki_relabel_entries_processed": "counter",
+      "loki_relabel_entries_written": "counter",
+      "loki_source_file_file_bytes_total": "gauge",
+      "loki_source_file_files_active_total": "gauge",
+      "net_conntrack_dialer_conn_attempted_total": "counter",
+      "net_conntrack_dialer_conn_closed_total": "counter",
+      "net_conntrack_dialer_conn_established_total": "counter",
+      "net_conntrack_dialer_conn_failed_total": "counter",
+      "postgres_exporter_config_last_reload_success_timestamp_seconds": "gauge",
+      "postgres_exporter_config_last_reload_successful": "gauge",
+      "process_cpu_seconds_total": "counter",
+      "process_max_fds": "gauge",
+      "process_network_receive_bytes_total": "counter",
+      "process_network_transmit_bytes_total": "counter",
+      "process_open_fds": "gauge",
+      "process_resident_memory_bytes": "gauge",
+      "process_start_time_seconds": "gauge",
+      "process_virtual_memory_bytes": "gauge",
+      "process_virtual_memory_max_bytes": "gauge",
+      "prometheus_remote_storage_exemplars_in_total": "counter",
+      "prometheus_remote_storage_histograms_in_total": "counter",
+      "prometheus_remote_storage_samples_in_total": "counter",
+      "prometheus_remote_storage_string_interner_zero_reference_releases_total": "counter",
+      "prometheus_template_text_expansion_failures_total": "counter",
+      "prometheus_template_text_expansions_total": "counter",
+      "prometheus_treecache_watcher_goroutines": "gauge",
+      "prometheus_treecache_zookeeper_failures_total": "counter",
+      "remotecfg_hash": "gauge",
+      "remotecfg_last_load_not_modified": "gauge",
+      "remotecfg_last_load_success_timestamp_seconds": "gauge",
+      "remotecfg_last_load_successful": "gauge",
+      "remotecfg_load_attempts_total": "counter",
+      "remotecfg_load_failures_total": "counter",
+      "remotecfg_request_duration_seconds": "histogram"
+    },
+    "samples": {
+      "alloy_build_info": [
+        "branch",
+        "goarch",
+        "goos",
+        "goversion",
+        "revision",
+        "tags",
+        "version"
+      ],
+      "alloy_component_controller_evaluating": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_controller_running_components": [
+        "controller_id",
+        "controller_path",
+        "health_type"
+      ],
+      "alloy_component_dependencies_wait_seconds_bucket": [
+        "controller_id",
+        "controller_path",
+        "le"
+      ],
+      "alloy_component_dependencies_wait_seconds_count": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_dependencies_wait_seconds_sum": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_evaluation_queue_size": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_evaluation_seconds_bucket": [
+        "controller_id",
+        "controller_path",
+        "le"
+      ],
+      "alloy_component_evaluation_seconds_count": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_evaluation_seconds_sum": [
+        "controller_id",
+        "controller_path"
+      ],
+      "alloy_component_graph_connection": [
+        "controller_id",
+        "controller_path",
+        "from",
+        "to"
+      ],
+      "alloy_config_hash": [
+        "cluster_name",
+        "sha256"
+      ],
+      "alloy_config_last_load_success_timestamp_seconds": [],
+      "alloy_config_last_load_successful": [],
+      "alloy_config_load_failures_total": [],
+      "alloy_labelstore_global_ids_count": [],
+      "alloy_labelstore_last_stale_check_timestamp": [],
+      "alloy_resources_machine_rx_bytes_total": [],
+      "alloy_resources_machine_tx_bytes_total": [],
+      "alloy_resources_process_cpu_seconds_total": [],
+      "alloy_resources_process_resident_memory_bytes": [],
+      "alloy_resources_process_start_time_seconds": [],
+      "alloy_resources_process_virtual_memory_bytes": [],
+      "deprecated_flags_inuse_total": [],
+      "go_gc_duration_seconds": [
+        "quantile"
+      ],
+      "go_gc_duration_seconds_count": [],
+      "go_gc_duration_seconds_sum": [],
+      "go_gc_gogc_percent": [],
+      "go_gc_gomemlimit_bytes": [],
+      "go_goroutines": [],
+      "go_info": [
+        "version"
+      ],
+      "go_memstats_alloc_bytes": [],
+      "go_memstats_alloc_bytes_total": [],
+      "go_memstats_buck_hash_sys_bytes": [],
+      "go_memstats_frees_total": [],
+      "go_memstats_gc_sys_bytes": [],
+      "go_memstats_heap_alloc_bytes": [],
+      "go_memstats_heap_idle_bytes": [],
+      "go_memstats_heap_inuse_bytes": [],
+      "go_memstats_heap_objects": [],
+      "go_memstats_heap_released_bytes": [],
+      "go_memstats_heap_sys_bytes": [],
+      "go_memstats_last_gc_time_seconds": [],
+      "go_memstats_mallocs_total": [],
+      "go_memstats_mcache_inuse_bytes": [],
+      "go_memstats_mcache_sys_bytes": [],
+      "go_memstats_mspan_inuse_bytes": [],
+      "go_memstats_mspan_sys_bytes": [],
+      "go_memstats_next_gc_bytes": [],
+      "go_memstats_other_sys_bytes": [],
+      "go_memstats_stack_inuse_bytes": [],
+      "go_memstats_stack_sys_bytes": [],
+      "go_memstats_sys_bytes": [],
+      "go_sched_gomaxprocs_threads": [],
+      "go_threads": [],
+      "loki_experimental_features_in_use_total": [],
+      "loki_relabel_cache_hits": [
+        "component_id",
+        "component_path"
+      ],
+      "loki_relabel_cache_misses": [
+        "component_id",
+        "component_path"
+      ],
+      "loki_relabel_cache_size": [
+        "component_id",
+        "component_path"
+      ],
+      "loki_relabel_entries_processed": [
+        "component_id",
+        "component_path"
+      ],
+      "loki_relabel_entries_written": [
+        "component_id",
+        "component_path"
+      ],
+      "loki_source_file_file_bytes_total": [
+        "component_id",
+        "component_path",
+        "path"
+      ],
+      "loki_source_file_files_active_total": [
+        "component_id",
+        "component_path"
+      ],
+      "net_conntrack_dialer_conn_attempted_total": [
+        "dialer_name"
+      ],
+      "net_conntrack_dialer_conn_closed_total": [
+        "dialer_name"
+      ],
+      "net_conntrack_dialer_conn_established_total": [
+        "dialer_name"
+      ],
+      "net_conntrack_dialer_conn_failed_total": [
+        "dialer_name",
+        "reason"
+      ],
+      "postgres_exporter_config_last_reload_success_timestamp_seconds": [],
+      "postgres_exporter_config_last_reload_successful": [],
+      "process_cpu_seconds_total": [],
+      "process_max_fds": [],
+      "process_network_receive_bytes_total": [],
+      "process_network_transmit_bytes_total": [],
+      "process_open_fds": [],
+      "process_resident_memory_bytes": [],
+      "process_start_time_seconds": [],
+      "process_virtual_memory_bytes": [],
+      "process_virtual_memory_max_bytes": [],
+      "prometheus_remote_storage_exemplars_in_total": [],
+      "prometheus_remote_storage_histograms_in_total": [],
+      "prometheus_remote_storage_samples_in_total": [],
+      "prometheus_remote_storage_string_interner_zero_reference_releases_total": [],
+      "prometheus_template_text_expansion_failures_total": [],
+      "prometheus_template_text_expansions_total": [],
+      "prometheus_treecache_watcher_goroutines": [],
+      "prometheus_treecache_zookeeper_failures_total": [],
+      "remotecfg_hash": [
+        "hash"
+      ],
+      "remotecfg_last_load_not_modified": [],
+      "remotecfg_last_load_success_timestamp_seconds": [],
+      "remotecfg_last_load_successful": [],
+      "remotecfg_load_attempts_total": [],
+      "remotecfg_load_failures_total": [],
+      "remotecfg_request_duration_seconds_bucket": [
+        "le"
+      ],
+      "remotecfg_request_duration_seconds_count": [],
+      "remotecfg_request_duration_seconds_sum": []
+    }
+  }
+}

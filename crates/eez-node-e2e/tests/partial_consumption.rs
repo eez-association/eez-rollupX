@@ -2,6 +2,9 @@
 //! one source user; later dependent users execute and revert on real EEZ.
 //! Builder permission/omission semantics are tested separately on rbuilder.
 
+#[path = "common/observer.rs"]
+mod observer;
+
 use std::time::Duration;
 
 use alloy_consensus::{
@@ -59,8 +62,22 @@ fn enabled_policy_env() -> Vec<(&'static str, String)> {
 }
 
 async fn partial_after_proving(omitted: usize, restart_before_retry: bool, policy: bool) {
-    let env = if policy { enabled_policy_env() } else { vec![] };
+    let telemetry =
+        restart_before_retry.then(|| observer::Telemetry::new("native-partial-restart").unwrap());
+    let mut env = if policy { enabled_policy_env() } else { vec![] };
+    if let Some(telemetry) = &telemetry {
+        env.push(telemetry.env());
+    }
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
+    let observer = if let Some(telemetry) = &telemetry {
+        Some(
+            observer::Observer::start(&world, &telemetry.spool, telemetry.deployment)
+                .await
+                .unwrap(),
+        )
+    } else {
+        None
+    };
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
         .unwrap();
@@ -262,6 +279,12 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool, polic
             .unwrap();
         assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
         assert_eq!(held["params"][0]["txs"][1], request["txs"][omitted + 1]);
+        // Observer catch-up can outlast the one-shot relay's 60s timeout. Keep
+        // later attempts for this exact source held until the planned restart;
+        // otherwise a valid later retry can commit before the crash assertion.
+        world
+            .hold_source_bundles(request["txs"][omitted + 1].as_str().unwrap())
+            .unwrap();
         let target = u64::from_str_radix(
             held["params"][0]["blockNumber"]
                 .as_str()
@@ -308,7 +331,31 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool, polic
         .unwrap();
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
+        let observer = observer.as_ref().unwrap();
+        observer.outcome(hashes[0], "committed").await.unwrap();
+        observer
+            .outcome(hashes[2], "source_reverted")
+            .await
+            .unwrap();
+        observer
+            .receipt(&world.l1_rpc(), "l1", post_hash)
+            .await
+            .unwrap();
+        observer.allocation(hashes[omitted]).await.unwrap();
+        observer.paid_post(post_hash, 3).await.unwrap();
+        observer.wait_sql(&format!("SELECT count(*)=1 FROM eez.lifecycle_admission_status WHERE source->>'transaction_hash'='{:x}' AND status='unresolved'", hashes[omitted]), "t").await.unwrap();
+        let original_admission = observer.admissions(hashes[omitted]).await.unwrap();
+        assert_eq!(original_admission.as_array().unwrap().len(), 1);
         world.restart_composer().await.unwrap();
+        observer
+            .reconnect_after_native_restart(&world)
+            .await
+            .unwrap();
+        observer.wait_sql(&format!("SELECT count(*)=1 FROM eez.lifecycle_admission_status WHERE source->>'transaction_hash'='{:x}' AND status='unresolved_restart'", hashes[omitted]), "t").await.unwrap();
+        assert_eq!(
+            observer.admissions(hashes[omitted]).await.unwrap()[0]["epoch"],
+            original_admission[0]["epoch"]
+        );
         wait_for(TIMEOUT, || async {
             Ok((l1.get_block_number().await? > target).then_some(()))
         })
@@ -335,6 +382,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool, polic
                 .unwrap()
                 .is_none()
         );
+        world.clear_source_bundle_hold().unwrap();
         let raw: Bytes = request["txs"][omitted + 1]
             .as_str()
             .unwrap()
@@ -391,6 +439,58 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool, polic
     };
     assert_eq!(retry_settlement.fields["outcomes"], "[Terminal(Committed)]");
     assert!(retried.status());
+    if let Some(observer) = &observer {
+        observer
+            .outcome(hashes[omitted], "committed")
+            .await
+            .unwrap();
+        let admissions = observer.admissions(hashes[omitted]).await.unwrap();
+        let admissions = admissions.as_array().unwrap();
+        assert_eq!(
+            admissions.len(),
+            2,
+            "restart resubmission must retain both actual admissions"
+        );
+        assert_ne!(admissions[0]["epoch"], admissions[1]["epoch"]);
+        assert_eq!(
+            admissions
+                .iter()
+                .filter(|row| row["status"] == "unresolved_restart")
+                .count(),
+            1
+        );
+        assert_eq!(
+            admissions
+                .iter()
+                .filter(|row| row["status"] == "canonical" && row["outcome"] == "committed")
+                .count(),
+            1
+        );
+        for hash in &hashes {
+            observer
+                .receipt(&world.l1_rpc(), "l1", *hash)
+                .await
+                .unwrap();
+        }
+        observer
+            .paid_post(retry_settlement.b256("post_batch_hash").unwrap(), 1)
+            .await
+            .unwrap();
+        observer
+            .receipt(
+                &world.l1_rpc(),
+                "l1",
+                retry_settlement.b256("post_batch_hash").unwrap(),
+            )
+            .await
+            .unwrap();
+        observer.outcome(hashes[0], "committed").await.unwrap();
+        observer
+            .outcome(hashes[2], "source_reverted")
+            .await
+            .unwrap();
+        observer.allocation(hashes[omitted]).await.unwrap();
+    }
     assert!(retried.block_number.unwrap() > inclusion_block);
     assert_ne!(expected_prefix, full_hash);
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());

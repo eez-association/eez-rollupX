@@ -108,7 +108,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
                 "eez-composer": {},
                 "eez-blob-codec": {},
-                "eez-observer": {},
+                "eez-observer": {"src/main.rs": "eez-observer"},
             }
             (repo / "Cargo.toml").write_text(
                 '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
@@ -218,7 +218,7 @@ class RuntimeDockerTest(unittest.TestCase):
                                        env=consumer_env, check=True)
                 self.assertFalse(manifest["published"])
                 for role, binaries in {
-                    "node": ("eez-composer", "eez-follower", "eez-genesis-state-root", "eez-genesis-block-hash"),
+                    "node": ("eez-composer", "eez-follower", "eez-observer", "eez-genesis-state-root", "eez-genesis-block-hash"),
                     "signer": ("eez-proof-signer",),
                     "deploy": ("eez-genesis-state-root", "eez-genesis-block-hash"),
                 }.items():

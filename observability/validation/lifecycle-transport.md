@@ -54,3 +54,11 @@ no package versions changed. Audit retains the same 14 pre-existing allowed
 warnings with unchanged policy. These tests use isolated temporary files and
 local sockets. SQL ingestion, process-kill recovery and hard-volume drills remain
 unverified; unlinking a fixture is not evidence of a physical storage quota.
+
+
+Physical-volume follow-up (2026-09-17): [spool-quota.md](spool-quota.md) records six
+passed groups on a fixed 3 GiB ext4 image: open-unlinked accounting, real native
+writer ENOSPC/loss/recovery, bounded-reader descriptor release and deliberately
+stopped Alloy cleanup. Earlier outstanding physical-cap statements above describe
+their dated checkpoints. Native protocol progress under telemetry faults and the
+overhead/deployment gates remain open.

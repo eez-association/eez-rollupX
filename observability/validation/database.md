@@ -1,5 +1,40 @@
 # Canonical database/scanner evidence
 
+## Historical enrichment under continuous appends
+
+The subsequent observer passed **64 grouped checks**, adding historical-checkpoint
+and retry fairness coverage to the complete suite below. This fixes a native
+integration failure where ordinary scanner appends rejected historical settlement
+evidence and new posts starved older retries. Scanner cursor compare-and-swap
+remains strict; enrichment now fences against canonical revision and exact anchor
+membership. Independent range verification can progress during partial collection,
+while overall error/unknown and finality gates remain conservative.
+
+Binary SHA-256: `ece81ef88ea7e7798c9d379b98ead21ca8eab5980064d8c2f79e06b93c0b9f68`.
+Frozen inputs: `/tmp/eez-observability-schema20-append`; local output:
+`/tmp/eez-observability-schema20-append-database.{json,log}`. The current
+[report](database.json) includes this follow-up; the preceding 63-group result
+below is retained as earlier evidence. Native acceptance remains a separate run.
+
+## Combined schema20 validation
+
+The rebuilt observer passed **63 grouped real PostgreSQL/process checks**, including
+saved binaries from schemas1/4/5/6/8/13/14, checksum/downgrade refusal, the actual
+chain-lock concurrency regression and the 101-equivalent-claim reader query.
+Canonical/reorg/restart, lifecycle replay/quarantine/gaps, source/native evidence,
+exact cost allocation, finality, settled-transaction denominators, blob coverage
+and funding cases all passed. This run includes the `FOR NO KEY UPDATE` runtime
+fix and schema20 cost planning boundaries.
+
+Binary SHA-256: `c43171967f9ce0766eff34ab0d1b86a39f11bdd6758467ff853663509436ddeb`.
+The exact binary and inputs were frozen in `/tmp/eez-observability-schema20-joint`;
+local output is `/tmp/eez-observability-schema20-database.{json,log}`. The retained
+[report](database.json) records migration and binary identities and every grouped
+check. These are real processes/SQL with synthetic RPC histories; native workload
+and production capacity acceptance remain separate. Earlier dated sections below
+record prior slices and do not supersede this combined result.
+
+
 2026-09-16. Branch `feat/network-observability`; isolated PostgreSQL 18.6 and
 synthetic read-only RPC fixtures only. No Chiado services, transactions, keys,
 chain data or production databases were touched. This is receipt-indexer

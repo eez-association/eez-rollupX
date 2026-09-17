@@ -1,0 +1,47 @@
+{
+  "status": "passed",
+  "scope": "measurement tooling, actual query worker cgroup and bounded loopback receivers; not native overhead acceptance",
+  "tests_passed": 18,
+  "tests_seconds": 4.782,
+  "raw_report_local": "/tmp/eez-overhead-resources-overall-final.json",
+  "raw_report_sha256": "ab58dc2f844aedc05d84817bd9c5cdd73bd391c0766454548269c011af935adb",
+  "log_local": "/tmp/eez-overhead-resources-overall-final.log",
+  "source_sha256": {
+    "observability/tests/overhead_resources.py": "e53563e177b4af62f3f9bafa2857cfd70cdc06aef46d379f21f709f907ecc2ea",
+    "observability/tests/test_overhead_resources.py": "e4b780d24ae20c54a8679f33185fa6f543a5e35dc592ad613d92f1634b12854a",
+    "observability/images.lock.json": "f664c75a6136a385939474c86c4f4ec816f73a94572341e788bed5db74a24fb6"
+  },
+  "postgres_query_worker": {
+    "cpu_seconds": 0.235104,
+    "sampled_peak_memory_bytes": 101228544,
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0,
+      "sock_throttled": 0
+    }
+  },
+  "clock_ticks_per_second": 100,
+  "combined_suite": {
+    "passed": 83,
+    "log_local": "/tmp/eez-observability-final-python-integrated.log"
+  },
+  "pending": [
+    "corrected paired native experiment and threshold decision",
+    "shipping-artifact and deployment acceptance"
+  ],
+  "previous_tooling_pass": {
+    "tests_passed": 17,
+    "tests_seconds": 4.625,
+    "raw_report_local": "/tmp/eez-overhead-resources-complete.json",
+    "raw_report_sha256": "f9252ed4cab4084d299b6ab93e5cd44a81bb5196ba800b7428ab639d6fc5eb0c",
+    "source_sha256": {
+      "observability/tests/overhead_resources.py": "fef469956edf4a4199fb7982c48d42c437e3f64bbd0df8ab90b4193127f64e72",
+      "observability/tests/test_overhead_resources.py": "965a8a65ccd773c3235b62604fd80e776af77f17dcbc4700444f5f83a4e20671",
+      "observability/images.lock.json": "f664c75a6136a385939474c86c4f4ec816f73a94572341e788bed5db74a24fb6"
+    }
+  }
+}

@@ -134,6 +134,10 @@ It is not an admission journal and never acknowledges durable protocol state.
 reduce those limits, but must fit two segments; absolute spool path is required.
 Reserve a separate physical 3 GiB filesystem budget because open-unlinked files,
 metadata and crashed-writer files are not bounded by visible retained bytes alone.
+The isolated [physical-volume drill](../validation/spool-quota.md) verifies an
+actual fixed 3 GiB ext4 image, held-unlinked files, native/Alloy descriptor release,
+ENOSPC loss and recovery. Deployment quota provisioning and native protocol
+progress under those faults remain separate gates.
 
 The writer holds exclusive OS locks on `instance.lock` and `<epoch>.lock` for
 its lifetime. The directory is dedicated to one configured process identity.

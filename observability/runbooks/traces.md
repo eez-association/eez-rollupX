@@ -38,7 +38,10 @@ For another node host, use a private authenticated forwarding path to this
 loopback listener. Do not expose the unauthenticated OTLP or Tempo query ports
 publicly. The trace receiver accepts OTLP/HTTP only; the application exporter uses
 `/v1/traces`. Native process identities come from the same generated configuration
-as Prometheus labels, and native JSON span fields contain optional `trace_id`.
+as Prometheus labels. JSON logs contain optional `trace_id` in span fields when
+their logging filter includes the trace target; the reviewed successful prover
+attestation event also carries it directly in event fields for native Reth
+filters that omit those spans. The node-agent projection supports both forms.
 
 ## Navigation and missing traces
 
@@ -60,7 +63,12 @@ Tempo persists WAL, blocks and scheduler state in `tempo-data`. Both its schedul
 and worker receive seven-day block retention (`168h`); compaction and polling can
 delay physical deletion. This is a retention policy, not a filesystem quota.
 Provision and monitor a separate storage budget using the main host/storage
-runbook. Recreating the container preserves its named volume.
+runbook. Recreating the container preserves its named volume. The
+[actual retention fixture](../validation/trace-retention.md) verifies deletion
+of an initially queryable historical block while recent traces and durable SQL
+evidence remain intact. Live-store cache cleanup and blocklist polling can keep
+a trace queryable beyond backend marking; a missing query alone never proves
+physical deletion.
 
 Initial pilot container budgets are 1 GiB/one CPU for Tempo and 256 MiB/half a CPU
 for Alloy traces. These are tested small-fixture limits, not a measured production
@@ -114,3 +122,8 @@ separate gates.
 Implementation references: [Tempo monolithic deployment](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/locally/linux/),
 [Tempo configuration](https://grafana.com/docs/tempo/latest/configuration/), and
 [Alloy bounded OTLP exporter](https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.exporter.otlphttp/).
+
+The independent physical-retention gate is
+`python3 observability/tests/smoke-trace-retention.py --binary target/debug/eez-observer --report /tmp/eez-trace-retention.json`.
+It uses only disposable services, historical synthetic spans and fixture-only
+accelerated maintenance cadence, preserving the 168-hour retention threshold.

@@ -49,13 +49,14 @@ RUN --mount=type=cache,id=runtime-cargo-registry,target=/usr/local/cargo/registr
     --mount=type=secret,id=SCCACHE_REDIS_RW_MODE,env=SCCACHE_REDIS_RW_MODE \
     EEZ_BUILD_METRICS_DIR=/out/build-metrics \
     bash /usr/local/lib/eez/with-compiler-cache.sh runtime cargo build --locked --timings --profile release \
-        -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 \
-        --bin eez-composer --bin eez-follower --bin eez-proof-signer \
+        -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 -p eez-observer \
+        --bin eez-composer --bin eez-follower --bin eez-proof-signer --bin eez-observer \
         --example genesis_state_root --example genesis_block_hash \
         --example e2e-causal-verify --example verify_blob_evidence \
     && install -D target/release/eez-composer /out/bin/eez-composer \
     && install -D target/release/eez-follower /out/bin/eez-follower \
     && install -D target/release/eez-proof-signer /out/bin/eez-proof-signer \
+    && install -D target/release/eez-observer /out/bin/eez-observer \
     && install -D target/release/examples/genesis_state_root /out/bin/eez-genesis-state-root \
     && install -D target/release/examples/genesis_block_hash /out/bin/eez-genesis-block-hash \
     && install -D target/release/examples/e2e-causal-verify /out/bin/e2e-causal-verify \
@@ -75,7 +76,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 
 FROM runtime-base AS node
-COPY --from=builder /out/bin/eez-composer /out/bin/eez-follower /out/bin/eez-genesis-state-root /out/bin/eez-genesis-block-hash /usr/local/bin/
+COPY --from=builder /out/bin/eez-composer /out/bin/eez-follower /out/bin/eez-observer /out/bin/eez-genesis-state-root /out/bin/eez-genesis-block-hash /usr/local/bin/
 ENTRYPOINT ["eez-composer"]
 CMD ["--help"]
 

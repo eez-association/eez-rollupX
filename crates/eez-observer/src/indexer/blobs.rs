@@ -294,16 +294,18 @@ async fn collect(
     chain: i64,
 ) -> Result<(), Error> {
     let endpoint = &config.exporter.l1;
-    let cursor = ledger::cursor(db, chain).await?.ok_or(Error::Bootstrap)?;
+    let checkpoint = ledger::historical_checkpoint(db, chain).await?;
     {
         let transaction = db.client.transaction().bounded().await?;
-        ledger::lock_cursor(&transaction, chain, Some(&cursor)).await?;
+        ledger::lock_historical(&transaction, chain, &checkpoint).await?;
         transaction.commit().bounded().await?;
     }
     // Measured content is immutable and never fetched again. Missing/pruned
     // historical rows rotate persistently with new posts; no one gap blocks all.
     let rows=db.client.query("WITH candidates AS (SELECT p.transaction_hash,p.block_hash,p.block_number,p.transaction_index,p.timestamp_seconds,p.calldata_hash,p.purchased_blobs,a.last_attempt_at FROM eez.posting_receipts p LEFT JOIN eez.blob_attempts a USING(chain_instance_id,transaction_hash) WHERE p.chain_instance_id=$1 AND p.transaction_type=3 AND NOT EXISTS(SELECT FROM eez.blob_measurements measured WHERE measured.chain_instance_id=p.chain_instance_id AND measured.transaction_hash=p.transaction_hash)) SELECT transaction_hash::bytea,block_hash::bytea,block_number::text,transaction_index::text,timestamp_seconds::text,calldata_hash::bytea,purchased_blobs::text FROM ((SELECT *,true AS repair FROM candidates WHERE last_attempt_at IS NOT NULL ORDER BY last_attempt_at,block_number,transaction_index LIMIT 1) UNION ALL (SELECT *,false AS repair FROM candidates WHERE last_attempt_at IS NULL ORDER BY block_number,transaction_index LIMIT 3)) scheduled ORDER BY repair DESC,block_number,transaction_index",&[&chain]).bounded().await?;
     for row in rows {
+        let checkpoint = ledger::historical_checkpoint(db, chain).await?;
+        let cursor = &checkpoint.cursor;
         let tx_hash = hash(&row, 0)?;
         let block_hash = hash(&row, 1)?;
         let calldata_hash = hash(&row, 5)?;
@@ -375,7 +377,6 @@ async fn collect(
             }
             Err(error) => Err(error),
         };
-        let cursor = ledger::cursor(db, chain).await?.ok_or(Error::Bootstrap)?;
         rpc.validate_identity(endpoint).await?;
         if remote_block(rpc, endpoint, cursor.number).await?.hash != cursor.hash
             || remote_block(rpc, endpoint, number).await?.hash != block_hash
@@ -383,7 +384,7 @@ async fn collect(
             return Err(Error::Inconsistent);
         }
         let transaction = db.client.transaction().bounded().await?;
-        ledger::lock_cursor(&transaction, chain, Some(&cursor)).await?;
+        ledger::lock_historical(&transaction, chain, &checkpoint).await?;
         let canonical:bool=transaction.query_one("SELECT canonical AND number=$3::text::numeric FROM eez.blocks WHERE chain_instance_id=$1 AND hash=$2::bytea",&[&chain,&block_hash.as_slice(),&number.to_string()]).bounded().await?.try_get(0)?;
         if !canonical {
             return Err(Error::Inconsistent);

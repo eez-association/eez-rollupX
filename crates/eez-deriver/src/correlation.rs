@@ -86,6 +86,9 @@ pub struct CorrelationMatch {
 pub struct CorrelationStore {
     backend: Backend,
     ready: AtomicBool,
+    /// Ephemeral execution evidence, deliberately absent from the MDBX schema.
+    pub replay_evidence: crate::diagnostics::ReplayEvidence,
+    pub required_blobs: std::sync::Arc<eez_l1::blob_diagnostics::RequiredBlobState>,
 }
 
 enum Backend {
@@ -156,6 +159,8 @@ impl CorrelationStore {
         Ok(Self {
             backend: Backend::Persistent(env),
             ready: AtomicBool::new(false),
+            replay_evidence: crate::diagnostics::ReplayEvidence::default(),
+            required_blobs: std::sync::Arc::default(),
         })
     }
 
@@ -165,6 +170,8 @@ impl CorrelationStore {
         Self {
             backend: Backend::Memory(RwLock::new(Vec::new())),
             ready: AtomicBool::new(false),
+            replay_evidence: crate::diagnostics::ReplayEvidence::default(),
+            required_blobs: std::sync::Arc::default(),
         }
     }
 
@@ -218,6 +225,8 @@ impl CorrelationStore {
     /// Remove all records above the surviving L1 ancestor and restore L2
     /// number/hash indices to the latest surviving transaction.
     pub fn remove_after_l1(&self, ancestor: u64) -> Result<usize, String> {
+        self.replay_evidence.remove_after_l1(ancestor);
+        self.required_blobs.clear();
         match &self.backend {
             Backend::Persistent(env) => remove_after_persistent(env, ancestor),
             Backend::Memory(records) => {

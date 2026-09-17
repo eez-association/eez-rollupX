@@ -1,0 +1,22 @@
+{
+  "eez-client-capabilities-initial": {
+    "status": "failed",
+    "error": "AssertionError({'sync_eth2_synced'})",
+    "scope": "pinned binary endpoint/file capabilities only; isolated bundled mainnet genesis, no live chain or execution endpoint, no sync/finality acceptance"
+  },
+  "eez-client-capabilities-reviewed": {
+    "status": "failed",
+    "error": "AssertionError('restrictive umask did not produce group-readable private log: 644')",
+    "scope": "pinned binary endpoint/file capabilities only; isolated bundled mainnet genesis, no live chain or execution endpoint, no sync/finality acceptance"
+  },
+  "eez-node-agent-first": {
+    "status": "failed",
+    "error": "AssertionError({'deployment': 'eez-node-agent-978611731b', 'detected_level': 'info', 'environment': 'fixture', 'instance': 'composer', 'job': 'eez-logs', 'service': 'eez-composer', 'service_name': 'eez-composer'})",
+    "scope": "generated node-host collector, isolated Loki; synthetic diagnostic records, no native protocol acceptance"
+  },
+  "eez-node-agent-checkpoints": {
+    "status": "failed",
+    "error": "AssertionError('collector replayed retained files after restarting with saved positions')",
+    "scope": "generated node-host collector, isolated Loki; synthetic diagnostic records, no native protocol acceptance"
+  }
+}

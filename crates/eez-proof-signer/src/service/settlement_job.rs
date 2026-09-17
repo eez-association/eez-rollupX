@@ -96,38 +96,62 @@ pub(super) fn validate_and_settle(
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<AttestationMaterial, PipelineError> {
-    let validated_window = state.validator.validate_window(blocks, cancellation)?;
-    if Instant::now() >= deadline {
-        return Err(PipelineError::DeadlineBeforeSettlement);
-    }
-    let (attestable_public_inputs_hash, observation_claims) = run_settlement_with_observations(
-        SettlementInput {
-            submitted_post_batch_calldata,
-            submitted_blobs: &submitted_blobs,
-            validated_window: &validated_window,
-            expected_rollup_id: state.expected_rollup_id,
-            expected_l2_system_address: state.expected_l2_system_address,
-            proof_system_vkey: state.attester.proof_system_vkey(),
-            expected_proof_system: state.attester.expected_proof_system(),
-            system_transaction_reconstructor: &state.system_transaction_reconstructor,
-            cancellation,
-        },
-        maximum_blobs,
-    )?;
-    ensure_settlement_active(cancellation)?;
-    if Instant::now() >= deadline {
-        return Err(PipelineError::DeadlineBeforeSettlement);
-    }
-    state
+    // These guards remain with the existing blocking owner after RPC timeout.
+    let mut validation_timer = eez_telemetry::operational::StageTimer::start(
+        eez_telemetry::operational::Stage::SignerValidation,
+    );
+    let validated_window = state
         .validator
-        .verify_observations(&validated_window, &observation_claims)
-        .map_err(SettlementPipelineError::from)?;
+        .validate_window(blocks, cancellation)
+        .map_err(PipelineError::from);
+    validation_timer.finish(super::rpc::stage_outcome(
+        validated_window
+            .as_ref()
+            .err()
+            .map(PipelineError::status)
+            .as_ref(),
+    ));
+    let validated_window = validated_window?;
+    let mut settlement_timer = eez_telemetry::operational::StageTimer::start(
+        eez_telemetry::operational::Stage::SignerSettlement,
+    );
+    let result = (|| {
+        if Instant::now() >= deadline {
+            return Err(PipelineError::DeadlineBeforeSettlement);
+        }
+        let (attestable_public_inputs_hash, observation_claims) = run_settlement_with_observations(
+            SettlementInput {
+                submitted_post_batch_calldata,
+                submitted_blobs: &submitted_blobs,
+                validated_window: &validated_window,
+                expected_rollup_id: state.expected_rollup_id,
+                expected_l2_system_address: state.expected_l2_system_address,
+                proof_system_vkey: state.attester.proof_system_vkey(),
+                expected_proof_system: state.attester.expected_proof_system(),
+                system_transaction_reconstructor: &state.system_transaction_reconstructor,
+                cancellation,
+            },
+            maximum_blobs,
+        )?;
+        ensure_settlement_active(cancellation)?;
+        if Instant::now() >= deadline {
+            return Err(PipelineError::DeadlineBeforeSettlement);
+        }
+        state
+            .validator
+            .verify_observations(&validated_window, &observation_claims)
+            .map_err(SettlementPipelineError::from)?;
 
-    Ok(AttestationMaterial {
-        attestable_public_inputs: attestable_public_inputs_hash,
-        validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
-        validated_window_post_block_hash: validated_window.window_post_block_hash(),
-    })
+        Ok(AttestationMaterial {
+            attestable_public_inputs: attestable_public_inputs_hash,
+            validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
+            validated_window_post_block_hash: validated_window.window_post_block_hash(),
+        })
+    })();
+    settlement_timer.finish(super::rpc::stage_outcome(
+        result.as_ref().err().map(PipelineError::status).as_ref(),
+    ));
+    result
 }
 
 /// Inputs for the synchronous settlement job.

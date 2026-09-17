@@ -128,6 +128,30 @@ unchanged. A custom Grafana login that inherits the reader role must also set
 Tests map R19 to pure native-coherence regressions, actual native lifecycle
 captures, importer/projection tests and `tests/canonical-outcomes.sql` anchor and
 selection cases. Cursor/staleness/reorg suppression of progress is covered by an
-observer unit regression. These new schema-11 cases are under coordinated
-validation; native restart/reorg workload acceptance and finality latency reporting
-remain open. Earlier schema-10 test results do not establish schema-11 acceptance.
+observer unit regression. Schema-17 [observed finality timing](finality-timing.md) separately checks exact
+finalized dependencies and actual admission UTC. Native restart/reorg workload
+acceptance remains tracked. Earlier schema-10 test results do not establish
+schema-11 or schema-17 acceptance.
+
+## Historical collection during scanner progress
+
+Settlement ranges, protocol logs, source receipts and blob measurements capture
+an exact chain context, canonical cursor hash and persisted reorg revision before
+retrieval. Their commit holds the shared chain writer lock and requires the same
+revision, an unfrozen chain, the exact canonical anchor and a canonical tip at or
+above that anchor. An unrelated append is allowed. A reorg, including one that
+later restores the same hash, invalidates the in-flight observation. Receipt and
+posting references remain independently checked. The scanner itself retains its
+strict cursor comparison; enrichment never moves that cursor.
+
+Settlement scheduling interleaves attempted incomplete and newly discovered
+posting occurrences within its three pending slots, plus one complete recheck.
+A failed occurrence does not prevent collecting the other selected occurrences.
+Independently fenced range verification can progress on a partially failed pass,
+but the overall source remains unknown and finality promotion waits for a healthy
+pass. This deliberately preserves the existing global collection-health gate;
+it does not claim per-range availability during an ongoing provider failure.
+
+The change needs no migration or new configuration. See
+[the deterministic PostgreSQL regression](../validation/historical-checkpoints.md)
+and the separate [live native acceptance](../validation/native-observer.md).

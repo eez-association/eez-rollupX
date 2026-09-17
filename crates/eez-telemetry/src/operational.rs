@@ -137,6 +137,334 @@ impl QueueSnapshot {
     }
 }
 
+/// Closed producer boundaries; process identity identifies Composer versus signer.
+#[derive(Debug, Clone, Copy)]
+pub enum Stage {
+    Simulation,
+    Witness,
+    Submission,
+    Signer,
+    ProverClient,
+    SignerIngestion,
+    SignerValidation,
+    SignerSettlement,
+    SignerSigning,
+}
+impl Stage {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Simulation => "simulation",
+            Self::Witness => "witness",
+            Self::Submission => "submission",
+            Self::Signer => "signer",
+            Self::ProverClient => "prover_client",
+            Self::SignerIngestion => "signer_ingestion",
+            Self::SignerValidation => "signer_validation",
+            Self::SignerSettlement => "signer_settlement",
+            Self::SignerSigning => "signer_signing",
+        }
+    }
+}
+
+/// Operational outcomes, never receipt finality or canonical commitment.
+#[derive(Debug, Clone, Copy)]
+pub enum StageOutcome {
+    Success,
+    Failed,
+    Error,
+    Invalid,
+    Rejected,
+    Unavailable,
+    Deadline,
+    Aborted,
+    Cancelled,
+    Panicked,
+    Included,
+    Excluded,
+}
+impl StageOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failed => "failed",
+            Self::Error => "internal",
+            Self::Invalid => "invalid",
+            Self::Rejected => "rejected",
+            Self::Unavailable => "unavailable",
+            Self::Deadline => "deadline",
+            Self::Aborted => "aborted",
+            Self::Cancelled => "cancelled",
+            Self::Panicked => "panicked",
+            Self::Included => "included",
+            Self::Excluded => "excluded",
+        }
+    }
+}
+
+/// Starts only when metrics are enabled. Keep blocking-stage guards inside the
+/// worker: dropping the awaiting RPC does not finish detached execution.
+#[derive(Debug)]
+pub struct StageTimer {
+    stage: Stage,
+    started: Option<Instant>,
+}
+impl StageTimer {
+    pub fn start(stage: Stage) -> Self {
+        Self::with_enabled(stage, enabled())
+    }
+    fn with_enabled(stage: Stage, active: bool) -> Self {
+        Self {
+            stage,
+            started: active.then(Instant::now),
+        }
+    }
+    pub fn finish(&mut self, outcome: StageOutcome) {
+        if let Some(started) = self.started.take() {
+            metrics::histogram!("eez_stage_duration_seconds", "stage" => self.stage.label(), "outcome" => outcome.label()).record(started.elapsed().as_secs_f64());
+            if matches!(self.stage, Stage::Signer) {
+                metrics::counter!("eez_signer_requests_total", "outcome" => outcome.label())
+                    .increment(1);
+            }
+        }
+    }
+    pub fn measure<T, E>(stage: Stage, work: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        let mut timer = Self::start(stage);
+        let result = work();
+        timer.finish(if result.is_ok() {
+            StageOutcome::Success
+        } else {
+            StageOutcome::Failed
+        });
+        result
+    }
+}
+impl Drop for StageTimer {
+    fn drop(&mut self) {
+        self.finish(if std::thread::panicking() {
+            StageOutcome::Panicked
+        } else {
+            StageOutcome::Cancelled
+        });
+    }
+}
+
+/// Outcomes after the complete signer pipeline has authorized attestation.
+/// Admission or execution-only success must not construct an observation.
+#[derive(Debug, Clone, Copy)]
+pub enum AuthorizedOutcome {
+    Success,
+    Error,
+    Deadline,
+    Panicked,
+    Cancelled,
+}
+impl AuthorizedOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Error => "internal",
+            Self::Deadline => "deadline",
+            Self::Panicked => "panicked",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// Exactly one local response outcome for an already authorized request.
+/// This guard neither owns the RPC permit nor changes its deadline.
+#[derive(Debug)]
+#[must_use]
+pub struct AuthorizedRequest {
+    active: bool,
+}
+impl AuthorizedRequest {
+    pub fn start() -> Self {
+        Self { active: enabled() }
+    }
+    pub fn finish(&mut self, outcome: AuthorizedOutcome) {
+        if std::mem::replace(&mut self.active, false) {
+            metrics::counter!("eez_signer_authorized_requests_total", "outcome" => outcome.label())
+                .increment(1);
+        }
+    }
+}
+impl Drop for AuthorizedRequest {
+    fn drop(&mut self) {
+        self.finish(if std::thread::panicking() {
+            AuthorizedOutcome::Panicked
+        } else {
+            AuthorizedOutcome::Cancelled
+        });
+    }
+}
+
+/// Register zero observations at metrics-enabled signer startup, so the first
+/// rejection after a successful initial scrape is visible to counter rates.
+pub fn initialize_signer_metrics() {
+    for outcome in [
+        AuthorizedOutcome::Success,
+        AuthorizedOutcome::Error,
+        AuthorizedOutcome::Deadline,
+        AuthorizedOutcome::Panicked,
+        AuthorizedOutcome::Cancelled,
+    ] {
+        metrics::counter!("eez_signer_authorized_requests_total", "outcome" => outcome.label())
+            .increment(0);
+    }
+    for outcome in [
+        StageOutcome::Success,
+        StageOutcome::Invalid,
+        StageOutcome::Rejected,
+        StageOutcome::Unavailable,
+        StageOutcome::Deadline,
+        StageOutcome::Cancelled,
+        StageOutcome::Error,
+        StageOutcome::Panicked,
+    ] {
+        metrics::counter!("eez_signer_requests_total", "outcome" => outcome.label()).increment(0);
+    }
+}
+
+/// One cut per actual finite planning decision, not one failed user request.
+#[derive(Debug, Clone, Copy)]
+pub enum AdmissionCut {
+    Gas,
+    Da,
+    Count,
+    PreparationDeadline,
+    QueueCleanup,
+}
+pub fn admission_cut(reason: AdmissionCut) {
+    if enabled() {
+        let reason = match reason {
+            AdmissionCut::Gas => "gas",
+            AdmissionCut::Da => "da",
+            AdmissionCut::Count => "count",
+            AdmissionCut::PreparationDeadline => "preparation_deadline",
+            AdmissionCut::QueueCleanup => "queue_cleanup",
+        };
+        metrics::counter!("eez_admission_cuts_total", "reason" => reason).increment(1);
+    }
+}
+
+/// A scheduled slot or one submitted bundle missed its exact target. These are
+/// separate stages of work, not unique admission failures.
+#[derive(Debug, Clone, Copy)]
+pub enum SlotMiss {
+    ScheduledLate,
+    Excluded,
+    Skipped,
+    SubmissionDeadline,
+    TargetChanged,
+}
+pub fn slot_miss(reason: SlotMiss) {
+    if enabled() {
+        let reason = match reason {
+            SlotMiss::ScheduledLate => "scheduled_late",
+            SlotMiss::Excluded => "excluded",
+            SlotMiss::Skipped => "skipped",
+            SlotMiss::SubmissionDeadline => "submission_deadline",
+            SlotMiss::TargetChanged => "target_changed",
+        };
+        metrics::counter!("eez_target_slot_misses_total", "reason" => reason).increment(1);
+    }
+}
+
+/// Approximate nonfinancial operational magnitudes. Exact money stays in SQL;
+/// full-width configuration counters can exceed binary64 integer precision.
+#[allow(clippy::cast_precision_loss)]
+fn magnitude(value: u64) -> f64 {
+    value as f64
+}
+
+#[derive(Debug)]
+pub struct PolicySettings {
+    pub enabled: bool,
+    pub pure_interval: Option<Duration>,
+    pub max_unsettled_blocks: Option<u64>,
+    pub fullness_bps: Option<u16>,
+    pub blob_cap: Option<u64>,
+    pub count_cap: Option<usize>,
+    pub gas_cap: Option<u64>,
+    pub proof_time: Duration,
+    pub submission_slack: Duration,
+    pub slot_time: Duration,
+}
+impl PolicySettings {
+    pub fn publish(&self) {
+        if !enabled() {
+            return;
+        }
+        metrics::gauge!("eez_settlement_policy_enabled").set(f64::from(u8::from(self.enabled)));
+        let mode = if !self.enabled {
+            "disabled"
+        } else if self.pure_interval.is_some() {
+            "interval"
+        } else {
+            "always"
+        };
+        let admission = if self.count_cap.is_some() {
+            "fixed"
+        } else {
+            "automatic"
+        };
+        metrics::gauge!("eez_settlement_policy_info", "pure_l2_mode" => mode, "admission" => admission).set(1.);
+        for (setting, value) in [
+            (
+                "pure_l2_interval_seconds",
+                self.pure_interval.map(|d| d.as_secs_f64()),
+            ),
+            (
+                "max_unsettled_blocks",
+                self.max_unsettled_blocks.map(magnitude),
+            ),
+            ("blob_fullness_bps", self.fullness_bps.map(f64::from)),
+            ("operator_blob_cap", self.blob_cap.map(magnitude)),
+            (
+                "user_count_cap",
+                self.count_cap
+                    .and_then(|n| u64::try_from(n).ok())
+                    .map(magnitude),
+            ),
+            ("operator_gas_cap", self.gas_cap.map(magnitude)),
+            ("proof_seconds", Some(self.proof_time.as_secs_f64())),
+            (
+                "submission_slack_seconds",
+                Some(self.submission_slack.as_secs_f64()),
+            ),
+            ("l1_slot_seconds", Some(self.slot_time.as_secs_f64())),
+        ] {
+            metrics::gauge!("eez_settlement_policy_setting", "setting" => setting)
+                .set(value.unwrap_or(f64::NAN));
+        }
+    }
+}
+
+/// Rollup IDs come only from the finite configured runtime set, never requests.
+/// Evaluation freshness is independent of scrape freshness. Age is measured
+/// from the last canonical settlement anchor to the candidate target slot.
+pub fn policy_evaluation(rollup_id: u64, observation: Option<(u64, u64, u64, bool, u64)>) {
+    if !enabled() {
+        return;
+    }
+    let rollup = rollup_id.to_string();
+    metrics::gauge!("eez_settlement_policy_evaluation_valid", "rollup" => rollup.clone())
+        .set(f64::from(u8::from(observation.is_some())));
+    if let Some((unsettled, age_ms, pure_transactions, due, blob_allowance)) = observation {
+        metrics::gauge!("eez_settlement_policy_evaluation_timestamp_seconds", "rollup" => rollup.clone()).set(SystemTime::now().duration_since(UNIX_EPOCH).map_or(f64::NAN, |d| d.as_secs_f64()));
+        metrics::gauge!("eez_settlement_unsettled_blocks", "rollup" => rollup.clone())
+            .set(magnitude(unsettled));
+        metrics::gauge!("eez_settlement_anchor_age_seconds", "rollup" => rollup.clone())
+            .set(Duration::from_millis(age_ms).as_secs_f64());
+        metrics::gauge!("eez_settlement_pending_pure_l2_transactions", "rollup" => rollup.clone())
+            .set(magnitude(pure_transactions));
+        metrics::gauge!("eez_settlement_due", "rollup" => rollup.clone())
+            .set(f64::from(u8::from(due)));
+        metrics::gauge!("eez_settlement_blob_allowance", "rollup" => rollup)
+            .set(magnitude(blob_allowance));
+    }
+}
+
 /// Owned by the existing preparation future. It records once on finish or drop;
 /// an unpolled future never constructs this guard. No lifecycle writer is needed.
 #[derive(Debug)]
@@ -238,6 +566,90 @@ pub fn admitted(direction: crate::schema::Direction) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn authorized_response_guard_records_once_without_invalid_work_labels() {
+        let recorder = crate::native::prometheus_builder().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            initialize_signer_metrics();
+            let mut disabled = AuthorizedRequest { active: false };
+            disabled.finish(AuthorizedOutcome::Error);
+            for outcome in [
+                AuthorizedOutcome::Success,
+                AuthorizedOutcome::Error,
+                AuthorizedOutcome::Deadline,
+            ] {
+                let mut guard = AuthorizedRequest { active: true };
+                guard.finish(outcome);
+                guard.finish(AuthorizedOutcome::Error);
+            }
+            drop(AuthorizedRequest { active: true });
+            let _ = std::panic::catch_unwind(|| {
+                let _guard = AuthorizedRequest { active: true };
+                panic!("controlled authorized-response unwind");
+            });
+        });
+        let rendered = handle.render();
+        for outcome in ["success", "internal", "deadline", "panicked", "cancelled"] {
+            assert!(
+                rendered.contains(&format!(
+                    "eez_signer_authorized_requests_total{{outcome=\"{outcome}\"}} 1"
+                )),
+                "{rendered}"
+            );
+        }
+        assert!(!rendered.contains("eez_signer_authorized_requests_total{outcome=\"invalid\"}"));
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn stage_guards_record_once_and_preserve_cancellation_panic_and_disabled_paths() {
+        let recorder = crate::native::prometheus_builder().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            let mut disabled = StageTimer::with_enabled(Stage::Submission, false);
+            disabled.finish(StageOutcome::Success);
+            let mut successful = StageTimer::with_enabled(Stage::Simulation, true);
+            successful.finish(StageOutcome::Success);
+            successful.finish(StageOutcome::Failed);
+            drop(successful);
+            drop(StageTimer::with_enabled(Stage::Witness, true));
+            let _ = std::panic::catch_unwind(|| {
+                let _guard = StageTimer::with_enabled(Stage::SignerValidation, true);
+                panic!("controlled worker panic");
+            });
+            initialize_signer_metrics();
+            let mut signer = StageTimer::with_enabled(Stage::Signer, true);
+            signer.finish(StageOutcome::Rejected);
+        });
+        let rendered = handle.render();
+        for (stage, outcome) in [
+            ("simulation", "success"),
+            ("witness", "cancelled"),
+            ("signer_validation", "panicked"),
+            ("signer", "rejected"),
+        ] {
+            assert!(
+                rendered.contains(&format!(
+                    "eez_stage_duration_seconds_count{{stage=\"{stage}\",outcome=\"{outcome}\"}} 1"
+                )),
+                "{rendered}"
+            );
+        }
+        assert!(
+            !rendered.contains("stage=\"submission\""),
+            "disabled instrumentation must create no series"
+        );
+        assert!(
+            !rendered.contains("outcome=\"failed\""),
+            "finishing twice must not count twice"
+        );
+        assert!(rendered.contains("eez_signer_requests_total{outcome=\"rejected\"} 1"));
+        assert!(rendered.contains("eez_signer_requests_total{outcome=\"invalid\"} 0"));
+    }
+
     #[test]
     fn current_population_is_not_a_completion_histogram() {
         let mut ages = Ages::default();

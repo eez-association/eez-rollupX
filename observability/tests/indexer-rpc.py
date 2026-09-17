@@ -16,6 +16,9 @@ def digest(number):
 
 
 class RPC(http.server.BaseHTTPRequestHandler):
+    funding_base_time = None
+    funding_balance = 591216
+    funding_balance_error = False
     blob_mode = 'disabled'
     blob_requests = 0
     multi_rollup = False
@@ -76,6 +79,15 @@ class RPC(http.server.BaseHTTPRequestHandler):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/control':
             with self.lock:
+                if 'funding_base_time' in request:
+                    assert request['funding_base_time'] is None or type(request['funding_base_time']) is int and request['funding_base_time'] > 0
+                    type(self).funding_base_time = request['funding_base_time']
+                if 'funding_balance' in request:
+                    assert type(request['funding_balance']) is int and 0 <= request['funding_balance'] < 2**256
+                    type(self).funding_balance = request['funding_balance']
+                if 'funding_balance_error' in request:
+                    assert type(request['funding_balance_error']) is bool
+                    type(self).funding_balance_error = request['funding_balance_error']
                 if 'blob_mode' in request:
                     assert request['blob_mode'] in ('disabled','valid','legacy','unavailable','pruned','corrupt','missing_metadata')
                     type(self).blob_mode = request['blob_mode']
@@ -104,6 +116,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
             return
         chain = 1 if self.path == '/l1' else 2
         with self.lock:
+            funding_base_time, funding_balance, funding_balance_error = self.funding_base_time, self.funding_balance, self.funding_balance_error
             blob_mode = self.blob_mode
             protocol_logs = self.protocol_logs
             post_call = MULTI_ROLLUP_CALL if self.multi_rollup else POST_CALL
@@ -114,7 +127,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
             source_receipt_failure, source_receipt_delay_ms = self.source_receipt_failure, self.source_receipt_delay_ms
         fork = phase == 'fork' or (phase == 'l2_fork' and chain == 2)
         def block_hash(height):
-            return digest(chain * 100 + height + (10 if fork and height >= 2 else 0))
+            return digest(chain * 100 + height + ((1000000 if funding_base_time else 10) if fork and height >= 2 else 0))
         def transaction(height, index=0):
             carrier = BLOB_FIXTURES[index % len(BLOB_FIXTURES)] if blob_mode != 'disabled' and chain == 1 and height == 2 else None
             selected_call = carrier['calldata'] if carrier else post_call
@@ -125,20 +138,30 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 tx['blobVersionedHashes'] = carrier['blob_hashes']
             return tx
         method, params = request['method'], request['params']
+        latest_height = 3 + max(0, int(time.time()) - funding_base_time) // 15 if funding_base_time else 3
         if method == 'eth_chainId':
             value = hex(chain + (10 if phase == 'wrong_identity' else 0))
         elif method == 'eth_getBlockByNumber':
             selector, full = params
-            height = 3 if selector == 'latest' else (3 if finalize else 1) if selector == 'finalized' else int(selector, 16)
+            height = latest_height if selector == 'latest' else (3 if finalize else 1) if selector == 'finalized' else int(selector, 16)
             if selector == 'finalized' and chain == 2:
                 raise AssertionError('L2 RPC finality is not settlement evidence')
-            value = None if height > 3 else {'number': hex(height), 'hash': block_hash(height),
-                'parentHash': digest(0) if height == 0 else block_hash(height - 1), 'timestamp': hex(100 + height * 5),
+            timestamp = funding_base_time + ({0:-3610,1:-3600,2:-15}.get(height, (height - 3) * 15)) if funding_base_time else 100 + height * 5
+            value = None if height > latest_height else {'number': hex(height), 'hash': block_hash(height),
+                'parentHash': digest(0) if height == 0 else block_hash(height - 1), 'timestamp': hex(timestamp),
                 'transactions': [(transaction(height, index) if full else transaction(height, index)['hash']) for index in range(post_count if chain == 1 and height == 2 else 1)] if height in (1, 2) else []}
             if value and not full and chain == 1 and height == 2 and source_hash_mismatch:
                 value['transactions'] = [digest(9999)]
             if phase == 'pruned' and height == 2 and full:
                 value = None
+        elif method == 'eth_getBalance':
+            assert funding_base_time is not None, 'balance fixture must be explicitly enabled'
+            assert len(params) == 2 and params[1].get('requireCanonical') is True
+            known = any(block_hash(height) == params[1].get('blockHash') for height in range(latest_height + 1))
+            if funding_balance_error or not known:
+                self.send({'jsonrpc':'2.0','id':request['id'],'error':{'code':-32603,'message':'fixture balance unavailable'}})
+                return
+            value = hex(funding_balance)
         elif method == 'eth_getTransactionByHash':
             height = int(params[0], 16) - chain * 1000
             index = height - 2 if chain == 1 and 2 <= height < 2 + post_count else 0

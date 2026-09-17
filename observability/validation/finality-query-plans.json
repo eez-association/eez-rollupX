@@ -1,0 +1,48 @@
+{
+  "status": "passed",
+  "scope": "Focused actual PostgreSQL SQL regressions and reader query plan; full observer/browser gates separate",
+  "migration_sha256": "095c01e562a141254c2bd7f06363456335d7ed981b0cd36cee8ca53d5b1e3843",
+  "fixtures": [
+    "canonical-outcomes.sql",
+    "admission-status.sql",
+    "cost-allocation.sql",
+    "settled-transaction-costs.sql",
+    "finality_timing.py"
+  ],
+  "database_limit_bytes": 536870912,
+  "statement_timeout_seconds": 10,
+  "regression_memory_peak_bytes": 449306624,
+  "regression_memory_limit_events": 0,
+  "regression_oom_events": 0,
+  "reader_finality_planning_ms": 361.224,
+  "reader_finality_execution_ms": 8.0,
+  "logs": [
+    "/tmp/eez-finality19-sql-regression-reviewed.log",
+    "/tmp/eez-finality19-plans-context.log"
+  ],
+  "failures_retained": [
+    "/tmp/eez-observability-schema18-database.log",
+    "/tmp/eez-observability-browser-dashboards-postgres.log",
+    "/tmp/eez-finality19-sql-first.log",
+    "/tmp/eez-finality19-sql-regression.log"
+  ],
+  "remaining": [
+    "actual browser navigation",
+    "deployment-scale capacity"
+  ],
+  "full_database_process": {
+    "status": "passed",
+    "groups": 61,
+    "binary_sha256": "eea6a93bba854a5bbf1d2857a7cea9c3569b76d8493bd5ad40395f36d376fc3b",
+    "saved_upgrade_versions": [
+      1,
+      4,
+      5,
+      6,
+      8,
+      13,
+      14
+    ],
+    "report": "/tmp/eez-observability-schema19-database.json"
+  }
+}

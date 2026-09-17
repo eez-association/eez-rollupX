@@ -58,9 +58,67 @@ also passed after replacing three exact floating-point test comparisons with
 epsilon comparisons. These are integrated runtime correctness checks, not
 telemetry-overhead measurements or live deployment evidence.
 
-Mixed blocked/retry/replacement/reorg workloads, additional finite stage timers,
-source-switch recording rules, runtime outage/storage/overhead budgets and the
-full observability rollout remain open. See the [native metric contract](../contracts/native-metrics.md)
+At that checkpoint, mixed blocked/retry/replacement/reorg workloads, additional
+finite stage timers, source-switch recording rules, runtime outage/storage/overhead
+budgets and the full observability rollout remained open. The extension below
+updates the stage/source-switch implementation status. See the [native metric contract](../contracts/native-metrics.md)
 and [requirement ledger](../requirements.md). Counters are native observations;
 this work does not establish observer-validated canonical success or deploy any
 monitoring service.
+
+## R20 stage and explicit source-switch extension (after c36bbd6)
+
+The extension adds closed stage timers at existing Composer simulation, blocking
+witness, submission and remote prover boundaries; signer RPC/ingestion/validation/
+settlement/signing guards; active immutable policy and fresh canonical-policy
+observations; finite planning-cut and exact-slot-miss counters. Metrics publish
+outside protocol locks. The existing cross-chain process canaries now require
+simulation/witness/included-submission histograms and active policy configuration.
+The expanded default/policy canaries passed 2/2 in 257.21 seconds on the final
+shared candidate, including those stage/policy assertions and sanitized client
+metric inventory. Log: `/tmp/eez-observability-final-native-lifecycle.log`. The
+inventory parser regression passed 1/1 separately against the same test executable.
+The older result above describes its own earlier source scope.
+
+| Requirement | Implementation | New coverage |
+| --- | --- | --- |
+| Finite stage lifetime/default compatibility | `operational::StageTimer`, Composer and signer existing owners; typed prover status | Timer tests verify one finish, disabled no-series, panic and cancellation; signer status labels never include messages; existing full service lifecycle tests |
+| Planning count excludes blocked-only work | `Selection::count_limited`, existing cut branches | Exhausted with eligible remainder, fee-blocked remainder, exact exhaustion without remainder |
+| Policy values reach producer | Validated `ComposerSettings` constructor plus canonical policy evaluation | Existing constructor/config tests and extended process assertions; fresh policy Grafana fixture |
+| Explicit current-source switch | `prepare.recording_rules`, `queue_source`, generated manifest | Three parsing/reconfiguration tests; nine pinned-promtool cases for no fallback, failure, stale sample and clock boundaries |
+
+Executed before the final prover-client wrapper addition:
+
+- Composer **240 passed**, log `/tmp/eez-observability-native-stages-tests.log`.
+- Full signer **285 passed** and native-enabled telemetry **37 passed**, log
+  `/tmp/eez-observability-native-signer-tests.log`.
+- Observer **65 passed**, log `/tmp/eez-observability-native-stages-observer-tests.log`.
+- Python discovery **16 passed**, log `/tmp/eez-observability-native-python-tests.log`.
+- `python3 observability/tests/test_queue_source.py --promtool`: **9 cases passed**
+  against pinned Prometheus. This proves actual generated expressions, not live
+  RPC/native age equivalence.
+
+The first telemetry run's4socket-fixture cases failed due to sandbox-denied TCP/
+Unix socket binding. The permitted rerun passed all37; no production fallback or
+weakened test was introduced. Prover-client added after these package runs and
+requires the coordinated final compile/client regressions. Clippy, process canary
+and current dashboard assertion reruns belong to the final integration record.
+
+## Subsequent integrated evidence
+
+The [connected native trace pilot](native-trace-pilot.md) subsequently passed with
+the actual Composer/client/signer path and independently verified protocol
+semantics. Its final package checks passed 43 telemetry, 287 signer, 15 prover-client
+and four control-RPC tests, plus strict Clippy for the affected native/RPC targets.
+This resolves the earlier paragraph's pending client regression, within that
+recorded source snapshot.
+
+The [live observer scenarios](native-observer.md) additionally passed the
+legacy/policy, partial-consumption restart and real reorg workloads. Actual native
+process metrics remained available during collection and after observer restart.
+[Dynamic disk exhaustion](native-enospc.md) and
+[real native trace-loss notifications](native-loss-alerts.md) now verify protocol
+progress and explicit loss/recovery in their stated failure scopes. These are
+functional results, not an overhead comparison or a shipping-artifact claim.
+The comparative workload, final complete candidate checks and deployment baseline
+remain open.

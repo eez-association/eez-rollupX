@@ -6,6 +6,8 @@
 //! STF-replay pattern adapted from `based-rollup`'s `build_derived_block`
 //! at `/root/sync-rollups-composer/crates/based-rollup/src/driver/protocol_txs.rs:453`.
 
+use crate::diagnostics::{Reference, retain_header};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -586,6 +588,17 @@ where
     /// tip when the range was empty (nothing below it can hold our events).
     async fn catch_up_inner(&self) -> DeriverResult<u64> {
         let _guard = self.inner.committer.begin_reconcile().await;
+        let result = self.catch_up_inner_diagnostic().await;
+        if let Err(error) = &result {
+            self.inner.correlations.required_blobs.observe(
+                eez_l1::blob_diagnostics::BlobConsumer::Deriver,
+                error.l1_error(),
+            );
+        }
+        result
+    }
+
+    async fn catch_up_inner_diagnostic(&self) -> DeriverResult<u64> {
         self.inner.l1_head.invalidate_scan();
         let old_cursor = self.inner.l1_head.cursor();
         let anchor = self.revalidate_index_tail().await?;
@@ -823,6 +836,10 @@ where
                 hash: self.l2_hash_at(cursor)?,
             },
         );
+        self.inner
+            .correlations
+            .required_blobs
+            .completed(None, number);
         self.inner.scan_needs_resync.store(false, Ordering::Release);
         Ok(())
     }
@@ -1010,7 +1027,7 @@ where
                 }
             }
 
-            let (replayed_here, scan_sync_hash) = self
+            let (replayed_here, scan_sync_hash, executed_headers) = self
                 .reconcile_batch_blocks(
                     batch_first_l2,
                     &decoded,
@@ -1019,7 +1036,22 @@ where
                     batch.tx_hash,
                     batch.settlement,
                 )
-                .await?;
+                .await
+                .inspect_err(|error| {
+                    if let Some((header, advertised)) = error.computed_header() {
+                        self.inner.correlations.replay_evidence.record_computed(
+                            Reference {
+                                l1_block_number: batch.l1_block_number,
+                                l1_block_hash: batch.l1_block_hash,
+                                transaction_hash: batch.tx_hash,
+                                transaction_index: batch.tx_index,
+                                l2_block_number: 0,
+                            },
+                            header.clone(),
+                            *advertised,
+                        );
+                    }
+                })?;
             total_replayed += replayed_here;
 
             // Catch drift now, not at a live event. Both ends must be what L1
@@ -1027,7 +1059,7 @@ where
             // resumed: the cursor-alignment guard above already checked it, at
             // `cumulative_l2` — `batch_first_l2 - 1` would check the wrong
             // height now that a resumed batch doesn't advance past it.
-            let settled_end = self.check_claimed_state(
+            let checked = self.check_claimed_state(
                 if resumed {
                     None
                 } else {
@@ -1040,7 +1072,30 @@ where
                 scan_sync_hash,
                 batch.l1_block_number,
                 batch.tx_hash,
-            )?;
+            );
+            let reference = Reference {
+                l1_block_number: batch.l1_block_number,
+                l1_block_hash: batch.l1_block_hash,
+                transaction_hash: batch.tx_hash,
+                transaction_index: batch.tx_index,
+                l2_block_number: 0,
+            };
+            if let Err(error) = &checked {
+                if error.is_local_diverged() {
+                    self.inner.correlations.replay_evidence.record(
+                        reference,
+                        executed_headers,
+                        None,
+                    );
+                }
+                return Err(checked.expect_err("checked failure"));
+            }
+            let settled_end = checked?;
+            self.inner.correlations.replay_evidence.record(
+                reference,
+                executed_headers,
+                Some(settled_end.unwrap_or(batch_last_l2)),
+            );
             // Follow L1's real endpoint. A partial settlement stops early, and
             // the composer must not anchor past L1's stored root.
             let end = settled_end.unwrap_or(batch_last_l2);
@@ -1317,12 +1372,9 @@ where
             if advertised_txs.len() == raw_txs.len() {
                 let advertised_hash = template.header.hash_slow();
                 if sealed_header.hash() != advertised_hash {
-                    return Err(DeriverError::local_diverged_with_msg(
-                        parent_block_number.saturating_add(1),
-                        &format!(
-                            "replayed self-contained block hash {} differs from advertised hash {advertised_hash}",
-                            sealed_header.hash(),
-                        ),
+                    return Err(DeriverError::computed_header_mismatch(
+                        sealed_header.header().clone(),
+                        advertised_hash,
                     ));
                 }
             }
@@ -1354,15 +1406,27 @@ where
         raw_txs: &[Vec<u8>],
         template: Option<&EthereumBlock>,
     ) -> DeriverResult<DeriveOutcome> {
+        self.replay_observed(parent_block_number, raw_txs, template)
+            .await
+            .map(|(outcome, _)| outcome)
+    }
+
+    async fn replay_observed(
+        &self,
+        parent_block_number: u64,
+        raw_txs: &[Vec<u8>],
+        template: Option<&EthereumBlock>,
+    ) -> DeriverResult<(DeriveOutcome, alloy_consensus::Header)> {
         let (payload, header) =
             self.execute_block_with_template(parent_block_number, raw_txs, template)?;
-        // feed_witness=false: follower / L1-reconcile re-derive — the producer
-        // already fed this block to the prover witness capture; don't double-feed.
-        Ok(self
+        let observed = header.header().clone();
+        // The diagnostic copy never influences execution or engine acceptance.
+        let outcome = self
             .inner
             .committer
             .commit_derived(payload, header, false)
-            .await?)
+            .await?;
+        Ok((outcome, observed))
     }
 
     /// Runs the deriver loop, processing each event on `rx` until the
@@ -1685,7 +1749,7 @@ where
         // Per-block reconciliation: skip blocks whose tx lists already
         // match the batch, and STF-replay the rest (reth fork-switches
         // as needed).
-        let (replayed, sync_block_hash) = self
+        let (replayed, sync_block_hash, executed_headers) = self
             .reconcile_batch_blocks(
                 from_block,
                 &decoded,
@@ -1694,7 +1758,22 @@ where
                 tx_hash,
                 settlement,
             )
-            .await?;
+            .await
+            .inspect_err(|error| {
+                if let Some((header, advertised)) = error.computed_header() {
+                    self.inner.correlations.replay_evidence.record_computed(
+                        Reference {
+                            l1_block_number,
+                            l1_block_hash,
+                            transaction_hash: tx_hash,
+                            transaction_index: tx_index,
+                            l2_block_number: 0,
+                        },
+                        header.clone(),
+                        *advertised,
+                    );
+                }
+            })?;
         event!(
             name: "eez.deriver.reconcile.done",
             Level::DEBUG,
@@ -1710,7 +1789,7 @@ where
         // Pre-check skipped when resumed: the cursor-alignment guard above
         // already checked it, at `last_indexed_l2` — `from_block - 1` would
         // check the wrong height now that a resumed batch doesn't advance past it.
-        let settled_end = self.check_claimed_state(
+        let checked = self.check_claimed_state(
             if resumed {
                 None
             } else {
@@ -1723,7 +1802,29 @@ where
             sync_block_hash,
             l1_block_number,
             tx_hash,
-        )?;
+        );
+        let reference = Reference {
+            l1_block_number,
+            l1_block_hash,
+            transaction_hash: tx_hash,
+            transaction_index: tx_index,
+            l2_block_number: 0,
+        };
+        if let Err(error) = &checked {
+            if error.is_local_diverged() {
+                self.inner
+                    .correlations
+                    .replay_evidence
+                    .record(reference, executed_headers, None);
+            }
+            return Err(checked.expect_err("checked failure"));
+        }
+        let settled_end = checked?;
+        self.inner.correlations.replay_evidence.record(
+            reference,
+            executed_headers,
+            Some(settled_end.unwrap_or(to_block)),
+        );
 
         let settled_last_l2 = settled_end.unwrap_or(to_block);
         let correlation = self.correlation_record(
@@ -1992,7 +2093,7 @@ where
         l1_block_number: u64,
         tx_hash: B256,
         settlement: eez_l1::Settlement,
-    ) -> DeriverResult<(u64, Option<B256>)> {
+    ) -> DeriverResult<(u64, Option<B256>, VecDeque<alloy_consensus::Header>)> {
         let block_templates = decoded
             .block_rlps
             .iter()
@@ -2516,6 +2617,7 @@ where
         let stale_boundary = !local_batch_boundary_matches(&self.inner.l2_provider, from_block)?;
         let mut suffix_replay = SuffixReplay::new(stale_boundary);
         let mut replayed: u64 = 0;
+        let mut executed_headers = VecDeque::new();
         let last_index = decoded.block_tx_counts.len().saturating_sub(1);
         let resumed = settlement.start > 0;
         if resumed {
@@ -2612,9 +2714,10 @@ where
                     );
                 }
                 block_txs.extend(new_content);
-                let outcome = self
-                    .replay_block_with_template(from_block - 1, &block_txs, block_templates.last())
+                let (outcome, observed) = self
+                    .replay_observed(from_block - 1, &block_txs, block_templates.last())
                     .await?;
+                retain_header(&mut executed_headers, observed);
                 // No later block follows this one to make it canonical, so
                 // reading by number can still return the old block. Only an
                 // issue here; a forward replay is extended by the next commit.
@@ -2660,9 +2763,10 @@ where
                 if !should_replay {
                     continue;
                 }
-                let outcome = self
-                    .replay_block_with_template(l2_block - 1, &block_txs, block_templates.get(i))
+                let (outcome, observed) = self
+                    .replay_observed(l2_block - 1, &block_txs, block_templates.get(i))
                     .await?;
+                retain_header(&mut executed_headers, observed);
                 if is_sync_block {
                     sync_block_hash = Some(outcome.block_hash);
                 }
@@ -2704,7 +2808,7 @@ where
                 )
             })?;
         }
-        Ok((replayed, sync_block_hash))
+        Ok((replayed, sync_block_hash, executed_headers))
     }
 
     /// Outbound calls emitted by the L2 manager from `first_transaction` onward.

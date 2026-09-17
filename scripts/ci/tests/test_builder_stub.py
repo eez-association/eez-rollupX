@@ -100,6 +100,26 @@ class BuilderControlTest(unittest.TestCase):
         with patch.object(MODULE.time, "sleep", side_effect=AssertionError("held twice")):
             self.send(maintenance)
 
+    def test_repeated_exact_source_hold_survives_attempts_but_expires_and_clears(self):
+        retry = bundle("0x0304", "0x0202")
+        hold = self.directory / "hold-next.json"
+        hold.write_text(json.dumps({"transaction":"0x0202","repeat":True,"expiresAt":400}))
+        with patch.object(MODULE.time, "time", return_value=100), \
+                patch.object(MODULE.time, "sleep", side_effect=self.release(retry)):
+            self.send(bundle("0x0301"))
+            self.send(bundle("0x0302", "0x0201"))
+            for _ in range(2):
+                self.send(retry)
+                self.assertTrue(hold.exists())
+                (self.directory / "released-bundle.json").unlink()
+        with patch.object(MODULE.time, "time", return_value=400), \
+                patch.object(MODULE.time, "sleep", side_effect=AssertionError("expired hold reused")):
+            self.send(retry)
+        hold.unlink()
+        with patch.object(MODULE.time, "sleep", side_effect=AssertionError("cleared hold reused")):
+            self.send(retry)
+        self.assertEqual(len(self.forwarded), 6)
+
     def test_rpc_outage_affects_only_selected_methods_and_recovers(self):
         request = {"jsonrpc": "2.0", "id": 5,
                    "method": "eth_maxPriorityFeePerGas", "params": []}

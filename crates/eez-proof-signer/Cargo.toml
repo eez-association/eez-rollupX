@@ -48,6 +48,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+metrics = "0.24.6"
 eez-prover.workspace = true
 eez-prover-client.workspace = true
 opentelemetry-proto.workspace = true

@@ -76,6 +76,122 @@ fn before(record: Record<'_>, next: Record<'_>) -> bool {
         && record.sequence < next.sequence
 }
 
+/// Complete prepared membership bound to a particular signed attempt variant.
+/// It establishes a native cost-allocation population, not completion or payment.
+#[derive(Debug)]
+pub struct AttemptMembership<'a> {
+    pub members: &'a [Member],
+    pub manifest: &'a AttemptDetails,
+    pub sync_height: u64,
+}
+
+/// Shared membership and ordered repricing checks for outcome and cost consumers.
+/// Every record must originate from complete digest-verified transport. `parent`
+/// is the later owned observation binding the current signed hash; a caller must
+/// independently verify its meaning and all referenced canonical receipts.
+pub fn attempt_membership<'a>(
+    scopes: &[ChainScope; 2],
+    parent: Record<'a>,
+    owner: AttemptId,
+    lineage: &[Record<'a>],
+) -> Result<AttemptMembership<'a>, Gap> {
+    if owner.epoch != parent.epoch || scopes[0].rollup_id != 0 {
+        return Err(Gap::Identity);
+    }
+    if lineage.len() > MAX_LINEAGE {
+        return Err(Gap::Limit);
+    }
+    let prepared = *lineage.first().ok_or(Gap::MissingMembership)?;
+    let Event::AttemptPrepared {
+        attempt: initial,
+        members,
+        details: Some(manifest),
+        sync_height,
+        ..
+    } = prepared.event
+    else {
+        return Err(Gap::MissingMembership);
+    };
+    if !before(prepared, parent)
+        || initial.epoch != prepared.epoch
+        || members.len() != manifest.plans.len()
+        || members.len() > MAX_MEMBERS
+        || manifest.l2_chain_id != scopes[1].chain_id
+        || manifest.l2_genesis_hash != scopes[1].genesis_hash
+        || manifest.rollup_id != scopes[1].rollup_id
+    {
+        return Err(Gap::MissingMembership);
+    }
+    let actions = manifest.plans.iter().try_fold(0usize, |count, plan| {
+        count.checked_add(plan.source_actions.len())
+    });
+    if manifest.effects.len() > MAX_EFFECTS || actions.is_none_or(|count| count > MAX_ACTIONS) {
+        return Err(Gap::Limit);
+    }
+    // Sequence order bounds traversal; signed hashes may recur after a fee
+    // quote changes again. Such recurrence is not another paid receipt.
+    let mut current = *initial;
+    let mut previous = prepared;
+    for record in &lineage[1..] {
+        let Event::AttemptRepriced {
+            previous: old,
+            replacement,
+        } = record.event
+        else {
+            return Err(Gap::Lineage);
+        };
+        if !before(previous, *record)
+            || !before(*record, parent)
+            || *old != current
+            || replacement.epoch != current.epoch
+            || replacement.generation != current.generation
+            || replacement.post_batch_hash == current.post_batch_hash
+        {
+            return Err(Gap::Lineage);
+        }
+        current = *replacement;
+        previous = *record;
+    }
+    if current != owner {
+        return Err(Gap::Lineage);
+    }
+    let outbound_count = members
+        .iter()
+        .filter(|member| member.source.direction == Direction::Outbound)
+        .count() as u64;
+    let mut groups = HashSet::new();
+    let mut admissions = HashSet::new();
+    let mut hashes = HashSet::new();
+    for (candidate, plan) in members.iter().zip(&manifest.plans) {
+        let group_valid = match (candidate.source.direction, plan.outbound_group) {
+            (Direction::Inbound, None) => true,
+            (Direction::Outbound, Some(group)) => {
+                group < outbound_count
+                    && groups.insert(group)
+                    && plan.effects_start < plan.effects_end
+            }
+            _ => false,
+        };
+        if !group_valid
+            || candidate.admission.epoch != prepared.epoch
+            || candidate.admission.sequence == 0
+            || candidate.admission.sequence >= prepared.sequence
+            || !source_matches(&candidate.source, scopes)
+            || !admissions.insert((candidate.admission.epoch, candidate.admission.sequence))
+            || !hashes.insert(candidate.source.transaction_hash)
+            || plan.effects_start > plan.effects_end
+            || plan.effects_end > manifest.effects.len() as u64
+        {
+            return Err(Gap::MissingMembership);
+        }
+    }
+    Ok(AttemptMembership {
+        members,
+        manifest,
+        sync_height: *sync_height,
+    })
+}
+
 /// `lineage` starts with the prepared manifest and contains every subsequent
 /// repricing needed to reach the parent's exact signed attempt identity. The
 /// caller must load all records from complete, digest-verified transport events.
@@ -160,95 +276,15 @@ pub fn native_decision<'a>(
     {
         return Err(Gap::Resolution);
     }
-    let prepared = *lineage.first().ok_or(Gap::MissingMembership)?;
-    let Event::AttemptPrepared {
-        attempt: initial,
-        members,
-        details: Some(manifest),
-        sync_height,
-        ..
-    } = prepared.event
-    else {
-        return Err(Gap::MissingMembership);
-    };
-    if !before(prepared, parent)
-        || initial.epoch != prepared.epoch
-        || members.len() != manifest.plans.len()
-        || members.len() > MAX_MEMBERS
-        || manifest.l2_chain_id != scopes[1].chain_id
-        || manifest.l2_genesis_hash != scopes[1].genesis_hash
-        || manifest.rollup_id != scopes[1].rollup_id
-    {
-        return Err(Gap::MissingMembership);
-    }
-    let actions = manifest.plans.iter().try_fold(0usize, |count, plan| {
-        count.checked_add(plan.source_actions.len())
-    });
+    let membership = attempt_membership(scopes, parent, *owner, lineage)?;
+    let members = membership.members;
+    let manifest = membership.manifest;
+    let sync_height = membership.sync_height;
     let consumed = details.sources.iter().try_fold(0usize, |count, source| {
         count.checked_add(source.consumed.len())
     });
-    if manifest.effects.len() > MAX_EFFECTS
-        || actions.is_none_or(|count| count > MAX_ACTIONS)
-        || consumed.is_none_or(|count| count > MAX_ACTIONS)
-    {
+    if consumed.is_none_or(|count| count > MAX_ACTIONS) {
         return Err(Gap::Limit);
-    }
-    // Sequence order bounds traversal; signed hashes may recur after a fee
-    // quote changes again. Such recurrence is not another paid receipt.
-    let mut current = *initial;
-    let mut previous = prepared;
-    for record in &lineage[1..] {
-        let Event::AttemptRepriced {
-            previous: old,
-            replacement,
-        } = record.event
-        else {
-            return Err(Gap::Lineage);
-        };
-        if !before(previous, *record)
-            || !before(*record, parent)
-            || *old != current
-            || replacement.epoch != current.epoch
-            || replacement.generation != current.generation
-            || replacement.post_batch_hash == current.post_batch_hash
-        {
-            return Err(Gap::Lineage);
-        }
-        current = *replacement;
-        previous = *record;
-    }
-    if current != *owner {
-        return Err(Gap::Lineage);
-    }
-    let outbound_count = members
-        .iter()
-        .filter(|member| member.source.direction == Direction::Outbound)
-        .count() as u64;
-    let mut groups = HashSet::new();
-    let mut admissions = HashSet::new();
-    let mut hashes = HashSet::new();
-    for (candidate, plan) in members.iter().zip(&manifest.plans) {
-        let group_valid = match (candidate.source.direction, plan.outbound_group) {
-            (Direction::Inbound, None) => true,
-            (Direction::Outbound, Some(group)) => {
-                group < outbound_count
-                    && groups.insert(group)
-                    && plan.effects_start < plan.effects_end
-            }
-            _ => false,
-        };
-        if !group_valid
-            || candidate.admission.epoch != prepared.epoch
-            || candidate.admission.sequence == 0
-            || candidate.admission.sequence >= prepared.sequence
-            || !source_matches(&candidate.source, scopes)
-            || !admissions.insert((candidate.admission.epoch, candidate.admission.sequence))
-            || !hashes.insert(candidate.source.transaction_hash)
-            || plan.effects_start > plan.effects_end
-            || plan.effects_end > manifest.effects.len() as u64
-        {
-            return Err(Gap::MissingMembership);
-        }
     }
     let position = members
         .iter()
@@ -324,7 +360,7 @@ pub fn native_decision<'a>(
             })
             .collect::<Result<Vec<_>, Gap>>()?;
         eez_protocol::settlement_manifest::validate_replay_coordinates(
-            *sync_height,
+            sync_height,
             &manifest.effects,
             &range(applied.effects_start, applied.effects_end)?,
             applied
@@ -663,6 +699,59 @@ mod tests {
                 &lineage,
             )
         }
+        fn paid(&self) -> Result<crate::costs::PaidAttempt<'_>, Gap> {
+            let mut lineage = vec![self.record(&self.prepared, 3)];
+            lineage.extend(
+                self.repriced
+                    .iter()
+                    .enumerate()
+                    .map(|(i, event)| self.record(event, i as u64 + 4)),
+            );
+            crate::costs::paid_attempt(&self.scopes, self.record(&self.parent, 10), &lineage)
+        }
+    }
+
+    #[test]
+    fn paid_attempts_include_reverted_posts_with_every_source_requeued() {
+        let mut fixture = Fixture::new();
+        let facts = fixture.facts();
+        facts.post.as_mut().unwrap().success = false;
+        facts.applied = None;
+        facts.sources[0].receipt = None;
+        facts.sources[0].source_block = None;
+        facts.sources[0].basis = SourceBasis::Nonce;
+        facts.sources[0].observed_nonce = 3;
+        facts.sources[0].consumed.clear();
+        facts.resolutions[0].disposition = ResolutionDisposition::Requeued {
+            charged_attempts: 1,
+        };
+        let paid = fixture.paid().unwrap();
+        assert!(!paid.post.success);
+        assert_eq!(paid.membership.members.len(), 1);
+        assert_eq!(paid.snapshot, block(12, 12));
+        assert!(
+            fixture.check().is_err(),
+            "a paid attempt does not prove completion"
+        );
+        fixture.facts().post = None;
+        assert_eq!(fixture.paid().unwrap_err(), Gap::References);
+    }
+
+    #[test]
+    fn paid_population_requires_full_scoped_membership_and_receipt_references() {
+        let mut fixture = Fixture::new();
+        assert!(fixture.paid().is_ok());
+        fixture.facts().l1.chain_id += 1;
+        assert_eq!(fixture.paid().unwrap_err(), Gap::Identity);
+        fixture.facts().l1 = fixture.scopes[0];
+        fixture.facts().sources[0].receipt.as_mut().unwrap().block = block(11, 99);
+        assert_eq!(fixture.paid().unwrap_err(), Gap::References);
+        fixture.facts().sources[0].receipt.as_mut().unwrap().block = block(11, 11);
+        fixture.facts().sources.clear();
+        assert_eq!(fixture.paid().unwrap_err(), Gap::References);
+        let mut fixture = Fixture::new();
+        fixture.manifest().plans.clear();
+        assert_eq!(fixture.paid().unwrap_err(), Gap::MissingMembership);
     }
 
     #[test]

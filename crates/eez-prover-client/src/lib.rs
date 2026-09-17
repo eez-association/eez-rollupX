@@ -120,60 +120,91 @@ fn chunks_for(ctx: &ProvingContext) -> Vec<ProveChunk> {
 impl Prover for RemoteProver {
     #[tracing::instrument(name = "prover_client", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", from_block = ctx.from_block, to_block = ctx.to_block, rollup_id = ctx.rollup_id))]
     async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
-        eez_telemetry::traces::record_trace_id(&tracing::Span::current());
-        let chunks = chunks_for(&ctx);
-        let n_blocks = chunks.len().saturating_sub(1);
-
-        // Raise the message-size cap on both directions: a single block's witness
-        // can exceed tonic's 4 MiB default → `ResourceExhausted`. Server matches.
-        let mut client = ProverClient::connect(self.inner.url.clone())
-            .await
-            .map_err(|error| ProverError::Retryable {
-                kind: RetryableProverError::Unavailable,
-                message: format!("connect {}: {error}", self.inner.url),
-            })?
-            .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
-            .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES);
-        let mut request = tonic::Request::new(tokio_stream::iter(chunks));
-        eez_telemetry::traces::inject(request.metadata_mut());
-        let resp = client
-            .prove(request)
-            .await
-            .map_err(|status| map_rpc_status(ctx.from_block, ctx.to_block, status))?
-            .into_inner();
-
-        // Bind both the signing authority and the signed payload. A signature
-        // from the registered attester over another batch is not our proof.
-        let hash = verify_attestation(
-            &resp.signature,
-            &resp.public_inputs_hash,
-            self.inner.attester,
-        )?;
-        let from_block = ctx.from_block;
-        let to_block = ctx.to_block;
-        let vkey = self.vkey();
-        // KZG commitment calculation is CPU work; keep it off the async worker.
-        let expected_hash = tokio::task::spawn_blocking(move || request_hash(&ctx, vkey))
-            .await
-            .map_err(|error| {
-                ProverError::Backend(format!("public-input preflight worker: {error}"))
-            })??;
-        if hash != expected_hash {
-            return Err(ProverError::Backend(format!(
-                "attestation publicInputsHash {hash} != request hash {expected_hash}"
-            )));
-        }
-        event!(
-            name: "eez.prover_client.attested",
-            Level::INFO,
-            event_name = "eez.prover_client.attested",
-            from = from_block,
-            to = to_block,
-            blocks = n_blocks,
-            %hash,
-            "remote prover attested the window",
+        let mut timer = eez_telemetry::operational::StageTimer::start(
+            eez_telemetry::operational::Stage::ProverClient,
         );
-        Ok(Bytes::copy_from_slice(&resp.signature))
+        let result = async {
+            eez_telemetry::traces::record_trace_id(&tracing::Span::current());
+            let chunks = chunks_for(&ctx);
+            let n_blocks = chunks.len().saturating_sub(1);
+
+            // Raise the message-size cap on both directions: a single block's witness
+            // can exceed tonic's 4 MiB default → `ResourceExhausted`. Server matches.
+            let mut client = ProverClient::connect(self.inner.url.clone())
+                .await
+                .map_err(|error| ProverError::Retryable {
+                    kind: RetryableProverError::Unavailable,
+                    message: format!("connect {}: {error}", self.inner.url),
+                })?
+                .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
+                .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES);
+            let mut request = tonic::Request::new(tokio_stream::iter(chunks));
+            eez_telemetry::traces::inject(request.metadata_mut());
+            let resp = client
+                .prove(request)
+                .await
+                .map_err(|status| map_rpc_status(ctx.from_block, ctx.to_block, status))?
+                .into_inner();
+
+            // Bind both the signing authority and the signed payload. A signature
+            // from the registered attester over another batch is not our proof.
+            let hash = verify_attestation(
+                &resp.signature,
+                &resp.public_inputs_hash,
+                self.inner.attester,
+            )?;
+            let from_block = ctx.from_block;
+            let to_block = ctx.to_block;
+            let vkey = self.vkey();
+            // KZG commitment calculation is CPU work; keep it off the async worker.
+            let expected_hash = tokio::task::spawn_blocking(move || request_hash(&ctx, vkey))
+                .await
+                .map_err(|error| {
+                    ProverError::Backend(format!("public-input preflight worker: {error}"))
+                })??;
+            if hash != expected_hash {
+                return Err(ProverError::Backend(format!(
+                    "attestation publicInputsHash {hash} != request hash {expected_hash}"
+                )));
+            }
+            // Native Reth log filters may omit the eez_trace span target while
+            // retaining this event. Project only its reviewed optional ID so
+            // the existing JSON collector can correlate successful attestations.
+            let trace_id = eez_telemetry::traces::current()
+                .map(|context| alloy_primitives::hex::encode(context.trace_id.0));
+            event!(
+                name: "eez.prover_client.attested",
+                Level::INFO,
+                event_name = "eez.prover_client.attested",
+                trace_id = trace_id.as_deref(),
+                from = from_block,
+                to = to_block,
+                blocks = n_blocks,
+                %hash,
+                "remote prover attested the window",
+            );
+            Ok(Bytes::copy_from_slice(&resp.signature))
+        }
+        .await;
+        use eez_telemetry::operational::StageOutcome;
+        timer.finish(match &result {
+            Ok(_) => StageOutcome::Success,
+            Err(ProverError::Actionable { .. }) => StageOutcome::Rejected,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::Unavailable,
+                ..
+            }) => StageOutcome::Unavailable,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::DeadlineExceeded,
+                ..
+            }) => StageOutcome::Deadline,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::Aborted,
+                ..
+            }) => StageOutcome::Aborted,
+            Err(ProverError::Backend(_)) => StageOutcome::Failed,
+        });
+        result
     }
 
     fn vkey(&self) -> B256 {
