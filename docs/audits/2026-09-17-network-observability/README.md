@@ -205,3 +205,21 @@ compatibility cases. The [validation map](../../../observability/validation/nati
 and [artifact report](../../../observability/validation/native-local-dispositions.json)
 state exact scope, first failure and remaining limits. This evidence predates the
 subsequent observer source-receipt work.
+
+## Lifecycle-referenced source receipt costs
+
+Source `48c748b` adds schema-5 source receipt enrichment while retaining the
+original configured selection for existing cost views. It projects complete
+admissions with chain/genesis/rollup/context checks, verifies exact source receipt
+inclusions inside the indexed interval, and shares immutable receipt storage.
+Repeated admissions cannot multiply costs; reorgs and disputed lifecycle links
+retract the appropriate views. Null receipts, accounting gaps and failed lookups
+remain distinct. Per-chain deadlines/backoff preserve the other chain's progress.
+
+30 observer tests, workspace all-target Clippy and 34 disposable database check
+groups passed. The [validation map](../../../observability/validation/source-receipts.md)
+and [artifact report](../../../observability/validation/source-receipts.json)
+include migration compatibility, injected errors, timeout recovery, context fencing,
+exact sums and first failures. These are independently fetched receipt facts for
+lifecycle-referenced hashes, not completed companion allocation or canonical EEZ
+outcome assurance. No production deployment was performed.
