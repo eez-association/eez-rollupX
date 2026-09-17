@@ -264,3 +264,63 @@ All 238 non-optional CI tooling checks passed (four opt-in checks skipped), as d
 workspace Clippy with warnings denied, formatting, workflow validation and
 `git diff --check`. Forty local documentation links resolve and all five Bash
 examples pass syntax validation. Full CI for this follow-up remains pending.
+
+## Follow-up: setup settlement and bridge escrow dependencies (2026-09-17)
+
+At [`f347417`](https://github.com/eduadiez/rollupX/actions/runs/35198677351), all
+cross-chain shards and both corrected cost comparisons passed. Two other checks
+failed:
+
+- [Embedded prover-failure test](https://github.com/eduadiez/rollupX/actions/runs/35198677351/job/105139638073):
+  three posts were observed against a baseline of two. The setup batch for L2
+  blocks 26–30 was signed at 09:55:32, before fault injection, and landed while
+  the test was rejecting subsequent proofs. Snapshotting the current safe head
+  did not establish that all fixture setup activity had settled.
+- [Kurtosis](https://github.com/eduadiez/rollupX/actions/runs/35198677351/job/105139638043):
+  27 scenarios passed and `bridgeL2` failed. Scenario artifacts were unavailable
+  because GitHub storage quota blocked upload. The pinned
+  [bridgeL2 scenario](../../../eez-core-protocol/script/e2e/one_way/L2_to_L1/bridgeL2/E2EBridgeL2.s.sol)
+  and [upstream runbook](../../../eez-core-protocol/script/e2e/run/USEFUL_TESTING_COMMANDS.md#caveats)
+  require the deposit from `bridge` before the release. The adapter launched
+  both concurrently. This establishes a scheduling defect; the absent scenario
+  log prevents attributing the exact historical failure beyond that evidence.
+
+The prover test now sends a confirmed marker transfer after fixture setup and
+requires canonical convergence through that transaction before taking counters
+or installing faults. It retains zero new posts/proofs during both resource and
+transport failures, whole-range recovery, the single recovery post, idle-post
+checks and independent follower receipt replay. The original test passed locally
+in 58.55 seconds; the corrected test passed in 67.45 seconds without retries.
+The CI log, rather than that local baseline run, reproduces the original race.
+
+When both bridge scenarios are selected, the adapter runs `bridge` as a prerequisite
+and then runs the remaining selected scenarios in parallel. Fresh worker wallets,
+the total deadline, strict result accounting, and independent receipt/semantic
+verification remain. A failed prerequisite explicitly skips the release and
+fails the suite while unrelated scenarios still execute. No hidden deposit or
+retry is added to a `bridgeL2`-only selection, which requires existing escrow.
+
+The scheduling regression uses the real pinned upstream orchestrator with mocked
+funding/chain execution: a release fails until the deposit finishes. It failed
+before the adapter change (three passed, one failed) and passes with the dependency
+enforced. The runner also prints bounded, prefixed failure-log tails with key
+redaction; console text cannot inject an additional scenario result. These
+diagnostics remain available when artifact upload fails.
+
+The real pinned `bridge` and `bridgeL2` network scripts also passed against an
+isolated native Ethereum fixture, in that enforced order, with independent
+follower prefix convergence afterward (89.43 seconds including fixture setup).
+The deposit phase took 30.23 seconds and release phase 25.87 seconds. The probe
+used fixture wallets and the preserved runtime binaries; its temporary Rust
+test was moved outside the repository after compilation, so it adds no permanent
+CI case. Probe source and logs are local-only under
+`/tmp/rollupx-e2e-investigation`; detailed scenario logs are in
+`bridge-native-5VgZFG`. The pinned protocol compiled with existing Forge lint
+warnings. This validates native execution and replay, not a complete Kurtosis
+PoS/PBS run or its independent causal/blob evidence collector.
+
+The full CI tooling suite selected 245 tests: 241 passed and four opt-in checks
+were skipped. Workspace Clippy with warnings denied, Rust formatting and
+`git diff --check` passed. Three local links in the edited documents resolve at
+the unchanged protocol pin, and 35 Bash examples pass syntax validation. The
+complete candidate CI matrix remains required before release.

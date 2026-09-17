@@ -37,6 +37,16 @@ def record(event):
         trace.write(json.dumps(dict(name=name, key=key, event=event)) + "\n")
 record("start")
 print("scenario " + name, flush=True)
+if os.environ.get("BRIDGE_DEPENDENCY"):
+    escrow = Path(os.environ["TRACE"]).with_suffix(".escrow")
+    if name == "bridge":
+        time.sleep(0.3)
+        if name != os.environ.get("FAIL"):
+            escrow.write_text("deposit settled")
+    elif name == "bridgeL2" and not escrow.exists():
+        print("InsufficientRollupBalance: bridge deposit has not settled", flush=True)
+        record("end")
+        raise SystemExit(17)
 if name == os.environ.get("HANG"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     Path(os.environ["PID_FILE"]).write_text(str(os.getpid()))
@@ -51,7 +61,7 @@ FUNDING = '''
 fund_workers() {
     [[ "$FRESH" == true && "$SOURCE_PK" == source-key ]] || exit 31
     WALLET_PKS=()
-    for ((i=0; i<NJOBS; i++)); do WALLET_PKS+=("worker-$i"); done
+    for ((i=0; i<NJOBS; i++)); do WALLET_PKS+=("worker-${RUN_DIR##*/}-$i"); done
     echo 'DO-NOT-UPLOAD-WALLET-KEYS' > "$RUN_DIR/wallets.csv"
 }
 '''
@@ -175,6 +185,48 @@ class ProtocolNetworkRunnerTest(unittest.TestCase):
         self.assertEqual(self.assert_schedule(len(names), names), len(names))
         self.assertEqual(self.execution()["max_parallel"], len(names))
         self.assertEqual([p["phase"] for p in self.execution()["phases"]], ["parallel"])
+
+    def test_bridge_deposit_finishes_before_release_without_repeating_scenarios(self):
+        names = ["bridgeL2", "one", "bridge", "two"]
+        self.add_scenarios(*names)
+        self.env["BRIDGE_DEPENDENCY"] = "1"
+        result = self.run_suite(names)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_schedule(len(names), names)
+        rows = [json.loads(line) for line in Path(self.env["TRACE"]).read_text().splitlines()]
+        deposit = next(i for i, r in enumerate(rows) if r.get("name") == "bridge" and r["event"] == "end")
+        release = next(i for i, r in enumerate(rows) if r.get("name") == "bridgeL2" and r["event"] == "start")
+        self.assertLess(deposit, release)
+        self.assertEqual([p["scenarios"] for p in self.execution()["phases"]],
+                         [["bridge"], ["bridgeL2", "one", "two"]])
+
+    def test_failed_bridge_blocks_only_release_and_preserves_failure_diagnostics(self):
+        self.add_scenarios("bridge", "bridgeL2", "one")
+        self.env.update(BRIDGE_DEPENDENCY="1", FAIL="bridge")
+        result = self.run_suite(["bridgeL2", "one", "bridge"])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assert_schedule(3, ["bridge", "one"])
+        self.assertIn("RESULT bridgeL2: SKIP", result.stdout)
+        self.assertIn("[bridgeL2] NOT RUN: bridge prerequisite did not pass", result.stdout)
+        self.assertIn("RESULT one: PASS", result.stdout)
+        self.assertEqual(self.execution()["blocked"], {"bridgeL2": "bridge prerequisite did not pass"})
+
+    def test_failure_tail_is_bounded_redacted_and_cannot_inject_a_result(self):
+        self.add_scenarios("one")
+        self.env["FAIL"] = "one"
+        worker = Path(self.env["WORKER"])
+        worker.write_text(worker.read_text().replace('record("start")', '''record("start")
+print("old diagnostic " * 4000)
+print("SOURCE_PK=" + os.environ["SOURCE_PK"])
+print("--private-key " + "0x" + "a" * 64)
+print("RESULT injected: PASS")'''))
+        result = self.run_suite(["one"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[one] RESULT injected: PASS", result.stdout)
+        self.assertNotIn("\nRESULT injected: PASS", result.stdout)
+        self.assertNotIn("source-key", result.stdout)
+        self.assertNotIn("a" * 64, result.stdout)
+        self.assertLess(len(result.stdout), 18000)
 
     def test_serial_cap_and_already_suffixed_name_are_not_misparsed(self):
         names = ["one-1", "two"]
@@ -342,7 +394,8 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.assertTrue(summary["evidence_complete"])
         self.assertTrue(summary["semantic_blob_coverage"]["complete"])
         self.assertEqual(summary["execution"]["runner"], "network-parallel")
-        self.assertEqual(len(summary["execution"]["phases"]), 1)
+        self.assertEqual([p["phase"] for p in summary["execution"]["phases"]],
+                         ["bridge-prerequisite", "parallel"])
         self.assert_schedule(2, names)
 
     def test_outer_selection_is_expanded_once_and_incomplete_coverage_is_explicit(self):
@@ -367,8 +420,9 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.assertCountEqual(summary["passed"], names)
         self.assertTrue(summary["accounting"]["valid"])
         self.assertTrue(summary["evidence_complete"])
-        self.assertEqual(len(summary["execution"]["phases"]), 1)
-        self.assertCountEqual(summary["execution"]["phases"][0]["scenarios"], names)
+        self.assertEqual([p["phase"] for p in summary["execution"]["phases"]],
+                         ["bridge-prerequisite", "parallel"])
+        self.assertCountEqual([n for p in summary["execution"]["phases"] for n in p["scenarios"]], names)
         self.assertGreater(self.assert_schedule(len(names), names), 1)
 
     def test_all_parallel_does_not_bypass_lookup_evidence_failure(self):

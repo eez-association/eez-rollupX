@@ -1066,16 +1066,26 @@ async fn prover_resource_and_transport_failures_preserve_the_whole_due_range() {
     .await
     .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    // `always` deliberately leaves empty blocks unsettled. The follower must
-    // reproduce the settled setup prefix before faults are injected, not wait
-    // for an arbitrary newer empty head to become due.
+    // A snapshot of `safe` can precede an already-proved setup batch still
+    // awaiting inclusion. Settle a marker after all setup transactions before
+    // taking the baseline or blocking the prover. `always` posts this activity
+    // but deliberately leaves later empty blocks unsettled.
+    let setup_tx = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
     let height = l2
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
+        .get_transaction_receipt(setup_tx)
         .await
         .unwrap()
         .unwrap()
-        .header
-        .number;
+        .block_number
+        .unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], height, TIMEOUT)
         .await
         .unwrap();
