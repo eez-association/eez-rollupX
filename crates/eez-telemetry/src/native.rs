@@ -109,6 +109,11 @@ pub fn prometheus_builder() -> PrometheusBuilder {
             QUEUE_BUCKETS,
         )
         .expect("static request buckets are valid")
+        .set_buckets_for_metric(
+            Matcher::Suffix("eez_request_readiness_duration_seconds".into()),
+            QUEUE_BUCKETS,
+        )
+        .expect("static readiness buckets are valid")
 }
 
 #[derive(Debug)]

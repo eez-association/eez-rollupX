@@ -78,6 +78,28 @@
         "refresh": 1,
         "multi": false,
         "includeAll": false
+      },
+      {
+        "name": "client_instance",
+        "label": "Client / host instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "eez-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{environment=~\"$environment\",deployment=~\"$deployment\",service=~\"eez-composer|eez-follower|eez-proof-signer|lighthouse|node-exporter\"}, instance)",
+          "refId": "client_instance"
+        },
+        "definition": "label_values(up{environment=~\"$environment\",deployment=~\"$deployment\",service=~\"eez-composer|eez-follower|eez-proof-signer|lighthouse|node-exporter\"}, instance)",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
@@ -537,6 +559,646 @@
       "options": {
         "mode": "markdown",
         "content": "The packaged probe runs with the monitoring backend. To detect a monitoring-host outage, configure a heartbeat receiver on another machine. Optional host metrics and public RPC/signer probes require explicit targets."
+      }
+    },
+    {
+      "id": 10,
+      "title": "Host CPU utilization",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Private node-exporter required. Missing scrape/rate history is unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - avg without(cpu,mode) (rate(node_cpu_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\",mode=\"idle\"}[5m]))) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Host network traffic",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Per-interface rates; do not sum virtual and physical interfaces into an assumed unique traffic total.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(rate(node_network_receive_bytes_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\",device!=\"lo\"}[5m])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}} receive",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "(rate(node_network_transmit_bytes_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\",device!=\"lo\"}[5m])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}} transmit",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Host disk mean operation latency",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Per-device mean completed read/write latency. No operations gives no latency value; devices and partitions are not summed.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((rate(node_disk_read_time_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m]) / rate(node_disk_reads_completed_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m])) and (rate(node_disk_reads_completed_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m]) > 0)) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}} read",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "((rate(node_disk_write_time_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m]) / rate(node_disk_writes_completed_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m])) and (rate(node_disk_writes_completed_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m]) > 0)) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}} write",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Host disk busy time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Per-device I/O busy-time rate from node-exporter.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(rate(node_disk_io_time_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}[5m])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{device}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Connected peers \u00b7 reported process scope",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Pinned embedded Reth peer gauges have no trustworthy L1/L2 attribution; they are process-wide observations. Lighthouse peer support is optional; absent means unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(reth_network_connected_peers{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=~\"eez-composer|eez-follower\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=~\"eez-composer|eez-follower\"} == 1)",
+          "legendFormat": "{{instance}} embedded Reth (mixed chains)",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "(libp2p_peers{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"} == 1)",
+          "legendFormat": "{{instance}} Lighthouse",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Consensus synchronization",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Configured Lighthouse reports 1 when synced and 0 when not synced; no configured/healthy source means unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sync_eth2_synced{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Syncing",
+                  "color": "yellow"
+                },
+                "1": {
+                  "text": "Synced",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "title": "Consensus head slot",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Lighthouse slot, not an execution block number.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(beacon_head_slot{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "Consensus finalized epoch",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 59,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Lighthouse epoch. No fixed slots-per-epoch assumption or execution-height conversion is made.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(beacon_finalized_epoch{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 18,
+      "title": "Observed process restarts \u00b7 past hour",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Changes in the reported process start timestamp are a lower bound on observed restarts. This is not an orchestrator container-restart counter; outages may hide restarts.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(changes(reth_eez_process_start_timestamp_seconds{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=~\"eez-composer|eez-follower\"}[1h])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=~\"eez-composer|eez-follower\"} == 1)",
+          "legendFormat": "{{instance}} native node",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "(changes(eez_process_start_timestamp_seconds{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"eez-proof-signer\"}[1h])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"eez-proof-signer\"} == 1)",
+          "legendFormat": "{{instance}} signer",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "(changes(process_start_time_seconds{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"}[1h])) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",service=\"lighthouse\"} == 1)",
+          "legendFormat": "{{instance}} Lighthouse",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "title": "Public RPC probe duration",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 66,
+        "w": 12,
+        "h": 7
+      },
+      "description": "Duration of the configured read-only public RPC probe. Inspect probe success and source health alongside latency; absent probe configuration is unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(probe_duration_seconds{environment=~\"$environment\",deployment=~\"$deployment\",job=\"public-rpc\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"public-rpc\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       }
     }
   ]

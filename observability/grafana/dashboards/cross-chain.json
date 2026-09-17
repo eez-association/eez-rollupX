@@ -971,6 +971,229 @@
           "rawSql": "SELECT f.source->>'direction' AS direction,f.outcome,f.timing_state,f.clock_basis,count(*) AS admissions FROM eez.lifecycle_admission_finality f JOIN eez.dashboard_chain_context c ON c.deployment_id=f.deployment_id AND c.chain_id=(f.source->>'chain_id')::numeric AND c.genesis_hash=decode(f.source->>'genesis_hash','hex') AND c.rollup_id=(f.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND f.instance IN (${instance:sqlstring}) AND (f.admitted_at_ms BETWEEN extract(epoch FROM $__timeFrom()::timestamptz)*1000 AND extract(epoch FROM $__timeTo()::timestamptz)*1000) GROUP BY 1,2,3,4 ORDER BY 1,2,3"
         }
       ]
+    },
+    {
+      "id": 21,
+      "title": "Current accumulated readiness time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Sum of observed blocked, serviceable and unknown portions for currently active admissions, including in-flight work. Missing partition clocks contribute the whole known age to unknown. These are gauges, never rate().",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_readiness_duration_sum_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Observed readiness time \u00b7 terminal p50 / p95 / p99",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 93,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Native terminal observations by outcome, including local dispositions and possible reorg repeats. Monotonic blocked/serviceable/unknown partitions sum per observation; their quantiles must not be summed. Serviceable includes in-flight processing. This is not a canonical unique-request cohort.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p50",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p95",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p99",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Readiness timing coverage \u00b7 terminal observations",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 100,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Show counts beside percentile panels. Unknown includes pre-evaluation time, source changes, reorgs, expired observations and missing clocks. Zero counts require an observed series; absence is unknown. Whole terminal-capture gaps have separate counts because their missing source population cannot be inferred.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(direction,outcome,kind) (increase(reth_eez_request_readiness_duration_seconds_count{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} timed observations",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_readiness_clock_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} missing partition clock",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_duration_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} missing admission clock",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by(reason) (increase(reth_eez_native_terminal_capture_gaps_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "capture gaps {{reason}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     }
   ],
   "annotations": {

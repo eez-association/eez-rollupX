@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::{Direction, HeldPool, HeldTx, OptimisticallyIncluded, TerminalReason, UserLocation};
 
+pub(super) mod durations;
 mod native;
 use native::NativeQueue;
 
@@ -79,11 +80,13 @@ impl QueueTelemetry {
         self.admitted_at.contains_key(hash)
     }
 
-    pub fn admitted(&mut self, hash: B256) {
+    pub fn admitted(&mut self, hash: B256, sender: Address, direction: Direction, nonce: u64) {
         self.admitted_at.insert(hash, now_ms());
         if let Some(native) = &mut self.native {
-            native.admitted_at.insert(hash, std::time::Instant::now());
+            let now = std::time::Instant::now();
+            native.admitted_at.insert(hash, now);
             native.ready.remove(&hash);
+            native.admit_clock(hash, (sender, direction, nonce), now);
         }
         self.ready.remove(&hash);
     }
@@ -107,6 +110,13 @@ impl QueueTelemetry {
                 native
                     .ready
                     .retain(|hash, _| queued.contains(hash) || in_flight.contains_key(hash));
+                native.clocks.retain(|hash, _| {
+                    queued.contains(hash)
+                        || in_flight.contains_key(hash)
+                        || data.users.get(hash).is_some_and(|user| {
+                            !matches!(user.location, UserLocation::Terminal { .. })
+                        })
+                });
             }
             self.ready
                 .retain(|hash, _| queued.contains(hash) || in_flight.contains_key(hash));
@@ -148,6 +158,7 @@ impl QueueTelemetry {
         self.current = None;
         self.ready.clear();
         if let Some(native) = &mut self.native {
+            native.invalidate_clocks(std::time::Instant::now());
             native.current = None;
             native.evaluated_at = None;
             native.ready.clear();
@@ -161,8 +172,7 @@ impl HeldPool {
         state.telemetry.current = Some(source);
         state.telemetry.evaluated_at_ms = Some(now_ms());
         if let Some(native) = &mut state.telemetry.native {
-            native.current = Some(source);
-            native.evaluated_at = Some(std::time::Instant::now());
+            native.evaluate(source, std::time::Instant::now());
         }
     }
 
@@ -195,6 +205,17 @@ impl HeldPool {
             SourceCondition::Balance { .. } => eez_telemetry::schema::BlockReason::Balance,
             SourceCondition::Escrow { .. } => eez_telemetry::schema::BlockReason::Escrow,
         };
+        {
+            let state = &mut *state;
+            if let Some(native) = &mut state.telemetry.native {
+                native.block_chain(
+                    (tx.sender, tx.direction, tx.nonce),
+                    source,
+                    std::time::Instant::now(),
+                    &state.in_flight,
+                );
+            }
+        }
         state.telemetry.ready.remove(&tx.hash);
         state.telemetry.blocked.insert(
             key,
@@ -215,6 +236,9 @@ impl HeldPool {
 
     pub(crate) fn record_ready(&self, tx: &HeldTx, source: SourceState) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        if let Some(native) = &mut state.telemetry.native {
+            native.unblock_chain((tx.sender, tx.direction), source, std::time::Instant::now());
+        }
         if state
             .telemetry
             .blocked

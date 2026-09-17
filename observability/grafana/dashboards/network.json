@@ -944,6 +944,446 @@
         "mode": "markdown",
         "content": "This overview uses passive chain-head and aggregate queue observations. **Idle / unexercised means no current queued or in-flight work, not verified cross-chain health. Unknown means unavailable or unconfigured.** When enabled, the protocol dashboards show separately retained canonical outcomes, costs, finality and request history. No continuous active canary is configured by this view."
       }
+    },
+    {
+      "id": 16,
+      "title": "L1 finalized indexed height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Exact finalized L1 block retained by the canonical indexer. Unknown when indexing is disabled, stale, failed or frozen.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_index_finalized_number{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",chain=\"l1\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "L1 finalized block age",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Age of the exact finalized block timestamp, not time since the last successful poll. Unknown for missing or future timestamps.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - eez_observer_index_finalized_timestamp_seconds{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",chain=\"l1\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 18,
+      "title": "L2 node-reported safe height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 26,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Optional identity-checked observations revalidated against exact canonical block hashes. Safe is the node RPC tag, not independently established finality. Explorer height does not prove a gap-free history.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_height{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "title": "L2 node-reported safe lag",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Latest canonical RPC height minus this verified observation; an ahead, conflicting, unavailable or stale source remains unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "title": "Explorer highest verified indexed height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 31,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Optional identity-checked observations revalidated against exact canonical block hashes. Safe is the node RPC tag, not independently established finality. Explorer height does not prove a gap-free history.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_height{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "title": "Explorer highest verified indexed lag",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 31,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Latest canonical RPC height minus this verified observation; an ahead, conflicting, unavailable or stale source remains unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "title": "L2 finalized settled height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Exact applied L2 hash with verified finalized L1 anchor. A node-reported safe tag or matching height alone does not establish this.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_settled_finalized_l2_number{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 23,
+      "title": "Safe-head and explorer capability / collection state",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 36,
+        "w": 16,
+        "h": 5
+      },
+      "description": "Disabled, pending, stale and rejected sources remain explicit. Blobscan slot-cursor availability is not a verified indexed block height.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_state{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{chain}} {{profile}} {{reason}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "name"
+      }
     }
   ]
 }

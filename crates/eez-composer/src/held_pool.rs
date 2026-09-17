@@ -324,6 +324,10 @@ impl PoolState {
         if !self.by_hash.insert(tx.hash) {
             return;
         }
+        if front_priority {
+            self.telemetry
+                .recover_native_clock(tx.hash, (tx.sender, tx.direction, tx.nonce));
+        }
         let same_chain =
             |queued: &HeldTx| queued.sender == tx.sender && queued.direction == tx.direction;
         let position = if front_priority {
@@ -507,7 +511,12 @@ impl HeldPool {
                 target_direction,
                 eez_telemetry::schema::Outcome::Replaced,
             );
-            state.telemetry.admitted(replacement_hash);
+            state.telemetry.admitted(
+                replacement_hash,
+                target_sender,
+                target_direction,
+                target_nonce,
+            );
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
             state.by_hash.insert(replacement_hash);
@@ -556,7 +565,9 @@ impl HeldPool {
             return Err(AdmissionError::Nonce { expected, on_chain });
         }
         state.retire_local_owner_for_admission(tx.hash)?;
-        state.telemetry.admitted(tx.hash);
+        state
+            .telemetry
+            .admitted(tx.hash, tx.sender, tx.direction, tx.nonce);
         let hash = tx.hash;
         state.insert_queued(tx, false);
         let pending = state

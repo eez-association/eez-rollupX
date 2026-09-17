@@ -79,6 +79,8 @@ try:
                   'public_rpc_url': 'http://fixture:9000/rpc',
                   'signer_tcp_target': 'fixture:9000',
                   'node_exporter_target': 'fixture:9000',
+                  'client_targets': [{'service': 'lighthouse', 'instance': 'fixture-consensus',
+                                      'metrics_target': 'consensus:9000'}],
                   'native_processes': [{'service': 'eez-proof-signer', 'instance': 'fixture-signer',
                       'metrics_target': 'fixture:9000', 'metrics_listen': '127.0.0.1:19102'}],
                   'grafana_port': 0, 'prometheus_port': 0, 'loki_port': 0}
@@ -86,6 +88,8 @@ try:
         endpoint = {'url': 'http://fixture:9000/rpc', 'chain_id': 1, 'genesis_hash': '0x' + 'aa' * 32}
         observer_config = temp / 'observer.json'
         observer_config.write_text(json.dumps({'l1': endpoint, 'l2': endpoint,
+            'network': {'l2_safe_head': True, 'explorers': [
+                {'chain': 'l2', 'profile': 'blockscout_v2', 'url': 'http://fixture:9000'}]},
             'listen': '0.0.0.0:19100', 'allow_non_loopback': True}))
         compose = ['docker', 'compose', '--project-name', project, '--env-file', str(runtime / 'compose.env'), '-f', str(ROOT / 'compose.yaml')]
         test_images = json.loads((ROOT / 'tests/images.lock.json').read_text())
@@ -93,6 +97,10 @@ try:
         report['fixture_images'] = test_images
         override = runtime / 'compose.test.json'
         override.write_text(json.dumps({'services': {
+            'consensus': {'image': fixture_image, 'command': ['python3', '/fixture.py'],
+                          'volumes': [str(ROOT / 'tests/fixture-server.py') + ':/fixture.py:ro'],
+                          'mem_limit': '128m', 'cap_drop': ['ALL'],
+                          'security_opt': ['no-new-privileges:true']},
             'fixture': {'image': fixture_image, 'command': ['python3', '/fixture.py'],
                         'volumes': [str(ROOT / 'tests/fixture-server.py') + ':/fixture.py:ro'],
                         'ports': ['127.0.0.1:0:9000'], 'mem_limit': '128m', 'cap_drop': ['ALL'],
@@ -132,7 +140,8 @@ try:
             until('all configured Prometheus scrape targets healthy', lambda: query('min(up)')[0]['value'][1] == '1')
             until('read-only RPC and signer TCP probes succeed', lambda: query('min(probe_success)')[0]['value'][1] == '1')
             until('queue recording rules populated', lambda: query('sum(eez:queue_transactions:current)')[0]['value'][1] == '4')
-            until('both read-only dashboards provisioned', lambda: len(graf('/api/search?tag=eez')) == 2)
+            expected_dashboards = ['eez-infrastructure', 'eez-network', 'eez-runbooks']
+            until('read-only dashboards and operator runbooks provisioned', lambda: sorted(item['uid'] for item in graf('/api/search?tag=eez')) == expected_dashboards)
             rules = graf('/api/v1/provisioning/alert-rules')
             assert any(rule['uid'] == 'eez-heartbeat' for rule in rules)
             assert next(rule for rule in rules if rule['uid'] == 'eez-observer-down')['data'][1]['model']['expression'] == '$A > 0'
@@ -142,9 +151,30 @@ try:
                     if panel.get('datasource', {}).get('uid') != 'eez-prometheus':
                         continue
                     for target in panel.get('targets', []):
-                        expr = target['expr'].replace('$environment', 'devnet').replace('$deployment', project).replace('$instance', 'fixture-observer')
+                        expr = target['expr'].replace('$environment', 'devnet').replace('$deployment', project).replace('$instance', 'fixture-observer').replace('${client_instance:regex}', '.*')
                         query(expr)
             report['checks'].append('dashboards_datasources_and_all_panel_queries')
+            until('configured safe and explorer workers publish verified heights', lambda:
+                  len(query('eez_observer_network_height{chain="l2"} == 100')) == 2)
+            assert len(query('eez_observer_network_lag_blocks{chain="l2"} == 0')) == 2
+            request(fixture + '/control', data={'mode': 'network_error'})
+            until('optional source failures remove heights', lambda:
+                  not query('eez_observer_network_height') and
+                  len(query('eez_observer_network_evaluation_valid{chain="l2"} == 0')) == 2)
+            assert query('eez:chain_head_number:current{source="l1"}')
+            request(fixture + '/control', data={'mode': 'healthy'})
+            until('optional network sources recover independently', lambda:
+                  len(query('eez_observer_network_height{chain="l2"} == 100')) == 2)
+            infrastructure = json.loads((ROOT / 'grafana/dashboards/infrastructure.json').read_text())
+            for title in ('Host CPU utilization', 'Host network traffic', 'Host disk mean operation latency',
+                          'Host disk busy time', 'Connected peers · reported process scope',
+                          'Consensus synchronization', 'Consensus head slot', 'Consensus finalized epoch',
+                          'Observed process restarts · past hour', 'Public RPC probe duration'):
+                panel = next(panel for panel in infrastructure['panels'] if panel['title'] == title)
+                expressions = [target['expr'].replace('$environment', 'devnet').replace('$deployment', project)
+                               .replace('${client_instance:regex}', '.*') for target in panel['targets']]
+                assert any(query(expr) for expr in expressions), title
+            report['checks'].append('optional_network_worker_config_failure_recovery_and_positive_infrastructure_panels')
             (log_dir / 'fixture.jsonl').write_text(json.dumps({'level': 'INFO', 'message': 'eez-monitoring-smoke'}) + '\n')
             def logs_present():
                 url = loki + '/loki/api/v1/query_range?' + urllib.parse.urlencode({'query': '{deployment="' + project + '"} |= "eez-monitoring-smoke"', 'limit': 10})
@@ -182,7 +212,7 @@ try:
             historical_time = int(time.time()) - 5
             run(compose + ['up', '-d', '--force-recreate', '--no-deps', 'prometheus', 'grafana', 'loki', 'alloy'])
             prom, grafana, loki = base('prometheus', 9090), base('grafana', 3000), base('loki', 3100)
-            until('Grafana dashboards persist across container replacement', lambda: len(graf('/api/search?tag=eez')) == 2)
+            until('Grafana dashboards persist across container replacement', lambda: sorted(item['uid'] for item in graf('/api/search?tag=eez')) == expected_dashboards)
             until('Prometheus historical sample persists', lambda: query(f'eez_observer_chain_head_number{{source="l1"}} @ {historical_time}'))
             until('Loki logs persist across restart', logs_present, seconds=120)
             report['checks'].append('exporter_failure_and_restart_persistence')

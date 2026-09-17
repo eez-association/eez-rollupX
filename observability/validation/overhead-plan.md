@@ -70,6 +70,14 @@ wave using stale on-chain nonces before the prior wave resolves.
    tail produces **inconclusive/fail**, not a relaxed threshold. If the pilot shows
    the cap cannot provide useful precision, record that and propose a larger
    dedicated window before starting the confirmatory set.
+   Preflight capture size as well as elapsed time: the offline adapter accepts
+   32 MiB per input file and 128 MiB across the complete input set. The runner's
+   maximum time/sample settings do not guarantee that twelve resource captures
+   fit that separate bound. Estimate the full bundle from the pilot's measured
+   bytes per sample, including fixed records and repeated evidence in result
+   files, before freezing the count and window. An oversized capture remains
+   unusable for acceptance; do not omit raw samples or select fewer pairs after
+   observing the result.
 6. Use the same machine and CPU allocation, serial worlds and disjoint owned
    endpoints. Run after all Cargo/backend smoke activity is finished. Record
    system CPU/steal, memory pressure, swap, major faults and disk I/O; read only

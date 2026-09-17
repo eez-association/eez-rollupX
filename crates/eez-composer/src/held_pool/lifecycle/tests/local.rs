@@ -316,6 +316,16 @@ fn native_terminal_durations_work_without_lifecycle_and_skip_unchanged_reservati
     assert_eq!(observation.direction, schema::Direction::Inbound);
     assert_eq!(observation.outcome, Outcome::PoolDiscarded);
     assert!(observation.elapsed.is_some());
+    assert!(
+        observation
+            .readiness
+            .unwrap()
+            .conserves(observation.elapsed.unwrap())
+    );
+    assert_eq!(
+        observation.readiness.unwrap().parts[2],
+        observation.elapsed.unwrap()
+    );
     let capture = super::super::LocalCapture::before(
         &pool.state.lock().unwrap(),
         [(held.hash, Outcome::PoolDiscarded, held.direction)],

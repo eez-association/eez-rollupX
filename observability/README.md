@@ -26,6 +26,9 @@ completed release. The [implementation checkpoint](validation/implementation-che
 summarizes completed local checks and the remaining performance, release and
 deployment gates.
 
+[Network health](contracts/network-health.md) documents optional verified safe-head
+and explorer probes, finality age, and the client/host infrastructure panels.
+
 Native process endpoints can now be configured explicitly through generated
 `EEZ_TELEMETRY_CONFIG` files; see [startup and precedence](contracts/native-startup.md).
 The composer/follower reuse the pinned Reth recorder and signer uses the compatible

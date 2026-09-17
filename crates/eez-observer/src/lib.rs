@@ -8,6 +8,7 @@ pub mod database;
 pub mod indexer;
 pub mod metrics;
 pub mod model;
+pub mod network;
 pub mod outcomes;
 mod posting;
 pub mod protocol_logs;
@@ -46,6 +47,7 @@ type Samples = Arc<RwLock<Vec<Sample>>>;
 struct ScrapeState {
     samples: Samples,
     index: Option<indexer::SharedStatus>,
+    network: network::SharedStatus,
 }
 
 async fn scrape(
@@ -54,6 +56,7 @@ async fn scrape(
     let snapshot = state.samples.read().await.clone();
     let now = now_ms();
     let mut rendered = metrics::render(&snapshot, now);
+    rendered.push_str(&network::render(&state.network.read().await, now));
     if let Some(index) = state.index {
         let status = index.read().await;
         rendered.push_str(&indexer::render(&status.chains, now));
@@ -110,6 +113,8 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         (Source::L2, config.l2.clone()),
         (Source::Queue, config.l2.clone()),
     ];
+    let network_workers = network::workers(&config);
+    let network_status = network::status(&network_workers);
     if let Some(url) = config.reference_l1_url {
         let mut reference = config.l1;
         reference.url = url;
@@ -125,6 +130,11 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         .await
         .map_err(|_| "cannot bind observer metrics listener")?;
     let mut tasks = JoinSet::new();
+    for (index, worker) in network_workers.into_iter().enumerate() {
+        let rpc = rpc.clone();
+        let status = network_status.clone();
+        tasks.spawn(network::run(worker, rpc, status, index));
+    }
     let index_status = index
         .as_ref()
         .map(|_| Arc::new(RwLock::new(indexer::RuntimeStatus::default())));
@@ -168,6 +178,7 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         .with_state(ScrapeState {
             samples,
             index: index_status,
+            network: network_status,
         });
     tracing::info!(listen = %config.listen, "starting read-only EEZ observer");
     let (stop, stopped) = tokio::sync::oneshot::channel();

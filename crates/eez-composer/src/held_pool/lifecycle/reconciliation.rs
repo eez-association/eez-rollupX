@@ -407,22 +407,54 @@ impl HeldPool {
                     .map(|(hash, _, direction, _)| (hash, schema::Outcome::NonceGap, direction)),
             )
         };
+        // Retention may prune clocks, but apply_resolution can itself establish
+        // local terminal ownership. Save bounded timing inputs now and select
+        // the actual terminal transitions only after that operation completes.
+        let timing_before = if state.telemetry.native_enabled() {
+            before
+                .as_ref()
+                .and_then(|before| before.as_ref().ok())
+                .map(|before| {
+                    before
+                        .users
+                        .iter()
+                        .map(|(hash, _, _)| {
+                            (
+                                state.telemetry.native_admission_started(*hash),
+                                state.telemetry.native_partition_clock(*hash),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+        } else {
+            None
+        };
         state.apply_resolution(&gaps);
+        let terminal_at = timing_before.as_ref().map(|_| std::time::Instant::now());
         let mut terminal_metrics = Vec::new();
         let metric_gap = state.telemetry.native_enabled() && matches!(&before, Some(Err(_)));
-        if let Some(Ok(before)) = &before {
+        if let (Some(Ok(before)), Some(timing_before), Some(terminal_at)) =
+            (&before, timing_before, terminal_at)
+        {
             state.ledger.read(|ledger| {
-                for (hash, owner, previous) in &before.users {
+                for ((hash, owner, previous), (origin, clock)) in
+                    before.users.iter().zip(timing_before)
+                {
                     if let Some(user) = ledger.users.get(hash)
                         && user.owner == *owner
                         && user.location != *previous
                         && let UserLocation::Terminal { reason, .. } = user.location
-                        && let Some(observation) = state.telemetry.native_terminal(
+                        && let Some(mut observation) = state.telemetry.native_terminal_at(
                             *hash,
                             user.tx.direction,
                             outcome(reason),
+                            terminal_at,
                         )
                     {
+                        observation.elapsed =
+                            origin.and_then(|at| terminal_at.checked_duration_since(at));
+                        observation.readiness =
+                            origin.and_then(|at| clock?.finish(at, terminal_at));
                         terminal_metrics.push(observation);
                     }
                 }

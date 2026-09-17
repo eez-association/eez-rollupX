@@ -81,7 +81,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
   global count
   count+=1
   lines=[f'reth_eez_native_queue_sample_valid {int(queue!="unknown")}', 'reth_eez_native_queue_evaluation_valid 1',f'reth_eez_native_queue_sample_timestamp_seconds {time.time()-(100 if queue=="stale" else 0)}']
+  lines.extend(['reth_eez_native_terminal_capture_gaps_total{reason="capture_limit"} 0','reth_eez_native_terminal_capture_gaps_total{reason="capture_context"} 0'])
   for direction in ('inbound','outbound'):
+   for kind,seconds in (('blocked',10),('serviceable',20),('unknown',30)):
+    lines.append(f'reth_eez_native_queue_readiness_duration_sum_seconds{{direction="{direction}",kind="{kind}"}} {seconds if queue!="idle" and direction=="inbound" else 0}')
+    for bound in ('1','5','10','20','30','60','+Inf'):
+     lines.append(f'reth_eez_request_readiness_duration_seconds_bucket{{direction="{direction}",outcome="committed",kind="{kind}",le="{bound}"}} {count if bound=="+Inf" or float(bound)>=seconds else 0}')
+    lines.extend([f'reth_eez_request_readiness_duration_seconds_count{{direction="{direction}",outcome="committed",kind="{kind}"}} {count}',f'reth_eez_request_readiness_duration_seconds_sum{{direction="{direction}",outcome="committed",kind="{kind}"}} {seconds*count}'])
+   lines.extend([f'reth_eez_native_terminal_readiness_clock_unknown_total{{direction="{direction}",outcome="committed"}} 0',f'reth_eez_native_terminal_duration_unknown_total{{direction="{direction}",outcome="committed"}} 0'])
    for state in ('queued_ready','queued_blocked','queued_unknown','in_flight'):
     lines.append(f'reth_eez_native_queue_transactions{{direction="{direction}",state="{state}"}} {int(queue!="idle" and direction=="inbound" and state=="queued_ready")}')
    for kind in ('pending','serviceable'):
@@ -224,7 +231,9 @@ except urllib.error.HTTPError as error:
                 result=run(['docker','exec','-i',client,'python3','-c',code],json.dumps(payload),check=False)
                 try:return json.loads(result)
                 except ValueError:raise ValueError('Grafana request failed: '+result[-1500:]) from None
-            until('six dashboards provisioned',lambda:len(graf('/api/search?tag=eez'))==6)
+            until('operational dashboards and operator runbooks provisioned', lambda:
+                  sorted(item['uid'] for item in graf('/api/search?tag=eez')) ==
+                  ['eez-blobs','eez-cross-chain','eez-gas','eez-infrastructure','eez-network','eez-runbooks','eez-settlement'])
             report['checks'].append('six_dashboards_loaded_by_grafana')
             for environment,deployment,text in [('fixture','canonical-outcomes','fixture release verified'),
                     ('other','canonical-outcomes','wrong environment'),('fixture','other','wrong deployment')]:
@@ -357,6 +366,15 @@ except urllib.error.HTTPError as error:
             cross=json.loads((runtime/'grafana/dashboards/cross-chain.json').read_text())
             live=next(p for p in cross['panels'] if p['title']=='Current native queue · disjoint states')
             until('native queue has actual fixture samples',lambda:bool(query(live['targets'][0],live['datasource'])))
+            readiness_panels = [panel for panel in cross['panels'] if panel['id'] in (21,22,23)]
+            assert len(readiness_panels) == 3
+            for panel in readiness_panels:
+                for target in panel['targets']:
+                    until('readiness timing / coverage query '+panel['title'], lambda panel=panel,target=target:
+                          any(isinstance(value,(int,float)) and value >= 0
+                              for row in query(target,panel['datasource'])
+                              for name,value in row.items() if name.lower()!='time'))
+            report['checks'].append('observed_readiness_partitions_percentiles_and_coverage_against_real_prometheus')
             settlement=json.loads((runtime/'grafana/dashboards/settlement.json').read_text())
             for title, expected in [('Policy anchor age · candidate target',75),('Included pure-L2 transactions awaiting settlement',3)]:
                 panel=next(p for p in settlement['panels'] if p['title']==title)

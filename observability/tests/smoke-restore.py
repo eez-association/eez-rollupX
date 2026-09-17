@@ -340,7 +340,14 @@ def main():
                 return request(stack.base('loki', 3100) + '/loki/api/v1/query_range?' + trace.urllib.parse.urlencode({'query': log_expression}))['data']['result']
             until('source diagnostic log retained', lambda: logs(source))
             dashboards = sorted(item['uid'] for item in source.grafana('/api/search?tag=eez'))
-            assert len(dashboards) == 6, dashboards
+            assert dashboards == ['eez-blobs', 'eez-cross-chain', 'eez-gas',
+                                  'eez-infrastructure', 'eez-network',
+                                  'eez-runbooks', 'eez-settlement'], dashboards
+            # Alert runbook links use this provisioned dashboard. Recover its
+            # actual documents as well as the six operational dashboard IDs.
+            runbook_panels = source.grafana('/api/dashboards/uid/eez-runbooks')['dashboard']['panels']
+            assert len(runbook_panels) == 2 and all(
+                panel['type'] == 'text' and panel['options']['content'] for panel in runbook_panels)
             contacts = source.grafana('/api/v1/provisioning/contact-points')
             policies = source.grafana('/api/v1/provisioning/policies')
             def prom(stack, expression):
@@ -429,6 +436,7 @@ def main():
             report['checks'].append('idempotent_replay_canonical_post_backup_catchup_and_explicit_lifecycle_loss_gap')
             run(restored.compose + ['up', '-d', '--wait', '--wait-timeout', '150'] + DIAGNOSTIC_SERVICES)
             until('restored dashboards and admin access', lambda: sorted(item['uid'] for item in restored.grafana('/api/search?tag=eez')) == dashboards)
+            assert restored.grafana('/api/dashboards/uid/eez-runbooks')['dashboard']['panels'] == runbook_panels
             assert restored.grafana('/api/v1/provisioning/contact-points') == contacts
             assert restored.grafana('/api/v1/provisioning/policies') == policies
             assert restored.grafana('/api/datasources/uid/eez-postgres')['user'] == 'eez_observer_reader'

@@ -70,6 +70,8 @@ pub struct QueueDirection {
     pub states: [usize; 4],
     pub pending: Ages,
     pub serviceable: Ages,
+    pub readiness: [Ages; 3],
+    pub readiness_clock_unknown: usize,
 }
 #[derive(Debug, Default)]
 pub struct QueueSnapshot {
@@ -114,6 +116,16 @@ impl QueueSnapshot {
             .zip(direction.states)
             {
                 metrics::gauge!("eez_native_queue_transactions", "direction" => name, "state" => state).set(if self.complete { bounded_count(count) } else { f64::NAN });
+            }
+            metrics::gauge!("eez_native_queue_readiness_clock_unknown_transactions", "direction" => name).set(if self.complete { bounded_count(direction.readiness_clock_unknown) } else { f64::NAN });
+            for (kind, durations) in READINESS_KINDS.into_iter().zip(&direction.readiness) {
+                let value = |n: f64| if self.complete { n } else { f64::NAN };
+                metrics::gauge!("eez_native_queue_readiness_duration_count", "direction" => name, "kind" => kind).set(value(bounded_count(durations.count)));
+                metrics::gauge!("eez_native_queue_readiness_duration_unknown_transactions", "direction" => name, "kind" => kind).set(value(bounded_count(durations.unknown)));
+                metrics::gauge!("eez_native_queue_readiness_duration_sum_seconds", "direction" => name, "kind" => kind).set(value(durations.sum));
+                for ((_, bound), count) in AGE_BUCKETS.iter().zip(durations.buckets) {
+                    metrics::gauge!("eez_native_queue_readiness_duration_seconds_bucket", "direction" => name, "kind" => kind, "le" => *bound).set(value(bounded_count(count)));
+                }
             }
             for (kind, ages, valid) in [
                 ("pending", &direction.pending, self.complete),
@@ -511,6 +523,21 @@ fn record_preparation(outcome: PreparationOutcome, elapsed: Duration) {
     metrics::histogram!("eez_stage_duration_seconds", "stage" => "preparation", "outcome" => outcome).record(elapsed.as_secs_f64());
 }
 
+pub const READINESS_KINDS: [&str; 3] = ["blocked", "serviceable", "unknown"];
+/// Cumulative locally observed portions of the same admission interval.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadinessDurations {
+    pub parts: [Duration; 3],
+}
+impl ReadinessDurations {
+    pub fn conserves(self, elapsed: Duration) -> bool {
+        self.parts
+            .iter()
+            .try_fold(Duration::ZERO, |sum, part| sum.checked_add(*part))
+            == Some(elapsed)
+    }
+}
+
 /// An actual native terminal transition. Reorg reopening may later produce
 /// another observation for the same admission: this is not canonical accounting.
 #[derive(Debug)]
@@ -518,6 +545,7 @@ pub struct TerminalObservation {
     pub direction: crate::schema::Direction,
     pub outcome: crate::schema::Outcome,
     pub elapsed: Option<Duration>,
+    pub readiness: Option<ReadinessDurations>,
 }
 impl TerminalObservation {
     pub fn publish(self) {
@@ -538,7 +566,21 @@ impl TerminalObservation {
             Outcome::Replaced => "replaced",
         };
         metrics::counter!("eez_native_terminal_observations_total", "direction" => direction, "outcome" => outcome).increment(1);
+        let readiness = self
+            .elapsed
+            .and_then(|elapsed| self.readiness.filter(|parts| parts.conserves(elapsed)));
+        if readiness.is_none() {
+            metrics::counter!("eez_native_terminal_readiness_clock_unknown_total", "direction" => direction, "outcome" => outcome).increment(1);
+        }
         if let Some(elapsed) = self.elapsed {
+            if let Some(readiness) = readiness {
+                for (kind, duration) in READINESS_KINDS.into_iter().zip(readiness.parts) {
+                    metrics::histogram!("eez_request_readiness_duration_seconds", "direction" => direction, "outcome" => outcome, "kind" => kind).record(duration.as_secs_f64());
+                }
+            } else {
+                metrics::histogram!("eez_request_readiness_duration_seconds", "direction" => direction, "outcome" => outcome, "kind" => "unknown").record(elapsed.as_secs_f64());
+            }
+
             metrics::histogram!("eez_request_duration_seconds", "direction" => direction, "outcome" => outcome).record(elapsed.as_secs_f64());
         } else {
             metrics::counter!("eez_native_terminal_duration_unknown_total", "direction" => direction, "outcome" => outcome).increment(1);
@@ -725,6 +767,13 @@ mod tests {
                     direction: Direction::Inbound,
                     outcome,
                     elapsed: Some(Duration::from_secs(60)),
+                    readiness: Some(ReadinessDurations {
+                        parts: [
+                            Duration::from_secs(10),
+                            Duration::from_secs(40),
+                            Duration::from_secs(10),
+                        ],
+                    }),
                 }
                 .publish();
             }
@@ -732,6 +781,7 @@ mod tests {
                 direction: Direction::Outbound,
                 outcome: Outcome::SourceReverted,
                 elapsed: None,
+                readiness: None,
             }
             .publish();
         });
@@ -749,6 +799,9 @@ mod tests {
             "replaced",
         ] {
             assert!(rendered.contains(&format!("eez_request_duration_seconds_count{{direction=\"inbound\",outcome=\"{outcome}\"}} 1")), "{rendered}");
+            for (kind, seconds) in [("blocked", 10), ("serviceable", 40), ("unknown", 10)] {
+                assert!(rendered.contains(&format!("eez_request_readiness_duration_seconds_sum{{direction=\"inbound\",outcome=\"{outcome}\",kind=\"{kind}\"}} {seconds}")), "{rendered}");
+            }
         }
         assert!(rendered.contains("eez_native_terminal_duration_unknown_total{direction=\"outbound\",outcome=\"source_reverted\"} 1"), "{rendered}");
         assert!(
@@ -756,6 +809,34 @@ mod tests {
             "{rendered}"
         );
         assert!(!rendered.contains("canonical"));
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn absent_or_inconsistent_partition_never_manufactures_zero_known_waits() {
+        let recorder = crate::native::prometheus_builder().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            for readiness in [
+                None,
+                Some(ReadinessDurations {
+                    parts: [Duration::from_secs(1); 3],
+                }),
+            ] {
+                TerminalObservation {
+                    direction: crate::schema::Direction::Outbound,
+                    outcome: crate::schema::Outcome::Committed,
+                    elapsed: Some(Duration::from_secs(60)),
+                    readiness,
+                }
+                .publish();
+            }
+        });
+        let rendered = handle.render();
+        assert!(rendered.contains("eez_native_terminal_readiness_clock_unknown_total{direction=\"outbound\",outcome=\"committed\"} 2"), "{rendered}");
+        assert!(rendered.contains("eez_request_readiness_duration_seconds_sum{direction=\"outbound\",outcome=\"committed\",kind=\"unknown\"} 120"), "{rendered}");
+        assert!(!rendered.contains("kind=\"blocked\""));
+        assert!(!rendered.contains("kind=\"serviceable\""));
     }
 
     #[cfg(feature = "native")]

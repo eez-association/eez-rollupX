@@ -19,6 +19,7 @@ struct Candidate {
     owner: Option<AttemptId>,
     admitted_at: Option<Instant>,
     metric_admitted_at: Option<Instant>,
+    metric_readiness: Option<crate::held_pool::status::durations::ReadinessClock>,
     direction: Direction,
     outcome: Outcome,
 }
@@ -114,6 +115,7 @@ impl LocalCapture {
                     owner,
                     admitted_at: admission.map(|admission| admission.admitted_at),
                     metric_admitted_at: state.telemetry.native_admission_started(hash),
+                    metric_readiness: state.telemetry.native_partition_clock(hash),
                     direction,
                     outcome,
                 });
@@ -164,6 +166,7 @@ impl LocalCapture {
                 .capture()
                 .map(|ticket| (ticket, CaptureFailure::MissingContext));
         }
+        let terminal_at = self.metrics.then(Instant::now);
         state.ledger.read(|ledger| {
             for (hash, candidate) in candidates {
                 if state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash) {
@@ -185,14 +188,19 @@ impl LocalCapture {
                 {
                     continue;
                 }
-                if self.metrics {
+                if let Some(terminal_at) = terminal_at {
                     pending.metrics.push(TerminalObservation {
                         direction: match candidate.direction {
                             Direction::Inbound => schema::Direction::Inbound,
                             Direction::Outbound => schema::Direction::Outbound,
                         },
                         outcome: candidate.outcome,
-                        elapsed: candidate.metric_admitted_at.map(|at| at.elapsed()),
+                        elapsed: candidate
+                            .metric_admitted_at
+                            .and_then(|at| terminal_at.checked_duration_since(at)),
+                        readiness: candidate
+                            .metric_admitted_at
+                            .and_then(|at| candidate.metric_readiness?.finish(at, terminal_at)),
                     });
                 }
                 if lifecycle_complete

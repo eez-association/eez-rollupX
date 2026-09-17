@@ -1,7 +1,62 @@
 # Isolated backup and restore evidence
 
-The reviewed fixture passed all six acceptance groups on 2026-09-17. The
-[machine-readable report](restore.json) records pinned images, all 13 migration
+## Final-source follow-up
+
+The same six-group restore gate passed again with the final standalone observer
+`1e8352c73958edffb97df62605f3c8323b4759935ce254dbef7804396833f071` and current generated configuration/dashboard assets.
+All 20 migration checksums, operator runbook contents, exact accounting, roles,
+checkpoints, retained diagnostic history and alert firing/recovery passed.
+Owned resource cleanup was verified. Backup took **32.83 seconds**;
+restore through all checks took **70.89 seconds**. The deliberate
+one-record lifecycle loss remained explicit. Report:
+`/tmp/eez-observability-final-source-restore.json`; log:
+`/tmp/eez-observability-final-source-restore.log`. Earlier source checkpoints and
+failures remain nested in [restore.json](restore.json).
+
+## Schema-20 checkpoint and operator runbooks
+
+The updated fixture passed all six acceptance groups using all **20 exact
+migration checksums**. It additionally requires the six operational dashboard
+UIDs plus `eez-runbooks`, and verifies that both nonempty runbook text panels
+survive unchanged. The new [report](restore.json) retains the earlier schema-13
+result and both failures encountered during this follow-up.
+
+The frozen monitoring inputs came from commit
+`9c78b5551202711ff02bdffd0c5a0dacfd2ece49`, with only the stale dashboard assertion
+corrected and runbook-content assertions added. The observer is the independently
+validated standalone schema-20 executable
+`ece81ef88ea7e7798c9d379b98ead21ca8eab5980064d8c2f79e06b93c0b9f68`;
+its observer source and migrations matched that checkpoint byte for byte.
+This is not a new release-artifact or later-source verification claim.
+
+The first attempt used the host's multi-role debug build, which requires
+`GLIBC_2.38` and cannot execute inside the pinned Bookworm PostgreSQL container.
+The compatible standalone observer then reproduced the fixture's stale
+six-dashboard assertion: the provisioned operator runbooks correctly add a
+seventh dashboard. Both failed attempts verified cleanup of their owned
+resources. Their reports/logs remain under
+`/tmp/eez-observability-schema20-restore-{initial,compatible}.*`.
+
+The corrected command completed successfully:
+
+```bash
+python3 -u observability/tests/smoke-restore.py \
+  --binary /tmp/eez-observability-schema20-append/eez-observer \
+  --report /tmp/eez-observability-schema20-restore-fixed.json
+```
+
+It ran from the isolated source snapshot
+`/tmp/eez-observability-schema20-restore-fixed`. Backup took **32.91 seconds**;
+restore through exact accounting, role/checkpoint verification, retained
+metric/log/trace navigation and actual alert firing/recovery took **88.29
+seconds**. The deliberate one-record lifecycle loss remained visible as gap
+`2:2`. All owned source/destination resources were removed. Physical-host loss,
+off-host/key recovery, full-size data and production RPO/RTO remain open.
+
+## Previous schema-13 checkpoint
+
+The earlier fixture passed all six acceptance groups on 2026-09-17. The
+`previous_schema13` entry in the [machine-readable report](restore.json) records pinned images, all 13 migration
 checksums, archive sizes and exact timings. Both test projects, including their
 containers, volumes and networks, were removed successfully. No operator
 resources were used. This is a new instance with empty volumes on the same

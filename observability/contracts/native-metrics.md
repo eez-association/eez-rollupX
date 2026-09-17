@@ -102,6 +102,51 @@ observer-verified evidence. Histogram rates describe native transition
 observations in the query window, not unique settled users or reorg-adjusted
 success rates. Always show unknown-duration/capture-gap coverage beside them.
 
+## Blocked, serviceable and unknown time
+
+Metrics-enabled Composer keeps at most 4,096 additional active admission clocks.
+Each partitions the same monotonic admission interval into observed `blocked`,
+`serviceable` and `unknown` time. Before the first evaluation, after a source
+change/reorg, and beyond the 60-second observation freshness limit, time is
+unknown. A blocked nonce prefix affects the existing eligible sender/direction
+population; clearing a blocker does not infer that unvalidated descendants are
+ready. Serviceable includes in-flight processing, matching the existing service
+age meaning; it is not a measurement of CPU execution alone.
+
+Internal claim/requeue preserves a retained partition. Replacement/readmission
+starts a new one. A reopened admission whose partition was pruned preserves its
+original total clock, classifies the missing prefix as unknown, and can collect
+new observations. Missing clocks, capture limits and inconsistent partitions
+never fabricate zero blocked/serviceable durations or affect queue admission.
+Disabled metrics add no admission clocks. Recorder calls remain outside pool
+and ledger locks; source/prefix updates touch at most the bounded clock set.
+
+`eez_request_readiness_duration_seconds{direction,outcome,kind}` is a native
+terminal-observation histogram with the existing request duration buckets.
+For a retained partition, its three parts sum exactly to the same observation's
+total duration before floating-point export. Missing partitions emit only the
+known total as `kind=unknown`, and increment
+`eez_native_terminal_readiness_clock_unknown_total{direction,outcome}`. An absent
+total clock stays excluded from duration histograms under the existing counter.
+Reorg repeats/local dispositions retain their existing outcome semantics; these
+are not canonical unique-user histograms. Do not sum their separate quantiles.
+
+Current active populations use gauge families
+`eez_native_queue_readiness_duration_seconds_bucket`,
+`eez_native_queue_readiness_duration_count`,
+`eez_native_queue_readiness_duration_sum_seconds` and
+`eez_native_queue_readiness_duration_unknown_transactions`, labelled by direction
+and kind. `eez_native_queue_readiness_clock_unknown_transactions` reports missing
+partitions by direction. A missing partition contributes only its known pending
+age to the unknown portion, with missing blocked/serviceable populations counted
+explicitly. An oversized/incomplete snapshot invalidates all these gauges.
+Use direct values, never `rate()` on these current-population distributions.
+
+Cross-chain panels show current accumulated portions, separate terminal
+percentiles and the corresponding coverage counts. Lifecycle JSON and queue RPC
+formats remain unchanged; durable canonical/finality timelines still use their
+existing observer evidence and do not acquire invented historical partitions.
+
 ## Stages and active policy
 
 `preparation` retains its existing outcomes: prepared, construction_failed,

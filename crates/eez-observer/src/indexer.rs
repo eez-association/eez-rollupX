@@ -344,6 +344,7 @@ pub struct Status {
     pub verified_cursors: Option<[B256; 2]>,
     pub gaps: Option<i64>,
     pub finalized: Option<u64>,
+    pub finalized_timestamp: Option<u64>,
     pub finality_pending: Option<i64>,
 }
 #[derive(Debug, Clone, Default)]
@@ -465,6 +466,11 @@ pub fn render(status: &[Status; 2], now: u64) -> String {
                     "eez_observer_index_open_gaps{{chain=\"{chain}\"}} {gaps}"
                 )
                 .unwrap();
+            }
+            if let Some(timestamp) = state.finalized_timestamp
+                && timestamp <= now / 1000
+            {
+                writeln!(text, "eez_observer_index_finalized_timestamp_seconds{{chain=\"{chain}\"}} {timestamp}").unwrap();
             }
             if let Some(finalized) = state.finalized {
                 writeln!(
@@ -780,6 +786,7 @@ async fn scan_chain(
         return Err(Error::Inconsistent);
     }
     ledger::mark_success(database, id).await?;
+    let finalized = ledger::finalized(database, id).await?;
     Ok(Status {
         last_success: Some(crate::now_ms()),
         error: None,
@@ -790,9 +797,8 @@ async fn scan_chain(
         verified_cursors: None,
         gaps: Some(ledger::gaps(database, id).await?),
         finality_pending: None,
-        finalized: ledger::finalized(database, id)
-            .await?
-            .map(|block| block.number),
+        finalized: finalized.as_ref().map(|block| block.number),
+        finalized_timestamp: finalized.as_ref().map(|block| block.timestamp),
     })
 }
 
@@ -1034,6 +1040,7 @@ mod tests {
                 cursor: Some(7),
                 gaps: Some(2),
                 finalized: Some(5),
+                finalized_timestamp: Some(42),
                 finality_pending: None,
                 cursor_hash: None,
                 canonical_revision: None,
@@ -1042,9 +1049,14 @@ mod tests {
             Status::default(),
         ];
         assert!(render(&states, 190_000).contains("eez_observer_lag_blocks{chain=\"l1\"} 3"));
+        assert!(
+            render(&states, 190_000)
+                .contains("eez_observer_index_finalized_timestamp_seconds{chain=\"l1\"} 42")
+        );
         for now in [190_001, 94_999] {
             let text = render(&states, now);
             assert!(!text.contains("eez_observer_lag_blocks"));
+            assert!(!text.contains("eez_observer_index_finalized_timestamp_seconds"));
             assert!(
                 text.contains(
                     "eez_observer_index_last_success_timestamp_seconds{chain=\"l1\"} 100"
@@ -1053,6 +1065,14 @@ mod tests {
         }
         states[0].error = Some(Error::Database);
         assert!(!render(&states, 100_000).contains("eez_observer_lag_blocks"));
+        assert!(
+            !render(&states, 100_000).contains("eez_observer_index_finalized_timestamp_seconds")
+        );
+        states[0].error = None;
+        states[0].finalized_timestamp = Some(101);
+        assert!(
+            !render(&states, 100_000).contains("eez_observer_index_finalized_timestamp_seconds")
+        );
     }
     #[test]
     fn settlement_finality_metrics_require_fresh_chain_and_correlation_sources() {

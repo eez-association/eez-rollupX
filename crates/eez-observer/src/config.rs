@@ -26,6 +26,8 @@ pub struct Config {
     pub l1: Endpoint,
     pub l2: Endpoint,
     pub reference_l1_url: Option<String>,
+    #[serde(default)]
+    pub network: Option<crate::network::Config>,
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
     #[serde(default)]
@@ -80,6 +82,9 @@ impl Config {
         }
         if let Some(url) = &self.reference_l1_url {
             validate_url(url)?;
+        }
+        if let Some(network) = &self.network {
+            network.validate()?;
         }
         if !self.listen.ip().is_loopback() && !self.allow_non_loopback {
             return Err("non-loopback metrics binding requires allow_non_loopback=true");

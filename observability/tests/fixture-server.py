@@ -12,6 +12,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     lock = threading.Lock()
     genesis = '0x' + 'aa' * 32
     metric_lines = None
+    started_at = time.time()
 
     def log_message(self, *args):
         pass
@@ -34,7 +35,31 @@ class Fixture(http.server.BaseHTTPRequestHandler):
                 body = '\n'.join(self.metric_lines).replace('$NOW', str(now)).replace('$HEAD', str(int(now))) + '\n'
                 self.send(body.encode(), content_type='text/plain; version=0.0.4')
             else:
-                self.send(b'node_memory_MemAvailable_bytes 10737418240\nnode_filesystem_avail_bytes{fstype="ext4",mountpoint="/fixture"} 107374182400\n', content_type='text/plain; version=0.0.4')
+                now = time.time()
+                metrics = [
+                    'node_memory_MemAvailable_bytes 10737418240',
+                    'node_filesystem_avail_bytes{fstype="ext4",mountpoint="/fixture"} 107374182400',
+                    f'node_cpu_seconds_total{{cpu="0",mode="idle"}} {now * .75}',
+                    f'node_cpu_seconds_total{{cpu="0",mode="user"}} {now * .25}',
+                    f'node_network_receive_bytes_total{{device="fixture0"}} {now * 1000}',
+                    f'node_network_transmit_bytes_total{{device="fixture0"}} {now * 500}',
+                    f'node_disk_read_time_seconds_total{{device="fixture0"}} {now * .02}',
+                    f'node_disk_reads_completed_total{{device="fixture0"}} {now * 10}',
+                    f'node_disk_write_time_seconds_total{{device="fixture0"}} {now * .03}',
+                    f'node_disk_writes_completed_total{{device="fixture0"}} {now * 5}',
+                    f'node_disk_io_time_seconds_total{{device="fixture0"}} {now * .05}',
+                    f'eez_process_start_timestamp_seconds {self.started_at}',
+                    f'process_start_time_seconds {self.started_at}',
+                    'beacon_head_slot 100', 'beacon_finalized_epoch 3',
+                    'sync_eth2_synced 1', 'libp2p_peers 8',
+                ]
+                self.send(('\n'.join(metrics) + '\n').encode(), content_type='text/plain; version=0.0.4')
+        elif self.path.split('?')[0] in ('/api/v2/blocks', '/api/v2/blocks/0'):
+            if self.mode == 'network_error':
+                self.send({'error': 'fixture explorer unavailable'}, status=503)
+                return
+            block = {'height': 0 if self.path.endswith('/0') else 100, 'hash': self.genesis, 'type': 'block'}
+            self.send(block if self.path.endswith('/0') else {'items': [block]})
         elif self.path == '/events':
             with self.lock:
                 self.send(self.events)
@@ -48,7 +73,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/control':
-            assert data['mode'] in ('healthy', 'stale', 'error', 'metrics_error')
+            assert data['mode'] in ('healthy', 'stale', 'error', 'metrics_error', 'network_error')
             type(self).mode = data['mode']
             if 'metric_lines' in data:
                 assert data['metric_lines'] is None or isinstance(data['metric_lines'], list) and all(isinstance(line, str) for line in data['metric_lines'])
@@ -66,6 +91,9 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         elif method == 'eth_blockNumber':
             result = '0x64'
         elif method == 'eth_getBlockByNumber':
+            if data['params'][0] == 'safe' and self.mode == 'network_error':
+                self.send({'error': 'fixture safe tag unavailable'}, status=503)
+                return
             result = {'hash': self.genesis, 'number': '0x0' if data['params'][0] == '0x0' else '0x64', 'timestamp': hex(int(time.time()))}
         elif method == 'eez_getCrossChainQueueStatus':
             if self.mode == 'error':

@@ -1190,6 +1190,32 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
     }).await.expect("real native metrics must retain both completed durations while current pending populations empty");
     assert!(metrics.contains("# TYPE reth_eez_stage_duration_seconds histogram"));
     assert!(metrics.contains("# TYPE reth_eez_request_duration_seconds histogram"));
+    assert!(metrics.contains("# TYPE reth_eez_request_readiness_duration_seconds histogram"));
+    for direction in ["inbound", "outbound"] {
+        let total = metric_sample(&metrics, &format!("reth_eez_request_duration_seconds_sum{{direction=\"{direction}\",outcome=\"committed\"}}"))
+            .expect("completed admission clock");
+        let mut partition_sum = 0.;
+        for kind in ["blocked", "serviceable", "unknown"] {
+            assert_eq!(
+                metric_sample(
+                    &metrics,
+                    &format!(
+                        "reth_eez_request_readiness_duration_seconds_count{{direction=\"{direction}\",outcome=\"committed\",kind=\"{kind}\"}}"
+                    )
+                ),
+                Some(1.),
+                "one retained partition per native terminal observation"
+            );
+            let part = metric_sample(&metrics, &format!("reth_eez_request_readiness_duration_seconds_sum{{direction=\"{direction}\",outcome=\"committed\",kind=\"{kind}\"}}"))
+                .expect("observed readiness portion");
+            assert!(part.is_finite() && part >= 0.);
+            partition_sum += part;
+        }
+        assert!(
+            (partition_sum - total).abs() < 0.000_001,
+            "readiness parts conserve the same native admission interval"
+        );
+    }
     assert!(
         metric_sample(
             &metrics,

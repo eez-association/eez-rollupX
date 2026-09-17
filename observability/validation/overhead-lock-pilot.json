@@ -1,0 +1,1514 @@
+{
+  "status": "passed",
+  "scope": "actual guarded-lock capture on frozen optimized-development benchmark variant; not overhead acceptance or completed calibration",
+  "elapsed_seconds": 238.33512747600616,
+  "candidate": {
+    "head_at_runtime_build_start": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+    "head_at_capture": "9c78b5551202711ff02bdffd0c5a0dacfd2ece49",
+    "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "profile": "dev optimized + debuginfo",
+    "benchmark_lock_feature": true,
+    "runtime_features": [
+      "eez-node/benchmark-lock-timing"
+    ],
+    "test_features": [
+      "eez-node-e2e/benchmark-lock-timing"
+    ],
+    "source_map_sha256": "8f9b5d03ed17ebe14e66baa77ba84cfe48d9cdabf6b2b3ed0fa84f1ccdc470d2",
+    "sha256": {
+      "source-map.json": "8f9b5d03ed17ebe14e66baa77ba84cfe48d9cdabf6b2b3ed0fa84f1ccdc470d2",
+      "dynamic_admission": "a5b9c2285edcb5731635e96f109519743f0ef303789828e5de23259fb7e0de05",
+      "rustc.txt": "b75985398e5509a90a7d5d68f8ec6690675f703c5cfa11893b04fc9c3fceca69",
+      "harness/overhead_analysis.py": "ef884e1af96a1319f5f8f340038f88f5666497f3d3217b1c1d3d1dcdd5f479ee",
+      "harness/overhead_lock_analysis.py": "eb4c7a8494c52b14f9fe90f6295a52554061da4fbd8b4a909d1c2011ad7cb85d",
+      "harness/overhead_resources.py": "05a155ba070758c50e397d3e1b13874469978672a18cd678dbce662fd0052190",
+      "harness/run-overhead.py": "8ad19999663f3e0d68f73e68e5d9c5579adfb9f35dd402702fce18d54343214b",
+      "bin/eez-observer": "fabbd0f534806cd17aac325c39a55301c86e303e2d278623e2a10e430933fc70",
+      "bin/eez-proof-signer": "3ee0f1675ecdba5734369401c25f39ccc8d6765a242a068cebea48ab03badda8",
+      "bin/eez-follower": "edf4b9ba1f2de4047c9f535fa137cfc3f9fb561ba423964bdf0157cd4b9efac6",
+      "bin/eez-composer": "d8fcb48f4f78a7deecc6ff0529f39d31c6b00797a0e8100020a1b7ddde58679c"
+    },
+    "git_metadata_change": "Checkpoint between runtime build start and capture; source content and artifact identities are recorded independently"
+  },
+  "runs": [
+    {
+      "arm": "A",
+      "semantic_ok": true,
+      "lock_status": "passed",
+      "resources_status": "passed",
+      "cleanup_verified": true,
+      "samples": 543,
+      "duplicate_records": 0,
+      "issues": [],
+      "phases": [
+        {
+          "name": "small_queue",
+          "population": "guards wholly inside marker window plus boundary guard",
+          "start_unix_ns": 1789680812918862969,
+          "end_unix_ns": 1789680818561104541,
+          "aggregate": {
+            "count": 40,
+            "wait": {
+              "p50_ns": 51,
+              "p95_ns": 187,
+              "maximum_ns": 321,
+              "sum_ns": 3591
+            },
+            "hold": {
+              "p50_ns": 2713,
+              "p95_ns": 23613,
+              "maximum_ns": 40545,
+              "sum_ns": 342366
+            }
+          },
+          "by_callsite": [
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 429,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 37,
+                "p95_ns": 37,
+                "maximum_ns": 37,
+                "sum_ns": 37
+              },
+              "hold": {
+                "p50_ns": 21843,
+                "p95_ns": 21843,
+                "maximum_ns": 21843,
+                "sum_ns": 21843
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 465,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 159,
+                "p95_ns": 166,
+                "maximum_ns": 166,
+                "sum_ns": 1111
+              },
+              "hold": {
+                "p50_ns": 20249,
+                "p95_ns": 29866,
+                "maximum_ns": 29866,
+                "sum_ns": 172561
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 605,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 21,
+                "p95_ns": 21,
+                "maximum_ns": 21,
+                "sum_ns": 21
+              },
+              "hold": {
+                "p50_ns": 3573,
+                "p95_ns": 3573,
+                "maximum_ns": 3573,
+                "sum_ns": 3573
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 648,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 23,
+                "p95_ns": 23,
+                "maximum_ns": 23,
+                "sum_ns": 23
+              },
+              "hold": {
+                "p50_ns": 11451,
+                "p95_ns": 11451,
+                "maximum_ns": 11451,
+                "sum_ns": 11451
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 767,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 40,
+                "p95_ns": 40,
+                "maximum_ns": 40,
+                "sum_ns": 40
+              },
+              "hold": {
+                "p50_ns": 2308,
+                "p95_ns": 2308,
+                "maximum_ns": 2308,
+                "sum_ns": 2308
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 786,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 23,
+                "p95_ns": 40,
+                "maximum_ns": 40,
+                "sum_ns": 236
+              },
+              "hold": {
+                "p50_ns": 1394,
+                "p95_ns": 3543,
+                "maximum_ns": 3543,
+                "sum_ns": 16546
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 854,
+              "column": 14,
+              "count": 2,
+              "wait": {
+                "p50_ns": 27,
+                "p95_ns": 187,
+                "maximum_ns": 187,
+                "sum_ns": 214
+              },
+              "hold": {
+                "p50_ns": 37,
+                "p95_ns": 219,
+                "maximum_ns": 219,
+                "sum_ns": 256
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 185,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 166,
+                "p95_ns": 166,
+                "maximum_ns": 166,
+                "sum_ns": 166
+              },
+              "hold": {
+                "p50_ns": 10368,
+                "p95_ns": 10368,
+                "maximum_ns": 10368,
+                "sum_ns": 10368
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 211,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 80,
+                "p95_ns": 80,
+                "maximum_ns": 80,
+                "sum_ns": 80
+              },
+              "hold": {
+                "p50_ns": 4267,
+                "p95_ns": 4267,
+                "maximum_ns": 4267,
+                "sum_ns": 4267
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 221,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 199,
+                "p95_ns": 199,
+                "maximum_ns": 199,
+                "sum_ns": 199
+              },
+              "hold": {
+                "p50_ns": 16781,
+                "p95_ns": 16781,
+                "maximum_ns": 16781,
+                "sum_ns": 16781
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 250,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 167,
+                "p95_ns": 321,
+                "maximum_ns": 321,
+                "sum_ns": 488
+              },
+              "hold": {
+                "p50_ns": 11814,
+                "p95_ns": 12412,
+                "maximum_ns": 12412,
+                "sum_ns": 24226
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/preparation.rs",
+              "line": 60,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 22,
+                "p95_ns": 22,
+                "maximum_ns": 22,
+                "sum_ns": 22
+              },
+              "hold": {
+                "p50_ns": 197,
+                "p95_ns": 197,
+                "maximum_ns": 197,
+                "sum_ns": 197
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 359,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 171,
+                "p95_ns": 171,
+                "maximum_ns": 171,
+                "sum_ns": 171
+              },
+              "hold": {
+                "p50_ns": 462,
+                "p95_ns": 462,
+                "maximum_ns": 462,
+                "sum_ns": 462
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 373,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 36,
+                "p95_ns": 36,
+                "maximum_ns": 36,
+                "sum_ns": 36
+              },
+              "hold": {
+                "p50_ns": 40545,
+                "p95_ns": 40545,
+                "maximum_ns": 40545,
+                "sum_ns": 40545
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 160,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 64,
+                "p95_ns": 64,
+                "maximum_ns": 64,
+                "sum_ns": 64
+              },
+              "hold": {
+                "p50_ns": 170,
+                "p95_ns": 170,
+                "maximum_ns": 170,
+                "sum_ns": 170
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 217,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 49,
+                "p95_ns": 102,
+                "maximum_ns": 102,
+                "sum_ns": 542
+              },
+              "hold": {
+                "p50_ns": 1807,
+                "p95_ns": 3587,
+                "maximum_ns": 3587,
+                "sum_ns": 16615
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status/native.rs",
+              "line": 67,
+              "column": 14,
+              "count": 1,
+              "wait": {
+                "p50_ns": 141,
+                "p95_ns": 141,
+                "maximum_ns": 141,
+                "sum_ns": 141
+              },
+              "hold": {
+                "p50_ns": 197,
+                "p95_ns": 197,
+                "maximum_ns": 197,
+                "sum_ns": 197
+              }
+            }
+          ],
+          "status": "passed",
+          "boundary_crossings": [],
+          "boundary_margin_exclusions": []
+        },
+        {
+          "name": "busy_waves",
+          "population": "guards wholly inside marker window plus boundary guard",
+          "start_unix_ns": 1789680818590819631,
+          "end_unix_ns": 1789680826827777897,
+          "aggregate": {
+            "count": 416,
+            "wait": {
+              "p50_ns": 70,
+              "p95_ns": 290,
+              "maximum_ns": 459,
+              "sum_ns": 44896
+            },
+            "hold": {
+              "p50_ns": 3190,
+              "p95_ns": 60044,
+              "maximum_ns": 538272,
+              "sum_ns": 7820272
+            }
+          },
+          "by_callsite": [
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 429,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 91,
+                "p95_ns": 269,
+                "maximum_ns": 269,
+                "sum_ns": 360
+              },
+              "hold": {
+                "p50_ns": 35393,
+                "p95_ns": 115256,
+                "maximum_ns": 115256,
+                "sum_ns": 150649
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 465,
+              "column": 36,
+              "count": 128,
+              "wait": {
+                "p50_ns": 160,
+                "p95_ns": 317,
+                "maximum_ns": 459,
+                "sum_ns": 21142
+              },
+              "hold": {
+                "p50_ns": 42991,
+                "p95_ns": 65507,
+                "maximum_ns": 538272,
+                "sum_ns": 6294106
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 605,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 21,
+                "p95_ns": 34,
+                "maximum_ns": 34,
+                "sum_ns": 55
+              },
+              "hold": {
+                "p50_ns": 10568,
+                "p95_ns": 52695,
+                "maximum_ns": 52695,
+                "sum_ns": 63263
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 648,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 23,
+                "p95_ns": 49,
+                "maximum_ns": 49,
+                "sum_ns": 72
+              },
+              "hold": {
+                "p50_ns": 25555,
+                "p95_ns": 88402,
+                "maximum_ns": 88402,
+                "sum_ns": 113957
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 767,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 35,
+                "p95_ns": 73,
+                "maximum_ns": 73,
+                "sum_ns": 108
+              },
+              "hold": {
+                "p50_ns": 5643,
+                "p95_ns": 8433,
+                "maximum_ns": 8433,
+                "sum_ns": 14076
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 786,
+              "column": 36,
+              "count": 128,
+              "wait": {
+                "p50_ns": 22,
+                "p95_ns": 42,
+                "maximum_ns": 196,
+                "sum_ns": 3324
+              },
+              "hold": {
+                "p50_ns": 2439,
+                "p95_ns": 4310,
+                "maximum_ns": 5211,
+                "sum_ns": 339174
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 854,
+              "column": 14,
+              "count": 4,
+              "wait": {
+                "p50_ns": 35,
+                "p95_ns": 169,
+                "maximum_ns": 169,
+                "sum_ns": 403
+              },
+              "hold": {
+                "p50_ns": 58,
+                "p95_ns": 425,
+                "maximum_ns": 425,
+                "sum_ns": 751
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 185,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 121,
+                "p95_ns": 180,
+                "maximum_ns": 180,
+                "sum_ns": 301
+              },
+              "hold": {
+                "p50_ns": 22070,
+                "p95_ns": 36475,
+                "maximum_ns": 36475,
+                "sum_ns": 58545
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 211,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 76,
+                "p95_ns": 305,
+                "maximum_ns": 305,
+                "sum_ns": 381
+              },
+              "hold": {
+                "p50_ns": 12367,
+                "p95_ns": 16871,
+                "maximum_ns": 16871,
+                "sum_ns": 29238
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 221,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 70,
+                "p95_ns": 191,
+                "maximum_ns": 191,
+                "sum_ns": 261
+              },
+              "hold": {
+                "p50_ns": 17683,
+                "p95_ns": 32341,
+                "maximum_ns": 32341,
+                "sum_ns": 50024
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 250,
+              "column": 32,
+              "count": 4,
+              "wait": {
+                "p50_ns": 87,
+                "p95_ns": 192,
+                "maximum_ns": 192,
+                "sum_ns": 508
+              },
+              "hold": {
+                "p50_ns": 20884,
+                "p95_ns": 44643,
+                "maximum_ns": 44643,
+                "sum_ns": 113966
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/preparation.rs",
+              "line": 60,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 23,
+                "p95_ns": 55,
+                "maximum_ns": 55,
+                "sum_ns": 78
+              },
+              "hold": {
+                "p50_ns": 178,
+                "p95_ns": 194,
+                "maximum_ns": 194,
+                "sum_ns": 372
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 359,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 177,
+                "p95_ns": 185,
+                "maximum_ns": 185,
+                "sum_ns": 362
+              },
+              "hold": {
+                "p50_ns": 372,
+                "p95_ns": 498,
+                "maximum_ns": 498,
+                "sum_ns": 870
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 373,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 23,
+                "p95_ns": 31,
+                "maximum_ns": 31,
+                "sum_ns": 54
+              },
+              "hold": {
+                "p50_ns": 86692,
+                "p95_ns": 165848,
+                "maximum_ns": 165848,
+                "sum_ns": 252540
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 160,
+              "column": 36,
+              "count": 2,
+              "wait": {
+                "p50_ns": 51,
+                "p95_ns": 169,
+                "maximum_ns": 169,
+                "sum_ns": 220
+              },
+              "hold": {
+                "p50_ns": 313,
+                "p95_ns": 640,
+                "maximum_ns": 640,
+                "sum_ns": 953
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 217,
+              "column": 36,
+              "count": 128,
+              "wait": {
+                "p50_ns": 141,
+                "p95_ns": 290,
+                "maximum_ns": 398,
+                "sum_ns": 16885
+              },
+              "hold": {
+                "p50_ns": 2411,
+                "p95_ns": 4830,
+                "maximum_ns": 5549,
+                "sum_ns": 336974
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status/native.rs",
+              "line": 67,
+              "column": 14,
+              "count": 2,
+              "wait": {
+                "p50_ns": 149,
+                "p95_ns": 233,
+                "maximum_ns": 233,
+                "sum_ns": 382
+              },
+              "hold": {
+                "p50_ns": 194,
+                "p95_ns": 620,
+                "maximum_ns": 620,
+                "sum_ns": 814
+              }
+            }
+          ],
+          "status": "passed",
+          "boundary_crossings": [],
+          "boundary_margin_exclusions": []
+        }
+      ],
+      "raw_lock_report_sha256": "09fb34fcdf862b0a0f1ed0826a953c6f23a35c38d9b3984ff69e71a4860e069f"
+    },
+    {
+      "arm": "B",
+      "semantic_ok": true,
+      "lock_status": "passed",
+      "resources_status": "passed",
+      "cleanup_verified": true,
+      "samples": 590,
+      "duplicate_records": 0,
+      "issues": [],
+      "phases": [
+        {
+          "name": "small_queue",
+          "population": "guards wholly inside marker window plus boundary guard",
+          "start_unix_ns": 1789680920688907121,
+          "end_unix_ns": 1789680926349548883,
+          "aggregate": {
+            "count": 40,
+            "wait": {
+              "p50_ns": 51,
+              "p95_ns": 187,
+              "maximum_ns": 298,
+              "sum_ns": 2754
+            },
+            "hold": {
+              "p50_ns": 2760,
+              "p95_ns": 25490,
+              "maximum_ns": 57149,
+              "sum_ns": 353223
+            }
+          },
+          "by_callsite": [
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 429,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 32,
+                "p95_ns": 32,
+                "maximum_ns": 32,
+                "sum_ns": 32
+              },
+              "hold": {
+                "p50_ns": 25490,
+                "p95_ns": 25490,
+                "maximum_ns": 25490,
+                "sum_ns": 25490
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 465,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 69,
+                "p95_ns": 84,
+                "maximum_ns": 84,
+                "sum_ns": 537
+              },
+              "hold": {
+                "p50_ns": 19306,
+                "p95_ns": 29160,
+                "maximum_ns": 29160,
+                "sum_ns": 159911
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 605,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 21,
+                "p95_ns": 21,
+                "maximum_ns": 21,
+                "sum_ns": 21
+              },
+              "hold": {
+                "p50_ns": 4629,
+                "p95_ns": 4629,
+                "maximum_ns": 4629,
+                "sum_ns": 4629
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 648,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 21,
+                "p95_ns": 21,
+                "maximum_ns": 21,
+                "sum_ns": 21
+              },
+              "hold": {
+                "p50_ns": 13668,
+                "p95_ns": 13668,
+                "maximum_ns": 13668,
+                "sum_ns": 13668
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 767,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 33,
+                "p95_ns": 33,
+                "maximum_ns": 33,
+                "sum_ns": 33
+              },
+              "hold": {
+                "p50_ns": 1994,
+                "p95_ns": 1994,
+                "maximum_ns": 1994,
+                "sum_ns": 1994
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 786,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 22,
+                "p95_ns": 47,
+                "maximum_ns": 47,
+                "sum_ns": 200
+              },
+              "hold": {
+                "p50_ns": 1278,
+                "p95_ns": 2794,
+                "maximum_ns": 2794,
+                "sum_ns": 11675
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 854,
+              "column": 14,
+              "count": 2,
+              "wait": {
+                "p50_ns": 24,
+                "p95_ns": 298,
+                "maximum_ns": 298,
+                "sum_ns": 322
+              },
+              "hold": {
+                "p50_ns": 27,
+                "p95_ns": 220,
+                "maximum_ns": 220,
+                "sum_ns": 247
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 185,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 189,
+                "p95_ns": 189,
+                "maximum_ns": 189,
+                "sum_ns": 189
+              },
+              "hold": {
+                "p50_ns": 18001,
+                "p95_ns": 18001,
+                "maximum_ns": 18001,
+                "sum_ns": 18001
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 211,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 87,
+                "p95_ns": 87,
+                "maximum_ns": 87,
+                "sum_ns": 87
+              },
+              "hold": {
+                "p50_ns": 4425,
+                "p95_ns": 4425,
+                "maximum_ns": 4425,
+                "sum_ns": 4425
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 221,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 184,
+                "p95_ns": 184,
+                "maximum_ns": 184,
+                "sum_ns": 184
+              },
+              "hold": {
+                "p50_ns": 10163,
+                "p95_ns": 10163,
+                "maximum_ns": 10163,
+                "sum_ns": 10163
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 250,
+              "column": 32,
+              "count": 2,
+              "wait": {
+                "p50_ns": 72,
+                "p95_ns": 187,
+                "maximum_ns": 187,
+                "sum_ns": 259
+              },
+              "hold": {
+                "p50_ns": 5987,
+                "p95_ns": 18189,
+                "maximum_ns": 18189,
+                "sum_ns": 24176
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/preparation.rs",
+              "line": 60,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 22,
+                "p95_ns": 22,
+                "maximum_ns": 22,
+                "sum_ns": 22
+              },
+              "hold": {
+                "p50_ns": 1417,
+                "p95_ns": 1417,
+                "maximum_ns": 1417,
+                "sum_ns": 1417
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 359,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 160,
+                "p95_ns": 160,
+                "maximum_ns": 160,
+                "sum_ns": 160
+              },
+              "hold": {
+                "p50_ns": 437,
+                "p95_ns": 437,
+                "maximum_ns": 437,
+                "sum_ns": 437
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 373,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 36,
+                "p95_ns": 36,
+                "maximum_ns": 36,
+                "sum_ns": 36
+              },
+              "hold": {
+                "p50_ns": 57149,
+                "p95_ns": 57149,
+                "maximum_ns": 57149,
+                "sum_ns": 57149
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 160,
+              "column": 36,
+              "count": 1,
+              "wait": {
+                "p50_ns": 155,
+                "p95_ns": 155,
+                "maximum_ns": 155,
+                "sum_ns": 155
+              },
+              "hold": {
+                "p50_ns": 306,
+                "p95_ns": 306,
+                "maximum_ns": 306,
+                "sum_ns": 306
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 217,
+              "column": 36,
+              "count": 8,
+              "wait": {
+                "p50_ns": 51,
+                "p95_ns": 72,
+                "maximum_ns": 72,
+                "sum_ns": 445
+              },
+              "hold": {
+                "p50_ns": 1944,
+                "p95_ns": 4395,
+                "maximum_ns": 4395,
+                "sum_ns": 19469
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status/native.rs",
+              "line": 67,
+              "column": 14,
+              "count": 1,
+              "wait": {
+                "p50_ns": 51,
+                "p95_ns": 51,
+                "maximum_ns": 51,
+                "sum_ns": 51
+              },
+              "hold": {
+                "p50_ns": 66,
+                "p95_ns": 66,
+                "maximum_ns": 66,
+                "sum_ns": 66
+              }
+            }
+          ],
+          "status": "passed",
+          "boundary_crossings": [],
+          "boundary_margin_exclusions": []
+        },
+        {
+          "name": "busy_waves",
+          "population": "guards wholly inside marker window plus boundary guard",
+          "start_unix_ns": 1789680926379295892,
+          "end_unix_ns": 1789680940299385675,
+          "aggregate": {
+            "count": 438,
+            "wait": {
+              "p50_ns": 53,
+              "p95_ns": 191,
+              "maximum_ns": 64982,
+              "sum_ns": 187059
+            },
+            "hold": {
+              "p50_ns": 2416,
+              "p95_ns": 70495,
+              "maximum_ns": 317729,
+              "sum_ns": 8953308
+            }
+          },
+          "by_callsite": [
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 429,
+              "column": 36,
+              "count": 3,
+              "wait": {
+                "p50_ns": 32,
+                "p95_ns": 37,
+                "maximum_ns": 37,
+                "sum_ns": 94
+              },
+              "hold": {
+                "p50_ns": 110320,
+                "p95_ns": 191297,
+                "maximum_ns": 191297,
+                "sum_ns": 354937
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 465,
+              "column": 36,
+              "count": 128,
+              "wait": {
+                "p50_ns": 78,
+                "p95_ns": 190,
+                "maximum_ns": 744,
+                "sum_ns": 13835
+              },
+              "hold": {
+                "p50_ns": 47147,
+                "p95_ns": 82787,
+                "maximum_ns": 107546,
+                "sum_ns": 6173971
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 605,
+              "column": 36,
+              "count": 4,
+              "wait": {
+                "p50_ns": 20,
+                "p95_ns": 34,
+                "maximum_ns": 34,
+                "sum_ns": 94
+              },
+              "hold": {
+                "p50_ns": 22618,
+                "p95_ns": 71353,
+                "maximum_ns": 71353,
+                "sum_ns": 161263
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 648,
+              "column": 36,
+              "count": 4,
+              "wait": {
+                "p50_ns": 21,
+                "p95_ns": 56,
+                "maximum_ns": 56,
+                "sum_ns": 118
+              },
+              "hold": {
+                "p50_ns": 52291,
+                "p95_ns": 132237,
+                "maximum_ns": 132237,
+                "sum_ns": 267044
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 767,
+              "column": 36,
+              "count": 3,
+              "wait": {
+                "p50_ns": 29,
+                "p95_ns": 36,
+                "maximum_ns": 36,
+                "sum_ns": 93
+              },
+              "hold": {
+                "p50_ns": 6108,
+                "p95_ns": 8993,
+                "maximum_ns": 8993,
+                "sum_ns": 16840
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 777,
+              "column": 14,
+              "count": 1,
+              "wait": {
+                "p50_ns": 145,
+                "p95_ns": 145,
+                "maximum_ns": 145,
+                "sum_ns": 145
+              },
+              "hold": {
+                "p50_ns": 49,
+                "p95_ns": 49,
+                "maximum_ns": 49,
+                "sum_ns": 49
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 786,
+              "column": 36,
+              "count": 129,
+              "wait": {
+                "p50_ns": 22,
+                "p95_ns": 46,
+                "maximum_ns": 64982,
+                "sum_ns": 113771
+              },
+              "hold": {
+                "p50_ns": 1817,
+                "p95_ns": 3024,
+                "maximum_ns": 4634,
+                "sum_ns": 252942
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool.rs",
+              "line": 854,
+              "column": 14,
+              "count": 6,
+              "wait": {
+                "p50_ns": 45,
+                "p95_ns": 184,
+                "maximum_ns": 184,
+                "sum_ns": 614
+              },
+              "hold": {
+                "p50_ns": 58,
+                "p95_ns": 421,
+                "maximum_ns": 421,
+                "sum_ns": 1011
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 185,
+              "column": 32,
+              "count": 3,
+              "wait": {
+                "p50_ns": 169,
+                "p95_ns": 181,
+                "maximum_ns": 181,
+                "sum_ns": 515
+              },
+              "hold": {
+                "p50_ns": 50775,
+                "p95_ns": 63627,
+                "maximum_ns": 63627,
+                "sum_ns": 158736
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 211,
+              "column": 32,
+              "count": 3,
+              "wait": {
+                "p50_ns": 250,
+                "p95_ns": 250,
+                "maximum_ns": 250,
+                "sum_ns": 623
+              },
+              "hold": {
+                "p50_ns": 11664,
+                "p95_ns": 18622,
+                "maximum_ns": 18622,
+                "sum_ns": 35090
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 221,
+              "column": 32,
+              "count": 3,
+              "wait": {
+                "p50_ns": 192,
+                "p95_ns": 224,
+                "maximum_ns": 224,
+                "sum_ns": 601
+              },
+              "hold": {
+                "p50_ns": 27568,
+                "p95_ns": 38884,
+                "maximum_ns": 38884,
+                "sum_ns": 89173
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/attempts.rs",
+              "line": 250,
+              "column": 32,
+              "count": 6,
+              "wait": {
+                "p50_ns": 136,
+                "p95_ns": 228,
+                "maximum_ns": 228,
+                "sum_ns": 816
+              },
+              "hold": {
+                "p50_ns": 27080,
+                "p95_ns": 63768,
+                "maximum_ns": 63768,
+                "sum_ns": 227642
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/preparation.rs",
+              "line": 60,
+              "column": 32,
+              "count": 3,
+              "wait": {
+                "p50_ns": 33,
+                "p95_ns": 50,
+                "maximum_ns": 50,
+                "sum_ns": 114
+              },
+              "hold": {
+                "p50_ns": 15956,
+                "p95_ns": 20740,
+                "maximum_ns": 20740,
+                "sum_ns": 39112
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 359,
+              "column": 32,
+              "count": 3,
+              "wait": {
+                "p50_ns": 162,
+                "p95_ns": 176,
+                "maximum_ns": 176,
+                "sum_ns": 495
+              },
+              "hold": {
+                "p50_ns": 538,
+                "p95_ns": 784,
+                "maximum_ns": 784,
+                "sum_ns": 1697
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/lifecycle/reconciliation.rs",
+              "line": 373,
+              "column": 36,
+              "count": 3,
+              "wait": {
+                "p50_ns": 41,
+                "p95_ns": 42,
+                "maximum_ns": 42,
+                "sum_ns": 113
+              },
+              "hold": {
+                "p50_ns": 303505,
+                "p95_ns": 317729,
+                "maximum_ns": 317729,
+                "sum_ns": 787967
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 160,
+              "column": 36,
+              "count": 3,
+              "wait": {
+                "p50_ns": 176,
+                "p95_ns": 199,
+                "maximum_ns": 199,
+                "sum_ns": 446
+              },
+              "hold": {
+                "p50_ns": 219,
+                "p95_ns": 232,
+                "maximum_ns": 232,
+                "sum_ns": 607
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 217,
+              "column": 36,
+              "count": 128,
+              "wait": {
+                "p50_ns": 54,
+                "p95_ns": 165,
+                "maximum_ns": 44033,
+                "sum_ns": 53095
+              },
+              "hold": {
+                "p50_ns": 2124,
+                "p95_ns": 4397,
+                "maximum_ns": 7612,
+                "sum_ns": 312534
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status.rs",
+              "line": 244,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 197,
+                "p95_ns": 197,
+                "maximum_ns": 197,
+                "sum_ns": 197
+              },
+              "hold": {
+                "p50_ns": 45952,
+                "p95_ns": 45952,
+                "maximum_ns": 45952,
+                "sum_ns": 45952
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status/native.rs",
+              "line": 67,
+              "column": 14,
+              "count": 3,
+              "wait": {
+                "p50_ns": 111,
+                "p95_ns": 844,
+                "maximum_ns": 844,
+                "sum_ns": 1000
+              },
+              "hold": {
+                "p50_ns": 255,
+                "p95_ns": 554,
+                "maximum_ns": 554,
+                "sum_ns": 966
+              }
+            },
+            {
+              "pool": 1,
+              "file": "crates/eez-composer/src/held_pool/status/native.rs",
+              "line": 81,
+              "column": 32,
+              "count": 1,
+              "wait": {
+                "p50_ns": 280,
+                "p95_ns": 280,
+                "maximum_ns": 280,
+                "sum_ns": 280
+              },
+              "hold": {
+                "p50_ns": 25775,
+                "p95_ns": 25775,
+                "maximum_ns": 25775,
+                "sum_ns": 25775
+              }
+            }
+          ],
+          "status": "passed",
+          "boundary_crossings": [],
+          "boundary_margin_exclusions": []
+        }
+      ],
+      "raw_lock_report_sha256": "c8ddd3fc0439246e07d1fabca4f77778eb69379afe6d187526415776a19c84ea"
+    }
+  ]
+}
