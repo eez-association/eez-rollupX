@@ -190,3 +190,10 @@ native admissions within the existing indexed interval. It shares immutable
 receipt facts and canonical flags, while `selected_transactions` preserves the
 original scanner's population for existing views and totals. Source receipt costs
 are a separate overlapping population, not companion attribution or EEZ success.
+
+## Protocol receipt logs (schema 6)
+
+The independent [protocol-log collector](protocol-logs.md) checks fixed execution
+and consumption events for stored L1 receipts. Missing or contradictory log sets
+have separate coverage and cannot change billing facts. This supplies evidence
+for later outcome checks; it does not itself verify lifecycle outcomes.

@@ -57,7 +57,8 @@ priority without permanently skipping rechecks of known facts. Each chain has a
 chain does not stop the other chain's turn. Successful cycles wait five seconds;
 database/projection failures have their own bounded backoff. RPC calls share the
 existing four-request semaphore, five-second HTTP timeout and response caps;
-transaction/block retrieval uses the existing bounded 8 MiB helpers.
+transaction/block retrieval uses bounded 8 MiB helpers. Schema 6 also gives receipt
+retrieval that explicit 8 MiB bound to accommodate execution logs.
 
 For an observed receipt, the worker checks its source identity and interval,
 fetches the canonical block body and exact transaction, and verifies the hash at

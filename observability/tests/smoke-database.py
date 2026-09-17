@@ -66,7 +66,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '5'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '6'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -81,6 +81,7 @@ def main():
     parser.add_argument('--binary', type=pathlib.Path, default=ROOT.parent / 'target/debug/eez-observer')
     parser.add_argument('--previous-binary', type=pathlib.Path, help='Optional saved schema-v1 observer for upgrade compatibility checks')
     parser.add_argument('--previous-v4-binary', type=pathlib.Path, help='Optional saved schema-v4 observer for populated lifecycle upgrade checks')
+    parser.add_argument('--previous-v5-binary', type=pathlib.Path, help='Optional saved schema-v5 observer for receipt/log upgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -144,8 +145,15 @@ def main():
               INSERT INTO eez.lifecycle_epochs(source_id,epoch) SELECT id,decode(repeat('12',16),'hex') FROM eez.lifecycle_sources WHERE instance='upgrade';
               INSERT INTO eez.lifecycle_events(source_id,epoch,sequence,chunk_count,state,payload)
               SELECT id,decode(repeat('12',16),'hex'),1,1,'complete','{"observed_at_unix_ms":1000,"trace":null,"event":{"event":"reorg","ancestor":{"number":1,"hash":"0101010101010101010101010101010101010101010101010101010101010101"}}}'::jsonb FROM eez.lifecycle_sources WHERE instance='upgrade';""")
+        if args.previous_v5_binary:
+            run(['docker','cp',str(args.previous_v5_binary.resolve()),name + ':/observer-v5'])
+            run(['docker','exec',name,'/observer-v5','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '5'
         run(migrate)
         run(migrate)
+        if args.previous_v5_binary:
+            assert run(['docker','exec',name,'/observer-v5','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
+            report['checks'].append('saved_v5_binary_upgrade_preserves_receipts_and_refuses_downgrade')
         if args.previous_v4_binary:
             assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_event_history WHERE instance='upgrade';").stdout.strip() == '1'
             assert run(['docker','exec',name,'/observer-v4','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
@@ -757,6 +765,79 @@ def main():
         report['checks'].append('source_receipt_deadline_preserves_partial_commits_and_other_chain_progress_then_recovers_without_duplicate_fees')
         control(source_unselected=False,source_receipt_missing=False,source_cost_missing=False,source_hash_mismatch=False,source_receipt_failure=False,source_receipt_delay_ms=0,post_count=1)
         write_index(index_config)
+        # Protocol logs have their own gap/conflict coverage and do not alter
+        # selected receipt costs, even when their RPC capture is unavailable.
+        logs_config = copy.deepcopy(index_config)
+        logs_config['deployment'] = 'protocol-logs'
+        logs_config['l1']['contracts'] = ['0x' + 'bb'*20]
+        write_index(logs_config)
+        control(phase='healthy',finalize=False,post_success=True,post_count=1,source_unselected=False,source_receipt_missing=False,source_cost_missing=False,source_hash_mismatch=False,source_receipt_failure=False,source_receipt_delay_ms=0,protocol_logs='missing',correlation='none')
+        initial_logs = run(index).stdout
+        def log_scalar(expression,table='protocol_log_coverage',where=''):
+            return scalar(f"SELECT {expression} FROM eez.{table} l JOIN eez.chain_instances c ON c.id=l.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='protocol-logs' AND c.role='l1' {where};")
+        assert log_scalar("count(*) FILTER(WHERE state='gap')") == '2', (initial_logs, log_scalar("string_agg(state||':'||COALESCE(l.collection_error,'none'),',')"))
+        assert log_scalar('known_total_paid','canonical_cost_totals') == '738216'
+        control(protocol_logs='malformed')
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE state='gap')") == '1'
+        control(protocol_logs='limit')
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE l.collection_error='logs_capture_limit')") == '1'
+        assert log_scalar('known_total_paid','canonical_cost_totals') == '738216'
+        control(protocol_logs='valid')
+        run(index)
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE state='complete')") == '2'
+        assert log_scalar('count(*)','canonical_protocol_logs') == '3'
+        assert log_scalar("encode(root,'hex')",'canonical_protocol_logs',"AND kind='root'") == f'{202:064x}'
+        assert log_scalar("string_agg(queue_index::text,',' ORDER BY log_index)",'canonical_protocol_logs',"AND kind='consumed'") == '1,2'
+        assert log_scalar('count(*)','protocol_log_claims') == '2'
+        control(protocol_logs='missing')
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE state='complete')") == '2'
+        assert log_scalar('count(*)','canonical_protocol_logs') == '3'
+        control(protocol_logs='conflict')
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE state='conflict')") == '1'
+        assert log_scalar('count(*)','canonical_protocol_logs') == '0'
+        assert log_scalar('known_total_paid','canonical_cost_totals') == '738216'
+        control(protocol_logs='third')
+        run(index)
+        assert log_scalar('count(*)','protocol_log_claims') == '3'
+        control(protocol_logs='valid')
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE state='conflict')") == '1'
+        control(phase='fork')
+        run(index)
+        assert log_scalar('count(*)','canonical_protocol_logs') == '3'
+        assert log_scalar('count(*)','protocol_log_claims') == '4'
+        assert log_scalar('known_total_paid','canonical_cost_totals') == '804216'
+        assert log_scalar("count(*) FILTER(WHERE state='conflict')") == '0'
+        denied_claim = run(['docker','exec',name,'psql','-XAtq','-v','ON_ERROR_STOP=1','-U','eez_observer_writer','-d','eez_observer','-c',"UPDATE eez.protocol_log_claims SET events='[]'::jsonb"],check=False)
+        assert denied_claim.returncode != 0 and 'permission denied for table protocol_log_claims' in denied_claim.stdout
+        assert scalar("SET ROLE eez_observer_reader; SELECT count(*) FROM eez.protocol_log_claims;") != '0'
+        scalar("SET ROLE eez_observer_reader; SELECT count(*) FROM eez.protocol_log_attempts;")
+        control(source_receipt_failure=True)
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE l.collection_error='rpc')") == '1'
+        assert log_scalar('known_total_paid','canonical_cost_totals') == '804216'
+        assert log_scalar('count(*)','canonical_protocol_logs') == '3'
+        control(source_receipt_failure=False)
+        run(index)
+        assert log_scalar("count(*) FILTER(WHERE l.collection_error IS NOT NULL)") == '0'
+        assert scalar("SELECT count(*) FROM eez.protocol_log_claims l JOIN eez.chain_instances c ON c.id=l.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='scanner';") == '0'
+        report['checks'].append('protocol_logs_missing_malformed_limit_recovery_empty_sets_duplicates_queue_positions_conflict_retention_and_reorg_preserve_costs')
+        logs_config['deployment'] = 'protocol-log-budget'
+        write_index(logs_config)
+        control(phase='healthy',post_count=32)
+        run(index)
+        def budget_count():
+            return scalar("SELECT count(*) FILTER(WHERE state='pending')||':'||count(*) FILTER(WHERE state='complete') FROM eez.protocol_log_coverage l JOIN eez.chain_instances c ON c.id=l.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='protocol-log-budget';")
+        assert budget_count() == '1:32'
+        run(index)
+        assert budget_count() == '0:33'
+        report['checks'].append('protocol_logs_bounded_pass_restarts_resume_persisted_backlog_and_disabled_config_has_no_claims')
+        control(protocol_logs='missing')
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0

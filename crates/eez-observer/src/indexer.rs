@@ -23,6 +23,7 @@ use crate::{
 
 mod ledger;
 pub mod lifecycle;
+pub mod protocol_logs;
 mod settlements;
 pub mod source_receipts;
 
@@ -236,11 +237,9 @@ struct Transaction {
     index: u64,
 }
 fn address(value: &str) -> Result<Address, Error> {
-    if value.len() != 42 || !value.starts_with("0x") {
-        return Err(Error::Rpc(Failure::Malformed));
-    }
-    value.parse().map_err(|_| Error::Rpc(Failure::Malformed))
+    crate::accounting::address(value).map_err(Into::into)
 }
+
 impl Transaction {
     fn parse_receipt(&self, block: &Block, value: &Value) -> Result<Receipt, Error> {
         // Retain the scanner's existing error precedence: a known contradictory
@@ -324,6 +323,7 @@ pub struct RuntimeStatus {
     pub settlements: Option<Status>,
     pub lifecycle: Vec<lifecycle::Status>,
     pub source_receipts: Option<source_receipts::Status>,
+    pub protocol_logs: Option<protocol_logs::Status>,
 }
 pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
 
@@ -501,6 +501,7 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     }
     lifecycle::once(config, status).await;
     source_receipts::poll(config, rpc, status).await;
+    protocol_logs::poll(config, rpc, status).await;
     l1.and(l2)
 }
 
@@ -523,7 +524,8 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
         worker(&config, &rpc, &status, 1),
         settlements::run(&config, &rpc, &status),
         lifecycle::run(&config, &status),
-        source_receipts::run(&config, &rpc, &status)
+        source_receipts::run(&config, &rpc, &status),
+        protocol_logs::run(&config, &rpc, &status)
     );
 }
 
@@ -801,12 +803,7 @@ async fn fetch_observations(
         let observed = if receipts_unavailable {
             Ok(Value::Null)
         } else {
-            rpc.call(
-                &endpoint.url,
-                "eth_getTransactionReceipt",
-                json!([format!("{:#x}", transaction.hash)]),
-            )
-            .await
+            rpc.receipt(endpoint, transaction.hash).await
         };
         let receipt = match observed {
             Ok(value) if !value.is_null() => Some(transaction.parse_receipt(&block, &value)?),

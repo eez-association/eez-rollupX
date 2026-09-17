@@ -7,6 +7,7 @@ pub mod indexer;
 pub mod metrics;
 pub mod model;
 mod posting;
+pub mod protocol_logs;
 pub mod rpc;
 
 use axum::{Router, extract::State, http::header, routing::get};
@@ -54,6 +55,10 @@ async fn scrape(
         let status = index.read().await;
         rendered.push_str(&indexer::render(&status.chains, now));
         rendered.push_str(&indexer::render_settlements(&status, now));
+        rendered.push_str(&indexer::protocol_logs::render(
+            status.protocol_logs.as_ref(),
+            now,
+        ));
         rendered.push_str(&indexer::lifecycle::render(&status.lifecycle, now));
         rendered.push_str(&indexer::source_receipts::render(
             status.source_receipts.as_ref(),

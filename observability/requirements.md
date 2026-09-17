@@ -128,3 +128,8 @@ These exclusions are in the proposal; they do not defer any row above.
   with membership retained through the original prepared event. A changed candidate
   is not another paid receipt; submission observations still make no settled-source
   claim. Canonical reconciliation needs its separate receipt/endpoint evidence.
+
+- R19 evidence prerequisite: [protocol receipt logs](contracts/protocol-logs.md)
+  retain exact root/consumption occurrences with bounded capture, immutable claims,
+  explicit conflicts and canonical retraction. This does not complete R19 outcome
+  materialization or source/companion attribution.

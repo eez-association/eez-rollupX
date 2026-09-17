@@ -201,6 +201,9 @@ async fn mock_rpc(State(state): State<Arc<MockState>>, body: Bytes) -> String {
     state.active.fetch_sub(1, Ordering::SeqCst);
     let request: Value = serde_json::from_slice(&body).unwrap();
     let mode = state.mode.load(Ordering::SeqCst);
+    if mode == 6 || mode == 7 {
+        return json!({"jsonrpc":"2.0","id":1,"result":"x".repeat(if mode==6 {2*1024*1024} else {8*1024*1024})}).to_string();
+    }
     if mode == 5 {
         return "x".repeat(1024 * 1024 + 1);
     }
@@ -277,4 +280,27 @@ async fn concurrency_limit_applies_across_all_sources() {
     assert!(mock.state.peak.load(Ordering::SeqCst) <= 4);
     assert!(mock.state.peak.load(Ordering::SeqCst) >= 2);
     assert_eq!(mock.state.calls.load(Ordering::SeqCst), 24);
+}
+
+#[tokio::test]
+async fn receipt_rpc_has_a_bounded_larger_budget_than_aggregate_probes() {
+    let mock = Mock::start().await;
+    let rpc = Rpc::new().unwrap();
+    mock.state.mode.store(6, Ordering::SeqCst);
+    let value = rpc
+        .receipt(&mock.endpoint(), alloy_primitives::B256::ZERO)
+        .await
+        .unwrap();
+    assert_eq!(value.as_str().unwrap().len(), 2 * 1024 * 1024);
+    assert_eq!(
+        rpc.call(&mock.url, "eth_getTransactionReceipt", json!([]))
+            .await,
+        Err(Failure::Oversized)
+    );
+    mock.state.mode.store(7, Ordering::SeqCst);
+    assert_eq!(
+        rpc.receipt(&mock.endpoint(), alloy_primitives::B256::ZERO)
+            .await,
+        Err(Failure::Oversized)
+    );
 }

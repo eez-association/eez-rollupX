@@ -115,3 +115,12 @@ Check both per-chain source-receipt collection signals, pending admissions and
 Source and wallet cost populations can overlap and must not be added together.
 See the [source receipt contract](../contracts/source-receipts.md) for exact scope,
 work budgets, gap states and rollback boundaries.
+
+Schema 6 adds independent receipt protocol-log evidence. Use the same
+stop/backup/explicit-migrate/start order; schema-5 and earlier binaries refuse the
+new schema. There is no executable-only downgrade. Existing receipts, exact costs,
+selections and lifecycle records remain intact. A nonempty L1 contract selection
+enables bounded log backfill from those receipts automatically; no rescan or cursor
+reset is required. Inspect `eez.protocol_log_coverage` and the protocol-log health
+metrics before relying on stronger evidence. See the
+[protocol-log contract](../contracts/protocol-logs.md) for limits and conflict policy.

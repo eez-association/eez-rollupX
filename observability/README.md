@@ -7,7 +7,7 @@ provisioned dashboards cover network and collection health. See the
 and tracing. The optional canonical receipt indexer and PostgreSQL profile are
 now implemented, along with durable lifecycle transport and native lifecycle
 capture. [Source-receipt enrichment](contracts/source-receipts.md) has isolated SQL/RPC
-validation; companion attribution,
+validation. [Protocol-log evidence](contracts/protocol-logs.md) adds separate gap/conflict coverage; companion attribution,
 canonical outcome validation and tracing remain in progress. The backend has been exercised with local
 fixtures; it has not been connected to the live Chiado deployment.
 

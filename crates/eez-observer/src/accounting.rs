@@ -1,7 +1,7 @@
 //! Receipt facts, independent of lifecycle attribution and canonical selection.
 //! The database selects canonical inclusions; parsing a receipt proves neither
 //! finality nor successful cross-chain execution. Reverted receipts still cost.
-use alloy_primitives::{B256, U256, U512};
+use alloy_primitives::{Address, B256, U256, U512};
 use serde_json::Value;
 
 use crate::{
@@ -105,6 +105,13 @@ pub struct Receipt {
     /// Keep an identified inclusion even when required accounting fields are
     /// missing. Persist the gap, never a zero charge or an invented estimate.
     pub cost: Result<ReceiptCost, Gap>,
+}
+
+pub(crate) fn address(value: &str) -> Result<Address, Failure> {
+    if value.len() != 42 || !value.starts_with("0x") {
+        return Err(Failure::Malformed);
+    }
+    value.parse().map_err(|_| Failure::Malformed)
 }
 
 pub(crate) fn hash(value: &Value) -> Result<B256, Failure> {

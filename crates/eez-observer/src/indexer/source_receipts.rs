@@ -395,13 +395,7 @@ async fn lookup(
         (&config.exporter.l2, &config.l2)
     };
     let cursor = ledger::cursor(db, chain).await?.ok_or(Error::Bootstrap)?;
-    let value = rpc
-        .call(
-            &endpoint.url,
-            "eth_getTransactionReceipt",
-            json!([format!("{hash:#x}")]),
-        )
-        .await?;
+    let value = rpc.receipt(endpoint, hash).await?;
     if value.is_null() {
         return Ok(Lookup::NotObserved);
     }

@@ -14,6 +14,7 @@ def digest(number):
 
 
 class RPC(http.server.BaseHTTPRequestHandler):
+    protocol_logs = 'missing'
     phase = 'missing'
     finalize = False
     correlation = 'none'
@@ -41,6 +42,9 @@ class RPC(http.server.BaseHTTPRequestHandler):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         if self.path == '/control':
             with self.lock:
+                if 'protocol_logs' in request:
+                    assert request['protocol_logs'] in ('missing','valid','malformed','conflict','third','limit')
+                    type(self).protocol_logs = request['protocol_logs']
                 if 'phase' in request:
                     assert request['phase'] in ('missing', 'healthy', 'fork', 'contradiction', 'wrong_identity', 'mid_fetch', 'pruned', 'wrong_type', 'invalid_post', 'unverified_post', 'transaction_unavailable', 'l2_fork')
                     type(self).phase = request['phase']
@@ -63,6 +67,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
             return
         chain = 1 if self.path == '/l1' else 2
         with self.lock:
+            protocol_logs = self.protocol_logs
             phase, finalize = self.phase, self.finalize
             correlation, post_success, post_count = self.correlation, self.post_success, self.post_count
             source_unselected, source_receipt_missing = self.source_unselected, self.source_receipt_missing
@@ -124,6 +129,19 @@ class RPC(http.server.BaseHTTPRequestHandler):
                     value.update(blobGasUsed=hex(131072), blobGasPrice='0x3')
                     if chain == 1 and source_cost_missing:
                         value.pop('blobGasPrice')
+                if protocol_logs != 'missing':
+                    value['logs'] = []
+                    if chain == 1 and height == 2 and post_success:
+                        base = {key:value[key] for key in ('blockHash','blockNumber','transactionHash','transactionIndex')}
+                        base.update(address='0x' + 'bb'*20,removed=False)
+                        root = {**base,'logIndex':hex(index*3),'topics':['0xc0b8d01bb696973c75a58d377245b23ce450af0ed8c4cf808cd0a3d85c6f3da1',digest(1)],'data':digest(202 if protocol_logs not in ('conflict','third') else 999 if protocol_logs=='conflict' else 998)}
+                        def consumed(offset):
+                            return {**base,'logIndex':hex(index*3+offset),'topics':['0xa17dc82da628b280737819918ee433b966773121ff974c081d8cbac4c6199d7d',digest(777),digest(1),digest(offset)],'data':'0x'}
+                        value['logs'] = [root,consumed(1),consumed(2)]
+                        if protocol_logs == 'malformed':
+                            value['logs'][1]['blockHash'] = digest(999)
+                        if protocol_logs == 'limit':
+                            value['logs'] = [{**root,'logIndex':hex(i)} for i in range(4097)]
         elif method == 'eez_getSettledL2RangesByL1Block':
             assert chain == 2
             l1_hash = digest(102 + (10 if phase == 'fork' else 0))

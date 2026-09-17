@@ -92,6 +92,22 @@ impl Rpc {
         .await
     }
 
+    /// Receipt logs can be larger than aggregate probe responses. Retain the
+    /// same timeout and shared concurrency budget, with an explicit byte cap.
+    pub(crate) async fn receipt(
+        &self,
+        endpoint: &Endpoint,
+        hash: alloy_primitives::B256,
+    ) -> Result<Value, Failure> {
+        self.call_bounded(
+            &endpoint.url,
+            "eth_getTransactionReceipt",
+            json!([format!("{hash:#x}")]),
+            8 * MAX_RESPONSE_BYTES,
+        )
+        .await
+    }
+
     async fn call_bounded(
         &self,
         url: &str,
