@@ -252,3 +252,18 @@ and [artifact report](../../../observability/validation/posting-rollups.json)
 include a populated upgrade produced by the actual saved schema-6 executable,
 unavailable-calldata recovery, immutable binding, invalid arrays and reinclusion.
 No native runtime or live deployment was changed.
+
+## Local-policy and unresolved admission history
+
+Source `cd58116` adds schema-8 admission/terminal observation views and strict local
+policy evidence checks. Actual admissions remain separate across readmissions;
+positive ended-process evidence produces unresolved restart history, while unknown
+liveness does not imply an exit. Parent conflicts or inconsistent owner/outcome/
+duration suppress policy assurance. Canonical claims remain unverified here.
+
+37 observer tests, 41 disposable database checks and workspace all-target Clippy
+passed. The [validation map](../../../observability/validation/admission-status.md)
+and [artifact report](../../../observability/validation/admission-status.json)
+record query-level liveness/ownership/late-evidence checks, exact artifact identity
+and the limits of synthetic status fixtures. A new native restart canary and full
+canonical outcome validation remain required.
