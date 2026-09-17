@@ -1,0 +1,15 @@
+   Compiling eez-proof-signer v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-proof-signer)
+    Finished `test` profile [optimized + debuginfo] target(s) in 5.40s
+     Running unittests src/main.rs (target/debug/deps/eez_proof_signer-f80ee796244b097d)
+
+running 1 test
+{"cold_rpc_ms":2060.594543,"combined_harness_process_peak_rss":"VmHWM:\t  149980 kB","first_request_in_process":true,"input_build_ms":4.0417760000000005,"input_hash":"0x6e0a8e0e7b80fe7c341fe22f84e2f510b2a598aae989ea4487b06fbc95587ef9","logical_blocks":512,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":876,"physical_blobs":1,"request_bytes":1156803,"witness_items":2560}
+{"cold_rpc_ms":39.970051999999995,"combined_harness_process_peak_rss":"VmHWM:\t  152248 kB","first_request_in_process":false,"input_build_ms":4.600815,"input_hash":"0xe6998a18d6bcb31e21b9ca61dbfc0cebd470ae8cf691aabe823a26099c147d17","logical_blocks":1024,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":879,"physical_blobs":1,"request_bytes":2181315,"witness_items":5120}
+{"cold_rpc_ms":137.28099799999998,"combined_harness_process_peak_rss":"VmHWM:\t  163868 kB","first_request_in_process":false,"input_build_ms":18.215753,"input_hash":"0x09d1ce209cde70c4824d9fad1cb9204d1ad6025e6061ecf7c5fe2df56517e17a","logical_blocks":4096,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":872,"physical_blobs":1,"request_bytes":8328387,"witness_items":20480}
+{"cold_rpc_ms":339.621031,"combined_harness_process_peak_rss":"VmHWM:\t  186360 kB","first_request_in_process":false,"input_build_ms":45.179156,"input_hash":"0x8e9cf9504b2447f4cb667c5586f97db5e1eec089361433a4cea9438c9b9fa295","logical_blocks":10000,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":872,"physical_blobs":1,"request_bytes":20142291,"witness_items":50000}
+{"cold_rpc_ms":1464.438707,"combined_harness_process_peak_rss":"VmHWM:\t  305520 kB","first_request_in_process":false,"input_build_ms":210.131663,"input_hash":"0xeb5b42da18577b0b802493d9012a8a80284fa9bc8dd8f123ea5846e3fc163916","logical_blocks":43200,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":878,"physical_blobs":1,"request_bytes":86602321,"witness_items":216000}
+{"cold_rpc_ms":2249.8038930000002,"combined_harness_process_peak_rss":"VmHWM:\t  370696 kB","first_request_in_process":false,"input_build_ms":295.490152,"input_hash":"0xd618b19e44827dae5817b3c634b0607c95d2d00536b7f5f9d6043c26b3d9195d","logical_blocks":65536,"measurement":"cold_prove_empty_fixture","native_grid_settlement":false,"operations_bytes":874,"physical_blobs":1,"request_bytes":131319018,"witness_items":327680}
+test service::tests::derivation::cold_span_feasibility ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 294 filtered out; finished in 6.97s
+

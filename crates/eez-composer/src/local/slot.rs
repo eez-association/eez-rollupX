@@ -215,7 +215,6 @@ pub struct L1TargetSession {
     chain_id: u64,
     posting_origin: Option<Address>,
     posting_gas_price: u128,
-    defer_source_conditions: bool,
 }
 
 impl std::fmt::Debug for L1TargetSession {
@@ -241,11 +240,7 @@ impl L1TargetSession {
     ///
     /// Returns [`ExecutorErrorKind::Provider`] when the anchor state cannot be
     /// opened, [`ExecutorErrorKind::Evm`] when env construction fails.
-    pub fn new(
-        state: &L1SlotState,
-        client: Arc<LocalChainClient>,
-        defer_source_conditions: bool,
-    ) -> ExecutorResult<Self> {
+    pub fn new(state: &L1SlotState, client: Arc<LocalChainClient>) -> ExecutorResult<Self> {
         let posting_origin = state.posting.as_ref().map(|(_, origin, _)| *origin);
         let posting_gas_price = state.posting.as_ref().map_or(0, |(_, _, price)| *price);
         let (state, mut evm_env) = state.open_state(&client, state.cache.clone())?;
@@ -271,7 +266,6 @@ impl L1TargetSession {
             chain_id,
             posting_origin,
             posting_gas_price,
-            defer_source_conditions,
         })
     }
 
@@ -392,7 +386,7 @@ impl TargetExecutionSession for L1TargetSession {
         // source wait; the caller still checks the per-rollup escrow before
         // accepting any successful composition. Read this fork's state so the
         // accepted prefix and nested calls retain their normal value semantics.
-        if self.defer_source_conditions && !req.value.is_zero() {
+        if !req.value.is_zero() {
             let available = self
                 .state
                 .basic(self.manager)

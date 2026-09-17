@@ -23,6 +23,7 @@ use tracing::{error, info, warn};
 mod attest;
 mod cancel;
 mod config;
+mod prepared_cache;
 mod service;
 mod settlement;
 #[cfg(test)]
@@ -60,7 +61,13 @@ async fn main() -> eyre::Result<()> {
         max_decoding_message_bytes = limits.max_decoding_message_bytes(),
         stream_idle_timeout_secs = limits.stream_idle_timeout().as_secs(),
         request_timeout_secs = limits.request_timeout().as_secs(),
+        preparation_max_blocks = service::MAX_PREPARATION_BLOCKS,
+        cache_max_entries = prepared_cache::DEFAULT_MAX_ENTRIES,
+        cache_max_bytes = prepared_cache::DEFAULT_MAX_BYTES,
+        maximum_leases = 2,
+        lease_lifetime_secs = limits.lease_lifetime().as_secs(),
         validator = validator.label(),
+        validation_identity = %validator.validation_identity(config.expected_rollup_id),
         expected_rollup_id = config.expected_rollup_id.get(),
         attester = %config.attester.address(),
         expected_proof_system = %config.attester.expected_proof_system(),

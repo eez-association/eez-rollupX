@@ -41,6 +41,17 @@ pub fn node_cli<Ext>() -> eyre::Result<Cli<EthereumChainSpecParser, Ext>>
 where
     Ext: clap::Args + std::fmt::Debug,
 {
+    Ok(Cli::<EthereumChainSpecParser, Ext>::try_parse_from(
+        node_cli_arguments(),
+    )?)
+}
+
+#[cfg(feature = "l1-startup")]
+mod chain_cli;
+#[cfg(feature = "l1-startup")]
+pub use chain_cli::node_cli_with_chain_document;
+
+fn node_cli_arguments() -> Vec<String> {
     let _ = dotenvy::dotenv();
     let _ = dotenvy::from_filename("deployments.env");
 
@@ -62,7 +73,7 @@ where
         }
     }
 
-    Ok(Cli::<EthereumChainSpecParser, Ext>::try_parse_from(argv)?)
+    argv
 }
 
 /// Warn about obsolete runtime role selectors now replaced by explicit binaries.

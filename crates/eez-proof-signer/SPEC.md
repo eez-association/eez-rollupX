@@ -157,11 +157,11 @@ The CLI value takes precedence.
 | `--l2-system-key` | `EEZ_L2_SYSTEM_KEY` | none | Valid secp256k1 system-transaction key. |
 | `--l2-system-address` | `EEZ_L2_SYSTEM_ADDRESS` | none | Deployment-generated address embedded in EEZL2; MUST equal the address derived from `--l2-system-key`. |
 | `--proof-system` | `EEZ_PROOF_SYSTEM` | none | Nonzero expected proof-system contract address. |
-| `--max-request-blocks` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` | `512` | Nonzero. |
+| `--max-request-blocks` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` | `65536` | Nonzero; lower explicit limits remain effective. |
 | `--max-request-bytes` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BYTES` | `536870912` | Nonzero. |
 | `--max-request-witness-items` | `EEZ_PROOF_SIGNER_MAX_REQUEST_WITNESS_ITEMS` | `1000000` | Nonzero. |
-| `--stream-idle-timeout-secs` | `EEZ_PROOF_SIGNER_STREAM_IDLE_TIMEOUT_SECS` | `120` | Nonzero and representable as an `Instant` deadline. |
-| `--request-timeout-secs` | `EEZ_PROOF_SIGNER_REQUEST_TIMEOUT_SECS` | `600` | Nonzero and representable as an `Instant` deadline. |
+| `--stream-idle-timeout-secs` | `EEZ_PROOF_SIGNER_STREAM_IDLE_TIMEOUT_SECS` | `120` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
+| `--request-timeout-secs` | `EEZ_PROOF_SIGNER_REQUEST_TIMEOUT_SECS` | `600` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
 
 Private-key syntax errors MUST be reported without echoing the supplied secret.
 Debug formatting MUST NOT reveal private keys.
@@ -173,7 +173,12 @@ configured system key MUST derive `SYSTEM_ADDRESS` exactly.
 The chain document MUST contain an explicit `chainId`. Unknown supported-level
 and extension fields MUST be rejected rather than silently ignored. A complete
 Genesis document supplies its timestamp and genesis fields; a bare
-`ChainConfig` uses the implementation's default Genesis values.
+`ChainConfig` uses the implementation's default Genesis values. Duplicate keys, including
+escaped aliases and nested objects, MUST be rejected before deserialization.
+The loader derives the canonical document digest and execution rules from the
+same read. The digest precedes spelling normalization/defaults; see the
+[identity contract](../eez-control-rpc/SPEC.md#21-validation-identity-and-capability-discovery).
+
 
 The active deployment bindings are:
 
@@ -189,18 +194,51 @@ deployment invariant.
 
 ## 4. Service and RPC behavior
 
-The service exposes one client-streaming RPC:
+The service exposes capability discovery, preparation/retention control, and
+the final proving stream:
 
 ```protobuf
+rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
+rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest)
+    returns (RetainOrdinaryRangesResponse);
 rpc Prove(stream ProveChunk) returns (ProveResponse);
 ```
 
-One stream contains exactly one header followed by one block/witness chunk per
-declared block.
+One final stream contains exactly one header followed by full block/witness
+chunks and/or cached ordinary ranges covering every declared position. Cached
+ranges cannot cover the terminal. Its `expected_validation_identity` MUST be exactly 32 bytes and
+match the local configured namespace before witness ingestion. A width error is
+`INVALID_ARGUMENT`; an identity mismatch is `FAILED_PRECONDITION` with metadata
+`eez-capabilities-changed: 1`, no actionable details, and no signing call.
+
+`Capabilities` reports immutable local validation identity and effective limits
+without acquiring the active proof slot. It never constructs an attestable digest
+or calls the signer. Preparation reports a 64-block ceiling and releases the
+shared validation worker after each block so a final proof can proceed at a block
+boundary. It cannot reach settlement or the attester. Fully validated facts are
+held in a volatile cache bounded to 131,072 entries and 512 MiB of accounted
+block/evidence data. Final proving rechecks continuity, state-root telescoping,
+recipe/DA equality and the intermediate gate, and always validates a fresh
+terminal witness. Preparation creates/extends an opaque reservation and final
+proof replaces it with the exact ordinary range. At most two leases are active;
+overlap is refcounted, expiry only makes facts evictable, and cloned final facts
+outlive lease expiry. The client reduces each preparation group below 64 when
+the negotiated aggregate-byte, per-message, or witness-item quota requires it;
+one individually oversized block fails explicitly. An expired or restart-lost
+lease renewal/release clears only client resource hints and triggers durable
+reconstruction. The producer renews the exact retained ranges every 30 seconds;
+final proving and renewal serialize with preparation state changes.
+The producer now feeds a bounded 128-identity queue from
+the durable witness store and retains only an exact latest catch-up watermark on
+overflow; once overflow exists, every newer endpoint replaces that watermark
+until consumed. Startup submits the persisted canonical head through capture so
+an existing backlog prewarms without waiting for another block. Full lifecycle/native
+recovery evidence remains open.
 
 ### 4.1 Single-flight execution
 
-Exactly one request may be admitted at a time. A second request MUST be
+Exactly one `Prove` request may be admitted at a time. A second request MUST be
 rejected immediately with `Unavailable`; it MUST NOT wait while holding an
 open stream.
 
@@ -409,6 +447,24 @@ each admitted block and verify block count, identities, hashes, exact RLP
 transaction counts, receipt and sender-flag coverage, event coordinate bounds
 and strict ordering, and checkpoint bounds/order. A backend that claims success
 with malformed output is an internal failure, not an input rejection.
+
+### 6.5 Derivable-operation reconstruction evidence
+
+When v3 acceptance is configured, successful Stateless replay additionally attempts
+whole-block reassembly before discarding receipts and execution requests. The
+parent is the exact ancestor consumed by replay, hash-bound to the child and
+state-bound to the replay pre-state. Reth's pinned assembler takes the actual
+execution inputs, replay receipts/requests/gas and independently recomputed
+post-state root. Its complete canonical RLP MUST equal the accepted original.
+The adapter forbids state-provider reads; it is not another execution backend.
+
+Only this successful check constructs reconstruction evidence, bound to the
+computed block hash at the consuming backend boundary. It retains the actual
+derivable environment when the body has no withdrawals, or full-replay eligibility
+otherwise. Unsupported shapes and failed reconstruction retain no such evidence;
+historical acceptance remains unchanged, while every v3 position MUST reject
+missing evidence. Reconstruction evidence does not authorize system transactions,
+outbound observations, terminal effects, DA or signing.
 
 ## 7. Canonical batch and public-input profile
 
@@ -662,20 +718,14 @@ all roots covered by that host, within the `int192` range.
 
 ## 11. Data-availability and Sync-block verification
 
-Newly composed batches MUST use the self-contained chain-operation payload:
+The new network uses tag `0x03`, profile 1 from genesis, under the
+[derivable-operations contract](../../docs/proposals/derivable-chain-operations.md).
+There is no activation option, historical payload acceptance or upgrade mode.
 
-```text
-0x02 || RLP([blocks, l2Entries, outboundGroupSizes])
-```
-
-`blocks` contains the complete canonical consensus RLP of every block in the
-settlement window, including the header, every transaction, ommers, and
-withdrawals. Blocks MUST be number-contiguous and each header's `parentHash`
-MUST equal the preceding block's hash. There MUST be no trailing bytes or
-fields. The decoded block count and every block RLP byte MUST exactly equal the
-window accepted by Stateless. Thus the payload explicitly carries all current
-block metadata and transactions needed to replay and hash the range; it does
-not depend on reconstructing ordinary transactions from another source.
+Ordinary blocks publish execution inputs and exact signed transactions using
+sparse records; gaps represent empty blocks that still require execution.
+The terminal block retains its complete canonical consensus RLP. The terminal,
+`l2Entries`, and `outboundGroupSizes` retain their existing byte encodings.
 
 `l2Entries` contains the derivation tables required to reconstruct and
 authorize cross-chain system transactions. In canonical order it contains:
@@ -688,15 +738,19 @@ how many authorized outbound effects that transaction settles. Every sidecar
 and group size MUST match the independently authorized effect layout exactly.
 No missing, extra, reordered, or byte-different item is accepted.
 
-Tags `0x00` and `0x01` remain accepted only as backward-compatible projected
-payloads. Tag `0x00` is
-`RLP([blockTxCounts, transactions, l2Entries])`; tag `0x01` adds
-`outboundGroupSizes`. In those profiles preceding transactions are verbatim,
-while the terminal projection omits system loads and inbound deliveries. The
-signer reconstructs all omitted transactions and still requires exact equality
-with the validated block.
+V3 MUST cover exactly the validated window. Every full record, including the
+terminal, MUST equal the validated canonical RLP and have successful full-replay
+reconstruction evidence. Every derived position MUST match that block's actual
+environment and exact ordered signed transactions, backed by section 6.5's complete
+assembly check. Before Cancun the recipe's unused beacon root has no execution
+effect. All unchanged group, sidecar, intermediate, terminal reconstruction and
+semantic gates below continue to apply. Format count bounds do not replace the
+independent configured byte/item/time limits.
 
-For every profile with effects, the signer MUST reconstruct the complete
+Unsupported operations tags and profiles MUST be rejected. Earlier-format
+encoders may be used as offline size baselines; they are not deployment modes.
+
+For every batch with effects, the signer MUST reconstruct the complete
 terminal Sync transaction sequence and compare it byte for byte with the
 validated terminal block. The reconstruction context is:
 

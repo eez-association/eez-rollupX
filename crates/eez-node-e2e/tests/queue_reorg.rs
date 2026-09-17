@@ -13,7 +13,6 @@ const TIMEOUT: Duration = Duration::from_secs(240);
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order() {
     let env = [
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "1800".into()),
         ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),

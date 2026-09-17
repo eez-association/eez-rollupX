@@ -85,7 +85,7 @@ impl SequencingDataGuard {
         &self,
         parent: &SealedHeader<alloy_consensus::Header>,
         timestamp: u64,
-    ) -> Result<Option<usize>, String> {
+    ) -> Result<usize, String> {
         self.composer()?
             .ordinary_block_da_limit(self.rollup_id, parent, timestamp)
     }
@@ -94,14 +94,11 @@ impl SequencingDataGuard {
         &self,
         tx: &TransactionSigned,
     ) -> Result<(), SequencingDataError> {
-        let Some(limit) = self
+        let limit = self
             .composer()
             .map_err(SequencingDataError::Unavailable)?
             .ordinary_transaction_da_limit(self.rollup_id)
-            .map_err(SequencingDataError::Unavailable)?
-        else {
-            return Ok(());
-        };
+            .map_err(SequencingDataError::Unavailable)?;
         let size = BlockDaSizer::new(BUILDER_EXTRA_DATA)
             .with_transaction(&alloy_rlp::encode(tx))
             .and_then(|s| s.item_bytes())
@@ -189,8 +186,7 @@ where
                 guard.block_limit(&args.config.parent_header, args.config.attributes.timestamp)
             })
             .transpose()
-            .map_err(data_build_error)?
-            .flatten();
+            .map_err(data_build_error)?;
         if limit.is_some()
             && args
                 .config
@@ -265,8 +261,7 @@ where
             .as_ref()
             .map(|g| g.block_limit(&config.parent_header, config.attributes.timestamp))
             .transpose()
-            .map_err(data_build_error)?
-            .flatten();
+            .map_err(data_build_error)?;
         let inner = reth_ethereum_payload_builder::EthereumPayloadBuilder::new(
             self.client.clone(),
             self.pool.clone(),

@@ -79,6 +79,14 @@ pub enum ProverError {
         /// Diagnostic detail; callers MUST NOT parse it for classification.
         message: String,
     },
+    /// A locally prepared block was evicted or lost. This is request-local
+    /// repair work and never authorizes cross-chain source eviction.
+    #[error("prover cache miss at block {block_number} ({block_hash})")]
+    CacheMiss {
+        validation_identity: B256,
+        block_number: u64,
+        block_hash: B256,
+    },
     /// A transient failure that permits retrying the complete proving operation.
     #[error("retryable prover error ({kind}): {message}")]
     Retryable {
@@ -95,7 +103,7 @@ impl ProverError {
     pub const fn retryable_kind(&self) -> Option<RetryableProverError> {
         match self {
             Self::Retryable { kind, .. } => Some(*kind),
-            Self::Backend(_) | Self::Actionable { .. } => None,
+            Self::Backend(_) | Self::Actionable { .. } | Self::CacheMiss { .. } => None,
         }
     }
 
@@ -104,7 +112,7 @@ impl ProverError {
     pub const fn actionable_failure(&self) -> Option<ActionableProverFailure> {
         match self {
             Self::Actionable { failure, .. } => Some(*failure),
-            Self::Backend(_) | Self::Retryable { .. } => None,
+            Self::Backend(_) | Self::Retryable { .. } | Self::CacheMiss { .. } => None,
         }
     }
 }
@@ -145,8 +153,9 @@ pub struct ProvingContext {
     pub batch: EvmBatch,
     /// Complete physical blobs for the mandatory type-3 L1 transaction.
     pub blobs: Vec<eez_blob_codec::Blob>,
-    /// Every window block's RLP + augmented witness, in block order.
-    pub blocks: Vec<BlockWitness>,
+    /// Immutable window witnesses in block order. Retries share this allocation;
+    /// the RPC adapter converts one block at a time under stream backpressure.
+    pub blocks: std::sync::Arc<[BlockWitness]>,
     /// `blockhash(N)` for a block-bound batch's `blockNumber = N`; `None` for a
     /// timeless (0) batch.
     pub l1_block_hash: Option<B256>,
@@ -165,12 +174,17 @@ pub struct L1PostingContext {
 /// provider itself. `eez-composer` backs this with the node's provider +
 /// `eez_driver::witness`; the composer only calls it.
 pub trait ProvingWitnessSource: Send + Sync + std::fmt::Debug {
-    /// Build the RLP + augmented witness for block `number`.
+    /// Fail closed when durable capture or storage capacity is unavailable.
+    /// This affects admission, not execution or signature authority.
+    fn ensure_ready(&self) -> Result<(), String>;
+
+    /// Build the RLP + augmented witness for the exact `(number, hash)` selected
+    /// by the candidate ancestry. A fresh canonical-height lookup is not a substitute.
     ///
     /// # Errors
     ///
     /// Returns a message if the block is missing or witness generation fails.
-    fn block_witness(&self, number: u64) -> Result<BlockWitness, String>;
+    fn block_witness(&self, number: u64, hash: B256) -> Result<BlockWitness, String>;
 }
 
 /// Turns proving context into `proof` bytes the matching on-chain

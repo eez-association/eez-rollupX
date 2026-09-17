@@ -285,7 +285,6 @@ async fn measure(world: &CrossChainWorld, traffic: bool, policy: bool) -> Measur
 
 async fn compare(profile: NativeL1Profile) {
     let env = vec![
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", RANGE.to_string()),
@@ -355,7 +354,6 @@ async fn check_network_priority_margin(profile: NativeL1Profile) {
     let world = eez_testkit::setup_cross_chain_with_fixed_fee_fixture(
         profile,
         &[
-            ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
             ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
             ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
             ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10".into()),

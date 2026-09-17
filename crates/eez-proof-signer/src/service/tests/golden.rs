@@ -117,6 +117,9 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
     let calldata = fixture_hex(fixture_str(&post_batch_json, "abi_calldata"));
     let mut chunks = vec![ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            expected_validation_identity: crate::validate::Validator::stub(Vec::new())
+                .validation_identity(expected_rollup_id(1))
+                .to_vec(),
             rollup_id: rollup,
             from_block: from,
             to_block: to,

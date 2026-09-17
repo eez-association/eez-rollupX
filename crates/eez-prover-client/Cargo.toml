@@ -17,6 +17,7 @@ alloy-primitives.workspace = true
 alloy-sol-types.workspace  = true
 
 async-trait.workspace = true
+prost.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true

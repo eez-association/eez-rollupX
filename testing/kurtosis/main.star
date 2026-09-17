@@ -25,8 +25,8 @@ def settlement_environment(values):
     # Preserve the node's authoritative parsing and defaults. This layer only
     # transports explicit strings and catches misspelled deployment keys.
     allowed = [
-        "EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_SETTLEMENT_PURE_L2_MODE",
-        "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+        "EEZ_SETTLEMENT_PURE_L2_MODE", "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS",
+        "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_MAX_BLOBS_PER_BATCH",
         "EEZ_MAX_POSTBATCH_GAS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
         "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
@@ -40,6 +40,14 @@ def settlement_environment(values):
         if name not in allowed or type(value) != "string":
             fail("settlement_env requires a recognized environment name and a quoted string: " + name)
         result[name] = value
+    for name in [
+        "EEZ_SETTLEMENT_PURE_L2_MODE",
+        "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+        "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+        "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+    ]:
+        if name not in result:
+            fail("settlement_env requires " + name)
     return result
 
 

@@ -1,0 +1,31 @@
+{
+  "status": "interrupted; incorrect source for production proving-cost measurement",
+  "results": [
+    {
+      "actual_blocks": 510,
+      "anchor_hash": "0x3e45c1e324c71f28443be4413435693960c83c97c23f5d12206b5ff0bff0ca25",
+      "checkpoint": "native_cold_history",
+      "error": null,
+      "k": 5,
+      "l2_start_timestamp": 1789535205,
+      "l2_terminal_timestamp": 1789535715,
+      "legacy_operations_bytes": 391050,
+      "operations_bytes": 1754,
+      "physical_blobs": 1,
+      "profile": "EthereumOsaka",
+      "public_inputs_hash": "6e902be70e46eafff5797b0718dc97c6b7d7c4de03bb227844259e9aaa2fa7ca",
+      "request_bytes_generated": 3359103,
+      "requested_ceiling": 512,
+      "stream_and_proof_ms": 498425,
+      "streamed_blocks": 510,
+      "success": true,
+      "target_l1_timestamp": 1789601885,
+      "terminal_hash": "0x5ed5bbe2f36eede342f0666d4f506135a7ca90a6b0e0529b5b2a14b4032a2c09",
+      "terminal_state_root": "0xf931ccc200fa18b7d03980620d3ec3cdb373363210427707ec913689b41de351",
+      "transactions": 2,
+      "witness_items_generated": 19253,
+      "workload": "native genesis with sparse setup transactions"
+    }
+  ],
+  "reason": "Debug RPC regenerated old witnesses instead of reading the durable producer store. The first 510-block prefix took 498425ms on the 65535-block source history; this is not a signer replay timing or quota conclusion."
+}

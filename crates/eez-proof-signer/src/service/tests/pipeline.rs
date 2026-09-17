@@ -239,6 +239,7 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
     let validated = validated_single_block(settling_block, Vec::new(), Vec::new());
 
     let run = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: b"not ABI calldata".to_vec(),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -352,6 +353,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: calldata.clone(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
@@ -372,6 +374,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: calldata,
         submitted_blobs: &post_batch.blobs,
         validated_window: &reverted,
@@ -416,6 +419,7 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -458,6 +462,7 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -506,6 +511,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -564,6 +570,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: calldata,
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
@@ -583,6 +590,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
             .into();
     let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
+        projected_test_oracle: true,
         submitted_post_batch_calldata: mismatched_post_batch.abi_calldata,
         submitted_blobs: &mismatched_post_batch.blobs,
         validated_window: &validated,

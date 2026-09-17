@@ -80,7 +80,6 @@ eez:
   # Included pure-L2 transactions and validated cross-chain work post earlier
   # at the next eligible L1 opportunity. Fullness is disabled for this profile.
   settlement_env:
-    EEZ_SETTLEMENT_POLICY_ENABLED: "true"
     EEZ_SETTLEMENT_PURE_L2_MODE: "always"
     EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS: "900"
     EEZ_SETTLEMENT_BLOB_FULLNESS_BPS: "off"

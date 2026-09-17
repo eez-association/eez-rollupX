@@ -46,6 +46,17 @@ def parse_signals(log):
     return records
 
 
+def is_sync_boundary(event):
+    return event.get("event_name") == "eez.composer.sync_slot.invoked"
+
+
+def included_post_hash(event):
+    if event.get("event_name") != "eez.composer.bundle.observed":
+        return None
+    match = re.search(r"Included \{ tx_hash: (0x[0-9a-fA-F]{64})", event.get("outcome", ""))
+    return match.group(1).lower() if match else None
+
+
 def rpc(url, method, *params):
     request = urllib.request.Request(url, data=json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
@@ -81,9 +92,11 @@ def main():
         return value if value.startswith("http") else "http://" + value
 
     l1 = port("el-1-reth-lighthouse", "rpc")
+    builder_l1 = port("el-2-reth-builder-lighthouse", "rpc")
     l2 = port("eez-node", "l2-rpc")
     front = port("eez-node", "l1-xchain")
     assert int(rpc(l1, "eth_chainId"), 16) == 7331, "private validation chain required"
+    assert rpc(builder_l1, "eth_chainId") == rpc(l1, "eth_chainId"), "builder chain mismatch"
     service = command("kurtosis", "service", "inspect", args.enclave, "eez-node")
     uuid = re.search(r"^UUID: (\w+)$", service, re.MULTILINE).group(1)
     containers = command("docker", "ps", "--filter", f"name=eez-node--{uuid}", "--format", "{{.Names}}").splitlines()
@@ -119,16 +132,15 @@ def main():
     replacement = signed(keys[1], senders[1], 0, gas="21000", priority="500000000000")
     replacement_hash = command("cast", "keccak", replacement).lower()
 
-    # A new empty dispatch is a barrier after the current pool drain.
+    # Start just after a fresh Sync boundary so all three users target the same
+    # later attempt. Mandatory settlement policy intentionally skips empty
+    # postBatch transactions, so an empty dispatch is not a valid barrier.
     cursor = len(signals())
 
-    def empty_dispatch():
-        return any(event["event_name"] == "eez.composer.phase1.bundle.dispatched"
-                   or (event["event_name"] == "eez.composer.bundle.dispatched"
-                       and event["user_hashes"] == "[]")
-                   for event in signals()[cursor:])
+    def fresh_sync_boundary():
+        return any(is_sync_boundary(event) for event in signals()[cursor:])
 
-    wait_for(empty_dispatch, "empty dispatch before wave")
+    wait_for(fresh_sync_boundary, "fresh Sync boundary before wave")
     for raw, hash_ in zip(users, hashes):
         assert rpc(front, "eth_sendRawTransaction", raw).lower() == hash_
 
@@ -140,11 +152,24 @@ def main():
         return None
 
     attempt = wait_for(proved_attempt, "prepared three-user proof")
-    # Dispatch is announced only after successful proof/sidecar construction. The
-    # much higher replacement fee places it ahead of this bundle for both
-    # pinned ordering algorithms; all canonical ordering is checked below.
-    assert rpc(l1, "eth_sendRawTransaction", replacement).lower() == replacement_hash
-    post_hash = attempt["post_batch_hash"]
+    # Dispatch is announced only after successful proof/sidecar construction.
+    # Submit directly to the builder under test instead of relying on devp2p
+    # propagation from the validator EL; the much higher fee must then place the
+    # replacement ahead of this bundle for both pinned ordering algorithms.
+    # Its resulting receipt is still read from canonical L1 below.
+    assert rpc(builder_l1, "eth_sendRawTransaction", replacement).lower() == replacement_hash
+
+    # The early composer signal intentionally precedes final network repricing,
+    # which changes the signed transaction hash. Bind all canonical evidence to
+    # the final included identity reported by the observer for this Sync height.
+    def included_attempt():
+        for event in signals()[cursor:]:
+            if event.get("sync_height") == attempt["sync_height"]:
+                if post_hash := included_post_hash(event):
+                    return post_hash
+        return None
+
+    post_hash = wait_for(included_attempt, "final three-user postBatch inclusion")
     post = receipt(post_hash)
     replaced = receipt(replacement_hash)
     first = receipt(hashes[0])

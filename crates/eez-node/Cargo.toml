@@ -10,10 +10,12 @@ default-run            = "eez-composer"
 [dependencies]
 eez-blob-codec.workspace    = true
 eez-composer.workspace      = true
+eez-control-rpc.workspace = true
 eez-deriver.workspace       = true
 eez-driver = { workspace = true, features = ["witness"] }
 eez-l1.workspace            = true
 eez-node-common = { workspace = true, features = ["l1-startup"] }
+eez-payload-codec.workspace = true
 eez-protocol.workspace      = true
 eez-prover.workspace        = true
 eez-prover-client.workspace = true
@@ -32,6 +34,7 @@ reth-node-builder.workspace               = true
 reth-node-core.workspace                  = true
 reth-node-ethereum.workspace              = true
 reth-provider.workspace                   = true
+reth-primitives-traits.workspace          = true
 reth-rpc-eth-api.workspace                = true
 reth-storage-api.workspace                = true
 reth-tasks.workspace                      = true
@@ -46,6 +49,7 @@ reth_gnosis.workspace                     = true
 alloy-consensus.workspace    = true
 alloy-eips.workspace         = true
 alloy-primitives.workspace   = true
+alloy-rlp.workspace          = true
 alloy-rpc-types-debug.workspace = true
 alloy-provider.workspace     = true
 alloy-signer-local.workspace = true
@@ -64,6 +68,7 @@ serde.workspace      = true
 serde_json.workspace = true
 # Witness-store value codec (compact binary).
 postcard.workspace   = true
+rustix.workspace     = true
 
 # app
 eyre.workspace    = true

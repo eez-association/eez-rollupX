@@ -1,0 +1,574 @@
+--- reviewed/docs/proposals/derivable-chain-operations.md
++++ revised/docs/proposals/derivable-chain-operations.md
+@@ -2,7 +2,8 @@
+ 
+ Status: proposed implementation plan, 2026-09-16. Reviewed against
+ `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`. No runtime change or deployment is
+-performed by this document. It supersedes the ordering in the exploratory
++performed by this document. Revised after a two-round Claude review and independent
++code checks; see the [review disposition](../research/2026-09-16-blob-efficiency/claude-review/README.md). It supersedes the ordering in the exploratory
+ [research](../research/2026-09-16-blob-efficiency/README.md).
+ 
+ ## 1. Objective and fixed scope
+@@ -34,7 +35,7 @@
+ | New inner payload tag | `0x03`, named `TAG_DERIVABLE_ORDINARY`. Existing tags `0x00..0x02` retain their exact meanings. Research-only hypothetical tags were never production assignments. |
+ | First profile | `profile_id = 1`: derive supported post-Merge ordinary Ethereum blocks using explicit common execution inputs; retain full-block exceptions. |
+ | Terminal treatment | Always exactly one full terminal block, with the old integer-list encoding intact. Never apply ordinary omission rules to it. |
+-| Ordinary representation | Total count, common environment, sparse records for nonempty/exception blocks; gaps mean empty blocks executed under that environment. |
++| Ordinary representation | Total count, common environment, sparse records for transactions, environment changes and full exceptions; gaps mean empty blocks under the active environment. |
+ | Format block ceiling | 65,536 total blocks, including the terminal. Thus at most 65,535 ordinary blocks per v3 payload. This is a format safety bound. |
+ | Signer block default | Change `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` from 512 to **65,536**. Explicit lower operator values remain effective for local admission. |
+ | Other signer quotas | Keep current bounded byte/item/time defaults, detailed in §7. Do not multiply all quotas by the block-count increase. Incremental validation and cached references handle long ordinary history. |
+@@ -74,15 +75,31 @@
+ ordinary_record := [empty_gap, kind, data]
+ kind 0: data := [signed_tx_bytes, ...]   # nonempty, Bytes / EIP-2718
+ kind 1: data := canonical_full_block_rlp # one Bytes value, exact RLP
++kind 2: data := [new_environment, [signed_tx_bytes, ...]] # tx list may be empty
+ ```
+ 
+ `empty_gap` is the number of default empty ordinary blocks since the preceding
+ record, or since the anchor for the first record. After the gap, the record consumes
+ one block. Remaining positions up to `ordinary_block_count` are default empty
+ blocks. For example, count 100 and a transaction record with gap 99 puts that
+-record in ordinary position 99, using zero-based positions. No record encodes an
+-empty transaction list; an empty exception uses a full-block record. Records
+-cannot overlap, run backwards, or consume the terminal position.
++record in ordinary position 99, using zero-based positions. Kind 0 cannot encode
++an empty transaction list. Kind 2 may: after executing its gap under the old
++active environment, install the new environment for the record's one block and
++all following gaps/records until the next change. Reject a no-op environment
++change. Kind 1 does not alter the active environment; subsequent timestamp
++arithmetic starts from its actual header. Every record consumes exactly one
++ordinary position. Records cannot overlap, run backwards, or consume the terminal.
++
++A repeated fee-recipient, timestamp-step, randomness or beacon-root change therefore
++costs one environment record rather than full headers for the rest of the window.
++No environment change creates a new legal Sync boundary. Profile changes and
++unsupported block shapes still require supported full records or rejection.
++
++The sparse representation is intentional. A flat RLP list of 65,535 empty-block
++counts costs 65,538 bytes, approximately 8.6% of six blobs, 25.8% of two blobs, or
++51.6% of one blob under current useful capacity. Keep a flat-count implementation
++only as a benchmark baseline; the selected format removes that linear empty-history
++cost. Both layouts must preserve transaction placement and the same derived blocks.
+ 
+ Counts and integers use canonical unsigned RLP. Reject negative/oversized integer
+ representations, noncanonical RLP, wrong list arity, trailing bytes, unknown tags,
+@@ -106,10 +123,15 @@
+ 
+ ### 3.1 Common environment and full-block exceptions
+ 
+-The composer builds the common environment from its actual sequencing inputs;
++The composer builds the initial common environment and subsequent changes from
++its actual sequencing inputs;
+ the environment is published and bound by DA. It is not inferred from the
+ follower's local operator defaults. The signer checks it against every block
+-represented by the derived path. A different but valid environment can therefore
++represented by the derived path.
++Select the initial environment from the first profile-compatible ordinary position
++in the actual retained history, not from the node's potentially newer current
++configuration. A range with no derived ordinary positions may retain the writer's
++syntactically valid default environment because no block consumes it. A different but valid environment can therefore
+ be represented without silently changing a block.
+ 
+ For a derived block:
+@@ -129,14 +151,19 @@
+ Support the pinned execution stack's post-Merge rules through Osaka initially,
+ including supported boundaries within that range. Profile 1 does not derive
+ pre-Merge blocks, blocks with nonempty withdrawals/ommers, or blocks requiring
+-newer slot-number/block-access-list fields. Such ordinary blocks must use full
+-records if the existing execution stack can validate them; otherwise reject them
+-as unsupported. A future execution-fork upgrade must add profile conformance
+-tests or explicitly retain full records, never silently extend defaults.
+-
+-An ordinary block that differs in timestamp, environment, body shape or any
+-reconstructed header field uses a full record. The following block derives from
+-that full block's actual header. The encoder prefers derivation when its complete
++newer slot-number/block-access-list fields. Such ordinary blocks may use full
++records only when both the signer and follower can validate and reproduce their
++exact canonical block. Consensus validity of a supplied header alone is not
++sufficient. Otherwise reject them as unsupported. A future execution-fork upgrade
++must add conformance tests for both the derived
++and full-record execution paths before claiming support. In particular, the
++current follower sets `slot_number` to `None` and uses a builder with empty ommers;
++a full record does not automatically make other values reproducible.
++
++An ordinary block with a supported changed environment uses kind 2 when the
++shared assembler can reproduce it. Other supported exceptions use a full record.
++The following block derives from that full block's actual header and the still
++active environment. The encoder prefers derivation when its complete
+ eligibility check succeeds; readers may accept an otherwise valid full record
+ even when a shorter representation would have been possible. Full-record
+ acceptance still enforces the existing ordinary/system-sender restrictions.
+@@ -184,6 +211,13 @@
+ always takes the existing checkpoint-capable path. DA/semantic binding and
+ public-input recomputation still precede attestation.
+ 
++The initial implementation retains assembler equality. A later field-comparison
++optimization requires an exhaustive field classification of the pinned `Header`
++(no `..` in the Rust destructuring), including explicit absence checks for unsupported
++optional fields, with per-fork conformance evidence. Producing code being honest
++is not a validation premise. Changes to the pinned Reth/Stateless revision require
++re-running this audit; shared code does not eliminate upgrade review.
++
+ ### 4.2 Follower
+ 
+ Refactor `execute_block_with_template` into an execution-input path plus the
+@@ -202,6 +236,33 @@
+ be a prefix of the advertised Sync; do not replace it with the last root claimed
+ in calldata. New-format metadata must also flow through catch-up, correlation,
+ batch evidence, restart and safe/finalized-head paths, not only live replay.
++
++### 4.3 Claimed proof window versus the L1-applied range
++
++`ordinary_block_count` describes the original claimed/proved window; an L1 outcome
++does not rewrite its bytes. A post may contain many ordinary blocks and later be
++observed as resumed because another same-L1-block post applied its leading steps.
++Do not require its ordinary count to become zero. `batch_l2_range` maps a resumed
++outcome to the existing Sync height independently of that claimed count.
++
++Retain the original proof-window anchor and full terminal. For a resumed outcome,
++resolve the actual applied prefix using existing `Settlement.start/len/entry_state`
++and `final_state`; replay only the selected terminal suffix against the existing
++Sync content. Do not derive the advertised ordinary history again from the
++same-height prefix commitment, or apply pre-execution changes a second time.
++A genuinely terminal-only claimed window uses count zero; that is distinct from
++a multi-block payload whose applied range happens to be one resumed Sync.
++The signer's `window_pre_block_hash` stays the hash preceding the original claimed
++window, and still binds the leading claimed `currentRoot`. A resumed `entry_state`
++is instead the hash of a prefix of the already existing Sync at height H; it is
++not substituted as the parent of the claimed ordinary window or as a new H+1
++execution parent. Reconstruct the retained Sync transactions and selected suffix
++from the canonical parent at H-1, preserving the existing one-block execution
++semantics. Require the retained terminal's parent hash to match that canonical
++parent. Competing prefixes with different environments cannot be accepted merely
++because their heights or transaction lists match.
++Tests must cover both shapes and verify original bytes, actual endpoint and
++system nonce/effect selection after competing prefix settlement.
+ 
+ No signer cache is needed or trusted by a follower. A clean follower must derive
+ from the canonical anchor, available L1/DA inputs and chain configuration alone.
+@@ -225,13 +286,18 @@
+   expected system address and a validator-schema/revision identifier. It does not
+   expose private keys.
+ - `PrepareOrdinary(stream ...)`: complete ordinary block RLP/witnesses, in bounded
+-  chunks, with expected common environment and parent linkage. It performs actual
+-  Stateless validation and the §4.1 recipe equivalence checks. Return only the
+-  verified block hashes and the current cache generation; **never a settlement
++  chunks, with parent linkage. It performs actual Stateless validation, extracts
++  authenticated execution inputs and verifies supported-profile reconstruction
++  using §4.1. Preparation does not accept a caller-selected recipe environment.
++  Return only verified block hashes and validation identity; **never a settlement
+   signature or a safe-head claim**.
+-- `CachedOrdinaryBlock` Prove chunk: number, block hash, parent hash and cache
+-  generation. It resolves only to locally validated immutable facts. A hash or
+-  token supplied by the composer is not evidence by itself.
++- `CachedOrdinaryRange` Prove chunk: inclusive first/last numbers, first/last
++  block hashes and validation identity. Validate ordered bounds and charge the
++  full logical count before walking local cached parent links. Verify every
++  number/hash/parent connection, including the prior chunk or authenticated anchor,
++  and resolve only immutable locally validated facts. Adjacent ranges and witnessed
++  blocks must form exactly the declared request window, with no overlap, gaps or
++  duplicated positions. A range claim does not prove its own validity.
+ 
+ The final `Prove` request may mix cached ordinary references and fully witnessed
+ ordinary blocks, but the terminal is always fully witnessed and freshly checked.
+@@ -239,13 +305,15 @@
+ reference. Unknown/evicted references return a structured retryable cache-miss
+ result with the missing block identity, not an actionable cross-chain failure.
+ 
+-Preparation uses a header-first stream: rollup ID, expected validation identity
+-and proposed common environment, followed by ascending `BlockWitness` values.
++Preparation uses a header-first stream: rollup ID and expected validation identity,
++followed by ascending `BlockWitness` values.
+ It requires a nonempty contiguous ordinary range, at most 64 blocks. Each block's
+ parent is authenticated by its witness or the preceding validated header; no
+ client-supplied state-root shortcut is accepted. A fully validated ordinary block
+-that needs the full-record path can be cached too, marked ineligible for derived
+-use under that environment. Preparation failures return no reference for a failed
++that needs the full-record path can be cached too, with exact validated fields and
++its supported derivation classification. At final proving, compare the published
++active environment at each position against the cached actual inputs. Preparation
++failures return no reference for a failed
+ block; successfully validated immutable earlier facts may remain cached and can
+ be discovered/reused on retry. No partly validated entry is ever published.
+ 
+@@ -255,9 +323,15 @@
+ block executions; one already-running block may finish, which is included in the
+ deadline tests. Retain the existing single active final-proof admission behavior.
+ 
+-Use `UNAVAILABLE` with a new structured cache-miss detail for missing references;
+-include generation and first missing block identity. The remote client invalidates
+-those references and schedules bounded preparation. It does not turn a cache miss
++Use `FAILED_PRECONDITION` with a dedicated structured cache-miss detail containing
++validation identity and the first missing block identity. Introduce a separate
++`ProverError::CacheMiss` branch and intercept it before both generic retry and
++cross-chain `Actionable` mapping.
++Allocate a distinct new variant (field 3) in the existing `ProveFailure` oneof;
++keep original outbound/inbound fields 1/2 unchanged. A miss detail must name a
++block/hash/identity in the exact outstanding request before the client repairs it.
++Unknown/malformed details remain non-actionable errors, never source eviction. Existing handling of either gRPC status is not
++sufficient. The remote client schedules bounded preparation for missing facts. It does not turn a cache miss
+ into eviction of a cross-chain source or repeatedly send the same unresolved
+ reference through `prove_with_retry`. If repair cannot fit the current target,
+ follow the existing unsent/failed-attempt reconciliation rules and keep ownership.
+@@ -266,17 +340,42 @@
+ 
+ Capabilities are advisory for resource planning, not cryptographic authority.
+ The existing returned-signature/public-input verification remains authoritative.
+-Recheck capabilities at connection/reconnection. A v3-enabled composer requires a
++Reuse the tonic channel instead of reconnecting for every proof. Check capabilities
++on initial connection, transport reconnect, and an explicit identity/limit-change
++response; do not add a mandatory capability RTT to every final proof. Each prepare
++response echoes validation identity and each proof request includes its expected
++identity; a mismatch forces refresh and invalidates incompatible cached assumptions.
++A v3-enabled composer requires a
+ compatible signer; it must not guess limits when the endpoint is unavailable.
+ Legacy operation can use an old signer only with v3 emission disabled and an
+ explicitly compatible existing configuration.
+ 
++Define `validation_identity` as Keccak-256 of a domain-separated canonical RLP
++list containing an identity-schema version, rollup ID, EIP-155 chain ID, expected
++system/EEZL2 addresses, the hash of canonicalized loaded chain-document JSON, and
++an explicit validator/derivation schema revision bound to pinned dependency
++revisions. Canonical JSON recursively sorts object keys, preserves array order
++and scalar values, rejects duplicate keys before loading, and uses compact UTF-8
++serialization. Different semantic source representations may conservatively
++produce different identities; they must never be assumed equivalent by chain ID
++alone. Publish golden identity vectors, including whitespace/key-order equivalence
++and changed-fork/revision rejection. Activation and resource settings are separately
++reported capability fields, not executable-state facts. Pin the canonicalizer
++version in the identity schema.
++
+ ### 5.2 Cache identity and integrity
+ 
+ Key cached facts by full block hash and validation identity. Store canonical block
+-RLP, authenticated parent/header facts, pre/post-state commitments, ordinary
+-system-sender classification and the verified derivation inputs. Different recipe
+-inputs must be checked against those exact facts; a validation for one environment
++RLP, authenticated parent/header facts, pre/post-state commitments,
++the decoded transaction count, and complete `SettlementBlockEvidence` (including
++system-sender flags and observed outbound events). Store authenticated actual
++execution inputs and supported-profile assembly facts, not a boolean tied to one
++caller environment. Preparation must run the same intermediate-block gate that
++rejects privileged transactions **and outbound-event observations** before
++publishing ordinary facts. Final proof runs the same gate over its actual
++intermediate set for cached and cold blocks; no cached terminal is accepted.
++Never synthesize empty observations for data whose observations were not checked.
++Different recipe inputs must be checked against those exact facts; a validation for one environment
+ does not authorize another. Never key validity by height alone.
+ 
+ On final proof, verify the exact linked sequence, pre/post-state telescoping,
+@@ -288,18 +387,42 @@
+ Use a volatile byte-accounted cache with default ceilings **131,072 entries and
+ 512 MiB of retained data/accounted metadata**, whichever is reached first. Include
+ an allowance for map/node overhead in accounting and separately measure process
+-RSS. Pin entries only while admitting/validating an active request. Evict unpinned
+-LRU entries; if space cannot be obtained, reject preparation before allocation.
+-Do not evict a referenced block halfway through an admitted proof.
+-
+-A fresh process has a new cache generation. Restart invalidates references and
+-triggers bounded re-preparation from the existing durable witness store. A chain
++RSS. Protect the pending ordinary window with bounded retention leases, then add
++short-lived pins during final proof. LRU applies only to unreserved, unpinned facts.
++If capacity cannot retain the required pending window, fail preparation explicitly
++and constrain further admission; do not cycle between evicting its oldest facts
++and re-preparing them.
++
++Add `RetainOrdinaryRanges` to the preparation control surface: create/renew/release
++an opaque lease over explicit hash-linked ranges and validation identity. Allow at
++most two leases per configured rollup (current window and an overlapping retry/fork),
++charge their union against the cache ceilings, and refcount overlap. Each lease is
++bounded to 65,535 ordinary positions. Default lifetime is the larger of 120 seconds
++and twice the signer request timeout, renewed every 30 seconds; expiry makes data
++eligible for eviction and does not immediately delete it. An admitted proof pin
++outlives lease expiry until proof completion/cancellation. Preparation may extend
++an existing lease atomically as newly validated facts are published, avoiding a
++publish-then-evict race before the composer can renew.
++
++Leases are bounded resource requests, not evidence that an anchor is canonical.
++The composer releases/advances its reservation only after existing canonical
++settlement reconciliation, or explicit abandonment of that local candidate; a
++signature or relay acceptance alone must not advance it. Reorgs select retained
++hashes and re-prepare evicted ones. Final proof rechecks all cryptographic bindings
++regardless of the lease. No untrusted anchor hint changes consensus validity.
++
++Restart clears volatile facts and reservation leases, and triggers bounded
++re-preparation from the durable witness store. References name hashes and validation
++identity, not a generation token; a missing local fact remains a cache miss. A chain
+ configuration or validator revision change invalidates the whole namespace.
+-Cache loss is a performance event, not permission to sign unchecked data.
++Cache loss is a recovery event, not permission to sign unchecked data. The bounded
++recovery gate in §11 applies; merely reporting a long outage does not pass.
+ 
+ ### 5.3 Scheduling, cancellation and storage
+ 
+-Prepare after a committed ordinary block's witness is durable. Default preparation
++Prepare promptly after a committed ordinary block's witness is durable; do not
++wait to accumulate a full 64-block chunk. Flush at least once per L2 block while
++connected and work is available. Default preparation
+ chunks contain at most **64 blocks**, additionally bounded by current byte/item
+ quotas; adapt to fewer blocks when needed. A single oversized block is reported
+ explicitly. Keep the preparation queue bounded and deduplicate by block hash.
+@@ -328,33 +451,58 @@
+ Change composer witness assembly and `RemoteProver::chunks_for` to use lightweight
+ references for prepared ordinary blocks and move/stream full witnesses for cache
+ misses and the terminal. Do not build duplicate full-window witness vectors.
+-Retain witnesses durably until the existing L1-finalized purge floor. Verify
+-hashes on store hits, including after reorgs, exactly as the current witness source
+-does. Disk-full/missing-witness conditions fail closed and must not silently prune
++Retain witnesses durably until the existing L1-finalized purge floor. The current
++height-keyed store overwrites competing branches; extend it to a versioned
++hash-keyed witness table plus a height/hash index for finalized garbage collection.
++Lookup for preparation/proving takes an expected `(number, hash)`, and verifies
++both identities. A canonical-height lookup is only a selector, not the storage
++key. Retain competing unfinalized branch witnesses; on a branch switch do not
++replace the only durable copy of the previous branch.
++
++Migrate existing height-keyed entries transactionally by their stored hashes,
++without deleting the old table before a committed migration marker. Validate
++stored height/hash/RLP consistency during migration; report corrupt or already
++missing historical branch data rather than pretending migration can recreate it.
++An interrupted migration is idempotently resumable. Purge by the authenticated
++L1-finalized floor and retain the boundary witness; use bounded deletion batches.
++The witness trait, capture worker, restart path and tests change together. Test
++branch A -> B -> restart with pruned state -> A before declaring retention safe. Disk-full/missing-witness conditions fail closed and must not silently prune
+ unsettled history. The existing MDBX map ceiling is not a free-disk guarantee.
++Apply the global witness-store/map and actual disk-capacity bounds to all retained
++branches and use bounded garbage collection. On exhaustion, stop dependent
++sequencing/preparation and report a resource failure; do not delete required
++unfinalized witnesses to satisfy an arbitrary per-height branch count.
+ 
+ ## 6. Encoding and resource accounting in the composer
+ 
+ Implement `DerivablePayloadSizer` beside the codec. The same shape definitions
+ must drive exact encoding and sizing; no empirical compression ratios are allowed.
+-It accounts for common environment, count/list prefixes, sparse record gaps,
++It accounts for initial/changed environments, count/list prefixes, sparse record gaps,
+ transactions, full exceptions, unchanged terminal/entries/groups, and native
+ message framing/semantics.
+ 
+ Replace the old full-block item prefix accounting for v3. The activity index needs
+ a composable range summary containing block count, first/last record positions,
+-encoded record data lengths, gap-prefix lengths, and transaction activity. On
+-re-anchoring adjust the first record's gap; when a historical endpoint becomes
++encoded record data lengths, gap-prefix lengths, active-environment transitions,
++and transaction activity. On
++re-anchoring select the environment active at the new first position and adjust
++the first record's gap; when a historical endpoint becomes
+ the terminal remove its ordinary representation and add its unchanged full
+ terminal representation. Simply subtracting old encoded-byte prefix sums is wrong.
+-Index/cache identity includes format, profile, environment digest and anchor/hash.
++Index/cache identity includes format, profile, initial environment digest and anchor/hash.
++Summaries carry the environment at both ends of each composed range. If an
++environment-change position is promoted to terminal, remove that ordinary record;
++the next batch's explicit initial environment is authoritative. Neither promotion
++nor re-anchoring may delay an environment change in execution by one block.
+ Reorgs rewind to matching ancestry; configuration changes invalidate summaries.
+ 
+ Use exact completed-record sizes and conservative bounds for unknown future
+ inputs. Derived ordinary blocks no longer reserve unknown output-root/bloom bytes.
+ Full exceptions and the future terminal still use full-block bounds. Account for
+-integer/list-prefix growth and worst-case explicit exception records before
+-admitting a transaction. Check the actual final encoding before committing a
++integer/list-prefix growth and explicit exceptions when they are actually possible.
++Known supported builder inputs use the derived/changed-environment bound; do not
++reserve an imaginary full header for every future empty block. If eligibility
++cannot be established, use the conservative full bound and label it as such. Check the actual final encoding before committing a
+ newly built block/candidate; retain overflow transactions and nonce dependencies.
+ Keep active/future-fork blob maxima and companion consumption checks.
+ 
+@@ -362,7 +510,13 @@
+ Preserve legal empty Sync boundaries used to split retained history. Include
+ logical block ceilings, signer capabilities and exact request-resource estimates
+ in feasible-prefix selection. A pending prefix must have a legal endpoint before
+-any applicable hard limit; reserve through that boundary. If no single legal
++any applicable hard limit; reserve through that boundary. Add an explicit hard
++resource due reason (`proof_window_capacity` / `proving_resource_capacity`) at the
++last feasible legal boundary, independent of elective interval/fullness/count
++triggers. Otherwise sequencing could stop at the cap while no existing due rule
++requests a post. This reason drains only legal history and retains existing
++cross-chain target/ownership rules. Test an idle chain with the elective count
++threshold above the signer cap and a non-divisible K residue to exclude deadlock. If no single legal
+ interval fits, reject startup/admission with a specific error rather than accepting
+ history that cannot settle. Existing incompatible retained history must be kept
+ and reported, never truncated.
+@@ -403,6 +557,43 @@
+ history and validate their consistency with the signer and legal grid. Do not
+ silently increase latency settings or disable cross-chain due rules.
+ 
++### 7.1 Posting cost, retained state and recovery envelope
++
++Admission uses a measured upper-bound cost model with separately recorded fixed
++request/KZG cost, range overhead, per-logical-block fact checks, recipe-record
++checks, cold validation, terminal execution/observations, and waiting for one
++already-running preparation block. The configured final posting budget covers
++the whole request, not only terminal EVM execution. Unknown measurements require
++a bounded calibration/readiness path, not optimistic acceptance of a huge window.
++The 4-second/200-ms examples in `timing.rs` are examples/test profiles, not asserted
++live budgets. Record the selected release settings and hardware in every run.
++
++`EEZ_PROOF_TIME_MS` and `EEZ_PREPARATION_TIME_MS` may be explicitly calibrated for
++the release deployment, while preserving all timing validation and submission
++slack. Report resulting Future/Live slot counts and throughput tradeoffs; do not
++silently alter them as an encoding side effect. The same configuration is used for
++before/after semantic comparisons. If a whole legal window cannot meet its actual
++deadline, select a smaller legal prefix or improve proving; a larger block cap is
++not permission to miss the target.
++
++A finite speculative depth of at least `N + K - 1` is supported; zero is not
++required. Verify that state at the oldest required replay/rollback anchor and its
++needed block-hash history survives the selected pruning settings, restarts and
++maximum unresolved history. Durable witnesses solve signer reconstruction, not
++follower state availability. Test with actual release pruning settings and report
++safe-head lag and rollback exposure; do not infer safety from a depth flag alone.
++
++The baseline release recovery SLO is 600 seconds from ready node/transport inputs
++to renewed cross-chain readiness after a signer restart at the largest tested
++empty/sparse backlog. It is a proposed, measured acceptance bound, not a promise
++already demonstrated or a 600-second steady-state posting allowance. Measure
++follower full-batch replay and crash-resume against the same 600-second baseline
++on the named release hardware. A stricter deployment SLO tightens these gates.
++If volatile recovery cannot meet the bound, add versioned durable validated facts
++or another demonstrated recovery improvement and update the ledger before release;
++do not merely label the outage a cache miss. Normal target-slot deadlines remain
++unchanged by this recovery allowance.
++
+ ## 8. Activation, history and rollback
+ 
+ Add one coordinated setting, `EEZ_CHAIN_OPERATION_V3_ACTIVATION_TIMESTAMP`, an
+@@ -437,7 +628,7 @@
+ | B | `eez-driver::derivation`; pinned Reth adapter; `eez-proof-signer/validate/stateless.rs` | Shared execution inputs and ordinary full-block reconstruction from validated outputs. Depends on A. |
+ | C | `eez-deriver` live/catch-up/reconciliation/correlation; `eez-l1` evidence/example tools | New block plans throughout follower and tooling; preserve terminal and L1-applied endpoint gates. Depends on B. |
+ | D | `eez-proof-signer/settlement/da.rs`, service/limits/config; `SPEC.md` | V3 recipe-to-window checks, terminal binding unchanged, 65,536 default, bounded count/resource failures. Depends on B. |
+-| E | `eez-control-rpc/proto/prove.proto`, generated modules; `eez-prover`, `eez-prover-client`, signer service/cache | Capabilities, PrepareOrdinary, cached references, quota/cancellation/priority behavior. Depends on D. |
++| E | `eez-control-rpc/proto/prove.proto`, generated modules; `eez-prover`, `eez-prover-client`, signer service/cache | Capabilities, preparation, range references/retention leases and dedicated cache misses; quota/cancellation/priority behavior. Depends on D. |
+ | F | `eez-node` proving/witness integration; composer proof-context construction | Durable-witness-triggered preparation, bounded retry/restart/reorg behavior, eliminate duplicate witness-window allocations. Depends on E. |
+ | G | `eez-composer` policy/index/sequencing/admission/encoding; `eez-node-common` payload/pool sizing | Exact v3 estimates, terminal promotion, feasible prefixes, capability checks and overflow prevention. Depends on A, E, F. |
+ | H | Composer/signer/follower launch configuration and deployment templates | Shared activation setting, compatibility checks, rollout and rollback instructions. Depends on C–G. |
+@@ -451,6 +642,24 @@
+ The initial requirement-to-component mapping is in the
+ [coverage ledger](derivable-chain-operations-coverage.md). Every entry starts as
+ planned; implementation must replace that status with code and evidence links.
++
++### 9.1 Early feasibility checkpoint before proving-RPC expansion
++
++After A–D, build a test-only v3 writer and exercise the existing cold `Prove` path.
++This is possible before the production capability/cache integration. Run independent
++replay and cold-proof timing at the legal span targets, including the largest,
++under the intended release configurations. This checkpoint must precede E/F work.
++A bounded byte/item rejection is evidence that the cold path is infeasible; do not
++allocate an oversized window or raise quotas merely to force a timing baseline.
++It establishes actual costs and avoids designing a proving service from byte
++counts alone.
++
++If cold proving demonstrably meets every long-span deadline/resource/recovery gate,
++E/F cache/RPC work may be omitted only through an explicit specification/ledger
++amendment with that evidence and an equally explicit composer/signer limit agreement.
++Otherwise E/F remains required. Do not reduce the promised tested history merely
++to avoid implementing a necessary fast path. The cache is a performance option;
++its safety rules are mandatory whenever that option is implemented.
+ 
+ ## 10. Correctness and failure coverage
+ 
+@@ -462,7 +671,7 @@
+ | Forks | All currently supported post-Merge L2 configurations, first Shanghai/Cancun/Prague/Osaka blocks where applicable, supported boundary crossing, optional field presence, future unsupported profile transition uses full records or rejects. |
+ | Signer tampering | Valid txs with altered environment/count/gap; header outputs differing from assembly; wrong parent/config; system sender hidden as ordinary; missing transactions; wrong terminal/entry binding; no attestation on any mismatch. |
+ | Settlement | Full, partial, deferred, reverted, resumed and competing same-L1-block paths; canonical applied-prefix endpoint, outbound event gate and value effects unchanged. Include terminal-only and fallback ranges. |
+-| Cache trust | Wrong block/height/parent/environment/generation/config; stale fork, eviction before/after pinning, corrupt/missing entries, reused reference in incompatible window; cold and cached results identical. Cache cannot authorize system transactions or terminal observations. |
++| Cache trust | Wrong block/height/parent/environment/validation identity; stale fork, eviction before/after pinning, corrupt/missing entries, reused reference in incompatible window; cold and cached results identical. Cache cannot authorize system transactions or terminal observations. |
+ | Resources | Every quota boundary; count checked before expansion; Prepare chunks cannot evade final count; cache accounting includes overhead; cancellation/timeout releases memory/permits; cold validation and preparation cannot starve final proof. |
+ | Persistence/reorg | Node/signer restarts with pruned parent state; rebuild from durable witnesses; witness hash mismatch; no purge above finalized floor; L1 rollback and alternate L2 ancestry; reader catch-up without producer RPC. |
+ | Sizing | Encoded size equals estimate for completed candidates; conservative future reservation; new first gap on re-anchor; ordinary-to-terminal promotion; historical splits; all RLP thresholds; next-nonce preservation and individually unpostable transactions. |
+@@ -481,7 +690,14 @@
+ blocks, the new recipe with cold proof validation, and the prepared-reference path.
+ Measure physical blob counts from actual final encodings, not corpus-wide sums.
+ 
+-Required span sizes: **512, 1,024, 4,096, 10,000, 43,200 and 65,536 total blocks**.
++Required logical-count targets: **512, 1,024, 4,096, 10,000, 43,200 and
++65,536 total blocks**. Exact format/admission boundaries are tested directly.
++For native posts, use the greatest existing legal empty Sync endpoint at or below
++each target, preserving the scheduler's actual grid residue and anchor. Record
++both the requested ceiling and achieved count. When anchor and endpoint share a
++residue, the largest span is `K * floor(ceiling / K)`: 65,532 at K=6 and 65,535
++at K=5. Nonzero genesis offsets and resumed ranges use the existing placement
++rules. Never change the Sync grid merely to obtain a round-number benchmark.
+ For each, exercise empty history and a sparse deterministic transfer workload that
+ fits the same six-blob example allowance; also run boundary-filling and high-entropy
+ data workloads whose expected result may be a smaller feasible prefix. Do not
+@@ -490,17 +706,22 @@
+ 
+ Required measurable outcomes:
+ 
+-1. A 43,200-block empty-history candidate and a 65,536-block empty-history
+-   candidate encode within the actual allowed blob count, with no per-empty-block
++1. The greatest legal native empty-history spans under the 43,200 and 65,536
++   targets encode within the actual allowed blob count, with no per-empty-block
+    header bytes. They independently replay to exact original block hashes.
+-2. The signer accepts the fully valid largest-window example with the planned
+-   defaults using bounded preparation, and rejects 65,537 total blocks. The
++   Also round-trip an exact 65,536-block codec fixture without requiring it to
++   be an off-grid native settlement.
++2. The signer accepts the fully valid largest legal native window with the
++   planned defaults using bounded preparation. Separate ingress tests accept
++   the exact 65,536 declared count and reject 65,537, without equating structural
++   admission with successful execution of an arbitrary window. The
+    terminal still receives full fresh validation.
+ 3. Prepared-path final proof plus remaining preparation fits the configured
+    submission deadline for both native L1 profiles in the test environment; record
+    at least 20 warm repetitions, median/p95/max and misses. All repetitions must
+    fit the release profile's deadline; no fixed hardware-independent seconds are
+-   invented in this plan. Cold recovery times are reported separately.
++   invented in this plan. Cold recovery and follower crash-resume must meet §7.1
++   separately; a warm pass cannot substitute for either recovery gate.
+ 4. Existing cross-chain latency/deadline tests remain passing under concurrent
+    background preparation. No group changes target, order or semantic bytes to
+    achieve the timing result.
+--- reviewed/docs/proposals/derivable-chain-operations-coverage.md
++++ revised/docs/proposals/derivable-chain-operations-coverage.md
+@@ -23,25 +23,39 @@
+ | CO-13 | Default signer window raised to 65,536, lower override respected | D / config, window, SPEC | Config defaults/overrides plus actual validated request, not header-only |
+ | CO-14 | Capability identity and limits checked before v3 emission | E, G, H / control RPC and launchers | Wrong identity/activation/profile, reconnect and old-server compatibility |
+ | CO-15 | PrepareOrdinary performs full validation, never signs settlement | E / signer preparation | Invalid witness/parent/recipe/system sender; no partial cache entry |
+-| CO-16 | Cache keys and facts bind block, rules, parent and environment | E / signer cache | Wrong height/hash/config/environment/fork, same-hash safe reuse |
++| CO-16 | Cache keys and facts bind block, rules, parent and environment | E / signer cache | Wrong height/hash/config/environment/fork, complete validated evidence, same-hash safe reuse |
+ | CO-17 | References preserve final window continuity and settlement binding | D, E / final Prove pipeline | Cold/cached/mixed equivalence; malformed reference versus cache miss |
+ | CO-18 | Terminal witness and observations always freshly validated | D, E / terminal proof | Cached terminal rejected; unchanged prefix checkpoints and observations |
+-| CO-19 | Cache size, generation, LRU and pins are bounded | E / cache admission | Both quota boundaries, overhead accounting, eviction and restart |
++| CO-19 | Cache size, identity, reservations and pins are bounded | E / cache admission | Both quota boundaries, overhead accounting, eviction and restart |
+ | CO-20 | Preparation does not starve final proving | E / worker scheduling | Concurrent prep/proof deadlines, partial stream, cancellation and timeout |
+ | CO-21 | Producer preparation queue and retries are bounded | F / node and remote prover | 128-identity queue, watermark catch-up/reorg, cache-miss repair without source eviction |
+-| CO-22 | Durable witnesses survive until finalized and match requested hashes | F / witness source | Restart after pruning, disk/missing data failure, stale reorg record, finalized purge |
++| CO-22 | Durable witnesses survive until finalized and match requested hashes | F / witness source | Hash-key migration/restart; A -> B -> pruned restart -> A; disk/missing data failure; finalized purge |
+ | CO-23 | Full-window witness duplication removed | E, F / proving context and remote streaming | Allocation/RSS measurements and no repeated full vectors on retry |
+ | CO-24 | Exact composable v3 size accounting | A, G / sizer and activity index | Actual encode equality; re-anchor first gap, terminal promotion, RLP thresholds |
+ | CO-25 | Future input/full-terminal reserves and pool admission remain sound | G / sequencing and node-common | No accepted unsplittable interval; nonce retention; unexpected exception bounds |
+-| CO-26 | Blob/future-fork/companion and proof resource limits agree | G / candidate prefix selection | Config reductions, missing capabilities, legal boundary/cap interactions |
++| CO-26 | Blob/future-fork/companion and proof resource limits agree | G / candidate prefix selection | Config reductions, missing capabilities, legal boundary/cap interactions; idle hard-cap due reason prevents sequencing/posting deadlock |
+ | CO-27 | Cross-chain groups retain target/order/ownership under failures | F, G, I / composer reconciliation | Slot miss, cache miss, proving timeout and historical predecessor drains |
+ | CO-28 | Format acceptance independent of local RPC/cache quotas | C, D, H / configuration separation | Valid canonical v3 remains valid under different follower resource settings |
+ | CO-29 | Activation and writer rollback preserve readable history | H / node, signer, follower and templates | Before/at/after timestamp; mismatch; v3 history with legacy writer |
+-| CO-30 | Long empty spans satisfy actual byte and replay gates | I / native e2e | 43,200 and 65,536 total blocks: actual encodings, signer success, exact follower hashes |
+-| CO-31 | Timing/resource claims backed by named deployment envelope | I / performance harness | 20 warm repetitions/profile, cold recovery, p95/max/misses, RSS/disk/witness quotas |
++| CO-30 | Long empty spans satisfy actual byte and replay gates | I / native e2e | Greatest legal spans under 43,200/65,536: actual encodings, signer success, exact follower hashes; exact codec count boundary separately |
++| CO-31 | Timing/resource claims backed by named deployment envelope | I / performance harness | 20 warm repetitions/profile, bounded cold/follower recovery, p95/max/misses, RSS/disk/witness quotas |
+ | CO-32 | Existing cross-chain and native profile behavior preserved | I / existing e2e suites | Ethereum/Gnosis regressions and concurrent preparation cases |
+ | CO-33 | Observability identifies the actual remaining constraint | G, I / structured telemetry | DA bytes, logical/derived/fallback counts, cache hits, request quotas and closure reason by candidate hash |
+ | CO-34 | All evidence reproducible and release disabled until complete | H, I / docs and CI | Frozen source/binary/config/input hashes, commands, test outcomes, complete ledger |
++| CO-35 | Cached evidence preserves the full intermediate-block gate | D, E / validation and settlement | User-origin outbound event with no system sender rejected cold/prepared/referenced; decoded counts and evidence complete |
++| CO-36 | Environment-change records have exact same-block and subsequent semantics | A, B, C, G / profile and size algebra | Kind-2 empty/nonempty/no-op/invalid cases; old-env gap, new-env record; composition, re-anchor and terminal promotion |
++| CO-37 | Whole-request cost fits actual posting timing | E, G, H, I / calibration and scheduler | Cost by ranges/logical blocks/records/KZG/terminal/wait; recorded release proof/preparation/Future/Live settings |
++| CO-38 | Maximum-backlog signer restart meets explicit recovery SLO | E, F, I / cache and durable witnesses | Measured recovery to cross-chain readiness within 600 seconds or a tighter deployment bound; release fails otherwise |
++| CO-39 | Range references cannot hide unbounded or discontinuous work | D, E / RPC window assembler | Count before traversal, overlap/gap/order/endpoints/parent/identity cases; same final facts as cold blocks |
++| CO-40 | Reservations prevent pending-window thrash without creating authority | E, F / retention control | Union quotas, overlap, renew/release/expiry, atomic preparation extension, proof pins; signatures alone never advance reservations |
++| CO-41 | Cache misses have a dedicated recovery path | E, F / remote prover and error mapping | FAILED_PRECONDITION detail maps to CacheMiss, not source Actionable or unchanged-request retry; preserves ownership/deadline |
++| CO-42 | Finite speculative depth and required state/history availability | F, H, I / node/follower storage | Finite N+K-1 configuration; oldest anchor and hash history after pruning/restart/reorg; safe-head lag documented |
++| CO-43 | Claimed recipe stays immutable under a resumed applied range | C, D, I / settlement and deriver | Nonzero ordinary count with same-height resumed outcome; proof anchor vs prefix root; canonical H-1 parent/environment mismatch |
++| CO-44 | Replay/cold timing checkpoint precedes proving-service expansion | B, C, D, I / prototype | Actual legal spans on both profiles; measured evidence selects necessary E/F scope without weakening long-span gates |
++| CO-45 | Validation identity is deterministic and channel reuse avoids redundant RTTs | E, H / control RPC | Canonical identity golden vectors; whitespace/key order, changed config/revision, reconnect and mismatch refresh |
++| CO-46 | Follower partial progress and crash-resume are bounded and idempotent | C, I / reconciliation | Crash early/middle/late in largest batch; identical final chain and safe head; release-hardware recovery SLO |
++| CO-47 | Capacity benchmarks preserve legal Sync geometry | G, I / timing and native harness | Actual residue/anchor; K=6 maximum 65,532 and K=5 maximum 65,535; exact codec/ingress counts tested separately |
++| CO-48 | Full fallback and profile field coverage match actual follower capabilities | B, C, D / assembly and fork support | Unsupported slot/BAL/ommer shapes rejected unless both paths reproduce them; exhaustive field classification and dependency-upgrade regression |
+ 
+ No row is waived by a smaller payload or a successful outer L1 receipt. If the
+ implementation changes a design decision, update the contract and affected rows

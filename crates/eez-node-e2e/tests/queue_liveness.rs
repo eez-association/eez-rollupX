@@ -15,7 +15,6 @@ const TIMEOUT: Duration = Duration::from_secs(180);
 
 async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
     let env = [
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),

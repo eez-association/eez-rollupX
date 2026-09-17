@@ -43,6 +43,68 @@ fn fixture_input() -> AdmittedBlock {
     }
 }
 
+#[test]
+fn reconstruction_fact_is_built_only_from_exact_replay_outputs() {
+    let input = fixture_input();
+    let backend = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS);
+    let recovered = decode_match_and_recover_signers(&input, &backend.chain_spec).unwrap();
+    let block = recovered.clone().into_sealed_block().into_block();
+    let mut output = stateless_validation_recovered(
+        recovered,
+        input.witness.clone(),
+        backend.chain_spec.clone(),
+        backend.evm_config.clone(),
+    )
+    .unwrap();
+    let parent = input.witness.headers.last().map(AsRef::as_ref);
+    let fact =
+        reconstruction::reconstruct(&backend.evm_config, &block, &input.rlp, parent, &output)
+            .unwrap();
+    assert_eq!(fact.block_hash(), input.claimed_hash);
+    let valid_post = output.post_state_root;
+    output.post_state_root = B256::repeat_byte(0xa1);
+    assert!(
+        reconstruction::reconstruct(&backend.evm_config, &block, &input.rlp, parent, &output)
+            .is_err()
+    );
+    output.post_state_root = valid_post;
+    output.execution_output.result.gas_used += 1;
+    assert!(
+        reconstruction::reconstruct(&backend.evm_config, &block, &input.rlp, parent, &output)
+            .is_err()
+    );
+    output.execution_output.result.gas_used -= 1;
+    output
+        .execution_output
+        .result
+        .requests
+        .push_request_with_type(0, [1u8]);
+    assert!(
+        reconstruction::reconstruct(&backend.evm_config, &block, &input.rlp, parent, &output)
+            .is_err()
+    );
+}
+
+#[test]
+fn reconstruction_retains_the_complete_existing_execution_evidence() {
+    let (checkpoint_input, checkpoint_config, _) = checkpoint_fixture();
+    let (observation_input, observation_config) = observation_fixture();
+    for (input, config) in [
+        (fixture_input(), fixture_chain_config()),
+        (checkpoint_input, checkpoint_config),
+        (observation_input, observation_config),
+    ] {
+        let mut backend = Backend::new(config, TEST_SYSTEM_ADDRESS);
+        backend.derivation_enabled = false;
+        let ordinary = backend.validate(std::slice::from_ref(&input)).unwrap();
+        assert!(ordinary.blocks[0].reconstruction.is_none());
+        backend.derivation_enabled = true;
+        let mut reconstructed = backend.validate(&[input]).unwrap();
+        assert!(reconstructed.blocks[0].reconstruction.take().is_some());
+        assert_eq!(ordinary, reconstructed);
+    }
+}
+
 fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<usize>) {
     let rlp = hex::decode(
         include_str!(concat!(

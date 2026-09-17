@@ -4,7 +4,6 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 use super::PolicyError;
 
-const ENABLED: &str = "EEZ_SETTLEMENT_POLICY_ENABLED";
 const MODE: &str = "EEZ_SETTLEMENT_PURE_L2_MODE";
 const INTERVAL: &str = "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS";
 const GENERAL: &str = "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS";
@@ -17,7 +16,7 @@ pub enum PureL2Mode {
     Interval { milliseconds: NonZeroU64 },
 }
 
-/// Validated enabled policy. Absence of this configuration means legacy mode.
+/// Validated settlement policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolicyConfig {
     pub pure_l2: PureL2Mode,
@@ -25,6 +24,7 @@ pub struct PolicyConfig {
     pub blob_fullness_bps: Option<NonZeroU16>,
     /// Retained for the startup diagnostic, never used as an `always` timer.
     pub inactive_interval_ms: Option<NonZeroU64>,
+    pub(crate) max_speculative_depth: u64,
 }
 
 impl PolicyConfig {
@@ -32,33 +32,21 @@ impl PolicyConfig {
     /// `k` is the validated number of L2 blocks per L1 slot.
     ///
     /// # Errors
-    /// Invalid, contradictory or missing enabled settings, including a
+    /// Invalid, contradictory or missing settings, including a
     /// speculative-depth guard that cannot reach the general rule.
     pub fn parse(
         mut get: impl FnMut(&str) -> Result<Option<String>, PolicyError>,
         k: u64,
-    ) -> Result<Option<Self>, PolicyError> {
-        let enabled = match get(ENABLED)?.as_deref().map(str::trim) {
-            None | Some("0" | "false" | "no" | "off" | "") => false,
-            Some("1" | "true" | "yes" | "on") => true,
-            Some(value) => {
-                return Err(PolicyError::Config(format!(
-                    "{ENABLED}: expected boolean, got {value:?}"
-                )));
-            }
-        };
+    ) -> Result<Self, PolicyError> {
+        if get("EEZ_SETTLEMENT_POLICY_ENABLED")?.is_some() {
+            return Err(PolicyError::Config(
+                "EEZ_SETTLEMENT_POLICY_ENABLED was removed; settlement policy is mandatory".into(),
+            ));
+        }
         let mode = get(MODE)?;
         let interval = get(INTERVAL)?;
         let general = get(GENERAL)?;
         let fullness = get(FULLNESS)?;
-        if !enabled {
-            if mode.is_some() || interval.is_some() || general.is_some() || fullness.is_some() {
-                return Err(PolicyError::Config(format!(
-                    "settlement policy settings require {ENABLED}=true"
-                )));
-            }
-            return Ok(None);
-        }
         if k < 2 {
             return Err(PolicyError::Config(
                 "settlement policy requires validated K >= 2".into(),
@@ -123,7 +111,7 @@ impl PolicyConfig {
                 Some(value)
             }
         };
-        Ok(Some(Self {
+        Ok(Self {
             pure_l2,
             max_unsettled_l2_blocks,
             blob_fullness_bps,
@@ -132,12 +120,13 @@ impl PolicyConfig {
             } else {
                 None
             },
-        }))
+            max_speculative_depth: depth,
+        })
     }
 }
 
 fn required(name: &str) -> PolicyError {
-    PolicyError::Config(format!("{name} is required when {ENABLED}=true"))
+    PolicyError::Config(format!("{name} is required"))
 }
 
 fn positive(name: &str, value: &str) -> Result<NonZeroU64, PolicyError> {
@@ -152,9 +141,8 @@ fn positive(name: &str, value: &str) -> Result<NonZeroU64, PolicyError> {
 mod tests {
     use super::*;
 
-    fn parse(extra: &[(&str, &str)], k: u64) -> Result<Option<PolicyConfig>, PolicyError> {
+    fn parse(extra: &[(&str, &str)], k: u64) -> Result<PolicyConfig, PolicyError> {
         let mut vars = std::collections::HashMap::from([
-            (ENABLED, "true"),
             (MODE, "always"),
             (GENERAL, "150"),
             ("EEZ_MAX_SPECULATIVE_DEPTH", "0"),
@@ -167,21 +155,8 @@ mod tests {
     }
 
     #[test]
-    fn absent_settings_preserve_legacy_defaults_and_old_cap() {
-        assert_eq!(PolicyConfig::parse(|_| Ok(None), 12).unwrap(), None);
-        assert_eq!(
-            PolicyConfig::parse(
-                |name| Ok((name == "EEZ_MAX_BLOCKS_PER_BATCH").then(|| "300".into())),
-                12
-            )
-            .unwrap(),
-            None
-        );
-    }
-
-    #[test]
-    fn enabled_defaults_are_explicit_and_fullness_is_off() {
-        let cfg = parse(&[], 12).unwrap().unwrap();
+    fn required_settings_and_default_fullness_are_validated() {
+        let cfg = parse(&[], 12).unwrap();
         assert_eq!(cfg.pure_l2, PureL2Mode::Always);
         assert_eq!(cfg.max_unsettled_l2_blocks.get(), 150);
         assert_eq!(cfg.blob_fullness_bps, None);
@@ -190,7 +165,6 @@ mod tests {
             assert!(
                 PolicyConfig::parse(
                     |name| Ok(match name {
-                        ENABLED => Some("true".into()),
                         "EEZ_MAX_SPECULATIVE_DEPTH" => Some("0".into()),
                         name if name == required => None,
                         MODE => Some("always".into()),
@@ -210,7 +184,6 @@ mod tests {
             &[(MODE, "interval"), (INTERVAL, "900000"), (FULLNESS, "1000")],
             5,
         )
-        .unwrap()
         .unwrap();
         assert_eq!(
             cfg.pure_l2,
@@ -219,7 +192,7 @@ mod tests {
             }
         );
         assert_eq!(cfg.blob_fullness_bps.unwrap().get(), 1000);
-        let cfg = parse(&[(INTERVAL, "15")], 5).unwrap().unwrap();
+        let cfg = parse(&[(INTERVAL, "15")], 5).unwrap();
         assert_eq!(cfg.inactive_interval_ms.unwrap().get(), 15);
         for extra in [
             vec![(MODE, "interval")],
@@ -232,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_numbers_and_disabled_or_obsolete_settings() {
+    fn rejects_invalid_numbers_and_obsolete_settings() {
         for value in ["0", "-1", "1.5", "18446744073709551616", ""] {
             assert!(parse(&[(GENERAL, value)], 12).is_err());
         }
@@ -242,8 +215,8 @@ mod tests {
         for value in ["1", "10000", "off"] {
             assert!(parse(&[(FULLNESS, value)], 12).is_ok());
         }
-        assert!(parse(&[(ENABLED, "false")], 12).is_err());
-        assert!(parse(&[(ENABLED, "invalid")], 12).is_err());
+        assert!(parse(&[("EEZ_SETTLEMENT_POLICY_ENABLED", "true")], 12).is_err());
+        assert!(parse(&[("EEZ_SETTLEMENT_POLICY_ENABLED", "false")], 12).is_err());
         assert!(
             parse(&[("EEZ_MAX_BLOCKS_PER_BATCH", "300")], 12)
                 .unwrap_err()

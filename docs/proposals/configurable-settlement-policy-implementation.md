@@ -7,6 +7,11 @@ runs. The original 44 requirement rows and 63 acceptance cases have recorded
 evidence below. Later extensions and revision-specific results are identified
 separately; results for an older executable do not validate later source edits.
 
+The 2026-09-17 new-network revision makes settlement policy mandatory and removes
+the disabled-policy compatibility path. Rows and evidence below that describe
+opt-in activation or disabled behavior are historical. Current configuration is
+documented in [the operator guide](../configurable-settlement-policy.md).
+
 Subsequent live investigation found a
 [cross-chain nonce-gap liveness failure](../audits/2026-09-15-chiado-nonce-gap/README.md).
 The [queue-liveness correction](cross-chain-queue-liveness.md) repairs admission

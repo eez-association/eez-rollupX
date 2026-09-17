@@ -1,0 +1,85 @@
+{
+  "recorded_utc": "2026-09-17",
+  "base_commit": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "host": {
+    "kernel": "Linux 7.0.0-31-generic x86_64",
+    "cpu": "Intel Core Ultra 9 185H",
+    "logical_cpus": 22,
+    "memory_gib": 60
+  },
+  "executables_sha256": {
+    "composer": "e53d97638cad3bbf3119955c8c5dfb8f4c4824f0476b0d5db63ab77fd56b117b",
+    "follower": "4bd6f9c1f6f03321142a06b05e507e759c66de14105f01251f6b537bf62ae2e3",
+    "proof_signer": "3417e9d699d3da9ee70762252aee200ed5416f64998f7603626efce1f448debc",
+    "harness": "c093ebc91711b44b16986f3b691894fe2419677ea7a24fb41314165cd3923564"
+  },
+  "profiles": [
+    {
+      "profile": "EthereumOsaka",
+      "requested_ceiling": 65536,
+      "actual_blocks": 65536,
+      "operations_bytes": 3444,
+      "legacy_operations_bytes": 50139718,
+      "physical_blobs": 1,
+      "producer_prepared": true,
+      "cache_misses": 0,
+      "warm_repetitions": 20,
+      "final_proof_median_ms": 176,
+      "final_proof_p95_ms": 204,
+      "final_proof_max_ms": 205,
+      "public_inputs_hash": "5bffef9e78faef243e4960a792c71b8c1dc18d268f4027a189a700dce1be9302",
+      "terminal_hash": "0xbe967bd15263638770806af2a1cb82c93cc9c262bed929e2e9d93036f1b3bb1e",
+      "history_build_ms": 1094425,
+      "total_test_ms": 1257190,
+      "l1_post_succeeded": true,
+      "clean_follower_exact_replay": true,
+      "peak_rss_kib": {
+        "composer": 7723788,
+        "follower": 3937176,
+        "proof_signer": 456288,
+        "harness": 1028752
+      },
+      "process_vm_swap_kib": 0,
+      "local_log_sha256": "a2cb3d7482e4592ab9986a08a049d6e90192742a780f9b5317129b123e81a9f8",
+      "local_resource_samples_sha256": "c3bc1dd525f80316ac997c7ce5b16806b079d9ac3fa05c7db52f3cb6f6a9c5ee",
+      "local_resource_peaks_sha256": "f7e74f5c5cae89033cd768664c2d74da013e25ff2ed63d4d1f5657f6364df2f0"
+    },
+    {
+      "profile": "GnosisPrague",
+      "requested_ceiling": 65536,
+      "actual_blocks": 65535,
+      "operations_bytes": 3446,
+      "legacy_operations_bytes": 50138245,
+      "physical_blobs": 1,
+      "producer_prepared": true,
+      "cache_misses": 0,
+      "warm_repetitions": 20,
+      "final_proof_median_ms": 172,
+      "final_proof_p95_ms": 189,
+      "final_proof_max_ms": 192,
+      "public_inputs_hash": "283ebb7c7a6783e7b3ea6301af59b3e69c4cde568d1bf7342f2198456ce556d1",
+      "terminal_hash": "0xc7df4290353e94756379e1b0742b6333493cb16240a33a288cba4ac82693ab96",
+      "history_build_ms": 1093745,
+      "total_test_ms": 1257920,
+      "l1_post_succeeded": true,
+      "clean_follower_exact_replay": true,
+      "peak_rss_kib": {
+        "composer": 7919468,
+        "follower": 4056192,
+        "proof_signer": 521608,
+        "harness": 1009328
+      },
+      "process_vm_swap_kib": 0,
+      "local_log_sha256": "b31d53b2dbb82a09441dd9864318b54964e0c51554c01318646cbcacb29b046e",
+      "local_resource_samples_sha256": "cc98b027be7b2dc2a5d2c5875fb4b482c600b4beb8b26f33ac4ec81a0699a277",
+      "local_resource_peaks_sha256": "50195c0e2ac33636f668ed766e3e17edb983a633989396f195406b43d09c8bc4"
+    }
+  ],
+  "notes": [
+    "All six logical targets were proved in each run; only the maximum was posted to L1.",
+    "Final requests referenced producer-prepared ordinary facts and carried one fresh terminal witness.",
+    "RSS is sampled every two seconds and process I/O counters do not include mmap writeback.",
+    "Raw logs and resource samples are local-only at the paths identified by their hashes."
+  ]
+}

@@ -1,4 +1,4 @@
-//! Bounded postBatch estimates for the enabled policy. These are admission
+//! Bounded postBatch estimates for the settlement policy. These are admission
 //! reserves, not execution guarantees: final ordered native execution still
 //! validates the signed bundle and every intended effect.
 
@@ -184,7 +184,7 @@ impl Projection {
 
     pub fn batch_gas(&self, batch: &eez_protocol::EvmBatch, calldata: u64, target: u64) -> u64 {
         // This is the composer's native single-rollup ECDSA family. Keep the
-        // legacy projection if another caller ever supplies a different one.
+        // conservative projection if another caller ever supplies a different one.
         let anchor = batch.entries.first().is_some_and(|entry| {
             entry.destinationRollupId == self.rollup_id
                 && entry.proxyEntryHash.is_zero()
@@ -707,10 +707,10 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_batch_family_keeps_legacy_reserves_and_known_cleanup() {
+    fn unsupported_batch_family_keeps_conservative_reserves_and_known_cleanup() {
         let p = model(PREVIOUS_ENTRY_CLEANUP_GAS);
         let b = batch(vec![anchor(), deferred()], 1);
-        let legacy = projected_postbatch_gas(2, 100, 200) + PREVIOUS_ENTRY_CLEANUP_GAS;
+        let conservative = projected_postbatch_gas(2, 100, 200) + PREVIOUS_ENTRY_CLEANUP_GAS;
         let changes: [fn(&mut eez_protocol::EvmBatch); 7] = [
             |b| b.blobIndices = vec![U256::ZERO; 65],
             |b| b.proofSystems.push(Address::ZERO),
@@ -723,7 +723,7 @@ mod tests {
         for change in changes {
             let mut other = b.clone();
             change(&mut other);
-            assert_eq!(p.batch_gas(&other, 100, 200), legacy);
+            assert_eq!(p.batch_gas(&other, 100, 200), conservative);
         }
     }
 

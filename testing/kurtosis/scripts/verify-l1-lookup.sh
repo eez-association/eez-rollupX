@@ -158,10 +158,29 @@ jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg kind
            and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null))
     ' "$scratch/blob.json" >/dev/null || die "lookup is not bound to the authenticated semantic action"
 # Wait for the proven L2 window to be available, then check the blob's block
-# hashes against the canonical chain before scanning ALL manager activity.
-# Do not accept a timeout as evidence of absence.
+# commitments against the canonical chain before scanning ALL manager activity.
+# Derived records intentionally omit intermediate hashes: the authenticated
+# terminal hash commits to their ancestry, while any full records still expose
+# hashes that can be checked directly. Do not accept a timeout as evidence of
+# absence.
 last="$(jq -er '.payload.blocks[-1].number' "$scratch/blob.json")"
 first="$(jq -er '.payload.blocks[0].number' "$scratch/blob.json")"
+jq -e '
+  .verified == true and (.payload.blocks | length) > 0
+  and (.payload.blocks[-1].representation == "terminal")
+  and (.payload.blocks[-1].hash | test("^0x[0-9a-fA-F]{64}$"))
+  and ([.payload.blocks[] | select(.representation == "terminal")] | length) == 1
+  and (.payload.blocks as $blocks
+       | all(range(0; $blocks | length);
+             $blocks[.].number == ($blocks[0].number + .)))
+  and all(.payload.blocks[];
+      if .representation == "derived" then
+        (.timestamp_step_seconds | type == "number" and . > 0)
+        and (.transaction_count | type == "number" and . >= 0)
+      elif (.representation == "full" or .representation == "terminal") then
+        (.hash | test("^0x[0-9a-fA-F]{64}$"))
+      else false end)
+' "$scratch/blob.json" >/dev/null || die "authenticated blob has an invalid block window"
 deadline=$((SECONDS + 120))
 while (( $(cast block-number --rpc-url "$L2_RPC") < last )); do
     (( SECONDS < deadline )) || die "L2 has not reached the authenticated settlement window"
@@ -170,7 +189,7 @@ done
 while read -r number hash; do
     [[ "$(cast block "$number" --field hash --rpc-url "$L2_RPC")" == "$hash" ]] \
         || die "blob block $number is not canonical on L2"
-done < <(jq -r '.payload.blocks[] | "\(.number) \(.hash)"' "$scratch/blob.json")
+done < <(jq -r '.payload.blocks[] | select(.hash != null) | "\(.number) \(.hash)"' "$scratch/blob.json")
 root_file="${OUTPUT_JSON%.json}.lookup-root.json"
 bash "$HERE/verify-lookup-root.sh" "$scratch/blob.json" "$(jq -er '.root' <<<"$entry")" "$root_file" \
     || die "lookup root is not bound to the authenticated L2 execution"

@@ -1,4 +1,4 @@
-//! Network pricing and final ordered L1 execution for the enabled policy.
+//! Network pricing and final ordered L1 execution for the settlement policy.
 //! Scheduling remains in `settlement_policy`; this module cannot make work due.
 
 use std::sync::Arc;

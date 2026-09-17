@@ -12,6 +12,20 @@ fn generous_limits() -> WindowLimits {
     limits(16, 1024 * 1024, 1024)
 }
 
+#[test]
+fn format_ceiling_is_enforced_before_witnesses_even_with_an_unlimited_operator_quota() {
+    let quota = limits(usize::MAX, 1024 * 1024, usize::MAX);
+    let maximum = WindowAssembler::start(quota, header(1, 65_536)).unwrap();
+    assert_eq!(maximum.declared_block_count, 65_536);
+    assert_eq!(maximum.blocks.capacity(), 0);
+    for span in [65_537, 1_000_000_000, u64::MAX] {
+        assert!(matches!(
+            WindowAssembler::start(quota, header(1, span)),
+            Err(WindowError::BlockLimit { max: 65_536, .. })
+        ));
+    }
+}
+
 fn expected_rollup_id() -> NonZeroU64 {
     NonZeroU64::new(1).unwrap()
 }
@@ -28,6 +42,7 @@ fn start_checked(
 fn header(from: u64, to: u64) -> ProveChunk {
     ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            expected_validation_identity: vec![0; 32],
             rollup_id: 1,
             from_block: from,
             to_block: to,
@@ -212,9 +227,33 @@ fn a_maximum_u64_span_is_rejected_without_overflow() {
 
 #[test]
 fn a_large_allowed_span_does_not_eagerly_allocate_block_storage() {
+    // Oversized operator quotas no longer enlarge the single network format;
+    // the largest valid span must still avoid any eager block allocation.
     let assembler =
-        WindowAssembler::start(limits(1_000_000_000, 1024, 10), header(1, 1_000_000_000)).unwrap();
+        WindowAssembler::start(limits(1_000_000_000, 1024, 10), header(1, 65_536)).unwrap();
     assert_eq!(assembler.blocks.capacity(), 0);
+}
+
+#[test]
+fn new_default_count_boundary_is_admitted_without_allocating_the_window() {
+    let limits = limits(65_536, 512 * 1024 * 1024, 1_000_000);
+    let assembler = WindowAssembler::start(limits, header(1, 65_536)).unwrap();
+    assert_eq!(assembler.blocks.capacity(), 0);
+    assert!(matches!(
+        WindowAssembler::start(limits, header(1, 65_537)),
+        Err(WindowError::BlockLimit { span: 65_537, .. })
+    ));
+    // Local admission is separate from the v3 format ceiling.
+    assert!(matches!(
+        WindowAssembler::start(
+            super::WindowLimits {
+                blocks: 512,
+                ..limits
+            },
+            header(1, 513)
+        ),
+        Err(WindowError::BlockLimit { span: 513, .. })
+    ));
 }
 
 #[test]

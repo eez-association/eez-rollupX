@@ -11,6 +11,13 @@
 | Review | [Requirement coverage and implementation interpretations](configurable-settlement-policy-implementation.md) |
 | Accounting baseline | Partial-settlement reconciliation is included in implementation baseline `71a8f52` (PR #16); consume it without duplicating that work |
 
+> **New-network revision (2026-09-17):** The
+> [derivable operations implementation](derivable-chain-operations.md) makes
+> this policy mandatory from genesis. The enable switch, pool-driven Composer
+> path, fixed-fee posting fallback, and migration support described below were
+> removed. The current operator contract is
+> [Configurable settlement policy](../configurable-settlement-policy.md).
+
 The requirements in section 1 are confirmed by the user. The remaining sections
 define the implementation contract. **MUST**, **MUST NOT**, **SHOULD**, and **MAY**
 are normative; the linked coverage ledger records implementation and validation.

@@ -8,7 +8,11 @@ use std::fs;
 use std::path::Path;
 
 use alloy_genesis::{ChainConfig, Genesis};
+use alloy_primitives::{B256, keccak256};
 use eyre::WrapErr as _;
+
+mod canonical;
+pub use canonical::{CANONICAL_JSON_VERSION, canonicalize_chain_json};
 
 const GENESIS_FIELDS: &[&str] = &[
     "alloc",
@@ -84,7 +88,8 @@ pub fn validate_gnosis_execution_config(genesis: &Genesis) -> eyre::Result<()> {
 
 #[cfg(feature = "chain-spec")]
 fn load_private_gnosis_genesis(path: &Path) -> eyre::Result<Genesis> {
-    let mut document: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+    let canonical = canonicalize_chain_json(&fs::read(path)?)?;
+    let mut document: serde_json::Value = serde_json::from_slice(&canonical)?;
     let config = document
         .get_mut("config")
         .and_then(serde_json::Value::as_object_mut)
@@ -137,15 +142,64 @@ impl ChainDocumentKind {
 
 /// Read and strictly parse one operator-configured chain document.
 pub fn load_chain_document(path: &Path) -> eyre::Result<(Genesis, ChainDocumentKind)> {
+    let loaded = load_chain_document_with_digest(path)?;
+    Ok((loaded.genesis, loaded.kind))
+}
+
+/// Strictly parsed rules and the digest of the same loaded source document.
+/// The digest precedes spelling normalization and deserialization defaults;
+/// reserializing Genesis is not a substitute for this source identity.
+#[derive(Debug)]
+pub struct LoadedChainDocument {
+    genesis: Genesis,
+    kind: ChainDocumentKind,
+    digest: B256,
+}
+
+impl LoadedChainDocument {
+    pub const fn digest(&self) -> B256 {
+        self.digest
+    }
+
+    pub const fn kind(&self) -> ChainDocumentKind {
+        self.kind
+    }
+
+    pub fn into_genesis(self) -> Genesis {
+        self.genesis
+    }
+}
+
+/// Read once so the configuration digest and execution rules cannot observe
+/// different versions of a file replaced during startup.
+pub fn load_chain_document_with_digest(path: &Path) -> eyre::Result<LoadedChainDocument> {
     let encoded =
         fs::read(path).wrap_err_with(|| format!("read chain configuration {}", path.display()))?;
-    parse_chain_document(&encoded)
+    parse_chain_document_with_digest(&encoded)
         .wrap_err_with(|| format!("parse chain configuration {}", path.display()))
 }
 
 /// Parse either a complete Genesis document or a bare `ChainConfig`.
+#[cfg(any(test, feature = "chain-spec"))]
 fn parse_chain_document(encoded: &[u8]) -> eyre::Result<(Genesis, ChainDocumentKind)> {
-    let mut document: serde_json::Value = serde_json::from_slice(encoded)?;
+    let loaded = parse_chain_document_with_digest(encoded)?;
+    Ok((loaded.genesis, loaded.kind))
+}
+
+/// Parse the execution rules and their exact canonical source identity together.
+pub fn parse_chain_document_with_digest(encoded: &[u8]) -> eyre::Result<LoadedChainDocument> {
+    let canonical = canonicalize_chain_json(encoded)?;
+    let (genesis, kind) = parse_document_value(serde_json::from_slice(&canonical)?)?;
+    Ok(LoadedChainDocument {
+        genesis,
+        kind,
+        digest: keccak256(canonical),
+    })
+}
+
+fn parse_document_value(
+    mut document: serde_json::Value,
+) -> eyre::Result<(Genesis, ChainDocumentKind)> {
     // The pinned ethereum-genesis-generator emits the geth spelling
     // `mixhash`; Alloy's Genesis field is `mixHash`. Normalize explicitly so
     // the trust input is retained instead of silently discarded by serde.

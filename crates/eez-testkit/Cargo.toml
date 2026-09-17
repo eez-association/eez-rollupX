@@ -24,6 +24,7 @@ alloy-signer-local.workspace = true
 alloy-sol-types.workspace = true
 anyhow = "1"
 eez-control-rpc.workspace = true
+prost.workspace = true
 eez-protocol.workspace = true
 reth-chainspec.workspace = true
 reth_gnosis.workspace = true

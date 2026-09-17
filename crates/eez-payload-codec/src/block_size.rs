@@ -2,10 +2,13 @@
 //! Unknown execution header fields are bounded; transaction encodings are exact.
 
 use alloy_consensus::Header;
+use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{Address, B64, B256, Bloom, Bytes, U256};
 use alloy_rlp::Encodable;
 
-use crate::{CodecError, CodecResult};
+use crate::derivable::Error;
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BlockDaSizer {
@@ -23,6 +26,25 @@ fn prefix(bytes: usize) -> usize {
 }
 
 impl BlockDaSizer {
+    /// Bound either the full integer-list block item or all opaque transaction
+    /// items for an already built block. Record/environment framing is charged
+    /// separately by the interval reserve. This avoids assuming that a legacy
+    /// transaction's new byte-string prefix is free.
+    pub fn retained_item_bytes(encoded: &[u8]) -> Result<usize> {
+        let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(encoded)?;
+        let full_items = encoded.iter().try_fold(0usize, |sum, byte| {
+            sum.checked_add(byte.length()).ok_or(Error::Overflow)
+        })?;
+        let full = full_items
+            .checked_add(prefix(full_items))
+            .ok_or(Error::Overflow)?;
+        let transaction_items = block.body.transactions.iter().try_fold(0usize, |sum, tx| {
+            sum.checked_add(Bytes::from(tx.encoded_2718()).length())
+                .ok_or(Error::Overflow)
+        })?;
+        Ok(full.max(transaction_items))
+    }
+
     /// Bound every supported header field, including optional fields that may
     /// activate before the next boundary. EEZ supplies its fixed extra data and
     /// never produces ommers or nonempty withdrawals through ordinary sequencing.
@@ -61,27 +83,40 @@ impl BlockDaSizer {
 
     /// The transaction's canonical **block-body RLP**, including a typed
     /// transaction's RLP string wrapper, rather than just its EIP-2718 envelope.
-    pub fn with_transaction(&self, transaction_rlp: &[u8]) -> CodecResult<Self> {
+    pub fn with_transaction(&self, transaction_rlp: &[u8]) -> Result<Self> {
+        let mut body = transaction_rlp;
+        let header = alloy_rlp::Header::decode(&mut body)?;
+        if header.payload_length != body.len() {
+            return Err(Error::Rlp(alloy_rlp::Error::UnexpectedLength));
+        }
+        let opaque_item = if header.list {
+            transaction_rlp
+                .len()
+                .checked_add(prefix(transaction_rlp.len()))
+                .ok_or(Error::Overflow)?
+        } else {
+            // Typed transactions already have a byte-string wrapper in a block.
+            transaction_rlp.len()
+        };
         let items = transaction_rlp.iter().try_fold(0usize, |sum, byte| {
-            sum.checked_add(byte.length())
-                .ok_or(CodecError::LengthOverflow)
+            sum.checked_add(byte.length()).ok_or(Error::Overflow)
         })?;
         Ok(Self {
             header_bytes: self.header_bytes,
             transaction_bytes: self
                 .transaction_bytes
                 .checked_add(transaction_rlp.len())
-                .ok_or(CodecError::LengthOverflow)?,
+                .ok_or(Error::Overflow)?,
             transaction_items: self
                 .transaction_items
-                .checked_add(items)
-                .ok_or(CodecError::LengthOverflow)?,
+                .checked_add(items.max(opaque_item))
+                .ok_or(Error::Overflow)?,
         })
     }
 
     /// Upper bound including the enclosing byte-vector RLP list. Header and
     /// variable list-prefix bytes may each expand to two bytes in that format.
-    pub fn item_bytes(&self) -> CodecResult<usize> {
+    pub fn item_bytes(&self) -> Result<usize> {
         let tx_prefix = prefix(self.transaction_bytes);
         let raw_body = self
             .header_bytes
@@ -89,20 +124,18 @@ impl BlockDaSizer {
             .and_then(|n| n.checked_add(self.transaction_bytes))
             // Empty ommers and withdrawals lists. Pre-Shanghai omits the latter.
             .and_then(|n| n.checked_add(2))
-            .ok_or(CodecError::LengthOverflow)?;
+            .ok_or(Error::Overflow)?;
         let framing = self
             .header_bytes
             .checked_add(tx_prefix)
             .and_then(|n| n.checked_add(prefix(raw_body)))
             .and_then(|n| n.checked_add(2))
             .and_then(|n| n.checked_mul(2))
-            .ok_or(CodecError::LengthOverflow)?;
+            .ok_or(Error::Overflow)?;
         let items = framing
             .checked_add(self.transaction_items)
-            .ok_or(CodecError::LengthOverflow)?;
-        items
-            .checked_add(prefix(items))
-            .ok_or(CodecError::LengthOverflow)
+            .ok_or(Error::Overflow)?;
+        items.checked_add(prefix(items)).ok_or(Error::Overflow)
     }
 }
 

@@ -88,14 +88,16 @@ services:
       # other eth_* is transparently forwarded to the matching source-chain RPC.
       EEZ_L1_XCHAIN_PORT: "18999"
       EEZ_L2_XCHAIN_PORT: "18998"
-      # The Chiado env preset selects auto with policy enabled. The numeric
-      # fallback supports existing policy-disabled env files; overflow stays queued.
+      # The Chiado env preset selects adaptive admission. The numeric fallback
+      # keeps Compose rendering deterministic; runtime still requires the policy.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
-      # Policy values come from .env.chiado.example through .env. Keep optional
-      # values absent when omitted: disabled policy rejects policy-only inputs.
-      EEZ_MAX_BLOCKS_PER_BATCH:
+      # Emission + reorg bounds documented in .env.example. eez-node reads these
+      # from the process env, and this service takes no env_file beyond
+      # deployments.env, so they have to be forwarded explicitly. Defaults track
+      # the in-code ones (composer.rs, timing.rs, l1_watcher.rs).
+      # Omitted optional values stay absent. Required policy and fee settings
+      # come from the environment file and fail startup when missing.
       EEZ_MAX_POSTBATCH_GAS:
-      EEZ_SETTLEMENT_POLICY_ENABLED: "${EEZ_SETTLEMENT_POLICY_ENABLED:-false}"
       EEZ_SETTLEMENT_PURE_L2_MODE:
       EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS:
       EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS:

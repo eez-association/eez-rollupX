@@ -56,18 +56,89 @@ L1 poster key, or an L1 transaction to submit.
 
 ## 2. Service definition
 
-The Composer calls one standard gRPC client-streaming method from
+The service provides capability discovery and the proving stream from
 [`prove.proto`](proto/prove.proto):
 
 ```protobuf
 service Prover {
+  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
+  rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest)
+      returns (RetainOrdinaryRangesResponse);
   rpc Prove(stream ProveChunk) returns (ProveResponse);
 }
 ```
 
 The Composer SHOULD generate its client and message types directly from the
-canonical protobuf rather than maintaining a second schema. One stream
-represents a single complete proving request.
+canonical protobuf rather than maintaining a second schema. Each stream
+represents one complete preparation or proving request.
+
+### 2.1 Validation identity and capability discovery
+
+`Capabilities` returns tag 3/profile 1, the 32-byte locally computed validation
+identity, the effective logical block/byte/witness-item/message limits, and both
+timeouts in milliseconds. The reported block maximum is the minimum of the local
+request cap and the format's 65,536 ceiling; the message cap includes the aggregate
+request-byte reduction. The call neither occupies the proof worker nor signs.
+
+The exact identity tuple and canonical chain-document rules are defined in
+[the implementation contract §5.1](../../docs/proposals/derivable-chain-operations.md#51-internal-rpc-extensions)
+and implemented in `identity.rs`. Duplicate JSON keys are rejected before loading
+rules. The identity binds the actual loaded source, not a reserialized/defaulted
+Genesis or the EIP-155 ID alone. Limits are not identity components.
+
+The producer derives its expected identity while loading its actual `--chain`
+document, checks it against capabilities before node launch, and intersects the
+reported block ceiling with local emission settings. A cap smaller than one Sync
+interval fails startup. The client shares a channel/snapshot across successful
+proofs and invalidates that snapshot on `Unavailable`, resource rejection, or an
+explicit configuration-change response. An old in-flight failure cannot discard
+a newer connection's snapshot. Capability failures cannot evict cross-chain sources.
+
+Every Prove header carries `expected_validation_identity` as exactly 32 bytes.
+The signer compares it before accepting witnesses. A malformed width is
+`INVALID_ARGUMENT`; a different identity is `FAILED_PRECONDITION` with metadata
+`eez-capabilities-changed: 1`, without actionable details. A configuration-change
+response is never mapped to an actionable source failure, even if extraneous
+failure details are attached.
+
+The server reports a 64-block preparation ceiling. `PrepareOrdinary` validates a
+nonempty contiguous witness range one block per shared-worker acquisition and
+publishes it atomically only after Stateless, exact reconstruction and the full
+intermediate gate pass. It returns endpoints and identity, never a signature.
+The client intersects that ceiling with the negotiated aggregate byte,
+per-message, and witness-item limits for every preparation RPC. It reduces a
+group before dispatch when any resource limit binds and fails explicitly when
+one block cannot fit.
+
+Final `Prove` streams may replace ordinary witnesses with
+`CachedOrdinaryRange`. The signer charges the logical count before cache
+traversal, resolves full hashes in its local namespace, rechecks number/hash,
+parent and state-root continuity, reruns the intermediate gate over the final
+set, and requires a fresh terminal `BlockWitness`. Cold, cached and mixed paths
+share the same settlement job and private attester boundary.
+
+An unavailable fact returns `FAILED_PRECONDITION` with `CacheMiss` field 3. The
+client accepts it only when identity, number and hash name an exact ordinary
+block in that request, then performs bounded preparation repair. Cache misses
+never become actionable cross-chain failures or generic unchanged-request
+retries. `PrepareOrdinary` creates or atomically extends an opaque lease; the
+client uses `RetainOrdinaryRanges` to replace it with the exact final ordinary
+window and leaves it held after signing. The producer releases it only when its
+canonical L1 settlement endpoint `(number, hash)` advances, retreats, or changes
+at the same height, then rebuilds from durable witnesses. An applied partial-block
+prefix may be that endpoint without having a standalone full-block witness; a
+transient missing predecessor cannot block the reconciliation that establishes
+the new floor. The producer renews the exact retained ranges every 30 seconds,
+including while idle or holding a full maximum window. Lost renewal clears all
+local reference hints and immediately rebuilds the last durable endpoint. At most
+two leases share cache accounting; overlap is refcounted and expiry only makes
+facts evictable. A reconnect with changed identity or resource
+limits fails before proof dispatch and requires producer restart so admission can
+be replanned from one immutable snapshot. If expiry or a same-identity signer
+restart makes a release ID unknown, the client forgets only its local reservation
+and cache hints, then rebuilds from durable witnesses. Full restart/native
+recovery evidence remains open release work.
 
 ## 3. Constructing the request
 
@@ -135,15 +206,18 @@ brackets, and a final `CloseBlobStream`, with canonical field-element packing
 and zero padding. New chain-operation payloads are:
 
 ```text
-0x02 || RLP([blocks, l2Entries, outboundGroupSizes])
+0x03 || RLP([profileId, ordinaryBlockCount, commonEnvironment, ordinaryRecords, terminalBlock, l2Entries, outboundGroupSizes])
 ```
 
-`blocks` contains every exact consensus block RLP in the window. `l2Entries`
+The new network uses profile 1 from genesis without an activation setting.
+Ordinary records publish execution inputs; the terminal retains its full block RLP.
+See the [operations contract](../../docs/proposals/derivable-chain-operations.md) for
+canonical bounds and execution requirements. `l2Entries`
 contains each outbound source entry followed by its callbacks, then inbound
 target entries. `outboundGroupSizes` identifies the authorized outbound effects
 per user transaction. The native semantic stream MUST reproduce the authorized
 mutable and static tables, including lookup results and reverted source frames.
-The complete native carrier, legacy projected payload decoding, and terminal
+The complete native carrier, operations reconstruction, and terminal
 transaction reconstruction rules are in the
 [DA profile](../eez-proof-signer/SPEC.md#11-data-availability-and-sync-block-verification).
 Calldata-only DA is not accepted by this deployment.
@@ -171,6 +245,9 @@ The first streamed chunk MUST contain exactly one `ProveHeader`:
   intermediate block; the Composer MUST NOT skip it. For an anchor-only batch,
   the terminal Sync block MUST contain zero transactions; protocol-level
   system writes can still change its state root.
+- `expected_validation_identity` MUST contain the locally computed 32-byte identity
+  agreed during capability discovery. Missing values are rejected; there is no
+  older-server or implicit identity mode.
 - `post_batch` MUST be present and contain the calldata constructed in section
   3.1, including the required `posting_context`.
 - `post_batch.public_inputs_hash` is non-authoritative. The Composer SHOULD
@@ -254,7 +331,7 @@ rules are defined in the
 
 ## 4. Transport behavior
 
-The reference signer defaults to 512 blocks, 512 MiB of aggregate known protobuf
+The reference signer defaults to 65,536 blocks, 512 MiB of aggregate known protobuf
 fields, and 1,000,000 witness items. Its request-message cap is the smaller of
 that aggregate byte limit and 256 MiB; its response cap is 1,024 bytes. Default
 stream-idle and absolute request deadlines are 120 s and 600 s. It admits one

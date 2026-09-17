@@ -1,0 +1,56 @@
+{
+  "status": "complete",
+  "claude_cli_version": "2.1.273",
+  "claude_model": "claude-opus-5[1m]",
+  "review_result_obtained": true,
+  "rounds": 2,
+  "source_snapshot_files": 85,
+  "source_snapshot_manifest": "input-manifest.json",
+  "authorization": "User explicitly approved the disclosed transfer of the plan and relevant source snapshot to Claude.",
+  "initial_attempts": [
+    {
+      "mode": "restricted",
+      "outcome": "interrupted without result"
+    },
+    {
+      "mode": "escalation before explicit transfer approval",
+      "outcome": "automatic approval review rejected"
+    }
+  ],
+  "authorized_attempts": [
+    {
+      "round": 1,
+      "outcome": "success",
+      "num_turns": 54,
+      "duration_ms": 763761
+    },
+    {
+      "round": 2,
+      "outcome": "success",
+      "num_turns": 1,
+      "duration_ms": 108213
+    }
+  ],
+  "dispositions": {
+    "accepted": 7,
+    "accepted_with_corrections": 6,
+    "proposed_simplification_declined": 3
+  },
+  "coverage_rows": 48,
+  "production_code_changed": false,
+  "new_runtime_benchmarks": false,
+  "revised_documents_sha256": {
+    "docs/proposals/derivable-chain-operations.md": "c59f8db607414fb6b182b94bfe44ae5c2a821c7b6df790e7c189a12154a5e29c",
+    "docs/proposals/derivable-chain-operations-coverage.md": "b414574b3d37966018963b7bb75a5c689e0971f103a81b105a1dc843da7af477"
+  },
+  "revised_documents_sha256_scope": "Document versions at completion of the two-round review, before the subsequent signer-soundness addendum.",
+  "post_review_addendum": {
+    "reason": "User explicitly prioritizes signer soundness",
+    "coverage_rows": 53,
+    "reviewed_by_claude": false,
+    "documents_sha256": {
+      "docs/proposals/derivable-chain-operations.md": "639001996117352b6f27d1333bf1fe9de7308cd1ecb32526ce1e242f01961134",
+      "docs/proposals/derivable-chain-operations-coverage.md": "4a7b9c50c5d21bee05f79961d1297ee31dfe0f8ea7aae8a7dd0c7fd1cf85952d"
+    }
+  }
+}

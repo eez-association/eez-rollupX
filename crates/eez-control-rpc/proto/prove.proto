@@ -12,16 +12,89 @@ syntax = "proto3";
 package prove.v1;
 
 service Prover {
+  // Local validation identity and effective resource limits; no execution or
+  // signature. This call never occupies the expensive validation worker.
+  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
+  // Validate and cache a bounded ordinary range. Never returns a settlement
+  // signature and never accepts a caller-selected derivation recipe.
+  rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
+  rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest) returns (RetainOrdinaryRangesResponse);
   // Client-stream a whole posted window, receive the settlement attestation.
   // Header MUST be the first chunk; blocks follow in ascending block order.
   rpc Prove(stream ProveChunk) returns (ProveResponse);
+}
+
+message CapabilitiesRequest {}
+
+message CapabilitiesResponse {
+  uint32 operations_tag = 1;
+  uint32 profile_id = 2;
+  bytes validation_identity = 3; // exactly 32 bytes, locally computed
+  uint64 max_window_blocks = 4;
+  uint64 max_request_bytes = 5;
+  uint64 max_request_witness_items = 6;
+  uint64 max_message_bytes = 7;
+  uint64 preparation_max_blocks = 8; // zero until preparation is implemented
+  uint64 stream_idle_timeout_millis = 9;
+  uint64 request_timeout_millis = 10;
+  uint64 cache_max_entries = 11;
+  uint64 cache_max_bytes = 12;
+  uint64 maximum_leases = 13;
+  uint64 lease_lifetime_millis = 14;
+}
+
+message PrepareChunk {
+  oneof kind {
+    PrepareHeader header = 1;
+    BlockWitness block = 2;
+  }
+}
+
+message PrepareHeader {
+  uint64 rollup_id = 1;
+  bytes expected_validation_identity = 2;
+  uint64 from_block = 3;
+  uint64 to_block = 4;
+  bytes lease_id = 5; // empty creates one; 32 bytes atomically extends it
+}
+
+message PrepareResponse {
+  bytes validation_identity = 1;
+  uint64 first_number = 2;
+  bytes first_hash = 3;
+  uint64 last_number = 4;
+  bytes last_hash = 5;
+  uint64 prepared_count = 6;
+  bytes lease_id = 7;
+}
+
+message RetainOrdinaryRangesRequest {
+  bytes validation_identity = 1;
+  bytes lease_id = 2;
+  repeated CachedOrdinaryRange ranges = 3;
+  bool release = 4;
+}
+
+message RetainOrdinaryRangesResponse {
+  bytes validation_identity = 1;
+  bytes lease_id = 2;
+  uint64 retained_count = 3;
 }
 
 message ProveChunk {
   oneof kind {
     ProveHeader header = 1;  // exactly one, first
     BlockWitness block  = 2;  // one per window block, in order
+    CachedOrdinaryRange cached_range = 3;
   }
+}
+
+message CachedOrdinaryRange {
+  bytes validation_identity = 1;
+  uint64 first_number = 2;
+  bytes first_hash = 3;
+  uint64 last_number = 4;
+  bytes last_hash = 5;
 }
 
 message ProveHeader {
@@ -29,6 +102,7 @@ message ProveHeader {
   uint64 from_block = 2;  // posted + 1 (OD-5 anchor + 1)
   uint64 to_block   = 3;  // sync_height (the settling block)
   PostBatch post_batch = 4;
+  bytes expected_validation_identity = 5; // exactly 32 bytes, local rule agreement
 }
 
 // The authoritative L1 settlement payload the prover re-derives against.
@@ -78,14 +152,20 @@ message ProveResponse {
 }
 
 // Machine-readable detail attached to a failed Prove RPC. The gRPC status
-// code remains authoritative for retry classification; this payload only
-// identifies one cross-chain candidate that the Composer can safely remove
-// before rebuilding the request.
+// code remains authoritative. Fields 1/2 identify a cross-chain candidate the
+// Composer may remove; field 3 is non-actionable local cache repair.
 message ProveFailure {
   oneof actionable_failure {
     OutboundFailure outbound = 1;
     InboundFailure inbound   = 2;
+    CacheMiss cache_miss = 3;
   }
+}
+
+message CacheMiss {
+  bytes validation_identity = 1;
+  uint64 block_number = 2;
+  bytes block_hash = 3;
 }
 
 // An outbound candidate is identified by its original signed L2 user

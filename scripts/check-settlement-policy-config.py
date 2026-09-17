@@ -15,7 +15,6 @@ import tempfile
 def main():
     repo = Path(__file__).resolve().parent.parent
     policy = {
-        "EEZ_SETTLEMENT_POLICY_ENABLED": "true",
         "EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
         "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "900000",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
@@ -32,31 +31,21 @@ def main():
         "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
     }
     for profile in ("chiado", "kurtosis"):
-        for enabled in (False, True):
-            with tempfile.TemporaryDirectory(prefix="eez-policy-compose-") as directory:
-                root = Path(directory)
-                (root / "deployments.env").write_text("")
-                example = repo / f".env.{profile}.example"
-                env = os.environ.copy()
-                for key in (*policy, "EEZ_L1_POSTBATCH_PRIORITY_FEE",
-                            "EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_MAX_POSTBATCH_GAS",
-                            "EEZ_MAX_SPECULATIVE_DEPTH"):
-                    env.pop(key, None)
-                fixture = example.read_text()
-                if enabled:
-                    env.update(policy)
-                    fixture += "\n" + "\n".join(f"{key}={value}" for key, value in policy.items())
-                else:
-                    # Legacy mode must omit policy-only inputs and use a numeric
-                    # admission limit.
-                    fixture = "\n".join(line for line in fixture.splitlines()
-                                        if line.split("=", 1)[0] not in policy) + "\n"
-                    env["EEZ_SETTLEMENT_POLICY_ENABLED"] = "false"
-                    env["EEZ_MAX_USER_TXS_PER_BUNDLE"] = "12" if profile == "chiado" else "50"
-                    fixture += ("EEZ_SETTLEMENT_POLICY_ENABLED=false\n"
-                                f"EEZ_MAX_USER_TXS_PER_BUNDLE={env['EEZ_MAX_USER_TXS_PER_BUNDLE']}\n")
-                env_file = root / f".env.{profile}"
-                env_file.write_text(fixture)
+        with tempfile.TemporaryDirectory(prefix="eez-policy-compose-") as directory:
+            root = Path(directory)
+            (root / "deployments.env").write_text("")
+            example = repo / f".env.{profile}.example"
+            fixture = example.read_text()
+            fixture += "\n" + "\n".join(f"{key}={value}" for key, value in policy.items())
+            env_file = root / f".env.{profile}"
+            env_file.write_text(fixture)
+            env = os.environ.copy()
+            for key in (*policy, "EEZ_L1_POSTBATCH_PRIORITY_FEE",
+                        "EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_MAX_POSTBATCH_GAS",
+                        "EEZ_MAX_SPECULATIVE_DEPTH"):
+                env.pop(key, None)
+            env.update(policy)
+            try:
                 result = subprocess.run(
                     ["docker", "compose", "--project-directory", directory,
                      "--env-file", str(env_file), "-f",
@@ -64,19 +53,24 @@ def main():
                      "config", "--format", "json"],
                     env=env, capture_output=True, text=True, check=True,
                 )
-                services = json.loads(result.stdout)["services"]
-                node = services["eez-node"]["environment"]
-                assert node["EEZ_SETTLEMENT_POLICY_ENABLED"] == str(enabled).lower(), profile
-                if enabled:
-                    assert all(node.get(key) == value for key, value in policy.items()), profile
-                else:
-                    assert node.get("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS") is None, profile
-                assert node.get("EEZ_MAX_BLOCKS_PER_BATCH") is None, profile
-                assert node.get("EEZ_MAX_POSTBATCH_GAS") is None, profile
-                assert node["EEZ_MAX_SPECULATIVE_DEPTH"] == "0", profile
-                expected = "chiado" if profile == "chiado" else "/l1-genesis/genesis.json"
-                assert services["eez-proof-signer"]["environment"]["EEZ_L1_CHAIN_CONFIG"] == expected
-                print(f"{profile}: {'enabled' if enabled else 'legacy'} configuration PASS")
+            except subprocess.CalledProcessError as error:
+                raise RuntimeError(
+                    f"{profile} Compose config failed: {error.stderr.strip()}"
+                ) from error
+            services = json.loads(result.stdout)["services"]
+            node = services["eez-node"]["environment"]
+            mismatches = {
+                key: (node.get(key), value)
+                for key, value in policy.items()
+                if node.get(key) != value
+            }
+            assert not mismatches, (profile, mismatches)
+            assert node.get("EEZ_MAX_BLOCKS_PER_BATCH") is None, profile
+            assert node.get("EEZ_MAX_POSTBATCH_GAS") is None, profile
+            assert node["EEZ_MAX_SPECULATIVE_DEPTH"] == "0", profile
+            expected = "chiado" if profile == "chiado" else "/l1-genesis/genesis.json"
+            assert services["eez-proof-signer"]["environment"]["EEZ_L1_CHAIN_CONFIG"] == expected
+            print(f"{profile}: mandatory policy configuration PASS")
 
 
 if __name__ == "__main__":
