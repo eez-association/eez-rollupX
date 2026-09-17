@@ -1,0 +1,68 @@
+{
+  "recorded_at": "2026-09-17T08:20:17.672482+00:00",
+  "source_commit": "6baebfcc172211aaa044c621f370c1be6a7a1550",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rust": "1.94.0",
+  "foundry": "1.7.1",
+  "profile": "local Cargo test/dev, optimized with debug information",
+  "artifact_sha256": {
+    "target/debug/eez-composer": "44df0eae750bc93055e89cb3675c519ed7cf299ec4f1970eb405928bb3617133",
+    "target/debug/eez-proof-signer": "79bed20e0ca8c50aca0f064ed4b40fbf532d5230795fa2b98db3e70481dea61b",
+    "target/debug/deps/cross_chain-90652da83e702fbe": "48154dff9930aca88fda7a916c37ef2fcc75d6c49f93b124f4527bdb55b849dc"
+  },
+  "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test cross_chain bidirectional_cross_chain_smoke -- --test-threads=1",
+  "cleared_overrides": [
+    "EEZ_TEST_PREBUILT",
+    "EEZ_TEST_RUNTIME_BIN_DIR",
+    "EEZ_TEST_PROOF_SIGNER_BIN"
+  ],
+  "result": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 21,
+    "duration_seconds": 332.28
+  },
+  "duration_note": "Includes the harness source build of the signer; not a performance measurement.",
+  "tests": [
+    "lifecycle_bidirectional_cross_chain_smoke",
+    "lifecycle_policy_bidirectional_cross_chain_smoke",
+    "minimal_bidirectional_cross_chain_smoke"
+  ],
+  "checks": [
+    "existing bidirectional receipt/effect/safe-state/proof assertions",
+    "enabled modes: matching preparation epoch/sequence, proposed endpoint, chain identity and candidate admission membership",
+    "enabled modes: exactly one successful preparation finish for each captured registered attempt",
+    "existing attempt/repricing/dispatch checks and mined nonce/blob count comparison"
+  ],
+  "component_checks": [
+    "typed failure classification without parsing or exporting messages",
+    "success/error return values preserved",
+    "unpolled drop produces no start",
+    "polled cancellation and panic unwind each finish once",
+    "disabled/closed capture preserves work",
+    "missing/oversized candidate membership yields a counted start gap without cancelling work"
+  ],
+  "component_results": {
+    "composer": 219,
+    "observer": 27,
+    "telemetry_all_features": 21
+  },
+  "local_log": "/tmp/eez-observability-preparation-e2e.log",
+  "local_log_sha256": "99f2e81583bdf305425058417732f50c411fe301a9dce81d05785f128d2e1f26",
+  "local_process_logs": "artifacts/native-observability/2026-09-17-preparation/logs",
+  "first_lint_failure": {
+    "local_log": "/tmp/eez-observability-preparation-clippy.log",
+    "cause": "enclosing minimal-dispatch future grew to 16544 bytes",
+    "correction": "box the builder once before constructing the shared wrapper; no lint suppression"
+  },
+  "limits": [
+    "preparation begins after source selection/Sync-block construction",
+    "cancellation/failure/panic evidence is component-level",
+    "canaries do not force historical fallback",
+    "no independent follower replay",
+    "no release-artifact/overhead or production claim",
+    "canonical terminal/reorg capture and validation remain incomplete"
+  ]
+}

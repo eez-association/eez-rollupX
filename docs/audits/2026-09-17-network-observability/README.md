@@ -137,3 +137,35 @@ Existing quarantined records require explicit replay, not automatic reinterpreta
 The database process suite and full release/CI/Kurtosis matrix were not rerun for
 this capture checkpoint. The result does not establish canonical outcome
 validation, independent follower replay, production overhead or rollout acceptance.
+
+## Pre-signing preparation follow-up
+
+`6baebfc` adds distinct preparation IDs, candidate admission membership, typed
+finishes and monotonic elapsed duration around post-batch construction/proving/signing.
+The original future retains ownership and returns its unchanged success/error
+result. Unpolled drop emits nothing; cancellation and panic unwinding each finish
+once. Missing/oversized membership produces a counted start gap while work continues.
+Successful preparation links into the later native attempt without implying dispatch
+or canonical completion.
+
+The initial wrapper increased the enclosing minimal-dispatch future to 16,544 bytes,
+which workspace Clippy rejected. Boxing the builder at the shared boundary fixed
+the size regression without suppressing the lint or modifying the many callers.
+The original failure is retained at `/tmp/eez-observability-preparation-clippy.log`;
+the same component tests and full workspace lint passed after the change.
+
+219 Composer tests, 27 observer tests, 21 all-feature telemetry tests and three
+source-built canaries passed. No tests were ignored; the canary selection filtered
+21 other cross-chain tests. Enabled legacy/policy canaries require matching
+preparation endpoint, chain identity and source membership, followed by exactly one
+successful finish for each registered attempt. They retain the semantic/proof and
+mined-dispatch assertions; the disabled baseline also passed.
+
+The [preparation report](../../../observability/validation/native-preparation.json)
+records exact executable hashes and scope, with a
+[requirement mapping](../../../observability/validation/native-preparation.md).
+Cancellation/failure evidence is component-level; these canaries do not force the
+historical fallback branch. Formatting, whitespace, local links and shell-example
+syntax checks passed. No dependencies, migrations or protocol pins changed.
+Canonical terminal/reorg capture and validation, native metrics/traces, full fault
+workloads, release/CI/Kurtosis validation and production acceptance remain open.
