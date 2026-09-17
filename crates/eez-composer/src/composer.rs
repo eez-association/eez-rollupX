@@ -1379,14 +1379,24 @@ where
             }
             Ok(L1Event::Reorg {
                 common_ancestor_number,
-                ..
+                common_ancestor_hash,
+                old_head_hash,
+                new_head_number,
+                new_head_hash,
             }) => {
                 for rollup in self.rollups.values() {
                     rollup.l1_head.invalidate_scan();
-                    if let Err(error) = rollup
-                        .held_pool
-                        .invalidate_after_l1(*common_ancestor_number)
-                    {
+                    if let Err(error) = rollup.held_pool.observe_l1_reorg(
+                        eez_l1::L1BlockRef {
+                            number: *common_ancestor_number,
+                            hash: *common_ancestor_hash,
+                        },
+                        *old_head_hash,
+                        eez_l1::L1BlockRef {
+                            number: *new_head_number,
+                            hash: *new_head_hash,
+                        },
+                    ) {
                         event!(Level::ERROR, %error, "cannot apply L1 reorg; retaining transaction ownership");
                     }
                 }
@@ -1997,14 +2007,35 @@ where
             .state_by_block_hash(endpoint.hash)
             .map_err(|error| format!("canonical L2 source state: {error}"))?;
         let mut outcomes = Vec::with_capacity(attempt.txs.len());
-        for ((tx, user), source) in attempt.txs.iter().zip(&attempt.manifest.users).zip(inbound) {
+        let mut source_observations = rollup
+            .held_pool
+            .capture_source_observations(attempt.txs.len());
+        let block_ref = |number, hash: B256| eez_telemetry::schema::BlockRef {
+            number,
+            hash: eez_telemetry::schema::Hash32(hash.0),
+        };
+        use eez_telemetry::schema::SourceBasis;
+        for ((tx, user), source) in attempt
+            .txs
+            .iter()
+            .zip(&attempt.manifest.users)
+            .zip(&inbound)
+        {
+            let mut observation = crate::held_pool::SourceObservation {
+                nonce: 0,
+                block: None,
+                basis: SourceBasis::Nonce,
+            };
             let own_effects_applied = evidence.is_some_and(|settled| {
                 !user.effects.is_empty()
                     && settled.applied_effects.start <= user.effects.start
                     && user.effects.end <= settled.applied_effects.end
             });
             let outcome = if let Some(source) = source {
-                if let Some(receipt) = source.receipt {
+                observation.nonce = source.nonce;
+                if let Some(receipt) = source.receipt.as_ref() {
+                    observation.block = Some(block_ref(receipt.block.number, receipt.block.hash));
+                    observation.basis = SourceBasis::Receipt;
                     if source.nonce <= tx.nonce {
                         return Err("source receipt and pinned source nonce disagree".into());
                     }
@@ -2017,7 +2048,7 @@ where
                         TerminalReason::SourceCompleted
                     } else if own_effects_applied
                         && evidence
-                            .is_some_and(|settled| source_uses_batch(&receipt, settled, &snapshot))
+                            .is_some_and(|settled| source_uses_batch(receipt, settled, &snapshot))
                         && user.source_actions.iter().all(|action| {
                             receipt
                                 .consumed
@@ -2041,6 +2072,7 @@ where
                     .account_nonce(&tx.sender)
                     .map_err(|error| format!("canonical L2 nonce: {error}"))?
                     .unwrap_or(0);
+                observation.nonce = nonce;
                 if nonce <= tx.nonce {
                     if own_effects_applied {
                         return Err(
@@ -2055,6 +2087,12 @@ where
                     // same-height extension. A competing batch can include
                     // the same signed user; check its canonical metadata too.
                     let mut included = own_effects_applied;
+                    if included {
+                        observation.basis = SourceBasis::AppliedOutboundGroup;
+                        observation.block = evidence
+                            .and_then(|settled| settled.endpoint)
+                            .map(|endpoint| block_ref(endpoint.number, endpoint.hash));
+                    }
                     if !included {
                         if let Some((_, metadata)) = rollup
                             .l2_provider
@@ -2067,6 +2105,11 @@ where
                                     .sealed_header(metadata.block_number)
                                     .map_err(|error| error.to_string())?
                                     .is_some_and(|header| header.hash() == metadata.block_hash);
+                            if included {
+                                observation.basis = SourceBasis::CanonicalInclusion;
+                                observation.block =
+                                    Some(block_ref(metadata.block_number, metadata.block_hash));
+                            }
                         }
                         if !included {
                             included = rollup
@@ -2079,6 +2122,10 @@ where
                                             == tx.hash
                                     })
                                 });
+                            if included {
+                                observation.basis = SourceBasis::CanonicalInclusion;
+                                observation.block = Some(block_ref(endpoint.number, endpoint.hash));
+                            }
                         }
                     }
                     SourceOutcome::Terminal(if included {
@@ -2089,6 +2136,9 @@ where
                 }
             };
             outcomes.push(outcome);
+            if let Some(observations) = source_observations.as_mut() {
+                observations.push(observation);
+            }
         }
         drop(l2_state);
 
@@ -2150,12 +2200,19 @@ where
                     ..
                 }
             );
-        rollup.held_pool.resolve_attempt(
+        rollup.held_pool.resolve_attempt_with_evidence(
             attempt.id,
             at,
             &outcomes,
             charge,
             MAX_BUNDLE_ATTEMPTS,
+            Some(crate::held_pool::ReconciliationFacts {
+                endpoint,
+                post: post.receipt.as_ref(),
+                applied: evidence,
+                inbound: &inbound,
+                sources: source_observations.as_deref(),
+            }),
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
         if self.inner.max_user_txs_per_bundle.is_none()

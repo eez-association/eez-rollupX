@@ -395,7 +395,13 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
                     })
                 })
             });
-            Ok((admitted && ready && dispatched).then_some(events))
+            let terminal = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Terminal { member, outcome: eez_telemetry::schema::Outcome::Committed, assurance: eez_telemetry::schema::Assurance::NodeReconciled, reconciliation: Some(_), .. }
+                        if member.source.transaction_hash.0 == hash.0)
+                })
+            });
+            Ok((admitted && ready && dispatched && terminal).then_some(events))
         }
     })
     .await;
@@ -404,7 +410,7 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
         Err(error) => {
             let retained = directory.keep();
             panic!(
-                "both native admission/readiness/attempt paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
+                "both native admission/readiness/attempt/terminal paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
                 retained.display()
             );
         }
@@ -516,6 +522,142 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
                     assert_eq!((member.admission.epoch, member.admission.sequence), *id);
                 }
             }
+        }
+        let terminals = events
+            .iter()
+            .filter_map(|(_, event)| match event {
+                Event::Terminal {
+                    member,
+                    attempt: Some(attempt),
+                    outcome,
+                    assurance,
+                    reconciliation: Some(reconciliation),
+                    anchor,
+                    elapsed_ns,
+                } if member.source.transaction_hash.0 == hash.0 => Some((
+                    member,
+                    attempt,
+                    outcome,
+                    assurance,
+                    reconciliation,
+                    anchor,
+                    elapsed_ns,
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "one native terminal decision per admitted canary source"
+        );
+        let (member, attempt, outcome, assurance, reconciliation, anchor, elapsed_ns) =
+            terminals[0];
+        assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+        assert_eq!(*outcome, eez_telemetry::schema::Outcome::Committed);
+        assert_eq!(*assurance, eez_telemetry::schema::Assurance::NodeReconciled);
+        assert!(
+            anchor.is_none(),
+            "receipt references belong to the reconciliation, not the scan watermark"
+        );
+        let parent = events
+            .iter()
+            .find(|((epoch, sequence), _)| {
+                *epoch == reconciliation.epoch && *sequence == reconciliation.sequence
+            })
+            .expect("linked reconciliation event");
+        let Event::Reconciled {
+            attempt: reconciled_attempt,
+            anchor: scan,
+            details: Some(details),
+        } = &parent.1
+        else {
+            panic!("complete reconciliation evidence")
+        };
+        assert_eq!(attempt, reconciled_attempt);
+        assert_eq!(details.l1.genesis_hash.0, expected_genesis[0].0);
+        assert_eq!(details.l2.genesis_hash.0, expected_genesis[1].0);
+        assert_eq!(details.l2.rollup_id, world.cfg.rollup_id);
+        let resolution = details
+            .resolutions
+            .iter()
+            .find(|resolution| resolution.member == *member)
+            .expect("exact admission resolution");
+        assert_eq!(resolution.owner, *attempt);
+        assert_eq!(resolution.elapsed_ns, *elapsed_ns);
+        assert_eq!(
+            resolution.disposition,
+            eez_telemetry::schema::ResolutionDisposition::Terminal {
+                outcome: *outcome,
+                assurance: *assurance
+            }
+        );
+        let canonical_scan = eez_testkit::block_number_and_hash_at(
+            &world.l1_rpc(),
+            alloy_rpc_types_eth::BlockNumberOrTag::Number(scan.number),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(canonical_scan.1.0, scan.hash.0);
+        let post = l1
+            .get_transaction_receipt(TxHash::from(attempt.post_batch_hash.0))
+            .await
+            .unwrap()
+            .expect("canonical post receipt");
+        let captured_post = details.post.expect("native post receipt reference");
+        assert_eq!(post.block_hash.unwrap().0, captured_post.block.hash.0);
+        assert_eq!(post.block_number.unwrap(), captured_post.block.number);
+        assert_eq!(
+            post.transaction_index.unwrap(),
+            captured_post.transaction_index
+        );
+        assert_eq!(post.status(), captured_post.success);
+        let applied = details.applied.as_ref().expect("applied settlement");
+        assert_eq!(applied.transaction_hash, attempt.post_batch_hash);
+        assert_eq!(applied.block, captured_post.block);
+        assert_eq!(applied.transaction_index, captured_post.transaction_index);
+        let applied_endpoint = applied.endpoint.expect("applied L2 endpoint");
+        let canonical_endpoint = eez_testkit::block_number_and_hash_at(
+            &world.l2_rpc(),
+            alloy_rpc_types_eth::BlockNumberOrTag::Number(applied_endpoint.number),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(canonical_endpoint.1.0, applied_endpoint.hash.0);
+        let observation = details
+            .sources
+            .iter()
+            .find(|source| source.transaction_hash.0 == hash.0)
+            .expect("exact source observation");
+        assert_eq!(observation.direction, source.direction);
+        let source_rpc = if index == 0 {
+            world.l1_rpc()
+        } else {
+            world.l2_rpc()
+        };
+        let source_provider = ProviderBuilder::new().connect_http(source_rpc.parse().unwrap());
+        let source_receipt = source_provider
+            .get_transaction_receipt(hash)
+            .await
+            .unwrap()
+            .expect("canonical source receipt");
+        let source_block = observation
+            .source_block
+            .expect("source inclusion or applied group anchor");
+        assert_eq!(source_receipt.block_hash.unwrap().0, source_block.hash.0);
+        assert_eq!(source_receipt.block_number.unwrap(), source_block.number);
+        if index == 0 {
+            let captured_source = observation.receipt.expect("inbound source receipt");
+            assert_eq!(captured_source.block, source_block);
+            assert_eq!(
+                captured_source.transaction_index,
+                source_receipt.transaction_index.unwrap()
+            );
+            assert_eq!(captured_source.success, source_receipt.status());
+            assert!(captured_source.transaction_index > captured_post.transaction_index);
+            assert!(!observation.consumed.is_empty());
         }
         let mut included_dispatches = 0;
         for (_, event) in &events {

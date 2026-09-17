@@ -113,6 +113,13 @@ pub struct PreparationId {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationId {
+    pub epoch: Epoch,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PreparationOutcome {
     Prepared,
@@ -221,6 +228,104 @@ pub enum Assurance {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiptRef {
+    pub block: BlockRef,
+    pub transaction_index: u64,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceBasis {
+    Receipt,
+    AppliedOutboundGroup,
+    CanonicalInclusion,
+    Nonce,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciledSource {
+    pub transaction_hash: Hash32,
+    pub direction: Direction,
+    pub observed_nonce: u64,
+    pub source_block: Option<BlockRef>,
+    pub basis: SourceBasis,
+    pub receipt: Option<ReceiptRef>,
+    pub consumed: Vec<SourceAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AppliedSettlement {
+    pub block: BlockRef,
+    pub transaction_hash: Hash32,
+    pub transaction_index: u64,
+    pub calldata_hash: Hash32,
+    pub effects_start: u64,
+    pub effects_end: u64,
+    pub anchor_applied: bool,
+    pub endpoint: Option<BlockRef>,
+    pub outbound_groups_start: u64,
+    pub outbound_groups_end: u64,
+    pub inbound_effects_start: u64,
+    pub inbound_effects_end: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResolutionDisposition {
+    Requeued {
+        charged_attempts: u32,
+    },
+    Terminal {
+        outcome: Outcome,
+        assurance: Assurance,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceResolution {
+    pub member: Member,
+    pub owner: AttemptId,
+    pub disposition: ResolutionDisposition,
+    pub elapsed_ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChainScope {
+    pub chain_id: u64,
+    pub genesis_hash: Hash32,
+    pub rollup_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReorgDetails {
+    pub l1: ChainScope,
+    pub l2: ChainScope,
+    pub old_head_hash: Hash32,
+    pub new_head: BlockRef,
+}
+
+/// Snapshot and inclusion references remain distinct. This is complete native
+/// decision evidence; independent canonical validation belongs to the observer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationDetails {
+    pub l1: ChainScope,
+    pub l2: ChainScope,
+    pub l2_snapshot: Option<BlockRef>,
+    pub post: Option<ReceiptRef>,
+    pub applied: Option<AppliedSettlement>,
+    pub sources: Vec<ReconciledSource>,
+    pub resolutions: Vec<SourceResolution>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReason {
     Nonce,
@@ -282,6 +387,8 @@ pub enum Event {
     Reconciled {
         attempt: AttemptId,
         anchor: BlockRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<Box<ReconciliationDetails>>,
     },
     Terminal {
         member: Member,
@@ -290,9 +397,13 @@ pub enum Event {
         assurance: Assurance,
         anchor: Option<BlockRef>,
         elapsed_ns: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reconciliation: Option<ReconciliationId>,
     },
     Reorg {
         ancestor: BlockRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<ReorgDetails>,
     },
 }
 

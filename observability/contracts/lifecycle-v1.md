@@ -7,7 +7,7 @@ for quarantine and operator-directed replay, never interpret them as success.
 The transport and [PostgreSQL ingestion](lifecycle-ingestion.md) have isolated
 recovery tests; [native capture](native-lifecycle.md) covers admission,
 replacement, readiness, attempt membership, repricing and dispatch observations.
-It also captures post-batch preparation before signed-attempt registration.
+It also captures post-batch preparation, native reconciliation partitions and exact watcher reorg observations.
 Remaining transition wiring and canonical outcome validation remain
 open in the [requirement ledger](../requirements.md).
 
@@ -60,9 +60,9 @@ events are a counted encoding loss; they never change the protocol decision.
 | `attempt_repriced` | Explicit previous/replacement attempt identities; preserves native generation while a never-dispatched candidate's signed hash changes |
 | `dispatched` | Attempt identity, target block number/timestamp, signed transaction hash and nonce. The future target has no known block hash. Each event is a dispatch occurrence, not another paid transaction |
 | `submission_observed` | Exact attempt with prepared/included/excluded/uncertain node observation. Included carries a reported receipt block; excluded preserves the existing charge-attempt flag. Neither establishes canonical source completion. |
-| `reconciled` | Attempt identity and canonical L1 anchor reported by the node |
-| `terminal` | Admission/source member, optional attempt, native outcome, claimed assurance, optional anchor, local monotonic elapsed nanoseconds |
-| `reorg` | Last common L1 ancestor observed by the node |
+| `reconciled` | Attempt identity, checked L1 snapshot and optional exact reconciliation details. Its epoch/sequence identifies the reconciliation |
+| `terminal` | Admission/source member, optional attempt, native outcome, claimed assurance, optional anchor, monotonic elapsed nanoseconds and optional parent reconciliation ID |
+| `reorg` | Last common L1 ancestor; optional details include L1/L2 scope, old head hash and new head |
 
 Sources contain chain ID, genesis hash, rollup ID, transaction hash and direction.
 Native attempts keep their existing `generation` and `post_batch_hash`; telemetry
@@ -84,6 +84,25 @@ not that native ownership was registered or a transaction was sent. Candidate
 memberships in the start and signed-attempt events must agree before a consumer
 claims that relationship. A missing start or finish is incomplete history.
 
+`reconciled.details` includes both chain/genesis/rollup scopes, the checked L2
+snapshot, optional exact post receipt, optional applied settlement, source
+observations in attempt order and the actual changed admission resolutions.
+A receipt includes block number/hash, transaction position and success. Applied
+settlement includes its actual post/calldata identity, effect interval, anchor
+application flag, selected group/effect intervals and exact applied endpoint.
+Source observations preserve transaction/direction, pinned nonce, optional source
+block, the native basis (`receipt`, `applied_outbound_group`, `canonical_inclusion`
+or `nonce`), optional receipt and consumed action coordinates.
+
+Resolutions carry the actual owner attempt, admission/source member, monotonic
+elapsed time and either `requeued` with charged episode count or `terminal` with
+outcome/claimed assurance. Cascaded users can retain an older owner than the
+resolved parent attempt. A terminal child's optional `reconciliation` links this
+parent; it repeats the same resolution and must not be counted again. An absent
+parent or contradictory fields leave the stronger claim unresolved. The parent
+scan watermark never substitutes for an inclusion reference. See the
+[native contract](native-lifecycle.md) for bounds and capture semantics.
+
 The v1 extension preserves decoding of existing events: omitted `details` remains
 unknown and serialization omits it when absent. New variants and populated details
 require an updated observer. Upgrade the observer before enabling the new native
@@ -93,7 +112,8 @@ They require explicit operator-directed replay. SQL transport storage needs no
 migration for these additive payload fields. Lack of details never becomes an
 empty verified manifest.
 The same additive compatibility rule applies to optional preparation IDs and the
-new preparation variants; older strict readers quarantine unfamiliar fields/events.
+new preparation variants, reconciliation details/links and reorg details; older
+strict readers quarantine unfamiliar fields/events.
 
 Outcomes preserve `committed`, `source_reverted`,
 `source_completed_with_missing_effects`, `source_completed`, `source_nonce_spent`,

@@ -30,7 +30,7 @@ pub(crate) struct PreparationFacts {
 }
 
 impl Lifecycle {
-    fn attempt_id(&self, id: AttemptId) -> schema::AttemptId {
+    pub(super) fn attempt_id(&self, id: AttemptId) -> schema::AttemptId {
         schema::AttemptId {
             epoch: self.publisher.epoch(),
             generation: id.generation,
@@ -38,7 +38,7 @@ impl Lifecycle {
         }
     }
 
-    fn pending(&self, ticket: Ticket, event: Result<Event, CaptureFailure>) -> Pending {
+    pub(super) fn pending(&self, ticket: Ticket, event: Result<Event, CaptureFailure>) -> Pending {
         let (events, failure) = match event {
             Ok(event) => (vec![(ticket, event)], None),
             Err(reason) => (Vec::new(), Some((ticket, reason))),

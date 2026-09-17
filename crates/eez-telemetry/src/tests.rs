@@ -27,6 +27,7 @@ fn config(directory: &std::path::Path) -> SpoolConfig {
 
 fn event() -> Event {
     Event::Reorg {
+        details: None,
         ancestor: BlockRef {
             number: 12,
             hash: Hash32([7; 32]),
@@ -415,4 +416,39 @@ fn liveness_probe_does_not_follow_a_replaced_epoch_lock() {
     )
     .unwrap();
     assert_eq!(probe_epoch(directory.path(), epoch), Liveness::Unknown);
+}
+
+#[test]
+fn legacy_reconciliation_terminal_and_reorg_decode_without_new_evidence() {
+    let attempt = serde_json::json!({"epoch":"01".repeat(16),"generation":1,"post_batch_hash":"02".repeat(32)});
+    let anchor = serde_json::json!({"number":100,"hash":"03".repeat(32)});
+    let reconciled: Event = serde_json::from_value(
+        serde_json::json!({"event":"reconciled","attempt":attempt,"anchor":anchor}),
+    )
+    .unwrap();
+    assert!(matches!(
+        reconciled,
+        Event::Reconciled { details: None, .. }
+    ));
+    let reorg: Event =
+        serde_json::from_value(serde_json::json!({"event":"reorg","ancestor":anchor})).unwrap();
+    assert!(matches!(reorg, Event::Reorg { details: None, .. }));
+    let terminal: Event=serde_json::from_value(serde_json::json!({
+        "event":"terminal", "member":{
+            "source":{"chain_id":1,"genesis_hash":"04".repeat(32),"rollup_id":0,"transaction_hash":"05".repeat(32),"direction":"inbound"},
+            "admission":{"epoch":"01".repeat(16),"sequence":1}
+        },"attempt":attempt,"outcome":"committed","assurance":"unknown","anchor":anchor,"elapsed_ns":123
+    })).unwrap();
+    assert!(matches!(
+        terminal,
+        Event::Terminal {
+            reconciliation: None,
+            ..
+        }
+    ));
+    for event in [reconciled, reorg, terminal] {
+        let value = serde_json::to_value(event).unwrap();
+        assert!(value.get("details").is_none());
+        assert!(value.get("reconciliation").is_none());
+    }
 }

@@ -32,6 +32,7 @@ mod lifecycle;
 mod status;
 pub(crate) use lifecycle::PreparationFacts;
 pub use lifecycle::{ChainIdentity, LifecycleContext};
+pub(crate) use lifecycle::{ReconciliationFacts, SourceObservation};
 pub use status::SourceState;
 
 /// A cross-chain transaction held between submission and Sync-slot
@@ -400,30 +401,21 @@ impl HeldPool {
         attempt_limit: u32,
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if !is_canonical() {
-            return Err("canonical settlement changed before ownership transfer".into());
-        }
-        let gaps = state
-            .ledger
-            .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
-        state.apply_resolution(&gaps);
-        let ledger = Arc::clone(&state.ledger);
-        state.telemetry.observe_completion(&ledger);
-        Ok(())
+        self.resolve_attempt_with_evidence(
+            id,
+            as_of,
+            outcomes,
+            charge_attempt,
+            attempt_limit,
+            None,
+            is_canonical,
+        )
     }
 
     /// Reopen canonical outcomes and restore their reservations atomically
     /// with respect to ingress and a concurrent reconciliation decision.
     pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        state.ledger.invalidate_after_l1(ancestor)?;
-        state.telemetry.invalidate_after_l1(ancestor);
-        if let Some(lifecycle) = &mut state.lifecycle {
-            lifecycle.invalidate_readiness();
-        }
-        state.apply_resolution(&[]);
-        Ok(())
+        self.invalidate_after_l1_capture(ancestor, |_| None)
     }
 
     /// A recomposition-time nonce check is not finalized settlement evidence.

@@ -11,7 +11,9 @@ use std::{collections::HashMap, time::Instant};
 
 mod attempts;
 mod preparation;
+mod reconciliation;
 pub(crate) use attempts::PreparationFacts;
+pub(crate) use reconciliation::{ReconciliationFacts, SourceObservation};
 const MAX_MEMBERS: usize = 4096;
 
 #[derive(Debug, Clone, Copy)]
@@ -135,6 +137,7 @@ impl Lifecycle {
             pending.events.push((
                 ticket,
                 Event::Terminal {
+                    reconciliation: None,
                     member: old.member,
                     attempt: None,
                     outcome: Outcome::Replaced,
@@ -254,6 +257,7 @@ impl HeldPool {
 
 #[cfg(test)]
 mod tests {
+    mod reconciliation;
     use super::*;
     use crate::HeldTx;
     use alloy_primitives::Address;

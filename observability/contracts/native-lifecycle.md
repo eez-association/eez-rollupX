@@ -19,6 +19,10 @@ specifications and the existing rollup configuration.
 | `attempt_repriced` | Successful replacement of a never-dispatched candidate with a different signed hash | Explicit previous/replacement IDs in the same native generation. An unchanged hash/byte pair emits no variant; failed replacements emit nothing. |
 | `dispatched` | Accepted existing ledger dispatch callback before the network request | Actual resolved target number/timestamp, signed hash and nonce. Rejected duplicate or superseded callbacks emit nothing. |
 | `submission_observed` | Accepted exact-attempt callback | Included, excluded, uncertain or prepared observation; inclusion alone does not resolve source ownership. |
+| `reconciled` | Existing ledger resolution plus pool reservation update succeeds under the pool owner | Complete bounded decision snapshot: chain scopes, checked L1/L2 snapshots, actual post/source receipt positions, applied replay coordinates and changed admission dispositions. Native evidence remains an observer-validation input. |
+| `terminal` linked to reconciliation | Actual changed ledger owner becomes terminal | Same admission/owner/outcome/assurance/monotonic duration as its parent resolution; canonical outcomes are native claims, and exhausted retries/nonce-gap cascades remain local policy. |
+| `reorg` | Successful pool invalidation from an exact L1 watcher reorg observation | Actual common ancestor hash, old head hash and new head, scoped to both chain identities. Height-only finality-audit invalidation cannot manufacture this event. |
+
 
 Legacy policy emits readiness observations after successful group validation
 without changing its existing queue RPC fields. Enabled-policy capture shares the
@@ -93,12 +97,45 @@ truncates membership, fabricates an admission or rejects the protocol attempt.
 The transport also enforces its independent 8 MiB encoded payload cap. These are
 telemetry limits, not new transaction or protocol admission limits.
 
-Canonical reconciliation, other terminal
-dispositions, exact reorg events, native queue/stage metrics and trace context
-remain separate capture work. The transport schema names some of those events
+Direct pool eviction/recovery dispositions for users outside this reconciliation
+partition, native queue/stage metrics and trace context remain separate capture work. The transport schema names some of those events
 but their presence in the schema is not evidence that the runtime emits them.
 The observer's [transport history](lifecycle-ingestion.md) likewise does not
 establish protocol-success assurance without the required anchor/membership checks.
+
+Reconciliation snapshots compare active ledger ownership before resolution with
+its state after the existing pool reservation update. Duplicate, superseded,
+stale-generation and failed partitions emit no decision. The complete before/after
+copy is bounded to 4,096 candidate users (including queued/composing users that
+may be affected by a nonce-gap cascade). Receipt-consumption coordinates have a
+separate aggregate 32,768 limit. Missing or oversized evidence discards the whole
+parent capture with a counted gap, while protocol ownership still advances.
+Resolution ordering follows the ledger's ordered transaction-hash map.
+
+The outer reconciliation `anchor` is the checked L1 scan watermark, **not** a
+posting receipt inclusion. The details retain actual source and post block
+hash/number/index/status, the applied L2 endpoint (which can differ from the
+proposed Sync hash after partial application), replay selection, observed source
+nonces and consumption coordinates. Outbound observations distinguish an applied
+own group from source inclusion through a competing canonical batch. No extra
+RPC calls or blob decoding are performed for capture.
+
+A terminal child references the parent record's epoch/sequence and repeats its
+exact disposition and elapsed duration. Its `anchor` is null; the exact evidence
+is in the parent. The observer must validate parent/child agreement and membership,
+then independently check the available chain anchors before presenting the
+`node_reconciled` assurance. Neither row is another paid receipt or a separate
+canonical completion to sum. A missing/conflicting parent leaves the child claim
+unresolved. Local policy decisions never advance canonical terminal progress.
+The compatible height-only `resolve_attempt` API captures canonical claims as
+`unknown` when no receipt/endpoint facts were supplied.
+
+Reorg capture follows the same pool-to-ledger lock order and publishes after
+release. Reopening an owner preserves its admission and attempt; a later
+reconciliation emits new evidence without rewriting the old event. Repeated
+watcher observations remain observations, not counters of unique reorganizations.
+The observer must retract affected anchor-dependent views using its independently
+validated canonical chain, including when a native reorg event was lost.
 
 Component regressions exercise accepted versus duplicate/rejected admission,
 replacement links, both chain identities, readiness deduplication, same-height
@@ -118,3 +155,12 @@ Preparation regressions cover unchanged success/error results, source membership
 signed-attempt linkage, unpolled drop, cancellation, panic unwinding, disabled/closed
 capture and membership gaps. Expanded native canaries require each registered
 attempt to reference one matching start and one successful finish.
+
+Reconciliation regressions cover distinct snapshot/inclusion blocks, same-block
+receipt positions, applied versus proposed hashes, duplicate resolution, stale
+snapshots, failed atomic partitions, retry charging, retained-owner nonce-gap
+cascades, capture loss, concurrent callbacks and same-height reorg reopening.
+Native bidirectional canaries additionally require a linked terminal/parent pair
+and compare its source/post receipts and applied L2 endpoint with RPC. Current
+execution results are recorded in the validation evidence; the assertions alone
+do not establish a passed process gate.
