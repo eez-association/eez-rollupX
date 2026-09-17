@@ -1,6 +1,8 @@
 # Native attempt capture validation
 
 This extends the [admission/readiness checkpoint](native-lifecycle.md).
+Capture code is `85a178f`, with the policy-fixture correction in `bd0e03b`.
+Exact tested artifact identities are in [native-attempts.json](native-attempts.json).
 The [capture contract](../contracts/native-lifecycle.md) defines implemented events;
 the [requirement ledger](../requirements.md) retains the remaining full-goal gates.
 No production deployment or performance acceptance is claimed.
@@ -19,11 +21,12 @@ No production deployment or performance acceptance is claimed.
 The final Composer suite passed **214 tests**, none ignored or filtered, including
 four new attempt regressions. Telemetry's default-feature suite passed **18 tests**.
 The initial check reported one obsolete import after rerouting submission through
-the pool; it was removed. Workspace all-target Clippy then passed with `-D warnings`.
-Later process-test additions still require the final lint/check recorded below.
+the pool; it was removed. Final observer and all-feature telemetry suites passed
+**27** and **21** tests respectively; empty binary/doc-test targets are not counted
+as additional coverage. Final workspace all-target Clippy passed with `-D warnings`.
 
-Process validation is in progress. The existing source-built bidirectional suite
-now selects three cases: lifecycle with legacy policy, lifecycle with enabled
+Process validation passed **3 tests**, none ignored and **21 filtered out**:
+lifecycle with legacy policy, lifecycle with enabled
 settlement policy, and the unchanged disabled baseline. Both enabled cases retain
 the original semantic/proof assertions and require each source to have a complete
 prepared membership leading to a dispatched candidate, directly or through its
@@ -37,7 +40,7 @@ but the new policy fixture exited before RPC startup: it omitted the required
 the incompatible speculative-depth guard with `EEZ_MAX_SPECULATIVE_DEPTH=0`, as
 the existing policy fixtures do. No runtime configuration validation was weakened.
 That first run is not evidence for enabled-policy execution; the identical
-three-test selection is being repeated with the complete fixture configuration.
+three-test selection passed after completing the fixture configuration.
 Its log is preserved at `/tmp/eez-observability-attempt-e2e-first-failure.log`,
 with executable hashes at `/tmp/eez-observability-attempt-first-binaries.sha256`
 and process logs under `artifacts/native-observability/2026-09-17-attempts/logs`.
@@ -55,8 +58,14 @@ cargo +1.94.0 test --locked --offline -p eez-node-e2e \
 
 Local logs are `/tmp/eez-observability-attempt-tests-final.log`,
 `/tmp/eez-observability-attempt-clippy.log` and
-`/tmp/eez-observability-attempt-e2e.log`. Bulk logs and fixture datadirs are not
+`/tmp/eez-observability-attempt-e2e-fixed.log`. Bulk logs and fixture datadirs are not
 committed and have no promised retention.
+Final observer/telemetry and lint logs are
+`/tmp/eez-observability-attempt-observer-tests.log` and
+`/tmp/eez-observability-attempt-clippy-final.log`. Formatting, diff whitespace,
+edited local links and the shell example were checked. No dependency versions,
+database migrations, storage queries or protocol pins changed. The full database
+process suite and release/Kurtosis matrix were not rerun for this checkpoint.
 
 Pre-signing preparation IDs, canonical reconciliation/terminal evidence, observer
 outcome validation, SQL attribution, native stage/queue metrics and traces remain

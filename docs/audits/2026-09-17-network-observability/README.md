@@ -94,10 +94,46 @@ documentation links resolved and the reproduction shell example passed `bash -n`
 
 ## Remaining evidence
 
+At the admission/readiness checkpoint, attempt membership, repricing/dispatch links,
+exact reconciliation evidence and other terminal dispositions remained open.
 Admission/readiness history does not establish canonical cross-chain completion.
-Attempt membership, repricing/dispatch links, exact reconciliation evidence and
-other terminal dispositions still need native capture and observer validation.
 Native metrics/traces, remaining dashboards/alerts, fault and performance drills,
 clean restore and production rollout/baseline remain open in the requirement ledger.
 The release-artifact build and full CI/Kurtosis matrix were not run at this
 checkpoint. The recorded artifacts are local source builds, not promoted images.
+
+## Attempt capture follow-up
+
+`85a178f` adds complete native attempt membership, parallel manifest coordinates,
+candidate sizing/nonce facts, explicit repricing links and submission observations.
+It keeps native ownership in the existing ledger and emits after successful
+mutations. Bounded capture failure produces a counted gap while protocol ownership
+continues. Preparation identities and canonical reconciliation/terminal evidence
+remain open; submission inclusion alone is not source completion.
+
+The corrected test source is `bd0e03b`. Its three source-built canaries passed:
+lifecycle under legacy policy, lifecycle under enabled policy, and the disabled
+baseline. All retain the original bidirectional semantic/proof assertions; enabled
+cases additionally validate membership-to-dispatch links and nonce/blob count
+against mined transactions. 21 other cross-chain tests were filtered out.
+The [attempt report](../../../observability/validation/native-attempts.json) records
+exact binary hashes, selection and logs, with the
+[requirement mapping](../../../observability/validation/native-attempts.md).
+
+The first selection passed legacy capture and the baseline but the new policy
+fixture failed before RPC startup because a required setting was absent. `bd0e03b`
+adds the existing policy fixture's general-trigger/speculative-depth settings;
+runtime validation was preserved. First-failure logs and executable hashes are
+retained and identified in the report. The corrected selection passed all three
+tests; this is a fixture correction, not a retry-only flaky pass.
+
+214 Composer tests, 27 observer tests and 21 all-feature telemetry tests passed.
+Final workspace all-target Clippy and formatting/document checks passed. No
+dependency versions or protocol pins changed. Database transport storage remains
+schema 4; optional details preserve old payload decoding, while old strict readers
+quarantine new fields/variants. Upgrade the observer before enabling the writer.
+Existing quarantined records require explicit replay, not automatic reinterpretation.
+
+The database process suite and full release/CI/Kurtosis matrix were not rerun for
+this capture checkpoint. The result does not establish canonical outcome
+validation, independent follower replay, production overhead or rollout acceptance.
