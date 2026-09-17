@@ -133,3 +133,8 @@ These exclusions are in the proposal; they do not defer any row above.
   retain exact root/consumption occurrences with bounded capture, immutable claims,
   explicit conflicts and canonical retraction. This does not complete R19 outcome
   materialization or source/companion attribution.
+
+- R11/R19 association prerequisite: [posting verification tables](contracts/posting-rollups.md)
+  retain the declared rollups in exact wire order, separately from receipt success.
+  A successful later batch replaces queues only for its listed rollups; an unrelated
+  post is not automatically a boundary for a source's applied effects.

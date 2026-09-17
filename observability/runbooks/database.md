@@ -124,3 +124,11 @@ enables bounded log backfill from those receipts automatically; no rescan or cur
 reset is required. Inspect `eez.protocol_log_coverage` and the protocol-log health
 metrics before relying on stronger evidence. See the
 [protocol-log contract](../contracts/protocol-logs.md) for limits and conflict policy.
+
+Schema 7 retains each decoded post's verification-rollup table. Follow the same
+explicit upgrade order; older executables refuse the new schema. Existing decoded
+rows keep their method/fee facts and acquire the missing list through the bounded
+method-repair lane. Inspect nullable `verification_rollups` and repair errors in
+`eez.posting_rollup_evidence`: an unknown list is not an empty list. The
+[verification-table contract](../contracts/posting-rollups.md) explains immutable
+binding, full-width IDs and the separate receipt-success requirement.

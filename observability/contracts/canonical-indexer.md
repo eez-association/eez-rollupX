@@ -197,3 +197,10 @@ The independent [protocol-log collector](protocol-logs.md) checks fixed executio
 and consumption events for stored L1 receipts. Missing or contradictory log sets
 have separate coverage and cannot change billing facts. This supplies evidence
 for later outcome checks; it does not itself verify lifecycle outcomes.
+
+## Posting verification tables (schema 7)
+
+[Verification-table evidence](posting-rollups.md) preserves exactly which rollups
+a decoded post lists, bound to its calldata hash. The bounded method-repair lane
+fills missing historical lists while retaining method classifications and fees.
+This provides a same-block association prerequisite, not an applied-outcome claim.

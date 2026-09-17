@@ -345,7 +345,11 @@ pub(super) async fn save_posting(
     analysis: &crate::posting::Analysis,
 ) -> Result<(), Error> {
     let digest = analysis.calldata_hash.as_ref().map(B256::as_slice);
-    client.execute("INSERT INTO eez.posting_analysis(chain_instance_id,transaction_hash,state,calldata_hash,observed_at) VALUES($1,$2::bytea,$3,$4::bytea,now()) ON CONFLICT(chain_instance_id,transaction_hash) DO UPDATE SET state=EXCLUDED.state,calldata_hash=EXCLUDED.calldata_hash,observed_at=EXCLUDED.observed_at,collection_error=NULL", &[&id,&hash.as_slice(),&analysis.state,&digest]).bounded().await?;
+    let rollups = analysis
+        .verification_rollups
+        .as_ref()
+        .map(|ids| ids.iter().map(u64::to_string).collect::<Vec<_>>());
+    client.execute("INSERT INTO eez.posting_analysis(chain_instance_id,transaction_hash,state,calldata_hash,observed_at,verification_rollups) VALUES($1,$2::bytea,$3,$4::bytea,now(),$5::text[]::eez.u64[]) ON CONFLICT(chain_instance_id,transaction_hash) DO UPDATE SET state=EXCLUDED.state,calldata_hash=EXCLUDED.calldata_hash,observed_at=EXCLUDED.observed_at,verification_rollups=EXCLUDED.verification_rollups,collection_error=NULL", &[&id,&hash.as_slice(),&analysis.state,&digest,&rollups]).bounded().await?;
     Ok(())
 }
 
@@ -353,7 +357,7 @@ pub(super) async fn pending_posting(
     db: &Database,
     id: i64,
 ) -> Result<Vec<(B256, Option<Vec<u8>>)>, Error> {
-    db.client.query("SELECT a.transaction_hash::bytea,t.method_selector FROM eez.posting_analysis a JOIN eez.transactions t ON t.chain_instance_id=a.chain_instance_id AND t.hash=a.transaction_hash WHERE a.chain_instance_id=$1 AND a.state='pending' ORDER BY a.last_attempt_at,a.transaction_hash LIMIT 4", &[&id]).bounded().await?.iter().map(|row| {
+    db.client.query("SELECT a.transaction_hash::bytea,t.method_selector FROM eez.posting_analysis a JOIN eez.transactions t ON t.chain_instance_id=a.chain_instance_id AND t.hash=a.transaction_hash WHERE a.chain_instance_id=$1 AND (a.state='pending' OR (a.state='decoded' AND a.verification_rollups IS NULL)) ORDER BY a.last_attempt_at,a.transaction_hash LIMIT 4", &[&id]).bounded().await?.iter().map(|row| {
         let hash = B256::from(<[u8;32]>::try_from(row.try_get::<_,Vec<u8>>(0)?).map_err(|_| Error::Inconsistent)?);
         Ok((hash,row.try_get(1)?))
     }).collect()
@@ -365,7 +369,12 @@ pub(super) async fn touch_posting_attempt(db: &Database, id: i64, hash: B256) ->
 pub(super) async fn repair_posting(db: &Database, id: i64, tx: &Transaction) -> Result<(), Error> {
     let recipient = tx.recipient.as_ref().map(|address| address.as_slice());
     let digest = tx.posting.calldata_hash.as_ref().map(B256::as_slice);
-    let changed = db.client.execute("UPDATE eez.posting_analysis a SET state=$8,calldata_hash=$9::bytea,observed_at=now(),collection_error=NULL FROM eez.transactions t WHERE a.chain_instance_id=$1 AND a.transaction_hash=$2::bytea AND t.chain_instance_id=$1 AND t.hash=$2::bytea AND t.sender=$3::bytea AND t.recipient IS NOT DISTINCT FROM $4::bytea AND t.nonce=$5::text::numeric AND t.transaction_type=$6 AND t.method_selector IS NOT DISTINCT FROM $7", &[&id,&tx.hash.as_slice(),&tx.sender.as_slice(),&recipient,&tx.nonce.to_string(),&tx.kind,&tx.selector,&tx.posting.state,&digest]).bounded().await?;
+    let rollups = tx
+        .posting
+        .verification_rollups
+        .as_ref()
+        .map(|ids| ids.iter().map(u64::to_string).collect::<Vec<_>>());
+    let changed = db.client.execute("UPDATE eez.posting_analysis a SET state=$8,calldata_hash=$9::bytea,verification_rollups=$10::text[]::eez.u64[],observed_at=now(),collection_error=NULL FROM eez.transactions t WHERE a.chain_instance_id=$1 AND a.transaction_hash=$2::bytea AND t.chain_instance_id=$1 AND t.hash=$2::bytea AND t.sender=$3::bytea AND t.recipient IS NOT DISTINCT FROM $4::bytea AND t.nonce=$5::text::numeric AND t.transaction_type=$6 AND t.method_selector IS NOT DISTINCT FROM $7", &[&id,&tx.hash.as_slice(),&tx.sender.as_slice(),&recipient,&tx.nonce.to_string(),&tx.kind,&tx.selector,&tx.posting.state,&digest,&rollups]).bounded().await?;
     if changed != 1 {
         return Err(Error::ConflictingFact);
     }
@@ -378,6 +387,6 @@ pub(super) async fn posting_failure(
     hash: B256,
     error: Error,
 ) -> Result<(), Error> {
-    db.client.execute("UPDATE eez.posting_analysis SET collection_error=$3 WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea AND state='pending'", &[&id,&hash.as_slice(),&error.label()]).bounded().await?;
+    db.client.execute("UPDATE eez.posting_analysis SET collection_error=$3 WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea AND (state='pending' OR (state='decoded' AND verification_rollups IS NULL))", &[&id,&hash.as_slice(),&error.label()]).bounded().await?;
     Ok(())
 }

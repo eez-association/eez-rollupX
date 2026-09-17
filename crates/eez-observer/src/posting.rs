@@ -11,6 +11,8 @@ pub(crate) const SELECTOR: [u8; 4] = postAndVerifyBatchCall::SELECTOR;
 pub(crate) struct Analysis {
     pub state: &'static str,
     pub calldata_hash: Option<B256>,
+    /// Declared verification table, in wire order. Decoding is not execution.
+    pub verification_rollups: Option<Vec<u64>>,
 }
 
 impl Analysis {
@@ -18,6 +20,7 @@ impl Analysis {
         Self {
             state: "other",
             calldata_hash: None,
+            verification_rollups: None,
         }
     }
 
@@ -25,6 +28,7 @@ impl Analysis {
         if !calldata.starts_with(&SELECTOR) {
             return Self::other();
         }
+        let mut verification_rollups = None;
         let state = if calldata.len() < 36 {
             "invalid"
         } else if !abi_budget::admits(&calldata[4..]) {
@@ -37,6 +41,13 @@ impl Analysis {
                     // cloning the decoded batch or storing any calldata.
                     let token = <EvmBatch as SolType>::tokenize(&batch);
                     if alloy_sol_types::abi::encode_sequence(&(token,)) == calldata[4..] {
+                        verification_rollups = Some(
+                            batch
+                                .rollupIdsWithProofSystems
+                                .iter()
+                                .map(|row| row.rollupId)
+                                .collect(),
+                        );
                         "decoded"
                     } else {
                         "unverified"
@@ -47,6 +58,7 @@ impl Analysis {
         Self {
             state,
             calldata_hash: Some(keccak256(calldata)),
+            verification_rollups,
         }
     }
 }
@@ -68,6 +80,7 @@ mod tests {
         );
         let analysis = Analysis::parse(&calldata);
         assert_eq!(analysis.state, "decoded");
+        assert_eq!(analysis.verification_rollups, Some(vec![]));
         assert_eq!(analysis.calldata_hash, Some(keccak256(&calldata)));
         assert_eq!(
             Analysis::parse(&calldata[..calldata.len() - 1]).state,
@@ -149,6 +162,42 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(Analysis::parse(&encode_postbatch(&batch)).state, "decoded");
+    }
+
+    #[test]
+    fn verification_table_keeps_wire_order_and_full_width_ids() {
+        use eez_protocol::abi::RollupIdWithProofSystemsSol;
+        for ids in [vec![1, 7, u64::MAX], vec![7, 1, 7], vec![]] {
+            let batch = EvmBatch {
+                rollupIdsWithProofSystems: ids
+                    .iter()
+                    .map(|&rollup_id| RollupIdWithProofSystemsSol {
+                        rollupId: rollup_id,
+                        proofSystemIndexes: vec![0],
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            let calldata = encode_postbatch(&batch);
+            let analysis = Analysis::parse(&calldata);
+            assert_eq!(analysis.state, "decoded");
+            assert_eq!(analysis.verification_rollups, Some(ids.clone()));
+            assert_eq!(analysis.calldata_hash, Some(keccak256(&calldata)));
+            if ids == [1, 7, u64::MAX] {
+                assert_eq!(
+                    format!("0x{}", alloy_primitives::hex::encode(&calldata)),
+                    include_str!(
+                        "../../../observability/tests/fixtures/multi-rollup-post-calldata.hex"
+                    )
+                    .trim()
+                );
+            }
+            let mut trailing = calldata;
+            trailing.extend_from_slice(&[0; 32]);
+            assert_eq!(Analysis::parse(&trailing).verification_rollups, None);
+        }
+        assert_eq!(Analysis::parse(&SELECTOR).verification_rollups, None);
+        assert_eq!(Analysis::other().verification_rollups, None);
     }
 
     #[test]

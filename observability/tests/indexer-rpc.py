@@ -8,12 +8,14 @@ import time
 
 
 POST_CALL = pathlib.Path('/post-calldata.hex').read_text().strip()
+MULTI_ROLLUP_CALL = pathlib.Path('/multi-rollup-post-calldata.hex').read_text().strip()
 
 def digest(number):
     return '0x' + f'{number:064x}'
 
 
 class RPC(http.server.BaseHTTPRequestHandler):
+    multi_rollup = False
     protocol_logs = 'missing'
     phase = 'missing'
     finalize = False
@@ -59,7 +61,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 if 'source_receipt_delay_ms' in request:
                     assert type(request['source_receipt_delay_ms']) is int and 0 <= request['source_receipt_delay_ms'] <= 2000
                     type(self).source_receipt_delay_ms = request['source_receipt_delay_ms']
-                for field in ('post_success','source_unselected','source_receipt_missing','source_cost_missing','source_hash_mismatch','source_receipt_failure'):
+                for field in ('multi_rollup','post_success','source_unselected','source_receipt_missing','source_cost_missing','source_hash_mismatch','source_receipt_failure'):
                     if field in request:
                         assert type(request[field]) is bool
                         setattr(type(self), field, request[field])
@@ -68,6 +70,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
         chain = 1 if self.path == '/l1' else 2
         with self.lock:
             protocol_logs = self.protocol_logs
+            post_call = MULTI_ROLLUP_CALL if self.multi_rollup else POST_CALL
             phase, finalize = self.phase, self.finalize
             correlation, post_success, post_count = self.correlation, self.post_success, self.post_count
             source_unselected, source_receipt_missing = self.source_unselected, self.source_receipt_missing
@@ -79,7 +82,7 @@ class RPC(http.server.BaseHTTPRequestHandler):
         def transaction(height, index=0):
             return {'hash': digest(chain * 1000 + height + index), 'blockHash': block_hash(height),
                 'blockNumber': hex(height), 'transactionIndex': hex(index), 'from': '0x' + ('cc' if source_unselected and chain == 1 and height == 2 else 'aa') * 20,
-                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1 + index), 'type': '0x3' if height == 2 else '0x2', 'input': (POST_CALL[:10] if phase == 'invalid_post' else POST_CALL + '00' * 32 if phase == 'unverified_post' else POST_CALL) if height == 2 else '0x12345678'}
+                'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1 + index), 'type': '0x3' if height == 2 else '0x2', 'input': (post_call[:10] if phase == 'invalid_post' else post_call + '00' * 32 if phase == 'unverified_post' else post_call) if height == 2 else '0x12345678'}
         method, params = request['method'], request['params']
         if method == 'eth_chainId':
             value = hex(chain + (10 if phase == 'wrong_identity' else 0))

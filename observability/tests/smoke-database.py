@@ -66,7 +66,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '6'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '7'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -82,6 +82,7 @@ def main():
     parser.add_argument('--previous-binary', type=pathlib.Path, help='Optional saved schema-v1 observer for upgrade compatibility checks')
     parser.add_argument('--previous-v4-binary', type=pathlib.Path, help='Optional saved schema-v4 observer for populated lifecycle upgrade checks')
     parser.add_argument('--previous-v5-binary', type=pathlib.Path, help='Optional saved schema-v5 observer for receipt/log upgrade checks')
+    parser.add_argument('--previous-v6-binary', type=pathlib.Path, help='Optional saved schema-v6 observer for verification-table upgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -103,7 +104,8 @@ def main():
         run(['docker', 'run', '--detach', '--rm', '--name', rpc_name, '--network', network, '--network-alias', 'rpc',
              '--user', '65534', '--memory', '128m', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
              '--mount', f'type=bind,src={ROOT / "tests/indexer-rpc.py"},dst=/rpc.py,readonly',
-             '--mount', f'type=bind,src={ROOT / "tests/fixtures/empty-post-calldata.hex"},dst=/post-calldata.hex,readonly', fixture_image, 'python3', '/rpc.py'])
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/empty-post-calldata.hex"},dst=/post-calldata.hex,readonly',
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/multi-rollup-post-calldata.hex"},dst=/multi-rollup-post-calldata.hex,readonly', fixture_image, 'python3', '/rpc.py'])
         run(['docker', 'run', '--detach', '--rm', '--name', name, '--network', network, '--user', 'postgres',
              '--memory', '512m', '--cpus', '1', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
              '--env', 'POSTGRES_PASSWORD=fixture-only', '--env', 'POSTGRES_DB=eez_observer',
@@ -149,8 +151,27 @@ def main():
             run(['docker','cp',str(args.previous_v5_binary.resolve()),name + ':/observer-v5'])
             run(['docker','exec',name,'/observer-v5','migrate','--database-config','/tmp/database.json'])
             assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '5'
+        if args.previous_v6_binary:
+            run(['docker','cp',str(args.previous_v6_binary.resolve()),name + ':/observer-v6'])
+            run(['docker','exec',name,'/observer-v6','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '6'
+            run(psql, data="ALTER ROLE eez_observer_writer LOGIN PASSWORD 'fixture-writer';")
+            prior_writer = {**config, 'connection_string': config['connection_string'].replace('user=postgres','user=eez_observer_writer').replace('password=fixture-only','password=fixture-writer')}
+            run(['docker','exec','-i',name,'sh','-c','umask 077; cat > /tmp/prior-writer.json'],data=json.dumps(prior_writer))
+            prior_endpoint = lambda chain: {'url':f'http://rpc:9000/l{chain}','chain_id':chain,'genesis_hash':'0x'+f'{chain*100:064x}'}
+            prior_index = {'exporter':{'l1':prior_endpoint(1),'l2':prior_endpoint(2)},'environment':'fixture','deployment':'rollup-upgrade','rollup_id':1,'database_config':'/tmp/prior-writer.json','l1':{'bootstrap':1,'wallets':['0x'+'aa'*20],'contracts':['0x'+'bb'*20]},'l2':{'bootstrap':1,'include_all_transactions':True},'batch_blocks':16}
+            run(['docker','exec','-i',name,'sh','-c','umask 077; cat > /tmp/prior-index.json'],data=json.dumps(prior_index))
+            prior_control = ['docker','exec','-i',rpc_name,'python3','-c',"import urllib.request,sys; urllib.request.urlopen(urllib.request.Request('http://localhost:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"]
+            run(prior_control,data=json.dumps({'phase':'healthy','multi_rollup':True}))
+            run(['docker','exec',name,'/observer-v6','indexer','--config','/tmp/prior-index.json','--once'])
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.posting_analysis a JOIN eez.chain_instances c ON c.id=a.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='rollup-upgrade' AND a.state='decoded';").stdout.strip() == '2'
+            run(prior_control,data=json.dumps({'multi_rollup':False}))
+
         run(migrate)
         run(migrate)
+        if args.previous_v6_binary:
+            assert run(['docker','exec',name,'/observer-v6','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
+            report['checks'].append('saved_v6_binary_upgrade_preserves_receipts_and_refuses_downgrade')
         if args.previous_v5_binary:
             assert run(['docker','exec',name,'/observer-v5','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
             report['checks'].append('saved_v5_binary_upgrade_preserves_receipts_and_refuses_downgrade')
@@ -197,6 +218,27 @@ def main():
         write_index(index_config)
         report['checks'].append('unmigrated_schema_refused_without_implicit_ddl_in_both_runtime_modes')
         control(phase='healthy')
+        if args.previous_v6_binary:
+            rollup_upgrade = copy.deepcopy(index_config)
+            rollup_upgrade['deployment'] = 'rollup-upgrade'
+            rollup_upgrade['l1']['contracts'] = ['0x'+'bb'*20]
+            write_index(rollup_upgrade)
+            def upgrade_rollups(expression):
+                return scalar(f"SELECT {expression} FROM eez.posting_rollup_evidence p JOIN eez.chain_instances c ON c.id=p.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='rollup-upgrade';")
+            assert upgrade_rollups('verification_rollups IS NULL') == 't'
+            control(phase='transaction_unavailable',multi_rollup=True)
+            run(index)
+            assert upgrade_rollups("verification_rollups IS NULL AND rollup_collection_error IS NOT NULL") == 't'
+            assert upgrade_rollups('execution_paid+blob_paid') == '591216'
+            control(phase='healthy')
+            run(index)
+            assert upgrade_rollups('verification_rollups::text') == '{1,7,18446744073709551615}'
+            assert upgrade_rollups('execution_paid+blob_paid') == '591216'
+            run(index)
+            assert upgrade_rollups('count(*)') == '1'
+            control(multi_rollup=False)
+            write_index(index_config)
+            report['checks'].append('saved_v6_decoded_verification_table_backfill_preserves_fees_handles_unavailable_calldata_and_restarts')
         upgrade = copy.deepcopy(index_config)
         upgrade['deployment'] = 'upgrade'
         upgrade['l1']['bootstrap'] = 2
@@ -837,6 +879,35 @@ def main():
         run(index)
         assert budget_count() == '0:33'
         report['checks'].append('protocol_logs_bounded_pass_restarts_resume_persisted_backlog_and_disabled_config_has_no_claims')
+        # New calls retain the exact verification table, including u64 values
+        # above JavaScript's integer range. Receipt status remains independent.
+        rollups_config = copy.deepcopy(index_config)
+        rollups_config['deployment'] = 'posting-rollups'
+        rollups_config['l1']['contracts'] = ['0x'+'bb'*20]
+        write_index(rollups_config)
+        control(phase='healthy',post_count=1,post_success=False,multi_rollup=True)
+        run(index)
+        def rollup_scalar(expression,table='posting_rollup_evidence'):
+            return scalar(f"SELECT {expression} FROM eez.{table} p JOIN eez.chain_instances c ON c.id=p.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting-rollups';")
+        assert rollup_scalar('verification_rollups::text') == '{1,7,18446744073709551615}'
+        assert rollup_scalar('success') == 'f'
+        assert rollup_scalar("string_agg(verification_rollup_id::text,',' ORDER BY table_position)",'posting_rollup_membership') == '1,7,18446744073709551615'
+        run(index)
+        assert rollup_scalar('count(*)') == '1'
+        denied_rollups = run(psql + ['-Atq'],data="UPDATE eez.posting_analysis SET verification_rollups=ARRAY['9'::eez.u64] WHERE verification_rollups IS NOT NULL;",check=False)
+        assert denied_rollups.returncode != 0 and 'decoded transaction classification is immutable' in denied_rollups.stdout
+        control(phase='fork')
+        run(index)
+        assert rollup_scalar('count(*)') == '1'
+        assert rollup_scalar('execution_paid+blob_paid') == '657216'
+        assert rollup_scalar('verification_rollups::text') == '{1,7,18446744073709551615}'
+        control(multi_rollup=False)
+        assert int(scalar("SELECT count(*) FROM eez.posting_analysis WHERE state='pending';")) > 0
+        for invalid_rollups in ("ARRAY[NULL]::eez.u64[]", "ARRAY[ARRAY[1,2],ARRAY[3,4]]::eez.u64[]", "ARRAY['18446744073709551616']::eez.u64[]"):
+            rejected = run(psql + ['-Atq'],data=f"BEGIN; UPDATE eez.posting_analysis SET state='decoded',calldata_hash=decode(repeat('ab',32),'hex'),observed_at=now(),verification_rollups={invalid_rollups} WHERE state='pending'; ROLLBACK;",check=False)
+            assert rejected.returncode != 0 and ('check constraint' in rejected.stdout or 'multidimensional arrays' in rejected.stdout), rejected.stdout
+        assert scalar("SELECT p.verification_rollups::text FROM eez.posting_rollup_evidence p JOIN eez.chain_instances c ON c.id=p.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='posting';") == '{}'
+        report['checks'].append('posting_verification_rollups_wire_order_full_u64_revert_separation_immutable_binding_restart_and_reorg')
         control(protocol_logs='missing')
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
