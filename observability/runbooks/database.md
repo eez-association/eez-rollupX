@@ -132,3 +132,11 @@ method-repair lane. Inspect nullable `verification_rollups` and repair errors in
 `eez.posting_rollup_evidence`: an unknown list is not an empty list. The
 [verification-table contract](../contracts/posting-rollups.md) explains immutable
 binding, full-width IDs and the separate receipt-success requirement.
+
+Schema 8 adds admission-history and local-policy evidence views. Existing events
+and fees are preserved; use the same explicit upgrade order. Query
+`eez.lifecycle_admission_status` to distinguish recorded local dispositions from
+unresolved histories and positively observed process exits. These statuses do not
+assert queue membership or cross-chain success. Inspect
+`eez.lifecycle_local_policy_evidence` for missing admissions, inconsistent ownership
+or incomplete parent decisions; see the [status contract](../contracts/admission-status.md).

@@ -7,9 +7,11 @@ provisioned dashboards cover network and collection health. See the
 and tracing. The optional canonical receipt indexer and PostgreSQL profile are
 now implemented, along with durable lifecycle transport and native lifecycle
 capture. [Source-receipt enrichment](contracts/source-receipts.md) has isolated SQL/RPC
-validation. [Protocol-log evidence](contracts/protocol-logs.md) adds separate gap/conflict coverage; companion attribution,
-canonical outcome validation and tracing remain in progress. The backend has been exercised with local
-fixtures; it has not been connected to the live Chiado deployment.
+validation. [Protocol-log evidence](contracts/protocol-logs.md) adds separate gap
+and conflict coverage. [Admission-history views](contracts/admission-status.md)
+distinguish local dispositions and unresolved process exits. Companion attribution,
+canonical outcome validation and tracing remain in progress. The backend has been
+exercised with local fixtures; it has not been connected to the live Chiado deployment.
 
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
 and [fault-test evidence](validation/lifecycle-transport.md). Native admission, preparation, attempt, reconciliation, reorg and local-disposition

@@ -66,7 +66,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '7'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '8'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -186,6 +186,9 @@ def main():
             report['checks'].append('saved_v1_binary_migrates_original_schema_and_refuses_current_downgrade')
         report['checks'].append('explicit_forward_upgrade_preserves_costs_and_marks_old_method_evidence_unknown')
         report['checks'].append('explicit_migration_and_idempotent_reapplication')
+        admission_result = run(psql,data=(ROOT / 'tests/admission-status.sql').read_text())
+        assert 'admission status invariants passed' in admission_result.stdout
+        report['checks'].append('admission_status_restart_local_policy_parent_validation_conflicts_and_readmission_identity')
         run(psql, data="ALTER ROLE eez_observer_writer LOGIN PASSWORD 'fixture-writer';")
         writer = {**config, 'connection_string': config['connection_string'].replace('user=postgres', 'user=eez_observer_writer').replace('password=fixture-only', 'password=fixture-writer')}
         run(['docker', 'exec', '-i', name, 'sh', '-c', 'umask 077; cat > /tmp/writer.json'], data=json.dumps(writer))

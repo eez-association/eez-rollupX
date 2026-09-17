@@ -145,3 +145,8 @@ Schema 5 adds a separate [source-receipt worker](source-receipts.md) driven by
 complete admissions. It leaves this transport contract intact and does not turn
 transport completion into a canonical EEZ outcome. Existing nonempty lifecycle
 configuration enables that worker after the explicit database upgrade.
+
+Schema 8 adds [admission and local-policy views](admission-status.md) over currently
+complete events. Those views retain separate readmission identities and explicit
+unknown/restart history; they do not promote canonical terminal claims merely
+because transport completed.

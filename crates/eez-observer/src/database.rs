@@ -8,7 +8,7 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 const MIGRATIONS: &[(i32, &str)] = &[
     (
         1,
@@ -37,6 +37,10 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (
         7,
         include_str!("../../../observability/migrations/0007-posting-rollups.sql"),
+    ),
+    (
+        8,
+        include_str!("../../../observability/migrations/0008-admission-status.sql"),
     ),
 ];
 const CONFIG_LIMIT: u64 = 64 * 1024;
