@@ -729,7 +729,7 @@ fn recover_settlement_failure(
             }
             !cascade
         });
-        for tx in pool.evict_chain_at_or_above(sender, direction, nonce) {
+        for tx in pool.evict_exhausted_chain_at_or_above(sender, direction, nonce) {
             event!(
                 name: "eez.composer.recovery.nonce_chain_evicted",
                 Level::ERROR,
@@ -1038,7 +1038,7 @@ fn requeue_unprocessed(
         cascade_evicted.push(tx.clone());
         false
     });
-    pool.release_in_flight_batch(&cascade_evicted);
+    pool.release_nonce_gap_batch(&cascade_evicted);
     pool.requeue_composing(requeue);
 }
 

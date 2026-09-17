@@ -10,6 +10,8 @@ use eez_telemetry::{
 use std::{collections::HashMap, time::Instant};
 
 mod attempts;
+mod local;
+pub(super) use local::LocalCapture;
 mod preparation;
 mod reconciliation;
 pub(crate) use attempts::PreparationFacts;
@@ -257,6 +259,7 @@ impl HeldPool {
 
 #[cfg(test)]
 mod tests {
+    mod local;
     mod reconciliation;
     use super::*;
     use crate::HeldTx;
@@ -449,7 +452,15 @@ mod tests {
         pool.record_blocked(&held, eez_protocol::SourceCondition::Fee, changed);
         assert!(writer.shutdown(Duration::from_secs(8)));
         let events = events(dir.path());
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 5);
+        assert!(matches!(
+            events[4].1,
+            Event::Terminal {
+                outcome: Outcome::PoolDiscarded,
+                assurance: Assurance::LocalPolicy,
+                ..
+            }
+        ));
         assert_eq!(
             events
                 .iter()
@@ -457,13 +468,14 @@ mod tests {
                 .count(),
             1
         );
-        for (_, event) in events.iter().skip(1) {
+        for (_, event) in events.iter().skip(1).take(3) {
             let Event::Readiness { member, .. } = event else {
                 panic!("readiness observation")
             };
             assert_eq!(member.admission.sequence, events[0].0);
         }
     }
+
     #[test]
     fn legacy_readiness_capture_preserves_rpc_compatibility() {
         let (dir, pool, _, writer) = setup();

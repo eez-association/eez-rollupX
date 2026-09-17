@@ -12,6 +12,8 @@ specifications and the existing rollup configuration.
 | --- | --- | --- |
 | `admitted` | Successful `HeldPool::push_contiguous`, under its existing mutex, after nonce/replacement validation and queue mutation | A distinct admission ID is the captured epoch/sequence. Active duplicates, rejected submissions and internal requeues do not create admissions. |
 | `terminal: replaced` | The same successful queued replacement | Explicit local-policy disposition of the prior retained admission; no canonical anchor or settlement claim. |
+| Other local `terminal` | Actual reservation removal by direct eviction, in-flight release or recovery conflict | Local-policy disposition only; captures metadata before retention prunes it, then publishes only for removed users without an unresolved canonical owner. |
+
 | `readiness` | Accepted pool readiness/blocking observation, while the hash remains queued or in flight | Exact evaluated L1/L2 block references and a bounded reason. Identical source/reason observations are deduplicated; changed source hashes are distinct observations. |
 | `preparation_started` | First poll of rich, minimal or historical post-batch preparation | Distinct epoch/sequence preparation identity, proposed L2 endpoint and complete candidate admission membership before a signed attempt exists. |
 | `preparation_finished` | Return or destruction of that preparation future | One typed outcome and monotonic elapsed duration; successful preparation does not imply ledger registration or dispatch. |
@@ -97,8 +99,7 @@ truncates membership, fabricates an admission or rejects the protocol attempt.
 The transport also enforces its independent 8 MiB encoded payload cap. These are
 telemetry limits, not new transaction or protocol admission limits.
 
-Direct pool eviction/recovery dispositions for users outside this reconciliation
-partition, native queue/stage metrics and trace context remain separate capture work. The transport schema names some of those events
+Native queue/stage metrics and trace context remain separate capture work. The transport schema names some of those events
 but their presence in the schema is not evidence that the runtime emits them.
 The observer's [transport history](lifecycle-ingestion.md) likewise does not
 establish protocol-success assurance without the required anchor/membership checks.
@@ -129,6 +130,31 @@ canonical completion to sum. A missing/conflicting parent leaves the child claim
 unresolved. Local policy decisions never advance canonical terminal progress.
 The compatible height-only `resolve_attempt` API captures canonical claims as
 `unknown` when no receipt/endpoint facts were supplied.
+
+Direct local disposal snapshots only selected active candidates. After the existing
+pool mutation and ownership update, it emits for reservations actually removed.
+Queued users passed to an in-flight-only release are unchanged; duplicate releases
+emit no second terminal. An unresolved canonical ledger owner remains unresolved,
+even if an ordinary operation removes its pool reservation. Snapshotting metadata
+before retention allows pre-submission removals to retain their admission ID.
+Readmission later allocates a fresh ID; it does not reopen a locally disposed ID.
+
+Generic eviction reports `pool_discarded` for the root and `nonce_gap` for the
+removed suffix. The existing settlement-failure path explicitly supplies
+`attempts_exhausted` for its root. Generic release and recovery conflicts report
+`pool_discarded`; the known unprocessed nonce suffix reports `nonce_gap`. When
+reconciliation exhausts a submitted root, it captures any removed unsubmitted
+suffix separately as local policy. Ledger-owned users remain exclusively in the
+parent reconciliation partition, preventing duplicate terminal events.
+These diagnostic distinctions do not rewrite the ledger's local-discard reason
+or alter selection, retry counters, return values or recovery ordering.
+
+Local candidate snapshots deduplicate hashes and enforce the same 4,096-user
+limit. Exceeding it loses the whole snapshot with a counted gap while eviction
+continues normally. Missing admission context likewise produces a capture gap.
+The before/after snapshots and sequence allocation share the existing pool lock;
+serialization and nonblocking publication happen after release. No persistent
+terminal flag or second ownership journal is introduced.
 
 Reorg capture follows the same pool-to-ledger lock order and publishes after
 release. Reopening an owner preserves its admission and attempt; a later
@@ -164,3 +190,9 @@ Native bidirectional canaries additionally require a linked terminal/parent pair
 and compare its source/post receipts and applied L2 endpoint with RPC. Current
 execution results are recorded in the validation evidence; the assertions alone
 do not establish a passed process gate.
+
+Local-disposition regressions cover queued/in-flight and direction boundaries,
+repeated release, explicit readmission, unresolved canonical owners, recovery
+conflicts, unsubmitted nonce-gap victims, missing context, closed writers and the
+snapshot limit. The reconciliation process report predates this local slice;
+local-disposition process checks must be recorded separately.

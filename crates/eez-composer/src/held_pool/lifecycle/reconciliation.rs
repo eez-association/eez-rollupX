@@ -381,6 +381,33 @@ impl HeldPool {
         let gaps = state
             .ledger
             .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
+        let local_capture = if gaps.is_empty() {
+            None
+        } else {
+            super::LocalCapture::before_unsubmitted(
+                &state,
+                state
+                    .txs
+                    .iter()
+                    .map(|tx| (tx.hash, tx.sender, tx.direction, tx.nonce))
+                    .chain(
+                        state
+                            .in_flight
+                            .iter()
+                            .map(|(hash, (sender, direction, nonce))| {
+                                (*hash, *sender, *direction, *nonce)
+                            }),
+                    )
+                    .filter(|(_, sender, direction, nonce)| {
+                        gaps.iter().any(|gap| {
+                            gap.sender == *sender
+                                && gap.direction == *direction
+                                && *nonce >= gap.nonce
+                        })
+                    })
+                    .map(|(hash, _, _, _)| (hash, schema::Outcome::NonceGap)),
+            )
+        };
         state.apply_resolution(&gaps);
         let pending = before.and_then(|before| {
             state.lifecycle.as_ref().and_then(|lifecycle| {
@@ -389,10 +416,14 @@ impl HeldPool {
                     .read(|ledger| lifecycle.reconciled(ledger, id, as_of, before, facts))
             })
         });
+        let local_pending = local_capture.map(|capture| capture.after(&state));
         let ledger = std::sync::Arc::clone(&state.ledger);
         state.telemetry.observe_completion(&ledger);
         drop(state);
         if let Some(pending) = pending {
+            pending.publish();
+        }
+        if let Some(pending) = local_pending {
             pending.publish();
         }
         Ok(())
