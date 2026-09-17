@@ -150,8 +150,16 @@ async fn assert_value_set_attribution(
 /// verification of the posted proof's recomputed public-input hash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn minimal_bidirectional_cross_chain_smoke() {
+    let _ = bidirectional_cross_chain_smoke(&[]).await;
+}
+
+async fn bidirectional_cross_chain_smoke(
+    extra_env: &[(&'static str, String)],
+) -> (eez_testkit::CrossChainWorld, [TxHash; 2]) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = setup_cross_chain().await.unwrap();
+    let w = eez_testkit::setup_cross_chain_with_env(extra_env)
+        .await
+        .unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
 
@@ -234,6 +242,166 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+    (w, [inbound, outbound])
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lifecycle_bidirectional_cross_chain_smoke() {
+    use eez_telemetry::{
+        reader,
+        schema::{Direction, Event, Record},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let spool = directory.path().join("lifecycle");
+    let configuration = directory.path().join("telemetry.json");
+    let config = serde_json::json!({
+        "identity": {
+            "environment": "devnet",
+            "deployment": "native-capture",
+            "service": "eez-composer",
+            "instance": "fixture"
+        },
+        "lifecycle": {"directory": spool}
+    });
+    std::fs::write(&configuration, serde_json::to_vec(&config).unwrap()).unwrap();
+    let (world, hashes) = bidirectional_cross_chain_smoke(&[(
+        "EEZ_TELEMETRY_CONFIG",
+        configuration.to_string_lossy().into_owned(),
+    )])
+    .await;
+    let genesis = alloy_rpc_types_eth::BlockNumberOrTag::Number(0);
+    let expected_genesis = [
+        eez_testkit::block_number_and_hash_at(&world.l1_rpc(), genesis)
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+        eez_testkit::block_number_and_hash_at(&world.l2_rpc(), genesis)
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+    ];
+    let observed = wait_for(SETTLE_TIMEOUT, || {
+        let spool = spool.clone();
+        async move {
+            let mut chunks = std::collections::BTreeMap::new();
+            for id in reader::inventory(&spool)? {
+                let mut offset = 0;
+                for _ in 0..8 {
+                    let batch = reader::read_segment(&spool, id, offset)?;
+                    let Record::Header {
+                        identity,
+                        epoch,
+                        segment_id,
+                        ..
+                    } = serde_json::from_slice(&batch.header)?
+                    else {
+                        panic!("native lifecycle header required")
+                    };
+                    assert_eq!(identity.deployment, "native-capture");
+                    assert_eq!(identity.service, "eez-composer");
+                    assert_eq!(epoch, id.epoch);
+                    assert_eq!(segment_id, id.segment);
+                    for line in batch.lines {
+                        if let Record::Data(record) = serde_json::from_slice(&line.bytes)? {
+                            chunks
+                                .entry((record.epoch, record.sequence))
+                                .or_insert_with(Vec::new)
+                                .push(record);
+                        }
+                    }
+                    offset = batch.next_offset;
+                    if batch.snapshot_complete {
+                        break;
+                    }
+                }
+            }
+            let mut events = Vec::new();
+            for (id, chunks) in chunks {
+                let present = chunks
+                    .iter()
+                    .map(|chunk| chunk.chunk_index)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len();
+                if present < chunks[0].chunk_count as usize {
+                    continue;
+                }
+                let payload = eez_telemetry::assemble(&chunks).map_err(anyhow::Error::msg)?;
+                events.push((id, payload.event));
+            }
+            let admitted = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Admitted { source, .. }
+                        if source.transaction_hash.0 == hash.0)
+                })
+            });
+            let ready = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Readiness { member, blocked: None, .. }
+                        if member.source.transaction_hash.0 == hash.0)
+                })
+            });
+            Ok((admitted && ready).then_some(events))
+        }
+    })
+    .await;
+    let events = match observed {
+        Ok(events) => events,
+        Err(error) => {
+            let retained = directory.keep();
+            panic!(
+                "both native admission/readiness paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
+                retained.display()
+            );
+        }
+    };
+    for (index, hash) in hashes.into_iter().enumerate() {
+        let matches = events
+            .iter()
+            .filter(|(_, event)| {
+                matches!(event, Event::Admitted { source, .. }
+                    if source.transaction_hash.0 == hash.0)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "one admitted identity per accepted source"
+        );
+        let (id, Event::Admitted { source, .. }) = matches[0] else {
+            unreachable!()
+        };
+        assert_eq!(source.genesis_hash.0, expected_genesis[index].0);
+        assert_eq!(
+            source.chain_id,
+            if index == 0 {
+                DEV_CHAIN_ID
+            } else {
+                world.l2_chain_id
+            }
+        );
+        assert_eq!(
+            source.rollup_id,
+            if index == 0 { 0 } else { world.cfg.rollup_id }
+        );
+        assert_eq!(
+            source.direction,
+            if index == 0 {
+                Direction::Inbound
+            } else {
+                Direction::Outbound
+            }
+        );
+        for (_, event) in &events {
+            if let Event::Readiness { member, .. } = event
+                && member.source.transaction_hash.0 == hash.0
+            {
+                assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+            }
+        }
+    }
+    world.node.assert_no_divergence_failure_logs();
 }
 
 async fn assert_real_signer_rejects(mutation: ProverMutation, tampered_input: &str) {

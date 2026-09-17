@@ -64,6 +64,10 @@ fn direction_name(direction: Direction) -> &'static str {
 }
 
 impl QueueTelemetry {
+    pub(super) fn has_admission(&self, hash: &B256) -> bool {
+        self.admitted_at.contains_key(hash)
+    }
+
     pub fn admitted(&mut self, hash: B256) {
         self.admitted_at.insert(hash, now_ms());
         self.ready.remove(&hash);
@@ -153,6 +157,12 @@ impl HeldPool {
                 ?owner, reason = %condition, l1_hash = %source.l1.hash, l2_hash = %source.l2.hash,
                 "source deferred; independent senders remain eligible");
         }
+        let reason = match &condition {
+            SourceCondition::Nonce { .. } => eez_telemetry::schema::BlockReason::Nonce,
+            SourceCondition::Fee => eez_telemetry::schema::BlockReason::Fee,
+            SourceCondition::Balance { .. } => eez_telemetry::schema::BlockReason::Balance,
+            SourceCondition::Escrow { .. } => eez_telemetry::schema::BlockReason::Escrow,
+        };
         state.telemetry.ready.remove(&tx.hash);
         state.telemetry.blocked.insert(
             key,
@@ -164,6 +174,11 @@ impl HeldPool {
                 observed_at_ms: now_ms(),
             },
         );
+        let pending = state.capture_readiness(tx.hash, source, Some(reason));
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
     }
 
     pub(crate) fn record_ready(&self, tx: &HeldTx, source: SourceState) {
@@ -185,6 +200,11 @@ impl HeldPool {
             .entry(tx.hash)
             .or_insert_with(|| (source, now_ms()))
             .0 = source;
+        let pending = state.capture_readiness(tx.hash, source, None);
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
     }
 
     /// Aggregate view; no envelopes or queue-sized RPC response.

@@ -92,10 +92,11 @@ The transport supports bounded waits when a caller has a known remaining budget.
 WP5 must connect tracing flush to the actual shutdown budget before its acceptance
 gate; no tracing export is enabled by this configuration yet.
 
-This startup foundation emits process/segment metadata. It does not yet emit
-native queue/attempt transitions or authorize any protocol-success claims.
+This startup foundation emits process/segment metadata. Composer also wires
+[admission, replacement and readiness capture](native-lifecycle.md) before ingress.
+It does not authorize protocol-success claims.
 [PostgreSQL transport ingestion](lifecycle-ingestion.md) is implemented with
-isolated recovery evidence. Native transitions, trace export, service-log adapters,
+isolated recovery evidence. Remaining attempt/outcome transitions, trace export, service-log adapters,
 devnet neutrality/performance evidence and live rollout remain in the requirement
 ledger. The initialization change does not modify consensus encoding, signed
 inputs, ingress decisions, attempt ownership or the signer's request drain.

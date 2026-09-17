@@ -28,7 +28,9 @@ use tracing::{Level, event};
 use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
+mod lifecycle;
 mod status;
+pub use lifecycle::{ChainIdentity, LifecycleContext};
 pub use status::SourceState;
 
 /// A cross-chain transaction held between submission and Sync-slot
@@ -118,6 +120,7 @@ struct PoolState {
     /// Resume discovery at a source chain, never at one of its higher nonces.
     scan_from: Option<(Address, Direction)>,
     telemetry: status::QueueTelemetry,
+    lifecycle: Option<lifecycle::Lifecycle>,
 }
 
 impl PoolState {
@@ -223,6 +226,9 @@ impl PoolState {
             .expect("cannot preserve recovered transaction ownership; held pool stopped");
         self.telemetry
             .retain(&self.by_hash, &self.in_flight, &self.ledger);
+        if let Some(lifecycle) = &mut self.lifecycle {
+            lifecycle.retain(&self.telemetry);
+        }
     }
     fn recover_batch(&mut self, recovered: Vec<HeldTx>) {
         let mut replacement_roots: HashMap<(Address, Direction), (u64, TxHash)> = HashMap::new();
@@ -371,6 +377,7 @@ impl HeldPool {
             in_flight: HashMap::new(),
             scan_from: None,
             telemetry: Default::default(),
+            lifecycle: None,
         };
         Self {
             state: Mutex::new(state),
@@ -411,6 +418,9 @@ impl HeldPool {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.ledger.invalidate_after_l1(ancestor)?;
         state.telemetry.invalidate_after_l1(ancestor);
+        if let Some(lifecycle) = &mut state.lifecycle {
+            lifecycle.invalidate_readiness();
+        }
         state.apply_resolution(&[]);
         Ok(())
     }
@@ -504,7 +514,14 @@ impl HeldPool {
                 previous_hash = %previous_hash, replacement_hash = %replacement_hash,
                 sender = %target_sender, nonce = target_nonce, direction = ?target_direction,
                 "accepted queued transaction replacement");
+            let pending = state.lifecycle.as_mut().map(|lifecycle| {
+                lifecycle.admitted(replacement_hash, target_direction, Some(previous_hash))
+            });
             state.update_recovery_ownership();
+            drop(state);
+            if let Some(pending) = pending {
+                pending.publish();
+            }
             return Ok(());
         }
 
@@ -531,8 +548,17 @@ impl HeldPool {
         }
         state.retire_local_owner_for_admission(tx.hash)?;
         state.telemetry.admitted(tx.hash);
+        let hash = tx.hash;
         state.insert_queued(tx, false);
+        let pending = state
+            .lifecycle
+            .as_mut()
+            .map(|lifecycle| lifecycle.admitted(hash, target_direction, None));
         state.update_recovery_ownership();
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
         Ok(())
     }
 

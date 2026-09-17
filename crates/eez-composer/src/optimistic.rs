@@ -655,6 +655,111 @@ mod tests {
     }
 
     #[test]
+    fn explicit_readmission_links_retained_admission_without_replaying_old_ownership() {
+        use eez_telemetry::{
+            SpoolConfig, Writer,
+            schema::{Event, Identity, Record},
+        };
+        let directory = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o750))
+                .unwrap();
+        }
+        let config: SpoolConfig =
+            serde_json::from_value(serde_json::json!({"directory":directory.path()})).unwrap();
+        let (publisher, writer) = Writer::start(
+            Identity {
+                environment: "devnet".into(),
+                deployment: "readmission".into(),
+                service: "eez-composer".into(),
+                instance: "fixture".into(),
+            },
+            config,
+        )
+        .unwrap();
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let chain = crate::held_pool::ChainIdentity {
+            chain_id: 1,
+            genesis_hash: B256::repeat_byte(1),
+        };
+        pool.enable_lifecycle(
+            publisher.clone(),
+            crate::held_pool::LifecycleContext {
+                l1: chain,
+                l2: chain,
+                rollup_id: 1,
+            },
+        )
+        .unwrap();
+        let original = tx(1, 0);
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        let attempt = begin(&ledger, pool.pop_all(), 10);
+        pool.resolve_attempt(
+            attempt,
+            block(100),
+            &[SourceOutcome::Retryable { source_nonce: 0 }],
+            true,
+            1,
+            || true,
+        )
+        .unwrap();
+        let before = publisher.stats().last_assigned_sequence;
+        pool.record_ready(
+            &original,
+            crate::held_pool::SourceState {
+                l1: block(100),
+                l2: block(10),
+            },
+        );
+        assert_eq!(
+            publisher.stats().last_assigned_sequence,
+            before,
+            "terminal metadata must not authorize a readiness event"
+        );
+        pool.push_contiguous(original.clone(), 0).unwrap();
+        pool.resolve_attempt(
+            attempt,
+            block(100),
+            &[SourceOutcome::Retryable { source_nonce: 0 }],
+            true,
+            1,
+            || true,
+        )
+        .unwrap();
+        assert!(pool.owns(original.hash));
+        assert_eq!(pool.len(), 1);
+        assert!(writer.shutdown(std::time::Duration::from_secs(8)));
+        let mut admissions = Vec::new();
+        for id in eez_telemetry::reader::inventory(directory.path()).unwrap() {
+            let batch = eez_telemetry::reader::read_segment(directory.path(), id, 0).unwrap();
+            assert!(batch.snapshot_complete);
+            for line in batch.lines {
+                if let Record::Data(record) = serde_json::from_slice(&line.bytes).unwrap() {
+                    let sequence = record.sequence;
+                    let payload = eez_telemetry::assemble(&[record]).unwrap();
+                    if let Event::Admitted { previous, .. } = payload.event {
+                        admissions.push((sequence, previous));
+                    }
+                }
+            }
+        }
+        admissions.sort_by_key(|(sequence, _)| *sequence);
+        assert_eq!(admissions.len(), 2);
+        assert!(admissions[0].1.is_none());
+        assert!(admissions[1].0 > admissions[0].0);
+        assert_eq!(
+            admissions[1].1.unwrap(),
+            eez_telemetry::schema::AdmissionId {
+                epoch: publisher.epoch(),
+                sequence: admissions[0].0
+            }
+        );
+    }
+
+    #[test]
     fn unsent_repricing_preserves_users_and_rejects_old_callbacks() {
         let (ledger, pool, txs, id) = setup();
         let replacement = Bytes::from_static(b"replacement poster envelope");

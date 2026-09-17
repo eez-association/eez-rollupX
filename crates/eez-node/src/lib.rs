@@ -323,6 +323,26 @@ async fn launch_composer(builder: L2NodeBuilder, _ext: NoRoleArgs) -> eyre::Resu
         .await?;
 
     let chain_spec: Arc<_> = handle.node.chain_spec();
+    if let Some(publisher) = eez_telemetry::native::publisher() {
+        let l1_spec = match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
+            EmbeddedL1::Chiado(handle) => Arc::new(handle.node.chain_spec().inner.clone()),
+        };
+        let context = eez_composer::held_pool::LifecycleContext {
+            l1: eez_composer::held_pool::ChainIdentity {
+                chain_id: l1_spec.chain().id(),
+                genesis_hash: l1_spec.genesis_hash(),
+            },
+            l2: eez_composer::held_pool::ChainIdentity {
+                chain_id: chain_spec.chain().id(),
+                genesis_hash: chain_spec.genesis_hash(),
+            },
+            rollup_id: rollup_config.rollup_id,
+        };
+        if let Err(reason) = held_pool.enable_lifecycle(publisher.clone(), context) {
+            event!(Level::WARN, reason, "held-pool lifecycle capture disabled");
+        }
+    }
     let l2_genesis_timestamp = chain_spec.genesis().timestamp;
     let provider = handle.node.provider.clone();
     let payload_builder_handle = handle.node.payload_builder_handle.clone();

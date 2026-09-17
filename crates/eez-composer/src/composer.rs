@@ -3237,6 +3237,8 @@ where
                     if let Some(selection) = &mut selection {
                         selection.accept(idx);
                         pool.record_ready(&held, source_state);
+                    } else {
+                        pool.record_lifecycle_ready(held.hash, source_state);
                     }
                     survivors.push((idx, held));
                 }
@@ -3621,6 +3623,8 @@ where
                     if let Some(selection) = &mut selection {
                         selection.accept(idx);
                         pool.record_ready(&held, source_state);
+                    } else {
+                        pool.record_lifecycle_ready(held.hash, source_state);
                     }
                     survivors.push((idx, held));
                 }

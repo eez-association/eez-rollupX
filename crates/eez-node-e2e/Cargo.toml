@@ -13,6 +13,7 @@ eez-node.workspace     = true
 eyre.workspace         = true
 
 [dev-dependencies]
+eez-telemetry.workspace = true
 eez-payload-codec.workspace = true
 alloy-rlp.workspace = true
 eez-l1.workspace = true

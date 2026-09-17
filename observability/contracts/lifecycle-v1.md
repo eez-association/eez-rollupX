@@ -5,7 +5,8 @@ Serde rejects unknown fields and unknown variants. Schema version is `1`; an
 observer must retain unknown/invalid records with their original segment/offset
 for quarantine and operator-directed replay, never interpret them as success.
 The transport and [PostgreSQL ingestion](lifecycle-ingestion.md) have isolated
-recovery tests; native transition wiring and canonical outcome validation remain
+recovery tests; [native capture](native-lifecycle.md) currently covers admission,
+replacement and readiness. Remaining transition wiring and canonical outcome validation remain
 open in the [requirement ledger](../requirements.md).
 
 ## Identity and records
