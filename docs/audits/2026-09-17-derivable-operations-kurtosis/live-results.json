@@ -2,6 +2,28 @@
   "date": "2026-09-17",
   "source_base": "5469c88860408daf776ee812156dd280c1a9e262",
   "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rebased_full_run": {
+    "source_commit": "1cb7035ef833fca446f88e6d3a4044fb52587041",
+    "fork_main_base": "fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7",
+    "result": "pass",
+    "modes": ["inbound", "outbound", "mixed", "mixed-pure"],
+    "signed_windows": 28,
+    "remote_attestations": 28,
+    "root_divergence": 0,
+    "safe_head_convergence": "pass",
+    "state_chaining": "pass",
+    "protocol_scenarios": {
+      "selected": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "accounting_complete": true,
+      "causal_coverage_complete": true,
+      "semantic_blob_coverage_complete": true
+    },
+    "result_sha256": "16cf0e212f9cccef4d22bb193e28a2640d8063f9869e473d4d28a36e6c7a4e81",
+    "protocol_summary_sha256": "98bab538d5c5365ddd726b0d4be51f9e62a1272adc9d1168a3610f274c006be0"
+  },
   "full_run": {
     "result": "pass",
     "modes": ["inbound", "outbound", "mixed", "mixed-pure"],

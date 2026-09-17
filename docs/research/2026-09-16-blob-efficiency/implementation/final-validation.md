@@ -106,8 +106,15 @@ that derivable intermediate records contain hashes. The verifier now validates
 sequential recipe records and uses the canonical terminal hash as the ancestry
 commitment; malformed-window tests distinguish the new rule. A fresh complete
 run passed after that correction. See the
-[Kurtosis validation record](../../../../audits/2026-09-17-derivable-operations-kurtosis/README.md)
+[Kurtosis validation record](../../../audits/2026-09-17-derivable-operations-kurtosis/README.md)
 and its checked-in compact result.
+
+After the feature was rebased onto fork `origin/main` `fc0ee051…`, a fresh
+exact-commit run built and exercised `1cb7035ef833fca446f88e6d3a4044fb52587041`.
+It again passed all four modes, complete state chaining, and 28 of 28 protocol
+scenarios with zero failed/skipped cases and zero root divergence. This run
+recorded 28 signed windows and 28 remote attestations; its result and protocol
+summary digests are retained in the Kurtosis validation record.
 
 The final tooling inventory also found that the new `derivable_operations`
 integration target was not selected by the native artifact runner. It is now

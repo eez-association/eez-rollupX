@@ -84,3 +84,12 @@ Post-rebase checks passed: 241 Python CI/tooling tests with four explicit opt-in
 environment probes skipped, 8 Testkit unit tests, all-target `eez-node-e2e`
 checking, Chiado and Kurtosis mandatory-policy Compose rendering, Rustfmt, the
 source manifest, and the diff whitespace check.
+
+A fresh full Kurtosis run built commit
+`1cb7035ef833fca446f88e6d3a4044fb52587041` after the rebase. Inbound,
+outbound, mixed, mixed-pure, every state-chaining case, and all 28 protocol
+scenarios passed. The independent collector reported complete accounting,
+causal coverage and semantic blob authentication, with 28 signed windows,
+28 remote attestations and zero L1/L2 root divergence. The owned enclave was
+removed after evidence collection; see the
+[validation record](../../../audits/2026-09-17-derivable-operations-kurtosis/README.md).
