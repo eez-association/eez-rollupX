@@ -37,14 +37,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--complete-backfill", action="store_true")
     parser.add_argument("--env-file", type=Path, default=Path(".env.explorers"))
-    parser.add_argument("--l2-rpc", default="http://127.0.0.1:18688")
+    parser.add_argument("--l2-rpc", help="Override L2_RPC_URL from the env file")
     args = parser.parse_args()
     values = read_env(args.env_file)
-    l1 = values.get("BLOBSCAN_L1_RPC_URL", "http://127.0.0.1:18645")
-    l2 = args.l2_rpc
+    l1 = values["BLOBSCAN_L1_RPC_URL"]
+    l2 = args.l2_rpc or values.get("L2_RPC_URL")
     api = "http://127.0.0.1:" + values.get("BLOBSCAN_API_PORT", "18101")
     explorer = "http://127.0.0.1:" + values.get("BLOCKSCOUT_WEB_PORT", "18110")
-    beacon = values.get("BLOBSCAN_BEACON_URL", "http://127.0.0.1:6152")
+    beacon = values["BLOBSCAN_BEACON_URL"]
     check_l2 = "blockscout" in values.get("COMPOSE_PROFILES", "").split(",")
     assert int(rpc(l1, "eth_chainId", []), 16) == 10200
     if check_l2:

@@ -46,7 +46,6 @@ services:
     depends_on:
       blockscout-db: {condition: service_healthy}
       verifier: {condition: service_started}
-    extra_hosts: [host.docker.internal:host-gateway]
     ports: ["127.0.0.1:${BLOCKSCOUT_API_PORT:-18111}:4000"]
     volumes:
       # Blobscan-only profiles need no L2 genesis. If Blockscout is selected,
@@ -61,8 +60,8 @@ services:
       DATABASE_URL: postgresql://blockscout:${BLOCKSCOUT_DB_PASSWORD}@blockscout-db:5432/blockscout
       SECRET_KEY_BASE: ${BLOCKSCOUT_SECRET_KEY_BASE:?run prepare.py first}
       ETHEREUM_JSONRPC_VARIANT: erigon
-      ETHEREUM_JSONRPC_HTTP_URL: ${L2_RPC_FROM_DOCKER:-http://host.docker.internal:18688}
-      ETHEREUM_JSONRPC_TRACE_URL: ${L2_RPC_FROM_DOCKER:-http://host.docker.internal:18688}
+      ETHEREUM_JSONRPC_HTTP_URL: ${L2_RPC_URL:-}
+      ETHEREUM_JSONRPC_TRACE_URL: ${L2_RPC_URL:-}
       CHAIN_ID: "${L2_CHAIN_ID:-}"
       CHAIN_SPEC_PATH: /chain-spec/genesis.json
       CHAIN_SPEC_PROCESSING_DELAY: 1s
@@ -181,7 +180,7 @@ services:
       POSTGRES_STORAGE_ENABLED: "true"
       PRIMARY_BLOB_STORAGE: postgres
       ETH_PRICE_SYNCER_ENABLED: "false"
-      BLOBSCAN_API_BASE_URL: http://127.0.0.1:${BLOBSCAN_API_PORT:-18101}
+      BLOBSCAN_API_BASE_URL: http://blobscan-api:3001
       STATS_SYNCER_OVERALL_CRON_PATTERN: "*/1 * * * *"
       STATS_SYNCER_DAILY_CRON_PATTERN: "*/1 * * * *"
       # Aggregate only the explicitly verified retained history, without
@@ -206,7 +205,6 @@ services:
     ports: ["127.0.0.1:${BLOBSCAN_WEB_PORT:-18100}:3000"]
     environment:
       <<: *blobscan-env
-      BLOBSCAN_API_BASE_URL: http://blobscan-api:3001
       PUBLIC_NETWORK_NAME: chiado
       PUBLIC_BLOBSCAN_START_BLOCK: "${BLOBSCAN_START_BLOCK:-}"
       PUBLIC_EXPLORER_BASE_URL: https://gnosis-chiado.blockscout.com
@@ -220,7 +218,6 @@ services:
     profiles: [blobscan]
     restart: "no"
     security_opt: [no-new-privileges:true]
-    network_mode: host
     depends_on:
       blobscan-api: {condition: service_healthy}
     volumes:
@@ -240,25 +237,23 @@ services:
       - --origin-file
       - /data/indexing-origin.json
       - --l1-rpc
-      - ${BLOBSCAN_L1_RPC_URL:-http://127.0.0.1:18645}
+      - ${BLOBSCAN_L1_RPC_URL:-}
       - --beacon
-      - ${BLOBSCAN_BEACON_URL:-http://127.0.0.1:6152}
+      - ${BLOBSCAN_BEACON_URL:-}
       - --api
-      - http://127.0.0.1:${BLOBSCAN_API_PORT:-18101}
+      - http://blobscan-api:3001
 
   blobscan-indexer:
     profiles: [blobscan]
     <<: *common
     image: blossomlabs/blobscan-indexer@sha256:5dd9d1de60d2d6875fa2655097b4388cb058566f2ab5b63623c6c728bbe281dc
-    # Like the initializer, this service reads the host's loopback node APIs.
-    network_mode: host
     depends_on:
       blobscan-api: {condition: service_healthy}
       blobscan-init: {condition: service_completed_successfully}
     environment:
-      BEACON_NODE_ENDPOINT: ${BLOBSCAN_BEACON_URL:-http://127.0.0.1:6152}
-      EXECUTION_NODE_ENDPOINT: ${BLOBSCAN_L1_RPC_URL:-http://127.0.0.1:18645}
-      BLOBSCAN_API_ENDPOINT: http://127.0.0.1:${BLOBSCAN_API_PORT:-18101}
+      BEACON_NODE_ENDPOINT: ${BLOBSCAN_BEACON_URL:-}
+      EXECUTION_NODE_ENDPOINT: ${BLOBSCAN_L1_RPC_URL:-}
+      BLOBSCAN_API_ENDPOINT: http://blobscan-api:3001
       NETWORK_NAME: chiado
       SECRET_KEY: ${BLOBSCAN_SECRET_KEY}
       RUST_LOG: info

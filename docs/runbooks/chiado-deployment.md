@@ -274,8 +274,11 @@ Use the actual genesis selected by `FRESH_GENESIS` in `.env` for Blockscout.
 For Blobscan, use the desired first L1 block, normally
 `EEZ_REGISTRY_DEPLOY_BLOCK` from `deployments.env`, and endpoints retaining that
 history. Preparation reads the L2 chain ID and derives Blobscan's starting slot.
+Supply reachable node hostnames for the L2 RPC, L1 RPC, and Beacon API during
+preparation. Explorers use a bridge network and service names internally.
 Blockscout connects directly to port 18688, with `trace` enabled and access
-allowed from the explorer Docker network. No UI proxy is needed.
+allowed from the explorer Docker network. The preset's Beacon listener is
+loopback-only; see the explorer runbook's endpoint requirements before using it.
 
 Explorer startup/shutdown is independent of the node stack. Preserve its env
 file, databases, and Blobscan origin volume. Explorer readiness and indexed

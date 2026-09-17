@@ -10,7 +10,7 @@ image patches and deployment-specific verification fixtures.
 ## Scope and compatibility
 
 - Blockscout uses the standard EVM/Erigon tracing interface exposed by the L2
-  Reth node directly at `host.docker.internal:18688`. The L2 chain ID and
+  Reth node directly through the configured `L2_RPC_URL`. The L2 chain ID and
   genesis allocation indexing use the actual deployment genesis.
   Its ordinary block confirmation count is an L2 count; use the existing EEZ
   monitor to establish canonical L1 settlement, safe status, and batch ranges.
@@ -83,9 +83,14 @@ docker exec eez-explorers-redis-1 sh -ec '
 ```
 
 `build-blobscan.sh` runs the upstream migrations in an isolated disposable
-database for Prisma's typed SQL generation, builds both images, and runs
-[profile checks](check-chiado-profile.ts). It removes that build database on
-exit. The runtime databases and credentials are never used for the build.
+database for Prisma's typed SQL generation, builds the API before the web image,
+and runs [profile checks](check-chiado-profile.ts) and
+[blob proxy checks](check-blob-proxy.ts). A temporary Buildx builder and the
+database share an isolated Docker network using service DNS. Build steps share
+the builder container's network namespace (`--oci-worker-net=host`); the builder
+itself uses the isolated bridge, not the machine's host network. The script
+removes the builder, build cache, database, and network on exit. The runtime
+databases and credentials are never used for the build.
 
 The profile checks cover fork boundaries, Chiado capacity and fees, epoch
 conversion, chain-name routing, exact xDAI formatting, and preservation of
@@ -108,8 +113,8 @@ python3 deploy/explorers/verify.py --env-file .env.explorers \
   --output artifacts/explorer-verification.json --complete-backfill
 ```
 
-Use `--l2-rpc URL` if the L2 is not on `127.0.0.1:18688`. Blobscan RPC/beacon
-endpoints, ports, and history settings come from the env file. Blobscan-only
+Node endpoints, ports, and history settings come from the env file. Use
+`--l2-rpc URL` to override its `L2_RPC_URL` for verification. Blobscan-only
 verification skips L2 checks and can still enable complete-history statistics.
 
 The browser script below retains recorded examples from the original Chiado

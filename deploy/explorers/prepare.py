@@ -5,8 +5,20 @@ import json
 from pathlib import Path
 import secrets
 import shlex
+from urllib.parse import urlsplit
 
 from configuration import read_env, resolve_origin
+
+
+def endpoint_url(value):
+    try:
+        url = urlsplit(value)
+        if url.scheme not in ('http', 'https') or not url.hostname:
+            raise ValueError
+        _ = url.port
+    except ValueError:
+        raise argparse.ArgumentTypeError('Expected an HTTP(S) node URL with a valid hostname and port') from None
+    return value
 
 
 def main():
@@ -14,18 +26,23 @@ def main():
     parser.add_argument('--env-file', type=Path, default=Path('.env.explorers'))
     parser.add_argument('--genesis', type=Path, help='Actual L2 genesis for Blockscout')
     parser.add_argument('--start-block', type=int, help='First retained Chiado L1 block for Blobscan')
-    parser.add_argument('--l1-rpc', default='http://127.0.0.1:18645')
-    parser.add_argument('--beacon', default='http://127.0.0.1:6152')
+    parser.add_argument('--l2-rpc', type=endpoint_url, help='L2 RPC URL reachable from explorer containers')
+    parser.add_argument('--l1-rpc', type=endpoint_url, help='Chiado L1 RPC URL reachable from this host and explorer containers')
+    parser.add_argument('--beacon', type=endpoint_url, help='Beacon API URL reachable from this host and explorer containers')
     args = parser.parse_args()
     env_file = args.env_file.resolve()
     existing = read_env(env_file) if env_file.exists() else {}
     updates = {}
+    if args.genesis and not args.l2_rpc:
+        parser.error('--genesis requires --l2-rpc with a container-reachable node hostname')
+    if args.start_block is not None and not (args.l1_rpc and args.beacon):
+        parser.error('--start-block requires --l1-rpc and --beacon with container-reachable node hostnames')
     if args.genesis:
         genesis = args.genesis.resolve(strict=True)
         chain_id = json.loads(genesis.read_text())['config']['chainId']
         if type(chain_id) is not int or not 0 < chain_id <= 2**53 - 1:
             parser.error('Genesis chainId must be a positive safe integer')
-        updates.update(L2_GENESIS=str(genesis), L2_CHAIN_ID=str(chain_id))
+        updates.update(L2_GENESIS=str(genesis), L2_CHAIN_ID=str(chain_id), L2_RPC_URL=args.l2_rpc)
     if args.start_block is not None:
         if existing.get('BLOBSCAN_START_BLOCK') not in (None, str(args.start_block)):
             parser.error('Existing history boundary differs; use a new env file and Compose project')
@@ -64,8 +81,7 @@ def main():
         env_file.chmod(0o600)
         output.write('# Select blockscout, blobscan, or blockscout,blobscan.\n')
         output.write(''.join(f'{k}={shlex.quote(v)}\n' for k, v in values.items()))
-        output.write('\n# Optional RPC and published port overrides.\n'
-                     '# L2_RPC_FROM_DOCKER=http://host.docker.internal:18688\n'
+        output.write('\n# Optional published port overrides.\n'
                      '# BLOCKSCOUT_WEB_PORT=18110\n# BLOCKSCOUT_API_PORT=18111\n'
                      '# BLOBSCAN_WEB_PORT=18100\n# BLOBSCAN_API_PORT=18101\n')
     print(f'Prepared explorer configuration: {env_file}')
