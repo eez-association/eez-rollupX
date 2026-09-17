@@ -164,7 +164,30 @@ pub struct Publisher {
     sender: SyncSender<Queued>,
 }
 
+/// A transition committed but its complete diagnostic snapshot was unavailable.
+/// Do not truncate membership or fabricate an admission to fill the gap.
+#[derive(Debug, Clone, Copy)]
+pub enum CaptureFailure {
+    Limit,
+    MissingContext,
+}
+
 impl Publisher {
+    /// Account for a rejected snapshot after releasing the protocol owner.
+    /// This consumes its ticket and leaves an explicit sequence gap.
+    pub fn discard(&self, ticket: Ticket, failure: CaptureFailure) {
+        if ticket.epoch != self.shared.epoch {
+            return;
+        }
+        self.shared.stats.attempted.fetch_add(1, Ordering::Relaxed);
+        self.shared.stats.drop_record(
+            ticket.sequence,
+            match failure {
+                CaptureFailure::Limit => "capture_limit",
+                CaptureFailure::MissingContext => "capture_context",
+            },
+        );
+    }
     pub fn epoch(&self) -> Epoch {
         self.shared.epoch
     }

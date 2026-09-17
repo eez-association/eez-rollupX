@@ -32,6 +32,7 @@ macro_rules! hex_id {
 
 hex_id!(Epoch, 16);
 hex_id!(Hash32, 32);
+hex_id!(Address20, 20);
 hex_id!(TraceId, 16);
 hex_id!(SpanId, 8);
 
@@ -130,6 +131,50 @@ pub struct Member {
     pub admission: AdmissionId,
 }
 
+/// Coordinates from the native settlement manifest. These are node claims,
+/// not independent proof that the proposed effects were applied.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourcePlan {
+    pub sender: Address20,
+    pub nonce: u64,
+    pub charged_attempts: u32,
+    pub outbound_group: Option<u64>,
+    pub effects_start: u64,
+    pub effects_end: u64,
+    pub source_actions: Vec<SourceAction>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceAction {
+    pub call_hash: Hash32,
+    pub source_index: u64,
+}
+
+/// Plans have exactly the same order as the enclosing event's members. Older
+/// transport-only fixtures can omit details and cannot establish this evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptDetails {
+    pub l2_chain_id: u64,
+    pub l2_genesis_hash: Hash32,
+    pub rollup_id: u64,
+    pub sync_hash: Hash32,
+    pub nonce: u64,
+    pub plans: Vec<SourcePlan>,
+    pub effects: Vec<Hash32>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SubmissionObservation {
+    Prepared,
+    Included { block: BlockRef },
+    Excluded { block: u64, charge_attempt: bool },
+    Uncertain,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -182,6 +227,12 @@ pub enum Event {
         encoded_bytes: u64,
         blob_count: u32,
         blob_allowance: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<AttemptDetails>,
+    },
+    AttemptRepriced {
+        previous: AttemptId,
+        replacement: AttemptId,
     },
     Dispatched {
         attempt: AttemptId,
@@ -189,6 +240,10 @@ pub enum Event {
         target_timestamp: u64,
         transaction_hash: Hash32,
         nonce: u64,
+    },
+    SubmissionObserved {
+        attempt: AttemptId,
+        observation: SubmissionObservation,
     },
     Reconciled {
         attempt: AttemptId,

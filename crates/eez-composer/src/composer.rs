@@ -42,14 +42,13 @@ use reth_storage_api::{
 use tokio::sync::broadcast;
 use tracing::{Level, event};
 
-use crate::held_pool::{HeldPool, HeldTx};
+use crate::held_pool::{HeldPool, HeldTx, PreparationFacts};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
     build_sync_block, sync_block_hashes_at_positions,
 };
 use crate::optimistic::AttemptId;
-use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
     actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
     validate_actionable_prover_failure,
@@ -4244,7 +4243,7 @@ where
                 )
                 .await;
         }
-        let prepared_postbatch = match preparation {
+        let (prepared_postbatch, preparation_facts) = match preparation {
             Ok(r) => r,
             Err(
                 error @ (PreparePostBatchError::Actionable(_)
@@ -4600,13 +4599,14 @@ where
                 .filter(|held| held.direction == Direction::Inbound)
                 .map(|held| held.raw_tx.clone()),
         );
-        let attempt_id = match rollup.optimistic.begin(
+        let attempt_id = match rollup.held_pool.begin_attempt(
             sync_height,
             post_batch_hash,
             parent_header.clone(),
             survivors.clone(),
             manifest,
             prepared_postbatch,
+            preparation_facts,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -4642,7 +4642,8 @@ where
             sync_height,
             attempt_id,
             bundle,
-            Arc::clone(&rollup.optimistic),
+            Arc::clone(&rollup.held_pool),
+            preparation_facts.nonce,
             bundle_target,
             &semantic_transactions,
         );
@@ -4773,7 +4774,7 @@ where
                 header: empty_built.header,
             }));
         }
-        let minimal_postbatch_raw = match preparation {
+        let (minimal_postbatch_raw, preparation_facts) = match preparation {
             Ok(raw) => raw,
             Err(err) => {
                 // The whole range will not fit; settle a bounded prefix of it so
@@ -4813,13 +4814,14 @@ where
         };
         let sync_height = empty_built.header.number();
         let post_batch_hash = post_batch_blob_transaction_hash(&minimal_postbatch_raw)?;
-        let attempt_id = match rollup.optimistic.begin(
+        let attempt_id = match rollup.held_pool.begin_attempt(
             sync_height,
             post_batch_hash,
             parent_header.clone(),
             Vec::new(),
             SettlementManifest::empty(sync_height, empty_built.header.hash()),
             minimal_postbatch_raw.clone(),
+            preparation_facts,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -4845,7 +4847,8 @@ where
             sync_height,
             attempt_id,
             vec![minimal_postbatch_raw],
-            Arc::clone(&rollup.optimistic),
+            Arc::clone(&rollup.held_pool),
+            preparation_facts.nonce,
             bundle_target,
             &[],
         );
@@ -4978,7 +4981,7 @@ where
                     None,
                 )
                 .await;
-            let raw = match preparation {
+            let (raw, preparation_facts) = match preparation {
                 Ok(raw) => raw,
                 Err(PreparePostBatchError::OverBudget { constraint, .. }) => {
                     split_reasons.insert(constraint);
@@ -5004,13 +5007,14 @@ where
             );
 
             let post_batch_hash = post_batch_blob_transaction_hash(&raw)?;
-            let attempt_id = rollup.optimistic.begin(
+            let attempt_id = rollup.held_pool.begin_attempt(
                 boundary,
                 post_batch_hash,
                 boundary_parent,
                 Vec::new(),
                 SettlementManifest::empty(boundary, boundary_header.hash()),
                 raw.clone(),
+                preparation_facts,
             )?;
             // A past terminal uses the future target already pinned for its
             // proof. Dispatch must not change the timestamp or its fork rules.
@@ -5020,7 +5024,8 @@ where
                 boundary,
                 attempt_id,
                 vec![raw],
-                Arc::clone(&rollup.optimistic),
+                Arc::clone(&rollup.held_pool),
+                preparation_facts.nonce,
                 bundle_target,
                 &[],
             );
@@ -5091,7 +5096,8 @@ where
         sync_height: u64,
         attempt_id: AttemptId,
         bundle: Vec<Bytes>,
-        optimistic: Arc<OptimisticallyIncluded>,
+        pool: Arc<HeldPool>,
+        nonce: u64,
         target: BundleTarget,
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) {
@@ -5101,7 +5107,8 @@ where
             sync_height,
             attempt_id,
             bundle,
-            optimistic,
+            pool,
+            nonce,
             submitter,
             target,
             self.inner.posting.clone(),
@@ -5112,8 +5119,8 @@ where
     /// Build + sign the L1 `postBatch` raw tx for a Sync slot's
     /// compositions, covering blocks `posted+1..=parent+1` (intermediate
     /// blocks + the new Sync block at `parent+1`, always the range's last
-    /// block). Returns only the signed EIP-2718 `postBatch` bytes; the caller
-    /// appends surviving inbound user transactions to the L1 bundle.
+    /// block). Returns the signed EIP-2718 `postBatch` bytes and exact candidate
+    /// sizing/nonce facts; the caller appends surviving inbound users to the bundle.
     ///
     /// A later `postAndVerifyBatch` for the same rollup and L1 block replaces the
     /// earlier deferred queue. The composer therefore merges one Sync slot into
@@ -5162,7 +5169,7 @@ where
         gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
-    ) -> Result<Bytes, PreparePostBatchError> {
+    ) -> Result<(Bytes, PreparationFacts), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
         use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
 
@@ -6341,7 +6348,15 @@ where
             )
             .await?
         };
-        Ok(raw)
+        Ok((
+            raw,
+            PreparationFacts {
+                encoded_bytes: encoded_stream_bytes,
+                blob_count,
+                blob_allowance: maximum_blobs,
+                nonce: poster_nonce,
+            },
+        ))
     }
 }
 
@@ -6540,7 +6555,8 @@ async fn observe_bundle_outcome(
     sync_height: u64,
     mut attempt_id: AttemptId,
     mut bundle: Vec<Bytes>,
-    optimistic: Arc<OptimisticallyIncluded>,
+    pool: Arc<HeldPool>,
+    nonce: u64,
     submitter: Submitter,
     target: BundleTarget,
     posting: Option<Arc<posting::PostingRuntime>>,
@@ -6559,7 +6575,7 @@ async fn observe_bundle_outcome(
                     "target parent or submission window changed before final pricing".to_owned(),
                 );
             }
-            let attempt = optimistic
+            let attempt = pool
                 .pending_attempt()
                 .filter(|attempt| attempt.id == attempt_id)
                 .ok_or("prepared attempt no longer owns this submission")?;
@@ -6574,8 +6590,7 @@ async fn observe_bundle_outcome(
                 .await
                 .map_err(|error| error.to_string())?;
             let hash = post_batch_blob_transaction_hash(&prepared[0])?;
-            let id =
-                optimistic.replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())?;
+            let id = pool.replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())?;
             Ok::<_, String>((prepared, quote, id))
         }
         .await;
@@ -6590,22 +6605,24 @@ async fn observe_bundle_outcome(
                     event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
                     "unsent bundle deferred; due work retained without a user attempt penalty");
                 if let BundleTarget::Exact { block, .. } = target {
-                    let _ = optimistic.observe(
+                    let _ = pool.observe_attempt(
                         attempt_id,
                         SubmissionObservation::Excluded {
                             block,
                             charge_attempt: false,
                         },
+                        nonce,
                     );
                 }
                 return;
             }
         }
     }
-    let recorder = Arc::clone(&optimistic);
-    let record_dispatch = move |block, timestamp| match recorder.observe(
+    let recorder = Arc::clone(&pool);
+    let record_dispatch = move |block, timestamp| match recorder.observe_attempt(
         attempt_id,
         SubmissionObservation::Dispatched { block, timestamp },
+        nonce,
     ) {
         Ok(true) => Ok(()),
         Ok(false) => Err(eez_l1::L1Error::Submission(
@@ -6649,7 +6666,7 @@ async fn observe_bundle_outcome(
         event_name = "eez.composer.bundle.observed",
         rollup_id, sync_height, attempt = ?attempt_id, outcome = ?outcome,
         "bundle observed; canonical derivation and source receipts retain ownership authority");
-    if let Err(error) = optimistic.observe(attempt_id, observation) {
+    if let Err(error) = pool.observe_attempt(attempt_id, observation, nonce) {
         event!(Level::ERROR, rollup_id, %error, "cannot record observation; retaining attempt");
     }
 }

@@ -20,7 +20,7 @@ An open row is a release gate, not an implicitly deferred requirement.
 | R11 | Wallet spend, settlement/companion attribution and L2 fees distinct | Wallet views and current-ABI decoded posting view; method coverage and bounded backfill | SQL/RPC wallet/post/revert/invalid/unverified separation; nested ABI and allocation-bound tests | Partial: applied-range evidence implemented; companion/source allocation pending |
 | R12 | Authenticated/versioned blob length; measured-subset weighted utilization and coverage | Codec exact boundary, bounded retrieval, measurement states | Terminator/trailing-zero/authentication/pruning/revert fixtures | Open |
 | R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, append-only migration history, private opt-in PostgreSQL profile and generated role credentials | Real schema/checksum/downgrade refusal, no implicit DDL, reader authentication/permissions, persistence | Partial: populated forward upgrade and old-binary refusal tested; clean restore pending |
-| R14 | Typed versioned events; epoch/sequence at owned transition; many-to-many membership | eez-telemetry schema; contracts/lifecycle-v1.md and native-lifecycle.md | Chunk/schema fixtures; Composer component regressions and source-built bidirectional capture canary | Partial: admission/replacement/readiness capture verified; attempts and outcomes pending |
+| R14 | Typed versioned events; epoch/sequence at owned transition; many-to-many membership | eez-telemetry schema; contracts/lifecycle-v1.md and native-lifecycle.md | Chunk/schema fixtures; Composer component regressions and source-built bidirectional capture canary | Partial: admission/readiness verified; attempt membership/repricing/dispatch component checks pass, expanded process validation underway; pre-signing identities and outcomes pending |
 | R15 | Bounded nonblocking lifecycle writer independent of logging/sampling | eez-telemetry spool; 4096-record channel, 16 KiB records, 64 MiB segments, 24h/2 GiB retention | validation/lifecycle-transport.md: overflow, ENOSPC, rotation, shutdown, concurrency; validation/native-lifecycle.md: real native capture | Partial: basic native workload passed; hard-volume/performance gates remain |
 | R16 | Chunk completion+digest, immutable segment IDs, independent control/drop records | eez-telemetry wire/spool | Missing/reordered/conflicting chunks, bypassed-full-channel control tests | Verified at transport/SQL layer; native capture still R14 |
 | R17 | Instance/epoch fencing and headers; explicit ended/unknown liveness | OS advisory locks; read-only probe_epoch | Collision and restart-without-traffic tests | Verified in isolated writer-crash/probe/SQL fixtures; native restart workload remains R19/R27 |
@@ -124,6 +124,7 @@ These exclusions are in the proposal; they do not defer any row above.
   receipt references and applied endpoint available in `reconcile_attempt`.
   Copying the snapshot into a settlement-anchor field would overstate evidence.
 - `replace_prepared_post_batch` can change the signed hash within the same native
-  generation before dispatch. Future attempt capture must record explicit variant
-  links and retain source membership; a changed candidate is not another paid
-  receipt. Current native capture intentionally makes no attempt/settlement claim.
+  generation before dispatch. Attempt capture now records explicit variant links
+  with membership retained through the original prepared event. A changed candidate
+  is not another paid receipt; submission observations still make no settled-source
+  claim. Canonical reconciliation needs its separate receipt/endpoint evidence.

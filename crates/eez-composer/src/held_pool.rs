@@ -30,6 +30,7 @@ use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
 mod lifecycle;
 mod status;
+pub(crate) use lifecycle::PreparationFacts;
 pub use lifecycle::{ChainIdentity, LifecycleContext};
 pub use status::SourceState;
 

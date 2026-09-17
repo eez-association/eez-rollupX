@@ -9,6 +9,9 @@ use eez_telemetry::{
 };
 use std::{collections::HashMap, time::Instant};
 
+mod attempts;
+pub(crate) use attempts::PreparationFacts;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ChainIdentity {
     pub chain_id: u64,
@@ -52,9 +55,13 @@ pub(super) struct Lifecycle {
 pub(super) struct Pending {
     publisher: Publisher,
     events: Vec<(Ticket, Event)>,
+    failure: Option<(Ticket, eez_telemetry::CaptureFailure)>,
 }
 impl Pending {
     pub(super) fn publish(self) {
+        if let Some((ticket, failure)) = self.failure {
+            self.publisher.discard(ticket, failure);
+        }
         for (ticket, event) in self.events {
             self.publisher.publish(ticket, event, None);
         }
@@ -70,6 +77,7 @@ impl Lifecycle {
         let mut pending = Pending {
             publisher: self.publisher.clone(),
             events: Vec::with_capacity(2),
+            failure: None,
         };
         let previous = self
             .admissions
@@ -142,6 +150,7 @@ impl Lifecycle {
         };
         Some(Pending {
             publisher: self.publisher.clone(),
+            failure: None,
             events: vec![(
                 ticket,
                 Event::Readiness {
@@ -285,7 +294,7 @@ mod tests {
         }
     }
     fn events(dir: &std::path::Path) -> Vec<(u64, Event)> {
-        let mut events = Vec::new();
+        let mut chunks = std::collections::BTreeMap::new();
         for id in reader::inventory(dir).unwrap() {
             let mut offset = 0;
             loop {
@@ -294,14 +303,10 @@ mod tests {
                     let text = std::str::from_utf8(&line.bytes).unwrap();
                     assert!(!text.contains("private pending envelope"));
                     if let Record::Data(record) = serde_json::from_slice(&line.bytes).unwrap() {
-                        let sequence = record.sequence;
-                        let payload = eez_telemetry::assemble(&[record]).unwrap();
-                        assert!(
-                            !serde_json::to_string(&payload)
-                                .unwrap()
-                                .contains("private pending envelope")
-                        );
-                        events.push((sequence, payload.event));
+                        chunks
+                            .entry(record.sequence)
+                            .or_insert_with(Vec::new)
+                            .push(record);
                     }
                 }
                 offset = batch.next_offset;
@@ -310,8 +315,18 @@ mod tests {
                 }
             }
         }
-        events.sort_by_key(|(sequence, _)| *sequence);
-        events
+        chunks
+            .into_iter()
+            .map(|(sequence, chunks)| {
+                let payload = eez_telemetry::assemble(&chunks).unwrap();
+                assert!(
+                    !serde_json::to_string(&payload)
+                        .unwrap()
+                        .contains("private pending envelope")
+                );
+                (sequence, payload.event)
+            })
+            .collect()
     }
     #[test]
     fn accepted_transitions_only_with_explicit_replacement_and_chain_identity() {
@@ -476,5 +491,312 @@ mod tests {
                 .is_err()
         );
         assert!(pool.enable_lifecycle(publisher, context()).is_err());
+    }
+
+    fn manifest(txs: &[HeldTx]) -> eez_protocol::settlement_manifest::SettlementManifest {
+        use eez_protocol::settlement_manifest::{
+            SettlementManifest, SourceActionManifest, UserManifest,
+        };
+        SettlementManifest {
+            sync_number: 10,
+            sync_hash: B256::repeat_byte(80),
+            effects: txs.iter().map(|tx| tx.hash).collect(),
+            users: txs
+                .iter()
+                .enumerate()
+                .map(|(index, tx)| UserManifest {
+                    tx_hash: tx.hash,
+                    source_rollup_id: eez_protocol::RollupId(
+                        if tx.direction == Direction::Inbound {
+                            0
+                        } else {
+                            7
+                        },
+                    ),
+                    sender: tx.sender,
+                    nonce: tx.nonce,
+                    attempts: tx.attempts,
+                    outbound_group: (tx.direction == Direction::Outbound).then_some(index),
+                    effects: index..index + 1,
+                    source_actions: if tx.direction == Direction::Inbound {
+                        vec![SourceActionManifest {
+                            call_hash: tx.hash,
+                            source_index: index,
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    fn prepare(
+        pool: &HeldPool,
+        txs: Vec<HeldTx>,
+        manifest: eez_protocol::settlement_manifest::SettlementManifest,
+    ) -> Result<crate::optimistic::AttemptId, String> {
+        pool.begin_attempt(
+            10,
+            B256::repeat_byte(90),
+            reth_primitives_traits::SealedHeader::seal_slow(alloy_consensus::Header {
+                number: 9,
+                ..Default::default()
+            }),
+            txs,
+            manifest,
+            alloy_primitives::Bytes::from_static(b"signed envelope is never exported"),
+            PreparationFacts {
+                encoded_bytes: 4321,
+                blob_count: 1,
+                blob_allowance: 3,
+                nonce: 77,
+            },
+        )
+    }
+
+    #[test]
+    fn attempts_preserve_membership_and_only_committed_variants_and_dispatches_emit() {
+        use crate::optimistic::SubmissionObservation;
+        let (dir, pool, publisher, writer) = setup();
+        pool.push_contiguous(tx(1, Direction::Inbound), 0).unwrap();
+        pool.push_contiguous(tx(2, Direction::Outbound), 0).unwrap();
+        let txs = pool.pop_all();
+        let invalid = eez_protocol::settlement_manifest::SettlementManifest::empty(10, B256::ZERO);
+        assert!(prepare(&pool, txs.clone(), invalid).is_err());
+        assert_eq!(publisher.stats().last_assigned_sequence, 2);
+        let attempt = prepare(&pool, txs.clone(), manifest(&txs)).unwrap();
+        assert!(prepare(&pool, txs.clone(), manifest(&txs)).is_err());
+        assert_eq!(publisher.stats().last_assigned_sequence, 3);
+        let raw = alloy_primitives::Bytes::from_static(b"repriced private envelope");
+        assert!(
+            pool.replace_prepared_post_batch(attempt, attempt.post_batch_hash, raw.clone())
+                .is_err()
+        );
+        let repriced = pool
+            .replace_prepared_post_batch(attempt, B256::repeat_byte(91), raw.clone())
+            .unwrap();
+        assert_eq!(repriced.generation, attempt.generation);
+        assert_eq!(
+            pool.replace_prepared_post_batch(repriced, repriced.post_batch_hash, raw)
+                .unwrap(),
+            repriced
+        );
+        assert!(
+            !pool
+                .observe_attempt(attempt, SubmissionObservation::Uncertain, 77)
+                .unwrap()
+        );
+        assert_eq!(publisher.stats().last_assigned_sequence, 4);
+        let dispatch = SubmissionObservation::Dispatched {
+            block: 100,
+            timestamp: 200,
+        };
+        assert!(
+            pool.observe_attempt(repriced, dispatch.clone(), 77)
+                .unwrap()
+        );
+        assert!(pool.observe_attempt(repriced, dispatch, 77).is_err());
+        assert!(
+            pool.replace_prepared_post_batch(repriced, B256::repeat_byte(92), Default::default())
+                .is_err()
+        );
+        assert_eq!(publisher.stats().last_assigned_sequence, 5);
+        assert!(
+            pool.observe_attempt(repriced, SubmissionObservation::Uncertain, 77)
+                .unwrap()
+        );
+        assert_eq!(pool.pending_attempt().unwrap().txs.len(), 2);
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let events = events(dir.path());
+        assert_eq!(events.len(), 6);
+        let Event::AttemptPrepared {
+            attempt: captured,
+            members,
+            details: Some(details),
+            encoded_bytes,
+            blob_count,
+            blob_allowance,
+            ..
+        } = &events[2].1
+        else {
+            panic!("complete preparation")
+        };
+        assert_eq!(captured.generation, attempt.generation);
+        assert_eq!(captured.epoch, publisher.epoch());
+        assert_eq!((*encoded_bytes, *blob_count, *blob_allowance), (4321, 1, 3));
+        assert_eq!(details.nonce, 77);
+        assert_eq!(details.l2_genesis_hash, Hash32([22; 32]));
+        assert_eq!(details.sync_hash, Hash32([80; 32]));
+        assert_eq!(details.plans.len(), members.len());
+        assert_eq!(
+            details.plans[0].source_actions[0].call_hash,
+            Hash32([1; 32])
+        );
+        assert_eq!(details.plans[1].outbound_group, Some(1));
+        for (index, member) in members.iter().enumerate() {
+            assert_eq!(member.admission.sequence, events[index].0);
+        }
+        assert!(
+            matches!(events[3].1, Event::AttemptRepriced {previous, replacement} if previous.post_batch_hash != replacement.post_batch_hash && previous.generation == replacement.generation)
+        );
+        assert!(matches!(
+            events[4].1,
+            Event::Dispatched {
+                nonce: 77,
+                target_block: 100,
+                target_timestamp: 200,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[5].1,
+            Event::SubmissionObserved {
+                observation: schema::SubmissionObservation::Uncertain,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn retry_links_same_admissions_to_a_new_generation_without_counting_old_callbacks() {
+        use crate::optimistic::{SourceOutcome, SubmissionObservation};
+        let (dir, pool, publisher, writer) = setup();
+        let held = tx(1, Direction::Inbound);
+        pool.push_contiguous(held, 0).unwrap();
+        let txs = pool.pop_all();
+        let first = prepare(&pool, txs.clone(), manifest(&txs)).unwrap();
+        pool.resolve_attempt(
+            first,
+            eez_l1::L1BlockRef {
+                number: 100,
+                hash: B256::repeat_byte(100),
+            },
+            &[SourceOutcome::Retryable { source_nonce: 0 }],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        let txs = pool.pop_all();
+        let next = prepare(&pool, txs.clone(), manifest(&txs)).unwrap();
+        assert_ne!(first.generation, next.generation);
+        let before = publisher.stats().last_assigned_sequence;
+        assert!(
+            !pool
+                .observe_attempt(first, SubmissionObservation::Uncertain, 77)
+                .unwrap()
+        );
+        assert_eq!(publisher.stats().last_assigned_sequence, before);
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let events = events(dir.path());
+        let memberships = events
+            .iter()
+            .filter_map(|(_, event)| {
+                if let Event::AttemptPrepared { members, .. } = event {
+                    Some(members)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(memberships.len(), 2);
+        assert_eq!(memberships[0], memberships[1]);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|(_, event)| matches!(event, Event::Admitted { .. }))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn oversized_or_missing_capture_context_leaves_explicit_gap_without_rejecting_attempt() {
+        for missing in [false, true] {
+            let (dir, pool, publisher, writer) = setup();
+            let held = tx(1, Direction::Inbound);
+            pool.push_contiguous(held.clone(), 0).unwrap();
+            let txs = pool.pop_all();
+            let mut manifest = manifest(&txs);
+            if missing {
+                pool.state
+                    .lock()
+                    .unwrap()
+                    .lifecycle
+                    .as_mut()
+                    .unwrap()
+                    .admissions
+                    .clear();
+            } else {
+                manifest.effects = vec![B256::ZERO; 32769];
+            }
+            let id = prepare(&pool, txs, manifest).unwrap();
+            assert_eq!(pool.pending_attempt().unwrap().id, id);
+            assert!(pool.owns(held.hash));
+            assert_eq!(publisher.stats().last_assigned_sequence, 2);
+            assert_eq!(publisher.stats().dropped_records, 1);
+            assert_eq!(publisher.stats().dropped_sequence_min, Some(2));
+            assert!(writer.shutdown(Duration::from_secs(8)));
+            assert_eq!(events(dir.path()).len(), 1);
+        }
+    }
+
+    #[test]
+    fn competing_dispatch_callbacks_publish_only_the_accepted_transition() {
+        use crate::optimistic::SubmissionObservation;
+        use std::sync::{Arc, Barrier};
+        let (dir, pool, publisher, writer) = setup();
+        let pool = Arc::new(pool);
+        pool.push_contiguous(tx(1, Direction::Inbound), 0).unwrap();
+        let txs = pool.pop_all();
+        let attempt = prepare(&pool, txs.clone(), manifest(&txs)).unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let callbacks = (0..2)
+            .map(|offset| {
+                let pool = pool.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    pool.observe_attempt(
+                        attempt,
+                        SubmissionObservation::Dispatched {
+                            block: 100 + offset,
+                            timestamp: 200 + offset,
+                        },
+                        77,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        let results = callbacks
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Ok(true)))
+                .count(),
+            1
+        );
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        assert_eq!(publisher.stats().last_assigned_sequence, 3);
+        let target = pool.pending_attempt().unwrap().dispatched_target.unwrap();
+        assert!(writer.shutdown(Duration::from_secs(8)));
+        let events = events(dir.path());
+        let dispatches = events
+            .iter()
+            .filter_map(|(_, event)| match event {
+                Event::Dispatched {
+                    target_block,
+                    target_timestamp,
+                    ..
+                } => Some((*target_block, *target_timestamp)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(dispatches, vec![target]);
     }
 }

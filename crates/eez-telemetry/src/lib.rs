@@ -13,7 +13,9 @@ pub mod schema;
 mod spool;
 mod wire;
 
-pub use spool::{Liveness, Publisher, SpoolConfig, StatsSnapshot, Ticket, Writer, probe_epoch};
+pub use spool::{
+    CaptureFailure, Liveness, Publisher, SpoolConfig, StatsSnapshot, Ticket, Writer, probe_epoch,
+};
 pub use wire::{MAX_EVENT_BYTES, MAX_RECORD_BYTES, assemble, encode, validate_chunk};
 
 #[cfg(test)]

@@ -5,8 +5,9 @@ Serde rejects unknown fields and unknown variants. Schema version is `1`; an
 observer must retain unknown/invalid records with their original segment/offset
 for quarantine and operator-directed replay, never interpret them as success.
 The transport and [PostgreSQL ingestion](lifecycle-ingestion.md) have isolated
-recovery tests; [native capture](native-lifecycle.md) currently covers admission,
-replacement and readiness. Remaining transition wiring and canonical outcome validation remain
+recovery tests; [native capture](native-lifecycle.md) covers admission,
+replacement, readiness, attempt membership, repricing and dispatch observations.
+Remaining transition wiring and canonical outcome validation remain
 open in the [requirement ledger](../requirements.md).
 
 ## Identity and records
@@ -52,8 +53,10 @@ events are a counted encoding loss; they never change the protocol decision.
 | --- | --- |
 | `admitted` | Source identity, optional previous admission for explicit readmission, optional replaced admission. Repeated ingress of an already owned hash creates no admission |
 | `readiness` | Admission/source member, exact L1/L2 source-state block references, optional blocking reason (`nonce`, `fee`, `balance`, `escrow`); null means ready |
-| `attempt_prepared` | Existing native generation+post hash wrapped in epoch, sync height, exact member list, encoded bytes, purchased candidate blob count, active blob allowance |
+| `attempt_prepared` | Existing native generation+post hash wrapped in epoch, sync height, exact member list, candidate encoded bytes/blob count and active blob allowance; optional detailed manifest evidence described below |
+| `attempt_repriced` | Explicit previous/replacement attempt identities; preserves native generation while a never-dispatched candidate's signed hash changes |
 | `dispatched` | Attempt identity, target block number/timestamp, signed transaction hash and nonce. The future target has no known block hash. Each event is a dispatch occurrence, not another paid transaction |
+| `submission_observed` | Exact attempt with prepared/included/excluded/uncertain node observation. Included carries a reported receipt block; excluded preserves the existing charge-attempt flag. Neither establishes canonical source completion. |
 | `reconciled` | Attempt identity and canonical L1 anchor reported by the node |
 | `terminal` | Admission/source member, optional attempt, native outcome, claimed assurance, optional anchor, local monotonic elapsed nanoseconds |
 | `reorg` | Last common L1 ancestor observed by the node |
@@ -64,6 +67,23 @@ does not allocate protocol ownership. Admissions distinguish a readmitted hash
 from an earlier admission. Many sources may belong to an attempt, and a source
 may participate in multiple attempts. Relationships never authorize duplicate
 receipt charging.
+
+`attempt_prepared.details`, when present, carries L2 chain/genesis/rollup identity,
+the proposed Sync hash, signing nonce, complete effect endpoint hashes and plans
+parallel to `members`. Each plan carries source sender (20-byte lowercase hex),
+nonce, already charged failure episodes, optional outbound group, half-open
+producing-effect interval and source-action hash/index pairs. No signed envelope
+is present. Native capture bounds the complete copy before allocation; the
+transport's payload/chunk limits still apply after encoding.
+
+The v1 extension preserves decoding of existing events: omitted `details` remains
+unknown and serialization omits it when absent. New variants and populated details
+require an updated observer. Upgrade the observer before enabling the new native
+writer. Older strict readers quarantine unfamiliar payloads with retained raw
+positions; upgrading does not automatically reinterpret those quarantined records.
+They require explicit operator-directed replay. SQL transport storage needs no
+migration for these additive payload fields. Lack of details never becomes an
+empty verified manifest.
 
 Outcomes preserve `committed`, `source_reverted`,
 `source_completed_with_missing_effects`, `source_completed`, `source_nonce_spent`,
@@ -127,11 +147,14 @@ crash-window uncertainty is preferable to delaying protocol shutdown.
 
 The library uses the existing `metrics` facade and installs no global recorder.
 It increments `eez_telemetry_dropped_events_total{signal="lifecycle",reason}` for
-`queue_full`, `writer_closed`, `encoding`, `io`, `shutdown` or `clock`, and
+`queue_full`, `writer_closed`, `encoding`, `capture_limit`, `capture_context`,
+`io`, `shutdown` or `clock`, and
 `eez_telemetry_writer_errors_total{reason="io"}` for writer failures. Native
 Reth prefix/exposition remains an integration gate; no dashboard selects these
 candidate names before it is verified. Epochs, paths, hashes, and errors are not
 metric labels.
+Capture rejection consumes the transition ticket and counts one attempted/dropped
+record because no encoded chunk count exists; its sequence remains a gap.
 
 ## Bounded reader API
 

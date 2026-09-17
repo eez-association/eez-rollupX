@@ -247,6 +247,26 @@ async fn bidirectional_cross_chain_smoke(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lifecycle_bidirectional_cross_chain_smoke() {
+    lifecycle_bidirectional_smoke(&[]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lifecycle_policy_bidirectional_cross_chain_smoke() {
+    lifecycle_bidirectional_smoke(&[
+        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
+        ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "100000000000".into()),
+        (
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+            "100000000000".into(),
+        ),
+    ])
+    .await;
+}
+
+async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
+    use alloy_consensus::Transaction as _;
+    use alloy_provider::{Provider as _, ProviderBuilder};
     use eez_telemetry::{
         reader,
         schema::{Direction, Event, Record},
@@ -264,11 +284,12 @@ async fn lifecycle_bidirectional_cross_chain_smoke() {
         "lifecycle": {"directory": spool}
     });
     std::fs::write(&configuration, serde_json::to_vec(&config).unwrap()).unwrap();
-    let (world, hashes) = bidirectional_cross_chain_smoke(&[(
+    let mut env = extra_env.to_vec();
+    env.push((
         "EEZ_TELEMETRY_CONFIG",
         configuration.to_string_lossy().into_owned(),
-    )])
-    .await;
+    ));
+    let (world, hashes) = bidirectional_cross_chain_smoke(&env).await;
     let genesis = alloy_rpc_types_eth::BlockNumberOrTag::Number(0);
     let expected_genesis = [
         eez_testkit::block_number_and_hash_at(&world.l1_rpc(), genesis)
@@ -342,7 +363,36 @@ async fn lifecycle_bidirectional_cross_chain_smoke() {
                         if member.source.transaction_hash.0 == hash.0)
                 })
             });
-            Ok((admitted && ready).then_some(events))
+            let dispatched = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    let Event::AttemptPrepared {
+                        attempt,
+                        members,
+                        details: Some(_),
+                        ..
+                    } = event
+                    else {
+                        return false;
+                    };
+                    if !members
+                        .iter()
+                        .any(|member| member.source.transaction_hash.0 == hash.0)
+                    {
+                        return false;
+                    }
+                    events.iter().any(|(_, event)| {
+                        let Event::Dispatched { attempt: sent, .. } = event else {
+                            return false;
+                        };
+                        sent == attempt
+                            || events.iter().any(|(_, event)| {
+                                matches!(event, Event::AttemptRepriced { previous, replacement }
+                                if previous == attempt && replacement == sent)
+                            })
+                    })
+                })
+            });
+            Ok((admitted && ready && dispatched).then_some(events))
         }
     })
     .await;
@@ -351,11 +401,12 @@ async fn lifecycle_bidirectional_cross_chain_smoke() {
         Err(error) => {
             let retained = directory.keep();
             panic!(
-                "both native admission/readiness paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
+                "both native admission/readiness/attempt paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
                 retained.display()
             );
         }
     };
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     for (index, hash) in hashes.into_iter().enumerate() {
         let matches = events
             .iter()
@@ -399,7 +450,87 @@ async fn lifecycle_bidirectional_cross_chain_smoke() {
             {
                 assert_eq!((member.admission.epoch, member.admission.sequence), *id);
             }
+            if let Event::AttemptPrepared {
+                members,
+                details: Some(details),
+                encoded_bytes,
+                blob_count,
+                blob_allowance,
+                ..
+            } = event
+            {
+                assert_eq!(members.len(), details.plans.len());
+                assert_eq!(details.l2_chain_id, world.l2_chain_id);
+                assert_eq!(details.l2_genesis_hash.0, expected_genesis[1].0);
+                assert_eq!(details.rollup_id, world.cfg.rollup_id);
+                assert!(*encoded_bytes > 0);
+                assert_eq!(
+                    encoded_bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB as u64),
+                    u64::from(*blob_count)
+                );
+                assert!(blob_count <= blob_allowance);
+                for member in members
+                    .iter()
+                    .filter(|member| member.source.transaction_hash.0 == hash.0)
+                {
+                    assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+                }
+            }
         }
+        let mut included_dispatches = 0;
+        for (_, event) in &events {
+            let Event::AttemptPrepared {
+                attempt,
+                members,
+                blob_count,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if !members
+                .iter()
+                .any(|member| member.source.transaction_hash.0 == hash.0)
+            {
+                continue;
+            }
+            for (_, event) in &events {
+                let Event::Dispatched {
+                    attempt: sent,
+                    transaction_hash,
+                    nonce,
+                    ..
+                } = event
+                else {
+                    continue;
+                };
+                let linked = sent == attempt
+                    || events.iter().any(|(_, event)| {
+                        matches!(event, Event::AttemptRepriced { previous, replacement }
+                        if previous == attempt && replacement == sent)
+                    });
+                if !linked {
+                    continue;
+                }
+                if let Some(transaction) = l1
+                    .get_transaction_by_hash(TxHash::from(transaction_hash.0))
+                    .await
+                    .unwrap()
+                    && transaction.block_hash.is_some()
+                {
+                    assert_eq!(transaction.inner.nonce(), *nonce);
+                    assert_eq!(
+                        transaction.inner.blob_versioned_hashes().unwrap().len(),
+                        *blob_count as usize
+                    );
+                    included_dispatches += 1;
+                }
+            }
+        }
+        assert!(
+            included_dispatches > 0,
+            "source membership must reach a mined dispatch with the captured nonce/blob count"
+        );
     }
     world.node.assert_no_divergence_failure_logs();
 }

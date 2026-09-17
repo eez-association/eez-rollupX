@@ -137,6 +137,7 @@ fn chunk_replay_is_complete_order_independent_and_conflict_intolerant() {
             encoded_bytes: 123,
             blob_count: 1,
             blob_allowance: 2,
+            details: None,
         },
     };
     let encoded = encode(&identity(), epoch, 301, &payload).unwrap();
