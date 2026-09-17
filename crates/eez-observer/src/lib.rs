@@ -55,6 +55,10 @@ async fn scrape(
         rendered.push_str(&indexer::render(&status.chains, now));
         rendered.push_str(&indexer::render_settlements(&status, now));
         rendered.push_str(&indexer::lifecycle::render(&status.lifecycle, now));
+        rendered.push_str(&indexer::source_receipts::render(
+            status.source_receipts.as_ref(),
+            now,
+        ));
     }
     (
         [(

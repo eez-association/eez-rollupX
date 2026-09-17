@@ -49,3 +49,11 @@ acceptance gates; absence must not be shown as zero.
 Indexer mode adds the separately namespaced canonical collection gauges in
 [the indexer contract](canonical-indexer.md). The RPC queue/head recording rules
 retain their existing producer and semantics.
+
+
+Schema-5 source receipt enrichment has separate projection and per-chain
+collection/coverage signals under `eez_observer_source_receipt_`. See the
+[source receipt contract](source-receipts.md#reader-views-and-signals) for complete
+populations, freshness and unresolved-state semantics. Only fixed `chain` and
+closed `reason` values are added as labels; admission/transaction identifiers stay
+in SQL. Projection completion is not empty-backlog or canonical outcome assurance.

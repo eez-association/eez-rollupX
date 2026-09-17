@@ -66,7 +66,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '4'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '5'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -80,6 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=pathlib.Path, default=ROOT.parent / 'target/debug/eez-observer')
     parser.add_argument('--previous-binary', type=pathlib.Path, help='Optional saved schema-v1 observer for upgrade compatibility checks')
+    parser.add_argument('--previous-v4-binary', type=pathlib.Path, help='Optional saved schema-v4 observer for populated lifecycle upgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -135,8 +136,20 @@ def main():
         before_upgrade = run(psql + ['-Atq'], data='SELECT known_total_paid FROM eez.canonical_cost_totals WHERE chain_instance_id=1;').stdout.strip()
         selector = (ROOT / 'tests/fixtures/empty-post-calldata.hex').read_text().strip()[2:10]
         run(psql, data=(ROOT / 'tests/legacy-posting.sql').read_text().replace('POST_SELECTOR', selector))
+        if args.previous_v4_binary:
+            run(['docker','cp',str(args.previous_v4_binary.resolve()),name + ':/observer-v4'])
+            run(['docker','exec',name,'/observer-v4','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '4'
+            run(psql,data="""INSERT INTO eez.lifecycle_sources(deployment_id,service,instance,directory) VALUES(1,'composer','upgrade','/upgrade');
+              INSERT INTO eez.lifecycle_epochs(source_id,epoch) SELECT id,decode(repeat('12',16),'hex') FROM eez.lifecycle_sources WHERE instance='upgrade';
+              INSERT INTO eez.lifecycle_events(source_id,epoch,sequence,chunk_count,state,payload)
+              SELECT id,decode(repeat('12',16),'hex'),1,1,'complete','{"observed_at_unix_ms":1000,"trace":null,"event":{"event":"reorg","ancestor":{"number":1,"hash":"0101010101010101010101010101010101010101010101010101010101010101"}}}'::jsonb FROM eez.lifecycle_sources WHERE instance='upgrade';""")
         run(migrate)
         run(migrate)
+        if args.previous_v4_binary:
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_event_history WHERE instance='upgrade';").stdout.strip() == '1'
+            assert run(['docker','exec',name,'/observer-v4','migrate','--database-config','/tmp/database.json'],check=False).returncode != 0
+            report['checks'].append('saved_v4_binary_upgrade_preserves_lifecycle_events_and_refuses_downgrade')
         assert run(psql + ['-Atq'], data='SELECT known_total_paid FROM eez.canonical_cost_totals WHERE chain_instance_id=1;').stdout.strip() == before_upgrade
         assert run(psql + ['-Atq'], data="SELECT count(*) FROM eez.posting_analysis WHERE state='pending';").stdout.strip() == '5'
         if args.previous_binary:
@@ -612,6 +625,138 @@ def main():
             time.sleep(0.1)
         report['checks'].append('continuous_lifecycle_metrics_isolate_missing_spool_from_other_sources_and_shutdown')
         variant.pop('lifecycle')
+        # Source dependencies share immutable receipt facts, while preserving the
+        # original configured selection and deduplicating repeated admissions.
+        source_dir = spool / 'source-receipts'
+        source_dir.mkdir(mode=0o755)
+        source_epoch, source_segment = '61' * 16, '62' * 16
+        identity = {'environment':'fixture','deployment':'source-receipts','service':'composer','instance':'source-node'}
+        source_config = copy.deepcopy(index_config)
+        source_config['deployment'] = identity['deployment']
+        source_config['lifecycle'] = [{'service':'composer','instance':'source-node','directory':'/lifecycle/source-receipts'}]
+        def admission(tx_hash, *, genesis=100, previous=None):
+            return {'observed_at_unix_ms':10002,'trace':None,'event':{'event':'admitted',
+                'source':{'chain_id':1,'genesis_hash':f'{genesis:064x}','rollup_id':0,'transaction_hash':f'{tx_hash:064x}','direction':'inbound'},
+                'previous':previous,'replaced':None}}
+        source_path = source_dir / f'{source_epoch}-{source_segment}.closed'
+        source_path.write_bytes(header(source_epoch,source_segment) + b''.join([
+            *chunks(1,payload=admission(1001),epoch_value=source_epoch),
+            *chunks(2,payload=admission(1002),epoch_value=source_epoch),
+            *chunks(3,payload=admission(1002,previous={'epoch':source_epoch,'sequence':2}),epoch_value=source_epoch),
+            *chunks(4,payload=admission(9999,genesis=999),epoch_value=source_epoch)]))
+        write_index(source_config)
+        control(phase='healthy',finalize=False,correlation='none',post_count=1,post_success=False,
+            source_unselected=True,source_receipt_missing=True)
+        run(index)
+        def source_scalar(expression, view, extra=''):
+            return scalar(f"SELECT {expression} FROM eez.{view} c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND role='l1' {extra};")
+        assert source_scalar('known_total_paid','canonical_cost_totals') == '147000'
+        assert source_scalar('known_total_paid','wallet_cost_totals') == '147000'
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '147000'
+        assert source_scalar("known_sources||':'||missing_receipts||':'||accounting_gaps||':'||lookup_errors",'source_receipt_coverage') == '2:1:0:0'
+        assert scalar("SELECT count(*) FROM eez.lifecycle_source_links WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND state='identity_mismatch';") == '1'
+        assert scalar("SELECT count(*) FROM eez.source_receipt_requests request JOIN eez.chain_instances c ON c.id=request.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts';") == '2'
+        assert source_scalar('not_observed','source_receipt_coverage') == '1'
+        control(source_receipt_missing=False,source_cost_missing=True)
+        run(index)
+        assert source_scalar('known_total_paid','canonical_cost_totals') == '147000'
+        assert source_scalar("known_sources||':'||missing_receipts||':'||accounting_gaps",'source_receipt_coverage') == '2:0:1'
+        assert scalar("SELECT count(*) FROM eez.blocks b JOIN eez.chain_instances c ON c.id=b.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND receipt_coverage='gap';") == '0'
+        control(source_cost_missing=False)
+        run(index)
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '738216'
+        assert source_scalar("observed_receipts||':'||reverted_receipts",'source_receipt_cost_totals') == '2:1'
+        assert source_scalar('known_total_paid','canonical_cost_totals') == '147000'
+        assert source_scalar('count(*)','canonical_receipt_facts') == '2'
+        assert source_scalar('count(*)','canonical_receipts') == '1'
+        assert source_scalar('count(*)','source_receipts',"AND evidence_class='receipt_verified' AND l2_settlement_verified IS NULL") == '2'
+        assert scalar("SELECT count(*) FROM eez.lifecycle_source_admissions WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node');") == '3'
+        run(index)
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '738216'
+        # One chain's receipt failure cannot stop the other chain's lookups.
+        outbound=admission(2002,genesis=200)
+        outbound['event']['source'].update(chain_id=2,rollup_id=1,direction='outbound')
+        source_segment_2='65'*16
+        (source_dir/f'{source_epoch}-{source_segment_2}.closed').write_bytes(header(source_epoch,source_segment_2)+chunks(5,payload=outbound,epoch_value=source_epoch)[0])
+        run(psql,data="UPDATE eez.source_receipt_requests SET last_attempt_at='epoch' WHERE transaction_hash=decode('"+f'{1002:064x}'+"','hex');")
+        control(source_receipt_failure=True)
+        result=run(index)
+        assert 'source receipt chain collection failed' in result.stdout
+        assert scalar("SELECT request.last_success_at IS NOT NULL FROM eez.source_receipt_requests request JOIN eez.chain_instances c ON c.id=request.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND c.role='l2';") == 't'
+        assert scalar("SELECT evidence_class||':'||(l2_settlement_verified IS NULL)::text||':'||(l2_finality_verified IS NULL)::text FROM eez.source_receipts c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND role='l2';") == 'receipt_verified:true:true'
+        control(source_receipt_failure=False)
+        report['checks'].append('source_receipt_failures_are_chain_isolated_and_unverified_l2_settlement_remains_unknown')
+        # A mismatched configured rollup must not poison another indexer's
+        # correct projection of the same native admission.
+        alternate=copy.deepcopy(outbound);alternate['event']['source']['transaction_hash']=f'{2001:064x}'
+        source_segment_3='68'*16
+        (source_dir/f'{source_epoch}-{source_segment_3}.closed').write_bytes(header(source_epoch,source_segment_3)+chunks(6,payload=alternate,epoch_value=source_epoch)[0])
+        other_context=copy.deepcopy(source_config);other_context['rollup_id']=2
+        write_index(other_context)
+        run(index)
+        assert scalar("SELECT count(*) FROM eez.lifecycle_source_links WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND sequence=6 AND state='identity_mismatch';") == '1'
+        write_index(source_config)
+        run(index)
+        assert scalar("SELECT count(*) FROM eez.lifecycle_source_admissions WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND sequence=6;") == '1'
+        assert scalar("SELECT count(DISTINCT context_l2) FROM eez.lifecycle_source_links WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND sequence=6;") == '2'
+        report['checks'].append('source_projection_context_fence_prevents_wrong_rollup_poisoning_of_a_valid_admission')
+        # Force the unselected receipt's next recheck to exercise exact indexed
+        # block-body membership, independently of the normal selected scan.
+        run(psql,data="UPDATE eez.source_receipt_requests SET last_attempt_at='epoch' WHERE transaction_hash=decode('" + f'{1002:064x}' + "','hex');")
+        control(source_hash_mismatch=True)
+        run(index)
+        assert scalar("SELECT request.collection_error FROM eez.source_receipt_requests request JOIN eez.chain_instances c ON c.id=request.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND request.transaction_hash=decode('" + f'{1002:064x}' + "','hex');") == 'inconsistent_chain_facts'
+        assert source_scalar('known_total_paid','canonical_cost_totals') == '147000'
+        control(source_hash_mismatch=False,phase='fork')
+        run(index)
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '804216'
+        assert source_scalar('known_total_paid','canonical_cost_totals') == '147000'
+        assert scalar("SELECT count(*) FROM eez.receipt_observations r JOIN eez.chain_instances c ON c.id=r.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-receipts' AND r.transaction_hash=decode('" + f'{1002:064x}' + "','hex');") == '2'
+        assert source_scalar('count(*)','source_receipts',"AND transaction_hash=decode('" + f'{1002:064x}' + "','hex')") == '1'
+        # Conflicted admission provenance disappears without deleting verified
+        # receipt facts. Another valid admission still identifies the same source.
+        run(psql,data="UPDATE eez.lifecycle_events SET state='conflict',payload=NULL WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND sequence=2;")
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '804216'
+        run(psql,data="UPDATE eez.lifecycle_events SET state='conflict',payload=NULL WHERE source_id=(SELECT id FROM eez.lifecycle_sources WHERE instance='source-node') AND sequence=3;")
+        assert source_scalar('known_total_paid','source_receipt_cost_totals') == '147000'
+        assert source_scalar('count(*)','canonical_receipt_facts') == '2'
+        run(psql,data="SET ROLE eez_observer_reader; SELECT count(*) FROM eez.source_receipts; SELECT count(*) FROM eez.source_receipt_coverage; SELECT count(*) FROM eez.lifecycle_source_link_status;")
+        report['checks'].append('source_receipt_dependencies_preserve_selection_and_fee_gaps_deduplicate_readmissions_verify_membership_and_retract_reorg_or_conflicted_links')
+        # Source lookup cannot quietly extend the configured bootstrap interval.
+        bounds_dir=spool/'source-bounds';bounds_dir.mkdir(mode=0o755)
+        identity={**identity,'deployment':'source-bounds','instance':'bounds-node'}
+        bounds_epoch,bounds_segment='63'*16,'64'*16
+        (bounds_dir/f'{bounds_epoch}-{bounds_segment}.closed').write_bytes(header(bounds_epoch,bounds_segment)+chunks(1,payload=admission(1001),epoch_value=bounds_epoch)[0])
+        bounded=copy.deepcopy(source_config);bounded['deployment']='source-bounds';bounded['l1']['bootstrap']=2
+        bounded['lifecycle']=[{'service':'composer','instance':'bounds-node','directory':'/lifecycle/source-bounds'}]
+        write_index(bounded)
+        run(index)
+        assert scalar("SELECT request.observation_status FROM eez.source_receipt_requests request JOIN eez.chain_instances c ON c.id=request.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-bounds';") == 'outside_indexed_interval'
+        assert scalar("SELECT count(*) FROM eez.blocks b JOIN eez.chain_instances c ON c.id=b.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-bounds' AND role='l1' AND number<2;") == '0'
+        assert scalar("SELECT count(*) FROM eez.receipt_observations r JOIN eez.chain_instances c ON c.id=r.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-bounds' AND role='l1';") == '0'
+        report['checks'].append('source_receipt_lookup_reports_bootstrap_boundary_without_extending_the_indexed_interval')
+        budget_dir=spool/'source-budget';budget_dir.mkdir(mode=0o755)
+        identity={**identity,'deployment':'source-budget','instance':'budget-node'}
+        budget_epoch,budget_segment='66'*16,'67'*16
+        budget_records=header(budget_epoch,budget_segment)
+        for index_value,tx_hash in enumerate(range(1002,1033),1):
+            budget_records+=chunks(index_value,payload=admission(tx_hash),epoch_value=budget_epoch)[0]
+        budget_records+=chunks(32,payload=outbound,epoch_value=budget_epoch)[0]
+        (budget_dir/f'{budget_epoch}-{budget_segment}.closed').write_bytes(budget_records)
+        budget=copy.deepcopy(source_config);budget['deployment']='source-budget'
+        budget['lifecycle']=[{'service':'composer','instance':'budget-node','directory':'/lifecycle/source-budget'}]
+        write_index(budget)
+        control(phase='healthy',post_count=31,source_receipt_delay_ms=1000)
+        result=run(index)
+        assert 'source_receipt_budget_exhausted' in result.stdout
+        assert scalar("SELECT request.last_success_at IS NOT NULL FROM eez.source_receipt_requests request JOIN eez.chain_instances c ON c.id=request.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-budget' AND c.role='l2';") == 't'
+        control(source_receipt_delay_ms=0)
+        run(index)
+        assert scalar("SELECT known_total_paid FROM eez.source_receipt_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-budget' AND role='l1';") == str(31*591216)
+        assert scalar("SELECT known_total_paid FROM eez.canonical_cost_totals c JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='source-budget' AND role='l1';") == '147000'
+        report['checks'].append('source_receipt_deadline_preserves_partial_commits_and_other_chain_progress_then_recovers_without_duplicate_fees')
+        control(source_unselected=False,source_receipt_missing=False,source_cost_missing=False,source_hash_mismatch=False,source_receipt_failure=False,source_receipt_delay_ms=0,post_count=1)
+        write_index(index_config)
         run(psql, data="UPDATE eez.schema_migrations SET version=version+100;")
         assert run(migrate, check=False).returncode != 0
         assert run(index, check=False).returncode != 0

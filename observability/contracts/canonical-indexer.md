@@ -181,3 +181,12 @@ collection can coexist with coverage gaps; neither is a source-completion claim.
 Schema 4 adds optional [local lifecycle ingestion](lifecycle-ingestion.md), with
 independent workers and transactional file checkpoints. Receipt collection and
 cost views remain independent of lifecycle delivery or claimed outcomes.
+
+
+## Source receipt dependencies (schema 5)
+
+The [source-receipt worker](source-receipts.md) can fetch receipts named by complete
+native admissions within the existing indexed interval. It shares immutable
+receipt facts and canonical flags, while `selected_transactions` preserves the
+original scanner's population for existing views and totals. Source receipt costs
+are a separate overlapping population, not companion attribution or EEZ success.

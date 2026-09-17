@@ -4,6 +4,7 @@ import http.server
 import json
 import pathlib
 import threading
+import time
 
 
 POST_CALL = pathlib.Path('/post-calldata.hex').read_text().strip()
@@ -18,6 +19,12 @@ class RPC(http.server.BaseHTTPRequestHandler):
     correlation = 'none'
     post_success = False
     post_count = 1
+    source_unselected = False
+    source_receipt_missing = False
+    source_cost_missing = False
+    source_hash_mismatch = False
+    source_receipt_failure = False
+    source_receipt_delay_ms = 0
     lock = threading.Lock()
 
     def log_message(self, *args):
@@ -45,7 +52,10 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 if 'post_count' in request:
                     assert type(request['post_count']) is int and 1 <= request['post_count'] <= 32
                     type(self).post_count = request['post_count']
-                for field in ('post_success',):
+                if 'source_receipt_delay_ms' in request:
+                    assert type(request['source_receipt_delay_ms']) is int and 0 <= request['source_receipt_delay_ms'] <= 2000
+                    type(self).source_receipt_delay_ms = request['source_receipt_delay_ms']
+                for field in ('post_success','source_unselected','source_receipt_missing','source_cost_missing','source_hash_mismatch','source_receipt_failure'):
                     if field in request:
                         assert type(request[field]) is bool
                         setattr(type(self), field, request[field])
@@ -55,12 +65,15 @@ class RPC(http.server.BaseHTTPRequestHandler):
         with self.lock:
             phase, finalize = self.phase, self.finalize
             correlation, post_success, post_count = self.correlation, self.post_success, self.post_count
+            source_unselected, source_receipt_missing = self.source_unselected, self.source_receipt_missing
+            source_cost_missing, source_hash_mismatch = self.source_cost_missing, self.source_hash_mismatch
+            source_receipt_failure, source_receipt_delay_ms = self.source_receipt_failure, self.source_receipt_delay_ms
         fork = phase == 'fork' or (phase == 'l2_fork' and chain == 2)
         def block_hash(height):
             return digest(chain * 100 + height + (10 if fork and height >= 2 else 0))
         def transaction(height, index=0):
             return {'hash': digest(chain * 1000 + height + index), 'blockHash': block_hash(height),
-                'blockNumber': hex(height), 'transactionIndex': hex(index), 'from': '0x' + 'aa' * 20,
+                'blockNumber': hex(height), 'transactionIndex': hex(index), 'from': '0x' + ('cc' if source_unselected and chain == 1 and height == 2 else 'aa') * 20,
                 'to': '0x' + 'bb' * 20, 'nonce': hex(height - 1 + index), 'type': '0x3' if height == 2 else '0x2', 'input': (POST_CALL[:10] if phase == 'invalid_post' else POST_CALL + '00' * 32 if phase == 'unverified_post' else POST_CALL) if height == 2 else '0x12345678'}
         method, params = request['method'], request['params']
         if method == 'eth_chainId':
@@ -72,7 +85,9 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 raise AssertionError('L2 RPC finality is not settlement evidence')
             value = None if height > 3 else {'number': hex(height), 'hash': block_hash(height),
                 'parentHash': digest(0) if height == 0 else block_hash(height - 1), 'timestamp': hex(100 + height * 5),
-                'transactions': [transaction(height, index) for index in range(post_count if chain == 1 and height == 2 else 1)] if full and height in (1, 2) else []}
+                'transactions': [(transaction(height, index) if full else transaction(height, index)['hash']) for index in range(post_count if chain == 1 and height == 2 else 1)] if height in (1, 2) else []}
+            if value and not full and chain == 1 and height == 2 and source_hash_mismatch:
+                value['transactions'] = [digest(9999)]
             if phase == 'pruned' and height == 2 and full:
                 value = None
         elif method == 'eth_getTransactionByHash':
@@ -82,16 +97,20 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 height = 2
             value = transaction(height, index) if height in (1,2) and phase != 'transaction_unavailable' else None
         elif method == 'eth_getTransactionReceipt':
+            if chain == 1 and source_receipt_delay_ms:
+                time.sleep(source_receipt_delay_ms / 1000)
+            if chain == 1 and source_receipt_failure and int(params[0],16) == 1002:
+                self.send({'jsonrpc':'2.0','id':request['id'],'error':{'code':-32603,'message':'fixture source receipt failure'}})
+                return
             height = int(params[0], 16) - chain * 1000
             index = height - 2 if chain == 1 and 2 <= height < 2 + post_count else 0
             if index:
                 height = 2
-            assert height in (1, 2)
             if phase == 'mid_fetch' and height == 2 and chain == 1:
                 with self.lock:
                     type(self).phase = 'fork'
                 fork = True
-            if phase == 'missing' and height == 2:
+            if height not in (1, 2) or ((phase == 'missing' or (chain == 1 and source_receipt_missing)) and height == 2):
                 value = None
             else:
                 tx = transaction(height, index)
@@ -103,6 +122,8 @@ class RPC(http.server.BaseHTTPRequestHandler):
                     value['type'] = '0x2'
                 if height == 2:
                     value.update(blobGasUsed=hex(131072), blobGasPrice='0x3')
+                    if chain == 1 and source_cost_missing:
+                        value.pop('blobGasPrice')
         elif method == 'eez_getSettledL2RangesByL1Block':
             assert chain == 2
             l1_hash = digest(102 + (10 if phase == 'fork' else 0))

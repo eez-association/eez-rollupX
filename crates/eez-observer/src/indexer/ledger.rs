@@ -156,15 +156,19 @@ pub(super) async fn retract(
     Ok(())
 }
 
-async fn save_receipt(
+pub(super) async fn save_receipt(
     client: &impl GenericClient,
     id: i64,
     block: &Block,
     tx: &Transaction,
     receipt: Option<&Receipt>,
+    selected: bool,
 ) -> Result<(), Error> {
     let recipient = tx.recipient.as_ref().map(|address| address.as_slice());
     client.execute("INSERT INTO eez.transactions(chain_instance_id,hash,sender,recipient,nonce,transaction_type,method_selector) VALUES($1,$2::bytea,$3::bytea,$4::bytea,$5::text::numeric,$6,$7) ON CONFLICT(chain_instance_id,hash) DO UPDATE SET sender=EXCLUDED.sender,recipient=EXCLUDED.recipient,nonce=EXCLUDED.nonce,transaction_type=EXCLUDED.transaction_type,method_selector=EXCLUDED.method_selector",&[&id,&tx.hash.as_slice(),&tx.sender.as_slice(),&recipient,&tx.nonce.to_string(),&tx.kind,&tx.selector]).bounded().await?;
+    if selected {
+        client.execute("INSERT INTO eez.selected_transactions(chain_instance_id,transaction_hash) VALUES($1,$2::bytea) ON CONFLICT DO NOTHING", &[&id,&tx.hash.as_slice()]).bounded().await?;
+    }
     save_posting(client, id, tx.hash, &tx.posting).await?;
     let key = format!("{:#x}:{:#x}", tx.hash, block.hash);
     if let Some(receipt) = receipt {
@@ -198,6 +202,9 @@ async fn save_receipt(
               accounting_gap=CASE WHEN eez.receipt_observations.accounting_gap IS NOT NULL OR EXCLUDED.accounting_gap IS NULL THEN EXCLUDED.accounting_gap ELSE eez.receipt_observations.accounting_gap END",
             &[&id,&tx.hash.as_slice(),&block.hash.as_slice(),&tx.index.to_string(),&receipt.success,&values[0],&values[1],&values[2],&values[3],&values[4],&values[5],&values[6],&gap]).bounded().await?;
     }
+    if !selected {
+        return Ok(());
+    }
     let complete:bool=client.query_one("SELECT EXISTS(SELECT FROM eez.receipt_observations WHERE chain_instance_id=$1 AND transaction_hash=$2::bytea AND block_hash=$3::bytea AND accounting_gap IS NULL)",&[&id,&tx.hash.as_slice(),&block.hash.as_slice()]).bounded().await?.try_get(0)?;
     if complete {
         client.execute("UPDATE eez.collection_gaps SET state='resolved',last_seen_at=now() WHERE chain_instance_id=$1 AND source='receipt' AND reference_key=$2",&[&id,&key]).bounded().await?;
@@ -218,7 +225,7 @@ pub(super) async fn commit_block(
     lock_cursor(&transaction, id, expected).bounded().await?;
     transaction.execute("INSERT INTO eez.blocks(chain_instance_id,hash,number,parent_hash,timestamp_seconds,canonical,receipt_coverage) VALUES($1,$2::bytea,$3::text::numeric,$4::bytea,$5::text::numeric,true,'pending') ON CONFLICT(chain_instance_id,hash) DO UPDATE SET number=EXCLUDED.number,parent_hash=EXCLUDED.parent_hash,timestamp_seconds=EXCLUDED.timestamp_seconds,canonical=true",&[&id,&block.hash.as_slice(),&block.number.to_string(),&block.parent.as_slice(),&block.timestamp.to_string()]).bounded().await?;
     for (tx, receipt) in receipts {
-        save_receipt(&transaction, id, block, tx, receipt.as_ref())
+        save_receipt(&transaction, id, block, tx, receipt.as_ref(), true)
             .bounded()
             .await?;
     }
@@ -229,7 +236,7 @@ pub(super) async fn commit_block(
     Ok(())
 }
 
-async fn refresh_coverage(
+pub(super) async fn refresh_coverage(
     client: &impl GenericClient,
     id: i64,
     block: &Block,
@@ -312,7 +319,7 @@ pub(super) async fn repair_block(
         return Err(Error::Inconsistent);
     }
     for (tx, receipt) in observations {
-        save_receipt(&transaction, id, block, tx, receipt.as_ref())
+        save_receipt(&transaction, id, block, tx, receipt.as_ref(), true)
             .bounded()
             .await?;
     }

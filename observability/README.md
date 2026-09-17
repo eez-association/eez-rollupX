@@ -5,13 +5,15 @@ and the self-hosted Prometheus/Grafana/Loki/Alloy backend are implemented. Two
 provisioned dashboards cover network and collection health. See the
 [reviewed plan](../docs/proposals/network-observability.md) for canonical accounting
 and tracing. The optional canonical receipt indexer and PostgreSQL profile are
-now implemented; settlement attribution, lifecycle ingestion and tracing remain
-in progress. The backend has been exercised with local
+now implemented, along with durable lifecycle transport and native lifecycle
+capture. [Source-receipt enrichment](contracts/source-receipts.md) has isolated SQL/RPC
+validation; companion attribution,
+canonical outcome validation and tracing remain in progress. The backend has been exercised with local
 fixtures; it has not been connected to the live Chiado deployment.
 
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
-and [fault-test evidence](validation/lifecycle-transport.md). Native instrumentation
-and durable ingestion are still in progress. The [requirement ledger](requirements.md)
+and [fault-test evidence](validation/lifecycle-transport.md). Native admission, preparation, attempt, reconciliation, reorg and local-disposition
+capture have component/process evidence; canonical outcome validation remains open. The [requirement ledger](requirements.md)
 tracks each implementation and acceptance gate without treating partial work as a
 completed release.
 

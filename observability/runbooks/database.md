@@ -104,3 +104,14 @@ a missing directory remains a visible collection failure and does not stop chain
 indexing. All prior schema binaries refuse schema 4. Reverting the executable
 alone is not a database rollback. See the [ingestion contract](../contracts/lifecycle-ingestion.md)
 for bounded replay, quarantine investigation, freshness and writer-liveness limits.
+
+
+Schema 5 adds lifecycle-referenced source receipt lookups and separates configured
+selection from receipt dependencies. Use the same stop/backup/explicit-migrate/start
+order; schema-4 and earlier binaries refuse this version. Existing `lifecycle`
+entries enable source lookups without changing receipt selection or bootstrap.
+Check both per-chain source-receipt collection signals, pending admissions and
+`eez.source_receipt_coverage`; null receipts are unobserved, not zero-cost success.
+Source and wallet cost populations can overlap and must not be added together.
+See the [source receipt contract](../contracts/source-receipts.md) for exact scope,
+work budgets, gap states and rollback boundaries.

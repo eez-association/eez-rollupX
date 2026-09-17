@@ -1,4 +1,4 @@
-# Lifecycle ingestion (schema 4)
+# Lifecycle ingestion (introduced in schema 4)
 
 Indexer mode accepts an optional `lifecycle` array. It defaults to empty, leaving
 existing receipt/exporter behavior unchanged. Each entry names `service`,
@@ -140,3 +140,8 @@ restricted database for a reviewed reconstruction. A captured oversized prefix
 or truncated line cannot reconstruct missing bytes. This release has no automatic
 repair, quarantine deletion or protocol-state recovery command. Native admissions
 and canonical outcome reconciliation remain separate requirements.
+
+Schema 5 adds a separate [source-receipt worker](source-receipts.md) driven by
+complete admissions. It leaves this transport contract intact and does not turn
+transport completion into a canonical EEZ outcome. Existing nonempty lifecycle
+configuration enables that worker after the explicit database upgrade.

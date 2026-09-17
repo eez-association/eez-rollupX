@@ -24,6 +24,7 @@ use crate::{
 mod ledger;
 pub mod lifecycle;
 mod settlements;
+pub mod source_receipts;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -161,6 +162,7 @@ pub enum Error {
     Schema,
     SelectionChanged,
     SettlementFinality,
+    SourceBudget,
     Inconsistent,
     ConflictingFact,
     Frozen,
@@ -174,6 +176,7 @@ impl Error {
             Self::Schema => "schema_or_role",
             Self::SelectionChanged => "selection_changed",
             Self::SettlementFinality => "settled_l2_finality_contradiction",
+            Self::SourceBudget => "source_receipt_budget_exhausted",
             Self::Inconsistent => "inconsistent_chain_facts",
             Self::ConflictingFact => "conflicting_fact",
             Self::Frozen => "finalized_contradiction_or_frozen",
@@ -239,6 +242,23 @@ fn address(value: &str) -> Result<Address, Error> {
     value.parse().map_err(|_| Error::Rpc(Failure::Malformed))
 }
 impl Transaction {
+    fn parse_receipt(&self, block: &Block, value: &Value) -> Result<Receipt, Error> {
+        // Retain the scanner's existing error precedence: a known contradictory
+        // type is rejected before interpreting any other receipt field.
+        if quantity(&value["type"]).is_ok_and(|kind| i16::try_from(kind) != Ok(self.kind)) {
+            return Err(Error::Inconsistent);
+        }
+        let receipt = Receipt::parse(value)?;
+        if receipt.block_hash != block.hash
+            || receipt.block_number != block.number
+            || receipt.transaction_hash != self.hash
+            || receipt.transaction_index != self.index
+        {
+            return Err(Error::Inconsistent);
+        }
+        Ok(receipt)
+    }
+
     fn parse(value: &Value, block: &Block, index: usize) -> Result<Self, Error> {
         let tx_index = quantity(&value["transactionIndex"])?;
         if tx_index != index as u64
@@ -303,6 +323,7 @@ pub struct RuntimeStatus {
     pub chains: [Status; 2],
     pub settlements: Option<Status>,
     pub lifecycle: Vec<lifecycle::Status>,
+    pub source_receipts: Option<source_receipts::Status>,
 }
 pub type SharedStatus = Arc<RwLock<RuntimeStatus>>;
 
@@ -479,6 +500,7 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
         settlements::poll(config, rpc, status).await;
     }
     lifecycle::once(config, status).await;
+    source_receipts::poll(config, rpc, status).await;
     l1.and(l2)
 }
 
@@ -500,7 +522,8 @@ pub async fn run(config: Config, rpc: Rpc, status: SharedStatus) {
         worker(&config, &rpc, &status, 0),
         worker(&config, &rpc, &status, 1),
         settlements::run(&config, &rpc, &status),
-        lifecycle::run(&config, &status)
+        lifecycle::run(&config, &status),
+        source_receipts::run(&config, &rpc, &status)
     );
 }
 
@@ -786,16 +809,7 @@ async fn fetch_observations(
             .await
         };
         let receipt = match observed {
-            Ok(value) if !value.is_null() => {
-                // A missing/unsupported type remains an accounting gap, while a
-                // contradictory known type cannot be charged against this transaction.
-                if quantity(&value["type"])
-                    .is_ok_and(|kind| i16::try_from(kind) != Ok(transaction.kind))
-                {
-                    return Err(Error::Inconsistent);
-                }
-                Some(Receipt::parse(&value)?)
-            }
+            Ok(value) if !value.is_null() => Some(transaction.parse_receipt(&block, &value)?),
             Err(Failure::Unsupported | Failure::Http | Failure::Transport) => {
                 // A failed service must not incur thousands of sequential timeouts.
                 // Keep every selected transaction as a retryable receipt gap.
@@ -805,14 +819,7 @@ async fn fetch_observations(
             Ok(_) | Err(Failure::Rpc) => None,
             Err(error) => return Err(error.into()),
         };
-        if receipt.as_ref().is_some_and(|r| {
-            r.block_hash != block.hash
-                || r.block_number != block.number
-                || r.transaction_hash != transaction.hash
-                || r.transaction_index != transaction.index
-        }) {
-            return Err(Error::Inconsistent);
-        }
+
         observations.push((transaction, receipt));
     }
     Ok((block, observations))
@@ -828,6 +835,55 @@ mod tests {
         json!({"exporter":{"l1":endpoint,"l2":endpoint},"environment":"test","deployment":"fixture",
             "rollup_id":1,"database_config":"writer.json","l1":{"bootstrap":1,"wallets":[format!("{:#x}",Address::repeat_byte(0xab))]},
             "l2":{"bootstrap":0,"include_all_transactions":true}})
+    }
+
+    #[test]
+    fn receipt_reuse_preserves_type_precedence_and_exact_inclusion_checks() {
+        let block = Block {
+            number: 1,
+            hash: B256::repeat_byte(1),
+            parent: B256::ZERO,
+            timestamp: 1,
+        };
+        let tx = Transaction {
+            hash: B256::repeat_byte(2),
+            sender: Address::ZERO,
+            recipient: None,
+            nonce: U256::ZERO,
+            kind: 2,
+            selector: None,
+            posting: crate::posting::Analysis::other(),
+            index: 3,
+        };
+        assert_eq!(
+            tx.parse_receipt(&block, &json!({"type":"0x3"})),
+            Err(Error::Inconsistent)
+        );
+        assert_eq!(
+            tx.parse_receipt(&block, &json!({"type":"0x2"})),
+            Err(Error::Rpc(Failure::Malformed))
+        );
+        let value = json!({"type":"0x2","transactionHash":format!("{:#x}",tx.hash),"blockHash":format!("{:#x}",block.hash),"blockNumber":"0x1","transactionIndex":"0x3","status":"0x1","gasUsed":"0x5208","effectiveGasPrice":"0x7"});
+        let receipt = tx.parse_receipt(&block, &value).unwrap();
+        assert!(receipt.success);
+        assert!(receipt.cost.is_ok());
+        for (key, invalid) in [
+            ("blockNumber", json!("0x2")),
+            ("transactionIndex", json!("0x4")),
+            ("transactionHash", json!(format!("{:#x}", B256::ZERO))),
+            ("blockHash", json!(format!("{:#x}", B256::ZERO))),
+        ] {
+            let mut changed = value.clone();
+            changed[key] = invalid;
+            assert_eq!(tx.parse_receipt(&block, &changed), Err(Error::Inconsistent));
+        }
+        let mut missing_type = value;
+        missing_type.as_object_mut().unwrap().remove("type");
+        let receipt = tx.parse_receipt(&block, &missing_type).unwrap();
+        assert!(
+            receipt.cost.is_err(),
+            "missing type remains identified with unknown charges"
+        );
     }
 
     #[test]
