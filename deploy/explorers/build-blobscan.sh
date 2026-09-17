@@ -4,8 +4,12 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 work_dir="$(mktemp -d /tmp/eez-blobscan-build.XXXXXXXX)"
 build_db="eez-blobscan-build-$$"
+build_network="$build_db"
+builder="$build_db"
 cleanup() {
+  docker buildx rm "$builder" >/dev/null 2>&1 || true
   docker rm -f "$build_db" >/dev/null 2>&1 || true
+  docker network rm "$build_network" >/dev/null 2>&1 || true
   rm -rf -- "$work_dir"
 }
 trap cleanup EXIT
@@ -20,13 +24,19 @@ patch --batch -p1 -d "$work_dir/source" < "$script_dir/blobscan-chiado.patch"
 
 # Prisma's typed SQL generator needs a migrated database even at build time.
 # These are disposable credentials for an empty schema, never runtime secrets.
-docker run --rm -d --name "$build_db" -p 127.0.0.1::5432 \
+docker network create "$build_network" >/dev/null
+docker run --rm -d --name "$build_db" --network "$build_network" --network-alias build-db \
   -e POSTGRES_USER=build -e POSTGRES_PASSWORD=build -e POSTGRES_DB=blobscan \
   --tmpfs /var/lib/postgresql/data:rw,size=1g \
   postgres@sha256:3d0f7584ed7d04e27fa050d6683a74746608faf21f202be78460d679cc56461f >/dev/null
-build_port="$(docker port "$build_db" 5432/tcp | cut -d: -f2)"
-[[ "$build_port" =~ ^[0-9]+$ ]]
-build_url="postgresql://build:build@127.0.0.1:$build_port/blobscan"
+# Keep Docker's service resolver, which BuildKit otherwise filters out.
+build_dns="$(docker exec "$build_db" awk '$1 == "nameserver" {printf "\"%s\",", $2}' /etc/resolv.conf)"
+printf '[dns]\n  nameservers = [%s]\n' "$build_dns" > "$work_dir/buildkitd.toml"
+# Build steps share the builder container's network, not the machine's network.
+docker buildx create --name "$builder" --driver docker-container \
+  --driver-opt "network=$build_network" --buildkitd-flags '--oci-worker-net=host' \
+  --buildkitd-config "$work_dir/buildkitd.toml" >/dev/null
+build_url="postgresql://build:build@build-db:5432/blobscan"
 ready=false
 for attempt in {1..30}; do
   if docker exec "$build_db" pg_isready -U build -d blobscan >/dev/null; then
@@ -36,28 +46,29 @@ for attempt in {1..30}; do
   sleep 1
 done
 [[ "$ready" == true ]]
-docker run --rm --network host \
+docker run --rm --network "$build_network" \
   -e "DATABASE_URL=$build_url" -e "DIRECT_URL=$build_url" \
   --entrypoint /bin/sh \
   blossomlabs/blobscan-api@sha256:2edefdf2c959e6d0b574953e17a5a522135a8bf53931ab5bbef4707f6e7dd32c \
   -ec 'node node_modules/prisma/build/index.js migrate deploy --schema schema.prisma'
 
-build_args=(--network host --progress plain \
-  --build-arg NEXT_PUBLIC_BLOBSCAN_RELEASE=1.40.3-chiado \
+build_args=(--builder "$builder" --load --progress plain \
+  --build-arg NEXT_PUBLIC_BLOBSCAN_RELEASE=1.40.3-chiado-configurable \
   --build-arg "GIT_COMMIT=$revision" \
   --build-arg "DATABASE_URL=$build_url" --build-arg "DIRECT_URL=$build_url")
-for target in web api; do
-  docker build "${build_args[@]}" --target "$target" \
-    -t "eez-blobscan-$target:1.40.3-chiado" "$work_dir/source"
+for target in api web; do
+  docker buildx build "${build_args[@]}" --target "$target" \
+    -t "eez-blobscan-$target:1.40.3-chiado-configurable" "$work_dir/source"
 done
-docker build "${build_args[@]}" --target web-builder \
+docker buildx build "${build_args[@]}" --target web-builder \
   -t eez-blobscan-build-check:chiado "$work_dir/source"
 docker run --rm --network none \
   -e SKIP_ENV_VALIDATION= -e NODE_ENV=production \
   -e SECRET_KEY=profile-test-secret \
   -e DATABASE_URL=postgresql://test:test@127.0.0.1/test \
   -e DIRECT_URL=postgresql://test:test@127.0.0.1/test \
-  -e STATS_SYNCER_LOWEST_SLOT=24788218 \
+  -e STATS_SYNCER_LOWEST_SLOT=30000000 \
+  -e PUBLIC_NETWORK_NAME=chiado -e PUBLIC_BLOBSCAN_START_BLOCK=25000000 \
   --mount "type=bind,src=$script_dir/check-chiado-profile.ts,dst=/app/check-chiado-profile.ts,readonly" \
   eez-blobscan-build-check:chiado pnpm exec tsx /app/check-chiado-profile.ts
 docker run --rm --network none \

@@ -87,6 +87,14 @@ To sync and run a Composer for an already registered L2, follow the
 First deployment must generate the registered genesis before startup. Restarting
 an existing rollup must preserve its deployment bindings, genesis, keys, and data.
 
+### Optional explorers
+
+Use the [explorer runbook](docs/runbooks/explorers.md) to run L2 Blockscout,
+Chiado Blobscan, or both against an existing deployment. They use a separate
+Compose project and `.env.explorers`, are operated outside CI, and connect
+directly to the node RPC. Preparation reads the L2 chain ID from genesis and
+configures Blobscan history from your chosen L1 starting block.
+
 ### Staged performance workload
 
 For the 770-job / 870-source staged performance workload against an existing
@@ -130,12 +138,12 @@ Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
 
 `EEZ_MAX_USER_TXS_PER_BUNDLE` caps how many held user cross-chain transactions,
 combined across both directions, the composer offers to one Sync block. The
-in-code fallback and Kurtosis profile use `50`; the Chiado profile overrides it
-to `12` for its smaller L1 gas limit. The composer drains the queue FIFO:
-traffic beyond the cap remains queued for later Sync blocks, and block-gas
-fitting may select fewer than the configured maximum. Treat the value as a
-deployment-specific safety bound, not as a throughput target or an
-unlimited-mode switch.
+in-code fallback and Kurtosis profile use `50`; the Chiado env preset selects
+`auto` with settlement policy enabled. Automatic admission uses measured
+preparation time and gas/blob capacity to choose a finite FIFO prefix. A numeric
+override retains the fixed count cap; traffic beyond the accepted prefix stays
+queued for later Sync blocks. The [policy guide](docs/configurable-settlement-policy.md)
+describes the active resource and deadline checks.
 
 ### Exercise it
 

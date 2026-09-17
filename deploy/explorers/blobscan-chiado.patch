@@ -1,0 +1,425 @@
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -23,7 +23,7 @@
+ ENV SKIP_ENV_VALIDATION=true
+
+ RUN apk add --no-cache curl
+-RUN npm install -g pnpm turbo
++RUN npm install -g pnpm@10.12.1 turbo@1.13.4
+ WORKDIR /app
+ RUN mkdir -p /tmp/blobscan-blobs && chmod 777 /tmp/blobscan-blobs
+
+@@ -54,7 +54,7 @@
+
+ # Copy original which includes pipelines
+ COPY --from=deps /prepare/turbo.json .
+-RUN --mount=type=cache,id=pnpm,target=/pnpm/store DATABASE_URL=${DATABASE_URL} DIRECT_URL=${DIRECT_URL} pnpm build --filter=@blobscan/web
++RUN --mount=type=cache,id=pnpm,target=/pnpm/store DATABASE_URL=${DATABASE_URL} DIRECT_URL=${DIRECT_URL} pnpm build --concurrency=2 --filter=@blobscan/web
+
+ # stage: web
+ FROM base AS web
+@@ -102,7 +102,7 @@
+
+ # Copy original which includes pipelines
+ COPY --from=deps /prepare/turbo.json .
+-RUN --mount=type=cache,id=pnpm,target=/pnpm/store DATABASE_URL=${DATABASE_URL} DIRECT_URL=${DIRECT_URL} pnpm build --filter=@blobscan/rest-api-server
++RUN --mount=type=cache,id=pnpm,target=/pnpm/store DATABASE_URL=${DATABASE_URL} DIRECT_URL=${DIRECT_URL} pnpm build --concurrency=2 --filter=@blobscan/rest-api-server
+
+ # stage: api
+ FROM base AS api
+--- a/apps/rest-api-server/src/services/syncers.ts
++++ b/apps/rest-api-server/src/services/syncers.ts
+@@ -55,7 +55,7 @@
+       prisma,
+       redisUriOrConnection: connection,
+       lowestSlot:
+-        env.DENCUN_FORK_SLOT ?? getChainDencunForkSlot(env.NETWORK_NAME),
++        env.STATS_SYNCER_LOWEST_SLOT ?? env.DENCUN_FORK_SLOT ?? getChainDencunForkSlot(env.NETWORK_NAME),
+     })
+   );
+
+--- a/apps/web/next.config.ts
++++ b/apps/web/next.config.ts
+@@ -21,6 +21,7 @@
+
+ const config: NextConfig = {
+   reactStrictMode: true,
++  experimental: { cpus: 2 },
+   output: process.env.NEXT_BUILD_OUTPUT as NextConfig["output"],
+   async rewrites() {
+     /**
+--- a/apps/web/src/components/AppLayout/Banner.tsx
++++ b/apps/web/src/components/AppLayout/Banner.tsx
+@@ -1,14 +1,16 @@
+ import { useState } from "react";
+ import { XMarkIcon } from "@heroicons/react/20/solid";
+
++import { useEnv } from "~/providers/Env";
+ import { Link } from "../Link";
+
+ // To enable this banner, uncomment the import and <Banner /> in AppLayout.tsx.
+ // To disable it, comment them out again.
+ export default function Banner() {
+   const [visible, setVisible] = useState(true);
++  const { env } = useEnv();
+
+-  if (!visible) {
++  if (!visible || !env || env.PUBLIC_NETWORK_NAME === "chiado") {
+     return null;
+   }
+
+--- a/apps/web/src/components/Badges/StorageBadge.tsx
++++ b/apps/web/src/components/Badges/StorageBadge.tsx
+@@ -38,7 +38,12 @@
+   );
+
+   return (
+-    <NextLink href={url} target={url !== "#" ? "_blank" : "_self"}>
++    <NextLink
++      href={storage === "postgres" && url !== "#"
++        ? `/api/blob-data?storage=postgres&url=${encodeURIComponent(url)}`
++        : url}
++      target={url !== "#" ? "_blank" : "_self"}
++    >
+       {compact ? (
+         storageIcon
+       ) : (
+--- a/apps/web/src/components/Cards/SurfaceCards/BlobCard.tsx
++++ b/apps/web/src/components/Cards/SurfaceCards/BlobCard.tsx
+@@ -2,6 +2,7 @@
+
+ import { RollupBadge } from "~/components/Badges/RollupBadge";
+ import { StorageBadge } from "~/components/Badges/StorageBadge";
++import { BlobProofDisplay } from "~/components/Displays/BlobProofDisplay";
+ import { BlobUsageDisplay } from "~/components/Displays/BlobUsageDisplay";
+ import { Separator } from "~/components/Separator";
+ import { Skeleton } from "~/components/Skeleton";
+@@ -70,7 +71,7 @@
+           <Skeleton width={isCompact ? undefined : 760} size="xs" />
+         )}
+         {proof ? (
+-          <CardField name="Proof" value={proof} />
++          <CardField name="Proof" value={<BlobProofDisplay proof={proof} />} />
+         ) : (
+           <Skeleton width={isCompact ? undefined : 740} size="xs" />
+         )}
+--- /dev/null
++++ b/apps/web/src/components/Displays/BlobProofDisplay.tsx
+@@ -0,0 +1,14 @@
++import { useEnv } from "~/providers/Env";
++import { Copyable } from "../Copyable";
++
++export function BlobProofDisplay({ proof }: { proof: string }) {
++  const { env } = useEnv();
++  if (!env) return null;
++
++  // Lighthouse may return empty proofs after Fulu; retain real historical proofs.
++  if (env.PUBLIC_NETWORK_NAME === "chiado" && (/^0x0*$/.test(proof) || proof.toLowerCase() === "0xc0" + "00".repeat(47))) {
++    return <span>Not supplied by beacon API (Fulu)</span>;
++  }
++
++  return <Copyable value={proof} tooltipText="Copy proof" />;
++}
+--- a/apps/web/src/components/Indicators/NetworkIndicators.tsx
++++ b/apps/web/src/components/Indicators/NetworkIndicators.tsx
+@@ -14,6 +14,7 @@
+ import { useAppState } from "~/providers/AppState";
+ import { useEnv } from "~/providers/Env";
+ import { capitalize, formatTimestamp } from "~/utils";
++import { chiadoHistoryLabel } from "~/utils/history";
+ import { DeltaPercentageChange } from "../DeltaPercentage";
+ import { FiatDisplay } from "../Displays/FiatDisplay";
+ import { Icon } from "../Icon";
+@@ -37,13 +38,7 @@
+   const ethPrices = appState?.ethPrices;
+   const latestEthPrice = ethPrices?.latest;
+   const { usdPrice: latestUsdPrice, timestamp: latestUsdPriceTimestamp } =
+-    latestEthPrice ||
+-    (latestEthPrice === null
+-      ? {
+-          usdPrice: 0,
+-          timestamp: new Date(),
+-        }
+-      : {});
++    latestEthPrice ?? {};
+   const { usdPrice: past24hUsdPrice } = ethPrices?.past24h || {};
+   const past24hBlobGasPrice = blocks?.past24h?.blobGasPrice;
+   const latestBlobGasPrice = blocks?.latest?.blobGasPrice;
+@@ -68,11 +63,13 @@
+
+   const indicators: IndicatorProps[] = [];
+
+-  if (env?.PUBLIC_NETWORK_NAME === "devnet") {
++  if (env?.PUBLIC_NETWORK_NAME === "devnet" || env?.PUBLIC_NETWORK_NAME === "chiado") {
+     indicators.push({
+       name: "Network",
+       value: env ? (
+-        capitalize(env.PUBLIC_NETWORK_NAME)
++        env.PUBLIC_NETWORK_NAME === "chiado"
++          ? chiadoHistoryLabel(env.PUBLIC_BLOBSCAN_START_BLOCK)
++          : capitalize(env.PUBLIC_NETWORK_NAME)
+       ) : (
+         <Skeleton height={14} width={48} />
+       ),
+--- a/apps/web/src/env.ts
++++ b/apps/web/src/env.ts
+@@ -7,6 +7,7 @@
+   "hoodi",
+   "sepolia",
+   "gnosis",
++  "chiado",
+   "devnet",
+ ]);
+
+@@ -16,9 +17,11 @@
+   "11155111",
+   "560048",
+   "100",
++  "10200",
+ ]);
+
+ const clientEnvVars = {
++  PUBLIC_BLOBSCAN_START_BLOCK: z.coerce.number().int().positive().optional(),
+   PUBLIC_BEACON_BASE_URL: z.string().url().optional(),
+   PUBLIC_EXPLORER_BASE_URL: z.string().url().optional(),
+   PUBLIC_NETWORK_NAME: networkSchema.default("mainnet"),
+@@ -124,6 +127,7 @@
+     PUBLIC_BEACON_BASE_URL: process.env.PUBLIC_BEACON_BASE_URL,
+     PUBLIC_EXPLORER_BASE_URL: process.env.PUBLIC_EXPLORER_BASE_URL,
+     PUBLIC_NETWORK_NAME: process.env.PUBLIC_NETWORK_NAME,
++    PUBLIC_BLOBSCAN_START_BLOCK: process.env.PUBLIC_BLOBSCAN_START_BLOCK,
+     PUBLIC_POSTHOG_HOST: process.env.PUBLIC_POSTHOG_HOST,
+     PUBLIC_POSTHOG_ID: process.env.PUBLIC_POSTHOG_ID,
+     PUBLIC_SENTRY_DSN_WEB: process.env.PUBLIC_SENTRY_DSN_WEB,
+--- a/apps/web/src/explorers.ts
++++ b/apps/web/src/explorers.ts
+@@ -21,6 +21,7 @@
+     urls: {
+       mainnet: "https://eth.blockscout.com",
+       gnosis: "https://gnosis.blockscout.com",
++      chiado: "https://gnosis-chiado.blockscout.com",
+       hoodi: "https://eth-hoodi.blockscout.com",
+       sepolia: "https://eth-sepolia.blockscout.com",
+       devnet: "https://eth.blockscout.com",
+@@ -35,6 +36,7 @@
+     urls: {
+       mainnet: "https://beaconcha.in",
+       gnosis: "https://gnosischa.in",
++      chiado: "https://chiado.beaconcha.in",
+       hoodi: "https://hoodi.beaconcha.in",
+       sepolia: "https://light-sepolia.beaconcha.in",
+       devnet: "https://eth.blockscout.com",
+--- a/apps/web/src/hooks/useExternalExplorers.ts
++++ b/apps/web/src/hooks/useExternalExplorers.ts
+@@ -30,6 +30,7 @@
+           urls: {
+             devnet: customExplorerUrl,
+             gnosis: customExplorerUrl,
++            chiado: customExplorerUrl,
+             hoodi: customExplorerUrl,
+             mainnet: customExplorerUrl,
+             sepolia: customExplorerUrl,
+--- a/apps/web/src/pages/api/blob-data.ts
++++ b/apps/web/src/pages/api/blob-data.ts
+@@ -6,12 +6,35 @@
+   const storage = req.query.storage as string | undefined;
+   const url = req.query.url as string | undefined;
+
+-  if (!storage) {
++  if (typeof storage !== "string" || !storage) {
+     return res.status(400).json({ message: "Blob data storage is required" });
+   }
+
+-  if (!url) {
++  if (typeof url !== "string" || !url) {
+     return res.status(400).json({ message: "Blob Data URL is required" });
++  }
++
++  // This Chiado deployment retains blobs in its own PostgreSQL archive.
++  // A public download endpoint must not fetch caller-selected internal URLs.
++  if (env.CHAIN_ID === 10200) {
++    if (req.method !== "GET") {
++      res.setHeader("Allow", "GET");
++      return res.status(405).json({ message: "Method not allowed" });
++    }
++    try {
++      const target = new URL(url);
++      const archive = new URL(env.BLOBSCAN_API_BASE_URL);
++      if (
++        storage !== "postgres" ||
++        target.origin !== archive.origin ||
++        target.username || target.password || target.search || target.hash ||
++        !/^\/blobs\/0x[0-9a-fA-F]{64}\/data$/.test(target.pathname)
++      ) {
++        return res.status(400).json({ message: "Invalid blob archive reference" });
++      }
++    } catch {
++      return res.status(400).json({ message: "Invalid blob archive reference" });
++    }
+   }
+
+   const isBlobscanStorageRef = storage === "postgres";
+@@ -26,6 +49,10 @@
+           },
+         }
+       : undefined;
++  }
++
++  if (env.CHAIN_ID === 10200) {
++    requestInit = { ...requestInit, redirect: "error" };
+   }
+
+   try {
+@@ -62,7 +89,7 @@
+         });
+       }
+
+-      blobData = Buffer.from(data.slice(2));
++      blobData = Buffer.from(data.slice(2), "hex");
+     } else if (isTextPlainFile) {
+       const data = await response.text();
+
+--- a/apps/web/src/pages/blob/[hash].tsx
++++ b/apps/web/src/pages/blob/[hash].tsx
+@@ -19,6 +19,7 @@
+ import { Card } from "~/components/Cards/Card";
+ import { CopyToClipboard } from "~/components/CopyToClipboard";
+ import { Copyable } from "~/components/Copyable";
++import { BlobProofDisplay } from "~/components/Displays/BlobProofDisplay";
+ import { BlobUsageDisplay } from "~/components/Displays/BlobUsageDisplay";
+ import type { DetailsLayoutProps } from "~/components/Layouts/DetailsLayout";
+ import { DetailsLayout } from "~/components/Layouts/DetailsLayout";
+@@ -221,7 +222,7 @@
+       },
+       {
+         name: "Proof",
+-        value: <Copyable value={blob.proof} tooltipText="Copy proof" />,
++        value: <BlobProofDisplay proof={blob.proof} />,
+       },
+       { name: "Size", value: formatBytes(blob.size) },
+       {
+--- a/apps/web/src/pages/block/[id].tsx
++++ b/apps/web/src/pages/block/[id].tsx
+@@ -1,3 +1,5 @@
++import { useEnv } from "~/providers/Env";
++import { historyStartBlock } from "~/utils/history";
+ import { useCallback, useState } from "react";
+ import type { NextPage } from "next";
+ import { useRouter } from "next/compat/router";
+@@ -64,10 +66,13 @@
+   );
+   const blockNumber = blockData?.number;
+   const chain = useChain();
++  const { env } = useEnv();
+   const breakpoint = useBreakpoint();
+   const isCompact = breakpoint === "sm";
+   const isFirstBlock =
+-    blockNumber && chain ? blockNumber <= chain.firstBlobBlock.number : false;
++    blockNumber && chain && env
++      ? blockNumber <= historyStartBlock(env.PUBLIC_NETWORK_NAME, env.PUBLIC_BLOBSCAN_START_BLOCK)
++      : false;
+   const isLatestBlock =
+     blockNumber && latestBlock ? blockNumber >= latestBlock.number : false;
+
+--- /dev/null
++++ b/apps/web/src/utils/history.ts
+@@ -0,0 +1,13 @@
++import { getChain } from "@blobscan/chains";
++
++export function historyStartBlock(network: string, startBlock?: number) {
++  return network === "chiado" && startBlock !== undefined
++    ? startBlock
++    : getChain(network).firstBlobBlock.number;
++}
++
++export function chiadoHistoryLabel(startBlock?: number) {
++  return startBlock === undefined
++    ? "Chiado · test xDAI · history boundary not configured"
++    : `Chiado · test xDAI · history from L1 #${startBlock.toLocaleString("en-US")}`;
++}
+--- a/apps/web/src/utils/web3.ts
++++ b/apps/web/src/utils/web3.ts
+@@ -13,6 +13,8 @@
+       return 560048;
+     case "sepolia":
+       return 11155111;
++    case "chiado":
++      return 10200;
+     case "gnosis":
+       return 100;
+   }
+--- /dev/null
++++ b/packages/chains/src/chains/chiado.ts
+@@ -0,0 +1,35 @@
++import { Chain } from "../Chain";
++
++// Retained history is deployment configuration, not a chain parameter.
++// The web navigation floor comes from PUBLIC_BLOBSCAN_START_BLOCK.
++// Fork dates and gas parameters match reth_gnosis 7e588a7's Chiado preset.
++export const chiado = new Chain(
++  10200,
++  "chiado",
++  { number: 0 },
++  {
++    dencun: {
++      activationDate: new Date(1706724940 * 1000),
++      activationSlot: 8_265_728,
++    },
++    pectra: {
++      activationDate: new Date(1741254220 * 1000),
++      activationSlot: 15_171_584,
++    },
++  },
++  16
++);
++
++// Chiado keeps these same parameters through Fulu. Override this instance's
++// fork parameters without changing Ethereum's shared presets.
++for (const fork of chiado.forks) {
++  fork.blobParams = {
++    ...fork.blobParams,
++    maxBlobsPerBlock: 2,
++    targetBlobsPerBlock: 1,
++    minBlobBaseFee: BigInt(1_000_000_000),
++    blobBaseFeeUpdateFraction: BigInt(1_112_826),
++    blobGasLimit: BigInt(262_144),
++    targetBlobGasPerBlock: BigInt(131_072),
++  };
++}
+--- a/packages/chains/src/chains/index.ts
++++ b/packages/chains/src/chains/index.ts
+@@ -1,3 +1,4 @@
++export { chiado } from "./chiado";
+ export { gnosis } from "./gnosis";
+ export { hoodi } from "./hoodi";
+ export { mainnet } from "./mainnet";
+--- a/packages/env/index.ts
++++ b/packages/env/index.ts
+@@ -116,6 +116,7 @@
+       // Stats syncer
+       STATS_SYNCER_DAILY_CRON_PATTERN: z.string().default("30 0 * * * *"),
+       STATS_SYNCER_OVERALL_CRON_PATTERN: z.string().default("*/15 * * * *"),
++      STATS_SYNCER_LOWEST_SLOT: z.coerce.number().int().nonnegative().optional(),
+
+       // Blob Propagator
+       BLOB_PROPAGATOR_COMPLETED_JOBS_AGE: z.coerce
+--- a/packages/eth-format/index.ts
++++ b/packages/eth-format/index.ts
+@@ -29,7 +29,7 @@
+     return formatted;
+   }
+
+-  return `${formatted} ${toUnit}`;
++  return `${formatted} ${toUnit === "ether" ? "xDAI" : toUnit}`;
+ }
+
+ /**
+@@ -51,7 +51,7 @@
+     return formatted;
+   }
+
+-  return `${formatted} ${toUnit}`;
++  return `${formatted} ${toUnit === "ether" ? "xDAI" : toUnit}`;
+ }
+
+ /**

@@ -46,10 +46,20 @@ def main():
                 if enabled:
                     env.update(policy)
                     fixture += "\n" + "\n".join(f"{key}={value}" for key, value in policy.items())
-                (root / f".env.{profile}").write_text(fixture)
+                else:
+                    # Legacy mode must omit policy-only inputs and use a numeric
+                    # admission limit.
+                    fixture = "\n".join(line for line in fixture.splitlines()
+                                        if line.split("=", 1)[0] not in policy) + "\n"
+                    env["EEZ_SETTLEMENT_POLICY_ENABLED"] = "false"
+                    env["EEZ_MAX_USER_TXS_PER_BUNDLE"] = "12" if profile == "chiado" else "50"
+                    fixture += ("EEZ_SETTLEMENT_POLICY_ENABLED=false\n"
+                                f"EEZ_MAX_USER_TXS_PER_BUNDLE={env['EEZ_MAX_USER_TXS_PER_BUNDLE']}\n")
+                env_file = root / f".env.{profile}"
+                env_file.write_text(fixture)
                 result = subprocess.run(
                     ["docker", "compose", "--project-directory", directory,
-                     "--env-file", str(example), "-f",
+                     "--env-file", str(env_file), "-f",
                      str(repo / f"docker-compose.{profile}-node.yml"),
                      "config", "--format", "json"],
                     env=env, capture_output=True, text=True, check=True,
