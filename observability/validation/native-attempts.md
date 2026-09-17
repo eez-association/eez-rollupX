@@ -31,6 +31,17 @@ explicit repricing link. They also verify nonce/blob count against a mined L1
 transaction. The policy fixture uses its existing `always` mode and explicit fee
 caps; it does not depend on an operator deployment.
 
+The first process selection passed legacy capture and the disabled baseline,
+but the new policy fixture exited before RPC startup: it omitted the required
+`EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS`. The fixture now uses `10000` and disables
+the incompatible speculative-depth guard with `EEZ_MAX_SPECULATIVE_DEPTH=0`, as
+the existing policy fixtures do. No runtime configuration validation was weakened.
+That first run is not evidence for enabled-policy execution; the identical
+three-test selection is being repeated with the complete fixture configuration.
+Its log is preserved at `/tmp/eez-observability-attempt-e2e-first-failure.log`,
+with executable hashes at `/tmp/eez-observability-attempt-first-binaries.sha256`
+and process logs under `artifacts/native-observability/2026-09-17-attempts/logs`.
+
 Run from the isolated worktree with the pinned initialized contracts and tools:
 
 ```bash

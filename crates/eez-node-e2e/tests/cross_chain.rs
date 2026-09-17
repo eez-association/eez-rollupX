@@ -255,6 +255,8 @@ async fn lifecycle_policy_bidirectional_cross_chain_smoke() {
     lifecycle_bidirectional_smoke(&[
         ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+        ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
         ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "100000000000".into()),
         (
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
