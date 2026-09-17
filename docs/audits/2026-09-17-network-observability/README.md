@@ -237,3 +237,18 @@ and [artifact report](../../../observability/validation/protocol-logs.json)
 record exact source/binary identities, schema-4/schema-5 upgrade tests, capture
 limits, duplicates, conflicts, restart backlog, permissions and first failures.
 Native protocol execution and live deployment were not performed in this slice.
+
+## Posting verification-rollup evidence
+
+Source `9a95af0` retains each exactly decoded post's verification table with its
+calldata hash. Schema 7 distinguishes missing historical lists from empty decoded
+lists, preserves uint64 values and wire order, and extends the existing bounded
+repair lane. It supplies the per-rollup same-block boundary prerequisite without
+claiming proof validity, source completion or companion ownership.
+
+37 observer tests, 40 disposable database checks and workspace all-target Clippy
+passed. The [validation map](../../../observability/validation/posting-rollups.md)
+and [artifact report](../../../observability/validation/posting-rollups.json)
+include a populated upgrade produced by the actual saved schema-6 executable,
+unavailable-calldata recovery, immutable binding, invalid arrays and reinclusion.
+No native runtime or live deployment was changed.
