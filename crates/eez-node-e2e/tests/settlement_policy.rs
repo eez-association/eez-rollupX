@@ -1251,7 +1251,11 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
     assert!(terminal.header.number >= 315);
-    assert!(post.inner.blob_versioned_hashes().unwrap().len() > 1);
+    assert_eq!(
+        post.inner.blob_versioned_hashes().unwrap().len(),
+        1,
+        "derivable ordinary blocks must not force a second physical blob"
+    );
     assert!(
         !world
             .node
