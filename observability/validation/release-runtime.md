@@ -1,7 +1,7 @@
 # Local release validation and acceptance-test corrections
 
 Status: **historical release runtime built and exercised; full acceptance remains open**.
-The branch is now being integrated on top of PR #26; see the
+The branch is now integrated on top of PR #26; see the
 [PR26 integration record](pr26-integration.md) for current-source validation.
 The artifacts and results below are retained for their original revisions and do
 not validate the new derivable-operations baseline.

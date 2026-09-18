@@ -154,6 +154,18 @@ class RuntimeDockerTest(unittest.TestCase):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(f'fn main() {{ println!("{output}"); }}\n')
 
+            # The tiny workspace verifies the mandatory archived quota handoff;
+            # real native ENOSPC semantics are owned by the physical fixture.
+            quota = repo / "observability/tests/smoke-spool-quota.py"
+            quota.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / "scripts/ci/tests/fixtures/native-quota-handoff.py", quota)
+            cross_chain = repo / "crates/eez-node-e2e/tests/cross_chain.rs"
+            with cross_chain.open("a") as source:
+                source.write(
+                    '#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { '
+                    'assert!(!cfg!(debug_assertions)); }\n'
+                )
+
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
             (repo / "genesis.json").write_text("{}")
@@ -176,6 +188,8 @@ class RuntimeDockerTest(unittest.TestCase):
                 "EEZ_EXPECT_PUBLISHED": "false", "GITHUB_ENV": str(root / "github-env"),
                 "GITHUB_PATH": str(root / "github-path"), "GITHUB_STEP_SUMMARY": str(root / "summary"),
                 "DOCKER_CONFIG": str(root / "docker-config"),
+                "EEZ_TEST_LOG_DIR": str(root / "logs"),
+                "EEZ_TEST_QUOTA_IMAGE": "fixture-quota:not-run",
             })
             Path(env["DOCKER_CONFIG"]).mkdir()
             # Exercise a specific Buildx release without replacing the host's
@@ -216,6 +230,9 @@ class RuntimeDockerTest(unittest.TestCase):
                         subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "export-e2e",
                                         str(payload), "--output-dir", str(root / "e2e-only")],
                                        env=consumer_env, check=True)
+                self.assertEqual((repo / "quota-relocation.executed").read_text(), "passed")
+                quota_report = json.loads((root / "native-quota.json").read_text())
+                self.assertEqual(quota_report, {"scope": "archived handoff only", "passed": True})
                 self.assertFalse(manifest["published"])
                 for role, binaries in {
                     "node": ("eez-composer", "eez-follower", "eez-observer", "eez-genesis-state-root", "eez-genesis-block-hash"),

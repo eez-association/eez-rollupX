@@ -55,7 +55,8 @@ are local-only and unavailable from another checkout; raw logs are not published
 | Focused Rust suites and independent KZG/public-input/rolling-hash vectors | 1,304 passed; two explicit signer inventory/measurement utilities ignored |
 | `benchmark-lock-timing` feature | Affected targets compiled only; no benchmark or calibration executed |
 | CI Python tooling | 249 passed, five opt-in skips; 254 selected |
-| Real compilerless artifact relocation/shard/quota fixture | Passed with portable mold on PATH |
+| Real compilerless artifact relocation/shard/quota fixture | Passed with portable mold on PATH; shared handoff follow-up passed in 20.599 seconds |
+| Real Docker compile-input and producer/consumer packaging fixtures | Both passed in 30.326 seconds, including exact packaged binary hashes and execution with compilers blocked |
 | Observability Python tooling | 133 passed, one opt-in physical PostgreSQL cgroup test skipped; 134 selected |
 | `smoke-database.py --previous-v21-binary ...` | 59 groups passed, including populated schema21 upgrade, all 22 checksums, 65,536-member boundaries, atomic rollback/reorg and downgrade refusal |
 | `smoke-restore.py` | Six groups passed in fresh projects/volumes on the same Docker host; owned-resource cleanup verified; recovered database, dashboards, credentials, trace/log/metric navigation and heartbeat delivery |
@@ -89,6 +90,16 @@ log assertions remain mandatory. The original failure remains in the evidence. T
 `70c44cb6bb6dda68827576590b4c598ed3624576`; its ten deterministic trace tests,
 strict Clippy and formatting passed. Its rebuilt harness passed the native
 tracing canary against the unchanged `5f3b36b3` runtime binaries.
+
+A later opt-in Docker packaging run exposed a missing quota-handoff setup in
+its tiny workspace: the consumer correctly refused to proceed without the
+required image selector. The original failure is retained. The two existing
+tiny-workspace tests now share one handoff fixture that invokes the archived,
+ignored quota entrypoint explicitly and checks success. The Docker test also
+requires its completion marker/report. Both real packaging tests and the real
+compilerless relocation follow-up passed; physical ENOSPC behavior remains the
+separate mandatory native gate, with no bypass added to production tooling.
+These are packaging fixtures, not sealed application release artifacts.
 
 No external Cargo dependency version, source, checksum or dependency edge changed.
 Only existing workspace development dependencies were added for integration tests.

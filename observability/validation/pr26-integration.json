@@ -54,6 +54,19 @@
       "status": "passed",
       "seconds": 111.37,
       "test": "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order"
+    },
+    "real_docker_packaging": {
+      "passed": 2,
+      "seconds": 30.326,
+      "scope": "tiny workspace: actual allowlist/COPY, producer/images, exact archived inputs, compilerless consumers and required quota handoff; not application runtime or physical ENOSPC"
+    },
+    "shared_quota_native_relocation": {
+      "passed": 1,
+      "seconds": 20.599
+    },
+    "quota_artifact_contract_followup": {
+      "passed": 32,
+      "seconds": 0.15
     }
   },
   "database_restore": {
@@ -224,7 +237,12 @@
       "native-partial-restart/result.log": "e2262b2a6f8d1f5eba5e87bed0800b568ebaf563242ec11f24b4e8cd304170c3",
       "native-partial-restart/logs/eez-native-observer-3121651-tmpbFx40q.provenance.json": "41ef8d72e25bd01cf765a955da57612ab88d05038f0d829a7b2e61bf53b203d8",
       "native-l1-reorg/result.log": "de1aefd6e496dfe72ef7680bc62f45f6a9659ca88da04be1c1a947b2194fcc99",
-      "native-l1-reorg/logs/eez-native-observer-3132677-tmpFRZ2kh.provenance.json": "b659ddce4b63ae7b612dabfdfd8023f98d73dd4a9dddd572786c262065742a7c"
+      "native-l1-reorg/logs/eez-native-observer-3132677-tmpFRZ2kh.provenance.json": "b659ddce4b63ae7b612dabfdfd8023f98d73dd4a9dddd572786c262065742a7c",
+      "runtime-docker-real.log": "92a763a4653db358f6b291a54cbc0952e09151ccacaac82c64954219417251a6",
+      "runtime-docker-real-corrected.log": "172be4fcbc2ddc12633b4911afdf0273f18ad6c406645bce20b325b42d728d6d",
+      "native-relocation-shared-quota.log": "9e5e6ceec89640064236ee8cfacc03afa0c94c9a2a502c23cbe0deadf9797398",
+      "artifact-contracts-quota-followup.log": "8f5625d94dfd9cda205db41845d1cf7a0c82fbdea9743168ee5be3a04f07ac07",
+      "ci-tooling-packaging-followup.log": "479cf33f7a953e0ed026165ffd03b88f6996817ee304ff68b853e46ae6887680"
     }
   },
   "remaining_gates": [
@@ -243,5 +261,11 @@
       "queue_reorg": "3a676921ea8a82b33ad1580672e5dfe4b0da27423ad925b5e2360c724be09805"
     }
   },
-  "recovery_fixture_cleanup": "Both owned native observer PostgreSQL containers confirmed absent by exact-name read-only Docker checks after successful test exit."
+  "recovery_fixture_cleanup": "Both owned native observer PostgreSQL containers confirmed absent by exact-name read-only Docker checks after successful test exit.",
+  "packaging_fixture_correction": {
+    "failure": "Original real Docker tiny workspace omitted required quota image selector/handoff; consumer correctly failed closed.",
+    "fix": "Shared tiny-workspace archived handoff oracle used by both real packaging and relocation fixtures; production quota path unchanged.",
+    "production_changes": false,
+    "independent_review": "No weakened quota gate or physical ENOSPC claim found."
+  }
 }
