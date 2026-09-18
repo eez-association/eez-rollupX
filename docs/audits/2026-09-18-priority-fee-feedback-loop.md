@@ -51,10 +51,9 @@ are eligible samples and can dominate a low-activity chain.
 Dynamic mode now selects
 `clamp(eth_maxPriorityFeePerGas, priority_min, priority_max)` directly. It
 requires an explicit `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE`; this value never
-inherits the execution-price ceiling. Nonzero
-`EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` fails startup. A fixed priority override
-remains exact and safely becomes its own maximum when no separate maximum is
-configured.
+inherits the execution-price ceiling. The former percentage-margin setting is
+removed. A fixed priority override remains exact and safely becomes its own
+maximum when no separate maximum is configured.
 
 For a sparse chain dominated by the preceding poster transaction, model the
 oracle as `estimate[n] = selected[n-1]`. If that value is within the bounds,
@@ -68,6 +67,14 @@ estimate passes through unchanged while it is within the bounds. The minimum
 expresses an actual relay requirement, and the maximum bounds estimator spikes.
 The fixed mode remains available when the operator intentionally wants one
 known price.
+
+This is a bounded adaptation policy rather than perfect demand attribution. If
+the poster dominates Reth's sample after an external spike, its own bounded
+posts can keep the estimate at that in-range value until other samples replace
+them. They cannot raise it further. At the Chiado 1–2 gwei bounds, the observed
+4,373,322-gas transaction's tip is limited to about 0.0044–0.0087 xDAI instead
+of roughly 0.865 xDAI. Fixed 1-gwei mode removes even that bounded persistence
+when an operator prefers minimum spend over fee-market adaptation.
 
 Pinned Reth also contains an Optimism-oriented internal oracle that returns a
 minimum tip while the latest block has spare capacity and raises it only when
@@ -85,7 +92,6 @@ feedback before upgrading:
 ```dotenv
 EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
 EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
-EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS=0
 # EEZ_L1_POSTBATCH_PRIORITY_FEE must remain unset for dynamic mode.
 ```
 
@@ -94,8 +100,8 @@ restart the composer only after reconciling any already-submitted bundle. Verify
 that `eez.composer.postbatch.fee_quote` reports `priority_source` as
 `network_estimator`, `priority_max` as 2 gwei, and every `priority_fee` at or
 below that bound. Then deploy the corrected binary. It rejects a missing
-dynamic priority ceiling or any nonzero legacy margin at startup, so an unsafe
-configuration cannot silently return.
+dynamic priority ceiling. Delete the former priority-margin assignment from the
+deployment environment; neither the new parser nor its telemetry carries it.
 
 If dynamic estimation is not desired, set
 `EEZ_L1_POSTBATCH_PRIORITY_FEE=1000000000`; that mode signs exactly 1 gwei and

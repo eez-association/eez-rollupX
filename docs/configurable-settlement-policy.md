@@ -40,7 +40,6 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Network estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with network estimator; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
-| `EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` | 0 | Deprecated guard accepted only as `0`. Any nonzero value fails startup because multiplying a tip oracle that samples prior poster transactions creates recursive fee growth. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
@@ -221,7 +220,6 @@ explicit relay floor and an independent priority ceiling:
 # Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use the network estimator.
 EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
 EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
-EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS=0
 ```
 
 Each new attempt uses a fresh network estimate and clamps it to the configured
@@ -230,13 +228,19 @@ minimums. Empty or sparse-block estimates use the floor, and spikes stop at the
 independent ceiling. A missing estimate preserves due work for retry. A fixed
 `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses the estimator and remains exact.
 
+The raw oracle can retain a previously selected in-range tip while this poster
+dominates a sparse chain. It cannot amplify that value, and the independent
+ceiling makes the maximum spend explicit. For Chiado's 1–2 gwei band, the
+observed 4,373,322-gas transaction would pay about 0.0044–0.0087 xDAI in tip.
+Use the fixed 1-gwei mode when minimizing spend matters more than adapting to
+external priority demand.
+
 Do not apply a percentage uplift to `eth_maxPriorityFeePerGas`. Reth's oracle
 samples recent paid transaction tips and does not exclude this poster. On a
 sparse chain, a previously uplifted post can therefore become the next estimate;
-another uplift recursively increases the signed tip. Nonzero
-`EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` now fails startup. Explicit zero remains
-accepted so an existing deployment can first apply the safe configuration and
-then roll out the new binary.
+another uplift recursively increases the signed tip. Percentage priority uplift
+is no longer configurable. Remove the former margin setting from deployment
+environments when rolling out this policy.
 
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;

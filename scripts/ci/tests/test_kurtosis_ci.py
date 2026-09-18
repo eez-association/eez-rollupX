@@ -112,7 +112,6 @@ class SettlementEnvironmentTest(unittest.TestCase):
         values = {"EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
                   "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "60000",
                   "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
-                  "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "0",
                   "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000"}
@@ -125,7 +124,6 @@ class SettlementEnvironmentTest(unittest.TestCase):
         self.assertEqual(configure(without_priority_bound), without_priority_bound)
         for invalid in ({"EEZ_SETTLEMENT_PURE_L2_MOD": "always"},
                         {"EEZ_SETTLEMENT_PURE_L2_MODE": True},
-                        {"EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": 0},
                         {"EEZ_MAX_BLOCKS_PER_BATCH": "300"}):
             with self.assertRaises(ValueError):
                 configure(invalid)

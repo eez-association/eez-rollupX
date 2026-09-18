@@ -74,13 +74,6 @@ impl PostingFeeConfig {
             u64::try_from(integer(name)?.unwrap_or(u128::from(default)))
                 .map_err(|_| PostingFeeError::Config(format!("{name} exceeds u64")))
         };
-        let priority_margin_bps = bps("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", 0)?;
-        if priority_margin_bps != 0 {
-            return Err(PostingFeeError::Config(
-                "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS must be 0: multiplying an estimator that samples prior poster transactions creates a self-referential fee feedback loop"
-                    .into(),
-            ));
-        }
         let priority_max = match (configured_priority_max, priority_override) {
             (Some(maximum), _) => maximum,
             (None, Some(fixed)) => fixed,
@@ -443,12 +436,6 @@ mod tests {
             estimate = with_margin(estimate, 2_000).unwrap();
             assert_eq!(estimate, expected);
         }
-        let error = config(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000")]).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("self-referential fee feedback loop")
-        );
     }
 
     #[test]
@@ -488,21 +475,6 @@ mod tests {
                 })
                 .unwrap();
             assert_eq!(quote.max_priority_fee_per_gas, selected);
-        }
-    }
-
-    #[test]
-    fn priority_margin_accepts_only_absent_or_explicit_zero() {
-        assert!(config(&[]).is_ok());
-        assert!(config(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "0")]).is_ok());
-        for value in ["", "bad", "-1", "1", "2000", "1.5", "18446744073709551616"] {
-            for fixed in [false, true] {
-                let mut extra = vec![("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", value)];
-                if fixed {
-                    extra.push(("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7"));
-                }
-                assert!(matches!(config(&extra), Err(PostingFeeError::Config(_))));
-            }
         }
     }
 

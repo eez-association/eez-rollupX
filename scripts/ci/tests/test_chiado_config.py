@@ -64,7 +64,6 @@ class ChiadoConfigTest(unittest.TestCase):
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000",
             "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE": "1000000000",
             "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
-            "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "0",
         }.items():
             self.assertEqual(node[key], value, key)
         self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node)

@@ -239,12 +239,6 @@ mod tests {
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "0"),
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS", "0"),
             ("EEZ_L1_POSTBATCH_PRIORITY_FEE", "invalid"),
-            ("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "-1"),
-            ("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "1.5"),
-            (
-                "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS",
-                "18446744073709551616",
-            ),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "100000000001"),
         ] {
             assert!(settings(&[(key, value)]).is_err(), "{key}={value}");
@@ -259,12 +253,5 @@ mod tests {
         let fees = config.posting_fees;
         assert_eq!(fees.priority_override, Some(3));
         assert_eq!(fees.gas_margin_bps, 1500);
-    }
-
-    #[test]
-    fn unsafe_network_priority_margin_is_rejected_before_runtime() {
-        assert!(settings(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000")]).is_err());
-        let config = settings(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "0")]).unwrap();
-        assert_eq!(config.posting_fees.priority_max, 2_000_000_000);
     }
 }
