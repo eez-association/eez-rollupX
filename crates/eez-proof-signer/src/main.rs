@@ -64,7 +64,7 @@ async fn main() -> eyre::Result<()> {
         preparation_max_blocks = service::MAX_PREPARATION_BLOCKS,
         cache_max_entries = prepared_cache::DEFAULT_MAX_ENTRIES,
         cache_max_bytes = prepared_cache::DEFAULT_MAX_BYTES,
-        maximum_leases = 2,
+        maximum_leases = eez_control_rpc::MAX_PREPARATION_LEASES,
         lease_lifetime_secs = limits.lease_lifetime().as_secs(),
         validator = validator.label(),
         validation_identity = %validator.validation_identity(config.expected_rollup_id),

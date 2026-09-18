@@ -127,7 +127,7 @@ impl Prover for ProveSvc {
                 .map_err(|_| Status::internal("request timeout exceeds capability range"))?,
             cache_max_entries: crate::prepared_cache::DEFAULT_MAX_ENTRIES as u64,
             cache_max_bytes: crate::prepared_cache::DEFAULT_MAX_BYTES as u64,
-            maximum_leases: 2,
+            maximum_leases: eez_control_rpc::MAX_PREPARATION_LEASES,
             lease_lifetime_millis: u64::try_from(limits.lease_lifetime().as_millis())
                 .map_err(|_| Status::internal("lease lifetime exceeds capability range"))?,
         }))

@@ -1328,7 +1328,7 @@ mod tests {
             request_timeout_millis: 600_000,
             cache_max_entries: 131_072,
             cache_max_bytes: 512 * 1024 * 1024,
-            maximum_leases: 2,
+            maximum_leases: eez_control_rpc::MAX_PREPARATION_LEASES,
             lease_lifetime_millis: 1_200_000,
         }
     }

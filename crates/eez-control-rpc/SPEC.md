@@ -132,7 +132,7 @@ transient missing predecessor cannot block the reconciliation that establishes
 the new floor. The producer renews the exact retained ranges every 30 seconds,
 including while idle or holding a full maximum window. Lost renewal clears all
 local reference hints and immediately rebuilds the last durable endpoint. At most
-two leases share cache accounting; overlap is refcounted and expiry only makes
+up to eight leases share cache accounting; overlap is refcounted and expiry only makes
 facts evictable. A reconnect with changed identity or resource
 limits fails before proof dispatch and requires producer restart so admission can
 be replanned from one immutable snapshot. If expiry or a same-identity signer

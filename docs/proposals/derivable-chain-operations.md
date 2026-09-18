@@ -499,7 +499,8 @@ and re-preparing them.
 
 Add `RetainOrdinaryRanges` to the preparation control surface: create/renew/release
 an opaque lease over explicit hash-linked ranges and validation identity. Allow at
-most two leases per configured rollup (current window and an overlapping retry/fork),
+most eight leases per configured rollup (the current window plus bounded overlap
+from retries, forks, or rapid composer restarts),
 charge their union against the cache ceilings, and refcount overlap. Each lease is
 bounded to 65,535 ordinary positions. Default lifetime is the larger of 120 seconds
 and twice the signer request timeout, renewed every 30 seconds; expiry makes data

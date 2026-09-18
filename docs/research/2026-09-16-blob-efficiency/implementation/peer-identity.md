@@ -61,7 +61,7 @@ Shipping node/follower/signer builds and native posting/replay are being renewed
 for this source checkpoint; older frozen executables do not validate these edits.
 
 Subsequent work now advertises and enforces 64-block preparation, cached ranges,
-two bounded leases, one-block worker preemption, a durable 128-identity producer
+eight bounded leases, one-block worker preemption, a durable 128-identity producer
 queue and typed cache-miss repair. Reconnect with changed capabilities fails
 closed and requires producer restart/replanning. Maximum retained signer
 checkpoints pass both profiles, but maximum posting, follower recovery, lifecycle

@@ -151,7 +151,10 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
         assert_eq!(response.preparation_max_blocks, 64);
         assert_eq!(response.cache_max_entries, 131_072);
         assert_eq!(response.cache_max_bytes, 512 * 1024 * 1024);
-        assert_eq!(response.maximum_leases, 2);
+        assert_eq!(
+            response.maximum_leases,
+            eez_control_rpc::MAX_PREPARATION_LEASES
+        );
         assert_eq!(
             response.lease_lifetime_millis,
             (deadline * 2).max(120) * 1_000

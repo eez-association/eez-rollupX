@@ -21,6 +21,13 @@ use prost::Message;
 /// (encode) and server (decode).
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024 * 1024;
 
+/// Maximum concurrent cache-ownership leases accepted by the signer.
+///
+/// Leases reserve already validated facts and never authorize signing. The
+/// bounded overlap permits rapid composer restarts while crashed clients age
+/// out under the advertised lease lifetime.
+pub const MAX_PREPARATION_LEASES: u64 = 8;
+
 /// Encode one typed [`v1::ProveFailure`] for the gRPC status-details field.
 #[must_use]
 pub fn encode_prove_failure(failure: &v1::ProveFailure) -> Vec<u8> {
