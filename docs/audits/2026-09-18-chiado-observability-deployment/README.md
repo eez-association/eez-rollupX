@@ -1,0 +1,136 @@
+# Fresh Chiado observability deployment
+
+| Field | Value |
+| --- | --- |
+| Date and status | 2026-09-18; deployment and monitoring running; native identity correction awaiting rollout |
+| Scope | User-authorized backup and fresh, testable single-host Compose network |
+| Runtime source | `3eeff740c5cd4d075a474ef676e92bb51fe1ade2` |
+| Protocol | `3c0cdf4955941a5c23639346932b55b33babebbd` |
+| Networks | Chiado L1 10200; fresh L2 6291, replacing 6290 at the public endpoints |
+| Related change | [Beacon blob selection fix](../2026-09-18-chiado-blob-selection/README.md) |
+
+## Preservation and deployment
+
+The stopped old rollup and explorers were preserved before deployment. Host-local
+backup `.runtime/chiado-backups/before-observability-20260918T164046Z` contains
+4,802 verified filesystem entries (76,540,837,808 logical regular-file bytes), both
+PostgreSQL logical dumps, three stopped explorer volume archives, fourteen original
+images, and one stopped-container filesystem fallback. The original Blobscan API
+image was already unavailable; its filesystem/configuration is not represented as
+an equivalent original image. This is a local backup, not an independent-host
+restore test. The old composer was already unhealthy. Live gateway TLS volumes
+were outside this rollup-state snapshot.
+
+The fresh deployment uses separate writable L1/Beacon copies, an empty L2 database,
+fresh proof/system keys, a separately funded functional-test wallet, and distinct
+Compose/container names. The funded L1 poster/deployer is reused only while the old writer is stopped; old
+L2 state and witnesses were not reused. Original rollup/explorer containers and
+volumes remain retained.
+
+All six deployment receipts were checked against canonical Chiado blocks. The
+registry, manager, signer, threshold, verification key and bridge getters match the
+generated bindings. Verified genesis block hash and state root agree with the
+shipping helpers, rendered genesis and registered commitment.
+
+| Binding | Value |
+| --- | --- |
+| Registry | `0x0ca34c68324dd5ef4bd6813af661d7817e4793b8` |
+| Rollup ID / deployment block | `1` / `23118328` |
+| L2 genesis block hash | `0x3f29c4f78394260473f543ae4602c3d5edc759a49303fa23c3b3497e903f61d0` |
+| Node image | `sha256:e4155b7c16cd802f573140b0771071d02fb636a684fbbb2ee5a1ed9bfb24d5bd` |
+| Signer image | `sha256:273f4d14f4b932ed231168d4e4c3b38fcb9883aae01cfba6ee81bd111f1b037e` |
+| Deploy image | `sha256:412807cf0da3775561fcf3b5e205c11cc2ac45f0997082d6c54bc1738ad049eb` |
+
+The supported no-publication producer and artifact consumer verified exact runtime
+identity. All **1,311 archived unit tests passed**; two intentional utility tests
+were excluded. Workspace all-target strict Clippy and formatting passed. Images
+were built locally and were not published or promoted.
+
+## Recovery and first failures
+
+First boot exposed an inherited L1 storage inconsistency: receipt static files
+ended at 23117823 while execution changesets ended at 23117821. The new failed copy
+was preserved before recovery. The matching Gnosis CLI (commit `7e588a7b951a`, binary
+SHA256 `5edb6fcda7d63335270f8bcd39fbfeb68d8c9a846d7cb9a7150122d77d168bd8`)
+performed its supported all-stage unwind to 23117790 on only the new working copy.
+No raw database edits or incompatible stock-image repair were used. Seven subsequent
+read-only checks passed, including consistency and matching static segment ends.
+
+After replay, local/public block hashes, state roots, receipt roots and all 37
+receipts agreed across the old failure heights, deployment block and a common
+finalized block. Registry commitment advancement matched canonical L2 blocks.
+No persistence errors were found after recovery. This does not establish arbitrary
+crash recovery for the old deployment.
+
+The first functional-test setup exposed a separate harness defect: Forge's
+`--gas-price` configures the simulated EVM, while `--with-gas-price` sets the
+broadcast maximum fee. With a 7-wei L1 base fee, the old command estimated a maximum
+fee below its explicit 1.5-gwei priority fee and submitted no L1 transaction.
+The exact failure was retained; replacing only that Forge option produced a
+successful setup receipt. Existing Cast fee options and semantic assertions remain
+unchanged. An earlier diagnostic invocation used the wrong working directory;
+that file-not-found error is not evidence of the fee defect.
+
+## Monitoring and public services
+
+The new monitoring project has fresh PostgreSQL/Prometheus/Loki/Grafana volumes and
+only the real `chiado` / `eez-chiado-6291-20260918` namespace. Simulated demo volumes
+remain retained. Composer/signer metrics and lifecycle spools are enabled; the
+observer imports canonical receipts, settlement/source correlations and authenticated
+blob measurements. Its supported batch size is 64 to catch up to the one-second L2.
+
+A private Compose relay uses a shared Unix socket between host-network and bridged
+Nginx services. It gives observers/explorers access to local RPC, Beacon and native
+metrics without new published ports or firewall changes. Producer spool ownership
+and read-only consumer mounts are explicit. Administrative database credentials are
+not mounted into the continuous observer.
+
+The existing domain, gateway and Grafana password are retained. UI/monitor bindings
+now select chain 6291. Settlement interval is 30 seconds, maximum unsettled L2 blocks
+150, and L2 block time remains one second. Fresh explorers use their own volumes and
+the verified deployment block/hash/Beacon slot as their history boundary.
+
+HTTP/browser checks verified the UI, monitor and both explorers; Blockscout's genesis
+matches canonical RPC. A bounded Blobscan verification covered 210 finalized L1
+blocks and three blob transactions, comparing exact receipt fees and blob bytes/
+commitments. This check did not independently recompute KZG commitments. Grafana's
+seven dashboards and three data sources passed local authenticated checks, and
+native/observer Prometheus scrapes plus lifecycle ingestion succeeded. Public checks
+were unauthenticated; the administrator password was not sent through the public URL.
+
+## Functional validation and native identity correction
+
+The corrected one-wave functional matrix passed: inbound and outbound wrapper
+effects both reached 141; deposit and withdrawal deltas were exactly
+11,000,000,000,000,000 and 1,000,000,000,000,000 wei. Canonical L1/L2 reconciliation
+passed with no observed divergence. A graceful node restart retained the previously
+safe L2 block and both heads resumed advancing. The first restart log check included
+an expected shutdown message; startup-only checking uses the actual new process
+start time. These are functional checks, not capacity measurements.
+
+The subsequent live observer check exposed a native producer identity defect:
+converting GnosisChainSpec to its inner Ethereum spec loses the AuRa genesis-header
+override. Native L1 identities therefore reported `f438827f...` while canonical
+Chiado block zero is `ada44fd8...`. The observer correctly rejected those identities.
+The code correction extracts identity while the concrete chain-spec type is still
+available; Ethereum/L2 behavior and posting blob rules are unchanged. Canonical
+Chiado and Ethereum hash regressions cover the helper: all 46 node library tests
+passed, and the selected baseline regression reproduced the wrong hash. The initial
+unqualified exact-filter run selected zero tests and is not counted as evidence.
+Historical bad metadata is
+not rewritten, and observer identity checks remain strict.
+
+## Evidence and remaining checks
+
+Detailed artifacts are private, host-local, under
+`.runtime/chiado-observability-20260918/validation`, `public-preparation`, and
+`monitoring-preparation`; build/unit artifacts are under the worktree's
+`target/chiado-runtime-3eeff74-qMd50kzT`. They are not portable published artifacts.
+The first boot, first canary attempt, diagnostic failures and successful recovery
+records are retained separately.
+
+The corrected native producer still needs a shipping build and a fresh two-way
+canary proving canonical observer correlation. Performance comparisons remain
+explicitly postponed by the user. Alerts
+remain paused, distributed tracing and independent follower replay are not enabled,
+and no off-host disaster-recovery or production-readiness claim is made.

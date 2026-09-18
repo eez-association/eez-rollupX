@@ -95,6 +95,17 @@ enum EmbeddedL1<Ethereum, Chiado> {
     Chiado(Chiado),
 }
 
+/// Preserve the concrete chain spec's canonical header rules. In particular,
+/// Gnosis's inner Ethereum header omits the AuRa fields and hashes differently.
+fn lifecycle_chain_identity<S: reth_chainspec::EthChainSpec>(
+    chain_spec: &S,
+) -> eez_composer::held_pool::ChainIdentity {
+    eez_composer::held_pool::ChainIdentity {
+        chain_id: chain_spec.chain().id(),
+        genesis_hash: chain_spec.genesis_hash(),
+    }
+}
+
 /// Launch a production composer node.
 pub fn run_composer() -> eyre::Result<()> {
     let (mut cli, document_digest) = node_cli_with_chain_document::<NoRoleArgs>()?;
@@ -718,19 +729,17 @@ async fn launch_composer(
 
     let chain_spec: Arc<_> = handle.node.chain_spec();
     if let Some(publisher) = eez_telemetry::native::publisher() {
-        let l1_spec = match &embedded_l1 {
-            EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
-            EmbeddedL1::Chiado(handle) => Arc::new(handle.node.chain_spec().inner.clone()),
+        let l1 = match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => {
+                lifecycle_chain_identity(handle.node.chain_spec().as_ref())
+            }
+            EmbeddedL1::Chiado(handle) => {
+                lifecycle_chain_identity(handle.node.chain_spec().as_ref())
+            }
         };
         let context = eez_composer::held_pool::LifecycleContext {
-            l1: eez_composer::held_pool::ChainIdentity {
-                chain_id: l1_spec.chain().id(),
-                genesis_hash: l1_spec.genesis_hash(),
-            },
-            l2: eez_composer::held_pool::ChainIdentity {
-                chain_id: chain_spec.chain().id(),
-                genesis_hash: chain_spec.genesis_hash(),
-            },
+            l1,
+            l2: lifecycle_chain_identity(chain_spec.as_ref()),
             rollup_id: rollup_config.rollup_id,
         };
         if let Err(reason) = held_pool.enable_lifecycle(publisher.clone(), context) {
@@ -1496,6 +1505,33 @@ fn build_embedded_l1_config() -> eyre::Result<l1_embedded::EmbeddedL1Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_chiado_identity_uses_canonical_genesis_header() {
+        use reth_gnosis::spec::{chains::CHIADO_GENESIS, gnosis_spec::GnosisChainSpec};
+        let chiado = GnosisChainSpec::from(CHIADO_GENESIS.clone());
+        // Independently verified against the Chiado execution RPC's block zero.
+        let expected = alloy_primitives::b256!(
+            "ada44fd8d2ecab8b08f256af07ad3e777f17fb434f8f8e678b312f576212ba9a"
+        );
+        let actual = lifecycle_chain_identity(&chiado);
+        assert_ne!(chiado.inner.genesis_hash(), expected);
+        assert_eq!(actual.chain_id, 10200);
+        assert_eq!(actual.genesis_hash, expected);
+    }
+
+    #[test]
+    fn lifecycle_ethereum_identity_is_unchanged() {
+        let ethereum = reth_chainspec::MAINNET.as_ref();
+        let actual = lifecycle_chain_identity(ethereum);
+        assert_eq!(actual.chain_id, 1);
+        assert_eq!(
+            actual.genesis_hash,
+            alloy_primitives::b256!(
+                "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+            )
+        );
+    }
 
     #[test]
     fn preparation_catch_up_walks_exact_durable_ancestry_and_respects_floor() {
