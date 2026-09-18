@@ -5,6 +5,7 @@ All chain/native observations are synthetic query fixtures, not protocol replay.
 Uses pinned images, an isolated Docker network and exclusively owned resources.
 """
 import finality_timing
+from decimal import Decimal, localcontext
 import argparse
 import hashlib
 import importlib.util
@@ -53,6 +54,14 @@ def substitute(query, *, source_hash=''):
         query = query.replace('${' + name + ':sqlstring}', "'" + sql_value.replace("'", "''") + "'")
         query = query.replace('${' + name + ':regex}', value)
     return query.replace('$__rate_interval', '1m').replace('$__range', '5m')
+
+
+def gwei_text(wei):
+    # Test oracle: enough precision for a U256 maximum plus an additional receipt.
+    with localcontext() as context:
+        context.prec = 120
+        value = format(Decimal(wei).scaleb(-9), 'f')
+    return value.rstrip('0').rstrip('.') if '.' in value else value
 
 
 def rows(response):
@@ -335,20 +344,44 @@ except urllib.error.HTTPError as error:
             assert results['Purchased and measured populations'][0]['included_type3_posts']==3
             detail=results['Receipt detail · optional transaction hash']
             assert {r['role'] for r in detail}=={'l1','l2'},detail
-            assert all(isinstance(r['execution_paid'],str) and r['explorer_url'].startswith('https://'+r['role']+'-explorer.invalid/tx/0x') for r in detail)
+            assert all(isinstance(r['execution_paid_gwei'],str) and r['explorer_url'].startswith('https://'+r['role']+'-explorer.invalid/tx/0x') for r in detail)
             assert len({(r['role'],r['transaction']) for r in detail})==len(detail)
             wallet = results['Configured wallet spend · separate chain populations'][0]
-            assert isinstance(wallet['known_total_paid_wei'], str), wallet
+            assert isinstance(wallet['known_total_paid_gwei'], str), wallet
+            wallet_panel = next(panel for panel in gas['panels'] if panel['id'] == 2)
+            exact_expression = wallet_panel['targets'][0]['rawSql'].split(' AS known_execution_paid_gwei')[0].rsplit(',', 1)[1]
+            assert 'trim_scale' in exact_expression and '* 0.000000001' in exact_expression
+            # Execute the actual shipped display expression through Grafana's
+            # PostgreSQL reader, not Python's float representation or a mirror.
+            for amounts in [(1,), (0,), (2**256-1,), (2**256-1, 1)]:
+                values = ','.join('(' + str(value) + '::numeric)' for value in amounts)
+                exact = query({'rawSql': 'SELECT ' + exact_expression + ' AS amount_gwei FROM (VALUES ' + values + ') r(execution_paid)',
+                               'rawQuery': True, 'format': 'table'}, wallet_panel['datasource'])
+                assert exact == [{'amount_gwei': gwei_text(sum(amounts))}], exact
+            missing_amount = query({'rawSql': 'SELECT ' + exact_expression + ' AS amount_gwei FROM (VALUES (NULL::numeric)) r(execution_paid)',
+                                    'rawQuery': True, 'format': 'table'}, wallet_panel['datasource'])
+            assert missing_amount == [{'amount_gwei': None}], missing_amount
+            # Execution/blob/total use one receipt population; the total is not
+            # an extra bill and is exact even in the decimal display units.
+            for title in ('Configured wallet spend · separate chain populations',
+                          'Paid posting calls · successful versus reverted',
+                          'Daily selected receipt spend · chain-separated',
+                          'Execution versus blob fees · exact included spend',
+                          'Canonical paid posting calls'):
+                for row in results[title]:
+                    assert isinstance(row['known_total_paid_gwei'], str), row
+                    assert Decimal(row['known_execution_paid_gwei']) + Decimal(row['known_blob_paid_gwei']) == Decimal(row['known_total_paid_gwei']), row
+            report['checks'].append('gwei_exact_decimal_strings_u256_max_plus_one_wei_nulls_and_fee_components')
             allocations = results['Shared posting overhead estimates · per source']
             assert len(allocations) == 2 and {row['direction'] for row in allocations} == {'inbound','outbound'}, allocations
-            assert all(row['allocation_rule'] == 'equal_share_v1' and row['estimated_total_wei'] == '100' for row in allocations), allocations
-            assert sum(int(row['estimated_total_wei']) for row in allocations) == 200
+            assert all(row['allocation_rule'] == 'equal_share_v1' and row['estimated_total_gwei'] == gwei_text(100) for row in allocations), allocations
+            assert sum(Decimal(row['estimated_total_gwei']) for row in allocations) == Decimal(gwei_text(200))
             companions = results['Attributed L1 companion receipts · exact charges']
-            assert len(companions) == 1 and companions[0]['total_paid_wei'] == '200', companions
+            assert len(companions) == 1 and companions[0]['total_paid_gwei'] == gwei_text(200), companions
             coverage = results['Posting allocation coverage · per rollup context']
             assert sum(row['posting_calls'] for row in coverage if row['allocation_state'] == 'allocated') == 1, coverage
             completed_cost = results['Completed sources · known attributed posting cost']
-            assert completed_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':1,'sources_without_allocation':0,'known_attributed_posting_wei':'100','known_posting_wei_per_measured_source_floor':'100'}], completed_cost
+            assert completed_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':1,'sources_without_allocation':0,'known_attributed_posting_gwei':gwei_text(100),'known_posting_per_measured_source_gwei':gwei_text(100)}], completed_cost
             allocation_panel = next(panel for panel in gas['panels'] if panel['id'] == 9)
             assert len(query(allocation_panel['targets'][0], allocation_panel['datasource'], source_hash=f'0x{1003:064x}')) == 1
             assert query(allocation_panel['targets'][0], allocation_panel['datasource'], source_hash="' OR true --") == []
@@ -358,7 +391,7 @@ except urllib.error.HTTPError as error:
             run(psql,"DELETE FROM eez.lifecycle_cost_checks;")
             completed_panel = next(panel for panel in gas['panels'] if panel['id'] == 11)
             missing_cost = query(completed_panel['targets'][0],completed_panel['datasource'])
-            assert missing_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':0,'sources_without_allocation':1,'known_attributed_posting_wei':None,'known_posting_wei_per_measured_source_floor':None}], missing_cost
+            assert missing_cost == [{'direction':'inbound','committed_sources':1,'sources_with_allocation':0,'sources_without_allocation':1,'known_attributed_posting_gwei':None,'known_posting_per_measured_source_gwei':None}], missing_cost
             encoded_costs = json.dumps(saved_costs).replace("'","''")
             run(psql,"INSERT INTO eez.lifecycle_cost_checks SELECT * FROM jsonb_populate_recordset(NULL::eez.lifecycle_cost_checks,'"+encoded_costs+"'::jsonb);")
             report['checks'].append('receipt_deduplicated_companions_exact_shared_estimates_and_unallocated_coverage')
@@ -405,11 +438,11 @@ except urllib.error.HTTPError as error:
                 return [value for row in query(panel['targets'][0],panel['datasource']) for key,value in row.items() if key.lower()!='time' and isinstance(value,(float,int))]
             def funding_control(mode):
                 run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'funding':mode}))
-            for mode,balance,runway,affordable in [('healthy',[5],[172800],[1]),('zero_burn',[5],[],[1]),('balance_unknown',[],[],[1]),('native_unknown',[5],[172800],[]),('expired',[5],[172800],[]),('underfunded',[0],[0],[0])]:
+            for mode,balance,runway,affordable in [('healthy',[5e9],[172800],[1]),('zero_burn',[5e9],[],[1]),('balance_unknown',[],[],[1]),('native_unknown',[5e9],[172800],[]),('expired',[5e9],[172800],[]),('underfunded',[0],[0],[0])]:
                 funding_control(mode)
                 until('funding '+mode+' exact current dashboard semantics',lambda:funding_values(12)==balance and funding_values(13)==runway and funding_values(14)==affordable)
             funding_control('healthy')
-            until('funding evidence restored',lambda:funding_values(12)==[5] and funding_values(13)==[172800] and funding_values(14)==[1])
+            until('funding evidence restored',lambda:funding_values(12)==[5e9] and funding_values(13)==[172800] and funding_values(14)==[1])
             report['checks'].append('funding_real_zero_unknown_burn_stale_candidate_and_distinct_account_populations')
 
             unit_seed=(ROOT/'tests/settled-transaction-costs.sql').read_text().split('SELECT pg_temp.assert(')[0]
@@ -421,13 +454,13 @@ except urllib.error.HTTPError as error:
                 return query(target,panel['datasource'])
             measured=unit_cost(16)
             assert len(measured)==1 and measured[0]['posts']==3 and measured[0]['measured_posts']==3 and measured[0]['unmeasured_posts']==0,measured
-            assert measured[0]['settled_transactions']=='3' and measured[0]['measured_posting_wei']=='551' and measured[0]['posting_wei_per_settled_transaction_floor']=='183',measured
+            assert measured[0]['settled_transactions']=='3' and measured[0]['measured_posting_gwei']==gwei_text(551) and measured[0]['posting_per_settled_transaction_gwei']==gwei_text(183),measured
             details=unit_cost(17)
             assert [row['settled_transactions'] for row in details]==['2','1','0'],details
-            assert [row['posting_wei_per_settled_transaction_floor'] for row in details]==['100','300',None],details
+            assert [row['posting_per_settled_transaction_gwei'] for row in details]==[gwei_text(100),gwei_text(300),None],details
             run(psql,"UPDATE eez.blocks b SET receipt_coverage='gap' FROM eez.chain_instances c JOIN eez.deployments d ON d.id=c.deployment_id WHERE b.chain_instance_id=c.id AND c.role='l2' AND d.name='settled-cost';")
             missing=unit_cost(16)
-            assert missing[0]['measured_posts']==1 and missing[0]['unmeasured_posts']==2 and missing[0]['settled_transactions']=='0' and missing[0]['posting_wei_per_settled_transaction_floor'] is None,missing
+            assert missing[0]['measured_posts']==1 and missing[0]['unmeasured_posts']==2 and missing[0]['settled_transactions']=='0' and missing[0]['posting_per_settled_transaction_gwei'] is None,missing
             report['checks'].append('settled_transaction_costs_exact_weighted_ratio_overlap_dedup_revert_spend_and_missing_denominator')
 
             finality_timing.exercise_dashboard(run, psql, query, cross, report)

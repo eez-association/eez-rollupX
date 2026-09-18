@@ -239,3 +239,34 @@ Private evidence is retained under the deployment's
 `validation/metrics-charts-20260918T191808Z/`, including image manifests, queries,
 screenshots, canary receipts and before/after samples. Performance comparison
 remains postponed; no network reset, main merge or image publication occurred.
+
+
+## Fee breakdown and gwei display
+
+The Gas overview now shows configured L1 wallet execution, blob and combined fees
+for the selected range. Posting, selected-receipt and blob-posting charts show all
+three components over time. The total is execution plus blob fees; overlapping
+wallet/posting/receipt populations remain separate and must not be added together.
+
+All monetary dashboard values, including poster balance history/current balances,
+now use gwei. On Chiado this is 10^-9 xDAI, not an ETH or fiat price conversion.
+Gas quantities, bytes, percentages and durations retain their dimensional units.
+Twelve monetary detail tables multiply the original numeric wei expression by
+exact 0.000000001 and return decimal text. Existing integer-wei allocation floors
+remain before display conversion. No storage, RPC, metrics producer, runtime image,
+configuration or network state changed.
+
+Validation: 7 dashboard/selector tests and 25 preparation tests passed. An isolated
+real Grafana/PostgreSQL/Prometheus fixture passed 114 generated queries and 17
+semantic groups, including one wei, zero, U256 maximum plus one, NULL, exact
+component sums, allocation and denominator floors, stale sources and balance
+scaling. Live checks passed 45 panels, 62 complete receipt arithmetic comparisons
+and 75 fee-bucket sums. Browser verification rendered eight charts and the new
+selected-range totals with no datasource errors in the visible panels.
+
+Two existing Gas attribution tables (IDs 6 and 9) exceed the unchanged 10-second
+SQL limit on the live population. Both the original wei queries and converted
+queries reproduce this timeout; isolated fixture cases pass. This is retained as
+a query-optimization follow-up, not hidden by increasing limits or reported as a
+passing live-table check. The requested fee charts, exact receipt table and totals
+passed. Private evidence: `validation/fees-gwei-20260918/` under the deployment.

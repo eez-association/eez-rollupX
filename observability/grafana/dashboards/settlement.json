@@ -544,13 +544,62 @@
         "w": 12,
         "h": 8
       },
-      "description": "Includes reverted calls. Exact integer costs; successful receipt alone does not prove applied cross-chain effects. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown.",
+      "description": "Includes reverted calls. Exact integer costs; successful receipt alone does not prove applied cross-chain effects. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known total paid (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -568,7 +617,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT r.success,count(*) AS receipts,sum(r.execution_paid)::text AS known_execution_paid_wei,sum(r.blob_paid)::text AS known_blob_paid_wei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY r.success"
+          "rawSql": "SELECT r.success,count(*) AS receipts,trim_scale((sum(r.execution_paid)) * 0.000000001)::text AS known_execution_paid_gwei,trim_scale((sum(r.blob_paid)) * 0.000000001)::text AS known_blob_paid_gwei,trim_scale((sum(r.execution_paid+r.blob_paid)) * 0.000000001)::text AS known_total_paid_gwei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY r.success"
         }
       ]
     },

@@ -87,21 +87,42 @@ class DashboardTrends(unittest.TestCase):
                 self.assertIn('FROM eez.' + view, query)
                 self.assertIn('bool_and(r.accounting_gap IS NULL', query)
                 self.assertIn('r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL', query)
-                self.assertIn('/1e18 END)::double precision', query)
+                self.assertIn('/1e9 END)::double precision', query)
                 self.assertNotIn('UNION', query)
                 self.assertNotIn('ELSE 0', query)
-                self.assertIn('native units', panels[panel_id]['fieldConfig']['defaults']['unit'])
+                self.assertEqual('suffix: gwei', panels[panel_id]['fieldConfig']['defaults']['unit'])
         gas = {p['id']: p for p in dashboard('gas')['panels']}
         for panel_id in (2, 3, 4, 5, 9, 10, 11, 16, 17):
             self.assertEqual(gas[panel_id]['type'], 'table')
             self.assertGreaterEqual(gas[panel_id]['gridPos']['y'], 20)
-        self.assertIn('sum(r.execution_paid)::text AS known_execution_paid_wei', gas[2]['targets'][0]['rawSql'])
+        self.assertIn('known_execution_paid_gwei', gas[2]['targets'][0]['rawSql'])
+        self.assertIn('0.000000001', gas[2]['targets'][0]['rawSql'])
         blobs = {p['id']: p for p in dashboard('blobs')['panels']}
-        self.assertIn('sum(r.execution_paid)::text', blobs[5]['targets'][0]['rawSql'])
+        self.assertIn('known_execution_paid_gwei', blobs[5]['targets'][0]['rawSql'])
+        self.assertIn('0.000000001', blobs[5]['targets'][0]['rawSql'])
         utilization = blobs[10]['targets'][0]['rawSql']
         self.assertIn("sum(r.encoded_bytes) FILTER(WHERE r.measurement_state='measured')", utilization)
         self.assertIn("sum(r.purchased_blobs*r.usable_bytes_per_blob) FILTER(WHERE r.measurement_state='measured')", utilization)
         self.assertIn('NULLIF(', utilization)
+
+    def test_fee_components_totals_and_balances_use_gwei_without_stacking_total(self):
+        for name, ids in [('gas', (19, 20, 22)), ('blobs', (12,))]:
+            panels = {p['id']: p for p in dashboard(name)['panels']}
+            for panel_id in ids:
+                p = panels[panel_id]
+                query = p['targets'][0]['rawSql']
+                self.assertEqual(p['fieldConfig']['defaults']['unit'], 'suffix: gwei')
+                for field in ('execution_gwei', 'blob_gwei', 'total_gwei'):
+                    self.assertIn('AS ' + field, query)
+                self.assertIn('sum(r.execution_paid+r.blob_paid)/1e9', query)
+                self.assertNotIn('COALESCE', query)
+                if p['type'] == 'timeseries':
+                    self.assertEqual(p['fieldConfig']['defaults']['custom']['stacking']['mode'], 'none')
+        gas = {p['id']: p for p in dashboard('gas')['panels']}
+        self.assertIn("c.role='l1'", gas[22]['targets'][0]['rawSql'])
+        for panel_id in (12, 21):
+            self.assertEqual(gas[panel_id]['fieldConfig']['defaults']['unit'], 'suffix: gwei')
+            self.assertTrue(gas[panel_id]['targets'][0]['expr'].endswith(' * 1e9'))
 
     def test_layouts_have_stable_unique_ids_and_no_overlapping_panels(self):
         for file in (ROOT / 'grafana/dashboards').glob('*.json'):

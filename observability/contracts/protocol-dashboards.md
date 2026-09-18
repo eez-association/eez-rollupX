@@ -41,8 +41,10 @@ filled with `or vector(0)`, and stale SQL chains do not produce a fabricated zer
 population. An empty queue without completion evidence is idle/unexercised, not
 a continuously verified service.
 
-Monetary detail tables select integer fields as text, preserving exact decimal
-values through the Grafana PostgreSQL driver. L1 and L2 costs remain separate. Included
+Monetary detail tables multiply stored wei amounts by exact numeric
+`0.000000001` and select decimal gwei as text, preserving precision through the
+Grafana PostgreSQL driver. Existing allocation/denominator floors apply in wei
+before this display conversion; gas quantities remain gas units. L1 and L2 costs remain separate. Included
 reverts count as spend. Posting calls, applied settlements and native candidate
 attempts are separate populations. Schema 14 adds receipt-deduplicated companion
 charges and `equal_share_v1` shared-overhead estimates over verified unique native
@@ -157,8 +159,8 @@ chain or typed outcome; shared tooltips compare observations without summing the
 | Dashboard | New time-series panels (IDs) |
 | --- | --- |
 | Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); queue direction/state (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28) |
-| Gas | Configured-wallet spend (18); paid-posting spend by success (19); selected-receipt execution/blob components (20); configured L1 poster balance history (21) |
-| Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob fee components (12); known purchased blobs and measured subset (13) |
+| Gas | Configured-wallet spend (18); paid-posting execution/blob/total fees by success (19); selected-receipt execution/blob/total fees (20); configured L1 poster balance history (21) |
+| Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob/total fees (12); known purchased blobs and measured subset (13) |
 | Settlement | Included paid-call count by success (15); receipt execution gas (16) |
 | Network | L2 head/safe/finalized settlement heights (24); L1 head/finalized timestamp ages (25); verified safe/explorer lag (26) |
 
@@ -180,11 +182,17 @@ cohort counts, coverage, exact identifiers and evidence details remain below.
 
 Monetary charts sum the existing receipt population in PostgreSQL numeric
 arithmetic, require complete accounting throughout each displayed bucket, divide
-by 10^18 and only then convert to plotting numbers. These **native-unit plots are
-approximate visualizations**, not replacements for the exact integer wei tables.
+by 10^9 and only then convert to plotting numbers. These **gwei plots are
+approximate visualizations**, not replacements for the exact decimal gwei tables.
+Storage and protocol accounting remain in integer wei. One gwei is 10^-9 of the
+chain's native currency (xDAI on Chiado); no ETH/fiat conversion is performed.
 Chains remain separate; included reverts count as spend. Wallet, selected-receipt,
 posting and blob-posting charts overlap and must never be added together. Execution
-and blob fee lines are disjoint components within the same population. Blob
+and blob fees are disjoint components within the same population. Total series
+equal execution plus blobs and are never stacked or summed with their components.
+Gas panel 22 also shows execution/blob/total fees for configured L1 wallets over
+the selected range, including reverts but excluding transferred value and L2 fees.
+Missing accounting leaves these totals unknown. Blob
 utilization remains the ratio of summed authenticated measured bytes to summed
 purchased usable capacity for those same measured posts; its measured-subset
 count is not added to the all-post count.
@@ -206,8 +214,9 @@ and introduces no RPC/native fallback or double counting; RPC remains the defaul
 
 
 The poster-balance history panel uses retained Prometheus observations of the
-configured L1 poster, gated by funding validity and observer reachability. Native
-units mean xDAI on Gnosis/Chiado, without fiat conversion. Funding increases and
+configured L1 poster, gated by funding validity and observer reachability. Stored
+native-unit gauges are multiplied by 10^9 for display in gwei, without currency
+conversion. The current balance panel uses the same display unit. Funding increases and
 spending decreases are visible; history before collection or outside retention is
 not reconstructed. Like the current configured-account balance, this panel follows
 environment/deployment scope independently of native-instance/chain/rollup selectors.

@@ -135,7 +135,7 @@
         "w": 24,
         "h": 4
       },
-      "description": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees remain separate. Reverted receipts are charged. Shared posting overhead uses equal_share_v1 estimates over verified native membership; these are not exact per-user charges. Missing or ambiguous populations remain unallocated. Settled-L2-transaction unit cost remains unavailable. Optional live funding panels show separately configured accounts and actual runtime candidate observations with explicit unknown evidence.",
+      "description": "Fees and balances are displayed in gwei (10^-9 native currency; xDAI on Chiado), without ETH or fiat conversion. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -145,20 +145,106 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees remain separate. Reverted receipts are charged. Shared posting overhead uses equal_share_v1 estimates over verified native membership; these are not exact per-user charges. Missing or ambiguous populations remain unallocated. Settled-L2-transaction unit cost remains unavailable. Optional live funding panels show separately configured accounts and actual runtime candidate observations with explicit unknown evidence."
+        "content": "Fees and balances are displayed in gwei (10^-9 native currency; xDAI on Chiado), without ETH or fiat conversion. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges."
       }
     },
     {
-      "id": 21,
-      "title": "Poster balance over time \u00b7 L1 native units",
-      "type": "timeseries",
+      "id": 22,
+      "title": "Configured L1 wallets \u00b7 execution, blobs and total fees \u00b7 selected range",
+      "type": "stat",
       "gridPos": {
         "x": 0,
         "y": 4,
         "w": 24,
+        "h": 5
+      },
+      "description": "Sum of canonical included receipt fees for the configured L1 wallets in the selected time range, including reverts. Total = execution + blobs. Does not include transferred value, L2 user fees or unrelated wallets. Unknown if the selected population has incomplete fee accounting. Gwei is 10^-9 of L1 native currency (xDAI on Chiado), not an ETH price conversion. Do not add these totals to overlapping posting or selected-receipt panels.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND c.role='l1'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: gwei",
+          "decimals": 3,
+          "noValue": "Unknown",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "execution_gwei"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Execution"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blob_gwei"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Blobs"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_gwei"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "title": "Poster balance over time \u00b7 gwei",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
         "h": 8
       },
-      "description": "Observed balance of the configured L1 poster account. One native unit is one xDAI on Gnosis/Chiado (test xDAI on Chiado); no USD conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
+      "description": "Observed balance of the configured L1 poster account. One gwei is 10^-9 of the native currency (xDAI on Chiado); no ETH or fiat conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -170,12 +256,12 @@
           "instant": false,
           "range": true,
           "legendFormat": "Poster \u00b7 {{instance}}",
-          "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)"
+          "expr": "(eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)) * 1e9"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: native units",
+          "unit": "suffix: gwei",
           "noValue": "Unknown",
           "color": {
             "mode": "palette-classic"
@@ -195,7 +281,7 @@
             "barAlignment": 0,
             "barWidthFactor": 0.7
           },
-          "decimals": 5
+          "decimals": 3
         },
         "overrides": []
       },
@@ -217,15 +303,15 @@
     },
     {
       "id": 18,
-      "title": "Configured-wallet spend over time \u00b7 5m",
+      "title": "Configured-wallet fees \u00b7 gwei / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 17,
         "w": 12,
         "h": 8
       },
-      "description": "Canonical receipt charges per five-minute bucket, including included reverts, separated by chain and configured wallet. A bucket with incomplete receipt accounting stays NULL. These populations overlap with other spend panels and must not be summed together. Plot uses native units (wei / 1e18); exact integer wei remains in the tables below.",
+      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -235,12 +321,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 0x'||encode(r.sender,'hex') AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS value FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 0x'||encode(r.sender,'hex') AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS value FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: native units",
+          "unit": "suffix: gwei",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -260,7 +346,8 @@
             },
             "barAlignment": 0,
             "barWidthFactor": 0.7
-          }
+          },
+          "decimals": 3
         },
         "overrides": []
       },
@@ -281,15 +368,15 @@
     },
     {
       "id": 19,
-      "title": "Paid posting spend over time \u00b7 5m",
+      "title": "Posting fees \u00b7 execution, blobs and total \u00b7 gwei / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 17,
         "w": 12,
         "h": 8
       },
-      "description": "Canonical receipt charges per five-minute bucket, including included reverts, separated by chain and success status. A bucket with incomplete receipt accounting stays NULL. These populations overlap with other spend panels and must not be summed together. Plot uses native units (wei / 1e18); exact integer wei remains in the tables below.",
+      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -299,12 +386,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS value FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: native units",
+          "unit": "suffix: gwei",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -323,10 +410,64 @@
               "group": "A"
             },
             "barAlignment": 0,
-            "barWidthFactor": 0.7
-          }
+            "barWidthFactor": 0.35
+          },
+          "decimals": 3
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^execution_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.barAlignment",
+                "value": -1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^blob_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.barAlignment",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^total_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 5
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -345,15 +486,15 @@
     },
     {
       "id": 20,
-      "title": "Selected receipt execution / blob spend \u00b7 5m",
+      "title": "Selected receipt fees \u00b7 execution, blobs and total \u00b7 gwei / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 25,
         "w": 24,
         "h": 8
       },
-      "description": "Execution and blob components of the same selected canonical receipt population, separated by chain. Complete-accounting buckets only; no missing bucket is filled. Plot values are scaled native units, while the daily table retains exact wei. Do not add this population to wallet or posting charts.",
+      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -363,12 +504,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e18 END)::double precision AS execution_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e18 END)::double precision AS blob_native FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: native units",
+          "unit": "suffix: gwei",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -387,10 +528,64 @@
               "group": "A"
             },
             "barAlignment": 0,
-            "barWidthFactor": 0.7
-          }
+            "barWidthFactor": 0.35
+          },
+          "decimals": 3
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^execution_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.barAlignment",
+                "value": -1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^blob_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.barAlignment",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^total_gwei"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 5
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -409,11 +604,11 @@
     },
     {
       "id": 12,
-      "title": "Configured account balances \u00b7 current native units",
+      "title": "Configured account balances \u00b7 current gwei",
       "type": "stat",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -424,8 +619,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "noValue": "Unknown"
+          "unit": "suffix: gwei",
+          "noValue": "Unknown",
+          "decimals": 3
         },
         "overrides": []
       },
@@ -443,7 +639,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)",
+          "expr": "(eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)) * 1e9",
           "instant": true,
           "range": false,
           "format": "time_series",
@@ -457,7 +653,7 @@
       "type": "stat",
       "gridPos": {
         "x": 12,
-        "y": 28,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -501,7 +697,7 @@
       "type": "stat",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 41,
         "w": 12,
         "h": 8
       },
@@ -562,7 +758,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 36,
+        "y": 41,
         "w": 12,
         "h": 8
       },
@@ -599,17 +795,66 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 49,
         "w": 12,
         "h": 8
       },
-      "description": "Configured payer identity defines wallet spend independently of source/companion attribution. Exact sums from canonical receipt inclusions. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown.",
+      "description": "Configured payer identity defines wallet spend independently of source/companion attribution. Exact sums from canonical receipt inclusions. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known total paid (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -627,7 +872,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT c.role,c.chain_id::text,'0x'||encode(r.sender,'hex') AS wallet,count(*) AS receipts,count(*) FILTER(WHERE NOT r.success) AS reverted_receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,sum(r.execution_paid)::text AS known_execution_paid_wei,sum(r.blob_paid)::text AS known_blob_paid_wei,sum(r.execution_paid+r.blob_paid)::text AS known_total_paid_wei FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY c.role,c.chain_id,r.sender ORDER BY c.role"
+          "rawSql": "SELECT c.role,c.chain_id::text,'0x'||encode(r.sender,'hex') AS wallet,count(*) AS receipts,count(*) FILTER(WHERE NOT r.success) AS reverted_receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,trim_scale((sum(r.execution_paid)) * 0.000000001)::text AS known_execution_paid_gwei,trim_scale((sum(r.blob_paid)) * 0.000000001)::text AS known_blob_paid_gwei,trim_scale((sum(r.execution_paid+r.blob_paid)) * 0.000000001)::text AS known_total_paid_gwei FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY c.role,c.chain_id,r.sender ORDER BY c.role"
         }
       ]
     },
@@ -637,17 +882,82 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 44,
+        "y": 49,
         "w": 12,
         "h": 8
       },
-      "description": "Per paid posting call, not per source or successful applied batch. Exact known sum and decimal per-call mean; incomplete receipts suppress the mean.",
+      "description": "Per paid posting call, not per source or successful applied batch. Exact known sum and decimal per-call mean; incomplete receipts suppress the mean. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known total paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "mean_paid_per_call_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "mean paid per call (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -665,7 +975,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT r.success,count(*) AS calls,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_calls,sum(r.execution_paid+r.blob_paid)::text AS known_total_paid_wei,CASE WHEN count(*) FILTER(WHERE r.accounting_gap IS NOT NULL)=0 THEN sum(r.execution_paid+r.blob_paid)/NULLIF(count(*),0) END::text AS mean_paid_per_call_wei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY r.success"
+          "rawSql": "SELECT r.success,count(*) AS calls,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_calls,trim_scale((sum(r.execution_paid)) * 0.000000001)::text AS known_execution_paid_gwei,trim_scale((sum(r.blob_paid)) * 0.000000001)::text AS known_blob_paid_gwei,trim_scale((sum(r.execution_paid+r.blob_paid)) * 0.000000001)::text AS known_total_paid_gwei,trim_scale((CASE WHEN count(*) FILTER(WHERE r.accounting_gap IS NOT NULL)=0 THEN sum(r.execution_paid+r.blob_paid)/NULLIF(count(*),0) END) * 0.000000001)::text AS mean_paid_per_call_gwei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY r.success"
         }
       ]
     },
@@ -675,17 +985,66 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 52,
+        "y": 57,
         "w": 24,
         "h": 8
       },
-      "description": "Configured selected receipt population, daily UTC buckets in the selected time range. Source dependencies outside original selection are excluded from this bill. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown.",
+      "description": "Configured selected receipt population, daily UTC buckets in the selected time range. Source dependencies outside original selection are excluded from this bill. Sums include known charges only; any incomplete-receipt count means the complete population total is unknown. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known total paid (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -703,7 +1062,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT date_trunc('day',to_timestamp(r.timestamp_seconds::double precision)) AS day,c.role,c.chain_id::text,count(*) AS receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,sum(r.execution_paid)::text AS known_execution_paid_wei,sum(r.blob_paid)::text AS known_blob_paid_wei FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2,3 ORDER BY 1,2"
+          "rawSql": "SELECT date_trunc('day',to_timestamp(r.timestamp_seconds::double precision)) AS day,c.role,c.chain_id::text,count(*) AS receipts,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,trim_scale((sum(r.execution_paid)) * 0.000000001)::text AS known_execution_paid_gwei,trim_scale((sum(r.blob_paid)) * 0.000000001)::text AS known_blob_paid_gwei,trim_scale((sum(r.execution_paid+r.blob_paid)) * 0.000000001)::text AS known_total_paid_gwei FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2,3 ORDER BY 1,2"
         }
       ]
     },
@@ -713,17 +1072,98 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 65,
         "w": 24,
         "h": 8
       },
-      "description": "One current canonical inclusion per transaction; exact integer values stay strings to avoid floating-point loss. A source receipt proves only source inclusion/status. Explorer links are added only for configured explorer URLs.",
+      "description": "One current canonical inclusion per transaction; exact decimal gwei values stay strings to avoid floating-point loss. A source receipt proves only source inclusion/status. Explorer links are added only for configured explorer URLs. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "effective_gas_price_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "effective gas price (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blob_gas_price_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "blob gas price (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "total paid (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -741,7 +1181,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,c.role,c.chain_id::text,'0x'||encode(r.transaction_hash,'hex') AS transaction,'0x'||encode(r.block_hash,'hex') AS inclusion_block,r.transaction_index::text,r.success,r.gas_used::text,r.effective_gas_price::text,r.blob_gas_used::text,r.blob_gas_price::text,r.execution_paid::text,r.blob_paid::text,r.accounting_gap,CASE c.role WHEN 'l1' THEN __EEZ_L1_EXPLORER_SQL__ WHEN 'l2' THEN __EEZ_L2_EXPLORER_SQL__ END AS explorer_url FROM eez.canonical_receipt_facts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR encode(r.transaction_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.transaction_index LIMIT 200"
+          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,c.role,c.chain_id::text,'0x'||encode(r.transaction_hash,'hex') AS transaction,'0x'||encode(r.block_hash,'hex') AS inclusion_block,r.transaction_index::text,r.success,r.gas_used::text,trim_scale((r.effective_gas_price) * 0.000000001)::text AS effective_gas_price_gwei,r.blob_gas_used::text,trim_scale((r.blob_gas_price) * 0.000000001)::text AS blob_gas_price_gwei,trim_scale((r.execution_paid) * 0.000000001)::text AS execution_paid_gwei,trim_scale((r.blob_paid) * 0.000000001)::text AS blob_paid_gwei,trim_scale((r.execution_paid+r.blob_paid) * 0.000000001)::text AS total_paid_gwei,r.accounting_gap,CASE c.role WHEN 'l1' THEN __EEZ_L1_EXPLORER_SQL__ WHEN 'l2' THEN __EEZ_L2_EXPLORER_SQL__ END AS explorer_url FROM eez.canonical_receipt_facts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR encode(r.transaction_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.transaction_index LIMIT 200"
         }
       ]
     },
@@ -751,17 +1191,34 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 73,
         "w": 12,
         "h": 8
       },
-      "description": "Canonical posting population per L2 context, including unallocated reasons and accounting gaps. Context rows can overlap: do not add their posting costs across rollups. Missing evidence is not a zero-cost source.",
+      "description": "Canonical posting population per L2 context, including unallocated reasons and accounting gaps. Context rows can overlap: do not add their posting costs across rollups. Missing evidence is not a zero-cost source. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_posting_cost_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known posting cost (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -779,7 +1236,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT l2.chain_instance_id::text AS l2_context,l2.rollup_id::text,r.allocation_state,count(*) AS posting_calls,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,sum(r.execution_paid+r.blob_paid)::text AS known_posting_cost_wei FROM eez.posting_allocation_status r JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY l2.chain_instance_id,l2.rollup_id,r.allocation_state ORDER BY l2.chain_instance_id,r.allocation_state"
+          "rawSql": "SELECT l2.chain_instance_id::text AS l2_context,l2.rollup_id::text,r.allocation_state,count(*) AS posting_calls,count(*) FILTER(WHERE r.accounting_gap IS NOT NULL) AS incomplete_receipts,trim_scale((sum(r.execution_paid+r.blob_paid)) * 0.000000001)::text AS known_posting_cost_gwei FROM eez.posting_allocation_status r JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY l2.chain_instance_id,l2.rollup_id,r.allocation_state ORDER BY l2.chain_instance_id,r.allocation_state"
         }
       ]
     },
@@ -789,7 +1246,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 68,
+        "y": 73,
         "w": 12,
         "h": 8
       },
@@ -831,7 +1288,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 81,
         "w": 24,
         "h": 6
       },
@@ -860,17 +1317,66 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 82,
+        "y": 87,
         "w": 24,
         "h": 9
       },
-      "description": "equal_share_v1 divides exact execution/blob fees over unique native attempt sources, including paid failed attempts. Integer remainders follow deterministic source order. These are estimates of shared overhead; summing the allocated components reproduces each paid post once. Source receipts remain separate.",
+      "description": "equal_share_v1 divides exact execution/blob fees over unique native attempt sources, including paid failed attempts. Integer remainders follow deterministic source order. These are estimates of shared overhead; summing the allocated components reproduces each paid post once. Source receipts remain separate. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estimated_execution_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "estimated execution (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estimated_blob_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "estimated blob (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "estimated_total_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "estimated total (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -888,7 +1394,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,'0x'||encode(r.post_hash,'hex') AS posting_transaction,'0x'||(r.source->>'transaction_hash') AS source_transaction,r.source->>'direction' AS direction,r.source->>'chain_id' AS source_chain_id,r.success AS post_success,r.member_count,r.allocation_rule,r.evidence_class,r.allocated_execution_paid::text AS estimated_execution_wei,r.allocated_blob_paid::text AS estimated_blob_wei,(r.allocated_execution_paid+r.allocated_blob_paid)::text AS estimated_total_wei FROM eez.source_posting_allocations r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR r.source->>'transaction_hash'=lower(regexp_replace(${source_hash:sqlstring},'^0x','')) OR encode(r.post_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.post_hash,r.allocation_position LIMIT 200"
+          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,'0x'||encode(r.post_hash,'hex') AS posting_transaction,'0x'||(r.source->>'transaction_hash') AS source_transaction,r.source->>'direction' AS direction,r.source->>'chain_id' AS source_chain_id,r.success AS post_success,r.member_count,r.allocation_rule,r.evidence_class,trim_scale((r.allocated_execution_paid) * 0.000000001)::text AS estimated_execution_gwei,trim_scale((r.allocated_blob_paid) * 0.000000001)::text AS estimated_blob_gwei,trim_scale((r.allocated_execution_paid+r.allocated_blob_paid) * 0.000000001)::text AS estimated_total_gwei FROM eez.source_posting_allocations r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR r.source->>'transaction_hash'=lower(regexp_replace(${source_hash:sqlstring},'^0x','')) OR encode(r.post_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.post_hash,r.allocation_position LIMIT 200"
         }
       ]
     },
@@ -898,17 +1404,66 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 91,
+        "y": 96,
         "w": 24,
         "h": 8
       },
-      "description": "Receipt-level deduplicated native companion relationships require exact source/post inclusion and an unambiguous rollup window. Reverts remain charged. This population may overlap configured wallet spend and must not be added to it as another bill.",
+      "description": "Receipt-level deduplicated native companion relationships require exact source/post inclusion and an unambiguous rollup window. Reverts remain charged. This population may overlap configured wallet spend and must not be added to it as another bill. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "total paid (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -926,7 +1481,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,'0x'||encode(r.transaction_hash,'hex') AS source_transaction,'0x'||encode(r.post_hash,'hex') AS posting_transaction,'0x'||encode(r.block_hash,'hex') AS inclusion_block,r.success,r.execution_paid::text AS execution_paid_wei,r.blob_paid::text AS blob_paid_wei,(r.execution_paid+r.blob_paid)::text AS total_paid_wei,r.accounting_gap,r.evidence_class FROM eez.companion_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.context_l2 WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR encode(r.transaction_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x','')) OR encode(r.post_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.transaction_index LIMIT 200"
+          "rawSql": "SELECT to_timestamp(r.timestamp_seconds::double precision) AS time,'0x'||encode(r.transaction_hash,'hex') AS source_transaction,'0x'||encode(r.post_hash,'hex') AS posting_transaction,'0x'||encode(r.block_hash,'hex') AS inclusion_block,r.success,trim_scale((r.execution_paid) * 0.000000001)::text AS execution_paid_gwei,trim_scale((r.blob_paid) * 0.000000001)::text AS blob_paid_gwei,trim_scale((r.execution_paid+r.blob_paid) * 0.000000001)::text AS total_paid_gwei,r.accounting_gap,r.evidence_class FROM eez.companion_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.context_l2 WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND (${source_hash:sqlstring}='' OR encode(r.transaction_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x','')) OR encode(r.post_hash,'hex')=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) ORDER BY r.timestamp_seconds DESC,r.transaction_index LIMIT 200"
         }
       ]
     },
@@ -936,17 +1491,50 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 99,
+        "y": 104,
         "w": 24,
         "h": 8
       },
-      "description": "Distinct scoped sources currently verified committed, grouped by their first retained canonical reconciliation watermark in the selected time range. Known lifetime posting allocations include paid retries. The integer-floor mean uses only sources with allocation evidence; missing populations and unallocated posting fees are reported separately. This is a partial attributed posting-cost estimate, excluding direct source receipts and L2 fees.",
+      "description": "Distinct scoped sources currently verified committed, grouped by their first retained canonical reconciliation watermark in the selected time range. Known lifetime posting allocations include paid retries. The integer-floor mean uses only sources with allocation evidence; missing populations and unallocated posting fees are reported separately. This is a partial attributed posting-cost estimate, excluding direct source receipts and L2 fees. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged. Existing per-source/per-transaction floors are applied in integer wei before conversion to gwei; they are not rounded down to whole gwei.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_attributed_posting_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known attributed posting (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "known_posting_per_measured_source_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "known posting per measured source (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -964,7 +1552,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH scope AS MATERIALIZED (SELECT c.chain_instance_id AS l1,l2.chain_instance_id AS l2 FROM eez.dashboard_chain_context c JOIN eez.dashboard_chain_context l2 ON l2.deployment_id=c.deployment_id AND l2.role='l2' WHERE c.role='l1' AND c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring})), cohort AS MATERIALIZED (SELECT o.context_l1,o.context_l2,o.source,min(o.progress_timestamp_seconds) AS first_watermark FROM eez.lifecycle_canonical_outcomes o JOIN scope ON scope.l1=o.context_l1 AND scope.l2=o.context_l2 WHERE o.evidence_class='node_reconciled' AND o.outcome='committed' AND (${source_hash:sqlstring}='' OR o.source->>'transaction_hash'=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) GROUP BY o.context_l1,o.context_l2,o.source HAVING to_timestamp(min(o.progress_timestamp_seconds)::double precision) BETWEEN $__timeFrom() AND $__timeTo()), attributed AS MATERIALIZED (SELECT c.context_l1,c.context_l2,c.source,count(*) AS paid_posts,sum(a.allocated_execution_paid+a.allocated_blob_paid) AS known_posting_cost FROM cohort c JOIN eez.source_posting_allocations a ON a.l1_chain_id=c.context_l1 AND a.l2_chain_id=c.context_l2 AND a.source=c.source GROUP BY c.context_l1,c.context_l2,c.source) SELECT c.source->>'direction' AS direction,count(*) AS committed_sources,count(a.paid_posts) AS sources_with_allocation,count(*) FILTER(WHERE a.paid_posts IS NULL) AS sources_without_allocation,sum(a.known_posting_cost)::text AS known_attributed_posting_wei,div(sum(a.known_posting_cost),NULLIF(count(a.paid_posts),0))::text AS known_posting_wei_per_measured_source_floor FROM cohort c LEFT JOIN attributed a ON a.context_l1=c.context_l1 AND a.context_l2=c.context_l2 AND a.source=c.source GROUP BY c.source->>'direction'"
+          "rawSql": "WITH scope AS MATERIALIZED (SELECT c.chain_instance_id AS l1,l2.chain_instance_id AS l2 FROM eez.dashboard_chain_context c JOIN eez.dashboard_chain_context l2 ON l2.deployment_id=c.deployment_id AND l2.role='l2' WHERE c.role='l1' AND c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring})), cohort AS MATERIALIZED (SELECT o.context_l1,o.context_l2,o.source,min(o.progress_timestamp_seconds) AS first_watermark FROM eez.lifecycle_canonical_outcomes o JOIN scope ON scope.l1=o.context_l1 AND scope.l2=o.context_l2 WHERE o.evidence_class='node_reconciled' AND o.outcome='committed' AND (${source_hash:sqlstring}='' OR o.source->>'transaction_hash'=lower(regexp_replace(${source_hash:sqlstring},'^0x',''))) GROUP BY o.context_l1,o.context_l2,o.source HAVING to_timestamp(min(o.progress_timestamp_seconds)::double precision) BETWEEN $__timeFrom() AND $__timeTo()), attributed AS MATERIALIZED (SELECT c.context_l1,c.context_l2,c.source,count(*) AS paid_posts,sum(a.allocated_execution_paid+a.allocated_blob_paid) AS known_posting_cost FROM cohort c JOIN eez.source_posting_allocations a ON a.l1_chain_id=c.context_l1 AND a.l2_chain_id=c.context_l2 AND a.source=c.source GROUP BY c.context_l1,c.context_l2,c.source) SELECT c.source->>'direction' AS direction,count(*) AS committed_sources,count(a.paid_posts) AS sources_with_allocation,count(*) FILTER(WHERE a.paid_posts IS NULL) AS sources_without_allocation,trim_scale((sum(a.known_posting_cost)) * 0.000000001)::text AS known_attributed_posting_gwei,trim_scale((div(sum(a.known_posting_cost),NULLIF(count(a.paid_posts),0))) * 0.000000001)::text AS known_posting_per_measured_source_gwei FROM cohort c LEFT JOIN attributed a ON a.context_l1=c.context_l1 AND a.context_l2=c.context_l2 AND a.source=c.source GROUP BY c.source->>'direction'"
         }
       ]
     },
@@ -974,17 +1562,50 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 107,
+        "y": 112,
         "w": 24,
         "h": 8
       },
-      "description": "Exact first-applied L2 transaction population from complete all-transaction scans and canonical applied hashes. Repeated/overlapping ranges count a transaction once; successful and reverted L2 transactions both count. Requires retained history from genesis to rule out prior settlement; partial bootstrap, historical prefix, receipt and classification gaps remain unknown. Ratio uses covered posting fees, including reverted posts, divided by known newly settled transactions in the selected posting-time window. It excludes unknown-cost/population posts, companions and L2 user fees; coverage counts accompany it. Zero transactions yields no ratio; do not average per-post ratios.",
+      "description": "Exact first-applied L2 transaction population from complete all-transaction scans and canonical applied hashes. Repeated/overlapping ranges count a transaction once; successful and reverted L2 transactions both count. Requires retained history from genesis to rule out prior settlement; partial bootstrap, historical prefix, receipt and classification gaps remain unknown. Ratio uses covered posting fees, including reverted posts, divided by known newly settled transactions in the selected posting-time window. It excludes unknown-cost/population posts, companions and L2 user fees; coverage counts accompany it. Zero transactions yields no ratio; do not average per-post ratios. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged. Existing per-source/per-transaction floors are applied in integer wei before conversion to gwei; they are not rounded down to whole gwei.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "measured_posting_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "measured posting (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "posting_per_settled_transaction_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "posting per settled transaction (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -1002,7 +1623,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH population AS MATERIALIZED (SELECT r.* FROM eez.settled_transaction_costs r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid), totals AS (SELECT l2_chain_id,rollup_id,count(*) AS posts,count(*) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS measured_posts,count(*) FILTER(WHERE denominator_status NOT IN ('verified','reverted_post') OR accounting_gap IS NOT NULL) AS unmeasured_posts,sum(settled_transactions) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS settled_transactions,sum(execution_paid+blob_paid) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS measured_posting_wei FROM population GROUP BY l2_chain_id,rollup_id) SELECT l2_chain_id::text AS l2_context,rollup_id::text,posts,measured_posts,unmeasured_posts,settled_transactions::text,measured_posting_wei::text,trunc(measured_posting_wei/NULLIF(settled_transactions,0))::text AS posting_wei_per_settled_transaction_floor FROM totals ORDER BY l2_chain_id"
+          "rawSql": "WITH population AS MATERIALIZED (SELECT r.* FROM eez.settled_transaction_costs r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid), totals AS (SELECT l2_chain_id,rollup_id,count(*) AS posts,count(*) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS measured_posts,count(*) FILTER(WHERE denominator_status NOT IN ('verified','reverted_post') OR accounting_gap IS NOT NULL) AS unmeasured_posts,sum(settled_transactions) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS settled_transactions,sum(execution_paid+blob_paid) FILTER(WHERE denominator_status IN ('verified','reverted_post') AND accounting_gap IS NULL) AS measured_posting_wei FROM population GROUP BY l2_chain_id,rollup_id) SELECT l2_chain_id::text AS l2_context,rollup_id::text,posts,measured_posts,unmeasured_posts,settled_transactions::text,trim_scale((measured_posting_wei) * 0.000000001)::text AS measured_posting_gwei,trim_scale((trunc(measured_posting_wei/NULLIF(settled_transactions,0))) * 0.000000001)::text AS posting_per_settled_transaction_gwei FROM totals ORDER BY l2_chain_id"
         }
       ]
     },
@@ -1012,17 +1633,82 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 115,
+        "y": 120,
         "w": 24,
         "h": 9
       },
-      "description": "Per-post evidence status. Reverted posting fees remain charged with zero applied transactions; incomplete history and shared multi-rollup fees have unknown denominators. Exact amounts are base-unit strings. A repeated range can have zero newly settled transactions despite a successful paid post.",
+      "description": "Per-post evidence status. Reverted posting fees remain charged with zero applied transactions; incomplete history and shared multi-rollup fees have unknown denominators. Exact monetary amounts are decimal gwei strings. A repeated range can have zero newly settled transactions despite a successful paid post. Monetary amounts/prices are exact decimal gwei strings (1 gwei = 10^9 wei), converted with numeric multiplication after accounting. Gas quantities and byte counts are unchanged. Existing per-source/per-transaction floors are applied in integer wei before conversion to gwei; they are not rounded down to whole gwei.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "noValue": "Unknown"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "execution_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "execution paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blob_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "blob paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_paid_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "total paid (gwei)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "posting_per_settled_transaction_gwei"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              },
+              {
+                "id": "displayName",
+                "value": "posting per settled transaction (gwei)"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "showHeader": true,
@@ -1040,7 +1726,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT r.l2_chain_id::text AS l2_context,r.rollup_id::text,'0x'||encode(r.transaction_hash,'hex') AS post_hash,r.denominator_status,r.settled_transactions::text,r.execution_paid::text,r.blob_paid::text,r.posting_wei_per_settled_transaction_floor::text FROM eez.settled_transaction_costs r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid ORDER BY r.block_number,r.transaction_index,r.l2_chain_id LIMIT 200"
+          "rawSql": "SELECT r.l2_chain_id::text AS l2_context,r.rollup_id::text,'0x'||encode(r.transaction_hash,'hex') AS post_hash,r.denominator_status,r.settled_transactions::text,trim_scale((r.execution_paid) * 0.000000001)::text AS execution_paid_gwei,trim_scale((r.blob_paid) * 0.000000001)::text AS blob_paid_gwei,trim_scale((r.execution_paid+r.blob_paid) * 0.000000001)::text AS total_paid_gwei,trim_scale((r.posting_wei_per_settled_transaction_floor) * 0.000000001)::text AS posting_per_settled_transaction_gwei FROM eez.settled_transaction_costs r JOIN eez.dashboard_chain_context c ON c.chain_instance_id=r.l1_chain_id JOIN eez.dashboard_chain_context l2 ON l2.chain_instance_id=r.l2_chain_id WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring} OR l2.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR l2.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid ORDER BY r.block_number,r.transaction_index,r.l2_chain_id LIMIT 200"
         }
       ]
     }
