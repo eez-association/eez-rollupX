@@ -1,4 +1,4 @@
-//! Native receipt coverage for bounded L1 priority-fee estimation.
+//! Native receipt coverage for bounded L1 fee-history priority selection.
 
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ const TIMEOUT: Duration = Duration::from_mins(3);
 
 /// Exercise the real estimator, bounded quote, signer, bundle preflight, and
 /// canonical receipt. This native harness uses no PBS bid.
-async fn check_bounded_network_priority(profile: NativeL1Profile) {
+async fn check_bounded_fee_history_priority(profile: NativeL1Profile) {
     let world = eez_testkit::setup_cross_chain_with_fixed_fee_fixture(
         profile,
         &[
@@ -76,7 +76,8 @@ async fn check_bounded_network_priority(profile: NativeL1Profile) {
                         == tx.inner.max_priority_fee_per_gas()
             })
             .expect("included poster must match a fresh quote for its canonical parent");
-        assert_eq!(quote.fields["priority_source"], "network_estimator");
+        assert_eq!(quote.fields["priority_source"], "fee_history_p90_of_p90");
+        assert_eq!(quote.u64("priority_history_blocks").unwrap(), 20);
         assert_eq!(quote.u64("priority_min").unwrap(), 0);
         assert_eq!(quote.u64("priority_max").unwrap(), 100_000_000_000);
         let estimate = quote.u64("estimated_priority_fee").unwrap();
@@ -142,7 +143,7 @@ async fn check_bounded_network_priority(profile: NativeL1Profile) {
         );
         measured.push(serde_json::json!({
             "transaction": hash, "l1_block": block.header.number,
-            "network_priority_estimate": estimate, "priority_max": 100_000_000_000_u64,
+            "fee_history_priority_estimate": estimate, "priority_max": 100_000_000_000_u64,
             "selected_priority_fee": expected, "effective_gas_price": receipt.effective_gas_price,
             "gas_used": receipt.gas_used, "blob_gas_used": receipt.blob_gas_used,
             "blob_gas_price": receipt.blob_gas_price, "paid": cost.paid.total.to_string(),
@@ -152,7 +153,7 @@ async fn check_bounded_network_priority(profile: NativeL1Profile) {
     if let Ok(directory) = std::env::var("EEZ_TEST_COST_EVIDENCE_DIR") {
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
-            std::path::Path::new(&directory).join(format!("{profile:?}-network-priority.json")),
+            std::path::Path::new(&directory).join(format!("{profile:?}-fee-history-priority.json")),
             serde_json::to_vec_pretty(&measured).unwrap(),
         )
         .unwrap();
@@ -161,11 +162,11 @@ async fn check_bounded_network_priority(profile: NativeL1Profile) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ethereum_receipts_use_bounded_network_priority() {
-    check_bounded_network_priority(NativeL1Profile::EthereumOsaka).await;
+async fn ethereum_receipts_use_bounded_fee_history_priority() {
+    check_bounded_fee_history_priority(NativeL1Profile::EthereumOsaka).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn gnosis_receipts_use_bounded_network_priority() {
-    check_bounded_network_priority(NativeL1Profile::GnosisPrague).await;
+async fn gnosis_receipts_use_bounded_fee_history_priority() {
+    check_bounded_fee_history_priority(NativeL1Profile::GnosisPrague).await;
 }

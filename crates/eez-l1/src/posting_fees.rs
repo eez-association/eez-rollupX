@@ -5,6 +5,13 @@ use alloy_primitives::U256;
 
 use crate::{BundleTarget, L1BlockRef};
 
+/// Recent canonical blocks used to price an exact-next-block submission.
+pub const PRIORITY_FEE_HISTORY_BLOCKS: u64 = 20;
+/// Gas-weighted reward percentile requested for each historical block.
+pub const PRIORITY_FEE_REWARD_PERCENTILE: f64 = 90.0;
+/// Percentile of the per-block rewards selected as the next-block bid.
+const PRIORITY_FEE_CONFIDENCE_PERCENTILE: usize = 90;
+
 /// All prices are native base units per gas unit. Ceilings are mandatory for
 /// enabled production posting; profile examples choose their own values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +47,7 @@ pub enum PostingFeeError {
 }
 
 impl PostingFeeConfig {
-    /// Parse an immutable startup snapshot. The priority estimator is used
+    /// Parse an immutable startup snapshot. The fee-history estimator is used
     /// unless the existing explicit priority override is supplied.
     pub fn parse(
         mut get: impl FnMut(&str) -> Result<Option<String>, PostingFeeError>,
@@ -79,7 +86,7 @@ impl PostingFeeConfig {
             (None, Some(fixed)) => fixed,
             (None, None) => {
                 return Err(PostingFeeError::Config(
-                    "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE is required when using the network priority estimator"
+                    "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE is required when using the fee-history priority estimator"
                         .into(),
                 ));
             }
@@ -136,7 +143,7 @@ impl PostingFeeConfig {
             Some(value) => value,
             None => sample
                 .estimated_priority_fee
-                .ok_or(PostingFeeError::Unavailable("network priority estimator"))?
+                .ok_or(PostingFeeError::Unavailable("priority fee history"))?
                 .clamp(self.priority_min, self.priority_max),
         };
         let required_execution = execution_base
@@ -200,6 +207,40 @@ impl PostingFeeConfig {
         // so the quotient is no greater than maximum and fits u64.
         (u128::from(maximum) * 10_000 / factor) as u64
     }
+}
+
+/// Select a deadline-oriented priority fee from `eth_feeHistory` rewards.
+///
+/// The RPC request asks for one gas-weighted p90 reward per block. Taking the
+/// p90 of those recent block samples avoids reacting to one isolated spike but
+/// prices above ordinary transactions in most recent blocks. Empty blocks
+/// contribute the zero reward returned by the RPC; configured bounds are
+/// applied later by [`PostingFeeConfig::quote`].
+pub fn estimate_next_block_priority_fee(
+    oldest_block: u64,
+    head_block: u64,
+    rewards: Option<&[Vec<u128>]>,
+) -> Result<u128, PostingFeeError> {
+    let rewards = rewards
+        .filter(|rewards| !rewards.is_empty())
+        .ok_or(PostingFeeError::Unavailable("priority fee history"))?;
+    let reward_count = u64::try_from(rewards.len())
+        .map_err(|_| PostingFeeError::Unavailable("priority fee history is too large"))?;
+    if oldest_block.checked_add(reward_count - 1) != Some(head_block) {
+        return Err(PostingFeeError::Unavailable(
+            "priority fee history canonical range",
+        ));
+    }
+    let mut samples = Vec::with_capacity(rewards.len());
+    for reward in rewards {
+        let [sample] = reward.as_slice() else {
+            return Err(PostingFeeError::Unavailable("priority fee history shape"));
+        };
+        samples.push(*sample);
+    }
+    samples.sort_unstable();
+    let index = (samples.len() - 1) * PRIORITY_FEE_CONFIDENCE_PERCENTILE / 100;
+    Ok(samples[index])
 }
 
 /// All network observations for a quote refer to the same canonical sample.
@@ -400,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_estimator_requires_an_independent_priority_ceiling() {
+    fn dynamic_fee_history_requires_an_independent_priority_ceiling() {
         let config = config(&[]).unwrap();
         assert_eq!(config.priority_override, None);
         assert_eq!(config.priority_min, 0);
@@ -439,23 +480,54 @@ mod tests {
     }
 
     #[test]
+    fn fee_history_selects_recent_p90_of_p90_without_chasing_one_spike() {
+        let ascending: Vec<_> = (1..=20).map(|reward| vec![reward]).collect();
+        assert_eq!(
+            estimate_next_block_priority_fee(81, 100, Some(&ascending)).unwrap(),
+            18
+        );
+
+        let mut one_spike = vec![vec![7]; 20];
+        one_spike[19][0] = u128::MAX;
+        assert_eq!(
+            estimate_next_block_priority_fee(81, 100, Some(&one_spike)).unwrap(),
+            7
+        );
+
+        for malformed in [
+            None,
+            Some([].as_slice()),
+            Some([vec![]].as_slice()),
+            Some([vec![1, 2]].as_slice()),
+        ] {
+            assert!(estimate_next_block_priority_fee(81, 100, malformed).is_err());
+        }
+        assert!(estimate_next_block_priority_fee(80, 100, Some(&ascending)).is_err());
+        assert!(estimate_next_block_priority_fee(u64::MAX, u64::MAX, Some(&ascending)).is_err());
+    }
+
+    #[test]
     fn sustained_self_posting_does_not_amplify_estimator_samples() {
         let config = config(&[
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
         ])
         .unwrap();
-        // Model a sparse chain whose oracle returns the poster's preceding
-        // selected tip. The selected value reaches a fixed point immediately.
+        // One poster transaction among nineteen empty blocks cannot move the
+        // market percentile. The optional relay floor is stable and cannot
+        // become an input to a recursive uplift.
         let mut estimate = 10;
         for _ in 0..20 {
+            let mut history = vec![vec![0]; 20];
+            history[19][0] = estimate;
+            let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
             let quote = config
                 .quote(FeeSample {
-                    estimated_priority_fee: Some(estimate),
+                    estimated_priority_fee: Some(market),
                     ..sample()
                 })
                 .unwrap();
-            assert_eq!(quote.max_priority_fee_per_gas, 10);
+            assert_eq!(quote.max_priority_fee_per_gas, 5);
             estimate = quote.max_priority_fee_per_gas;
         }
     }
@@ -493,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn external_estimator_changes_are_followed_within_independent_bounds() {
+    fn external_fee_history_changes_are_followed_within_independent_bounds() {
         let config = config(&[
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
@@ -502,9 +574,11 @@ mod tests {
         let selected: Vec<_> = [5, 8, 13, 21, 34, 55]
             .into_iter()
             .map(|estimate| {
+                let history = vec![vec![estimate]; 20];
+                let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
                 config
                     .quote(FeeSample {
-                        estimated_priority_fee: Some(estimate),
+                        estimated_priority_fee: Some(market),
                         ..sample()
                     })
                     .unwrap()
@@ -522,7 +596,7 @@ mod tests {
                 estimated_priority_fee: None,
                 ..sample()
             }),
-            Err(PostingFeeError::Unavailable("network priority estimator"))
+            Err(PostingFeeError::Unavailable("priority fee history"))
         ));
         let expensive = FeeSample {
             execution_base_fee: Some(989),

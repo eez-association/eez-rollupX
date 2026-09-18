@@ -12,7 +12,10 @@ use alloy_provider::Provider as _;
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_l1::{
     BundleTarget, L1BlockRef,
-    posting_fees::{FeeQuote, FeeSample, PostingFeeConfig, PostingFeeError},
+    posting_fees::{
+        FeeQuote, FeeSample, PRIORITY_FEE_HISTORY_BLOCKS, PRIORITY_FEE_REWARD_PERCENTILE,
+        PostingFeeConfig, PostingFeeError, estimate_next_block_priority_fee,
+    },
 };
 use eez_protocol::{CallMode, ExecutionOutcome, blob_semantics::SemanticTransaction};
 use reth_chainspec::EthereumHardforks;
@@ -148,8 +151,9 @@ impl PostingRuntime {
             .tx_gas_limit_cap())
     }
 
-    /// Sample only for selected posting work. An unset override requires the
-    /// selected node's estimator; unavailable data is never replaced by a tip.
+    /// Sample only for selected posting work. An unset override uses recent
+    /// canonical fee-history rewards; unavailable data is never replaced by a
+    /// guessed tip.
     pub async fn quote(
         &self,
         target: BundleTarget,
@@ -184,9 +188,20 @@ impl PostingRuntime {
             ));
         }
         let estimated_priority_fee = if self.fees.priority_override.is_none() {
-            Some(provider.get_max_priority_fee_per_gas().await.map_err(|e| {
-                PostingError::Unavailable(format!("network priority estimator: {e}"))
-            })?)
+            let history = provider
+                .get_fee_history(
+                    PRIORITY_FEE_HISTORY_BLOCKS,
+                    BlockNumberOrTag::Latest,
+                    &[PRIORITY_FEE_REWARD_PERCENTILE],
+                )
+                .await
+                .map_err(|e| PostingError::Unavailable(format!("priority fee history: {e}")))?;
+            let rewards = history.reward.as_deref();
+            Some(estimate_next_block_priority_fee(
+                history.oldest_block,
+                sample.number,
+                rewards,
+            )?)
         } else {
             None
         };
@@ -220,7 +235,9 @@ impl PostingRuntime {
             event_name = "eez.composer.postbatch.fee_quote", chain_id, sample_block = sample.number,
             sample_hash = %sample.hash, target = ?target, gas_budget,
             network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
-            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "network_estimator" },
+            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "fee_history_p90_of_p90" },
+            priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
+            priority_reward_percentile = PRIORITY_FEE_REWARD_PERCENTILE,
             execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,
             estimated_priority_fee,
             priority_min = self.fees.priority_min, priority_max = self.fees.priority_max,

@@ -138,7 +138,7 @@ Paths below are relative to `crates/` unless stated otherwise.
 | R30 Whole ordered bundle per-tx and block execution/blob/gas/balance/nonce validity (§6.3) | `composer/posting.rs::simulate` / `run_bundle`; native Ethereum/Gnosis block executors | native ordered executor tests; two inbound companion gas-stress cases, rich two-companion settlement and partial receipt accounting | [operator configuration](../configurable-settlement-policy.md) | unit/native verified on Ethereum/Gnosis |
 | R31 Active gas rules and target execution/EIP150; verify effects, not outer success (§6.3) | `composer/posting.rs::EffectInspector` / `run_bundle` | `outer_success_without_complete_effects_is_rejected`; real static lookup inspector; native low-byte expensive targets/new proxies and partial applied roots | [operator configuration](../configurable-settlement-policy.md) | unit/native verified |
 | R32 Group admission reduction before irreparable DA shrink (§6.3) | cross-chain composer | native `settlement_policy_gas.rs`: complete-group target/companion gas deferral and indivisible oversized group | reason metrics | native verified on Ethereum/Gnosis |
-| R33 Network fee estimator by default, validated fixed override/bounds (§6.3.1) | `PostingFeeConfig`; `PostingRuntime::quote`; early `ComposerSettings` | fee/config tests; native `always_skips_idle_syncs_then_settles_included_activity_and_replays` asserts network estimator | [operator configuration](../configurable-settlement-policy.md) | unit + native default verified |
+| R33 Fee-history estimator by default, validated fixed override/bounds (§6.3.1) | `PostingFeeConfig`; `PostingRuntime::quote`; early `ComposerSettings` | fee/config tests; native receipt tests assert bounded dynamic pricing | [operator configuration](../configurable-settlement-policy.md) | unit + native default verified |
 | R34 Separate execution, blob, and priority price ceilings; bounded raw priority estimation; checked execution/blob/gas margins (§6.3.1) | `eez-l1/src/posting_fees.rs`; `ComposerSettings` | independent priority bounds, self-feedback regression, checked ceil/overflow, early invalid override and native bounded-priority receipt tests | [operator configuration](../configurable-settlement-policy.md) | unit/config/native verified; priority correction below |
 | R35 Quotes bind network/canonical sample/target; refresh unsent on changes, no parallel repricing (§6.3.1) | existing observer; `replace_prepared_post_batch`; `send_bundle_quoted` | unsent repricing/ownership tests; `quoted_dispatch_checks_network_head_and_target_before_recording_or_sending`; canonical reorg integration | [operator configuration](../configurable-settlement-policy.md) | component verified |
 | R36 Reprice only poster tx; preserve companions; insufficient caps retain due and never capacity-split (§6.3.1) | codec reprice helper; optimistic ledger; final preflight | repricing preserves authorized content in both wrappers; native underpriced/funded-companion recovery and fee-cap retry | [operator configuration](../configurable-settlement-policy.md) | unit/native verified |
@@ -414,22 +414,22 @@ selection delay remains unexplained in the recovery audit.
 
 ## Priority fee estimator feedback correction
 
-The September 18 correction removes percentage uplift from the network priority
-estimate. Reth's `eth_maxPriorityFeePerGas` oracle includes recent poster
-transactions. On sparse networks, applying a margin to that estimate makes the
-poster feed its own uplift back into the next quote. Dynamic mode now uses the
-raw estimate within an explicit independent priority ceiling. The relay floor
-and exact fixed override remain available.
+The September 18 correction removes percentage uplift from priority pricing.
+Reth's `eth_maxPriorityFeePerGas` oracle includes recent poster transactions
+and samples the cheapest transactions, which is not aligned with an exact
+next-block bundle. Dynamic mode now selects the p90 of 20 per-block p90 rewards
+from `eth_feeHistory`, within an explicit independent priority ceiling. The
+optional relay floor and exact fixed override remain available.
 
 | Requirement | Implementation/configuration | Automated coverage |
 | --- | --- | --- |
 | Reproduce the observed 20% recursion exactly | Existing checked percentage helper, used only in regression setup | `observed_percentage_uplift_reproduces_the_self_feedback_loop` checks all three observed values |
-| Prevent recursive self-uplift across sustained posts | `PostingFeeConfig::quote` clamps the raw estimate without multiplying it | `sustained_self_posting_does_not_amplify_estimator_samples` |
-| Require a priority ceiling independent from the execution-price ceiling | `PostingFeeConfig::parse` rejects dynamic mode without `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE`; a fixed override safely defaults its maximum to itself | `dynamic_estimator_requires_an_independent_priority_ceiling` and composer startup tests |
-| Keep sparse blocks, spikes, relay floors and external market changes safe | Raw estimate is clamped between explicit minimum and maximum | `sparse_samples_use_the_floor_and_spikes_use_the_priority_ceiling`; `external_estimator_changes_are_followed_within_independent_bounds` |
+| Prevent recursive self-uplift across sustained posts | Stateless p90-of-p90 selection followed by a clamp, without multiplying prior selections | `fee_history_selects_recent_p90_of_p90_without_chasing_one_spike`; `sustained_self_posting_does_not_amplify_estimator_samples` |
+| Require a priority ceiling independent from the execution-price ceiling | `PostingFeeConfig::parse` rejects dynamic mode without `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE`; a fixed override safely defaults its maximum to itself | `dynamic_fee_history_requires_an_independent_priority_ceiling` and composer startup tests |
+| Keep sparse blocks, spikes, relay floors and external market changes safe | Empty-block zeros and isolated spikes are absorbed by the outer percentile; the selected market value is clamped between explicit minimum and maximum | `fee_history_selects_recent_p90_of_p90_without_chasing_one_spike`; `sparse_samples_use_the_floor_and_spikes_use_the_priority_ceiling`; `external_fee_history_changes_are_followed_within_independent_bounds` |
 | Remove the unsafe priority multiplier | No priority-margin field is parsed, transported, logged, or applied | Source/configuration inventory and bounded quote tests |
 | Fixed override is exact and does not require an estimator | Existing override branch | `fixed_priority_override_is_exact_and_does_not_query_the_estimator` |
-| Parsed bounds reach the actual signed poster | `ComposerSettings` → `PostingRuntime`; fee events expose raw estimate, bounds and selected tip | Ethereum/Gnosis `*_receipts_use_bounded_network_priority` |
+| Parsed bounds reach the actual signed poster | `ComposerSettings` → `PostingRuntime`; fee events expose the history estimate, bounds and selected tip | Ethereum/Gnosis `*_receipts_use_bounded_fee_history_priority` |
 | Receipt costs and canonical settlement remain correct | Existing bundle preflight and cost accounting | Both new native tests compare two distinct included posters to their canonical-parent quotes, receipt charges, physical blobs, applied roots, canonical L2 hashes and recorded costs |
 | Deployment transports the safe bounds | Chiado Compose environment, Kurtosis `settlement_environment`; all three environment examples and operator guide | `scripts/check-settlement-policy-config.py`, Chiado static config, and Kurtosis profile tests |
 
@@ -439,7 +439,7 @@ distinguishes priority-fee spend from execution/blob price headroom and gas
 reservation. Activation requires an updated composer binary and node restart;
 contracts, signing protocol, and historical data need no migration.
 
-The current validation matrix includes bounded network-priority tests on
+The current validation matrix includes bounded fee-history priority tests on
 Ethereum and Gnosis. These cases verify two distinct posts against canonical-parent quotes,
 receipts, physical blob charges, applied roots, and recorded costs. Original
 extension measurements and executable identities remain locally in

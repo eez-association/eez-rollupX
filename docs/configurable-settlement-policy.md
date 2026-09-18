@@ -37,9 +37,9 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
-| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Network estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
+| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Fee-history estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
-| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with network estimator; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
+| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
@@ -211,43 +211,45 @@ For production estimation, remove a copied smoke-test priority override unless
 it is intentional. Configure relay minimums explicitly. Companion user
 transactions retain their original signed bytes and authorized fees.
 
-### Bounded network priority estimation
+### Bounded next-block priority estimation
 
-Dynamic mode follows the receiving node's raw priority estimate within an
-explicit relay floor and an independent priority ceiling:
+Dynamic mode requests the gas-weighted p90 reward for each of the latest 20
+canonical blocks with `eth_feeHistory`, selects the p90 of those 20 samples,
+and clamps it to an optional relay floor and an independent priority ceiling.
+This targets prompt inclusion without a multiplier or mutable feedback state:
 
 ```dotenv
-# Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use the network estimator.
-EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
-EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
+# Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use fee history.
+# EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=0
+EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=3000000000
 ```
 
-Each new attempt uses a fresh network estimate and clamps it to the configured
-minimum and maximum. This still tracks externally driven fee changes and relay
-minimums. Empty or sparse-block estimates use the floor, and spikes stop at the
-independent ceiling. A missing estimate preserves due work for retry. A fixed
-`EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses the estimator and remains exact.
+Each attempt samples immediately before signing and is bound to the same
+canonical head as the quote. Empty blocks contribute zero, so a minimum is not
+needed unless the selected relay imposes one. Isolated spikes do not control
+the result, sustained market changes do, and the independent ceiling bounds
+the signed tip. Missing, malformed or stale history preserves due work for
+retry. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses fee history and remains
+exact.
 
-The raw oracle can retain a previously selected in-range tip while this poster
-dominates a sparse chain. It cannot amplify that value, and the independent
-ceiling makes the maximum spend explicit. For Chiado's 1–2 gwei band, the
-observed 4,373,322-gas transaction would pay about 0.0044–0.0087 xDAI in tip.
-Use the fixed 1-gwei mode when minimizing spend matters more than adapting to
-external priority demand.
+One poster transaction among a 20-block window cannot raise the outer p90, so
+an isolated post cannot feed its own price back into the next quote. On a chain
+where the poster occupies several recent blocks its paid tip can contribute to
+the market sample, but there is still no uplift and therefore no recursive
+growth. The ceiling remains authoritative.
 
-Do not apply a percentage uplift to `eth_maxPriorityFeePerGas`. Reth's oracle
-samples recent paid transaction tips and does not exclude this poster. On a
-sparse chain, a previously uplifted post can therefore become the next estimate;
-another uplift recursively increases the signed tip. Percentage priority uplift
-is no longer configurable. Remove the former margin setting from deployment
-environments when rolling out this policy.
+The tip is also the builder payment for an EIP-4844 poster transaction. Blob gas
+has no separate priority fee: its target-block base fee is burned and is covered
+independently by `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` plus blob headroom.
+The priority estimate therefore improves builder competitiveness for blob
+bundles without using blob base fee as a tip signal.
 
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;
 they do not multiply the base fees actually charged. The gas-limit margin
 provides execution headroom; actual charges still use receipt gas consumption.
-Fee-quote events include the raw estimated priority fee, bounds, and selected
-tip.
+Fee-quote events include the fee-history estimate, bounds, selected tip, and
+the independent execution/blob fee caps.
 
 Use a relay minimum only when the selected relay needs it. The 1-gwei minimum
 in the local Kurtosis PBS profiles funds their builder payout; it is not a

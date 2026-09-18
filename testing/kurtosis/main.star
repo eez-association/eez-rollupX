@@ -48,7 +48,7 @@ def settlement_environment(values):
         if name not in result:
             fail("settlement_env requires " + name)
     if "EEZ_L1_POSTBATCH_PRIORITY_FEE" not in result and "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE" not in result:
-        fail("settlement_env requires EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE when using the network priority estimator")
+        fail("settlement_env requires EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE when using fee-history estimation")
     return result
 
 

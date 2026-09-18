@@ -624,7 +624,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
         .await
         .unwrap();
     world
-        .fail_rpc_methods(&["eth_maxPriorityFeePerGas"])
+        .fail_rpc_methods(&["eth_feeHistory"])
         .unwrap();
     let rpc = world.fault_rpc_url().to_owned();
     world
@@ -638,7 +638,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
     eez_testkit::wait_for(TIMEOUT, || async {
         Ok((world
             .node
-            .log_count_matching(&["network priority estimator"])?
+            .log_count_matching(&["priority fee history"])?
             >= 2)
             .then_some(()))
     })
@@ -1439,7 +1439,7 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
         signals
             .iter()
             .any(|signal| signal.name == "eez.composer.postbatch.fee_quote"
-                && signal.fields["priority_source"] == "network_estimator"),
+                && signal.fields["priority_source"] == "fee_history_p90_of_p90"),
         "no implicit smoke-test tip"
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
