@@ -927,14 +927,6 @@ async fn launch_composer(
                          proofSystems[0]"
                 )
             })?)?;
-        // 10 gwei comfortably exceeds the smoke user_tx's
-        // 2-gwei priority fee, so dev-reth's payload builder
-        // orders postBatch ahead of the user_tx within the
-        // L1 block.
-        let l1_post_batch_priority_fee: u128 = env::var("EEZ_L1_POSTBATCH_PRIORITY_FEE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(10_000_000_000);
         let blob_sidecar_encoding =
             match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
                 .map_err(|_| {
@@ -968,7 +960,6 @@ async fn launch_composer(
             submitter: submitter.clone(),
             l1_poster_signer,
             l1_chain_id: l1_submission_chain_id,
-            l1_post_batch_priority_fee,
             blob_sidecar_encoding,
             ecdsa_proof_system_address,
         });

@@ -222,7 +222,7 @@ impl PostingRuntime {
             network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
             operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "network_estimator" },
             execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,
-            estimated_priority_fee, priority_margin_bps = self.fees.priority_margin_bps,
+            estimated_priority_fee,
             priority_min = self.fees.priority_min, priority_max = self.fees.priority_max,
             priority_fee = quote.max_priority_fee_per_gas, execution_fee_cap = quote.max_fee_per_gas,
             blob_fee_cap = quote.max_fee_per_blob_gas, "selected network posting quote");

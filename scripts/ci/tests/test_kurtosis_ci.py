@@ -98,6 +98,7 @@ class SettlementEnvironmentTest(unittest.TestCase):
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+        "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
     }
 
     def test_transports_complete_mandatory_policy_as_strings(self):
@@ -111,13 +112,20 @@ class SettlementEnvironmentTest(unittest.TestCase):
         values = {"EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
                   "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "60000",
                   "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
-                  "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "2000",
+                  "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "0",
+                  "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000"}
         self.assertEqual(configure(values), values)
+        without_priority_bound = dict(values)
+        without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
+        with self.assertRaises(ValueError):
+            configure(without_priority_bound)
+        without_priority_bound["EEZ_L1_POSTBATCH_PRIORITY_FEE"] = "1000000000"
+        self.assertEqual(configure(without_priority_bound), without_priority_bound)
         for invalid in ({"EEZ_SETTLEMENT_PURE_L2_MOD": "always"},
                         {"EEZ_SETTLEMENT_PURE_L2_MODE": True},
-                        {"EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": 2000},
+                        {"EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": 0},
                         {"EEZ_MAX_BLOCKS_PER_BATCH": "300"}):
             with self.assertRaises(ValueError):
                 configure(invalid)

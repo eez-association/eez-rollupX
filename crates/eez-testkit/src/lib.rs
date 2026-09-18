@@ -1359,6 +1359,10 @@ impl Harness {
                 "500000000000".to_string(),
             ),
             (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
+            ),
+            (
                 "EEZ_REGISTRY_ADDRESS",
                 format!("{:#x}", self.dep.eez_address),
             ),
@@ -4071,6 +4075,10 @@ impl CrossChainConfig {
             (
                 "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
                 "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
             ),
             ("EEZ_REGISTRY_ADDRESS", format!("{:#x}", self.eez_address)),
             ("EEZ_REGISTRY_DEPLOY_BLOCK", "0".to_string()),

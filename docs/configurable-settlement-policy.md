@@ -37,17 +37,18 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
-| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Network estimator | Optional nonnegative integer override within configured bounds. |
+| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Network estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
-| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Execution-price ceiling | Must be at least the minimum and no greater than the execution-price ceiling. |
-| `EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` | 0 | Nonnegative integer basis points added to the network-estimated priority fee, rounded up before applying minimum/maximum bounds. Fixed overrides remain exact. |
+| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with network estimator; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
+| `EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` | 0 | Deprecated guard accepted only as `0`. Any nonzero value fails startup because multiplying a tip oracle that samples prior poster transactions creates recursive fee growth. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
-Margins use checked `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings
-are per-unit prices, not currency budgets or maximum transaction costs. A
+Execution, blob, and gas margins use checked
+`ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
+prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
 
 Requests without L1 posting context are rejected.
@@ -211,35 +212,38 @@ For production estimation, remove a copied smoke-test priority override unless
 it is intentional. Configure relay minimums explicitly. Companion user
 transactions retain their original signed bytes and authorized fees.
 
-### Following network fees with a percentage margin
+### Bounded network priority estimation
 
-With both price ceilings configured, this example pays
-the receiving network's estimated tip plus 20%, subject to the configured bounds:
+Dynamic mode follows the receiving node's raw priority estimate within an
+explicit relay floor and an independent priority ceiling:
 
 ```dotenv
 # Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use the network estimator.
-EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=0
-EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS=2000
+EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
+EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
+EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS=0
 ```
 
-`100` basis points is 1%; `2000` is 20%; `10000` is 100%. The default is `0`
-(no uplift), and margins above 100% are allowed. Values must fit an unsigned
-64-bit integer; empty, negative, fractional, malformed, or larger values fail
-startup.
+Each new attempt uses a fresh network estimate and clamps it to the configured
+minimum and maximum. This still tracks externally driven fee changes and relay
+minimums. Empty or sparse-block estimates use the floor, and spikes stop at the
+independent ceiling. A missing estimate preserves due work for retry. A fixed
+`EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses the estimator and remains exact.
 
-Each new attempt uses a fresh network estimate. For example, an estimated tip
-of 0.01 gwei becomes 0.012 gwei with a 20% margin. The minimum/maximum bounds
-apply **after** the percentage: a 1-gwei minimum would still select 1 gwei in
-this example. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses the estimator and
-its margin, while all supplied settings are still validated. Missing estimates,
-arithmetic overflow, or insufficient fee ceilings preserve due work for retry.
+Do not apply a percentage uplift to `eth_maxPriorityFeePerGas`. Reth's oracle
+samples recent paid transaction tips and does not exclude this poster. On a
+sparse chain, a previously uplifted post can therefore become the next estimate;
+another uplift recursively increases the signed tip. Nonzero
+`EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` now fails startup. Explicit zero remains
+accepted so an existing deployment can first apply the safe configuration and
+then roll out the new binary.
 
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;
-they do not multiply the base fees actually charged. The priority margin raises
-the selected tip and its estimated cost. The gas-limit margin provides execution
-headroom; actual charges still use receipt gas consumption. Fee-quote
-events include the raw estimated priority fee, margin, bounds, and selected tip.
+they do not multiply the base fees actually charged. The gas-limit margin
+provides execution headroom; actual charges still use receipt gas consumption.
+Fee-quote events include the raw estimated priority fee, bounds, and selected
+tip.
 
 Use a relay minimum only when the selected relay needs it. The 1-gwei minimum
 in the local Kurtosis PBS profiles funds their builder payout; it is not a

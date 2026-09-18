@@ -62,6 +62,9 @@ class ChiadoConfigTest(unittest.TestCase):
             "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000",
+            "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE": "1000000000",
+            "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
+            "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "0",
         }.items():
             self.assertEqual(node[key], value, key)
         self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node)
@@ -74,8 +77,7 @@ class ChiadoConfigTest(unittest.TestCase):
         self.assertIn("--log.stdout.format=json", services["eez-node"]["command"])
         for key in ("EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_MAX_BLOCKS_PER_BATCH",
                     "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
-                    "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE",
-                    "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "EEZ_MAX_BLOBS_PER_BATCH"):
+                    "EEZ_MAX_BLOBS_PER_BATCH"):
             self.assertIsNone(node.get(key), key)
         self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse:v8.1.3")
         command = services["lighthouse"]["command"]

@@ -692,7 +692,9 @@ mod tests {
         let cap = eez_l1::posting_fees::PostingFeeConfig::parse(|name| {
             Ok(matches!(
                 name,
-                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS" | "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS"
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS"
+                    | "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS"
+                    | "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE"
             )
             .then(|| "500000000000".into()))
         })

@@ -111,12 +111,6 @@ pub struct CrossChainExecCtx {
     pub l1_poster_signer: alloy_signer_local::PrivateKeySigner,
     /// L1 chain id for EIP-155 signing of the `postAndVerifyBatch` transaction.
     pub l1_chain_id: u64,
-    /// L1 priority fee for the `postAndVerifyBatch` transaction, in wei per gas.
-    /// Must exceed any held user `raw_tx`'s priority fee so that
-    /// dev-reth's payload builder orders `postBatch` first in
-    /// the L1 block. Default: 10 gwei (well above the smoke's
-    /// `cast mktx --gas-price 2 gwei` user_tx).
-    pub l1_post_batch_priority_fee: u128,
     /// Physical sidecar encoding for the mandatory native blob DA carrier.
     pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded

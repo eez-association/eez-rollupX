@@ -149,6 +149,7 @@ mod tests {
             ("EEZ_MAX_SPECULATIVE_DEPTH", "0"),
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "100000000000"),
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS", "100000000000"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000"),
         ]);
         values.extend(extra.iter().copied());
         let mut reads = std::collections::HashSet::new();
@@ -198,7 +199,7 @@ mod tests {
         assert_eq!(config.emission.max_gas, u64::MAX);
         let fees = config.posting_fees;
         assert_eq!(fees.priority_override, None);
-        assert_eq!(fees.priority_margin_bps, 0);
+        assert_eq!(fees.priority_max, 2_000_000_000);
     }
 
     #[test]
@@ -261,10 +262,9 @@ mod tests {
     }
 
     #[test]
-    fn network_priority_margin_is_propagated() {
-        let config = settings(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000")]).unwrap();
-        let fees = config.posting_fees;
-        assert_eq!(fees.priority_override, None);
-        assert_eq!(fees.priority_margin_bps, 2000);
+    fn unsafe_network_priority_margin_is_rejected_before_runtime() {
+        assert!(settings(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000")]).is_err());
+        let config = settings(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "0")]).unwrap();
+        assert_eq!(config.posting_fees.priority_max, 2_000_000_000);
     }
 }
