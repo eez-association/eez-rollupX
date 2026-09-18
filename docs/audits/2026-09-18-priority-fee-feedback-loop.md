@@ -95,6 +95,14 @@ of a private builder auction's clearing price. It supports 3 gwei as an initial
 Ethereum ceiling while preserving an explicit operator bound. Production
 inclusion results must still be monitored per relay and builder path.
 
+The corresponding Chiado sample covered blocks 23,113,330 through 23,114,353
+(raw-response SHA-256
+`fabed69973316d8570e41fc31e7163ae070af4eb312a0e7a4868f42fdd17f74f`).
+Its latest 20-block window contained 19 zero p90 rewards and one 1-gwei reward,
+so the dynamic statistic was zero before applying bounds. This validates the
+Chiado-specific 1-gwei floor as active policy rather than a redundant setting;
+the independent 2-gwei ceiling remains the maximum signed tip.
+
 ## Chiado migration
 
 The existing binary already accepts the safe values, so operators can stop the

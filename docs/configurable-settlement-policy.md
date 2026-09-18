@@ -224,6 +224,21 @@ This targets prompt inclusion without a multiplier or mutable feedback state:
 EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=3000000000
 ```
 
+Chiado uses a network-specific 1–2 gwei band:
+
+```dotenv
+EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
+EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
+```
+
+The minimum is intentional on Chiado. A 2026-09-18 sample of 1,024 canonical
+blocks ended with 19 zero-reward blocks and one 1-gwei block in its latest
+20-block window, so the unbounded market statistic was zero. The 1-gwei floor
+preserves the validated builder incentive in that sparse case, while the
+2-gwei ceiling limits the amount actually paid as priority fee. These are the
+Chiado deployment preset, not parser defaults: the parser minimum remains zero
+and dynamic mode always requires an explicit maximum.
+
 Each attempt samples immediately before signing and is bound to the same
 canonical head as the quote. Empty blocks contribute zero, so a minimum is not
 needed unless the selected relay imposes one. Isolated spikes do not control
