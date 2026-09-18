@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(snapshot.directions[0].states, [0, 0, 1, 0]);
         assert_eq!(snapshot.directions[1].states, [0, 0, 1, 0]);
         let rpc_before = pool.queue_status();
-        pool.record_lifecycle_ready(inbound.hash, source);
+        pool.record_ready(&inbound, source);
         assert_eq!(pool.queue_status()["ready"], rpc_before["ready"]);
         let snapshot = pool.native_queue_snapshot(Instant::now()).unwrap();
         assert_eq!(snapshot.directions[0].states, [1, 0, 0, 0]);

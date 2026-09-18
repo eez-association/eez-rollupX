@@ -3,6 +3,7 @@
 
 mod attestation;
 mod authorized;
+mod derivation;
 mod golden;
 mod pipeline;
 mod runtime;
@@ -98,7 +99,8 @@ fn posting_rules_use_the_trusted_profile_and_exact_target_fork() {
         test_system_transaction_key(),
         Arc::new(reth_chainspec::ChainSpec::from(genesis)),
     )
-    .unwrap();
+    .unwrap()
+    .with_projected_test_oracle();
     assert_eq!(state.posting_blob_limit(&context).unwrap(), 9);
     assert_eq!(
         state
@@ -426,6 +428,9 @@ fn header_chunk(from: u64, to: u64) -> ProveChunk {
         .unwrap_or_default();
     ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            expected_validation_identity: Validator::stub(Vec::new())
+                .validation_identity(expected_rollup_id(1))
+                .to_vec(),
             rollup_id: 1,
             from_block: from,
             to_block: to,
@@ -865,6 +870,7 @@ fn limits_with(
 
 /// One in-process server with shared client setup and drop-triggered shutdown.
 struct TestServer {
+    state: Arc<ServiceState>,
     endpoint: String,
     _shutdown: oneshot::Sender<()>,
 }
@@ -879,6 +885,7 @@ impl TestServer {
     }
 
     async fn with_service(svc: ProveSvc) -> Self {
+        let state = Arc::clone(&svc.state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let (shutdown, shutdown_rx) = oneshot::channel();
@@ -895,6 +902,7 @@ impl TestServer {
                 .expect("test Prove server failed");
         });
         Self {
+            state,
             endpoint: format!("http://{addr}"),
             _shutdown: shutdown,
         }
@@ -904,21 +912,45 @@ impl TestServer {
         ProverClient::connect(self.endpoint.clone()).await.unwrap()
     }
 
-    async fn prove(&self, chunks: Vec<ProveChunk>) -> Status {
-        self.client()
+    // Most tests target gates after configuration agreement. Identity rejection
+    // tests deliberately use the raw client instead of these request helpers.
+    fn bind_identity(&self, chunks: &mut [ProveChunk]) {
+        for chunk in chunks {
+            if let Some(prove_chunk::Kind::Header(header)) = &mut chunk.kind {
+                header.expected_validation_identity = self.state.validation_identity.to_vec();
+            }
+        }
+    }
+
+    async fn prove(&self, mut chunks: Vec<ProveChunk>) -> Status {
+        self.bind_identity(&mut chunks);
+        let before = self.state.attester.signing_calls();
+        let status = self
+            .client()
             .await
             .prove(tokio_stream::iter(chunks))
             .await
-            .expect_err("request must be rejected")
+            .expect_err("request must be rejected");
+        assert_eq!(
+            self.state.attester.signing_calls(),
+            before,
+            "rejected request invoked the attester"
+        );
+        status
     }
 
-    async fn attest(&self, chunks: Vec<ProveChunk>) -> ProveResponse {
-        self.client()
+    async fn attest(&self, mut chunks: Vec<ProveChunk>) -> ProveResponse {
+        self.bind_identity(&mut chunks);
+        let before = self.state.attester.signing_calls();
+        let response = self
+            .client()
             .await
             .prove(tokio_stream::iter(chunks))
             .await
             .expect("valid window must be attested")
-            .into_inner()
+            .into_inner();
+        assert_eq!(self.state.attester.signing_calls(), before + 1);
+        response
     }
 }
 
@@ -984,6 +1016,7 @@ fn inner_with_rollup(validator: Validator, expected_rollup_id: NonZeroU64) -> Ar
             test_system_transaction_key(),
             crate::testkit::l1_chain_spec(),
         )
-        .unwrap(),
+        .unwrap()
+        .with_projected_test_oracle(),
     )
 }

@@ -402,7 +402,7 @@ impl BeaconStub {
         })
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 }
@@ -660,16 +660,17 @@ fn proof_signer_binary() -> Result<PathBuf> {
 
 /// Configuration for one real `eez-proof-signer` process.
 #[derive(Debug)]
-struct ProofSignerConfig<'a> {
-    chain_config: &'a std::path::Path,
-    telemetry_config: Option<&'a std::path::Path>,
-    l1_chain_config: Option<String>,
-    rollup_id: u64,
-    signer_key: &'a str,
+/// Launch configuration for real-signer native and retained-history tests.
+pub struct ProofSignerConfig<'a> {
+    pub chain_config: &'a std::path::Path,
+    pub telemetry_config: Option<&'a std::path::Path>,
+    pub l1_chain_config: Option<String>,
+    pub rollup_id: u64,
+    pub signer_key: &'a str,
     /// Expected verifier key under the signer's validation policy. Negative
     /// tests can deliberately configure a key that differs from L1's registry.
-    vkey: B256,
-    proof_system: Address,
+    pub vkey: B256,
+    pub proof_system: Address,
 }
 
 /// The native Anvil harness and embedded test L1 use this same fork profile.
@@ -693,7 +694,8 @@ pub struct ProofSignerHandle {
 }
 
 impl ProofSignerHandle {
-    async fn spawn(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
+    /// Start the configured signer on a leased loopback port and wait for readiness.
+    pub async fn spawn(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
         let port_lease = PortLease::tcp();
         let listen = format!("127.0.0.1:{}", port_lease.port());
         let attester = signer_address(cfg.signer_key)?;
@@ -775,7 +777,7 @@ impl ProofSignerHandle {
         )
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 
@@ -961,12 +963,64 @@ struct ProxyCounters {
 #[derive(Clone, Debug)]
 struct ProverProxyService {
     upstream: String,
+    fixture_directory: Option<PathBuf>,
     mutation: Arc<Mutex<ProverMutation>>,
     counters: Arc<ProxyCounters>,
 }
 
 #[tonic::async_trait]
 impl Prover for ProverProxyService {
+    async fn retain_ordinary_ranges(
+        &self,
+        request: Request<eez_control_rpc::v1::RetainOrdinaryRangesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::RetainOrdinaryRangesResponse>, Status> {
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .retain_ordinary_ranges(request)
+            .await
+    }
+
+    async fn prepare_ordinary(
+        &self,
+        request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
+    ) -> Result<Response<eez_control_rpc::v1::PrepareResponse>, Status> {
+        let mut context = tonic::metadata::MetadataMap::new();
+        for key in ["traceparent", "tracestate"] {
+            for value in request.metadata().get_all(key).iter().take(2) {
+                if value.as_encoded_bytes().len() <= 512 {
+                    context.append(key, value.clone());
+                }
+            }
+        }
+        let mut input = request.into_inner();
+        let mut chunks = Vec::new();
+        while let Some(chunk) = input.message().await? {
+            if chunks.len() >= 65 {
+                return Err(Status::resource_exhausted("preparation proxy chunk limit"));
+            }
+            chunks.push(chunk);
+        }
+        let mut forwarded = Request::new(tokio_stream::iter(chunks));
+        *forwarded.metadata_mut() = context;
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .prepare_ordinary(forwarded)
+            .await
+    }
+
+    async fn capabilities(
+        &self,
+        request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .capabilities(request)
+            .await
+    }
+
     async fn prove(
         &self,
         request: Request<Streaming<ProveChunk>>,
@@ -996,6 +1050,28 @@ impl Prover for ProverProxyService {
             return Err(status);
         }
 
+        // Explicit fixture export only. Preserve complete augmented witnesses
+        // from the real composer; ordinary debug RPC misses observation-only
+        // reads and removal-closure nodes. Never capture in normal test runs.
+        let fixture = if self.fixture_directory.is_some() {
+            use prost::Message as _;
+            let bytes = chunks.iter().try_fold(0usize, |sum, chunk| {
+                sum.checked_add(chunk.encoded_len())
+                    .ok_or_else(|| Status::resource_exhausted("fixture size overflow"))
+            })?;
+            if bytes > 16 * 1024 * 1024 {
+                return Err(Status::resource_exhausted("fixture capture exceeds 16 MiB"));
+            }
+            let mut encoded = Vec::new();
+            for chunk in &chunks {
+                chunk
+                    .encode_length_delimited(&mut encoded)
+                    .expect("Vec encoding");
+            }
+            Some(encoded)
+        } else {
+            None
+        };
         let mut client = ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(format!("connect upstream signer: {error}")))?
@@ -1005,6 +1081,20 @@ impl Prover for ProverProxyService {
         *forwarded.metadata_mut() = context;
         match client.prove(forwarded).await {
             Ok(response) => {
+                if let (Some(directory), Some(encoded)) = (&self.fixture_directory, fixture) {
+                    let hash = alloy_primitives::keccak256(&encoded);
+                    let path = directory.join(format!("{hash:x}"));
+                    std::fs::write(path.with_extension("protobuf"), &encoded).map_err(|error| {
+                        Status::internal(format!("write proving fixture: {error}"))
+                    })?;
+                    std::fs::write(path.with_extension("json"), serde_json::to_vec_pretty(&serde_json::json!({
+                        "request_hash": hash,
+                        "request_bytes": encoded.len(),
+                        "public_inputs_hash": hex::encode(&response.get_ref().public_inputs_hash),
+                        "signature": hex::encode(&response.get_ref().signature),
+                    })).expect("fixture metadata serialization"))
+                        .map_err(|error| Status::internal(format!("write proving fixture metadata: {error}")))?;
+                }
                 self.counters.successes.fetch_add(1, Ordering::Relaxed);
                 Ok(response)
             }
@@ -1018,11 +1108,16 @@ impl Prover for ProverProxyService {
                 ) {
                     self.counters.rejections.fetch_add(1, Ordering::Relaxed);
                 }
-                Err(Status::new(status.code(), status.message().to_string()))
+                // Cache-miss details and capability-change metadata are part
+                // of the response contract, including through this fixture.
+                Err(status)
             }
         }
     }
 }
+
+#[cfg(test)]
+mod prover_proxy_tests;
 
 /// Optional mutation proxy in front of a real proof signer.
 #[derive(Debug)]
@@ -1034,13 +1129,18 @@ pub struct ProverProxyHandle {
 }
 
 impl ProverProxyHandle {
-    async fn spawn(upstream: String, mutation: ProverMutation) -> Result<Self> {
+    async fn spawn(
+        upstream: String,
+        mutation: ProverMutation,
+        fixture_directory: Option<PathBuf>,
+    ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let counters = Arc::new(ProxyCounters::default());
         let mutation = Arc::new(Mutex::new(mutation));
         let service = ProverProxyService {
             upstream,
+            fixture_directory,
             mutation: Arc::clone(&mutation),
             counters: Arc::clone(&counters),
         };
@@ -1061,7 +1161,7 @@ impl ProverProxyHandle {
         })
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 
@@ -1281,6 +1381,25 @@ impl Harness {
             ("EEZ_L2_BLOCK_TIME_MS", "2000".to_string()),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "86400000".to_string()),
+            (
+                "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+                "1000000".to_string(),
+            ),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".to_string()),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
+            ),
             (
                 "EEZ_REGISTRY_ADDRESS",
                 format!("{:#x}", self.dep.eez_address),
@@ -1825,8 +1944,24 @@ impl NodeHandle {
         // Each role binary loads dotenv files from its working directory. Running from
         // the datadir prevents repository settings from changing the explicit
         // test configuration or redirecting L1 traffic to a developer endpoint.
+        cmd.arg("node");
+        // Explicit fixture-only opt-in for execution-witness capture. The
+        // service still binds loopback, and shipping node defaults are untouched.
+        match env
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == "EEZ_TEST_L2_DEBUG_RPC")
+        {
+            Some((_, value)) if value == "true" => {
+                cmd.args(["--http.api", "eth,net,web3,debug"]);
+            }
+            Some((_, value)) if value == "false" => {}
+            Some(_) => bail!("EEZ_TEST_L2_DEBUG_RPC must be true or false"),
+            None => {}
+        }
+
         cmd.current_dir(datadir)
-            .args(["node", "--chain"])
+            .arg("--chain")
             .arg(&chain_arg)
             .arg("--datadir")
             .arg(datadir)
@@ -1875,7 +2010,7 @@ impl NodeHandle {
             // May be overridden below when a test uses another L2 upstream.
             .env("EEZ_L2_RPC_URL", format!("http://127.0.0.1:{http_port}"));
         for (k, v) in env {
-            if *k == TEST_L2_GENESIS_ENV {
+            if *k == TEST_L2_GENESIS_ENV || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS" {
                 continue; // test-only marker (consumed as --chain above)
             }
             cmd.env(*k, v);
@@ -3241,13 +3376,7 @@ async fn wait_for_successful_receipt(
     Ok(receipt)
 }
 
-async fn deploy_raw(
-    rpc_url: &str,
-    key: &str,
-    chain_id: u64,
-    artifact_path: &std::path::Path,
-    constructor_args: Vec<u8>,
-) -> Result<Address> {
+fn deployment_input(artifact_path: &std::path::Path, constructor_args: Vec<u8>) -> Result<Vec<u8>> {
     let artifact: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(artifact_path)
             .with_context(|| format!("read {}", artifact_path.display()))?,
@@ -3259,7 +3388,17 @@ async fn deploy_raw(
         .unwrap_or_default();
     let mut data = hex::decode(bytecode_hex).context("decode bytecode")?;
     data.extend_from_slice(&constructor_args);
+    Ok(data)
+}
 
+async fn deploy_raw(
+    rpc_url: &str,
+    key: &str,
+    chain_id: u64,
+    artifact_path: &std::path::Path,
+    constructor_args: Vec<u8>,
+) -> Result<Address> {
+    let data = deployment_input(artifact_path, constructor_args)?;
     let nonce = onchain_nonce(rpc_url, key).await?;
     let hash = sign_and_send(
         rpc_url,
@@ -3331,72 +3470,95 @@ pub async fn deploy_protocol_dev(
     let signer_addr = signer.address();
     let attester = signer_address(attester_key)?;
     let out = repo_root().join("contracts/out");
-
-    let eez_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("EEZ.sol/EEZ.json"),
-        signer_addr.abi_encode(),
-    )
-    .await?;
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
-    let deploy_block = provider.get_block_number().await?;
-
-    let proof_system_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("ECDSAProofSystem.sol/ECDSAProofSystem.json"),
-        attester.abi_encode(),
-    )
-    .await?;
+    let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
+    let register_nonce = nonce.checked_add(3).context("fixture nonce overflow")?;
+    let eez_address = signer_addr.create(nonce);
+    let proof_system_address = signer_addr.create(nonce + 1);
+    let rollup_manager_address = signer_addr.create(nonce + 2);
 
     let vkeys: Vec<B256> = vec![B256::from_slice(&{
         let mut padded = [0u8; 32];
         padded[12..].copy_from_slice(attester.as_slice());
         padded
     })];
-    let rollup_manager_address = deploy_raw(
-        l1_rpc,
-        deployer_key,
-        DEV_CHAIN_ID,
-        &out.join("Rollup.sol/Rollup.json"),
+    // CREATE addresses are known before mining. Queue dependent transactions
+    // from one signer in nonce order, then verify every receipt. Waiting after
+    // each send would spend four L1 slots on identical setup in every test.
+    let deployments = [
+        ("EEZ.sol/EEZ.json", signer_addr.abi_encode(), eez_address),
         (
-            eez_address,
-            signer_addr,
-            U256::from(1u64),
-            vec![proof_system_address],
-            vkeys,
+            "ECDSAProofSystem.sol/ECDSAProofSystem.json",
+            attester.abi_encode(),
+            proof_system_address,
+        ),
+        (
+            "Rollup.sol/Rollup.json",
+            (
+                eez_address,
+                signer_addr,
+                U256::from(1u64),
+                vec![proof_system_address],
+                vkeys,
+            )
+                .abi_encode_params(),
+            rollup_manager_address,
+        ),
+    ];
+    let mut pending = Vec::new();
+    for (offset, (artifact, args, address)) in deployments.into_iter().enumerate() {
+        let hash = sign_and_send(
+            l1_rpc,
+            deployer_key,
+            DEV_CHAIN_ID,
+            nonce + u64::try_from(offset)?,
+            None,
+            U256::ZERO,
+            deployment_input(&out.join(artifact), args)?,
+            6_000_000,
         )
-            .abi_encode_params(),
-    )
-    .await?;
+        .await?;
+        pending.push((hash, address, artifact));
+    }
 
     let calldata = IEEZ::registerRollupCall {
         rollupContract: rollup_manager_address,
         initialRoot: initial_state,
     }
     .abi_encode();
-    let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
     let hash = sign_and_send(
         l1_rpc,
         deployer_key,
         DEV_CHAIN_ID,
-        nonce,
+        register_nonce,
         Some(eez_address),
         U256::ZERO,
         calldata,
         1_000_000,
     )
     .await?;
+    let mut deploy_block = None;
+    for (deployment, expected, artifact) in pending {
+        let receipt = wait_for_successful_receipt(l1_rpc, deployment, artifact).await?;
+        ensure!(
+            receipt.contract_address == Some(expected),
+            "unexpected CREATE address for {artifact}"
+        );
+        if deploy_block.is_none() {
+            deploy_block = Some(
+                receipt
+                    .block_number
+                    .context("protocol deployment receipt has no block number")?,
+            );
+        }
+    }
     wait_for_successful_receipt(l1_rpc, hash, "registerRollup").await?;
     let registry = IEEZ::new(eez_address, &provider);
     let rollup_id: u64 = registry.rollupCounter().call().await?.try_into()?;
 
     Ok(Deployment {
         eez_address,
-        deploy_block,
+        deploy_block: deploy_block.context("protocol deployment receipt has no block number")?,
         proof_system_address,
         rollup_manager_address,
         rollup_id,
@@ -3693,34 +3855,62 @@ pub async fn create_cross_chain_proxy(
     target: Address,
     rollup_id: u64,
 ) -> Result<Address> {
-    let calldata = IEEZProxy::createCrossChainProxyCall {
-        originalAddress: target,
-        originalRollupId: rollup_id,
-    }
-    .abi_encode();
+    create_cross_chain_proxies(l1_rpc, key, eez, &[target], rollup_id)
+        .await?
+        .pop()
+        .context("missing created proxy")
+}
+
+/// Submit independent fixture proxies in nonce order before waiting for mining.
+async fn create_cross_chain_proxies(
+    l1_rpc: &str,
+    key: &str,
+    eez: Address,
+    targets: &[Address],
+    rollup_id: u64,
+) -> Result<Vec<Address>> {
     let nonce = onchain_nonce(l1_rpc, key).await?;
-    let hash = sign_and_send(
-        l1_rpc,
-        key,
-        DEV_CHAIN_ID,
-        nonce,
-        Some(eez),
-        U256::ZERO,
-        calldata,
-        2_000_000,
-    )
-    .await?;
-    let receipt = wait_for_successful_receipt(l1_rpc, hash, "createCrossChainProxy").await?;
-    receipt
-        .inner
-        .logs()
-        .iter()
-        .find_map(|log| {
-            IEEZProxy::CrossChainProxyCreated::decode_log(&log.inner)
-                .ok()
-                .map(|e| e.proxy)
-        })
-        .ok_or_else(|| anyhow!("CrossChainProxyCreated event not found in receipt"))
+    let mut pending = Vec::new();
+    for (offset, &target) in targets.iter().enumerate() {
+        let calldata = IEEZProxy::createCrossChainProxyCall {
+            originalAddress: target,
+            originalRollupId: rollup_id,
+        }
+        .abi_encode();
+        pending.push(
+            sign_and_send(
+                l1_rpc,
+                key,
+                DEV_CHAIN_ID,
+                nonce
+                    .checked_add(u64::try_from(offset)?)
+                    .context("fixture nonce overflow")?,
+                Some(eez),
+                U256::ZERO,
+                calldata,
+                2_000_000,
+            )
+            .await?,
+        );
+    }
+    let mut proxies = Vec::new();
+    for hash in pending {
+        let receipt = wait_for_successful_receipt(l1_rpc, hash, "createCrossChainProxy").await?;
+        proxies.push(
+            receipt
+                .inner
+                .logs()
+                .iter()
+                .filter(|log| log.address() == eez)
+                .find_map(|log| {
+                    IEEZProxy::CrossChainProxyCreated::decode_log(&log.inner)
+                        .ok()
+                        .map(|e| e.proxy)
+                })
+                .ok_or_else(|| anyhow!("CrossChainProxyCreated event not found in receipt"))?,
+        );
+    }
+    Ok(proxies)
 }
 
 pub async fn l2_value(l2_rpc: &str, value_addr: Address) -> Result<U256> {
@@ -3915,6 +4105,25 @@ impl CrossChainConfig {
             ),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "86400000".to_string()),
+            (
+                "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+                "1000000".to_string(),
+            ),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".to_string()),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
+            ),
             ("EEZ_REGISTRY_ADDRESS", format!("{:#x}", self.eez_address)),
             ("EEZ_REGISTRY_DEPLOY_BLOCK", "0".to_string()),
             (
@@ -3996,7 +4205,7 @@ pub struct CrossChainWorld {
     pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
     beacon: BeaconStub,
-    _witness_dir: tempfile::TempDir,
+    witness_dir: tempfile::TempDir,
     datadir: FailureDatadir,
     env: Vec<(&'static str, String)>,
 }
@@ -4111,7 +4320,6 @@ impl CrossChainWorld {
             "EEZ_ROLLUP_MANAGER_ADDRESS",
             "EEZ_ROLLUP_ID",
             "EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES",
-            "EEZ_SETTLEMENT_POLICY_ENABLED",
             "EEZ_SETTLEMENT_PURE_L2_MODE",
             "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
             "EEZ_MAX_SPECULATIVE_DEPTH",
@@ -4119,6 +4327,7 @@ impl CrossChainWorld {
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
             "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
             "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE",
+            "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
         ] {
             let value = self
                 .env
@@ -4129,6 +4338,12 @@ impl CrossChainWorld {
             values.insert(key.to_owned(), serde_json::json!(value));
         }
         serde_json::Value::Object(values)
+    }
+
+    /// Durable witnesses for this fixture. Readers must use the same database
+    /// path as the writer so MDBX's process locks remain shared.
+    pub fn witness_db_path(&self) -> &std::path::Path {
+        self.witness_dir.path()
     }
 
     /// Crash the composer and reopen the same chain databases with an empty pool.
@@ -5550,12 +5765,58 @@ async fn setup_cross_chain_inner(
     reader_faults: bool,
     controlled_consensus: bool,
 ) -> Result<CrossChainWorld> {
+    let setup_started = std::time::Instant::now();
     let mut cfg = CrossChainConfig::new(profile)?;
+    // A past L2 genesis exercises the real capped catch-up path without
+    // waiting one wall-clock second for each historical L2 block. L1 keeps
+    // its current genesis/slot clock, and the registered root is recomputed.
+    if let Some((_, age)) = process_env
+        .node
+        .iter()
+        .rev()
+        .find(|(name, _)| *name == "EEZ_TEST_L2_GENESIS_AGE_SECONDS")
+    {
+        let age = age
+            .parse::<u64>()
+            .context("EEZ_TEST_L2_GENESIS_AGE_SECONDS must be an unsigned integer")?;
+        ensure!(
+            age <= 131_072,
+            "native history fixture age exceeds two seconds per maximum window block"
+        );
+        let mut genesis: alloy_genesis::Genesis =
+            serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
+        genesis.timestamp = genesis
+            .timestamp
+            .checked_sub(age)
+            .context("native history genesis timestamp underflow")?;
+        std::fs::write(&cfg.l2_genesis.0, serde_json::to_vec(&genesis)?)?;
+        cfg.initial_state = genesis_block_hash(&cfg.l2_genesis.0)?;
+    }
     if fixed_fee_fixture {
         let mut genesis: alloy_genesis::Genesis =
             serde_json::from_slice(&std::fs::read(&cfg.l1_genesis.0)?)?;
         genesis.base_fee_per_gas = Some(0);
         std::fs::write(&cfg.l1_genesis.0, serde_json::to_vec(&genesis)?)?;
+    }
+    let fixture_directory = std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").map(PathBuf::from);
+    if let Some(directory) = &fixture_directory {
+        std::fs::create_dir_all(directory)?;
+        let l2: serde_json::Value = serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
+        std::fs::write(
+            directory.join("chain-config.json"),
+            serde_json::to_vec_pretty(&l2["config"])?,
+        )?;
+        std::fs::copy(&cfg.l1_genesis.0, directory.join("l1-genesis.json"))?;
+        std::fs::write(
+            directory.join("identity.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "rollup_id": cfg.rollup_id,
+                "proof_system": cfg.proof_system_address,
+                "vkey": signer_address(cfg.attester_key)?.into_word(),
+                "l2_system_address": signer_address(L2_SYSTEM_KEY)?,
+                "gnosis_l1": profile == NativeL1Profile::GnosisPrague,
+            }))?,
+        )?;
     }
     let signer_attester = signer_address(cfg.attester_key)?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
@@ -5568,10 +5829,16 @@ async fn setup_cross_chain_inner(
         proof_system: cfg.proof_system_address,
     })
     .await?;
+    let mutation = mutation.or_else(|| fixture_directory.as_ref().map(|_| ProverMutation::None));
     let prover_proxy = match mutation {
-        Some(mutation) => {
-            Some(ProverProxyHandle::spawn(proof_signer.endpoint().to_owned(), mutation).await?)
-        }
+        Some(mutation) => Some(
+            ProverProxyHandle::spawn(
+                proof_signer.endpoint().to_owned(),
+                mutation,
+                fixture_directory,
+            )
+            .await?,
+        ),
         None => None,
     };
     let prover_url = prover_proxy
@@ -5653,56 +5920,70 @@ async fn setup_cross_chain_inner(
         .get_chain_id()
         .await?;
 
-    let value_l2 = deploy_value(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
+    // Nonces are chain-local. Overlap independent L1/L2 setup, but keep each
+    // account's transactions ordered on its own chain.
+    let ((value_l2, inbound_no_ret), (outbound_value, outbound_no_ret)) = tokio::try_join!(
+        async {
+            let value =
+                deploy_value(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
+            let no_ret =
+                deploy_value_no_ret(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64))
+                    .await?;
+            Ok::<_, anyhow::Error>((value, no_ret))
+        },
+        async {
+            let value =
+                deploy_value(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
+            let no_ret =
+                deploy_value_no_ret(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64))
+                    .await?;
+            Ok::<_, anyhow::Error>((value, no_ret))
+        },
+    )?;
     let expected_value = signer_address(TARGET_DEPLOYER)?.create(0);
     if value_l2 != expected_value {
         bail!("Value address not deterministic");
     }
-    let inbound_no_ret =
-        deploy_value_no_ret(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, U256::from(5u64)).await?;
-    let outbound_value =
-        deploy_value(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
-    let outbound_no_ret =
-        deploy_value_no_ret(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, U256::from(5u64)).await?;
-
-    let setter_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        value_l2,
-        cfg.rollup_id,
-    )
-    .await?;
-    let deposit_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        recipient,
-        cfg.rollup_id,
-    )
-    .await?;
-    let inbound_no_ret_proxy = create_cross_chain_proxy(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.eez_address,
-        inbound_no_ret,
-        cfg.rollup_id,
-    )
-    .await?;
-    let inbound_wrapper =
-        deploy_setter_wrapper(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, setter_proxy).await?;
-
-    let outbound_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_value, 0).await?;
-    let outbound_no_ret_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_no_ret, 0).await?;
-    let withdrawal_proxy =
-        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, withdrawal_recipient, 0).await?;
-    let outbound_wrapper =
-        deploy_setter_wrapper(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, outbound_proxy).await?;
+    let (
+        (setter_proxy, deposit_proxy, inbound_no_ret_proxy, inbound_wrapper),
+        (outbound_proxy, outbound_no_ret_proxy, withdrawal_proxy, outbound_wrapper),
+    ) = tokio::try_join!(
+        async {
+            let proxies: [Address; 3] = create_cross_chain_proxies(
+                &l1_rpc,
+                cfg.deployer_key,
+                cfg.eez_address,
+                &[value_l2, recipient, inbound_no_ret],
+                cfg.rollup_id,
+            )
+            .await?
+            .try_into()
+            .map_err(|_| anyhow!("expected three fixture proxies"))?;
+            let [setter, deposit, no_ret] = proxies;
+            let wrapper =
+                deploy_setter_wrapper(&l1_rpc, TARGET_DEPLOYER, DEV_CHAIN_ID, setter).await?;
+            Ok::<_, anyhow::Error>((setter, deposit, no_ret, wrapper))
+        },
+        async {
+            let outbound =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_value, 0).await?;
+            let no_ret =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, outbound_no_ret, 0).await?;
+            let withdrawal =
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, withdrawal_recipient, 0)
+                    .await?;
+            let wrapper =
+                deploy_setter_wrapper(&l2_rpc, TARGET_DEPLOYER, l2_chain_id, outbound).await?;
+            Ok::<_, anyhow::Error>((outbound, no_ret, withdrawal, wrapper))
+        },
+    )?;
 
     wait_for_outbound_fixture_parent(&node, &l2_rpc, outbound_wrapper, outbound_proxy).await?;
 
+    eprintln!(
+        "Native {profile:?} fixture ready in {:.3}s",
+        setup_started.elapsed().as_secs_f64()
+    );
     datadir.fixture_ready();
     Ok(CrossChainWorld {
         node,
@@ -5728,7 +6009,7 @@ async fn setup_cross_chain_inner(
         l1_reorg_control,
         builder_stub,
         beacon,
-        _witness_dir: witness_dir,
+        witness_dir,
         datadir,
         env,
     })

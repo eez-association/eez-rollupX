@@ -206,3 +206,30 @@ that operation on a representative restored database before production rollout.
 Versions through schema 20 refuse schema 21; reverting only the executable is not
 a rollback. Keep a compatible binary or restore a backup into a separate database.
 The normal statement deadlines and memory limits are unchanged.
+
+
+Schema 22 expands applied-range storage to 65,536 blocks and ordinals 0–65,535
+for the new-network derivable operations format. It changes only those two check
+constraints; existing receipt charges, range evidence, columns and grants remain
+intact. The migration does not transform an existing chain into the PR26 network
+or make historical operation formats replayable. Follow that network's fresh
+genesis and mandatory settlement-policy requirements independently.
+
+For an observer database upgrade, stop the observer and preserve a database and
+configuration backup. Provision the matching node with
+`eez_getSettledL2RangePage` before starting the new observer, apply its explicit
+administrative `migrate`, then restart indexing with the writer identity. There
+is no fallback to the old full-range method. An old node produces a visible
+correlation collection error rather than fabricated or truncated coverage.
+Versions through schema 21 refuse schema 22; executable-only rollback is not
+supported. Restore the backup into a separate instance or use a compatible
+binary. The forward upgrade fixture accepts a retained schema-21 executable via
+`smoke-database.py --previous-v21-binary` and verifies unchanged historical costs
+and outcome anchors plus explicit downgrade refusal.
+
+The 65,536-member SQL boundary and paged parser regressions establish correctness
+bounds, not native workload capacity. Existing statement deadlines, 512 MiB
+PostgreSQL/128 MiB shared-buffer guards and observer resource limits are unchanged.
+Measure representative maximum-range ingestion and recovery before claiming
+production capacity or memory headroom; earlier release measurements used the
+previous runtime and do not establish that new maximum.

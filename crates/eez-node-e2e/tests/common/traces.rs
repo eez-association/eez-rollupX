@@ -260,6 +260,32 @@ fn linked_members(
     })
 }
 
+// Preparation may be background prewarming, and capability/lease calls may
+// occur outside a user batch. Bind every observed server call to its finite
+// client RPC span without inventing lifecycle admission links for those calls.
+fn control_rpc_ancestry(captured: &[CapturedSpan]) -> Result<bool> {
+    for server in captured {
+        let client = match server.span.name.as_str() {
+            "capabilities" => "prover_capabilities",
+            "prepare_ordinary" => "prover_prepare_ordinary",
+            "retain_ordinary_ranges" => "prover_retain_ordinary",
+            _ => continue,
+        };
+        anyhow::ensure!(server.resource["service.name"] == "eez-proof-signer");
+        anyhow::ensure!(
+            server.span.parent_span_id.len() == 8,
+            "{} lost its remote client context",
+            server.span.name
+        );
+        if ancestor(captured, server, &[client])?.is_none() {
+            // Client and server exporters are independent: await a parent that
+            // has not arrived rather than accepting an incomplete graph.
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 fn connected_sources(
     captured: &[CapturedSpan],
     events: &[eez_telemetry::schema::Payload],
@@ -291,6 +317,10 @@ fn connected_sources(
             entry.span.events.is_empty(),
             "arbitrary diagnostic events exported"
         );
+    }
+
+    if !control_rpc_ancestry(captured)? {
+        return Ok(None);
     }
 
     // A transport outage can exhaust the exact-target cutoff. The selected
@@ -500,7 +530,10 @@ mod tests {
             resource: [
                 (
                     "service.name",
-                    if name == "prove" {
+                    if matches!(
+                        name,
+                        "prove" | "capabilities" | "prepare_ordinary" | "retain_ordinary_ranges"
+                    ) {
                         "eez-proof-signer"
                     } else {
                         "eez-composer"
@@ -605,6 +638,52 @@ mod tests {
             }
         }
         (spans, events, hashes)
+    }
+
+    #[test]
+    fn control_rpc_ancestry_is_exact_without_requiring_user_batch_members() {
+        assert!(control_rpc_ancestry(&[]).unwrap());
+        for (server, client) in [
+            ("capabilities", "prover_capabilities"),
+            ("prepare_ordinary", "prover_prepare_ordinary"),
+            ("retain_ordinary_ranges", "prover_retain_ordinary"),
+        ] {
+            let client_span = span(client, 30, 1, 0);
+            let server_span = span(server, 30, 2, 1);
+            assert!(control_rpc_ancestry(&[server_span.clone(), client_span.clone()]).unwrap());
+            assert!(!control_rpc_ancestry(std::slice::from_ref(&server_span)).unwrap());
+            let mut lost_context = server_span.clone();
+            lost_context.span.parent_span_id.clear();
+            assert!(control_rpc_ancestry(&[lost_context, client_span.clone()]).is_err());
+            let mut wrong_trace = client_span.clone();
+            wrong_trace.span.trace_id = vec![31; 16];
+            assert!(!control_rpc_ancestry(&[server_span.clone(), wrong_trace]).unwrap());
+            let mut wrong_parent = client_span.clone();
+            wrong_parent.span.name = "composer_preparation".into();
+            assert!(control_rpc_ancestry(&[server_span.clone(), wrong_parent]).is_err());
+            let mut wrong_service = client_span;
+            wrong_service
+                .resource
+                .insert("service.name".into(), "eez-proof-signer".into());
+            assert!(control_rpc_ancestry(&[server_span, wrong_service]).is_err());
+        }
+    }
+
+    #[test]
+    fn incomplete_control_rpc_graph_cannot_hide_behind_a_complete_user_proof() {
+        let (mut spans, events, hashes) = fixture(true);
+        spans.push(span("prepare_ordinary", 30, 2, 1));
+        assert!(
+            connected_sources(&spans, &events, &hashes)
+                .unwrap()
+                .is_none()
+        );
+        spans.push(span("prover_prepare_ordinary", 30, 1, 0));
+        assert!(
+            connected_sources(&spans, &events, &hashes)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]

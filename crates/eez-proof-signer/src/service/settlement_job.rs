@@ -119,8 +119,10 @@ pub(super) fn validate_and_settle(
         if Instant::now() >= deadline {
             return Err(PipelineError::DeadlineBeforeSettlement);
         }
-        let (attestable_public_inputs_hash, observation_claims) = run_settlement_with_observations(
+        let (recomputed_public_inputs_hash, observation_claims) = run_settlement_with_observations(
             SettlementInput {
+                #[cfg(test)]
+                projected_test_oracle: state.projected_test_oracle,
                 submitted_post_batch_calldata,
                 submitted_blobs: &submitted_blobs,
                 validated_window: &validated_window,
@@ -142,8 +144,12 @@ pub(super) fn validate_and_settle(
             .verify_observations(&validated_window, &observation_claims)
             .map_err(SettlementPipelineError::from)?;
 
+        ensure_settlement_active(cancellation)?;
+        if Instant::now() >= deadline {
+            return Err(PipelineError::DeadlineBeforeSettlement);
+        }
         Ok(AttestationMaterial {
-            attestable_public_inputs: attestable_public_inputs_hash,
+            attestable_public_inputs: AttestablePublicInputsHash(recomputed_public_inputs_hash),
             validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
             validated_window_post_block_hash: validated_window.window_post_block_hash(),
         })
@@ -159,6 +165,8 @@ pub(super) fn validate_and_settle(
 /// The job consumes the submitted calldata at its decode boundary. Other large
 /// values remain borrowed from the validated window owned by the worker.
 pub(super) struct SettlementInput<'a> {
+    #[cfg(test)]
+    pub(super) projected_test_oracle: bool,
     pub(super) submitted_post_batch_calldata: Vec<u8>,
     pub(super) submitted_blobs: &'a [Vec<u8>],
     pub(super) validated_window: &'a validate::ValidatedWindow,
@@ -294,8 +302,12 @@ impl SettlementPipelineError {
                 "settlement validation rejected",
             ),
             Self::DaPayload(error) => match error {
-                settlement::DaPayloadError::Decode { .. }
-                | settlement::DaPayloadError::TrailingBytes { .. } => (
+                #[cfg(test)]
+                settlement::DaPayloadError::TrailingBytes { .. } => (
+                    tonic::Code::InvalidArgument,
+                    "invalid blob operations payload",
+                ),
+                settlement::DaPayloadError::Decode { .. } => (
                     tonic::Code::InvalidArgument,
                     "invalid blob operations payload",
                 ),
@@ -306,6 +318,8 @@ impl SettlementPipelineError {
                     "validation backend returned invalid output",
                 ),
                 settlement::DaPayloadError::BlockCount { .. }
+                | settlement::DaPayloadError::MissingReconstruction { .. }
+                | settlement::DaPayloadError::EnvironmentMismatch { .. }
                 | settlement::DaPayloadError::BlockRlpMismatch { .. }
                 | settlement::DaPayloadError::UnexpectedItems { .. }
                 | settlement::DaPayloadError::ProjectedTransactionCount { .. }
@@ -347,12 +361,14 @@ fn run_settlement_with_observations(
     maximum_blobs: usize,
 ) -> Result<
     (
-        AttestablePublicInputsHash,
+        settlement::RecomputedPublicInputsHash,
         Vec<eez_protocol::settlement::FifoObservationClaim>,
     ),
     SettlementPipelineError,
 > {
     let SettlementInput {
+        #[cfg(test)]
+        projected_test_oracle,
         submitted_post_batch_calldata,
         submitted_blobs,
         validated_window,
@@ -437,6 +453,8 @@ fn run_settlement_with_observations(
         &authorized_outbound_effects,
         &authorized_inbound_effects,
         system_transaction_reconstructor,
+        #[cfg(test)]
+        projected_test_oracle,
     )?;
     let observation_claims = settlement::verify_native_semantics_with_observations(
         verified_da.semantic_transactions(),
@@ -449,10 +467,7 @@ fn run_settlement_with_observations(
 
     let recomputed_public_inputs_hash = checked_public_input_profile
         .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;
-    Ok((
-        AttestablePublicInputsHash(recomputed_public_inputs_hash),
-        observation_claims,
-    ))
+    Ok((recomputed_public_inputs_hash, observation_claims))
 }
 
 /// Test-only entry point for settlement fixtures that contain no replay-only
@@ -461,7 +476,7 @@ fn run_settlement_with_observations(
 #[cfg(test)]
 pub(super) fn run_settlement(
     input: SettlementInput<'_>,
-) -> Result<AttestablePublicInputsHash, SettlementPipelineError> {
+) -> Result<settlement::RecomputedPublicInputsHash, SettlementPipelineError> {
     let (hash, observations) =
         run_settlement_with_observations(input, eez_blob_codec::MAX_BLOBS_PER_TRANSACTION)?;
     assert!(

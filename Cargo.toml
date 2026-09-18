@@ -148,6 +148,7 @@ k256                   = { version = "0.13", features = ["ecdsa", "arithmetic"] 
 url                    = "2"
 
 # bundler (eth_sendBundle) submission path
+rustix                 = { version = "1.1.4", features = ["fs"] }
 reqwest                = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde_json             = "1"
 

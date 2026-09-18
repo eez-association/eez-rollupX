@@ -14,6 +14,7 @@ use crate::cancel::CancellationToken;
 use crate::window::{AdmittedBlock, AdmittedBlocks};
 
 mod stateless;
+use stateless::reconstruction::ReconstructedBlock;
 
 type EthereumBlock = reth_ethereum_primitives::Block;
 
@@ -30,6 +31,8 @@ pub(crate) struct TransactionStateCheckpoint {
 /// Successful backend output for one block before the shared consuming check.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BackendBlockOutput {
+    /// Whole-block assembly equality established using successful replay output.
+    pub(crate) reconstruction: Option<ReconstructedBlock>,
     /// Block number exact-decoded by the backend from consensus RLP.
     pub(crate) decoded_number: u64,
     /// Parent hash exact-decoded by the backend from consensus RLP.
@@ -154,7 +157,7 @@ impl OutboundEventObservation {
 /// Facts derived locally from the same block and receipts accepted by replay.
 /// Production construction is restricted to validation backends; settlement
 /// receives only immutable views.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettlementBlockEvidence {
     /// Whether each transaction's fork-aware recovered signer is the reserved
     /// system address, in exact block order.
@@ -197,8 +200,9 @@ impl SettlementBlockEvidence {
 ///
 /// Settlement receives the exact RLP and the execution facts required by its
 /// framing and effect gates. This type omits the witness consumed by validation.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ValidatedBlock {
+    reconstruction: Option<ReconstructedBlock>,
     /// Number exact-decoded from RLP and matched to the Composer declaration.
     number: u64,
     /// Exact Composer-supplied bytes accepted by Stateless replay.
@@ -208,6 +212,9 @@ pub(crate) struct ValidatedBlock {
 }
 
 impl ValidatedBlock {
+    pub(crate) fn reconstruction(&self) -> Option<&ReconstructedBlock> {
+        self.reconstruction.as_ref()
+    }
     /// Number exact-decoded from the validated block RLP.
     pub(crate) fn number(&self) -> u64 {
         self.number
@@ -231,6 +238,7 @@ impl ValidatedBlock {
         settlement_evidence: SettlementBlockEvidence,
     ) -> Self {
         Self {
+            reconstruction: None,
             number,
             rlp,
             settlement_evidence,
@@ -322,6 +330,54 @@ pub(crate) struct ValidatedWindow {
 }
 
 impl ValidatedWindow {
+    fn prepend_prepared(
+        facts: Vec<PreparedOrdinaryBlock>,
+        mut terminal: Self,
+    ) -> eyre::Result<Self> {
+        eyre::ensure!(
+            terminal.preceding_blocks.is_empty(),
+            "fresh terminal validation unexpectedly returned preceding blocks"
+        );
+        if facts.is_empty() {
+            return Ok(terminal);
+        }
+        let blocks = facts
+            .iter()
+            .map(|fact| fact.validated_block().clone())
+            .collect::<Vec<_>>();
+        // Cache construction already ran this gate; final proving deliberately
+        // reruns it over the actual intermediate set.
+        crate::settlement::verify_validated_intermediate_blocks(&blocks)?;
+        for pair in facts.windows(2) {
+            eyre::ensure!(
+                pair[0].number().checked_add(1) == Some(pair[1].number())
+                    && pair[1].parent_hash() == pair[0].block_hash(),
+                "prepared ordinary block continuity mismatch"
+            );
+            eyre::ensure!(
+                pair[1].pre_state_root() == pair[0].post_state_root(),
+                "prepared ordinary state roots do not telescope"
+            );
+        }
+        let first = facts.first().expect("nonempty checked above");
+        let last = facts.last().expect("nonempty checked above");
+        eyre::ensure!(
+            last.number().checked_add(1) == Some(terminal.settling_block.block.number),
+            "prepared ordinary range does not end before terminal"
+        );
+        eyre::ensure!(
+            terminal.settling_pre_block_hash == last.block_hash(),
+            "prepared ordinary range hash does not link to terminal"
+        );
+        eyre::ensure!(
+            terminal.settling_block.replay_input.pre_state_root == last.post_state_root(),
+            "prepared ordinary range state root does not link to terminal"
+        );
+        terminal.window_pre_block_hash = first.parent_hash();
+        terminal.preceding_blocks = blocks;
+        Ok(terminal)
+    }
+
     /// Validated parent block hash before the first streamed block.
     pub(crate) fn window_pre_block_hash(&self) -> B256 {
         self.window_pre_block_hash
@@ -370,6 +426,7 @@ impl ValidatedWindow {
 struct CheckedBlock {
     admitted: AdmittedBlock,
     output: BackendBlockOutput,
+    pre_state_root: B256,
 }
 
 /// Backend output whose shape and Composer-facing claims have been consumed
@@ -378,6 +435,93 @@ struct CheckedBackendWindowOutput {
     preceding_blocks: Vec<CheckedBlock>,
     settling_block: CheckedBlock,
     settling_pre_state_root: B256,
+}
+
+/// Immutable execution fact published only after complete ordinary-block
+/// validation and the intermediate settlement gate. It is not canonical-chain
+/// authority and cannot cross the attester boundary by itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreparedOrdinaryBlock {
+    validation_identity: B256,
+    block_hash: B256,
+    parent_hash: B256,
+    pre_state_root: B256,
+    post_state_root: B256,
+    block: ValidatedBlock,
+}
+
+impl PreparedOrdinaryBlock {
+    pub(crate) const fn validation_identity(&self) -> B256 {
+        self.validation_identity
+    }
+    pub(crate) const fn block_hash(&self) -> B256 {
+        self.block_hash
+    }
+    pub(crate) const fn parent_hash(&self) -> B256 {
+        self.parent_hash
+    }
+    pub(crate) const fn number(&self) -> u64 {
+        self.block.number
+    }
+    pub(crate) const fn pre_state_root(&self) -> B256 {
+        self.pre_state_root
+    }
+    pub(crate) const fn post_state_root(&self) -> B256 {
+        self.post_state_root
+    }
+    pub(crate) fn retained_bytes(&self) -> usize {
+        const MAP_ENTRY_ALLOWANCE: usize = 128;
+        self.block
+            .rlp
+            .capacity()
+            .saturating_add(
+                self.block
+                    .settlement_evidence
+                    .system_sender_flags
+                    .capacity(),
+            )
+            .saturating_add(
+                self.block
+                    .settlement_evidence
+                    .observed_outbound_events
+                    .capacity()
+                    * std::mem::size_of::<OutboundEventObservation>(),
+            )
+            .saturating_add(std::mem::size_of::<Self>())
+            .saturating_add(MAP_ENTRY_ALLOWANCE)
+    }
+
+    fn validated_block(&self) -> &ValidatedBlock {
+        &self.block
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        identity: B256,
+        number: u64,
+        hash: B256,
+        parent_hash: B256,
+        pre_state_root: B256,
+        post_state_root: B256,
+        rlp_bytes: usize,
+    ) -> Self {
+        Self {
+            validation_identity: identity,
+            block_hash: hash,
+            parent_hash,
+            pre_state_root,
+            post_state_root,
+            block: ValidatedBlock {
+                reconstruction: None,
+                number,
+                rlp: vec![0; rlp_bytes],
+                settlement_evidence: SettlementBlockEvidence {
+                    system_sender_flags: Vec::new(),
+                    observed_outbound_events: Vec::new(),
+                },
+            },
+        }
+    }
 }
 
 /// A validation failure classified for the RPC boundary.
@@ -424,6 +568,26 @@ pub(crate) enum Validator {
 }
 
 impl Validator {
+    /// Namespace only: this binds local rules, never caller claims or signing
+    /// authority. Production gets the digest from the very same file read as
+    /// the execution configuration.
+    pub(crate) fn validation_identity(&self, rollup_id: std::num::NonZeroU64) -> B256 {
+        let chain_document_digest = match self {
+            Self::Stateless(backend) => backend.chain_document_digest(),
+            #[cfg(test)]
+            Self::Stub(_) => B256::ZERO,
+        };
+        eez_control_rpc::identity::ValidationContext {
+            rollup_id,
+            chain_id: self.chain_id(),
+            system_address: self.expected_l2_system_address(),
+            eez_l2_address: crate::EEZL2_ADDRESS,
+            chain_document_digest,
+            canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
+        }
+        .identity()
+    }
+
     /// Construct the production backend from the operator-configured execution
     /// rules. Composer never supplies this trust input.
     pub(crate) fn stateless(
@@ -500,7 +664,61 @@ impl Validator {
         blocks: AdmittedBlocks,
         cancellation: &CancellationToken,
     ) -> Result<ValidatedWindow, ValidationError> {
-        let mut blocks = blocks.into_vec();
+        let inputs = blocks.into_inputs();
+        if inputs
+            .iter()
+            .all(|input| matches!(input, crate::window::AdmittedBlockInput::Witness(_)))
+        {
+            let mut blocks = Vec::with_capacity(inputs.len());
+            for input in inputs {
+                let crate::window::AdmittedBlockInput::Witness(block) = input else {
+                    return Err(ValidationError::InternalInvariant(
+                        "cold-window classification changed while consuming inputs".into(),
+                    ));
+                };
+                blocks.push(block);
+            }
+            return self.validate_cold_window(blocks, cancellation);
+        }
+
+        let mut preceding = Vec::new();
+        let mut terminal = None;
+        let input_count = inputs.len();
+        for (index, input) in inputs.into_iter().enumerate() {
+            let is_last = index + 1 == input_count;
+            match input {
+                crate::window::AdmittedBlockInput::Cached(facts) => {
+                    if is_last {
+                        return Err(ValidationError::Rejected(
+                            "terminal block cannot use cached validation".into(),
+                        ));
+                    }
+                    preceding.extend(facts);
+                }
+                crate::window::AdmittedBlockInput::Witness(block) if is_last => {
+                    terminal = Some(self.validate_cold_window(vec![block], cancellation)?);
+                }
+                crate::window::AdmittedBlockInput::Witness(block) => {
+                    preceding.extend(self.prepare_ordinary(
+                        AdmittedBlocks::from_preparation(block),
+                        B256::ZERO,
+                        cancellation,
+                    )?);
+                }
+            }
+        }
+        let terminal = terminal.ok_or_else(|| {
+            ValidationError::Rejected("terminal block must carry a fresh witness".into())
+        })?;
+        ValidatedWindow::prepend_prepared(preceding, terminal)
+            .map_err(|error| ValidationError::Rejected(error.to_string()))
+    }
+
+    fn validate_cold_window(
+        &self,
+        mut blocks: Vec<AdmittedBlock>,
+        cancellation: &CancellationToken,
+    ) -> Result<ValidatedWindow, ValidationError> {
         let replay_witness = blocks
             .last()
             .map(|block| block.witness.clone())
@@ -511,6 +729,33 @@ impl Validator {
         check_backend_window_output(blocks, output)
             .map(|checked| checked.into_validated_window(replay_witness))
             .map_err(|error| ValidationError::InvalidBackendOutput(error.to_string()))
+    }
+
+    /// Validate a bounded ordinary range and publish only facts that also pass
+    /// the complete intermediate-block gate. This path has no settlement input,
+    /// cannot construct `AttestablePublicInputsHash`, and never signs.
+    pub(crate) fn prepare_ordinary(
+        &self,
+        blocks: AdmittedBlocks,
+        validation_identity: B256,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<PreparedOrdinaryBlock>, ValidationError> {
+        let mut blocks = blocks.into_witnesses().ok_or_else(|| {
+            ValidationError::InternalInvariant(
+                "ordinary preparation received a cached reference".into(),
+            )
+        })?;
+        if blocks.is_empty() {
+            return Err(ValidationError::Rejected(
+                "refusing to prepare an empty ordinary range".into(),
+            ));
+        }
+        let output = self.run_backend(&mut blocks, cancellation)?;
+        let checked = check_backend_window_output(blocks, output)
+            .map_err(|error| ValidationError::InvalidBackendOutput(error.to_string()))?;
+        checked
+            .into_prepared_ordinary(validation_identity)
+            .map_err(|error| ValidationError::Rejected(error.to_string()))
     }
 
     /// Independently replay lookup/static semantic outcomes after the ordinary
@@ -574,6 +819,7 @@ fn check_backend_window_output(
         .and_then(|index| backend_output.blocks.get(index))
         .map_or(backend_output.pre_state_root, |block| block.post_state_root);
     let mut checked_blocks = Vec::with_capacity(total_blocks);
+    let mut expected_pre_state_root = backend_output.pre_state_root;
     for (position, (admitted, output)) in admitted_blocks
         .into_iter()
         .zip(backend_output.blocks)
@@ -600,6 +846,12 @@ fn check_backend_window_output(
             admitted.claimed_hash,
         );
         let rlp_transaction_count = decode_transaction_count(&admitted)?;
+        if let Some(fact) = &output.reconstruction {
+            eyre::ensure!(
+                fact.block_hash() == output.computed_hash,
+                "reconstruction fact belongs to a different block"
+            );
+        }
         eyre::ensure!(
             output.decoded_transaction_count == rlp_transaction_count,
             "backend decoded {} transactions for block {}, exact RLP contains {}",
@@ -672,7 +924,13 @@ fn check_backend_window_output(
             );
         }
 
-        checked_blocks.push(CheckedBlock { admitted, output });
+        let pre_state_root = expected_pre_state_root;
+        expected_pre_state_root = output.post_state_root;
+        checked_blocks.push(CheckedBlock {
+            admitted,
+            output,
+            pre_state_root,
+        });
     }
 
     let settling_block = checked_blocks
@@ -686,6 +944,37 @@ fn check_backend_window_output(
 }
 
 impl CheckedBackendWindowOutput {
+    fn into_prepared_ordinary(
+        self,
+        validation_identity: B256,
+    ) -> Result<Vec<PreparedOrdinaryBlock>, crate::settlement::BlockInspectionError> {
+        let mut checked = self.preceding_blocks;
+        checked.push(self.settling_block);
+        let blocks = checked
+            .into_iter()
+            .map(|checked| {
+                let block_hash = checked.output.computed_hash;
+                let parent_hash = checked.output.decoded_parent_hash;
+                let post_state_root = checked.output.post_state_root;
+                PreparedOrdinaryBlock {
+                    validation_identity,
+                    block_hash,
+                    parent_hash,
+                    pre_state_root: checked.pre_state_root,
+                    post_state_root,
+                    block: checked.into_validated_block(),
+                }
+            })
+            .collect::<Vec<_>>();
+        crate::settlement::verify_validated_intermediate_blocks(
+            &blocks
+                .iter()
+                .map(|fact| fact.block.clone())
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(blocks)
+    }
+
     /// Rearrange already checked evidence for settlement without performing
     /// another trust transition.
     fn into_validated_window(
@@ -720,6 +1009,7 @@ impl CheckedBlock {
     /// Retain only the admitted bytes and locally derived settlement evidence.
     fn into_validated_block(self) -> ValidatedBlock {
         ValidatedBlock {
+            reconstruction: self.output.reconstruction,
             number: self.output.decoded_number,
             rlp: self.admitted.rlp,
             settlement_evidence: self.output.settlement_evidence,
@@ -733,6 +1023,7 @@ impl CheckedBlock {
         witness: alloy_rpc_types_debug::ExecutionWitness,
     ) -> ValidatedSettlingBlock {
         let BackendBlockOutput {
+            reconstruction,
             decoded_number,
             receipt_successes,
             transaction_state_checkpoints,
@@ -741,6 +1032,7 @@ impl CheckedBlock {
         } = self.output;
         ValidatedSettlingBlock {
             block: ValidatedBlock {
+                reconstruction,
                 number: decoded_number,
                 rlp: self.admitted.rlp,
                 settlement_evidence,

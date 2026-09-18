@@ -1,0 +1,79 @@
+{
+  "status": "independent_disposition_in_progress",
+  "review_result_obtained": true,
+  "source_files": 41,
+  "source_bytes": 671912,
+  "auto_review": "Rejected external export: prior authorization covers plan/spec snapshot, not this implementation payload. No Claude invocation executed.",
+  "authorization": "User explicitly approved the disclosed 41-file implementation-source export in this conversation.",
+  "num_turns": 1,
+  "duration_ms": 532843,
+  "model_usage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 191957,
+      "outputTokens": 17,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.192042,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    },
+    "claude-opus-5[1m]": {
+      "inputTokens": 2,
+      "outputTokens": 40855,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 261719,
+      "webSearchRequests": 0,
+      "costUSD": 3.6385750000000003,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 64000,
+      "thinkingTokens": 34609,
+      "canonicalModel": "claude-opus-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "followup_status": "review_received_disposition_in_progress",
+  "followup_auto_review": "Rejected updated source/test-detail export: prior approval limited to frozen snapshot; follow-up command did not execute.",
+  "followup_authorization": "User approved the pending follow-up implementation review; the two-file update and critique were submitted with tools disabled.",
+  "followup_result": {
+    "is_error": false,
+    "num_turns": 1,
+    "duration_ms": 192999,
+    "total_cost_usd": 0.7021,
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 22130,
+        "outputTokens": 21,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.022235,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "thinkingTokens": 0,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5[1m]": {
+        "inputTokens": 2,
+        "outputTokens": 14131,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 32658,
+        "webSearchRequests": 0,
+        "costUSD": 0.6798649999999999,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "thinkingTokens": 11189,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    }
+  }
+}

@@ -23,7 +23,7 @@ pub(crate) enum ErrorKind {
     /// `eez-payload-codec::decode` rejected an L1-posted batch's
     /// authenticated operations payload. Usually indicates a contract that
     /// posted a payload in a version we don't speak.
-    Codec(eez_payload_codec::CodecError),
+    Payload(eez_payload_codec::derivable::Error),
     /// L1 catch-up scan failed. Callers can inspect nested typed L1 errors
     /// through helper methods without deriver re-encoding their meaning.
     L1Scan(eez_l1::L1Error),
@@ -144,9 +144,9 @@ impl DeriverError {
     }
 }
 
-impl From<eez_payload_codec::CodecError> for DeriverError {
-    fn from(err: eez_payload_codec::CodecError) -> Self {
-        Self::new(ErrorKind::Codec(err))
+impl From<eez_payload_codec::derivable::Error> for DeriverError {
+    fn from(err: eez_payload_codec::derivable::Error) -> Self {
+        Self::new(ErrorKind::Payload(err))
     }
 }
 
@@ -174,7 +174,7 @@ impl fmt::Display for DeriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             ErrorKind::L2Provider(msg) => write!(f, "L2 provider error: {msg}"),
-            ErrorKind::Codec(err) => write!(f, "payload codec error: {err}"),
+            ErrorKind::Payload(err) => write!(f, "derivable payload error: {err}"),
             ErrorKind::L1Scan(err) => write!(f, "L1 catch-up scan error: {err}"),
             ErrorKind::CommitterClosed => {
                 write!(f, "block committer actor task has exited")

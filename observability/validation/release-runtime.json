@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "current_checkpoint": "schema21_release_checkpoint; earlier top-level results remain historical",
+  "current_checkpoint": "Historical pre-PR26 release checkpoints only; current integration is recorded in pr26-integration.md",
   "status": "local_release_evidence_with_test_corrections_performance_and_deployment_open",
   "runtime_revision": "03a3caa1b92ca39e0119f7417e347c78c8f530c9",
   "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",

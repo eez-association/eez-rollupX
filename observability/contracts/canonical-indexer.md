@@ -130,7 +130,7 @@ transaction; a contradictory later observation is an inconsistency.
 ## Applied ranges and L2 finality (schema 3)
 
 When L1 recipient contracts are configured, a third independent worker queries
-`eez_getSettledL2RangesByL1Block` on the L2 node. Wallet-only indexing leaves this
+`eez_getSettledL2RangePage` on the L2 node. Wallet-only indexing leaves this
 capability disabled. Its failures do not stop either receipt scanner. In `--once`
 mode correlation runs after the two bounded receipt cycles; its errors appear in
 SQL/logs and do not change the successful receipt scan's exit code.
@@ -140,8 +140,39 @@ exact L1 block hash and transaction position. Its nonempty L2 array must contain
 contiguous numbers, unique hashes and an exactly matching range summary. The
 worker verifies both endpoint identities and both cursor hashes around collection,
 then locks the chain/cursor pairs in ID order and compares their snapshots before
-committing. RPC calls happen outside these database locks. Claims are bounded to
-1,024 posts and 4,096 total L2 blocks per response, within the RPC byte limit.
+committing. RPC calls happen outside these database locks. Schema 22 accepts up to
+65,536 applied L2 blocks per receipt, covering profile 1's 65,535 ordinary blocks
+plus its terminal block. The advertised ordinary recipe count is not an applied
+range: resumed application can produce a shorter range. Membership comes only
+from the node's reconciled block identities.
+
+The additive page method takes one object with `l1BlockHash`,
+`l1TransactionHash`, integer `offset` (0–65,535) and integer `limit` (1–1,024).
+It returns `null` for an unknown transaction or mismatched exact L1 anchor. A page
+retains the full `l1BlockNumber`, `l1BlockHash`, `l1TransactionHash`,
+`l1TransactionIndex` and `l2Range` summary, with the requested `l2Blocks` slice,
+integer `offset`, nullable integer `nextOffset`, and `evidenceDigest`.
+`canonicalL2` and `l2Finalized` describe that page, not the full range. The observer
+requests 1,024 members per page under the unchanged 1 MiB response limit and
+30-second total fetch deadline per receipt. It requires exact offsets/page lengths,
+contiguous numbers, unique hashes and identical immutable metadata/digest across
+pages, then independently recomputes the complete digest before saving.
+
+The digest is Keccak256 of `EEZ_CORRELATION_PAGE_V1` ASCII bytes followed by the
+L1 block number (8-byte big-endian), block hash (32 bytes), transaction hash
+(32 bytes), transaction index (8-byte big-endian), block count (8-byte big-endian),
+and every ordered L2 number (8-byte big-endian) and hash (32 bytes). It excludes
+pagination and mutable canonical/finality flags. This detects mixed pages; it
+never replaces receipt, cursor, chain identity or canonical-membership validation.
+No page is persisted as a complete claim: assembly of one bounded range and its
+membership are saved in one database transaction, after the existing locked
+canonical-revision checks.
+
+The old full-range RPC remains available to existing external clients, but the
+schema-22 observer requires the page method and has no old-node fallback. An
+unsupported method or incomplete/conflicting page leaves an explicit collection
+gap while independent receipt costs remain available. Upgrade the node RPC before
+starting this observer; see the [database upgrade procedure](../runbooks/database.md).
 
 `eez.settlement_evidence` retains node-reconciled claims. Different ranges for one
 receipt inclusion remain separate observations and invalidate the stronger claim.
@@ -160,9 +191,16 @@ ordinary L2 receipt indexing can still reconcile fees. Original evidence survive
 unfinalized reorgs, and orphaned anchors immediately leave canonical views.
 
 Each cycle retries up to three pending L1 blocks and rereads one previously
-observed block to detect changed claims. An empty response is an explicit
-`no_applied_range_observed` gap, never proof of no application: the existing RPC
-has no processed-L1 watermark. Range verification and finality promotion each
+observed block to detect changed claims. Per anchor, a persisted oldest-attempt
+lane visits at most 32 receipts and stops after completing the receipt that
+reaches 65,536 collected members (at most 131,071 members across that lane;
+only one range is retained in memory at a time). Only visited receipts are
+retimestamped; missing or failing ranges cannot permanently starve other receipts
+in the same block. A `null` response is an explicit
+`no_applied_range_observed` gap, never proof of no application: the page RPC
+has no processed-L1 watermark. A quiet interval probes the required method with
+an unknown transaction without inventing settlement evidence.
+Range verification and finality promotion each
 visit at most 16 ranges in oldest-attempt order; finality inserts at most 4,096
 members per cycle. Restart resumes these persisted backlogs. SQL statements and
 locks retain the scanner deadlines.

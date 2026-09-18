@@ -5,6 +5,7 @@ use std::time::Duration;
 use alloy_consensus::Transaction as _;
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rlp::Encodable;
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
     ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeBinary, NodeConfig, NodeHandle, batches_posted,
@@ -13,6 +14,22 @@ use eez_testkit::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(180);
+
+fn conservative_full_history_len(blocks: &[Vec<u8>]) -> usize {
+    fn list_len(payload: usize) -> usize {
+        payload
+            + alloy_rlp::Header {
+                list: true,
+                payload_length: payload,
+            }
+            .length()
+    }
+    let block_items = blocks.iter().map(Encodable::length).sum();
+    // Tag + RLP([blocks, empty entries, empty groups]). This is only the
+    // conservative admission bound exercised by this test, not a supported
+    // ChainOperation format.
+    1 + list_len(list_len(block_items) + 2)
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty() {
@@ -606,9 +623,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
     wait_for_latest_height(&world.node, receipt.block_number.unwrap() + 12, TIMEOUT)
         .await
         .unwrap();
-    world
-        .fail_rpc_methods(&["eth_maxPriorityFeePerGas"])
-        .unwrap();
+    world.fail_rpc_methods(&["eth_feeHistory"]).unwrap();
     let rpc = world.fault_rpc_url().to_owned();
     world
         .restart_composer_with_env(&[
@@ -619,11 +634,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
         .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
-        Ok((world
-            .node
-            .log_count_matching(&["network priority estimator"])?
-            >= 2)
-            .then_some(()))
+        Ok((world.node.log_count_matching(&["priority fee history"])? >= 2).then_some(()))
     })
     .await
     .unwrap_or_else(|error| {
@@ -1066,16 +1077,26 @@ async fn prover_resource_and_transport_failures_preserve_the_whole_due_range() {
     .await
     .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    // `always` deliberately leaves empty blocks unsettled. The follower must
-    // reproduce the settled setup prefix before faults are injected, not wait
-    // for an arbitrary newer empty head to become due.
+    // A snapshot of `safe` can precede an already-proved setup batch still
+    // awaiting inclusion. Settle a marker after all setup transactions before
+    // taking the baseline or blocking the prover. `always` posts this activity
+    // but deliberately leaves later empty blocks unsettled.
+    let setup_tx = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
     let height = l2
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
+        .get_transaction_receipt(setup_tx)
         .await
         .unwrap()
         .unwrap()
-        .header
-        .number;
+        .block_number
+        .unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], height, TIMEOUT)
         .await
         .unwrap();
@@ -1274,14 +1295,8 @@ async fn latest_post(world: &eez_testkit::CrossChainWorld) -> alloy_rpc_types_et
 }
 
 fn policy_env(mut env: Vec<(&'static str, String)>, mode: &str) -> Vec<(&'static str, String)> {
-    env.retain(|(name, _)| {
-        !matches!(
-            *name,
-            "EEZ_MAX_BLOCKS_PER_BATCH" | "EEZ_MAX_SPECULATIVE_DEPTH" | "RUST_LOG"
-        )
-    });
+    env.retain(|(name, _)| !matches!(*name, "EEZ_MAX_SPECULATIVE_DEPTH" | "RUST_LOG"));
     env.extend([
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", mode.into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
@@ -1413,7 +1428,7 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
         signals
             .iter()
             .any(|signal| signal.name == "eez.composer.postbatch.fee_quote"
-                && signal.fields["priority_source"] == "network_estimator"),
+                && signal.fields["priority_source"] == "fee_history_p90_of_p90"),
         "no implicit smoke-test tip"
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -2508,8 +2523,9 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         }
         encoded.push(alloy_rlp::encode(&block));
         if boundaries.contains(&number) {
-            let operations = eez_payload_codec::encode_self_contained(&encoded, &[], &[]).unwrap();
-            let bytes = eez_blob_codec::native_stream_len(operations.len(), 0).unwrap();
+            let bytes =
+                eez_blob_codec::native_stream_len(conservative_full_history_len(&encoded), 0)
+                    .unwrap();
             assert!(
                 bytes <= max_blobs * eez_blob_codec::DATA_BYTES_PER_BLOB,
                 "unpostable interval ending {number}: {bytes}"

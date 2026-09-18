@@ -5,24 +5,26 @@ use std::collections::BTreeMap;
 
 use alloy_primitives::B256;
 use eez_l1::L2Endpoint;
+use eez_payload_codec::{DerivablePayloadSizer, derivable::Environment};
 
 use super::PolicyError;
 
 /// One measured block. No receipts are needed to count included transactions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct BlockActivity {
     pub endpoint: L2Endpoint,
     pub parent_hash: B256,
     /// The individual block's length as an element of the existing payload's
     /// `Vec<Vec<u8>>`, including the element's RLP framing.
     pub encoded_item_bytes: u64,
+    /// This position represented as ordinary, before terminal promotion.
+    pub ordinary: DerivablePayloadSizer,
     pub pure_transactions: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct IndexedBlock {
     block: BlockActivity,
-    prefix_bytes: u64,
     prefix_pure_transactions: u64,
     latest_pure: Option<L2Endpoint>,
 }
@@ -39,9 +41,11 @@ pub(crate) struct DaOverhead {
 pub(crate) struct ActivityIndex {
     codec: (u8, u8),
     anchor: Option<L2Endpoint>,
-    anchor_prefix_bytes: u64,
     anchor_prefix_pure_transactions: u64,
     blocks: BTreeMap<u64, IndexedBlock>,
+    // Aligned power-of-two ordinary summaries, through level 15. Larger ranges
+    // compose several entries so no cached summary exceeds the format ceiling.
+    summaries: BTreeMap<(u32, u64), DerivablePayloadSizer>,
 }
 
 impl ActivityIndex {
@@ -56,7 +60,7 @@ impl ActivityIndex {
         mut load: impl FnMut(B256) -> Result<BlockActivity, PolicyError>,
     ) -> Result<bool, PolicyError> {
         let codec = (
-            eez_payload_codec::TAG_SELF_CONTAINED_BLOCKS,
+            eez_payload_codec::derivable::TAG,
             eez_blob_codec::PROTOCOL_VERSION,
         );
         let mut invalidated = self.codec != codec || self.anchor != Some(anchor);
@@ -72,19 +76,20 @@ impl ActivityIndex {
             ));
         }
         if self.anchor != Some(anchor) {
-            if let Some(block) = self.blocks.get(&anchor.number).copied()
+            if let Some(block) = self.blocks.get(&anchor.number).cloned()
                 && block.block.endpoint == anchor
                 && self.anchor.is_some_and(|old| old.number <= anchor.number)
             {
-                self.anchor_prefix_bytes = block.prefix_bytes;
                 self.anchor_prefix_pure_transactions = block.prefix_pure_transactions;
                 self.blocks = self.blocks.split_off(&anchor.number);
                 self.blocks.remove(&anchor.number);
             } else {
                 self.blocks.clear();
-                self.anchor_prefix_bytes = 0;
+                self.summaries.clear();
                 self.anchor_prefix_pure_transactions = 0;
             }
+            self.summaries
+                .retain(|(_, start), _| *start > anchor.number);
             self.anchor = Some(anchor);
         }
         let mut cursor = parent;
@@ -103,26 +108,31 @@ impl ActivityIndex {
                     "block lookup returned a different identity".into(),
                 ));
             }
-            pending.push(block);
             cursor = L2Endpoint {
                 number: cursor.number - 1,
                 hash: block.parent_hash,
             };
+            pending.push(block);
         }
         if cursor.number == anchor.number && cursor.hash != anchor.hash {
             return Err(PolicyError::Unavailable(
                 "pending L2 ancestry does not match the validated anchor".into(),
             ));
         }
-        if let Some(after) = cursor.number.checked_add(1) {
-            invalidated |= !self.blocks.split_off(&after).is_empty();
+        let removed = cursor
+            .number
+            .checked_add(1)
+            .is_some_and(|after| !self.blocks.split_off(&after).is_empty());
+        invalidated |= removed;
+        if removed {
+            self.summaries.retain(|(level, start), _| {
+                start
+                    .checked_add((1u64 << level) - 1)
+                    .is_some_and(|end| end <= cursor.number)
+            });
         }
         for block in pending.into_iter().rev() {
-            let previous = self.blocks.last_key_value().map(|(_, block)| *block);
-            let prefix_bytes = previous
-                .map_or(self.anchor_prefix_bytes, |block| block.prefix_bytes)
-                .checked_add(block.encoded_item_bytes)
-                .ok_or(PolicyError::Arithmetic("pending encoded block bytes"))?;
+            let previous = self.blocks.last_key_value().map(|(_, block)| block);
             let prefix_pure_transactions = previous
                 .map_or(self.anchor_prefix_pure_transactions, |block| {
                     block.prefix_pure_transactions
@@ -134,17 +144,65 @@ impl ActivityIndex {
             } else {
                 previous.and_then(|block| block.latest_pure)
             };
+            self.insert_summary(block.endpoint.number, block.ordinary.clone())?;
             self.blocks.insert(
                 block.endpoint.number,
                 IndexedBlock {
                     block,
-                    prefix_bytes,
                     prefix_pure_transactions,
                     latest_pure,
                 },
             );
         }
         Ok(invalidated)
+    }
+
+    fn insert_summary(
+        &mut self,
+        number: u64,
+        summary: DerivablePayloadSizer,
+    ) -> Result<(), PolicyError> {
+        self.summaries.insert((0, number), summary);
+        for level in 1..=15 {
+            let width = 1u64 << level;
+            let start = number & !(width - 1);
+            let middle = start + width / 2;
+            let (Some(left), Some(right)) = (
+                self.summaries.get(&(level - 1, start)),
+                self.summaries.get(&(level - 1, middle)),
+            ) else {
+                break;
+            };
+            let combined = left
+                .combine(right)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+            self.summaries.insert((level, start), combined);
+        }
+        Ok(())
+    }
+
+    /// Compose [anchor + 1, end), selecting the initial environment anew. A byte
+    /// prefix subtraction cannot account for gaps or environment transitions.
+    fn ordinary_range(&self, end: u64) -> Result<DerivablePayloadSizer, PolicyError> {
+        let Some((&first, _)) = self.blocks.first_key_value() else {
+            return Ok(DerivablePayloadSizer::default());
+        };
+        let mut cursor = first;
+        let mut summary = DerivablePayloadSizer::default();
+        while cursor < end {
+            let remaining = end - cursor;
+            let level = cursor.trailing_zeros().min(remaining.ilog2()).min(15);
+            let part = self.summaries.get(&(level, cursor)).ok_or_else(|| {
+                PolicyError::Unavailable("missing canonical ordinary summary".into())
+            })?;
+            summary = summary
+                .combine(part)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+            cursor = cursor
+                .checked_add(1u64 << level)
+                .ok_or(PolicyError::Arithmetic("ordinary range cursor"))?;
+        }
+        Ok(summary)
     }
 
     pub fn latest_pure(&self) -> Option<L2Endpoint> {
@@ -188,15 +246,11 @@ impl ActivityIndex {
                     "historical prefix is not in the canonical byte index".into(),
                 )
             })?;
-        let items = block
-            .prefix_bytes
-            .checked_sub(self.anchor_prefix_bytes)
-            .ok_or(PolicyError::Arithmetic(
-                "historical byte prefix subtraction",
-            ))?;
-        let items = usize::try_from(items)
-            .map_err(|_| PolicyError::Arithmetic("historical byte prefix"))?;
-        let payload = eez_payload_codec::self_contained_payload_len(items, 0, 0)
+        let ordinary = self.ordinary_range(endpoint.number)?;
+        let terminal = usize::try_from(block.block.encoded_item_bytes)
+            .map_err(|_| PolicyError::Arithmetic("historical terminal size"))?;
+        let payload = ordinary
+            .encoded_len_from_items(&Environment::unused(), terminal, 0, 0)
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let stream = eez_blob_codec::native_stream_len(payload, 0)
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
@@ -215,23 +269,20 @@ impl ActivityIndex {
         terminal_item_bytes: usize,
         overhead: DaOverhead,
     ) -> Result<u64, PolicyError> {
-        let last = self
-            .blocks
-            .last_key_value()
-            .map_or(self.anchor_prefix_bytes, |(_, block)| block.prefix_bytes);
-        let bytes = last
-            .checked_sub(self.anchor_prefix_bytes)
-            .ok_or(PolicyError::Arithmetic("pending byte prefix subtraction"))?;
-        let bytes = usize::try_from(bytes)
-            .ok()
-            .and_then(|bytes| bytes.checked_add(terminal_item_bytes))
-            .ok_or(PolicyError::Arithmetic("pending block length"))?;
-        let payload_bytes = eez_payload_codec::self_contained_payload_len(
-            bytes,
-            overhead.entry_items,
-            overhead.group_items,
-        )
-        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+        let end = self.blocks.last_key_value().map_or(Ok(0), |(number, _)| {
+            number
+                .checked_add(1)
+                .ok_or(PolicyError::Arithmetic("pending terminal number"))
+        })?;
+        let ordinary = self.ordinary_range(end)?;
+        let payload_bytes = ordinary
+            .encoded_len_from_items(
+                &Environment::unused(),
+                terminal_item_bytes,
+                overhead.entry_items,
+                overhead.group_items,
+            )
+            .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let stream_bytes =
             eez_blob_codec::native_stream_len(payload_bytes, overhead.semantic_bytes)
                 .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
@@ -242,6 +293,148 @@ impl ActivityIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_range_index_matches_dense_wire_after_anchor_changes_and_terminal_promotion() {
+        use alloy_rlp::Encodable as _;
+        use eez_payload_codec::derivable::{Payload, Record, RecordData};
+        let anchor = L2Endpoint {
+            number: 0,
+            hash: B256::ZERO,
+        };
+        let mut previous = anchor.hash;
+        let mut chain = Vec::new();
+        let mut bodies = Vec::new();
+        let mut environments = Vec::new();
+        for number in 1..=513 {
+            let mut environment = Environment::unused();
+            environment.timestamp_step_seconds = (number / 128) + 1;
+            let block = reth_ethereum_primitives::Block {
+                header: alloy_consensus::Header {
+                    number,
+                    parent_hash: previous,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let encoded = alloy_rlp::encode(&block);
+            let ordinary = if number % 17 == 0 {
+                DerivablePayloadSizer::full_block(&encoded, 0).unwrap()
+            } else {
+                DerivablePayloadSizer::derived_block(environment.clone(), &[]).unwrap()
+            };
+            chain.push(BlockActivity {
+                endpoint: L2Endpoint {
+                    number,
+                    hash: block.header.hash_slow(),
+                },
+                parent_hash: previous,
+                encoded_item_bytes: encoded.length() as u64,
+                ordinary,
+                pure_transactions: 0,
+            });
+            previous = block.header.hash_slow();
+            bodies.push(encoded);
+            environments.push(environment);
+        }
+        let mut index = ActivityIndex::default();
+        let end = chain.last().unwrap().endpoint;
+        index
+            .update(anchor, end, |hash| {
+                Ok(chain
+                    .iter()
+                    .find(|b| b.endpoint.hash == hash)
+                    .unwrap()
+                    .clone())
+            })
+            .unwrap();
+        assert!(index.summaries.len() < chain.len() * 2);
+        for start in [0, 1, 16, 17, 126, 127, 128, 255, 256, 510, 512] {
+            let anchor = if start == 0 {
+                anchor
+            } else {
+                chain[start - 1].endpoint
+            };
+            index
+                .update(anchor, end, |_| {
+                    panic!("anchor advance must reuse measurements")
+                })
+                .unwrap();
+            for terminal in [start, (start + 128).min(512), 512] {
+                let initial = (start..terminal)
+                    .find(|p| (p + 1) % 17 != 0)
+                    .map_or_else(Environment::unused, |p| environments[p].clone());
+                let mut active = initial.clone();
+                let mut records = Vec::new();
+                let mut gap = 0;
+                for p in start..terminal {
+                    let data = if (p + 1) % 17 == 0 {
+                        Some(RecordData::FullBlock(bodies[p].clone().into()))
+                    } else if active != environments[p] {
+                        active = environments[p].clone();
+                        Some(RecordData::EnvironmentChange {
+                            environment: active.clone(),
+                            transactions: vec![],
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(data) = data {
+                        records.push(Record {
+                            empty_gap: gap,
+                            data,
+                        });
+                        gap = 0;
+                    } else {
+                        gap += 1;
+                    }
+                }
+                let payload = Payload::new(
+                    (terminal - start) as u64,
+                    initial,
+                    records,
+                    bodies[terminal].clone(),
+                    vec![],
+                    vec![],
+                )
+                .unwrap()
+                .encode()
+                .unwrap();
+                let actual =
+                    eez_blob_codec::encode_native_stream(1, payload.into(), vec![]).unwrap();
+                assert_eq!(
+                    index
+                        .historical_stream_bytes(chain[terminal].endpoint)
+                        .unwrap(),
+                    actual.blob_portion.len() as u64,
+                    "range {}..={}",
+                    start + 1,
+                    terminal + 1
+                );
+            }
+        }
+    }
+
+    fn full_payload(blocks: &[Vec<u8>], entries: &[Vec<u8>], groups: &[u16]) -> Vec<u8> {
+        use eez_payload_codec::derivable::{Payload, Record, RecordData};
+        Payload::new(
+            blocks.len() as u64 - 1,
+            Environment::unused(),
+            blocks[..blocks.len() - 1]
+                .iter()
+                .map(|rlp| Record {
+                    empty_gap: 0,
+                    data: RecordData::FullBlock(rlp.clone().into()),
+                })
+                .collect(),
+            blocks.last().unwrap().clone(),
+            entries.to_vec(),
+            groups.to_vec(),
+        )
+        .unwrap()
+        .encode()
+        .unwrap()
+    }
 
     #[test]
     fn individually_fitting_blocks_can_exceed_capacity_before_the_first_sync_boundary() {
@@ -278,13 +471,15 @@ mod tests {
                 endpoint: L2Endpoint { number, hash },
                 parent_hash,
                 encoded_item_bytes: body.length() as u64,
+                ordinary: DerivablePayloadSizer::full_block(&body, block.body.transactions.len())
+                    .unwrap(),
                 pure_transactions: block.body.transactions.len() as u64,
             });
             bodies.push(body);
             parent_hash = hash;
         }
         let measured_stream = |blocks: &[Vec<u8>]| {
-            let payload = eez_payload_codec::encode_self_contained(blocks, &[], &[]).unwrap();
+            let payload = full_payload(blocks, &[], &[]);
             eez_blob_codec::encode_native_stream(1, payload.into(), vec![])
                 .unwrap()
                 .blob_portion
@@ -305,10 +500,11 @@ mod tests {
                 },
                 endpoint,
                 |hash| {
-                    Ok(*activity
+                    Ok(activity
                         .iter()
                         .find(|block| block.endpoint.hash == hash)
-                        .unwrap())
+                        .unwrap()
+                        .clone())
                 },
             )
             .unwrap();
@@ -357,11 +553,13 @@ mod tests {
                 let n = hash[31];
                 let mut measured = block(n, n, n - 1, true);
                 measured.encoded_item_bytes = bodies[usize::from(n - 1)].length() as u64;
+                measured.ordinary =
+                    DerivablePayloadSizer::full_block(&bodies[usize::from(n - 1)], 1).unwrap();
                 Ok(measured)
             })
             .unwrap();
         let oracle = |blocks: &[Vec<u8>]| {
-            let payload = eez_payload_codec::encode_self_contained(blocks, &[], &[]).unwrap();
+            let payload = full_payload(blocks, &[], &[]);
             eez_blob_codec::encode_native_stream(1, payload.into(), vec![])
                 .unwrap()
                 .blob_portion
@@ -396,6 +594,8 @@ mod tests {
             .update(next_anchor, replacement, |_| {
                 let mut measured = block(4, 9, 3, false);
                 measured.encoded_item_bytes = replacement_body.length() as u64;
+                measured.ordinary =
+                    DerivablePayloadSizer::full_block(&replacement_body, 0).unwrap();
                 Ok(measured)
             })
             .unwrap();
@@ -411,7 +611,9 @@ mod tests {
         use alloy_primitives::Bytes;
         use alloy_rlp::Encodable;
         use eez_blob_codec::Message;
-        let terminal = alloy_rlp::encode(reth_ethereum_primitives::Block::default());
+        let mut block = reth_ethereum_primitives::Block::default();
+        block.header.number = 1;
+        let terminal = alloy_rlp::encode(block);
         let index = ActivityIndex::default();
         for size in [0, 55, 128, 16_384, 126_976] {
             let entries = vec![vec![0u8; size], vec![0u8; 128]];
@@ -434,12 +636,7 @@ mod tests {
             let estimated = index
                 .estimated_stream_bytes_with_overhead(terminal.length(), overhead)
                 .unwrap();
-            let operations = eez_payload_codec::encode_self_contained(
-                std::slice::from_ref(&terminal),
-                &entries,
-                &groups,
-            )
-            .unwrap();
+            let operations = full_payload(std::slice::from_ref(&terminal), &entries, &groups);
             let actual =
                 eez_blob_codec::encode_native_stream(1, operations.into(), messages).unwrap();
             assert_eq!(estimated, actual.blob_portion.len() as u64);
@@ -457,6 +654,7 @@ mod tests {
             },
             parent_hash: B256::with_last_byte(parent),
             encoded_item_bytes: 100,
+            ordinary: DerivablePayloadSizer::full_block(&[0; 100], 0).unwrap(),
             pure_transactions: u64::from(pure),
         }
     }
@@ -467,7 +665,7 @@ mod tests {
         let pending = block(1, 1, 0, true);
         let mut index = ActivityIndex::default();
         index
-            .update(genesis, pending.endpoint, |_| Ok(pending))
+            .update(genesis, pending.endpoint, |_| Ok(pending.clone()))
             .unwrap();
         let previous_size = index.estimated_stream_bytes(100).unwrap();
         index.codec.0 ^= 1;
@@ -477,7 +675,8 @@ mod tests {
                 reads += 1;
                 Ok(BlockActivity {
                     encoded_item_bytes: 200,
-                    ..pending
+                    ordinary: DerivablePayloadSizer::full_block(&[0; 200], 0).unwrap(),
+                    ..pending.clone()
                 })
             })
             .unwrap();
@@ -499,7 +698,11 @@ mod tests {
         index
             .update(genesis, chain[1].endpoint, |hash| {
                 reads += 1;
-                Ok(*chain.iter().find(|b| b.endpoint.hash == hash).unwrap())
+                Ok(chain
+                    .iter()
+                    .find(|b| b.endpoint.hash == hash)
+                    .unwrap()
+                    .clone())
             })
             .unwrap();
         assert_eq!(reads, 2);
@@ -518,7 +721,7 @@ mod tests {
             !index
                 .update(genesis, chain[2].endpoint, |hash| {
                     assert_eq!(hash, chain[2].endpoint.hash);
-                    Ok(chain[2])
+                    Ok(chain[2].clone())
                 })
                 .unwrap(),
             "an append must not rescan the immutable encoding cache"
@@ -544,7 +747,11 @@ mod tests {
         let mut index = ActivityIndex::default();
         index
             .update(genesis, old[1].endpoint, |hash| {
-                Ok(*old.iter().find(|b| b.endpoint.hash == hash).unwrap())
+                Ok(old
+                    .iter()
+                    .find(|b| b.endpoint.hash == hash)
+                    .unwrap()
+                    .clone())
             })
             .unwrap();
         let replacement = block(2, 22, 1, false);
@@ -552,7 +759,7 @@ mod tests {
             index
                 .update(genesis, replacement.endpoint, |hash| {
                     assert_eq!(hash, replacement.endpoint.hash);
-                    Ok(replacement)
+                    Ok(replacement.clone())
                 })
                 .unwrap(),
             "a reorg must remove encodings for the replaced hashes"
@@ -569,7 +776,11 @@ mod tests {
         index
             .update(genesis, old[1].endpoint, |hash| {
                 reads += 1;
-                Ok(*old.iter().find(|b| b.endpoint.hash == hash).unwrap())
+                Ok(old
+                    .iter()
+                    .find(|b| b.endpoint.hash == hash)
+                    .unwrap()
+                    .clone())
             })
             .unwrap();
         assert_eq!(reads, 2);
@@ -588,9 +799,9 @@ mod tests {
         index
             .update(anchor, second.endpoint, |hash| {
                 Ok(if hash == first.endpoint.hash {
-                    first
+                    first.clone()
                 } else {
-                    second
+                    second.clone()
                 })
             })
             .unwrap();
@@ -616,7 +827,7 @@ mod tests {
         let wrong = block(1, 1, 99, true);
         assert!(
             index
-                .update(genesis, wrong.endpoint, |_| Ok(wrong))
+                .update(genesis, wrong.endpoint, |_| Ok(wrong.clone()))
                 .is_err()
         );
         assert!(

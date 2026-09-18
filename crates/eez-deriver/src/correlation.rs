@@ -240,6 +240,76 @@ impl CorrelationStore {
         }
     }
 
+    /// Exact immutable batch lookup without materializing every batch in its L1 block.
+    pub fn by_l1_transaction_hash(&self, hash: B256) -> Result<Option<BatchCorrelation>, String> {
+        match &self.backend {
+            Backend::Persistent(env) => persistent_record(env, hash),
+            Backend::Memory(records) => Ok(records
+                .read()
+                .map_err(|_| "correlation memory lock poisoned".to_string())?
+                .iter()
+                .find(|record| record.l1_transaction_hash == hash)
+                .cloned()),
+        }
+    }
+
+    /// Check a slice from an immutable batch against current canonical indices.
+    /// Never decode the entire (up to 65,536-block) batch once per page member.
+    pub fn canonical_l2_blocks(
+        &self,
+        transaction_hash: B256,
+        blocks: &[L2BlockCorrelation],
+    ) -> Result<bool, String> {
+        match &self.backend {
+            Backend::Persistent(env) => {
+                let txn = env
+                    .begin_ro_txn()
+                    .map_err(|error| format!("begin correlation read: {error}"))?;
+                let numbers = txn
+                    .open_db(Some(L2_NUMBER_DB))
+                    .map_err(|error| format!("open L2-number index: {error}"))?;
+                let hashes = txn
+                    .open_db(Some(L2_HASH_DB))
+                    .map_err(|error| format!("open L2-hash index: {error}"))?;
+                for block in blocks {
+                    let number_owner: Option<Vec<u8>> = txn
+                        .get(numbers.dbi(), &block.number.to_be_bytes())
+                        .map_err(|error| format!("read canonical number: {error}"))?;
+                    let hash_owner: Option<Vec<u8>> = txn
+                        .get(hashes.dbi(), block.hash.as_slice())
+                        .map_err(|error| format!("read canonical hash: {error}"))?;
+                    if number_owner.as_deref() != Some(transaction_hash.as_slice())
+                        || hash_owner.as_deref() != Some(transaction_hash.as_slice())
+                    {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Backend::Memory(records) => {
+                let records = records
+                    .read()
+                    .map_err(|_| "correlation memory lock poisoned".to_string())?;
+                Ok(blocks.iter().all(|block| {
+                    records
+                        .iter()
+                        .rev()
+                        .find_map(|record| {
+                            let offset = usize::try_from(
+                                block.number.checked_sub(record.first_l2().number)?,
+                            )
+                            .ok()?;
+                            record.l2_blocks.get(offset).map(|current| {
+                                record.l1_transaction_hash == transaction_hash
+                                    && current.hash == block.hash
+                            })
+                        })
+                        .unwrap_or(false)
+                }))
+            }
+        }
+    }
+
     pub fn by_l2_number(&self, number: u64) -> Result<Option<CorrelationMatch>, String> {
         let record = match &self.backend {
             Backend::Persistent(env) => {
@@ -795,6 +865,26 @@ mod tests {
                 .batch,
             a
         );
+        assert_eq!(
+            store.by_l1_transaction_hash(a.l1_transaction_hash).unwrap(),
+            Some(a.clone())
+        );
+        assert!(
+            store
+                .by_l1_transaction_hash(B256::repeat_byte(0xff))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .canonical_l2_blocks(a.l1_transaction_hash, &a.l2_blocks)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .canonical_l2_blocks(b.l1_transaction_hash, &a.l2_blocks)
+                .unwrap()
+        );
         assert_eq!(store.by_l1_number(10).unwrap(), vec![a.clone()]);
         assert_eq!(store.by_l1_hash(b.l1_block_hash).unwrap(), vec![b.clone()]);
         assert_eq!(store.tail().unwrap(), Some(b));
@@ -837,7 +927,28 @@ mod tests {
                 .canonical_l2
         );
 
+        assert!(
+            !store
+                .canonical_l2_blocks(original.l1_transaction_hash, &original.l2_blocks)
+                .unwrap()
+        );
+        assert!(
+            store
+                .canonical_l2_blocks(replacement.l1_transaction_hash, &replacement.l2_blocks)
+                .unwrap()
+        );
         assert_eq!(store.remove_after_l1(19).unwrap(), 2);
+        assert!(
+            store
+                .by_l1_transaction_hash(original.l1_transaction_hash)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !store
+                .canonical_l2_blocks(replacement.l1_transaction_hash, &replacement.l2_blocks)
+                .unwrap()
+        );
         assert!(store.by_l2_number(8).unwrap().is_none());
         assert!(store.tail().unwrap().is_none());
     }

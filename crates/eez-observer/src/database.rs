@@ -8,7 +8,7 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 21;
+pub const SCHEMA_VERSION: i32 = 22;
 const MIGRATIONS: &[(i32, &str)] = &[
     (
         1,
@@ -93,6 +93,10 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (
         21,
         include_str!("../../../observability/migrations/0021-outcome-query-boundaries.sql"),
+    ),
+    (
+        22,
+        include_str!("../../../observability/migrations/0022-derivable-settlement-ranges.sql"),
     ),
 ];
 const CONFIG_LIMIT: u64 = 64 * 1024;

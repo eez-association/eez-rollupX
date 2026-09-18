@@ -50,14 +50,34 @@ class ChiadoConfigTest(unittest.TestCase):
         node = services["eez-node"]["environment"]
         for key, value in {
             "EEZ_L1_CHAIN_ID": "10200", "EEZ_L1_BLOCK_TIME_MS": "5000",
-            "EEZ_PROOF_TIME_MS": "1500", "EEZ_SUBMISSION_SLACK_MS": "700",
+            "EEZ_PROOF_TIME_MS": "500", "EEZ_PREPARATION_TIME_MS": "500",
+            "EEZ_SUBMISSION_SLACK_MS": "700",
             "EEZ_BUNDLE_SUBMISSION_LEAD_MS": "7500",
             "EEZ_L1_BEACON_URL": "http://127.0.0.1:6152/",
             "EEZ_L1_BLOB_SIDECAR_ENCODING": "eip7594",
+            "EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
+            "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "900000",
+            "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
+            "EEZ_MAX_SPECULATIVE_DEPTH": "0",
+            "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000",
+            "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE": "1000000000",
+            "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
         }.items():
             self.assertEqual(node[key], value, key)
         self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node)
         self.assertNotIn("EEZ_L1_POSTER_KEY", services["eez-proof-signer"]["environment"])
+        self.assertEqual(services["eez-proof-signer"]["environment"]["EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS"], "2048")
+        self.assertEqual(services["eez-proof-signer"]["stop_grace_period"], "30s")
+        self.assertEqual(services["eez-proof-signer"]["healthcheck"]["test"],
+                         ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/50061"])
+        self.assertIn("--http.api=eth,net,web3,debug,trace", services["eez-node"]["command"])
+        self.assertIn("--log.stdout.format=json", services["eez-node"]["command"])
+        for key in ("EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_MAX_BLOCKS_PER_BATCH",
+                    "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
+                    "EEZ_MAX_BLOBS_PER_BATCH"):
+            self.assertIsNone(node.get(key), key)
         self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse:v8.1.3")
         command = services["lighthouse"]["command"]
         self.assertIn("--semi-supernode", command)
@@ -214,6 +234,10 @@ esac
                         self.assertEqual(command, baseline)
 
     def test_optional_preparation_preserves_unset_empty_and_explicit_values(self):
+        # The supplied preset is explicit; omission remains available to operators
+        # choosing the runtime's rounded trigger instead.
+        env_file = self.repo / ".env"
+        env_file.write_text(env_file.read_text().replace("EEZ_PREPARATION_TIME_MS=500\n", ""))
         for value in (None, "500", ""):
             with self.subTest(value=value):
                 overrides = {} if value is None else {"EEZ_PREPARATION_TIME_MS": value}
@@ -223,8 +247,9 @@ esac
                 self.assertEqual(actual.get("EEZ_PREPARATION_TIME_MS"), value)
                 # Explicit empty reaches Rust's startup validation; Compose must
                 # not silently replace it with a default or an absent setting.
-                self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "1500")
+                self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "500")
                 self.assertEqual(actual["EEZ_SUBMISSION_SLACK_MS"], "700")
+
 
 
 if __name__ == "__main__":

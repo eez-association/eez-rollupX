@@ -286,7 +286,6 @@ async fn lifecycle_bidirectional_cross_chain_smoke() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lifecycle_policy_bidirectional_cross_chain_smoke() {
     lifecycle_bidirectional_smoke(&[
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
         ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
@@ -1257,12 +1256,9 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
         assert!(metric_sample(&metrics, &format!("reth_eez_stage_duration_seconds_count{{stage=\"{stage}\",outcome=\"{outcome}\"}}"))
             .is_some_and(|count| count >= 1.), "missing completed native stage {stage}: {metrics}");
     }
-    let policy_enabled = extra_env
-        .iter()
-        .any(|(key, value)| *key == "EEZ_SETTLEMENT_POLICY_ENABLED" && value == "true");
     assert_eq!(
         metric_sample(&metrics, "reth_eez_settlement_policy_enabled"),
-        Some(f64::from(u8::from(policy_enabled)))
+        Some(1.)
     );
     assert!(
         metric_sample(
@@ -1284,7 +1280,11 @@ async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
         let path = root.join(format!(
             "eez-client-metrics-{}-{}.json",
             std::process::id(),
-            if policy_enabled { "policy" } else { "legacy" }
+            if extra_env.is_empty() {
+                "default-policy"
+            } else {
+                "custom-policy"
+            }
         ));
         std::fs::write(
             path,
@@ -1548,6 +1548,9 @@ async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation
     let l2_rpc = w.l2_rpc();
     let starting_nonce = onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
     let starting_value = l2_value(&l2_rpc, w.value_l2).await.unwrap();
+    let proxy = w.prover_proxy.as_ref().expect("rejection proxy");
+    let starting_rejections = proxy.rejections();
+    let cursor = w.node.signal_cursor().unwrap();
     let tx_hash = sign_and_send(
         &w.l1_xchain(),
         INBOUND_USER,
@@ -1562,26 +1565,31 @@ async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation
     .expect("valid transaction must be admitted before the prover rejects its batch");
 
     let evicted = wait_for(SETTLE_TIMEOUT, || async {
-        let logs = w
-            .node
-            .log_lines_matching(&["potentially valid user_tx evicted"], 20);
-        Ok(logs
-            .lines()
-            .any(|line| line.contains("ERROR") && line.contains(&tx_hash.to_string()))
-            .then_some(()))
+        Ok(w.node.signals_since(cursor)?.into_iter().find(|event| {
+            event.name == signals::TX_POISON_EVICTED
+                && event.b256("tx_hash").ok() == Some(tx_hash)
+                && event.fields["source"] == "Prover"
+        }))
     })
-    .await;
-    if let Err(error) = evicted {
+    .await
+    .unwrap_or_else(|error| {
         panic!(
             "opaque prover rejection did not reach bounded eviction: {error:#}{}",
             w.settlement_diagnostics(),
         );
-    }
+    });
 
-    let proxy = w.prover_proxy.as_ref().expect("rejection proxy");
+    // The bound counts failed settlement episodes, including a Composer cutoff
+    // before a response arrives. Proxy rejection responses are not that counter;
+    // conversely, several transport retries can belong to one episode.
+    assert_eq!(
+        evicted.u64("attempts").unwrap(),
+        3,
+        "eviction must occur at the three-failed-settlement-episode bound"
+    );
     assert!(
-        proxy.rejections() >= 3,
-        "eviction must require three distinct rejected proof episodes"
+        proxy.rejections() > starting_rejections,
+        "the candidate must exercise the injected opaque rejection before eviction"
     );
     assert_eq!(
         receipt_ok(&l1_rpc, tx_hash).await.unwrap(),

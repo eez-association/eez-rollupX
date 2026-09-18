@@ -21,7 +21,7 @@ RUST_VERSION = "1.94.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer", "eez-observer")
 E2E_TARGETS = (
-    "e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
+    "e2e", "cross_chain", "derivable_operations", "chained_interstate", "resumption", "partial_consumption",
     "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
     "queue_liveness", "queue_reorg")
 E2E_BINARIES = {f"eez-node-e2e::{name}" for name in E2E_TARGETS}
@@ -45,7 +45,7 @@ SUITES = {
     # here and is run by verify-policy-replay.sh against a live enclave.
     "embedded": "package(=eez-node-e2e) & (binary(=e2e) | binary(=settlement_policy) | "
                 "binary(=settlement_policy_cost) | binary(=kurtosis_policy_replay))",
-    "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=chained_interstate) | "
+    "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=derivable_operations) | binary(=chained_interstate) | "
                    "binary(=resumption) | binary(=partial_consumption) | binary(=settlement_policy_gas) | binary(=dynamic_admission) | "
                    "binary(=queue_liveness) | binary(=queue_reorg))",
 }
@@ -267,7 +267,9 @@ def run_native_quota(extracted, frozen, env):
                     "--image", image, "--report", str(report)], cwd=REPO, env=env, check=True)
 
 
-def run(directory, suite):
+def run(directory, suite, partition=None):
+    if partition is not None and suite == "unit":
+        raise ValueError("unit validation must run in full before exporting E2E inputs")
     if suite == "unit":
         (directory / "unit-passed.json").unlink(missing_ok=True)
     check_nextest()
@@ -316,13 +318,17 @@ def run(directory, suite):
                    "--cargo-metadata", str(extracted / "nextest/cargo-metadata.json"),
                    "--binaries-metadata", str(extracted / "nextest/binaries-metadata.json"),
                    "--target-dir-remap", str(extracted), "--workspace-remap", str(REPO),
-                   "--no-fail-fast", "-E", SUITES[suite]]
+                   "--no-fail-fast", "--no-tests=fail", "-E", SUITES[suite]]
         if suite != "unit":
             command.extend(["--profile", "ci", "--test-threads=1", "--color=never"])
+        if partition is not None:
+            command.extend(["--partition", partition])
         print(f"==> {suite}: {name}", flush=True)
         try:
             subprocess.run(command, cwd=REPO, env=env, check=True)
-            if suite == "cross-chain":
+            # One mandatory shard owns the physical quota drill; the serial
+            # fallback still runs it after the complete cross-chain suite.
+            if suite == "cross-chain" and (partition is None or int(partition.partition(":")[2].partition("/")[0]) == 1):
                 run_native_quota(extracted, frozen, env)
         except subprocess.CalledProcessError as error:
             # Preserve --no-fail-fast across both unit archives as well.
@@ -339,10 +345,13 @@ def main():
     parser.add_argument("operation", choices=["build", "seal", "run", "export-e2e"])
     parser.add_argument("directory", type=Path)
     parser.add_argument("--suite", choices=SUITES, default="unit")
+    parser.add_argument("--partition", help="nextest partition for an E2E run, e.g. slice:1/4")
     parser.add_argument("--runtime-bin", type=Path)
     parser.add_argument("--runtime-archive", type=Path)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
+    if args.partition is not None and (args.operation != "run" or args.suite == "unit"):
+        parser.error("--partition is only supported for E2E runs")
     try:
         if args.operation == "build":
             if args.runtime_bin is None:
@@ -357,7 +366,7 @@ def main():
                 parser.error("export-e2e requires --output-dir")
             export_e2e(args.directory.resolve(), args.output_dir.resolve())
         else:
-            run(args.directory.resolve(), args.suite)
+            run(args.directory.resolve(), args.suite, args.partition)
     except (ValueError, KeyError, OSError, tarfile.TarError, subprocess.CalledProcessError) as error:
         print(f"Native test artifacts: {error}", file=sys.stderr)
         return error.returncode if isinstance(error, subprocess.CalledProcessError) else 1

@@ -126,11 +126,28 @@ and optionally `EEZ_DEPLOY_KEY`. The deployment RPC must remain external:
 startup queries it before starting the embedded L1.
 
 Checkpoint sync defaults to `https://checkpoint.chiadochain.net/`; set
-`LH_CHECKPOINT_URL` to use another trusted source. Keep policy disabled for initial
-bring-up unless another policy is part of the operation. For opt-in policy, follow
-the [configuration guide](../configurable-settlement-policy.md): remove
-`EEZ_MAX_BLOCKS_PER_BATCH`, set the required fee ceilings and scheduling rules,
-and distinguish omitted settings from empty strings.
+`LH_CHECKPOINT_URL` to use another trusted source. The env example selects the
+live Chiado policy and timing preset below. Review its fee ceilings and timing
+for the intended host/workload. Existing private `.env` files retain their own
+values; update them deliberately rather than replacing keys, bindings, or paths.
+
+| Setting | Packaged Chiado preset |
+| --- | --- |
+| Settlement | Enabled; pure L2 `always`; general trigger at 300 unsettled L2 blocks; fullness trigger `off` |
+| Admission | `EEZ_MAX_USER_TXS_PER_BUNDLE=auto` |
+| Preparation / proof / submission slack | 500 / 500 / 700 ms |
+| Execution / blob fee ceiling | 500,000,000,000 / 10,000,000,000 native base units per gas |
+| Priority fee | Network estimate plus 2000 bps, with a 1,000,000,000 minimum |
+| Signer request capacity | 2048 blocks |
+| L2 HTTP APIs | `eth,net,web3,debug,trace` |
+
+These operational values were compared with the running Chiado containers on
+2026-09-16. Runtime images remain the published references described below;
+the live host's binary mounts, private paths, keys, and deployment identity are
+not copied into the template. Restrict the HTTP RPC, including debug/trace,
+to intended clients. For legacy policy-disabled mode, follow the
+[migration instructions](../configurable-settlement-policy.md#migration).
+Enabled policy requires `EEZ_MAX_BLOCKS_PER_BATCH` to remain absent.
 
 Expanded Compose configuration and environment dumps contain keys; keep them private.
 
@@ -247,6 +264,26 @@ polls (10-second sleeps plus RPC time). An enabled policy with no due work or a 
 interval can exceed that window; inspect policy instead of weakening it to obtain
 the success banner.
 
+### Optional explorers
+
+After the rollup is running, use the [explorer runbook](explorers.md) to add
+L2 Blockscout, Chiado Blobscan, or both. These use a separate Compose project
+and `.env.explorers`; they are not built, deployed, or tested by CI.
+
+Use the actual genesis selected by `FRESH_GENESIS` in `.env` for Blockscout.
+For Blobscan, use the desired first L1 block, normally
+`EEZ_REGISTRY_DEPLOY_BLOCK` from `deployments.env`, and endpoints retaining that
+history. Preparation reads the L2 chain ID and derives Blobscan's starting slot.
+Supply reachable node hostnames for the L2 RPC, L1 RPC, and Beacon API during
+preparation. Explorers use a bridge network and service names internally.
+Blockscout connects directly to port 18688, with `trace` enabled and access
+allowed from the explorer Docker network. The preset's Beacon listener is
+loopback-only; see the explorer runbook's endpoint requirements before using it.
+
+Explorer startup/shutdown is independent of the node stack. Preserve its env
+file, databases, and Blobscan origin volume. Explorer readiness and indexed
+L2 confirmations do not establish completed catch-up or canonical L1 settlement.
+
 ### Optional workloads
 
 Run funded traffic only when the operation includes it. Inspect the
@@ -284,7 +321,9 @@ bash scripts/teardown-chiado.sh
 ```
 
 **Pass:** the script confirms all three containers stopped. The signer's grace
-period is up to 11 minutes to drain admitted requests. If teardown fails, inspect
+period is 30 seconds, matching the live deployment. An admitted request still
+running at that limit can be killed; increase `stop_grace_period` if the operation
+requires draining the full request deadline. If teardown fails, inspect
 remaining containers before proceeding; preserve files and data.
 
 Run [Start and verify](#start-and-verify) to start stopped services or apply `.env`

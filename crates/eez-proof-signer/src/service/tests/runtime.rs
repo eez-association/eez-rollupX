@@ -2,9 +2,190 @@
 
 use super::*;
 
+#[tokio::test]
+async fn final_proof_waiter_wins_the_next_preparation_block_boundary() {
+    let svc = ProveSvc::new(unused_validator(), limits());
+    let blocker = Arc::clone(&svc.validation_worker)
+        .acquire_owned()
+        .await
+        .unwrap();
+    let worker = Arc::clone(&svc.validation_worker);
+    let (first_started_tx, first_started_rx) = oneshot::channel();
+    let (release_first_tx, release_first_rx) = oneshot::channel();
+    let (preparation_reacquired_tx, mut preparation_reacquired_rx) = mpsc::channel(1);
+    let preparation = tokio::spawn(async move {
+        let first = Arc::clone(&worker).acquire_owned().await.unwrap();
+        first_started_tx.send(()).unwrap();
+        release_first_rx.await.unwrap();
+        drop(first);
+        let _second = worker.acquire_owned().await.unwrap();
+        preparation_reacquired_tx.send(()).await.unwrap();
+    });
+    tokio::task::yield_now().await;
+    drop(blocker);
+    first_started_rx.await.unwrap();
+
+    let worker = Arc::clone(&svc.validation_worker);
+    let (final_acquired_tx, final_acquired_rx) = oneshot::channel();
+    let (release_final_tx, release_final_rx) = oneshot::channel();
+    let final_proof = tokio::spawn(async move {
+        let _permit = worker.acquire_owned().await.unwrap();
+        final_acquired_tx.send(()).unwrap();
+        release_final_rx.await.unwrap();
+    });
+    tokio::task::yield_now().await;
+    release_first_tx.send(()).unwrap();
+
+    tokio::time::timeout(Duration::from_secs(1), final_acquired_rx)
+        .await
+        .expect("queued final proof did not receive the next worker boundary")
+        .unwrap();
+    assert!(
+        preparation_reacquired_rx.try_recv().is_err(),
+        "preparation reacquired before the already queued final proof"
+    );
+    release_final_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(1), preparation_reacquired_rx.recv())
+        .await
+        .expect("preparation did not resume after final proof")
+        .expect("preparation task ended before reacquiring");
+    final_proof.await.unwrap();
+    preparation.await.unwrap();
+}
+
+#[tokio::test]
+async fn missing_or_changed_validation_identity_rejects_before_witnesses_or_signing() {
+    let state = unused_validator();
+    let server = TestServer::new(Arc::clone(&state)).await;
+    for (identity, code) in [
+        (Vec::new(), Code::InvalidArgument),
+        (vec![0; 31], Code::InvalidArgument),
+        (vec![0; 33], Code::InvalidArgument),
+        (B256::repeat_byte(0x42).to_vec(), Code::FailedPrecondition),
+    ] {
+        let mut first = header_chunk(5, 7);
+        header_mut(&mut first).expected_validation_identity = identity;
+        // Deliberately bypass TestServer's post-identity gate fixtures. No
+        // witness is sent: rejection must happen before waiting for a block.
+        let status = server
+            .client()
+            .await
+            .prove(tokio_stream::iter([first]))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), code);
+        assert!(status.message().contains("validation identity"), "{status}");
+        assert_eq!(
+            status.metadata().contains_key("eez-capabilities-changed"),
+            code == Code::FailedPrecondition
+        );
+        assert!(
+            status.details().is_empty(),
+            "configuration mismatch is never an actionable source failure"
+        );
+        assert_eq!(state.attester.signing_calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_slot_is_busy() {
+    use eez_control_rpc::v1::CapabilitiesRequest;
+    let manifest = std::env::var("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
+    let path =
+        std::path::Path::new(&manifest).join("tests/fixtures/stateless-block-13/chain-config.json");
+    let loaded = eez_l1::chain_config::load_chain_document_with_digest(&path).unwrap();
+    let digest = loaded.digest();
+    let genesis = loaded.into_genesis();
+    let expected_identity = eez_control_rpc::identity::ValidationContext {
+        rollup_id: expected_rollup_id(7),
+        chain_id: genesis.config.chain_id,
+        system_address: TEST_SYSTEM_ADDRESS,
+        eez_l2_address: crate::EEZL2_ADDRESS,
+        chain_document_digest: digest,
+        canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
+    }
+    .identity();
+
+    for (blocks, bytes, items, idle, deadline) in [
+        (65_536, 536_870_912, 1_000_000, 120, 600),
+        (17, 4_096, 100, 2, 3),
+        (65_537, 536_870_912, 1_000_000, 120, 600),
+    ] {
+        let limits = ServiceLimits::new(ServiceLimitsParams {
+            max_window_blocks: nz(blocks),
+            max_window_bytes: nz(bytes),
+            max_window_witness_items: nz(items),
+            stream_idle_timeout: Duration::from_secs(idle),
+            request_timeout: Duration::from_secs(deadline),
+        })
+        .unwrap();
+        let state = inner_with_rollup(
+            Validator::stateless(&path, TEST_SYSTEM_ADDRESS).unwrap(),
+            expected_rollup_id(7),
+        );
+        let svc = ProveSvc::new(Arc::clone(&state), limits);
+        let observer = svc.clone();
+        let busy_permit = Arc::clone(&svc.active_request_slot)
+            .acquire_owned()
+            .await
+            .unwrap();
+        let server = TestServer::with_service(svc).await;
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            server.client().await.capabilities(CapabilitiesRequest {}),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .into_inner();
+        assert_eq!(response.operations_tag, 3);
+        assert_eq!(response.profile_id, 1);
+        assert_eq!(response.validation_identity, expected_identity.to_vec());
+        assert_eq!(response.max_window_blocks, blocks.min(65_536) as u64);
+        assert_eq!(response.max_request_bytes, bytes as u64);
+        assert_eq!(response.max_request_witness_items, items as u64);
+        assert_eq!(response.max_message_bytes, bytes.min(268_435_456) as u64);
+        assert_eq!(response.stream_idle_timeout_millis, idle * 1_000);
+        assert_eq!(response.request_timeout_millis, deadline * 1_000);
+        assert_eq!(response.preparation_max_blocks, 64);
+        assert_eq!(response.cache_max_entries, 131_072);
+        assert_eq!(response.cache_max_bytes, 512 * 1024 * 1024);
+        assert_eq!(response.maximum_leases, 2);
+        assert_eq!(
+            response.lease_lifetime_millis,
+            (deadline * 2).max(120) * 1_000
+        );
+        assert_eq!(observer.active_request_slot.available_permits(), 0);
+        assert_eq!(state.attester.signing_calls(), 0);
+        drop(busy_permit);
+        if blocks > 65_536 {
+            let mut first = header_chunk(1, 1);
+            let header = header_mut(&mut first);
+            header.rollup_id = 7;
+            header.to_block = 65_537;
+            header.expected_validation_identity = expected_identity.to_vec();
+            let status = server
+                .client()
+                .await
+                .prove(tokio_stream::iter([first]))
+                .await
+                .unwrap_err();
+            assert_eq!(status.code(), Code::ResourceExhausted);
+            assert!(status.message().contains("65536"), "{status}");
+            assert_eq!(state.attester.signing_calls(), 0);
+        }
+    }
+}
+
 #[test]
 fn service_limits_reject_invalid_boundaries() {
     for (name, idle_timeout, request_timeout) in [
+        (
+            "capability millisecond overflow",
+            Duration::from_secs(u64::MAX / 1_000 + 1),
+            Duration::from_secs(1),
+        ),
         (
             "zero stream idle timeout",
             Duration::ZERO,
@@ -184,6 +365,9 @@ async fn stream_shape_violations_are_invalid_arguments() {
             "header without post_batch",
             vec![ProveChunk {
                 kind: Some(prove_chunk::Kind::Header(ProveHeader {
+                    expected_validation_identity: Validator::stub(Vec::new())
+                        .validation_identity(expected_rollup_id(1))
+                        .to_vec(),
                     rollup_id: 1,
                     from_block: 5,
                     to_block: 5,
@@ -374,6 +558,11 @@ async fn a_validation_deadline_retains_the_request_slot_until_the_worker_finishe
     })
     .await
     .expect("validation completion did not release its request slot");
+    assert_eq!(
+        observer.state.attester.signing_calls(),
+        0,
+        "detached timed-out work signed after completion"
+    );
 }
 
 #[tokio::test]
@@ -465,6 +654,7 @@ async fn the_request_slot_is_shared_across_connections_and_released_after_cancel
     })
     .await
     .expect("cancelling the first client did not release its request slot");
+    assert_eq!(observer.state.attester.signing_calls(), 0);
 
     let _response = server.attest(happy_window()).await;
 }

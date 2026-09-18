@@ -31,6 +31,8 @@ pub const BUILDER_EXTRA_DATA: &[u8] = &[];
 pub const BUILDER_GAS_LIMIT: u64 = 30_000_000;
 
 pub mod block_committer;
+#[cfg(feature = "derivation")]
+pub mod derivation;
 pub mod error;
 #[cfg(feature = "observation")]
 pub mod observation;
@@ -52,4 +54,4 @@ pub use slot::{
     SyncSlotMode, SyncSlotOutcome, spawn_l1_anchored,
 };
 #[doc(inline)]
-pub use timing::{MAX_BLOCKS_PER_BATCH, MAX_BLOCKS_PER_CATCHUP, RollupTiming, SlotComposition};
+pub use timing::{MAX_BLOCKS_PER_CATCHUP, RollupTiming, SlotComposition};

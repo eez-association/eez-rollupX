@@ -1,0 +1,73 @@
+{
+  "date": "2026-09-17",
+  "source_base": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rebased_full_run": {
+    "source_commit": "1cb7035ef833fca446f88e6d3a4044fb52587041",
+    "fork_main_base": "fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7",
+    "result": "pass",
+    "modes": ["inbound", "outbound", "mixed", "mixed-pure"],
+    "signed_windows": 28,
+    "remote_attestations": 28,
+    "root_divergence": 0,
+    "safe_head_convergence": "pass",
+    "state_chaining": "pass",
+    "protocol_scenarios": {
+      "selected": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "accounting_complete": true,
+      "causal_coverage_complete": true,
+      "semantic_blob_coverage_complete": true
+    },
+    "result_sha256": "16cf0e212f9cccef4d22bb193e28a2640d8063f9869e473d4d28a36e6c7a4e81",
+    "protocol_summary_sha256": "98bab538d5c5365ddd726b0d4be51f9e62a1272adc9d1168a3610f274c006be0"
+  },
+  "full_run": {
+    "result": "pass",
+    "modes": ["inbound", "outbound", "mixed", "mixed-pure"],
+    "signed_windows": 25,
+    "remote_attestations": 25,
+    "root_divergence": 0,
+    "safe_head_convergence": "pass",
+    "state_chaining": "pass",
+    "protocol_scenarios": {
+      "selected": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "accounting_complete": true,
+      "causal_coverage_complete": true,
+      "semantic_blob_coverage_complete": true
+    },
+    "result_sha256": "c78a662ccf2b5c77c0f24bff69a1eb35265ed38beb1161025223e09282b98282",
+    "protocol_summary_sha256": "8832c9f14696c4b8b6ce48b029117ec96a014fa5399445800282d8b8eacc51d1"
+  },
+  "blob_smoke": {
+    "verified": true,
+    "mapped_l2_transactions": 3,
+    "safe_l2_block": 198,
+    "safe_l2_hash": "0xbf57931ac7a02154dd84787e13d6daa9483fe6cec591d68bb16befacbce0ccc2",
+    "l1_registry_root_matches": true,
+    "safe_contract_value": 42,
+    "summary_sha256": "12e42b48a372b6d1ed3146560ed0c53237146f65a38fc5343ce7afe86a86fdc3"
+  },
+  "restart": {
+    "verified": true,
+    "outage_observed": true,
+    "rpc_recovery_seconds": 10,
+    "correlation_recovery_seconds": 10,
+    "safe_commitment_preserved": true,
+    "correlation_evidence_preserved": true,
+    "summary_sha256": "872a18954913fb2e3e96aa18bdde32e13c36558ee58eade78554fdc0fe2de7e3"
+  },
+  "partial_consumption": {
+    "verified": true,
+    "sync_height": 708,
+    "dispositions": ["Committed", "SourceNonceSpent", "SourceReverted"],
+    "attempt_counts": [0, 0, 0],
+    "subsequent_safe_block": 714,
+    "summary_sha256": "04755b7d0a13fbc45e1911635d926a3acc60136a9868b21997d369d4a93d1311"
+  }
+}

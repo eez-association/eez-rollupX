@@ -148,6 +148,16 @@ if tool in ("forge", "python3"):
         self.assertFalse(any(call[0] == "find" for call in self.calls()))
         self.assertIn(["sccache", "--show-stats"], self.calls())
 
+    def test_native_suite_forwards_partition_and_preserves_failure(self):
+        self.env.update(RUNNER_TEMP=str(self.root), CI_TEST_NEXTEST_EXIT="100")
+        result = subprocess.run(["bash", str(REPO / "scripts/ci/run-native-suite.sh"),
+                                 "embedded", "payload", "slice:2/4"], cwd=self.root,
+                                env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 100, result.stdout + result.stderr)
+        call = next(call for call in self.calls() if call[0] == "python3")
+        self.assertEqual(call[1:], ["scripts/ci/native-tests.py", "run", "payload",
+                                    "--suite", "embedded", "--partition", "slice:2/4"])
+
     def test_diagnostics_identify_a_disappeared_target(self):
         self.env["CARGO_TARGET_DIR"] = str(self.root / "missing-target")
         result = self.run_script("cargo-failure-diagnostics.sh")

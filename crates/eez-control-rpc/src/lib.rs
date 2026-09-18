@@ -7,9 +7,10 @@
 //! recomputed `publicInputsHash`, and returns a [`v1::ProveResponse`]. One
 //! request/response: no feed, no dispatch, no sink.
 //!
-//! Only generated types + tonic stubs live here — no `Prover`-trait coupling.
+//! Generated types, tonic stubs and shared validation identity live here — no `Prover`-trait coupling.
 
 mod generated;
+pub mod identity;
 
 /// Tonic-generated protobuf module for the `prove.v1` package.
 pub use generated::v1;
@@ -51,6 +52,7 @@ mod tests {
     fn prove_header_round_trips_through_protobuf() {
         let chunk = ProveChunk {
             kind: Some(prove_chunk::Kind::Header(ProveHeader {
+                expected_validation_identity: vec![0; 32],
                 rollup_id: 7,
                 from_block: 10,
                 to_block: 12,

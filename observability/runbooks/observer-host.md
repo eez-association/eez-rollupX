@@ -15,6 +15,23 @@ archive checksum, expected regular files and executable permissions. Preserve th
 manifest and validation evidence with the deployment record. Do not rebuild a
 missing executable in the deployment step.
 
+## Node and database compatibility
+
+This observer requires the matching new-network node's
+`eez_getSettledL2RangePage` method and database schema 22. The previous full-range
+RPC is not a fallback. Stop the old observer, back up its database/configuration,
+make the matching paged node RPC available, explicitly migrate with the new
+observer binary, then start indexing. Schema-21 and older binaries refuse the
+upgraded database. Follow the [database runbook](database.md) for rollback limits.
+This observer upgrade preserves historical accounting; it does not migrate a
+legacy chain to PR26's tag-3/profile-1 genesis or remove its mandatory settlement
+policy requirement.
+
+Pages are bounded to 1,024 members and assembled/verified atomically up to 65,536
+applied blocks per receipt. Incomplete, unsupported or inconsistent responses
+remain visible collection gaps. Existing memory and request/database deadlines
+remain enforced; the format ceiling is not a measured capacity or headroom claim.
+
 ## Inputs and boundaries
 
 - Prepare the [indexer configuration](../indexer.example.json) with explicit

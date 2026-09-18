@@ -6,19 +6,21 @@
 //! attester signs only after every stage succeeds.
 
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use eez_control_rpc::v1::prover_server::ProverServer;
 use tokio::sync::Semaphore;
 
 use crate::{attest::Attester, settlement, validate, window};
 
+mod preparation;
 mod rpc;
 mod settlement_job;
 mod stream;
 
+pub(crate) use preparation::MAX_PREPARATION_BLOCKS;
 pub(crate) use settlement_job::AttestablePublicInputsHash;
 
 /// Absolute ceiling for one decoded `ProveChunk`; the configured aggregate
@@ -65,10 +67,24 @@ impl ServiceLimits {
         ] {
             eyre::ensure!(!timeout.is_zero(), "{name} must be non-zero");
             eyre::ensure!(now.checked_add(timeout).is_some(), "{name} is out of range");
+            eyre::ensure!(
+                u64::try_from(timeout.as_millis()).is_ok(),
+                "{name} exceeds the capability millisecond range"
+            );
         }
+        let lease_lifetime = request_timeout
+            .checked_mul(2)
+            .ok_or_else(|| eyre::eyre!("twice the request timeout is out of range"))?
+            .max(Duration::from_secs(120));
+        eyre::ensure!(
+            now.checked_add(lease_lifetime).is_some(),
+            "prepared-cache lease lifetime is out of range"
+        );
         Ok(Self {
             window_limits: window::WindowLimits {
-                blocks: max_window_blocks.get(),
+                blocks: max_window_blocks
+                    .get()
+                    .min(eez_payload_codec::derivable::MAX_BLOCKS),
                 payload_bytes: max_window_bytes.get(),
                 witness_items: max_window_witness_items.get(),
             },
@@ -90,6 +106,13 @@ impl ServiceLimits {
         self.request_timeout
     }
 
+    pub(crate) fn lease_lifetime(self) -> Duration {
+        self.request_timeout
+            .checked_mul(2)
+            .expect("validated service request timeout")
+            .max(Duration::from_secs(120))
+    }
+
     pub(crate) fn max_decoding_message_bytes(self) -> usize {
         self.window_limits
             .payload_bytes
@@ -100,7 +123,11 @@ impl ServiceLimits {
 /// Immutable dependencies shared by all service clones.
 #[derive(Debug)]
 pub(crate) struct ServiceState {
+    /// Original projected-DA regression oracle; never a shipping configuration.
+    #[cfg(test)]
+    projected_test_oracle: bool,
     validator: validate::Validator,
+    validation_identity: B256,
     expected_rollup_id: NonZeroU64,
     expected_l2_system_address: Address,
     attester: Attester,
@@ -109,6 +136,12 @@ pub(crate) struct ServiceState {
 }
 
 impl ServiceState {
+    #[cfg(test)]
+    fn with_projected_test_oracle(mut self) -> Self {
+        self.projected_test_oracle = true;
+        self
+    }
+
     /// Bind system-transaction reconstruction to the same configured L2 chain
     /// and expected rollup identities used by validation and settlement.
     pub(crate) fn new(
@@ -129,8 +162,12 @@ impl ServiceState {
         );
         let system_transaction_reconstructor =
             system_transaction_key.into_reconstructor(validator.chain_id(), expected_rollup_id);
+        let validation_identity = validator.validation_identity(expected_rollup_id);
         Ok(Self {
+            #[cfg(test)]
+            projected_test_oracle: false,
             validator,
+            validation_identity,
             expected_rollup_id,
             expected_l2_system_address,
             attester,
@@ -170,6 +207,9 @@ pub(crate) struct ProveSvc {
     state: Arc<ServiceState>,
     limits: ServiceLimits,
     active_request_slot: Arc<Semaphore>,
+    preparation_slot: Arc<Semaphore>,
+    validation_worker: Arc<Semaphore>,
+    prepared_cache: Arc<Mutex<crate::prepared_cache::PreparedCache>>,
 }
 
 impl ProveSvc {
@@ -178,6 +218,11 @@ impl ProveSvc {
             state,
             limits,
             active_request_slot: Arc::new(Semaphore::new(1)),
+            preparation_slot: Arc::new(Semaphore::new(1)),
+            validation_worker: Arc::new(Semaphore::new(1)),
+            prepared_cache: Arc::new(Mutex::new(
+                crate::prepared_cache::PreparedCache::with_defaults(),
+            )),
         }
     }
 
@@ -192,6 +237,18 @@ impl ProveSvc {
                 .acquire()
                 .await
                 .expect("the active-request semaphore is never closed"),
+        );
+        drop(
+            self.preparation_slot
+                .acquire()
+                .await
+                .expect("the preparation semaphore is never closed"),
+        );
+        drop(
+            self.validation_worker
+                .acquire()
+                .await
+                .expect("the validation-worker semaphore is never closed"),
         );
     }
 

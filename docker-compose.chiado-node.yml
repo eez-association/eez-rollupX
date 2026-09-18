@@ -12,9 +12,8 @@ services:
     container_name: eez-proof-signer-chiado
     network_mode: host
     restart: unless-stopped
-    # The default request deadline is 10 minutes; allow an admitted request
-    # to drain when Compose stops the service.
-    stop_grace_period: 11m
+    # Admitted proof requests can outlive this grace period and be killed.
+    stop_grace_period: 30s
     env_file:
       - ./deployments.env
     environment:
@@ -23,11 +22,12 @@ services:
       EEZ_L1_CHAIN_CONFIG: chiado
       EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
       EEZ_L2_SYSTEM_KEY: "${EEZ_L2_SYSTEM_KEY:?set EEZ_L2_SYSTEM_KEY}"
+      EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS: "${EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS-2048}"
       RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
     volumes:
       - ${FRESH_GENESIS:?set FRESH_GENESIS}:/app/genesis.json:ro
     healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "${EEZ_SIGNER_PORT:-50061}"]
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/${EEZ_SIGNER_PORT:-50061}"]
       interval: 5s
       timeout: 2s
       retries: 12
@@ -88,20 +88,16 @@ services:
       # other eth_* is transparently forwarded to the matching source-chain RPC.
       EEZ_L1_XCHAIN_PORT: "18999"
       EEZ_L2_XCHAIN_PORT: "18998"
-      # Combined cap for both cross-chain directions; overflow remains queued.
-      # Lower than the in-code default (50) because the whole bundle
-      # [postBatch, user_tx...] has to fit a 17M Chiado block, not the 60M a
-      # devnet L1 gives: 9M cap + 12 * 400k = 13.8M.
+      # The Chiado env preset selects adaptive admission. The numeric fallback
+      # keeps Compose rendering deterministic; runtime still requires the policy.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
       # Emission + reorg bounds documented in .env.example. eez-node reads these
       # from the process env, and this service takes no env_file beyond
       # deployments.env, so they have to be forwarded explicitly. Defaults track
       # the in-code ones (composer.rs, timing.rs, l1_watcher.rs).
-      # Omitted values stay absent. With policy disabled, runtime defaults apply;
-      # enabled policy rejects EEZ_MAX_BLOCKS_PER_BATCH and resolves active gas rules.
-      EEZ_MAX_BLOCKS_PER_BATCH:
+      # Omitted optional values stay absent. Required policy and fee settings
+      # come from the environment file and fail startup when missing.
       EEZ_MAX_POSTBATCH_GAS:
-      EEZ_SETTLEMENT_POLICY_ENABLED: "${EEZ_SETTLEMENT_POLICY_ENABLED:-false}"
       EEZ_SETTLEMENT_PURE_L2_MODE:
       EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS:
       EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS:
@@ -110,7 +106,6 @@ services:
       EEZ_L1_POSTBATCH_PRIORITY_FEE:
       EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE:
       EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE:
-      EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS:
       EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS:
       EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS:
       EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS:
@@ -120,10 +115,8 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Unset preparation uses the rounded trigger (~800ms for
-      # preparation with these defaults). Set an explicit positive allowance
-      # to reserve preparation independently and trigger at millisecond precision.
-      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-1500}"
+      # Without explicit preparation, runtime retains the rounded trigger.
+      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-500}"
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
       EEZ_PREPARATION_TIME_MS:
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
@@ -153,7 +146,7 @@ services:
       - --http
       - --http.addr=0.0.0.0
       - --http.port=18688
-      - --http.api=eth,net,web3
+      - --http.api=eth,net,web3,debug,trace
       - --ws
       - --ws.addr=127.0.0.1
       - --ws.port=${EEZ_L2_WS_PORT:-18689}
@@ -167,6 +160,7 @@ services:
       - --disable-discovery
       - --engine.persistence-threshold=256
       - --engine.memory-block-buffer-target=128
+      - --log.stdout.format=json
     logging:
       driver: "local"
 

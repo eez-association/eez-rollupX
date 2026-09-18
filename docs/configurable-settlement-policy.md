@@ -10,7 +10,7 @@ The policy changes when a batch is posted. L2 execution, the Sync grid, ECDSA
 validation, canonical derivation, and transaction ownership keep their existing
 roles. Only validated L1 commitment advancement resets the settlement clock.
 
-When enabled, a validated cross-chain group is due at the next eligible L1
+Under this policy, a validated cross-chain group is due at the next eligible L1
 opportunity. An empty Sync is not cross-chain activity. Included ordinary L2
 transactions, including reverted transactions, use the selected pure-L2 rule.
 The general block threshold consolidates empty history too. All due rules are
@@ -23,36 +23,34 @@ Settings are read once before node launch. Existing environment/config-file
 precedence is unchanged. Invalid values fail startup. An omitted value differs
 from an empty string. Restart is required to change settings.
 
-| Setting | Default | Enabled-policy meaning / validation |
+| Setting | Default | Meaning / validation |
 | --- | --- | --- |
-| `EEZ_SETTLEMENT_POLICY_ENABLED` | `false` | Opt in with `true`; disabled mode preserves legacy behavior. Policy-only settings supplied while disabled are errors. |
-| `EEZ_SETTLEMENT_PURE_L2_MODE` | Required when enabled | Exactly `always` or `interval`. |
+| `EEZ_SETTLEMENT_PURE_L2_MODE` | Required | Exactly `always` or `interval`. |
 | `EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS` | Required for `interval`; absent for `always` | Positive integer milliseconds. A value supplied with `always` is validated but inactive. Measured from the containing L1 timestamp of the latest canonical commitment. |
-| `EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS` | Required when enabled | Positive integer `N`, a posting trigger rather than a packing limit. |
+| `EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS` | Required | Positive integer `N`, a posting trigger rather than a packing limit. |
 | `EEZ_SETTLEMENT_BLOB_FULLNESS_BPS` | Off | `off`, or an integer from 1 through 10000. Soft threshold over meaningful unpadded bytes across **all** permitted blobs. |
 | `EEZ_MAX_BLOBS_PER_BATCH` | No operator cap | Optional positive integer, additionally bounded by active network transaction/block and transport limits. Applies only to outgoing posts. |
-| `EEZ_MAX_POSTBATCH_GAS` | No operator cap when enabled | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. Legacy default remains 16,777,216 with its existing validation. |
-| `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado Compose default 12 | Positive integer for the existing count limit, or `auto` with the policy enabled for adaptive resource/time admission. Parsed once; restart to change. |
-| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Reserve preparation independently of proof and relay slack, with an exact millisecond trigger. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the previous rounded trigger. Operational timing setting, independent of policy enablement. |
-| `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Enabled policy requires 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
-| `EEZ_MAX_BLOCKS_PER_BATCH` | Legacy default 300 | Must be absent when enabled. No automatic 300-block split. |
-| `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required when enabled | Positive integer execution-price ceiling in native base units per gas. |
-| `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required when enabled | Positive integer blob-price ceiling in native base units per blob gas. |
-| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Network estimator when enabled | Optional nonnegative integer override within configured bounds. Legacy mode retains its prior default. |
+| `EEZ_MAX_POSTBATCH_GAS` | No operator cap | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. |
+| `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` for adaptive resource/time admission. Compose retains a numeric interpolation fallback of 12, but startup still requires the mandatory policy settings. Parsed once; restart to change. |
+| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Reserve preparation independently of proof and relay slack, with an exact millisecond trigger. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
+| `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
+| `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
+| `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
+| `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
+| `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Fee-history estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
-| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Execution-price ceiling | Must be at least the minimum and no greater than the execution-price ceiling. |
-| `EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS` | 0 | Nonnegative integer basis points added to the network-estimated priority fee, rounded up before applying minimum/maximum bounds. Fixed overrides remain exact. |
+| `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
-Margins use checked `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings
-are per-unit prices, not currency budgets or maximum transaction costs. A
+Execution, blob, and gas margins use checked
+`ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
+prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
 
-Upgrade composer and signer together: requests without L1 posting context are
-rejected, including when the configurable scheduling policy is disabled.
+Requests without L1 posting context are rejected.
 The batch, DA and signature formats remain unchanged.
 
 Signed execution fee caps are checked against the pinned L1 target and L2 draft
@@ -131,7 +129,7 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-With the policy enabled, bounded simple deferred entries reserve gas according
+Bounded simple deferred entries reserve gas according
 to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
 and 270,000 for 33–64 bytes. One successful simple call through a proxy registered
 at the canonical parent reserves 70,000, plus its measured L1 target execution.
@@ -148,7 +146,7 @@ used only with a recognized previous queue: clearing each stored no-call entry
 adds 55,000, 60,000 or 65,000 for those respective result sizes, even when its
 consumption cursor has reached the end. Mixed queues sum each stored entry's
 reserve; the result size comes from canonical storage. Unknown or
-static prior queues retain the legacy projection. Queue shape and existing
+static prior queues retain the conservative projection. Queue shape and existing
 proxies are read from pinned canonical state on each attempt, including after
 a restart. Speculative proxy creation never earns the lower reserve.
 The [result-size reserve audit](audits/2026-09-16-chiado-result-reserves/README.md)
@@ -170,11 +168,9 @@ Capacity/time deferral retains ownership and does not charge a failed attempt.
 
 Automatic admission is a capacity estimate, not a guarantee that every attempt
 will make its target: expensive transactions, RPC delays, and missed L1 slots
-still use the existing retry/reconciliation paths. Ordinary L2 transactions use the interval DA guard described below. Numeric and unset settings keep
-the previous count behavior; `auto` with disabled settlement policy is rejected.
+still use the existing retry/reconciliation paths. Ordinary L2 transactions use the interval DA guard described below. Numeric and unset settings keep the count behavior described above.
 
-With `EEZ_SETTLEMENT_POLICY_ENABLED=true`, ordinary L2 blocks also receive an
-automatic hard data budget. The composer uses the receiving network's blob
+Ordinary L2 blocks receive an automatic hard data budget. The composer uses the receiving network's blob
 maxima and `EEZ_MAX_BLOBS_PER_BATCH`, when set. It subtracts the exact data already
 sequenced in the current interval and reserves room for empty blocks through
 its next usable Sync boundary. The soft fullness percentage does not constrain
@@ -186,8 +182,8 @@ the mempool for a later block; nonce dependencies remain intact. An individually
 unpostable transaction receives a descriptive RPC error. Catch-up preserves
 empty intermediate boundaries. Neither this budget nor reaching a boundary
 triggers settlement by itself: the configured policy still determines when to
-post. Policy-disabled nodes and independent followers keep their existing paths.
-No additional configuration or recovery journal is required. This guard prevents
+post. Independent followers do not run this admission path. No additional
+recovery journal is required. This guard prevents
 new oversized intervals; it cannot rewrite an already accepted oversized suffix.
 
 Anchor-only posting also measures encoding, sidecar, and witness preparation.
@@ -197,11 +193,10 @@ This lets large fitting batches use a later eligible slot when necessary.
 Cross-chain effects retain their bound execution slot and all existing deadline
 checks remain active.
 
-For example, this opt-in policy settles ordinary activity every 15 minutes,
+For example, this policy settles ordinary activity every 15 minutes,
 consolidates every 150 blocks, and can post earlier at 10% aggregate fullness:
 
 ```dotenv
-EEZ_SETTLEMENT_POLICY_ENABLED=true
 EEZ_SETTLEMENT_PURE_L2_MODE=interval
 EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS=900000
 EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS=150
@@ -216,35 +211,45 @@ For production estimation, remove a copied smoke-test priority override unless
 it is intentional. Configure relay minimums explicitly. Companion user
 transactions retain their original signed bytes and authorized fees.
 
-### Following network fees with a percentage margin
+### Bounded next-block priority estimation
 
-With the policy enabled and both price ceilings configured, this example pays
-the receiving network's estimated tip plus 20%, subject to the configured bounds:
+Dynamic mode requests the gas-weighted p90 reward for each of the latest 20
+canonical blocks with `eth_feeHistory`, selects the p90 of those 20 samples,
+and clamps it to an optional relay floor and an independent priority ceiling.
+This targets prompt inclusion without a multiplier or mutable feedback state:
 
 ```dotenv
-# Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use the network estimator.
-EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=0
-EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS=2000
+# Leave EEZ_L1_POSTBATCH_PRIORITY_FEE unset to use fee history.
+# EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=0
+EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=3000000000
 ```
 
-`100` basis points is 1%; `2000` is 20%; `10000` is 100%. The default is `0`
-(no uplift), and margins above 100% are allowed. Values must fit an unsigned
-64-bit integer; empty, negative, fractional, malformed, or larger values fail
-startup. Supplying this setting when the policy is disabled also fails startup.
+Each attempt samples immediately before signing and is bound to the same
+canonical head as the quote. Empty blocks contribute zero, so a minimum is not
+needed unless the selected relay imposes one. Isolated spikes do not control
+the result, sustained market changes do, and the independent ceiling bounds
+the signed tip. Missing, malformed or stale history preserves due work for
+retry. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses fee history and remains
+exact.
 
-Each new attempt uses a fresh network estimate. For example, an estimated tip
-of 0.01 gwei becomes 0.012 gwei with a 20% margin. The minimum/maximum bounds
-apply **after** the percentage: a 1-gwei minimum would still select 1 gwei in
-this example. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses the estimator and
-its margin, while all supplied settings are still validated. Missing estimates,
-arithmetic overflow, or insufficient fee ceilings preserve due work for retry.
+One poster transaction among a 20-block window cannot raise the outer p90, so
+an isolated post cannot feed its own price back into the next quote. On a chain
+where the poster occupies several recent blocks its paid tip can contribute to
+the market sample, but there is still no uplift and therefore no recursive
+growth. The ceiling remains authoritative.
+
+The tip is also the builder payment for an EIP-4844 poster transaction. Blob gas
+has no separate priority fee: its target-block base fee is burned and is covered
+independently by `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` plus blob headroom.
+The priority estimate therefore improves builder competitiveness for blob
+bundles without using blob base fee as a tip signal.
 
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;
-they do not multiply the base fees actually charged. The priority margin raises
-the selected tip and its estimated cost. The gas-limit margin provides execution
-headroom; actual charges still use receipt gas consumption. Fee-quote
-events include the raw estimated priority fee, margin, bounds, and selected tip.
+they do not multiply the base fees actually charged. The gas-limit margin
+provides execution headroom; actual charges still use receipt gas consumption.
+Fee-quote events include the fee-history estimate, bounds, selected tip, and
+the independent execution/blob fee caps.
 
 Use a relay minimum only when the selected relay needs it. The 1-gwei minimum
 in the local Kurtosis PBS profiles funds their builder payout; it is not a
@@ -263,8 +268,8 @@ with a measured preparation allowance. The trigger occurs at the next L1 slot
 minus preparation, proof and submission slack. Block timestamps and the Sync
 grid remain unchanged; the Future suffix covers the combined budget. For
 example, a 5-second/1-second profile with preparation 500 ms, proof 500 ms and
-slack 700 ms triggers at 3.3 seconds after its anchor. This is an operator example,
-not a default or a latency guarantee. Size proof and preparation for large
+slack 700 ms triggers at 3.3 seconds after its anchor. This is the packaged
+Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
 all absolute proof and submission deadlines remain enforced.
 
@@ -286,16 +291,16 @@ opens, not a mandatory block gap. Selection is logged as
 `eez.submitter.policy.target_selected`, including the
 observed head, timing budget, and chosen offset. Final timestamp, canonical-head,
 fee, and deadline checks still apply, and missed opportunities preserve pending
-work. No new timing setting is required. Explicit Sync targets and policy-disabled
-legacy targeting retain their existing behavior.
+work. No new timing setting is required. Explicit Sync targets retain their
+existing behavior.
 
-Enabled composer nodes wake the existing L1 scanner on embedded canonical-head
+Composer nodes wake the existing L1 scanner on embedded canonical-head
 notifications, so settlement evidence need not wait for the two-second fallback
 poll. The scan still verifies canonical hashes, complete event ordering and
 native blob data before reconciliation. Notifications coalesce, and missed or
 closed notifications retain periodic recovery; finality refreshes keep their
-existing timer cadence. Followers and policy-disabled nodes retain periodic
-polling. This adds no polling or proof-time configuration.
+existing timer cadence. Followers retain periodic polling. This adds no polling
+or proof-time configuration.
 
 The composer uses the embedded node's actual fork configuration and executor,
 including Gnosis fee collection and fork transitions. It resolves outgoing
@@ -320,15 +325,14 @@ anchors and pending activity are rebuilt under the new configuration. Restart
 time never becomes a settlement timestamp. Existing nonce and source-outcome
 reconciliation remain authoritative.
 
-## Migration
+## Deployment checklist
 
-1. Leave the policy disabled to retain existing posting behavior.
-2. Select the mode, general threshold, and both price ceilings to enable it.
-3. Remove `EEZ_MAX_BLOCKS_PER_BATCH`; adjust speculative depth for `N + K - 1`.
-4. Configure the same reviewed L1 profile for signer/follower deployment, retain
+1. Select the mode, general threshold, and both price ceilings.
+2. Keep `EEZ_MAX_BLOCKS_PER_BATCH` absent; adjust speculative depth for `N + K - 1`.
+3. Configure the same reviewed L1 profile for signer/follower deployment, retain
    native sidecar and relay settings, and size manual prover limits for the
    intended backlog. Prover errors do not authorize automatic splitting.
-5. Inspect decision, allowance, fee-quote, preflight, dispatch, and canonical
+4. Inspect decision, allowance, fee-quote, preflight, dispatch, and canonical
    settlement diagnostics during the profile's integration checks.
 
 Packing format is unchanged. Multi-blob batches are preferred; splitting uses

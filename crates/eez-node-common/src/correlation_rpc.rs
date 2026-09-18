@@ -179,6 +179,22 @@ fn module(
     )?;
 
     module.register_method(
+        "eez_getSettledL2RangePage",
+        |params, (correlations, l1_head), _ext| {
+            ensure_ready(correlations)?;
+            let request = RangePageRequest::parse(params.one::<Value>().map_err(invalid_params)?)?;
+            let Some(record) = correlations
+                .by_l1_transaction_hash(request.transaction_hash)
+                .map_err(internal_error)?
+                .filter(|record| record.l1_block_hash == request.block_hash)
+            else {
+                return Ok::<_, ErrorObjectOwned>(None);
+            };
+            range_page_json(&record, correlations, l1_head.finalized_l2(), request).map(Some)
+        },
+    )?;
+
+    module.register_method(
         "eez_getSettledL2RangesByL1Block",
         |params, (correlations, l1_head), _ext| {
             ensure_ready(correlations)?;
@@ -199,6 +215,110 @@ fn module(
     Ok(module)
 }
 
+struct RangePageRequest {
+    block_hash: B256,
+    transaction_hash: B256,
+    offset: usize,
+    limit: usize,
+}
+
+impl RangePageRequest {
+    fn parse(value: Value) -> Result<Self, ErrorObjectOwned> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| invalid_selector("expected page object"))?;
+        if object.len() != 4 {
+            return Err(invalid_selector(
+                "page requires l1BlockHash, l1TransactionHash, offset and limit",
+            ));
+        }
+        let parse_hash = |name| {
+            object
+                .get(name)
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid_selector("page hashes must be 32-byte hex strings"))?
+                .parse::<B256>()
+                .map_err(invalid_params)
+        };
+        let offset = object
+            .get("offset")
+            .and_then(Value::as_u64)
+            .filter(|offset| *offset < 65_536)
+            .ok_or_else(|| invalid_selector("page offset must be an integer below 65536"))?
+            as usize;
+        let limit = object
+            .get("limit")
+            .and_then(Value::as_u64)
+            .filter(|limit| (1..=1024).contains(limit))
+            .ok_or_else(|| invalid_selector("page limit must be an integer in 1..=1024"))?
+            as usize;
+        Ok(Self {
+            block_hash: parse_hash("l1BlockHash")?,
+            transaction_hash: parse_hash("l1TransactionHash")?,
+            offset,
+            limit,
+        })
+    }
+}
+
+/// An immutable record digest detects a reorg/reinsertion between requests.
+/// Mutable page canonicality/finality is separate and must be checked by callers.
+fn range_digest(record: &BatchCorrelation) -> B256 {
+    let mut digest = alloy_primitives::Keccak256::new();
+    digest.update(b"EEZ_CORRELATION_PAGE_V1");
+    digest.update(record.l1_block_number.to_be_bytes());
+    digest.update(record.l1_block_hash);
+    digest.update(record.l1_transaction_hash);
+    digest.update(record.l1_transaction_index.to_be_bytes());
+    digest.update((record.l2_blocks.len() as u64).to_be_bytes());
+    for block in &record.l2_blocks {
+        digest.update(block.number.to_be_bytes());
+        digest.update(block.hash);
+    }
+    digest.finalize()
+}
+
+fn range_page_json(
+    record: &BatchCorrelation,
+    correlations: &CorrelationStore,
+    finalized_l2: u64,
+    request: RangePageRequest,
+) -> Result<Value, ErrorObjectOwned> {
+    let count = record.l2_blocks.len();
+    if count > 65_536 {
+        return Err(internal_error(
+            "correlation range exceeds supported format ceiling",
+        ));
+    }
+    if request.offset >= count {
+        return Err(invalid_selector("page offset is outside the settled range"));
+    }
+    let end = (request.offset + request.limit).min(count);
+    let page = &record.l2_blocks[request.offset..end];
+    let canonical = correlations
+        .canonical_l2_blocks(record.l1_transaction_hash, page)
+        .map_err(internal_error)?;
+    let first = record.first_l2();
+    let last = record.last_l2();
+    Ok(json!({
+        "l1BlockNumber": quantity(record.l1_block_number),
+        "l1BlockHash": hash(record.l1_block_hash),
+        "l1TransactionHash": hash(record.l1_transaction_hash),
+        "l1TransactionIndex": quantity(record.l1_transaction_index),
+        "l2Range": {
+            "firstBlockNumber": quantity(first.number), "firstBlockHash": hash(first.hash),
+            "lastBlockNumber": quantity(last.number), "lastBlockHash": hash(last.hash),
+            "blockCount": quantity(count as u64),
+        },
+        "l2Blocks": page.iter().map(|block| json!({"number": quantity(block.number), "hash": hash(block.hash)})).collect::<Vec<_>>(),
+        "canonicalL2": canonical,
+        "l2Finalized": canonical && page.last().is_some_and(|block| block.number <= finalized_l2),
+        "offset": request.offset,
+        "nextOffset": (end < count).then_some(end),
+        "evidenceDigest": hash(range_digest(record)),
+    }))
+}
+
 fn batch_json(
     record: &BatchCorrelation,
     correlations: &CorrelationStore,
@@ -206,16 +326,9 @@ fn batch_json(
 ) -> Result<Value, String> {
     let first = record.first_l2();
     let last = record.last_l2();
-    let canonical_l2 = record.l2_blocks.iter().try_fold(true, |canonical, block| {
-        let current = correlations.by_l2_number(block.number)?;
-        Ok::<_, String>(
-            canonical
-                && current.is_some_and(|found| {
-                    found.batch.l1_transaction_hash == record.l1_transaction_hash
-                        && found.l2_block.hash == block.hash
-                }),
-        )
-    })?;
+    // Long derivable ranges must not reload the full batch for every member.
+    let canonical_l2 =
+        correlations.canonical_l2_blocks(record.l1_transaction_hash, &record.l2_blocks)?;
     Ok(json!({
         "l1BlockNumber": quantity(record.l1_block_number),
         "l1BlockHash": hash(record.l1_block_hash),
@@ -369,6 +482,76 @@ mod tests {
         assert!(parse_selector(json!(-1)).is_err());
     }
 
+    fn page_request(offset: usize, limit: usize) -> RangePageRequest {
+        RangePageRequest::parse(json!({
+            "l1BlockHash": hash(record().l1_block_hash),
+            "l1TransactionHash": hash(record().l1_transaction_hash),
+            "offset": offset, "limit": limit,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn pages_preserve_full_range_and_digest_but_bound_block_arrays() {
+        let correlations = CorrelationStore::in_memory();
+        let mut batch = record();
+        batch.l2_blocks = (0..65_536)
+            .map(|index| L2BlockCorrelation {
+                number: 199 + index,
+                hash: B256::from(alloy_primitives::U256::from(index + 1)),
+            })
+            .collect();
+        correlations.put(&batch).unwrap();
+        let first =
+            range_page_json(&batch, &correlations, u64::MAX, page_request(0, 1024)).unwrap();
+        let last = range_page_json(&batch, &correlations, 0, page_request(64_512, 1024)).unwrap();
+        assert_eq!(first["l2Blocks"].as_array().unwrap().len(), 1024);
+        assert_eq!(last["l2Blocks"].as_array().unwrap().len(), 1024);
+        assert_eq!(first["l2Range"]["blockCount"], "0x10000");
+        assert_eq!(first["nextOffset"], 1024);
+        assert!(last["nextOffset"].is_null());
+        assert_eq!(first["l2Range"], last["l2Range"]);
+        assert_eq!(first["evidenceDigest"], last["evidenceDigest"]);
+        assert_eq!(first["canonicalL2"], true);
+        assert_eq!(first["l2Finalized"], true);
+        assert_eq!(last["l2Finalized"], false);
+        let unpaged = batch_json(&batch, &correlations, u64::MAX).unwrap();
+        assert_eq!(unpaged["l2Blocks"].as_array().unwrap().len(), 65_536);
+        assert_eq!(unpaged["l2Range"], first["l2Range"]);
+        assert_eq!(unpaged["canonicalL2"], true);
+        assert_eq!(unpaged["l2Finalized"], true);
+        let digest = range_digest(&batch);
+        batch.l2_blocks[500].hash = B256::ZERO;
+        assert_ne!(range_digest(&batch), digest);
+        let changed = range_page_json(&batch, &correlations, 0, page_request(0, 1024)).unwrap();
+        assert_eq!(changed["canonicalL2"], false);
+        let changed_unpaged = batch_json(&batch, &correlations, u64::MAX).unwrap();
+        assert_eq!(changed_unpaged["canonicalL2"], false);
+        assert_eq!(changed_unpaged["l2Finalized"], false);
+    }
+
+    #[test]
+    fn page_parameters_reject_unbounded_and_out_of_range_requests() {
+        let valid = json!({"l1BlockHash": hash(record().l1_block_hash),
+            "l1TransactionHash": hash(record().l1_transaction_hash), "offset": 0, "limit": 1});
+        for (key, value) in [
+            ("offset", json!(65_536)),
+            ("offset", json!(-1)),
+            ("limit", json!(0)),
+            ("limit", json!(1025)),
+            ("limit", json!("1")),
+            ("l1BlockHash", json!("0x00")),
+            ("extra", json!(true)),
+        ] {
+            let mut invalid = valid.clone();
+            invalid[key] = value;
+            assert!(RangePageRequest::parse(invalid).is_err());
+        }
+        let correlations = CorrelationStore::in_memory();
+        correlations.put(&record()).unwrap();
+        assert!(range_page_json(&record(), &correlations, 0, page_request(2, 1)).is_err());
+    }
+
     fn record() -> BatchCorrelation {
         BatchCorrelation {
             l1_block_number: 35,
@@ -404,6 +587,32 @@ mod tests {
             .unwrap();
         let response: Value = serde_json::from_str(response.get()).unwrap();
         assert_eq!(response["error"]["code"], -32001);
+    }
+
+    #[tokio::test]
+    async fn page_rpc_requires_ready_index_and_exact_transaction_block_identity() {
+        let correlations = Arc::new(CorrelationStore::in_memory());
+        correlations.put(&record()).unwrap();
+        let rpc = module(correlations.clone(), Arc::new(L1CanonicalHead::default())).unwrap();
+        let mut request = json!({"jsonrpc":"2.0", "id":1,
+        "method":"eez_getSettledL2RangePage", "params":[{
+            "l1BlockHash":hash(record().l1_block_hash),
+            "l1TransactionHash":hash(record().l1_transaction_hash), "offset":0, "limit":1
+        }]});
+        let query = async |request: &Value| {
+            let (response, _) = rpc.raw_json_request(&request.to_string(), 1).await.unwrap();
+            serde_json::from_str::<Value>(response.get()).unwrap()
+        };
+        assert_eq!(query(&request).await["error"]["code"], -32001);
+        correlations.mark_ready();
+        let first = query(&request).await;
+        assert_eq!(first["result"]["l2Blocks"].as_array().unwrap().len(), 1);
+        assert_eq!(first["result"]["nextOffset"], 1);
+        request["params"][0]["l1BlockHash"] = json!(hash(B256::ZERO));
+        assert!(query(&request).await["result"].is_null());
+        request["params"][0]["l1BlockHash"] = json!(hash(record().l1_block_hash));
+        request["params"][0]["l1TransactionHash"] = json!(hash(B256::ZERO));
+        assert!(query(&request).await["result"].is_null());
     }
 
     #[tokio::test]

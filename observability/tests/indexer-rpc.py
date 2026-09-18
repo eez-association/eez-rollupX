@@ -10,6 +10,7 @@ import time
 POST_CALL = pathlib.Path('/post-calldata.hex').read_text().strip()
 MULTI_ROLLUP_CALL = pathlib.Path('/multi-rollup-post-calldata.hex').read_text().strip()
 BLOB_FIXTURES = json.loads(pathlib.Path('/blob-carriers.json').read_text())
+PAGE_DIGESTS = json.loads(pathlib.Path('/correlation-page-digests.json').read_text())['digests']
 
 def digest(number):
     return '0x' + f'{number:064x}'
@@ -209,14 +210,18 @@ class RPC(http.server.BaseHTTPRequestHandler):
                             value['logs'][1]['blockHash'] = digest(999)
                         if protocol_logs == 'limit':
                             value['logs'] = [{**root,'logIndex':hex(i)} for i in range(4097)]
-        elif method == 'eez_getSettledL2RangesByL1Block':
+        elif method in ('eez_getSettledL2RangesByL1Block', 'eez_getSettledL2RangePage'):
             assert chain == 2
             l1_hash = digest(102 + (10 if phase == 'fork' else 0))
             value = []
-            if params == [{'blockHash': l1_hash}] and correlation not in ('none','missing'):
+            paged = method == 'eez_getSettledL2RangePage'
+            selector = params[0]['l1BlockHash'] if paged else params[0].get('blockHash')
+            if selector == l1_hash and correlation not in ('none','missing'):
                 blocks = [{'number':'0x1','hash':digest(201)}, {'number':'0x2','hash':digest(212 if phase == 'fork' else 202)}]
                 if correlation == 'wrong_hash':
                     blocks[1]['hash'] = digest(999)
+                elif paged and correlation == 'duplicate':
+                    blocks[1]['hash'] = blocks[0]['hash']
                 for index in range(post_count):
                     value.append({'l1BlockNumber':'0x3' if correlation == 'wrong_anchor' else '0x2',
                         'l1BlockHash':l1_hash, 'l1TransactionHash':digest(1002 + index), 'l1TransactionIndex':hex(index),
@@ -225,6 +230,21 @@ class RPC(http.server.BaseHTTPRequestHandler):
                         'l2Blocks':blocks, 'canonicalL2':True, 'l2Finalized':correlation != 'reported_unfinalized'})
                 if correlation == 'duplicate':
                     value.append(value[0])
+            if paged:
+                query = params[0]
+                assert set(query) == {'l1BlockHash','l1TransactionHash','offset','limit'}
+                assert type(query['offset']) is int and 0 <= query['offset'] < 65536
+                assert type(query['limit']) is int and 1 <= query['limit'] <= 1024
+                matched = [v for v in value if v['l1TransactionHash'] == query['l1TransactionHash']]
+                value = matched[0] if matched else None
+                if value is not None:
+                    offset, limit = query['offset'], query['limit']
+                    blocks = value['l2Blocks']
+                    assert offset < len(blocks)
+                    key = ':'.join(str(v) for v in (int(value['l1BlockNumber'],16),int(l1_hash,16),int(blocks[-1]['hash'],16),int(value['l1TransactionIndex'],16)))
+                    end = min(offset + limit,len(blocks))
+                    value.update(offset=offset,nextOffset=end if end<len(blocks) else None,
+                                 evidenceDigest=PAGE_DIGESTS[key],l2Blocks=blocks[offset:end])
         else:
             self.send({'jsonrpc': '2.0', 'id': request['id'], 'error': {'code': -32601, 'message': 'unsupported fixture method'}})
             return

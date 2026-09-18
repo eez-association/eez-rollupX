@@ -43,7 +43,7 @@ class NativeArtifactTest(unittest.TestCase):
                              runtime_sha256=native.runtime_hashes(self.frozen))
         self.target = self.root / "job-target"
 
-    def run_archive(self, suite="unit", failures=()):
+    def run_archive(self, suite="unit", failures=(), partition=None):
         (self.root / "manifest.json").write_text(json.dumps(self.manifest))
         def extract(command, **_):
             if command[:3] == ["cargo-nextest", "nextest", "list"]:
@@ -67,7 +67,7 @@ class NativeArtifactTest(unittest.TestCase):
                 patch.object(native.subprocess, "run", side_effect=extract) as run, \
                 patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target), EEZ_TEST_LOG_DIR=str(self.root / "logs"), EEZ_TEST_QUOTA_IMAGE="fixture-quota:exact"):
             try:
-                native.run(self.root, suite)
+                native.run(self.root, suite, partition)
             finally:
                 self.calls = run.call_args_list
             return run.call_args
@@ -87,6 +87,55 @@ class NativeArtifactTest(unittest.TestCase):
                          str(self.target / "native-tests/target/release/eez-runtime"))
         self.assertIn("--test-threads=1", command)
         self.assertEqual(command[command.index("--profile") + 1], "ci")
+
+    def test_partition_retains_suite_filter_identity_and_serial_execution(self):
+        for suite in ("embedded", "cross-chain"):
+            for shard in range(1, 5):
+                with self.subTest(suite=suite, shard=shard):
+                    if self.target.exists():
+                        shutil.rmtree(self.target)
+                    partition = f"slice:{shard}/4"
+                    self.run_archive(suite, partition=partition)
+                    args = next(call for call in self.calls
+                                if call.args[0][:3] == ["cargo-nextest", "nextest", "run"])
+                    quota = [call for call in self.calls if call.args[0][0] == sys.executable]
+                    self.assertEqual(len(quota), int(suite == "cross-chain" and shard == 1))
+                    command = args.args[0]
+                    self.assertEqual(command[command.index("--partition") + 1], partition)
+                    self.assertEqual(command[command.index("-E") + 1], native.SUITES[suite])
+                    self.assertIn("--test-threads=1", command)
+                    self.assertIn("--no-tests=fail", command)
+                    self.assertEqual(args.kwargs["env"]["EEZ_TEST_PREBUILT"], "1")
+
+    def test_first_partition_quota_ownership_uses_numeric_index(self):
+        for partition in ("hash:1/4", "hash:01/4", "slice:01/4"):
+            with self.subTest(partition=partition):
+                if self.target.exists():
+                    shutil.rmtree(self.target)
+                self.run_archive("cross-chain", partition=partition)
+                quota = [call for call in self.calls if call.args[0][0] == sys.executable]
+                self.assertEqual(len(quota), 1)
+
+    def test_partition_cannot_certify_partial_unit_validation(self):
+        with self.assertRaisesRegex(ValueError, "unit validation must run in full"):
+            self.run_archive(partition="slice:1/4")
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.root / "unit-passed.json").exists())
+
+    def test_partition_failure_is_propagated(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_archive("embedded", failures=("native-tests",), partition="slice:1/4")
+
+    def test_failed_cross_chain_partition_does_not_run_quota(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_archive("cross-chain", failures=("native-tests",), partition="slice:1/4")
+        self.assertFalse(any(call.args[0][0] == sys.executable for call in self.calls))
+
+    def test_quota_failure_fails_its_cross_chain_partition(self):
+        with patch.object(native, "run_native_quota", side_effect=subprocess.CalledProcessError(1, ["quota"])) as quota:
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.run_archive("cross-chain", partition="slice:1/4")
+            quota.assert_called_once()
 
     def test_wrong_revision_profile_lock_or_toolchain_fails_closed(self):
         for key in self.identity:
@@ -279,7 +328,7 @@ class NativeArtifactTest(unittest.TestCase):
             native.export_e2e(self.root, self.root / "lean")
 
     def test_test_inventory_and_serialism_are_preserved(self):
-        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
+        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "derivable_operations", "chained_interstate", "resumption", "partial_consumption",
                                          "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
                                          "queue_liveness", "queue_reorg",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors",
@@ -303,6 +352,7 @@ class NativeArtifactTest(unittest.TestCase):
             self.assertEqual(len(selected), 1, f"{binary}: {selected}")
             self.assertIn(name, native.TARGETS)
         self.assertIn("binary(=settlement_policy_gas)", native.SUITES["cross-chain"])
+        self.assertIn("binary(=derivable_operations)", native.SUITES["cross-chain"])
         self.assertIn("binary(=dynamic_admission)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_liveness)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_reorg)", native.SUITES["cross-chain"])
@@ -516,22 +566,30 @@ class NativeRelocationTest(unittest.TestCase):
 #[test] fn fixture_is_relocated() {
     assert_eq!(std::fs::read_to_string(manifest_dir().join("tests/fixtures/fixture.txt")).unwrap(), "relocated fixture");
 }
-#[test] fn nodes_and_signer_are_relocated() {
-    for bin in [NodeBinary::Composer, NodeBinary::Follower] {
-        assert!(std::process::Command::new(bin.path().unwrap()).status().unwrap().success());
-    }
-    for bin in [NodeBinary::Composer, NodeBinary::Follower] {
-        let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
-        assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
-    }
+fn check_node(bin: NodeBinary) {
+    let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
+    assert!(result.status.success());
+    assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
+}
+#[test] fn composer_is_relocated() { check_node(NodeBinary::Composer); }
+#[test] fn follower_is_relocated() { check_node(NodeBinary::Follower); }
+#[test] fn signer_is_relocated() {
     let signer = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN").unwrap();
     assert!(std::process::Command::new(signer).status().unwrap().success());
+}
+#[test] fn permanent_failure_is_not_retried() {
+    if let Ok(path) = std::env::var("EEZ_FIXTURE_FAILURE_LOG") {
+        use std::io::Write;
+        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        writeln!(log, "{}", file!()).unwrap();
+        panic!("intentional fixture failure");
+    }
 }
 '''
             node_targets = [target for target in native.TARGETS
                             if f"eez-node-e2e::{target}" in native.E2E_BINARIES]
             for target in node_targets:
-                extra = "" if target != "cross_chain" else "\n#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { fixture_is_relocated(); nodes_and_signer_are_relocated(); }\n"
+                extra = "" if target != "cross_chain" else "\n#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { fixture_is_relocated(); composer_is_relocated(); follower_is_relocated(); signer_is_relocated(); }\n"
                 (node / f"tests/{target}.rs").write_text(test_source + extra)
             for target in (target for target in native.TARGETS if target not in node_targets):
                 package = "eez-blob-codec" if target == "ethereum_kzg_compatibility" else "eez-protocol"
@@ -625,8 +683,40 @@ pathlib.Path(a.report).write_text(json.dumps({'scope':'archived handoff only','p
             for suite in native.SUITES:
                 env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}")
                 payload = artifact if suite == "unit" else lean
-                subprocess.run([sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite],
-                               cwd=consumer, env=env, check=True)
+                command = [sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite]
+                result = subprocess.run(command, cwd=consumer, env=env, check=True, capture_output=True, text=True)
+                if suite != "unit":
+                    def passed(result):
+                        return set(re.findall(r"PASS .*? (eez-node-e2e::\S+ \S+)", result.stderr))
+                    complete = passed(result)
+                    self.assertTrue(complete, result.stderr)
+                    covered = set()
+                    for shard in range(1, 5):
+                        env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}-{shard}")
+                        result = subprocess.run(command + ["--partition", f"slice:{shard}/4"],
+                                                cwd=consumer, env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        selected = passed(result)
+                        self.assertTrue(selected, result.stderr)
+                        self.assertFalse(covered & selected, "a test ran in more than one partition")
+                        covered |= selected
+                    self.assertEqual(covered, complete, "partitioning changed the suite's coverage")
+                    # An empty partition must not turn into a green validation lane.
+                    env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}-empty")
+                    empty = subprocess.run(command + ["--partition", "slice:100/100"],
+                                           cwd=consumer, env=env, capture_output=True, text=True)
+                    self.assertEqual(empty.returncode, 4, empty.stdout + empty.stderr)
+                    if suite == "embedded":
+                        env["CARGO_TARGET_DIR"] = str(root / "extract-permanent-failure")
+                        failure_log = root / "permanent-failure.log"
+                        failing = subprocess.run(command, cwd=consumer,
+                                                 env=dict(env, EEZ_FIXTURE_FAILURE_LOG=str(failure_log)),
+                                                 capture_output=True, text=True)
+                        self.assertEqual(failing.returncode, 100, failing.stdout + failing.stderr)
+                        attempts = failure_log.read_text().splitlines()
+                        expected = sum(f"binary(={target})" in native.SUITES[suite] for target in node_targets)
+                        self.assertEqual(len(attempts), expected, "CI must not rerun a failed test")
+                        self.assertEqual(len(set(attempts)), expected, "all selected binaries must run")
                 if suite == "cross-chain":
                     self.assertEqual((consumer / "quota-relocation.executed").read_text(), "passed")
                 if suite == "unit":

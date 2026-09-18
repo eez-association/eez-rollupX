@@ -158,6 +158,10 @@ sender nonces before resubmitting unsettled work. Boot reconciles speculative
 history; policy-enabled startup can retain a validated pure-L2 prefix, but rolls
 back unowned cross-chain Sync blocks and their descendants.
 
+Once caught up, you can add [optional explorers](chiado-deployment.md#optional-explorers)
+using this rollup's original genesis and desired L1 history boundary. Their
+separate Compose project is operated outside CI and does not bootstrap the Composer.
+
 ## If catch-up stalls
 
 | Symptom | First action |

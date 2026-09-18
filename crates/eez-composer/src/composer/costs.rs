@@ -200,9 +200,7 @@ where
         rollup_id: u64,
         rollup: &RollupState<L2>,
     ) -> Result<(), String> {
-        let Some(posting) = &self.inner.posting else {
-            return Ok(());
-        };
+        let posting = &self.inner.posting;
         let Some(attempt) = rollup.optimistic.pending_cost() else {
             return Ok(());
         };

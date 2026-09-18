@@ -18,7 +18,6 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     let telemetry = observer::Telemetry::new("native-queue-reorg").unwrap();
     let env = [
         telemetry.env(),
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "1800".into()),
         ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),

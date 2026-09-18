@@ -15,7 +15,7 @@ eez-blob-codec.workspace = true
 eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
 eez-protocol.workspace = true
-eez-driver = { workspace = true, features = ["observation"] }
+eez-driver = { workspace = true, features = ["observation", "derivation"] }
 
 alloy-consensus.workspace = true
 alloy-genesis.workspace = true
@@ -52,6 +52,7 @@ metrics = "0.24.6"
 eez-prover.workspace = true
 eez-prover-client.workspace = true
 opentelemetry-proto.workspace = true
+alloy-eips.workspace = true
 # Recorded calldata fixture decoding.
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.

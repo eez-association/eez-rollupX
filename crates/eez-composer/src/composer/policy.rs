@@ -158,18 +158,14 @@ where
     /// for enough time; never retry a known-too-short historical slot forever.
     pub(super) fn policy_preparation_budget(&self, rollup_id: u64) -> Result<Duration, String> {
         let proof = self.inner.emission.timing.proof_time();
-        self.inner.policy.as_ref().map_or(Ok(proof), |policy| {
-            policy.preparation_budget(rollup_id, proof)
-        })
+        self.inner.policy.preparation_budget(rollup_id, proof)
     }
 
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
-        if self.inner.policy.is_some() {
-            for (&rollup_id, rollup) in &self.inner.rollups {
-                self.canonical_policy_anchor(rollup_id, rollup).await?;
-            }
+        for (&rollup_id, rollup) in &self.inner.rollups {
+            self.canonical_policy_anchor(rollup_id, rollup).await?;
         }
         Ok(())
     }
@@ -177,9 +173,7 @@ where
     /// Run after canonical boot reconciliation and before ingress/sequencing
     /// become ready. No policy intent or submission artifact is created here.
     pub async fn validate_settlement_policy_startup(&self) -> Result<(), PolicyError> {
-        let Some(policy) = self.inner.policy.as_ref() else {
-            return Ok(());
-        };
+        let policy = &self.inner.policy;
         for (&rollup_id, rollup) in &self.inner.rollups {
             eez_telemetry::operational::policy_evaluation(rollup_id, None);
             let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
@@ -221,14 +215,6 @@ where
                         .timestamp()
                         .abs_diff(target_time)
                         .is_multiple_of(slot_seconds);
-                measured.push((
-                    eez_l1::L2Endpoint {
-                        number: cursor.number(),
-                        hash: cursor.hash(),
-                    },
-                    encoded.length(),
-                    boundary,
-                ));
                 let parent_hash = cursor.parent_hash();
                 let parent = rollup
                     .l2_provider
@@ -244,6 +230,15 @@ where
                         "retained L2 parent height mismatch".into(),
                     ));
                 }
+                measured.push((
+                    eez_l1::L2Endpoint {
+                        number: cursor.number(),
+                        hash: cursor.hash(),
+                    },
+                    encoded.length(),
+                    measure_ordinary(&self.inner.evm_config, &parent, &encoded)?,
+                    boundary,
+                ));
                 cursor = parent;
             }
             if cursor.hash() != anchor.endpoint.hash {
@@ -309,9 +304,7 @@ where
         candidate: eez_l1::L2Endpoint,
         actual_bytes: usize,
     ) {
-        let Some(policy) = self.inner.policy.as_ref() else {
-            return;
-        };
+        let policy = &self.inner.policy;
         let Some(runtime) = policy.rollups.get(&rollup_id) else {
             return;
         };
@@ -332,7 +325,6 @@ where
     pub(super) fn cached_block_rlp(&self, rollup_id: u64, hash: B256) -> Option<Vec<u8>> {
         self.inner
             .policy
-            .as_ref()?
             .rollups
             .get(&rollup_id)?
             .lock()
@@ -347,10 +339,9 @@ where
         rollup_id: u64,
         endpoint: eez_l1::L2Endpoint,
     ) -> Result<Option<u64>, String> {
-        let Some(policy) = &self.inner.policy else {
-            return Ok(None);
-        };
-        let runtime = policy
+        let runtime = self
+            .inner
+            .policy
             .rollups
             .get(&rollup_id)
             .ok_or("unknown policy rollup")?
@@ -378,8 +369,9 @@ where
         sync_height: u64,
         groups: &[HeldTx],
     ) -> Result<(), String> {
-        let policy = self.inner.policy.as_ref().ok_or("policy is disabled")?;
-        let runtime = policy
+        let runtime = self
+            .inner
+            .policy
             .rollups
             .get(&rollup_id)
             .ok_or("unknown policy rollup")?;
@@ -430,12 +422,7 @@ where
         rollup_id: u64,
         groups: impl IntoIterator<Item = B256>,
     ) {
-        let Some(runtime) = self
-            .inner
-            .policy
-            .as_ref()
-            .and_then(|policy| policy.rollups.get(&rollup_id))
-        else {
+        let Some(runtime) = self.inner.policy.rollups.get(&rollup_id) else {
             return;
         };
         let mut runtime = runtime.lock().unwrap();
@@ -463,9 +450,6 @@ where
         target: BundleTarget,
         companion_blobs: u64,
     ) -> Result<usize, String> {
-        let Some(_) = self.inner.policy.as_ref() else {
-            return Ok(eez_blob_codec::MAX_BLOBS_PER_TRANSACTION);
-        };
         let BundleTarget::Exact { timestamp, .. } = target else {
             return Err("posting target must be resolved before blob sizing".into());
         };
@@ -478,11 +462,7 @@ where
         companion_blobs: u64,
         log: bool,
     ) -> Result<usize, String> {
-        let policy = self
-            .inner
-            .policy
-            .as_ref()
-            .ok_or("settlement policy is disabled")?;
+        let policy = &self.inner.policy;
         let params = self
             .inner
             .cross_chain
@@ -528,12 +508,9 @@ where
         ),
         PolicyError,
     > {
-        let policy = self
+        let runtime = self
             .inner
             .policy
-            .as_ref()
-            .ok_or_else(|| PolicyError::Unavailable("policy is disabled".into()))?;
-        let runtime = policy
             .rollups
             .get(&rollup_id)
             .ok_or_else(|| PolicyError::Unavailable("unknown rollup".into()))?;
@@ -631,7 +608,7 @@ where
     ) -> Result<PolicyDecision, PolicyError> {
         let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
         let endpoint = anchor.endpoint;
-        let policy = self.inner.policy.as_ref().expect("resolved enabled policy");
+        let policy = &self.inner.policy;
         let runtime = policy
             .rollups
             .get(&rollup_id)
@@ -703,6 +680,14 @@ where
                 }
                 let encoded_item_bytes = u64::try_from(encoded.length())
                     .map_err(|_| PolicyError::Arithmetic("encoded block item bytes"))?;
+                let parent = rollup
+                    .l2_provider
+                    .sealed_header_by_hash(block.header().parent_hash())
+                    .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+                    .ok_or_else(|| {
+                        PolicyError::Unavailable("ordinary sizing parent missing".into())
+                    })?;
+                let ordinary = measure_ordinary(&self.inner.evm_config, &parent, &encoded)?;
                 block_rlps.insert(hash, (block.header().number(), encoded));
                 Ok(BlockActivity {
                     endpoint: eez_l1::L2Endpoint {
@@ -711,6 +696,7 @@ where
                     },
                     parent_hash: block.header().parent_hash(),
                     encoded_item_bytes,
+                    ordinary,
                     pure_transactions: if has_system {
                         0
                     } else {
@@ -783,9 +769,23 @@ where
             }
         };
         let encoded_terminal = alloy_rlp::encode(built.block.clone().into_block());
-        let estimated_stream_bytes = runtime
-            .activity
-            .estimated_stream_bytes_with_overhead(encoded_terminal.length(), overhead)?;
+        let logical_blocks = built
+            .header
+            .number()
+            .checked_sub(endpoint.number)
+            .ok_or(PolicyError::Arithmetic("candidate window count"))?;
+        let window_limit_due = logical_blocks
+            .checked_add(u64::from(self.inner.emission.timing.k()))
+            .is_none_or(|next| next > self.inner.emission.max_blocks);
+        let estimated_stream_bytes = if logical_blocks <= self.inner.emission.max_blocks {
+            Some(
+                runtime
+                    .activity
+                    .estimated_stream_bytes_with_overhead(encoded_terminal.length(), overhead)?,
+            )
+        } else {
+            None
+        };
         let latest_pure_block = runtime.activity.latest_pure();
         let pending_pure_l2_transactions = runtime.activity.pending_pure_transactions()?;
         if !rollup.l1_head.generation_is(snapshot.generation) {
@@ -794,14 +794,16 @@ where
             ));
         }
         runtime.anchor = Some(anchor);
-        runtime.estimate = Some((
-            endpoint,
-            eez_l1::L2Endpoint {
-                number: built.header.number(),
-                hash: built.header.hash(),
-            },
-            estimated_stream_bytes,
-        ));
+        runtime.estimate = estimated_stream_bytes.map(|bytes| {
+            (
+                endpoint,
+                eez_l1::L2Endpoint {
+                    number: built.header.number(),
+                    hash: built.header.hash(),
+                },
+                bytes,
+            )
+        });
         let decision = runtime.state.evaluate(
             &policy.config,
             PolicySnapshot {
@@ -814,6 +816,7 @@ where
                 latest_pure_block,
                 cross_chain,
                 estimated_stream_bytes,
+                window_limit_due,
                 effective_blobs,
                 usable_bytes_per_blob: eez_blob_codec::DATA_BYTES_PER_BLOB as u64,
                 drain_coverage,
@@ -846,28 +849,65 @@ where
             },
             fullness_threshold_bps = ?policy.config.blob_fullness_bps,
             usable_bytes_per_blob = eez_blob_codec::DATA_BYTES_PER_BLOB,
-            estimated_stream_bytes, effective_blobs, target_l1_timestamp,
+            estimated_stream_bytes = ?estimated_stream_bytes, effective_blobs, target_l1_timestamp,
             "settlement policy evaluated against canonical evidence");
         Ok(decision)
     }
+}
+
+fn measure_ordinary(
+    config: &EthEvmConfig,
+    parent: &reth_primitives_traits::SealedHeader,
+    encoded: &[u8],
+) -> Result<eez_payload_codec::DerivablePayloadSizer, PolicyError> {
+    let block: reth_ethereum_primitives::Block = alloy_rlp::decode_exact(encoded)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+    let environment = eez_driver::derivation::ordinary_environment(config, parent, &block)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+    match environment {
+        Some(environment) => {
+            let txs = block
+                .body
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>();
+            eez_payload_codec::DerivablePayloadSizer::derived_block(environment, &txs)
+        }
+        None => eez_payload_codec::DerivablePayloadSizer::full_block(
+            encoded,
+            block.body.transactions.len(),
+        ),
+    }
+    .map_err(|error| PolicyError::Unavailable(error.to_string()))
 }
 
 /// Validate every indivisible, already accepted segment. An unfinished slot's
 /// retained bytes are checked too; future blocks still undergo exact final
 /// packing. Startup cannot forecast transactions or headers not produced yet.
 fn validate_retained_byte_segments(
-    blocks: impl IntoIterator<Item = (eez_l1::L2Endpoint, usize, bool)>,
+    blocks: impl IntoIterator<
+        Item = (
+            eez_l1::L2Endpoint,
+            usize,
+            eez_payload_codec::DerivablePayloadSizer,
+            bool,
+        ),
+    >,
     allowance: usize,
 ) -> Result<(), PolicyError> {
     let capacity = allowance
         .checked_mul(eez_blob_codec::DATA_BYTES_PER_BLOB)
         .ok_or(PolicyError::Arithmetic("startup posting capacity"))?;
-    let mut block_items = 0usize;
-    for (endpoint, bytes, boundary) in blocks {
-        block_items = block_items
-            .checked_add(bytes)
-            .ok_or(PolicyError::Arithmetic("retained segment bytes"))?;
-        let payload = eez_payload_codec::self_contained_payload_len(block_items, 0, 0)
+    let mut ordinary = eez_payload_codec::DerivablePayloadSizer::default();
+    for (endpoint, bytes, next, boundary) in blocks {
+        let payload = ordinary
+            .encoded_len_from_items(
+                &eez_payload_codec::derivable::Environment::unused(),
+                bytes,
+                0,
+                0,
+            )
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let size = eez_blob_codec::native_stream_len(payload, 0)
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
@@ -877,9 +917,13 @@ fn validate_retained_byte_segments(
                 endpoint.number, endpoint.hash, size,
             )));
         }
-        if boundary {
-            block_items = 0;
-        }
+        ordinary = if boundary {
+            eez_payload_codec::DerivablePayloadSizer::default()
+        } else {
+            ordinary
+                .combine(&next)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+        };
     }
     Ok(())
 }
@@ -896,6 +940,7 @@ mod tests {
                 max_unsettled_l2_blocks: 150.try_into().unwrap(),
                 blob_fullness_bps: None,
                 inactive_interval_ms: None,
+                max_speculative_depth: 0,
             },
             [1, 2].into_iter(),
             None,
@@ -941,6 +986,7 @@ mod tests {
                 max_unsettled_l2_blocks: 150.try_into().unwrap(),
                 blob_fullness_bps: None,
                 inactive_interval_ms: None,
+                max_speculative_depth: 0,
             },
             [1, 2].into_iter(),
             None,
@@ -1023,6 +1069,7 @@ mod tests {
                     hash: B256::with_last_byte(number as u8),
                 },
                 100_000usize,
+                eez_payload_codec::DerivablePayloadSizer::full_block(&vec![0; 100_000], 0).unwrap(),
                 boundary,
             )
         };

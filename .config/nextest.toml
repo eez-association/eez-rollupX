@@ -14,9 +14,9 @@ archive.include = [
     { path = "release/eez-runtime", relative-to = "target", on-missing = "error" },
 ]
 
-# CI retries for diagnostics, but a pass on retry is still a failure: a flaky
-# integration test must not make the branch green.
+# Run each case once in CI: diagnostic retries cannot make a failed run green.
+# If retries are explicitly requested for diagnosis, still fail on flakes.
 [profile.ci]
 inherits = "default"
-retries = 2
+retries = 0
 flaky-result = "fail"

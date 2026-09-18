@@ -214,17 +214,6 @@ impl super::PoolState {
 }
 
 impl HeldPool {
-    // Legacy policy does not populate RPC readiness. Record its validated group
-    // observation without changing that API or its scheduling behavior.
-    pub(crate) fn record_lifecycle_ready(&self, hash: B256, source: SourceState) {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        let pending = state.capture_readiness(hash, source, None);
-        drop(state);
-        if let Some(pending) = pending {
-            pending.publish();
-        }
-    }
-
     /// Configure capture once, before ingress. Startup uses the actual embedded
     /// chain specifications; no additional environment-derived chain identity.
     /// A failed setup must disable/report telemetry without changing ownership.
@@ -478,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_readiness_capture_preserves_rpc_compatibility() {
+    fn repeated_policy_readiness_preserves_rpc_state_and_one_lifecycle_transition() {
         let (dir, pool, _, writer) = setup();
         let held = tx(1, Direction::Inbound);
         pool.push_contiguous(held.clone(), 0).unwrap();
@@ -492,9 +481,11 @@ mod tests {
                 hash: B256::repeat_byte(5),
             },
         };
+        pool.begin_evaluation(source);
+        pool.record_ready(&held, source);
         let before = pool.queue_status();
-        pool.record_lifecycle_ready(held.hash, source);
-        pool.record_lifecycle_ready(held.hash, source);
+        assert_eq!(before["ready"], 1);
+        pool.record_ready(&held, source);
         let after = pool.queue_status();
         for key in ["ready", "unknown", "sourceState", "evaluatedAtMs"] {
             assert_eq!(before[key], after[key]);

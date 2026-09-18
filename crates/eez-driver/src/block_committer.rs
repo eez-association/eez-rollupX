@@ -19,6 +19,7 @@
 use core::fmt;
 use std::sync::{Arc, RwLock};
 
+use alloy_consensus::BlockHeader as _;
 use alloy_primitives::B256;
 use alloy_rpc_types_engine::{ForkchoiceState, ForkchoiceUpdateError, ForkchoiceUpdated};
 use reth_engine_primitives::{BeaconForkChoiceUpdateError, ConsensusEngineHandle};
@@ -213,7 +214,7 @@ where
         finalized_hash: B256,
         to_engine: ConsensusEngineHandle<T>,
         payload_builder: PayloadBuilderHandle<T>,
-        witness_sender: Option<mpsc::UnboundedSender<B256>>,
+        witness_sender: Option<mpsc::UnboundedSender<eez_l1::L2Endpoint>>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(COMMAND_BUFFER);
         let initial_hash = initial_header.hash();
@@ -248,7 +249,7 @@ where
         provider: &P,
         to_engine: ConsensusEngineHandle<T>,
         payload_builder: PayloadBuilderHandle<T>,
-        witness_sender: Option<mpsc::UnboundedSender<B256>>,
+        witness_sender: Option<mpsc::UnboundedSender<eez_l1::L2Endpoint>>,
     ) -> DriverResult<Self>
     where
         <T::BuiltPayload as BuiltPayload>::Primitives: NodePrimitives,
@@ -535,7 +536,7 @@ struct Actor<T: PayloadTypes> {
     /// blocks) and by `process_derive` ONLY when `feed_witness` is set (a produced
     /// Sync block via `commit_one_prebuilt`); a follower / L1-reconcile re-derive
     /// passes `feed_witness=false` so the prover isn't double-fed the same block.
-    witness_sender: Option<mpsc::UnboundedSender<B256>>,
+    witness_sender: Option<mpsc::UnboundedSender<eez_l1::L2Endpoint>>,
 }
 
 impl<T> Actor<T>
@@ -765,7 +766,10 @@ where
         // The block is already canonical (the FCU above), so the witness task's
         // `recovered_block(hash)` resolves on the first try.
         if feed_witness && let Some(sender) = &self.witness_sender {
-            let _ = sender.send(block_hash);
+            let _ = sender.send(eez_l1::L2Endpoint {
+                number: block_number,
+                hash: block_hash,
+            });
         }
 
         Ok(DeriveOutcome {
@@ -833,9 +837,13 @@ where
         *self.last_header.write().unwrap() = header.clone();
         // Prover-feed trigger (prover-chain P1): the block is now canonical, so
         // the witness task's `recovered_block(hash)` resolves on the first try.
-        // Best-effort — a closed/lagging channel just drops it.
+        // The exact height/hash identity survives reorgs and permits skipping
+        // queued work only after its height is strictly below finalized.
         if let Some(sender) = &self.witness_sender {
-            let _ = sender.send(header.hash());
+            let _ = sender.send(eez_l1::L2Endpoint {
+                number: header.number(),
+                hash: header.hash(),
+            });
         }
         Ok(CommitOutcome { header })
     }

@@ -1,7 +1,6 @@
 //! Ordinary sequencing reserves the entire shortest postable interval before
 //! accepting data. It uses the same outgoing network rules as final posting.
 
-use alloy_rlp::Encodable;
 use eez_payload_codec::BlockDaSizer;
 
 use super::*;
@@ -34,17 +33,21 @@ fn allowance_through_future_forks(
     Ok(allowance)
 }
 
-fn item_limit(capacity: usize, previous: usize, reserved: usize) -> Result<usize, String> {
+fn item_limit(
+    capacity: usize,
+    previous: usize,
+    reserved: usize,
+    total_blocks: usize,
+) -> Result<usize, String> {
     let fixed = previous
         .checked_add(reserved)
         .ok_or("sequencing byte accounting overflow")?;
     let fits = |item: usize| -> Result<bool, String> {
-        let payload = eez_payload_codec::self_contained_payload_len(
+        let payload = eez_payload_codec::derivable::interval_payload_bound(
+            total_blocks,
             fixed
                 .checked_add(item)
                 .ok_or("sequencing byte accounting overflow")?,
-            0,
-            0,
         )
         .map_err(|e| e.to_string())?;
         Ok(eez_blob_codec::native_stream_len(payload, 0).map_err(|e| e.to_string())? <= capacity)
@@ -81,10 +84,11 @@ where
         parent: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
         timestamp: u64,
         fresh: bool,
-    ) -> Result<Option<usize>, String> {
-        let Some(policy) = self.inner.policy.as_ref() else {
-            return Ok(None);
-        };
+    ) -> Result<usize, String> {
+        if let Some(source) = &self.inner.witness_source {
+            source.ensure_ready()?;
+        }
+        let policy = &self.inner.policy;
         let rollup = self
             .inner
             .rollups
@@ -161,7 +165,7 @@ where
             if next == boundary {
                 // The normal driver emits a prebuilt empty Sync here. Also
                 // prevent an independent engine payload job from filling it.
-                return Ok(Some(empty));
+                return Ok(empty);
             }
             let mut hash = parent.hash();
             let mut number = parent.number();
@@ -178,7 +182,9 @@ where
                     .cached_block_rlp(rollup_id, hash)
                     .unwrap_or_else(|| alloy_rlp::encode(&block));
                 previous = previous
-                    .checked_add(encoded.length())
+                    .checked_add(
+                        BlockDaSizer::retained_item_bytes(&encoded).map_err(|e| e.to_string())?,
+                    )
                     .ok_or("sequencing prefix overflow")?;
                 hash = block.header().parent_hash;
                 number -= 1;
@@ -215,7 +221,12 @@ where
             .ok()
             .and_then(|n| n.checked_mul(empty))
             .ok_or("sequencing reservation overflow")?;
-        let limit = item_limit(capacity, previous, reserved)?;
+        let limit = item_limit(
+            capacity,
+            previous,
+            reserved,
+            usize::try_from(k).map_err(|_| "sequencing interval count overflow")?,
+        )?;
         if limit < empty {
             return Err("sequencing_da_blocked: allowance cannot reserve an empty interval".into());
         }
@@ -223,7 +234,7 @@ where
             rollup_id, parent = %parent.hash(), boundary, target_time, blobs, capacity,
             previous, reserved, maximum_block_item_bytes = limit, fresh,
             "resolved ordinary sequencing data budget");
-        Ok(Some(limit))
+        Ok(limit)
     }
 }
 
@@ -290,10 +301,10 @@ mod tests {
             for k in [5, 6, 12] {
                 let capacity = blobs * eez_blob_codec::DATA_BYTES_PER_BLOB;
                 let reserved = (k - 1) * empty;
-                let limit = item_limit(capacity, 0, reserved).unwrap();
+                let limit = item_limit(capacity, 0, reserved, k).unwrap();
                 let length = |items| {
                     eez_blob_codec::native_stream_len(
-                        eez_payload_codec::self_contained_payload_len(items, 0, 0).unwrap(),
+                        eez_payload_codec::derivable::interval_payload_bound(k, items).unwrap(),
                         0,
                     )
                     .unwrap()
@@ -301,12 +312,12 @@ mod tests {
                 assert!(length(limit + reserved) <= capacity);
                 assert!(length(limit + reserved + 1) > capacity);
                 assert_eq!(
-                    item_limit(capacity, empty, reserved - empty).unwrap(),
+                    item_limit(capacity, empty, reserved - empty, k).unwrap(),
                     limit
                 );
             }
         }
-        assert!(item_limit(1, 0, empty).is_err());
-        assert!(item_limit(1, usize::MAX, 1).is_err());
+        assert!(item_limit(1, 0, empty, 2).is_err());
+        assert!(item_limit(1, usize::MAX, 1, 2).is_err());
     }
 }

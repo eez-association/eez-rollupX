@@ -75,7 +75,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '21'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '22'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -96,6 +96,7 @@ def main():
     parser.add_argument('--previous-v13-binary', type=pathlib.Path, help='Optional saved schema-v13 observer for populated cost-attribution upgrade checks')
     parser.add_argument('--previous-v14-binary', type=pathlib.Path, help='Optional saved schema-v14 observer for populated canonical-revision upgrade checks')
     parser.add_argument('--previous-v20-binary', type=pathlib.Path, help='Optional saved schema-v20 observer for populated query-migration compatibility checks')
+    parser.add_argument('--previous-v21-binary', type=pathlib.Path, help='Optional saved schema-v21 observer for derivable-range upgrade/downgrade checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -119,6 +120,7 @@ def main():
              '--mount', f'type=bind,src={ROOT / "tests/indexer-rpc.py"},dst=/rpc.py,readonly',
              '--mount', f'type=bind,src={ROOT / "tests/fixtures/empty-post-calldata.hex"},dst=/post-calldata.hex,readonly',
              '--mount', f'type=bind,src={ROOT / "tests/fixtures/multi-rollup-post-calldata.hex"},dst=/multi-rollup-post-calldata.hex,readonly',
+             '--mount', f'type=bind,src={ROOT / "tests/fixtures/correlation-page-digests.json"},dst=/correlation-page-digests.json,readonly',
              '--mount', f'type=bind,src={ROOT / "tests/fixtures/blob-carriers.json"},dst=/blob-carriers.json,readonly', fixture_image, 'python3', '/rpc.py'])
         run(['docker', 'run', '--detach', '--rm', '--name', name, '--network', network, '--user', 'postgres',
              '--memory', '512m', '--cpus', '1', '--security-opt', 'no-new-privileges:true', '--cap-drop', 'ALL',
@@ -215,8 +217,25 @@ def main():
             run(psql,data=prior20_seed.replace('canonical-outcomes','schema20-upgrade')+'\nCOMMIT;')
             prior20_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema20-upgrade';").stdout.strip()
             report['previous_v20_binary_sha256']=hashlib.sha256(args.previous_v20_binary.read_bytes()).hexdigest()
+        if args.previous_v21_binary:
+            run(['docker','cp',str(args.previous_v21_binary.resolve()),name + ':/observer-v21'])
+            run(['docker','exec',name,'/observer-v21','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '21'
+            prior21_seed=(ROOT / 'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
+            run(psql,data=prior21_seed.replace('canonical-outcomes','schema21-upgrade')+'\nCOMMIT;')
+            prior21_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema21-upgrade';").stdout.strip()
+            report['previous_v21_binary_sha256']=hashlib.sha256(args.previous_v21_binary.read_bytes()).hexdigest()
         run(migrate)
         run(migrate)
+        if args.previous_v21_binary:
+            refused=run(['docker','exec',name,'/observer-v21','migrate','--database-config','/tmp/database.json'],check=False)
+            assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout
+            assert run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema21-upgrade';").stdout.strip() == prior21_costs
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_outcome_anchors a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='schema21-upgrade' AND a.evidence_class='node_reconciled';").stdout.strip() == '1'
+            report['checks'].append('saved_v21_upgrade_preserves_costs_and_native_anchors_and_refuses_downgrade')
+        range_result=run(psql,data=(ROOT / 'tests/derivable-settlement-ranges.sql').read_text())
+        assert 'derivable settlement range boundaries passed' in range_result.stdout
+        report['checks'].append('derivable_65536_block_65535_ordinal_bounds_partial_rollback_and_canonical_reorg')
         if args.previous_v20_binary:
             refused=run(['docker','exec',name,'/observer-v20','migrate','--database-config','/tmp/database.json'],check=False)
             assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout

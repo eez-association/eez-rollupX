@@ -1,7 +1,11 @@
 # Local release validation and acceptance-test corrections
 
-Status: **release runtime built and exercised; full acceptance remains open**.
-The current application runtime is `45e5c015`; its results are recorded in
+Status: **historical release runtime built and exercised; full acceptance remains open**.
+The branch is now being integrated on top of PR #26; see the
+[PR26 integration record](pr26-integration.md) for current-source validation.
+The artifacts and results below are retained for their original revisions and do
+not validate the new derivable-operations baseline.
+The last pre-integration application runtime is `45e5c015`; its results are recorded in
 [the current checkpoint](#current-schema21-checkpoint) and the companion JSON's
 `schema21_release_checkpoint`. Timing/performance acceptance is explicitly
 postponed at the user's request until a suitable window or host is available.

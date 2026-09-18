@@ -1,5 +1,5 @@
-//! Real RemoteProver/tonic transport and signing with the existing stub execution
-//! fixture. This proves propagation across the RPC boundary, not devnet replay.
+//! Real RemoteProver/tonic transport, prepared ordinary facts and fresh terminal
+//! execution. The captured Stateless fixture exercises every new RPC trace edge.
 use super::*;
 use alloy_sol_types::SolCall;
 use eez_prover::Prover as _;
@@ -30,8 +30,22 @@ async fn remote_prover_and_tonic_signer_export_connected_spans_without_changing_
     listener.set_nonblocking(true).unwrap();
     let collector = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let mut captured = Vec::new();
-        while captured.len() < 3 {
+        let mut captured: Vec<(String, opentelemetry_proto::tonic::trace::v1::Span)> = Vec::new();
+        let expected = [
+            "composer_proving",
+            "prover_client",
+            "prove",
+            "prover_capabilities",
+            "capabilities",
+            "prover_prepare_ordinary",
+            "prepare_ordinary",
+            "prover_retain_ordinary",
+            "retain_ordinary_ranges",
+        ];
+        while !expected
+            .iter()
+            .all(|name| captured.iter().any(|(_, span)| span.name == *name))
+        {
             assert!(
                 std::time::Instant::now() < deadline,
                 "missing connected trace spans"
@@ -131,7 +145,7 @@ async fn remote_prover_and_tonic_signer_export_connected_spans_without_changing_
         test_proof_system(),
     );
     let state = ServiceState::new(
-        Validator::stub(vec![Ok(backend_output_for(&happy_block_inputs()))]),
+        Validator::stateless_for_test(super::derivation::chain_config(), TEST_SYSTEM_ADDRESS),
         expected_rollup_id(1),
         attester,
         test_system_transaction_key(),
@@ -139,9 +153,15 @@ async fn remote_prover_and_tonic_signer_export_connected_spans_without_changing_
     )
     .unwrap();
     let server = TestServer::new(Arc::new(state)).await;
-    let prover =
-        eez_prover_client::RemoteProver::new(server.endpoint.clone(), test_attester().address());
-    let mut window = happy_window().into_iter();
+    let prover = eez_prover_client::RemoteProver::new(
+        server.endpoint.clone(),
+        test_attester().address(),
+        server.state.validation_identity,
+    );
+    let blocks = super::derivation::blocks(3);
+    let payload =
+        super::derivation::payload(&blocks, super::derivation::environment(&blocks), vec![]);
+    let mut window = super::derivation::request(blocks, payload.encode().unwrap()).into_iter();
     let Some(prove_chunk::Kind::Header(header)) = window.next().unwrap().kind else {
         panic!("header");
     };
@@ -209,6 +229,17 @@ async fn remote_prover_and_tonic_signer_export_connected_spans_without_changing_
     assert_eq!(signer.parent_span_id, client.span_id);
     assert_eq!(signer.trace_id, composer.trace_id);
     assert_ne!(signer.span_id, client.span_id);
+    for (client_name, server_name) in [
+        ("prover_capabilities", "capabilities"),
+        ("prover_prepare_ordinary", "prepare_ordinary"),
+        ("prover_retain_ordinary", "retain_ordinary_ranges"),
+    ] {
+        let (_, caller) = find(client_name);
+        let (service, server) = find(server_name);
+        assert_eq!(service, "eez-proof-signer");
+        assert_eq!(server.parent_span_id, caller.span_id);
+        assert_eq!(server.trace_id, composer.trace_id);
+    }
     assert!(captured.iter().all(|(_, span)| span.events.is_empty()));
     let logs = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
     assert!(

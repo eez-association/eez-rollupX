@@ -113,6 +113,7 @@ class Stack:
                     'volumes': [str(ROOT / 'tests/indexer-rpc.py') + ':/rpc.py:ro',
                                 str(ROOT / 'tests/fixtures/empty-post-calldata.hex') + ':/post-calldata.hex:ro',
                                 str(ROOT / 'tests/fixtures/multi-rollup-post-calldata.hex') + ':/multi-rollup-post-calldata.hex:ro',
+                                str(ROOT / 'tests/fixtures/correlation-page-digests.json') + ':/correlation-page-digests.json:ro',
                                 str(ROOT / 'tests/fixtures/blob-carriers.json') + ':/blob-carriers.json:ro'],
                     'mem_limit': '128m', 'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true']}
         }}))

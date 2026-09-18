@@ -17,7 +17,7 @@ Assume one Chiado deployment initially, with a separate devnet environment and e
 | [Settlement correlation RPC](../../crates/eez-node-common/src/correlation_rpc.rs): `eez_getSettlementByL2Block`, `eez_getSettledL2RangesByL1Block` | Link L2 ranges to canonical L1 settlements | Durable incremental indexing and reorg reconciliation |
 | Composer structured events and signer JSON logs | Explain preparation cuts, submissions, recovery and signer decisions | Consistent event fields, central retention and stable metric contracts |
 | Embedded Reth L1/L2 and Lighthouse | Client and peer health | Enable and verify metrics for the pinned builds; distinguish embedded instances |
-| [Public monitor](../../testing/public-gateway/README.md), [Blockscout and Blobscan](../../testing/explorers/README.md) | Inspect transactions, blocks, blob contents and existing archive | Link Grafana incidents and batch records to these views; monitor indexer freshness |
+| [Public monitor](../../testing/public-gateway/README.md), [Blockscout and Blobscan](../../deploy/explorers/README.md) | Inspect transactions, blocks, blob contents and existing archive | Link Grafana incidents and batch records to these views; monitor indexer freshness |
 | Historical gas/blob audits | Reference fixtures for accounting validation | Continuous receipt-backed accounting |
 
 The inspected deployment manifests do not wire a Prometheus/Grafana stack. The public monitor's implementation lives in the separate `eez-rollup-ui` repository; this proposal does not assume its internal collector is reusable without inspection. A signer TCP health check proves that a port accepts connections, not that requests can be validated and signed.

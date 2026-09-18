@@ -1,0 +1,107 @@
+# Derivable ChainOperation coverage ledger
+
+Companion to the [implementation contract](derivable-chain-operations.md).
+The implementation status and retained evidence are recorded below.
+Package letters refer to the contract's component table. Each completed row must gain concrete code,
+test-name and retained evidence links. A row cannot be closed by a code review
+claim alone when its acceptance criterion requires execution measurements.
+
+Historical foundation evidence: [phase 1](../research/2026-09-16-blob-efficiency/implementation/phase-1.md).
+Current cold-path evidence: [signer gate map](../research/2026-09-16-blob-efficiency/implementation/signer-gates.md)
+and [fixture feasibility measurement](../research/2026-09-16-blob-efficiency/implementation/cold-feasibility.json).
+Live disposable-network evidence is recorded in the
+[Kurtosis validation](../audits/2026-09-17-derivable-operations-kurtosis/README.md):
+all 28 protocol scenarios, four traffic modes, physical blob publication,
+canonical root convergence, clean restart and partial consumption passed.
+The earlier cold-feasibility artifact is historical architecture-selection
+evidence; current native-grid results are in the prepared checkpoint. No release
+or deployment approval is implied.
+
+Scope revision: this is a new network. CO-29 now requires one format from genesis;
+historical versions, network upgrades, writer rollback and old database migration
+are out of scope. Chain reorg and crash recovery requirements remain unchanged.
+
+| IDs | Status | Evidence / remaining work |
+|---|---|---|
+| CO-02, CO-03 | Implemented and verified | Canonical fixtures, malformed inputs, sparse/dense properties and maximum-count iterator tests. Final validation ran 10,000 generated cases each for arbitrary canonical parser acceptance, the independent dense-environment iterator model, and sparse transaction placement. The payload crate implements only tag 3/profile 1; tags 0 through 2 have no decoder, encoder, feature or fallback. |
+| CO-01, CO-04 | Implemented and verified | Retained terminal/entry/group wire fixtures, bounded decoder and signer ingress tests, exact 65,536 acceptance and 65,537 rejection. Captured mixed, recursive, static/lookup and caught-revert paths use shipping v3. |
+| CO-05, CO-06, CO-07, CO-08 | Implemented and verified | Authenticated parent/replay reconstruction, independent fork/typed/reverted/7702 fixtures, complete RLP equality, system-sender and intermediate-event gates; see signer gate map. Settlement policy, network-aware posting, DA admission and explicit empty Sync construction are mandatory from genesis; the disabled-policy/pool fallback is removed. |
+| CO-09, CO-10, CO-43 | Follower path implemented; native maximum and resumed checkpoints passed | Ethereum-Osaka and Gnosis-Prague maximum native blob posts replayed every block hash on clean followers; resumed same-height settlement and environment/parent reuse component tests pass. Runtime decoding retains the bounded sparse `Payload` and the follower consumes its `BlockPlan` iterator directly, with no legacy count/transaction expansion or local cadence/default-header branch. Crash injection remains. |
+| CO-13 | Implemented and native maximum-tested | Default 65,536, lower override, 65,537 rejection, actual prepared native maximum requests on both profiles. |
+| CO-24, CO-36 | Implemented and verified | Associativity, subrange re-anchoring, terminal promotion, environment placement and RLP width tests. Exact indexed range and conservative future admission tests pass; Composer has 203 passing tests and native encodings match actual measurements. |
+| CO-14, CO-45 | Identity, producer agreement and channel reuse component-tested | Single-read strict chain document digest, duplicate-key rejection, scalar-preserving canonicalization, independent RLP/Keccak vectors, context/revision mutations and capabilities during an occupied proof slot. Producer startup, per-request identity, channel reuse and lower-cap propagation pass focused tests. Reconnect with changed identity or any resource limit fails before proof dispatch and requires restart/replanning; see [peer identity](../research/2026-09-16-blob-efficiency/implementation/peer-identity.md). |
+| CO-15, CO-16, CO-17, CO-18, CO-35, CO-39, CO-41, CO-50 | Preparation/cached path component and native maximum-tested | Real Stateless preparation publishes only after exact reconstruction and the full intermediate gate, never signs; cold/cached/mixed final requests reproduce the same digest/signature with a fresh terminal. Identity/full-hash cache keys, range count/endpoints/hash/state continuity and dedicated field-3 cache misses are checked. Cache repair never becomes actionable source failure. Producer-prepared maximum proofs, real posts and clean followers pass both profiles with zero misses. |
+| CO-19, CO-20, CO-21, CO-40 | Implemented and component-verified | 131,072-entry/512-MiB accounting with metadata allowance, LRU only for unreserved facts, two refcounted leases, exact 30-second renewal/release, prevalidated atomic refcount transitions, and deterministic final-proof priority at the next preparation block boundary. The bounded 128-identity queue preserves its newest overflow watermark. Restart seeds capture/preparation from the persisted canonical head; signer lease loss clears all local hints and rebuilds the last durable endpoint. A backlog beyond one window selects the oldest bounded prefix, waits for floor advancement, and releases a stale branch lease. Preparation groups intersect block/byte/message/item limits and individually oversized blocks fail. |
+| CO-29 | Single-format shipping paths implemented | Producer, signer and follower use tag 3/profile 1 without activation plumbing. Production rejects old formats; old fixture oracles are explicitly test-only. |
+| CO-22, CO-23 | Implemented and verified | Exact hash-keyed durable witnesses, corruption/purge/disk/restart cases; immutable retry context, lazy final chunks, 128-identity queue and durable exact-ancestry watermark catch-up. A transient missing predecessor cannot deadlock partial-prefix reconciliation; final witness misses still fail. A -> B -> restart with no provider state -> A preserves both branches; partial/restart/reorg process tests pass. The signer streams preparation without full-window witness duplication, and the follower no longer duplicates the decoded sparse window into legacy parallel vectors. Maximum native RSS is measured. |
+| CO-11, CO-12, CO-25, CO-26, CO-27, CO-28 | Implemented with component/process/live evidence | Partial/deferred/resumed/reorg behavior, conservative future and companion reservations, lower capability limits, immutable cross-chain ownership and format/resource separation are covered by Composer, deriver, resumption, queue-reorg and prover-retry tests. The mandatory-policy source passes all 5 retained native partial-consumption scenarios. Its live Kurtosis canary produced `Committed`, `SourceNonceSpent`, and `SourceReverted` in one attempt and proved later safe-head progress. A clean live node restart preserved the safe commitment and both correlation directions. |
+| CO-30, CO-44 | Native capacity, posting and replay pass on the recorded host | The bounded preparation/reference path proves, posts and clean-replays the actual legal 65,536-block Ethereum and 65,535-block Gnosis windows in one blob. Exact final-source retained runs reproduce both maximum digests from durable witnesses with a fresh signer; see the [prepared checkpoint](../research/2026-09-16-blob-efficiency/implementation/native-prepared-checkpoint.md). |
+| CO-31, CO-33 | Partial release evidence | Twenty warm finals/profile, zero misses, payload size and sampled RSS are retained in the [live result](../research/2026-09-16-blob-efficiency/implementation/native-live-prepared-checkpoint.json). Cache-accounted bytes, witness-DB growth/disk reads, complete request item/byte fields, postBatch identity and the precise limiting constraint still need a portable release artifact. |
+| CO-38 | Component/fresh-signer recovery passes; integrated SLO open | Final-source durable reconstruction of the retained maxima completes in 38,565 ms Ethereum and 39,167 ms Gnosis, below 600 seconds. An automatic producer plus signer restart through renewed cross-chain readiness remains a release test. |
+| CO-47 | Geometry verified; distinct live K=6 run open | K=5/K=6 residues and legal maxima are component-tested. Recorded live maximum runs use K=5; the release K=6 deployment profile has not been run. |
+| CO-32, CO-52 | Component, process and live protocol evidence present | Independent complete headers, typed transfers/blob gas, fork transitions, field mutations and real EVM transitions. Both native maxima, all 22 cross-chain scenarios and 5 chained-interstate ordering scenarios pass on final source. The fresh Kurtosis deployment also passes inbound, outbound, mixed and mixed-pure waves plus all 28 selected upstream protocol scenarios, including nested, reverted, static, lookup and multi-call cases; the independent collector authenticates every scenario's semantic blob evidence. |
+| CO-48 | Supported shapes verified; exhaustive fallback inventory open | Unsupported slot/BAL/ommer shapes reject and supported fork/full-record cases pass. Exhaustive rare full-fallback classification remains release evidence. |
+| CO-49, CO-50, CO-51, CO-53 | Implemented, tested and soundness-reviewed | Complete cold/prepared/mixed gate mapping; equal v3 digest/signature; zero attester calls on adversarial rejection, cancellation and timeout; captured `da_payload` and `observation_replay` failures. The [focused soundness review](../research/2026-09-16-blob-efficiency/implementation/soundness-review.md) records resolved findings and no unresolved change-specific signer issue. |
+| CO-34, CO-37, CO-42, CO-46 | Release evidence open | Retained corpora/raw logs are local-only and maximum tests are explicit ignored harnesses; release timing calibration/Future-Live settings, actual pruning/state-history envelope, and largest-batch follower crash-resume measurements remain required before deployment. |
+
+See the [main-alignment record](../research/2026-09-16-blob-efficiency/implementation/main-alignment.md) and [signer gate map](../research/2026-09-16-blob-efficiency/implementation/signer-gates.md) for current commands, test names and limits. Passing implementation tests is not a release or deployment approval; rows explicitly marked open require release-environment evidence.
+
+| ID | Requirement | Package / principal component | Required evidence |
+|---|---|---|---|
+| CO-01 | Only operations change; terminal/entry/group/semantic byte identity | A, D, I / payload codec and DA checks | Byte-exact fixtures across all existing semantic scenarios |
+| CO-02 | Tag 3 and profile 1 exact canonical wire | A / payload codec | Golden vectors, malformed/truncated/unknown inputs, unsupported tag/profile rejection and retained-field fixtures |
+| CO-03 | Sparse gaps and trailing empties cover exactly the ordinary count | A / parser and iterator | Bounds, off-by-one, maximal count, terminal-only and property tests |
+| CO-04 | Block ceiling checked before allocation; checked arithmetic | A, C, D / all decoders | 65,536-total acceptance; 65,537 rejection; overflow and allocation tests |
+| CO-05 | Explicit common environment independent of operator defaults | A, B / execution input model | Altered fee recipient/randomness/gas/root/extra-data/step cases |
+| CO-06 | Fork-correct inputs and full ordinary exceptions | B, C, D / shared driver helper | Supported fork boundaries, nondefault inputs, unknown-fork fallback/rejection |
+| CO-07 | Omitted outputs reconstructed with canonical Reth assembly | B, D / signer stateless backend | Full RLP/hash equality from authenticated parent and replay outputs |
+| CO-08 | Ordinary/system classification preserved | B, D, E / signer execution | Hidden system-sender rejection, fallback and cached paths included |
+| CO-09 | Follower executes every empty/nonempty block independently | C / deriver | Clean follower without sequencer headers or signer cache; every block hash |
+| CO-10 | Reconciliation matching includes environment and ancestry | C / deriver | Same transactions with different environment/parent force correct replay |
+| CO-11 | Partial/deferred/resumed/competing settlement gates unchanged | C, D, I / deriver and settlement | Canonical actual endpoint, outbound authorization and value effects |
+| CO-12 | Historical catch-up, correlations, checkpoints and safe/finalized heads | C / deriver and L1 tools | New-network catch-up, restart, L1 reorg and same-height resume |
+| CO-13 | Default signer window raised to 65,536, lower override respected | D / config, window, SPEC | Config defaults/overrides plus actual validated request, not header-only |
+| CO-14 | Capability identity and limits checked before v3 emission | E, G, H / control RPC and launchers | Wrong identity/profile/limits and reconnect; no old-server mode |
+| CO-15 | PrepareOrdinary performs full validation, never signs settlement | E / signer preparation | Invalid witness/parent/recipe/system sender; no partial cache entry |
+| CO-16 | Cache keys and facts bind block, rules, parent and environment | E / signer cache | Wrong height/hash/config/environment/fork, complete validated evidence, same-hash safe reuse |
+| CO-17 | References preserve final window continuity and settlement binding | D, E / final Prove pipeline | Cold/cached/mixed equivalence; malformed reference versus cache miss |
+| CO-18 | Terminal witness and observations always freshly validated | D, E / terminal proof | Cached terminal rejected; unchanged prefix checkpoints and observations |
+| CO-19 | Cache size, identity, reservations and pins are bounded | E / cache admission | Both quota boundaries, overhead accounting, eviction and restart |
+| CO-20 | Preparation does not starve final proving | E / worker scheduling | Concurrent prep/proof deadlines, partial stream, cancellation and timeout |
+| CO-21 | Producer preparation queue and retries are bounded | F / node and remote prover | 128-identity queue, watermark catch-up/reorg, cache-miss repair without source eviction |
+| CO-22 | Durable witnesses survive until finalized and match requested hashes | F / witness source | Hash-key persistence/restart; A -> B -> pruned restart -> A; disk/missing data failure; finalized purge |
+| CO-23 | Full-window witness duplication removed | E, F / proving context and remote streaming | Allocation/RSS measurements and no repeated full vectors on retry |
+| CO-24 | Exact composable v3 size accounting | A, G / sizer and activity index | Actual encode equality; re-anchor first gap, terminal promotion, RLP thresholds |
+| CO-25 | Future input/full-terminal reserves and pool admission remain sound | G / sequencing and node-common | No accepted unsplittable interval; nonce retention; unexpected exception bounds |
+| CO-26 | Blob/future-fork/companion and proof resource limits agree | G / candidate prefix selection | Config reductions, missing capabilities, legal boundary/cap interactions; idle hard-cap due reason prevents sequencing/posting deadlock |
+| CO-27 | Cross-chain groups retain target/order/ownership under failures | F, G, I / composer reconciliation | Slot miss, cache miss, proving timeout and historical predecessor drains |
+| CO-28 | Format acceptance independent of local RPC/cache quotas | C, D, H / configuration separation | Valid canonical v3 remains valid under different follower resource settings |
+| CO-29 | Single operations format from new-network genesis (supersedes activation/upgrade support) | H / node, signer, follower and templates | No activation flag; unsupported tag/profile rejected; producer and clean follower use the same format |
+| CO-30 | Long empty spans satisfy actual byte and replay gates | I / native e2e | Greatest legal spans under 43,200/65,536: actual encodings, signer success, exact follower hashes; exact codec count boundary separately |
+| CO-31 | Timing/resource claims backed by named deployment envelope | I / performance harness | 20 warm repetitions/profile, bounded cold/follower recovery, p95/max/misses, RSS/disk/witness quotas |
+| CO-32 | Existing cross-chain and native profile behavior preserved | I / existing e2e suites | Ethereum/Gnosis regressions and concurrent preparation cases |
+| CO-33 | Observability identifies the actual remaining constraint | G, I / structured telemetry | DA bytes, logical/derived/fallback counts, cache hits, request quotas and closure reason by candidate hash |
+| CO-34 | All evidence reproducible and release disabled until complete | H, I / docs and CI | Frozen source/binary/config/input hashes, commands, test outcomes, complete ledger |
+| CO-35 | Cached evidence preserves the full intermediate-block gate | D, E / validation and settlement | User-origin outbound event with no system sender rejected cold/prepared/referenced; decoded counts and evidence complete |
+| CO-36 | Environment-change records have exact same-block and subsequent semantics | A, B, C, G / profile and size algebra | Kind-2 empty/nonempty/no-op/invalid cases; old-env gap, new-env record; composition, re-anchor and terminal promotion |
+| CO-37 | Whole-request cost fits actual posting timing | E, G, H, I / calibration and scheduler | Cost by ranges/logical blocks/records/KZG/terminal/wait; recorded release proof/preparation/Future/Live settings |
+| CO-38 | Maximum-backlog signer restart meets explicit recovery SLO | E, F, I / cache and durable witnesses | Measured recovery to cross-chain readiness within 600 seconds or a tighter deployment bound; release fails otherwise |
+| CO-39 | Range references cannot hide unbounded or discontinuous work | D, E / RPC window assembler | Count before traversal, overlap/gap/order/endpoints/parent/identity cases; same final facts as cold blocks |
+| CO-40 | Reservations prevent pending-window thrash without creating authority | E, F / retention control | Union quotas, overlap, renew/release/expiry, atomic preparation extension, proof pins; signatures alone never advance reservations |
+| CO-41 | Cache misses have a dedicated recovery path | E, F / remote prover and error mapping | FAILED_PRECONDITION detail maps to CacheMiss, not source Actionable or unchanged-request retry; preserves ownership/deadline |
+| CO-42 | Finite speculative depth and required state/history availability | F, H, I / node/follower storage | Finite N+K-1 configuration; oldest anchor and hash history after pruning/restart/reorg; safe-head lag documented |
+| CO-43 | Claimed recipe stays immutable under a resumed applied range | C, D, I / settlement and deriver | Nonzero ordinary count with same-height resumed outcome; proof anchor vs prefix root; canonical H-1 parent/environment mismatch |
+| CO-44 | Replay/cold timing checkpoint precedes proving-service expansion | B, C, D, I / prototype | Actual legal spans on both profiles; measured evidence selects necessary E/F scope without weakening long-span gates |
+| CO-45 | Validation identity is deterministic and channel reuse avoids redundant RTTs | E, H / control RPC | Canonical identity golden vectors; whitespace/key order, changed config/revision, reconnect and mismatch refresh |
+| CO-46 | Follower partial progress and crash-resume are bounded and idempotent | C, I / reconciliation | Crash early/middle/late in largest batch; identical final chain and safe head; release-hardware recovery SLO |
+| CO-47 | Capacity benchmarks preserve legal Sync geometry | G, I / timing and native harness | Actual residue/anchor; K=6 maximum 65,532 and K=5 maximum 65,535; exact codec/ingress counts tested separately |
+| CO-48 | Full fallback and profile field coverage match actual follower capabilities | B, C, D / assembly and fork support | Unsupported slot/BAL/ommer shapes rejected unless both paths reproduce them; exhaustive field classification and dependency-upgrade regression |
+| CO-49 | Every signer path preserves the full authorization boundary | D, E / settlement job and attester | Gate-by-gate cold/cached mapping; only the full job constructs AttestablePublicInputsHash; no alternate signing entry |
+| CO-50 | Cached authorization refines complete authenticated execution | D, E, I / differential oracle | Same v3 request: equal authorized facts/effects/digest cold, warm and mixed; cache lifecycle never adds semantic acceptance |
+| CO-51 | Rejection happens before signing under adversarial and concurrent failures | D, E, I / attester-boundary tests | Zero signing calls for malformed/mutated input, missing evidence, wrong context, cancellation/deadline races; fuzz and negative controls |
+| CO-52 | Shared-code agreement does not replace independent validation | B, C, D, I / fixtures and oracle | Independently generated expected blocks and fork fixtures; mutation tests expose missing gates despite shared helpers |
+| CO-53 | Signer changes receive a focused soundness review (2026-09-17 user scope revision) | D, E, I / release evidence | Written trust/commitment/invariant argument and reviewed gate mapping; change-specific correctness findings resolved before deployment |
+
+No row is waived by a smaller payload or a successful outer L1 receipt. If the
+implementation changes a design decision, update the contract and affected rows
+together and repeat the relevant validation.

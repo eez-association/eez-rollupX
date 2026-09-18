@@ -50,6 +50,37 @@ class WorkflowContractTest(unittest.TestCase):
         results["kurtosis-e2e"]["result"] = "skipped"
         self.assertNotEqual(self.run_gate(results).returncode, 0)
 
+    def test_native_matrices_cover_every_partition_and_block_promotion_on_failure(self):
+        for name in ("embedded-e2e", "cross-chain-e2e"):
+            job = self.jobs[name]
+            partitions = job["strategy"]["matrix"]["partition"]
+            self.assertEqual(partitions, [f"slice:{i}/4" for i in range(1, 5)])
+            self.assertFalse(job["strategy"]["fail-fast"])
+            self.assertNotIn("continue-on-error", job)
+            execution = next(s for s in job["steps"] if "run-native-suite.sh" in s.get("run", ""))
+            self.assertEqual(execution["env"]["NEXTEST_PARTITION"], "${{ matrix.partition }}")
+            self.assertIn('"$NEXTEST_PARTITION"', execution["run"])
+            self.assertNotIn("continue-on-error", execution)
+            upload = next(s for s in job["steps"] if s.get("uses", "").startswith("actions/upload-artifact@"))
+            self.assertIn("${{ strategy.job-index }}", upload["with"]["name"])
+            for state in ("failure", "cancelled", "skipped"):
+                results = self.result("true")
+                results[name]["result"] = state
+                self.assertNotEqual(self.run_gate(results).returncode, 0)
+
+    def test_native_submodule_retries_precede_payload_consumption_and_fail_closed(self):
+        for name in ("embedded-e2e", "cross-chain-e2e"):
+            steps = self.jobs[name]["steps"]
+            checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+            self.assertFalse(checkout["with"]["persist-credentials"])
+            self.assertNotIn("submodules", checkout["with"])
+            initialize = next(step for step in steps if step.get("run") == "bash scripts/ci/init-submodules.sh")
+            payload = next(step for step in steps if step.get("uses") == "./.github/actions/native-test-artifact")
+            self.assertEqual(initialize["timeout-minutes"], 6)
+            self.assertNotIn("continue-on-error", initialize)
+            self.assertLess(steps.index(checkout), steps.index(initialize))
+            self.assertLess(steps.index(initialize), steps.index(payload))
+
     def test_promotion_is_after_the_gate_and_only_on_main(self):
         job = self.jobs["ci-result"]
         promotion = job["steps"][1]
@@ -144,22 +175,17 @@ elif args[0] != "logout":
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(copies, [])
 
-    def test_three_initial_lanes_keep_all_consolidated_checks(self):
+    def test_two_initial_lanes_keep_lint_and_runtime_checks(self):
         self.assertEqual({name for name, job in self.jobs.items() if not job.get("needs")},
-                         {"build-runtime", "lint", "contract-tests"})
+                         {"build-runtime", "lint"})
         lint = "\n".join(s.get("run", "") for s in self.jobs["lint"]["steps"])
         for command in ("cargo fmt", "cargo deny check", "cargo audit", "cargo clippy",
                         "unittest discover"):
             self.assertIn(command, lint)
-        steps = self.jobs["contract-tests"]["steps"]
-        self.assertEqual(sum(s.get("run", "").startswith("forge test") for s in steps), 2)
-        self.assertFalse(any("update-eezl2-genesis" in s.get("run", "") for s in steps))
+        self.assertNotIn("contract-tests", self.jobs)
         network = (REPO / "testing/kurtosis/run-ci.sh").read_text()
         self.assertIn('bash "$REPO/scripts/update-eezl2-genesis.sh" --check', network)
         self.assertLess(network.index("update-eezl2-genesis.sh"), network.index('bash "$HERE/start.sh"'))
-        self.assertTrue(any(s.get("run") == "bash scripts/ci/run-protocol-anvil.sh" for s in steps))
-        self.assertTrue(any(s.get("run") == "forge build" and s.get("working-directory") == "eez-core-protocol"
-                            for s in steps))
 
     def test_lint_initializes_one_target_and_preserves_optional_hosted_caching(self):
         steps = self.jobs["lint"]["steps"]
@@ -183,9 +209,7 @@ elif args[0] != "logout":
         tests = next(i for i, step in enumerate(steps)
                      if "unittest discover" in step.get("run", ""))
         self.assertLess(install, tests)
-        contracts = next(s for s in self.jobs["contract-tests"]["steps"]
-                         if s.get("uses", "").startswith("foundry-rs/foundry-toolchain@"))
-        self.assertEqual(steps[install]["with"], contracts["with"])
+        self.assertEqual(steps[install]["with"], {"version": "v1.7.1"})
 
     def test_kurtosis_consumer_requires_publication_and_unconditional_login(self):
         caller = self.jobs["kurtosis-e2e"]
@@ -212,7 +236,7 @@ elif args[0] != "logout":
             # Assert the exact supported grammar before evaluating its fallbacks.
             fields = expression.removeprefix("${{ ").removesuffix(" }}").split(" || ")
             expected = ["inputs.runner"]
-            if name in ("lint", "contract-tests"):
+            if name == "lint":
                 expected.append("vars.CI_AUX_RUNNER")
             expected += ["vars.CI_RUNNER", "'homelab-rust'"]
             self.assertEqual(fields, expected)
@@ -228,9 +252,9 @@ elif args[0] != "logout":
                 self.assertEqual(selected(manual="homelab-rust", auxiliary="ubuntu-24.04"), "homelab-rust")
                 self.assertEqual(selected(primary="ubuntu-24.04"), "ubuntu-24.04")
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="ubuntu-24.04"),
-                                 "ubuntu-24.04" if name in ("lint", "contract-tests") else "homelab-rust")
+                                 "ubuntu-24.04" if name == "lint" else "homelab-rust")
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="homelab-small"),
-                                 "homelab-small" if name in ("lint", "contract-tests") else "homelab-rust")
+                                 "homelab-small" if name == "lint" else "homelab-rust")
 
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):

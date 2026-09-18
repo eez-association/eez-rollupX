@@ -164,14 +164,20 @@ Preflight failures before dispatch remain preparation observations, not a sent b
 and local request-binding verification. Typed retry status distinguishes unavailable,
 deadline and aborted; actionable rejection is rejected, opaque/backend failure
 is failed. Retries each have one client duration, without charging another native
-settlement attempt. `signer` covers the server RPC; signer_ingestion,
+settlement attempt. `signer` covers the final `Prove` server RPC; signer_ingestion,
 signer_validation, signer_settlement and signer_signing describe its inner stages.
+`signer_preparation` separately covers one `PrepareOrdinary` RPC, including its
+ingestion and publication. Each actual ordinary-block validation worker also
+records `signer_validation` under the preparation trace parent. The worker timer
+survives an expired RPC await. These preparation observations never enter
+authorized-response or signing counters. Capability discovery and retention
+have trace spans but do not count as proving requests.
 Their status taxonomy is success/invalid/rejected/unavailable/deadline/cancelled/internal,
 plus panicked on unwind. Execution and settlement timers remain owned by the one
 blocking worker after RPC timeout; the existing permit and cancellation ownership
 are unchanged. Signing can succeed locally while the overall RPC subsequently
 fails its deadline. These overlapping stages must not be summed into latency.
-`eez_signer_requests_total{outcome}` counts server RPC observations once, with all
+`eez_signer_requests_total{outcome}` counts final `Prove` RPC observations once, with all
 fixed outcomes initialized to zero at metrics-enabled signer startup. Neither an
 invalid request nor a successful signature proves canonical settlement.
 

@@ -1,0 +1,22 @@
+{
+  "l1-genesis.json": {
+    "sha256": "23135f61adac109a081fa3d3c749c6c265d12706570d9dae092692a784f44af4",
+    "logical_bytes": 32127,
+    "allocated_bytes": 32768
+  },
+  "l2-genesis.json": {
+    "sha256": "78b92b734d79b4445b748ff36f83fcf7b27044a17a19536896ba197d3000a8d0",
+    "logical_bytes": 32124,
+    "allocated_bytes": 32768
+  },
+  "metadata.json": {
+    "sha256": "57b2482294798526746e1b1ab73e7a36d240621230731f2482654401b3dc290f",
+    "logical_bytes": 746,
+    "allocated_bytes": 4096
+  },
+  "witness-db/mdbx.dat": {
+    "sha256": "d9b51d0fcf6f01eb59e51806ef55510ba3df8b7ac0462aa5aca8bec87422c205",
+    "logical_bytes": 1073741824,
+    "allocated_bytes": 814350336
+  }
+}

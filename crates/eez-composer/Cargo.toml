@@ -12,7 +12,7 @@ benchmark-lock-timing = []
 
 [dependencies]
 # Internal — protocol, EVM port + inspector, and the existing umbrella siblings
-eez-driver = { workspace = true, features = ["witness"] }
+eez-driver = { workspace = true, features = ["witness", "derivation"] }
 eez-blob-codec.workspace = true
 eez-evm-inspector.workspace  = true
 eez-l1.workspace             = true

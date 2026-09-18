@@ -1,0 +1,8 @@
+
+running 1 test
+test ethereum_native_large_history_cold_checkpoint ... native history produced: profile=EthereumOsaka, ceiling=Some(512), terminal=510, build_ms=58680
+{"actual_blocks":510,"checkpoint":"native_cold_history","error":null,"k":5,"legacy_operations_bytes":390910,"operations_bytes":1754,"physical_blobs":1,"profile":"EthereumOsaka","request_bytes_generated":3371620,"requested_ceiling":512,"stream_and_proof_ms":3478,"streamed_blocks":510,"success":true,"witness_items_generated":19223,"workload":"native genesis with sparse setup transactions"}
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 64.44s
+

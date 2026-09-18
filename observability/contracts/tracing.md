@@ -48,6 +48,16 @@ field: native Reth log filters can omit `eez_trace` span fields even while the
 separate exporter records those spans. The node-agent's reviewed event allowlist
 and scalar projection retain this field without exporting arbitrary log text.
 
+The prepared ordinary-block path adds finite client/server span pairs:
+`prover_capabilities` → `capabilities`, `prover_prepare_ordinary` →
+`prepare_ordinary`, and `prover_retain_ordinary` → `retain_ordinary_ranges`.
+Each RPC propagates the same bounded W3C context contract, including a final
+`Prove` request containing cached ranges. Preparation workers inherit their
+request span even after the await expires; trace lifetime does not change worker
+ownership or cancel execution. Capabilities, prepared facts and leases are not
+attestations and emit no `window_signed` event. The final client attestation
+records the logical block count, not the smaller count of wire chunks.
+
 Each captured preparation links finite source-reference spans carrying the exact
 admission epoch/sequence and source chain/genesis/rollup/hash/direction. Links are
 bounded to 128 and overflow is visible. These are observations at preparation,
@@ -107,7 +117,10 @@ Existing native JSON without `traces` keeps tracing disabled. Upgrade binaries
 before adding the new field: older binaries deliberately reject unknown config
 fields. Remove `traces` before rolling those binaries back. W3C gRPC metadata is
 optional and older signers ignore it; a newer signer receiving no context starts
-a local trace. The protobuf and signed data are identical across these versions.
+a local trace. Tracing itself does not change protobuf or signed data. The
+underlying derivable operations rollout separately requires compatible producer,
+signer and follower binaries and the validation-identity agreement described in
+the [RPC specification](../../crates/eez-control-rpc/SPEC.md#21-validation-identity-and-capability-discovery).
 Lifecycle v1 already defines optional trace/span IDs, so enabling them needs no
 transport or PostgreSQL schema migration. Metrics must be configured/scraped to
 observe exporter counters; generated native stack configurations include that

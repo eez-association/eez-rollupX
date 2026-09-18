@@ -1,6 +1,58 @@
 use super::*;
 
 #[test]
+fn loaded_document_digest_binds_source_before_normalization() {
+    let first = parse_chain_document_with_digest(br#"{"chainId":1,"pragueTime":42}"#).unwrap();
+    let reordered =
+        parse_chain_document_with_digest(br#" { "pragueTime" : 42, "chainId" : 1 } "#).unwrap();
+    assert_eq!(first.digest(), reordered.digest());
+    assert_eq!(
+        first.digest(),
+        alloy_primitives::b256!("233a5ff662f019aed445c0fc466c09cd2e65f7ea3e68468e4e857def77ae88d3")
+    );
+    assert_eq!(first.kind(), ChainDocumentKind::BareChainConfig);
+    assert_eq!(first.into_genesis().config.prague_time, Some(42));
+    for changed in [
+        br#"{"chainId":1,"pragueTime":43}"#.as_slice(),
+        br#"{"chainId":2,"pragueTime":42}"#.as_slice(),
+        br#"{"chainId":1,"pragueTime":"0x2a"}"#.as_slice(),
+    ] {
+        assert_ne!(
+            reordered.digest(),
+            parse_chain_document_with_digest(changed).unwrap().digest()
+        );
+    }
+}
+
+#[test]
+fn actual_file_loader_rejects_duplicate_keys_before_alloy_deserialization() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("chain.json");
+    for document in [
+        r#"{"chainId":1,"chainId":2}"#,
+        r#"{"config":{"chainId":1,"chainId":1},"alloc":{}}"#,
+        r#"{"chainId":1,"blobSchedule":{"prague":{"max":6,"max":9,"target":3,"baseFeeUpdateFraction":1}}}"#,
+    ] {
+        fs::write(&path, document).unwrap();
+        let error = load_chain_document(&path).unwrap_err();
+        assert!(format!("{error:?}").contains("duplicate"));
+    }
+}
+
+#[test]
+fn loaded_document_remains_bound_after_source_file_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("chain.json");
+    fs::write(&path, br#"{"chainId":1}"#).unwrap();
+    let loaded = load_chain_document_with_digest(&path).unwrap();
+    fs::write(&path, br#"{"chainId":2}"#).unwrap();
+    let replacement = load_chain_document_with_digest(&path).unwrap();
+    assert_ne!(loaded.digest(), replacement.digest());
+    assert_eq!(loaded.into_genesis().config.chain_id, 1);
+    assert_eq!(replacement.into_genesis().config.chain_id, 2);
+}
+
+#[test]
 fn native_gnosis_execution_configuration_fails_before_upstream_constructor_panics() {
     let mut genesis = Genesis::default();
     assert!(validate_gnosis_execution_config(&genesis).is_err());

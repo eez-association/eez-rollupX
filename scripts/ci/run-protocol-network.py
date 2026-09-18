@@ -72,16 +72,35 @@ def collect_logs(protocol, logs, names, text, old_dirs):
     # Deliberately do not copy wallets.csv, faucet/pool keys or broadcast files.
 
 
-def run_network(protocol, logs, names, env, deadline):
+def print_failure_log(logs, name, env):
+    path = logs / f"{name}.log"
+    print(f"==> {name}: failure diagnostics (last 80 lines, at most 16 KiB)", flush=True)
+    if not path.is_file():
+        print(f"[{name}] No scenario log was produced", flush=True)
+        return
+    with path.open("rb") as stream:
+        stream.seek(max(0, path.stat().st_size - 16384))
+        tail = stream.read(16384).decode(errors="replace")
+    if env.get("SOURCE_PK"):
+        tail = tail.replace(env["SOURCE_PK"], "[REDACTED]")
+    tail = re.sub(r"(?i)(--private-key\s+|\b(?:private[_-]?key|source_pk|pk)\s*=\s*)\S+",
+                  r"\1[REDACTED]", tail)
+    for line in tail.splitlines()[-80:]:
+        # Prefix untrusted scenario output: a logged RESULT must not become a
+        # second result in the outer wrapper's strict accounting stream.
+        print(f"[{name}] {line}", flush=True)
+
+
+def run_network(protocol, logs, names, env, deadline, phase="parallel"):
     started = time.monotonic()
-    record = {"phase": "parallel", "scenarios": names, "exit_code": 124, "seconds": 0}
+    record = {"phase": phase, "scenarios": names, "exit_code": 124, "seconds": 0, "results": []}
     if started >= deadline:
         record["error"] = "suite deadline exceeded before phase start"
         return record
     old_dirs = {path.name for path in (protocol / "tmp/e2e-parallel-net").glob("*")}
     command = ["bash", "script/e2e/run/network-parallel.sh", "--fresh", *names]
-    raw_log = logs / "parallel.log"
-    print(f"==> protocol parallel: {len(names)} scenarios (MAX_PARALLEL={env['MAX_PARALLEL']})", flush=True)
+    raw_log = logs / f"{phase}.log"
+    print(f"==> protocol {phase}: {len(names)} scenarios (MAX_PARALLEL={env['MAX_PARALLEL']})", flush=True)
     with raw_log.open("x") as log:
         process = subprocess.Popen(command, cwd=protocol, env=env, stdout=log,
                                    stderr=subprocess.STDOUT, start_new_session=True)
@@ -104,6 +123,7 @@ def run_network(protocol, logs, names, env, deadline):
         if match:
             job, verdict = match.groups()
             name = expected.get(job, f"unexpected-parallel/{job}")
+            record["results"].append([name, verdict])
             print(f"RESULT {name}: {verdict}", flush=True)
         else:
             print(line, flush=True)
@@ -115,8 +135,11 @@ def run_network(protocol, logs, names, env, deadline):
     except ValueError as error:
         record["error"] = str(error)
         record["exit_code"] = record["exit_code"] or 1
+    for name in names:
+        if [r for r in record["results"] if r[0] == name] != [[name, "PASS"]]:
+            print_failure_log(logs, name, env)
     record["seconds"] = round(time.monotonic() - started, 2)
-    print(f"==> protocol parallel: exit={record['exit_code']} elapsed={record['seconds']}s", flush=True)
+    print(f"==> protocol {phase}: exit={record['exit_code']} elapsed={record['seconds']}s", flush=True)
     if record.get("error"):
         print(f"ERROR: {record['error']}", flush=True)
     return record
@@ -147,12 +170,39 @@ def main():
     deadline = time.monotonic() + args.suite_timeout
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, interrupted)
+    failed = False
     try:
-        result = run_network(protocol, logs, args.scenarios, env, deadline)
-        execution["phases"].append(result)
+        names = args.scenarios
+        if "bridge" in names and "bridgeL2" in names:
+            # The pinned bridgeL2 scenario releases escrow deposited by bridge.
+            # Fresh worker wallets isolate nonces, not shared rollup escrow.
+            result = run_network(protocol, logs, ["bridge"], env, deadline,
+                                 phase="bridge-prerequisite")
+            execution["phases"].append(result)
+            failed = result["exit_code"] != 0 or result["results"] != [["bridge", "PASS"]]
+            if result.get("interrupted"):
+                return result["exit_code"]
+            names = [name for name in names if name != "bridge"]
+            if failed:
+                names.remove("bridgeL2")
+                execution["blocked"] = {"bridgeL2": "bridge prerequisite did not pass"}
+                (logs / "bridgeL2.log").write_text("NOT RUN: bridge prerequisite did not pass\n")
+                print("RESULT bridgeL2: SKIP (bridge prerequisite did not pass)", flush=True)
+                print_failure_log(logs, "bridgeL2", env)
+            # Upstream names run directories to second precision. Avoid a
+            # collision between short phases without replacing retained logs.
+            while names and time.monotonic() < deadline and (
+                    protocol / "tmp/e2e-parallel-net" / time.strftime("%Y%m%d-%H%M%S")).exists():
+                time.sleep(0.05)
+        if names:
+            result = run_network(protocol, logs, names, env, deadline)
+            execution["phases"].append(result)
+            if result.get("interrupted"):
+                return result["exit_code"]
+            failed |= result["exit_code"] != 0
     finally:
         (logs / "execution.json").write_text(json.dumps(execution, indent=2) + "\n")
-    return result["exit_code"] if result.get("interrupted") else int(result["exit_code"] != 0)
+    return int(failed)
 
 
 if __name__ == "__main__":

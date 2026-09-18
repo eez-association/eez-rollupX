@@ -53,6 +53,49 @@ pub(crate) struct AdmittedBlock {
 }
 
 impl AdmittedBlock {
+    pub(crate) fn from_wire(
+        submitted_block: BlockWitness,
+        accounted_witness_items: &mut usize,
+        limits: WindowLimits,
+    ) -> Result<Self, WindowError> {
+        let BlockWitness {
+            number: declared_number,
+            hash: claimed_hash_bytes,
+            parent_hash: claimed_parent_hash_bytes,
+            rlp,
+            witness,
+        } = submitted_block;
+        let claimed_hash = B256::try_from(claimed_hash_bytes.as_slice()).map_err(|_| {
+            WindowError::BlockHashLength {
+                number: declared_number,
+                actual: claimed_hash_bytes.len(),
+            }
+        })?;
+        let claimed_parent_hash =
+            B256::try_from(claimed_parent_hash_bytes.as_slice()).map_err(|_| {
+                WindowError::ParentHashLength {
+                    number: declared_number,
+                    actual: claimed_parent_hash_bytes.len(),
+                }
+            })?;
+        let wire_witness = witness.ok_or(WindowError::MissingWitness {
+            number: declared_number,
+        })?;
+        charge(
+            accounted_witness_items,
+            wire_witness_item_count(&wire_witness),
+            limits.witness_items,
+            |attempted, max| WindowError::WitnessItemLimit { attempted, max },
+        )?;
+        Ok(Self {
+            declared_number,
+            claimed_hash,
+            claimed_parent_hash,
+            rlp,
+            witness: into_execution_witness(wire_witness),
+        })
+    }
+
     /// Construct the minimal admitted block used by downstream unit tests.
     #[cfg(test)]
     pub(crate) fn test(
@@ -110,24 +153,56 @@ impl AdmittedWindow {
 /// Keeping the vector behind this private constructor prevents production
 /// callers from bypassing [`AdmittedWindow`]'s stream and identity checks when
 /// invoking validation.
-pub(crate) struct AdmittedBlocks(Vec<AdmittedBlock>);
+pub(crate) enum AdmittedBlockInput {
+    Witness(AdmittedBlock),
+    Cached(Vec<crate::validate::PreparedOrdinaryBlock>),
+}
+
+pub(crate) struct AdmittedBlocks(Vec<AdmittedBlockInput>);
 
 impl AdmittedBlocks {
     /// Borrow the structurally admitted blocks in stream order.
     #[cfg(test)]
-    pub(crate) fn as_slice(&self) -> &[AdmittedBlock] {
-        &self.0
+    pub(crate) fn as_slice(&self) -> Vec<&AdmittedBlock> {
+        self.0
+            .iter()
+            .filter_map(|input| match input {
+                AdmittedBlockInput::Witness(block) => Some(block),
+                AdmittedBlockInput::Cached(_) => None,
+            })
+            .collect()
     }
 
     /// Consume the admission capability for the validation backend.
-    pub(crate) fn into_vec(self) -> Vec<AdmittedBlock> {
+    pub(crate) fn into_witnesses(self) -> Option<Vec<AdmittedBlock>> {
         self.0
+            .into_iter()
+            .map(|input| match input {
+                AdmittedBlockInput::Witness(block) => Some(block),
+                AdmittedBlockInput::Cached(_) => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn into_inputs(self) -> Vec<AdmittedBlockInput> {
+        self.0
+    }
+
+    /// Constructed only by the bounded preparation stream after checking its
+    /// one-block shape and identities.
+    pub(crate) fn from_preparation(block: AdmittedBlock) -> Self {
+        Self(vec![AdmittedBlockInput::Witness(block)])
     }
 
     /// Build a capability for unit tests that exercise validation in isolation.
     #[cfg(test)]
     pub(crate) fn for_test(blocks: Vec<AdmittedBlock>) -> Self {
-        Self(blocks)
+        Self(
+            blocks
+                .into_iter()
+                .map(AdmittedBlockInput::Witness)
+                .collect(),
+        )
     }
 }
 
@@ -153,6 +228,8 @@ pub(crate) enum WindowError {
     EmptyStream,
     #[error("first chunk must be the window header, got block {number}")]
     BlockBeforeHeader { number: u64 },
+    #[error("first chunk must be the window header, got a cached range")]
+    CachedBeforeHeader,
     #[error("chunk at index {chunk_index} carries no kind")]
     MissingKind { chunk_index: usize },
     #[error("duplicate header chunk")]
@@ -235,7 +312,8 @@ pub(crate) struct WindowAssembler<const IDENTITY_CHECKED: bool> {
     claimed_rollup_id: u64,
     header: AdmittedHeader,
     declared_block_count: usize,
-    blocks: Vec<AdmittedBlock>,
+    blocks: Vec<AdmittedBlockInput>,
+    logical_blocks: usize,
 }
 
 impl WindowAssembler<false> {
@@ -255,6 +333,7 @@ impl WindowAssembler<false> {
                     number: block.number,
                 });
             }
+            Some(prove_chunk::Kind::CachedRange(_)) => return Err(WindowError::CachedBeforeHeader),
             None => return Err(WindowError::MissingKind { chunk_index: 0 }),
         };
         let ParsedHeader {
@@ -271,6 +350,7 @@ impl WindowAssembler<false> {
             header,
             declared_block_count,
             blocks: Vec::new(),
+            logical_blocks: 0,
         })
     }
 
@@ -307,6 +387,7 @@ impl WindowAssembler<false> {
             header: self.header,
             declared_block_count: self.declared_block_count,
             blocks: self.blocks,
+            logical_blocks: self.logical_blocks,
         })
     }
 
@@ -316,6 +397,8 @@ impl WindowAssembler<false> {
         limits: WindowLimits,
     ) -> Result<ParsedHeader, WindowError> {
         let ProveHeader {
+            // Service ingress compares this with locally loaded rules after structural admission.
+            expected_validation_identity: _checked_by_service,
             rollup_id: claimed_rollup_id,
             from_block: declared_from_block,
             to_block: declared_to_block,
@@ -349,13 +432,16 @@ impl WindowAssembler<false> {
         }
         // The checked nonzero, ordered bounds make this inclusive span overflow-safe.
         let span = declared_to_block - declared_from_block + 1;
-        let max_blocks = u64::try_from(limits.blocks).unwrap_or(u64::MAX);
+        // An operator quota cannot enlarge the operations format. Enforce the
+        // logical ceiling at header admission, before retaining any witnesses.
+        let effective_max = limits.blocks.min(eez_payload_codec::derivable::MAX_BLOCKS);
+        let max_blocks = effective_max as u64;
         if span > max_blocks {
             return Err(WindowError::BlockLimit {
                 from: declared_from_block,
                 to: declared_to_block,
                 span,
-                max: limits.blocks,
+                max: effective_max,
             });
         }
         let declared_block_count =
@@ -391,7 +477,7 @@ impl WindowAssembler<true> {
         match chunk.kind {
             Some(prove_chunk::Kind::Header(_)) => Err(WindowError::DuplicateHeader),
             Some(prove_chunk::Kind::Block(block)) => self.push_block(block),
-            None => Err(WindowError::MissingKind {
+            Some(prove_chunk::Kind::CachedRange(_)) | None => Err(WindowError::MissingKind {
                 chunk_index: 1 + self.blocks.len(),
             }),
         }
@@ -401,12 +487,12 @@ impl WindowAssembler<true> {
     /// span.
     pub(crate) fn finish(self) -> Result<AdmittedWindow, WindowError> {
         let header = self.header;
-        if self.blocks.len() != self.declared_block_count {
+        if self.logical_blocks != self.declared_block_count {
             return Err(WindowError::Incomplete {
                 from: header.declared_from_block,
                 to: header.declared_to_block,
                 expected: self.declared_block_count,
-                actual: self.blocks.len(),
+                actual: self.logical_blocks,
             });
         }
         Ok(AdmittedWindow {
@@ -417,7 +503,7 @@ impl WindowAssembler<true> {
 
     /// Structurally check and retain one block after the admitted header.
     fn push_block(&mut self, submitted_block: BlockWitness) -> Result<(), WindowError> {
-        let block_index = self.blocks.len();
+        let block_index = self.logical_blocks;
         let expected = (self.header.declared_from_block..=self.header.declared_to_block)
             .nth(block_index)
             .ok_or(WindowError::ExtraBlock {
@@ -430,48 +516,21 @@ impl WindowAssembler<true> {
                 actual: submitted_block.number,
             });
         }
-        let BlockWitness {
-            number: declared_number,
-            hash: claimed_hash_bytes,
-            parent_hash: claimed_parent_hash_bytes,
-            rlp,
-            witness,
-        } = submitted_block;
-        let claimed_hash = B256::try_from(claimed_hash_bytes.as_slice()).map_err(|_| {
-            WindowError::BlockHashLength {
-                number: declared_number,
-                actual: claimed_hash_bytes.len(),
-            }
-        })?;
-        let claimed_parent_hash =
-            B256::try_from(claimed_parent_hash_bytes.as_slice()).map_err(|_| {
-                WindowError::ParentHashLength {
-                    number: declared_number,
-                    actual: claimed_parent_hash_bytes.len(),
-                }
-            })?;
-        let wire_witness = witness.ok_or(WindowError::MissingWitness {
-            number: declared_number,
-        })?;
-        // Prost has already allocated the decoded vectors. Enforce the item
-        // quota before conversion allocates the retained Alloy collections.
-        charge(
+        let admitted = AdmittedBlock::from_wire(
+            submitted_block,
             &mut self.accounted_witness_items,
-            wire_witness_item_count(&wire_witness),
-            self.limits.witness_items,
-            |attempted, max| WindowError::WitnessItemLimit { attempted, max },
+            self.limits,
         )?;
-        let witness = into_execution_witness(wire_witness);
         // This gate checks adjacency between stream claims; backend validation
         // binds each claim to the decoded block RLP.
-        if let Some(previous) = self.blocks.last()
-            && claimed_parent_hash != previous.claimed_hash
+        if let Some((previous_number, previous_hash)) = self.last_block_identity()
+            && admitted.claimed_parent_hash != previous_hash
         {
             return Err(WindowError::ChainBreak {
-                number: declared_number,
-                previous: previous.declared_number,
-                expected: previous.claimed_hash,
-                actual: claimed_parent_hash,
+                number: admitted.declared_number,
+                previous: previous_number,
+                expected: previous_hash,
+                actual: admitted.claimed_parent_hash,
             });
         }
 
@@ -482,14 +541,66 @@ impl WindowAssembler<true> {
             .map_err(|_| WindowError::StorageLimit {
                 attempted_blocks: block_index.saturating_add(1),
             })?;
-        self.blocks.push(AdmittedBlock {
-            declared_number,
-            claimed_hash,
-            claimed_parent_hash,
-            rlp,
-            witness,
-        });
+        self.blocks.push(AdmittedBlockInput::Witness(admitted));
+        self.logical_blocks += 1;
         Ok(())
+    }
+
+    /// Retain already resolved immutable facts after the service has charged
+    /// and validated the range claim against the local cache.
+    pub(crate) fn push_cached(
+        &mut self,
+        encoded_len: usize,
+        facts: Vec<crate::validate::PreparedOrdinaryBlock>,
+    ) -> Result<(), WindowError> {
+        charge(
+            &mut self.accounted_payload_bytes,
+            encoded_len,
+            self.limits.payload_bytes,
+            |attempted, max| WindowError::PayloadLimit { attempted, max },
+        )?;
+        let count = facts.len();
+        if count == 0 || self.logical_blocks.saturating_add(count) > self.declared_block_count {
+            return Err(WindowError::ExtraBlock {
+                expected: self.declared_block_count,
+            });
+        }
+        let first = facts.first().expect("nonempty checked above");
+        let expected_number = self.header.declared_from_block + self.logical_blocks as u64;
+        if first.number() != expected_number {
+            return Err(WindowError::WrongBlockNumber {
+                block_index: self.logical_blocks,
+                expected: expected_number,
+                actual: first.number(),
+            });
+        }
+        if let Some((previous_number, previous_hash)) = self.last_block_identity()
+            && first.parent_hash() != previous_hash
+        {
+            return Err(WindowError::ChainBreak {
+                number: first.number(),
+                previous: previous_number,
+                expected: previous_hash,
+                actual: first.parent_hash(),
+            });
+        }
+        self.blocks
+            .try_reserve(1)
+            .map_err(|_| WindowError::StorageLimit {
+                attempted_blocks: self.blocks.len().saturating_add(1),
+            })?;
+        self.logical_blocks += count;
+        self.blocks.push(AdmittedBlockInput::Cached(facts));
+        Ok(())
+    }
+
+    fn last_block_identity(&self) -> Option<(u64, B256)> {
+        match self.blocks.last()? {
+            AdmittedBlockInput::Witness(block) => Some((block.declared_number, block.claimed_hash)),
+            AdmittedBlockInput::Cached(facts) => {
+                facts.last().map(|fact| (fact.number(), fact.block_hash()))
+            }
+        }
     }
 }
 

@@ -104,10 +104,10 @@ Chiado). No fiat conversion is performed.
 
 The composer uses its existing balance read and existing gas/fee arithmetic.
 No telemetry RPC is added and no signing key, signed bytes, fee decision or
-protocol outcome changes. In the legacy posting path, metrics-enabled diagnosis
-pins the pre-existing optional balance query to the canonical fee-sample block;
-metrics-disabled behavior retains its prior query. A failed diagnostic read
-continues to leave protocol behavior unchanged.
+protocol outcome changes. Settlement policy is mandatory on the PR #26
+new-network baseline. Telemetry observes the posting path's canonical fee sample,
+validated reserve and balance; it does not restore the removed legacy posting
+path or make fee selection depend on metrics being enabled.
 
 The network-quoted posting path records its actual validated final gas reserve
 and already-read sample-block balance. If even the necessary blob-only reserve

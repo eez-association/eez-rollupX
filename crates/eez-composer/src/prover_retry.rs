@@ -642,7 +642,7 @@ mod tests {
             to_block: 1,
             batch: Default::default(),
             blobs: Vec::new(),
-            blocks: Vec::new(),
+            blocks: Vec::new().into(),
             l1_block_hash: None,
             l1_posting: eez_prover::L1PostingContext {
                 chain_id: 1,

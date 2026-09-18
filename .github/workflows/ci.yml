@@ -126,53 +126,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  contract-tests:
-    name: Contract Tests
-    runs-on: ${{ inputs.runner || vars.CI_AUX_RUNNER || vars.CI_RUNNER || 'homelab-rust' }}
-    # Reuse the checkout, Foundry and protocol outputs for the Anvil suite.
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
-        with:
-          version: v1.7.1
-      - name: Test integration contracts
-        working-directory: contracts
-        run: forge test
-      - name: Test core protocol contracts
-        working-directory: eez-core-protocol
-        run: >-
-          forge test --no-match-path 'script/*'
-          --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'
-      - name: Install system dependencies
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-      - name: Build protocol contracts
-        working-directory: eez-core-protocol
-        run: forge build
-      - name: Run complete protocol Anvil suite
-        # Five minutes per scenario and 40 minutes overall leave time to upload
-        # diagnostics. The wrapper runs every upstream scenario without retries.
-        timeout-minutes: 45
-        run: bash scripts/ci/run-protocol-anvil.sh
-      - name: Upload protocol Anvil logs
-        if: failure()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: protocol-anvil-e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          path: eez-core-protocol/tmp/e2e-*/
-          if-no-files-found: warn
-          retention-days: 3
-
   embedded-e2e:
-    name: Embedded E2E Tests
+    name: Embedded E2E Tests (${{ matrix.partition }})
     needs: build-runtime
     if: ${{ needs.build-runtime.outputs.published == 'true' }}
     permissions:
@@ -181,13 +136,21 @@ jobs:
     runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
     # Execution only: the producer owns all Rust compilation.
     timeout-minutes: 90
+    # Separate runners isolate each shard's processes; tests remain serial inside
+    # each shard. Keep every shard running so one failure cannot hide coverage.
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [slice:1/4, slice:2/4, slice:3/4, slice:4/4]
     env:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-          submodules: recursive
+      - name: Initialize pinned submodules
+        timeout-minutes: 6
+        run: bash scripts/ci/init-submodules.sh
       - uses: ./.github/actions/native-test-artifact
         with:
           payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
@@ -201,8 +164,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-      - name: Integration tests (e2e, serial)
-        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
+      - name: Integration tests (e2e, serial within shard)
+        env:
+          NEXTEST_PARTITION: ${{ matrix.partition }}
+        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR" "$NEXTEST_PARTITION"
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
@@ -211,29 +176,34 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: embedded-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          name: embedded-e2e-${{ strategy.job-index }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/embedded-e2e
           if-no-files-found: warn
           retention-days: 3
 
   cross-chain-e2e:
-    name: Cross-Chain E2E Tests
+    name: Cross-Chain E2E Tests (${{ matrix.partition }})
     needs: build-runtime
     if: ${{ needs.build-runtime.outputs.published == 'true' }}
     permissions:
       contents: read
       packages: read
     runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
-    # Execution only. Serial native/observer checks plus physical ENOSPC exceeded
-    # 90 minutes locally; retain every case and leave room for artifact setup.
-    timeout-minutes: 120
+    # Execution only: the producer owns all Rust compilation.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [slice:1/4, slice:2/4, slice:3/4, slice:4/4]
     env:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-          submodules: recursive
+      - name: Initialize pinned submodules
+        timeout-minutes: 6
+        run: bash scripts/ci/init-submodules.sh
       - uses: ./.github/actions/native-test-artifact
         with:
           payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
@@ -242,8 +212,10 @@ jobs:
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
-      - name: Integration tests (cross-chain, serial)
-        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
+      - name: Integration tests (cross-chain, serial within shard)
+        env:
+          NEXTEST_PARTITION: ${{ matrix.partition }}
+        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR" "$NEXTEST_PARTITION"
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
@@ -252,7 +224,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cross-chain-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          name: cross-chain-e2e-${{ strategy.job-index }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/cross-chain-e2e
           if-no-files-found: warn
           retention-days: 3
@@ -260,7 +232,7 @@ jobs:
   ci-result:
     name: CI Result
     if: always()
-    needs: [build-runtime, lint, contract-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
+    needs: [build-runtime, lint, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

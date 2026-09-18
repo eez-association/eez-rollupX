@@ -1,0 +1,1565 @@
+Additional correction to our F4 hypothesis: the admitted parent is authenticated against its supplied hash and witness, not established as L1-canonical before execution. A caller can already propose one block with a self-consistent high-gas parent; raising the window count is not necessary for this existing availability problem. Osaka limits individual transaction gas, but a block can contain multiple expensive transactions. Distinguish this existing RPC occupancy issue from a new soundness regression; an invalid settlement still cannot sign. The legitimate long-window/native/deadline/resource gates remain mandatory. Do not recommend new gas quotas merely on our earlier gas-pumping hypothesis without establishing their necessity.
+
+The implementation branch has also been fast-forwarded from ddf40bc to freshly fetched origin/main 5469c88860408daf776ee812156dd280c1a9e262. Only composer admission/policy files overlap; those merge results passed all 207 composer tests. The two signer files appended here are unchanged by that main update. This review remains a checkpoint rather than final approval.
+
+Critically reconsider your prior cold-signer review below. Do not use tools, access files, execute code or delegate. This remains the same authorized implementation review, not a release approval.
+
+Our independent disposition:
+F1 accepted as a coverage gap. Existing projected regression oracles remain cfg(test)-only and are not claimed as production-path proof. Since the snapshot, real native Ethereum-Osaka and Gnosis-Prague blob posts plus clean follower replay have passed every tested block hash (small checkpoint only). Four new production-RPC tests, using an independently hand-built single-account Merkle leaf and independently encoded transaction/receipt leaves rather than any shared block/trie builder, passed: signed legacy/2930/1559/4844 self-transfers, actual blob-gas charging, first Cancun/Prague/Osaka transitions, same-block/after-full/last-ordinary input changes, unused pre-Cancun beacon-root acceptance, active beacon-root tamper rejection, moved transactions/input changes and full-header mutation rejected with zero signing calls, BPO1/BPO2 acceptance, and Amsterdam rejection. You have not reviewed those new test bodies; do not certify them from this report. Effect-bearing production-RPC fixture capture/porting is still underway.
+F2 accepted. The appended updated settlement_job.rs now returns RecomputedPublicInputsHash from the inner job and constructs AttestablePublicInputsHash only AFTER observation replay and another deadline/cancellation check. The test-only helper also returns only the non-attestable digest. Check whether this actually closes the type-boundary weakness without introducing another signing route.
+F3 accepted, with a stronger fail-closed repair: appended updated stateless.rs immediately returns ValidationError::Rejected with block number and reconstruction reason (the RPC pipeline logs this at WARN). No unavailable fact is silently retained after replay. We reject your suggested BPO exclusion: the pinned alloy-evm 0.34.0 spec selector checks Amsterdam, then Osaka, then Prague, Cancun, Shanghai, Merge; it has no BPO SpecId branch. BPO blob-parameter changes still select OSAKA. The real-signer BPO regression above passes. Explain whether you withdraw that assertion.
+F4 narrowed: the ignored cold benchmark was explicitly run; actual authenticated empty-fixture windows through 65,536 passed the real RPC, with the largest about 2.25 seconds after KZG initialization (first process request about 2.06 seconds). This is neither largest-native-grid nor worst-transaction/deployment evidence. Required long-window native/restart/deadline measurements remain outstanding.
+
+A possible concrete availability gap deserves more scrutiny than the generic F4: header gas_limit can increase by nearly 1/1024 per block. A malicious Prove client may fit enough consensus-valid empty blocks within 65,536 to raise the last header gas limit enormously from the authenticated 30-million-gas anchor. A final block with many predictable out-of-gas loops might then occupy the non-interruptible worker far beyond the 600-second request timeout. Osaka's per-transaction 2^24 gas ceiling prevents a single huge transaction but not 65,535 such transactions in a high-limit block; serialized bytes and witness-item quotas may still fit. The claimed OOG post-state and receipts can be computed analytically, without the attacker spending equivalent EVM time. Before Osaka even one huge-gas transaction may suffice. Determine whether this scenario is actually possible under the supplied code and consensus rules, what existing gate defeats it if not, whether raising the window materially changes the risk, and whether it warrants a bounded OPERATIONAL per-block header gas-limit admission ceiling checked before replay (separate from protocol validity, exposed to producer capabilities), or a different localized repair. Avoid proposing changes based only on hypotheticals; separate signature soundness from service availability.
+
+Return a concise disposition for F1-F4, evaluate the updated F2/F3 code, and identify any necessary repair or discriminating test. Do not call the full task or release complete.
+
+PRIOR REVIEW:
+# Independent security review: cold derivable-operations signer (tag 3 / profile 1)
+
+Scope: the frozen snapshot only. No code was executed. Comments and SPEC/proposal text were treated as claims to be checked, not as evidence. Follower code, `validate/testing.rs`, `testkit`, `eez-protocol`, and the settlement unit tests are not in the snapshot; anything depending on them is listed as unverified.
+
+## Summary
+
+I did not find a concrete request or interleaving that reaches `Attester::sign` with an incorrect v3 window. The v3 DA gate (`verify_derivable_da_payload`) requires, at every logical position, a `ReconstructedBlock` fact that can only be built from successful Stateless output plus an authenticated parent, and it compares published environment/transactions (or full RLP) against that fact and the validated block. All pre-existing intermediate/terminal/effect/sidecar/semantic/KZG/digest gates run unchanged before the digest is wrapped. The findings below are a test-authority regression, two existing weaknesses, and several unverified assumptions that the soundness argument rests on.
+
+---
+
+## Findings
+
+### F1 — Effect-bearing settlement is no longer tested on the shipping DA entrypoint (regression in test authority)
+
+**Severity:** Medium (coverage, not a demonstrated exploit).
+
+**Where:**
+- `settlement/da.rs::verify_da_payload` — `#[cfg(test)] if legacy_da_oracle && encoded_payload.first() != Some(&eez_payload_codec::derivable::TAG) { ... return verify_encoded_da_payload(...) }`
+- `service.rs::ServiceState` — `#[cfg(test)] legacy_da_oracle: bool` and `with_legacy_da_oracle`
+- `service/tests/derivation.rs` — every positive v3 case uses `anchor_batch()` with `vec![], vec![]` sidecars/groups and empty blocks from `blocks(count)`.
+
+**What is actually tested on the production path:** terminal-only and empty-gap windows (`cold_v3_empty_history_and_terminal_only_reach_the_attester`), one empty full record, rejections of old tags, six environment mutations, count/tx/terminal/sidecar/group/witness mutations, and the stub-without-fact case. All on one fork (the fixture chain, Cancun-active), all with zero effects, zero transactions in any derived position, no `EnvironmentChange` record accepted, and no exercise of the `!has_beacon_root` leniency in `ReconstructedBlock::matches_environment`.
+
+**What is not tested on the production path:** every Sync-terminal case (outbound/inbound/mixed, callback groups, group sizes, `l2Entries` sidecars, `verify_reconstructed_sync_block`, lookup/static observation claims). Those fixtures exist only behind `with_legacy_da_oracle` and therefore exercise `verify_encoded_da_payload`/`verify_self_contained_da_payload`, which are `#[cfg(test)]` and compiled out of the binary. The gate map itself concedes: "new-format effect cases are still outstanding."
+
+**Why this matters for soundness claims:** `verify_derivable_da_payload` is new code that hands `(terminal.number(), terminal.rlp())`, `payload.l2_entries()`, `payload.outbound_group_sizes()`, and the authorized effect sets into `verify_complete_effect_metadata`. By inspection this is the same body the v2 path used, so I judge current risk low — but the "unchanged terminal/sidecar/Sync gates" assertion for the shipping binary currently rests on reading, not on any executed test. A future edit to the v3 branch (e.g., passing the wrong block, reordering the effect-metadata call before the position loop, or dropping it) would not be caught by the effect regression suite.
+
+**Repair / discriminating tests:** (1) Port at least one outbound, one inbound, one mixed/callback, and one lookup-observation fixture to v3 encoding (`Payload::new(..., terminal_rlp, l2_entries, groups)`) and run them through `TestServer` with `signing_calls()` assertions, without `with_legacy_da_oracle`. (2) Add a positive production-path case with a non-empty `Transactions` record and an `EnvironmentChange` record at a gap boundary, plus the mutations "tx list reordered", "tx moved to adjacent gap", "environment change one block early/late". (3) Add a pre-Cancun fixture asserting that a differing published beacon root is accepted only pre-Cancun and rejected at the first Cancun block. (4) Consider deleting the legacy oracle once ported, so the test suite cannot silently regress to non-shipping verifiers.
+
+**Confidence:** High that the gap exists (visible from `cfg(test)` markers and test bodies). Low that it currently hides a bug.
+
+---
+
+### F2 — `AttestablePublicInputsHash` is constructed before observation replay runs (existing weakness)
+
+**Severity:** Low.
+
+**Where:** `service/settlement_job.rs::run_settlement_with_observations` ends with `Ok((AttestablePublicInputsHash(recomputed_public_inputs_hash), observation_claims))`; `validate_and_settle` then calls `state.validator.verify_observations(&validated_window, &observation_claims)` **after** the value exists.
+
+**Why it's a weakness, not a bug today:** `validate_and_settle` returns the hash only after `verify_observations` succeeds, so production control flow is correct. But the documented boundary ("only completion of the full settlement job may construct it"; SPEC §13, proposal §1.1 item 1) is not what the type enforces: the value exists for requests whose lookup/static claims have not yet been replayed. The `#[cfg(test)] run_settlement` helper already returns it without replay. A refactor that moves `verify_observations` or adds an early return would not be caught by the type system.
+
+**Repair:** return `settlement::RecomputedPublicInputsHash` (or a new non-attestable newtype) from `run_settlement_with_observations` and wrap into `AttestablePublicInputsHash` only after `verify_observations` returns `Ok` in `validate_and_settle`. **Discriminating test:** an RPC-level fixture with a lookup-only inbound entry whose `expected_output` is forged must return `FailedPrecondition` with `signing_calls() == 0` — the snapshot has unit tests for `verify_observations` outcome mismatches but no attester-boundary test for that path.
+
+**Confidence:** High.
+
+---
+
+### F3 — Reconstruction failure reasons are discarded at `trace!` (existing/new operational weakness)
+
+**Severity:** Low (diagnostics; fail-closed).
+
+**Where:** `validate/stateless.rs::validate_blocks`: `Err(error) => { trace!(block_number, %error, "validated block is not reproducible by v3"); None }`. The only public effect is `DaPayloadError::MissingReconstruction` → `FailedPrecondition "settlement validation rejected"`.
+
+**Why it matters:** For the new network every block must reconstruct. Any dependency drift (Reth assembler behaviour, `next_evm_env` change, fork allowlist mismatch such as an L2 config with BPO forks producing `SpecId::BPO*` which `next_attributes` rejects) will present as an opaque settlement rejection with the root cause invisible below TRACE. This is an availability/operability risk, and it also makes the mandatory "reconstruction never falsely fails" property hard to observe in production.
+
+**Repair:** log at `warn!` (block number + reason, no witness contents) and/or retain the reason in `BackendBlockOutput` so `MissingReconstruction` can carry it. Behaviour must stay fail-closed.
+
+**Confidence:** High.
+
+---
+
+### F4 — 128× larger default window magnifies single-slot occupancy (existing weakness, scaled)
+
+**Severity:** Low (DoS/availability only).
+
+**Where:** `config.rs` default `max_request_blocks = 65536`; `service/rpc.rs` single `Semaphore::new(1)`; `validate/stateless.rs::check_cancellation` only between blocks; observation replay and settlement gates are non-interruptible.
+
+**Trigger:** any authorized composer (or anyone reaching the endpoint) streams a syntactically valid 65,536-block window with a doomed terminal. The slot is held for up to `request_timeout` (600 s) plus one running block; `wait_until_idle` also blocks shutdown until that block finishes. Bounds are all explicit (bytes/items/blocks/deadline), so this is not unbounded — but the proposal's "largest validated-window evidence is still outstanding" and `cold_span_feasibility` is `#[ignore]`.
+
+**Repair:** none required for soundness. Record the measured per-block cost and confirm the 600 s deadline actually bounds a 65,536-block cold window before enabling the default; consider checking the absolute deadline in `check_cancellation` in addition to the token.
+
+**Confidence:** High that the exposure exists; magnitude unmeasured.
+
+---
+
+## Non-findings worth recording (checked and found sound in the snapshot)
+
+- **Reassembly inputs are independently recomputed.** `reconstruct` passes `replay.execution_output` and `replay.post_state_root` from `StatelessValidationOutput`; Stateless computes `post_state_root` from the trie and rejects on mismatch, and `validate_block_post_execution` checks receipts/gas/requests. No claimed header output is fed into `assemble`. `reconstruction_fact_is_built_only_from_exact_replay_outputs` mutates root/gas/requests and observes rejection.
+- **Parent authentication.** `reconstruct` uses `witness.headers.last()`, requires canonical re-encoding, `parent.hash() == block.header.parent_hash`, and `parent.state_root == replay.pre_state_root`; Stateless already required `keccak(bytes) == parent_hash` for that same header. The clone is taken before `std::mem::take(&mut admitted.witness)`.
+- **No-state-read adapter.** The pinned `EthBlockAssembler` reads nothing from `state_provider`; `NoStateReads` sets the flag on every trait entry including the infallible `hashed_post_state`, and `ensure_unused` runs before the block is returned.
+- **Sparse/gap semantics.** `Blocks::next` and `Payload::new/decode` agree on record positions (`next + gap`, then `+1`); every gap position yields `Derived { environment: active, transactions: &[] }` and the DA gate checks environment and `transactions.len() == block.body.transactions.len()` at each position, so a non-empty block hidden as a gap, a wrong step, or a late/early environment change all reject. `EnvironmentChange` applies to its own block; `FullBlock` leaves the active environment unchanged on both encoder and decoder.
+- **Exact terminal/full binding.** Terminal and full records require `rlp == validated.rlp()` byte-for-byte and a reconstruction fact. `block_count == preceding + 1` and `first_block_number + position == number` bind numbering.
+- **Fact binding.** `check_backend_window_output` requires `fact.block_hash() == output.computed_hash`; `ReconstructedBlock` has no constructor outside `validate::stateless::reconstruction`.
+- **Digest binding.** Public inputs use KZG versioned hashes of the physical blobs that carried the verified `native.operations`; the composer-claimed hash is destructured and discarded in `check_header`.
+- **Quotas.** Count is bounded before variable-length decode (`checked_count` before `Environment::decode`); record positions `< count`; tx count `≤ u16::MAX` per record/full block; RLP `Vec<u8>` legacy items cannot expand beyond input length; window byte/item/block quotas are checked before retention.
+- **Cancellation/deadline before signing.** `ensure_before_deadline` runs before and after `sign`; `WorkerGuard` drop cancels the token; a detached worker cannot sign because `sign` is only invoked by the RPC future; the permit travels through the closure and is released on completion, abort-before-start, or panic. The existing runtime test asserts `signing_calls() == 0` after a detached timed-out worker completes.
+
+---
+
+## Required validation gaps (must be closed before the cold path is called reviewed)
+
+1. Production-path (no `legacy_da_oracle`) v3 fixtures for outbound, inbound, mixed/callback, static/lookup-observation, and reverted-effect actionable-failure cases, all with `signing_calls()` assertions (F1).
+2. Production-path positive cases for non-empty `Transactions` records, `EnvironmentChange` records (including one immediately after a `FullBlock` record and one at the last ordinary position), and their positional mutations.
+3. Fork coverage on the real backend: a pre-Cancun chain (beacon-root leniency), first-Cancun/first-Prague/first-Osaka derived blocks, and a rejected Amsterdam/BPO-spec block — currently only the driver-level fixtures cover forks, and only for empty blocks.
+4. Independent non-empty block fixtures for the assembler beyond the single legacy-tx Cancun case in `nonempty_derived_block_uses_executed_transactions_receipts_and_gas` (typed txs, blobs → `blob_gas_used`, Prague requests, reverted txs). Signer/follower agreement via shared `next_attributes`/assembler is not evidence against a shared error.
+5. An attester-boundary test for a failing `verify_observations` claim (F2).
+6. Feasibility/cost measurement for the 65,536 default under the 600 s deadline; the `#[ignore]` test is not evidence (F4).
+7. Evidence that `validate/testing.rs`'s stub cannot populate `BackendBlockOutput::reconstruction` (the field is `pub(crate)`; the type's privacy is what prevents this, and that module is not in the snapshot).
+
+---
+
+## Gate-by-gate soundness assessment (cold v3)
+
+| Gate | Status | Basis / caveat |
+|---|---|---|
+| Header-first stream, bounds, widths, quotas | Sound | `window.rs`; quotas checked before retention; unknown proto fields uncharged (bounded by per-message limit). |
+| Single active slot / worker lifetime | Sound | Permit travels through blocking closure; runtime tests cover timeout/abort/panic. |
+| Posting chain/blob allowance | Sound (spec-accepted trust) | Composer selects `target_timestamp`; pre-existing. |
+| Exact RLP/number/parent/hash, signer recovery | Sound | `decode_match_and_recover_signers` before replay. |
+| Stateless replay (consensus, witness, roots) | Sound (pinned dep) | Not re-audited here; `stateless-4fc3806/validation.rs` computes and compares post-root. |
+| Reconstruction parent/pre-state/hash binding | Sound | `reconstruct`; parent hash-authenticated by Stateless ancestor check. |
+| Whole-block assembly equality, supported shape | Sound by inspection; **coverage-limited** | Fork allowlist, ommers/slot/BAL/withdrawal presence checks; independent fixtures only for empty blocks + one legacy tx. |
+| State-root telescope | Sound | Unchanged. |
+| Backend-output association incl. fact ↔ hash | Sound | `check_backend_window_output`. |
+| Terminal checkpoint plan / prefix hashes | Sound (unchanged) | Not re-derived here. |
+| Canonical PostBatch, profile pins, root chain | Sound (unchanged) | |
+| Intermediate reserved-type/system-sender/outbound-event | Sound | Runs over all preceding blocks regardless of representation. |
+| Terminal framing + inbound/outbound authorization | Unchanged; **not exercised with v3 DA** | Pre-existing complexity in `derive_effect_positions` (legacy fallback) not re-reviewed in depth. |
+| Native carrier / KZG / identity `blobIndices` | Sound (unchanged) | |
+| v3 position binding (env, txs, full RLP, count, numbering) | Sound | `verify_derivable_da_payload`; every position requires a fact. |
+| Group sizes, sidecars, Sync reconstruction | Same body as before; **untested on v3 entrypoint** | F1. |
+| Native semantics / FIFO observation claims | Unchanged | |
+| Observation replay before return | Sound in control flow; **type boundary weaker than documented** | F2. |
+| Digest recomputation and private attestable type | Sound | Only `run_settlement_with_observations` constructs it. |
+| Deadline/cancellation before `sign` | Sound | Checked before and after signing; detached workers cannot sign. |
+
+---
+
+## Unverified assumptions the argument depends on
+
+- Reth `evm_env_from_header`/`context_for_block` (used by Stateless) and `next_evm_env`/`context_for_next_block` (used by the assembler and the follower) are equivalent for a header the assembler produced. Only `ethereum-evm-build.rs` is in the snapshot.
+- The follower actually derives with `next_attributes(parent, env)` + empty withdrawals/ommers and rejects on any mismatch; follower code is absent.
+- `alloy_rlp` derive/decoders reject trailing bytes and non-canonical forms as the proptests assume (`any_accepted_form_is_canonical` is evidence, not proof).
+- `public_input_post_batch_for` in the tests carries `callData` into physical blobs so the v3 tests exercise `verify_da_carrier_with_limit`; helper not shown.
+- `blocks(count)` hard-codes `timestamp_step_seconds: 1`; if the block-13 fixture step differs, the count=3 positive test would not pass as written. Cannot be checked without the fixture.
+- Any deployment L2 chain document does not enable BPO forks; if it does, `next_attributes` rejects every block (fail-closed, but total unavailability, surfaced only at TRACE — F3).
+
+This is a source review of a bounded checkpoint, not a proof; caching/preparation and follower behaviour need their own review.
+
+===== UPDATED PREVIOUSLY SHARED SOURCE: crates/eez-proof-signer/src/service/settlement_job.rs =====
+//! Synchronous validation and settlement performed by one `Prove` request.
+
+use std::num::NonZeroU64;
+
+use alloy_primitives::{Address, B256};
+use eez_control_rpc::v1::{InboundFailure, OutboundFailure, ProveFailure, prove_failure};
+use tokio::time::Instant;
+use tonic::Status;
+
+use super::ServiceState;
+use crate::cancel::CancellationToken;
+use crate::{settlement, validate, window};
+
+/// A locally recomputed digest authorized by every settlement gate.
+///
+/// Its private field makes the complete settlement job the only constructor;
+/// the attester therefore cannot accept a profile-only recomputation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttestablePublicInputsHash(settlement::RecomputedPublicInputsHash);
+
+impl AttestablePublicInputsHash {
+    /// Return the digest bytes after the full request pipeline authorized them.
+    pub(crate) const fn into_inner(self) -> B256 {
+        self.0.into_inner()
+    }
+}
+
+/// Fully checked material that may cross the attestation boundary.
+pub(super) struct AttestationMaterial {
+    pub(super) attestable_public_inputs: AttestablePublicInputsHash,
+    pub(super) validated_window_pre_block_hash: B256,
+    pub(super) validated_window_post_block_hash: B256,
+}
+
+/// Failure from either synchronous phase of the request pipeline.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum PipelineError {
+    #[error(transparent)]
+    Validation(#[from] validate::ValidationError),
+    #[error(transparent)]
+    Settlement(#[from] SettlementPipelineError),
+    #[error("request deadline elapsed before settlement")]
+    DeadlineBeforeSettlement,
+}
+
+impl PipelineError {
+    pub(super) const fn phase(&self) -> &'static str {
+        match self {
+            Self::Validation(_) => "validation",
+            Self::Settlement(_) | Self::DeadlineBeforeSettlement => "settlement",
+        }
+    }
+
+    pub(super) const fn gate(&self) -> &'static str {
+        match self {
+            Self::Validation(_) => "execution",
+            Self::Settlement(error) => error.gate(),
+            Self::DeadlineBeforeSettlement => "deadline",
+        }
+    }
+
+    pub(super) fn status(&self) -> Status {
+        match self {
+            Self::Validation(error) => match error {
+                validate::ValidationError::Rejected(_) => {
+                    Status::failed_precondition("window validation rejected")
+                }
+                validate::ValidationError::InvalidBackendOutput(_) => {
+                    Status::internal("validation backend returned invalid output")
+                }
+                validate::ValidationError::InternalInvariant(_) => {
+                    Status::internal("request pipeline invariant failed")
+                }
+                validate::ValidationError::Cancelled => {
+                    Status::cancelled("Prove request cancelled")
+                }
+            },
+            Self::Settlement(error) => error.status(),
+            Self::DeadlineBeforeSettlement => {
+                Status::deadline_exceeded("Prove request deadline exceeded")
+            }
+        }
+    }
+}
+
+/// Re-execute the window and immediately bind its evidence to settlement.
+///
+/// Keeping both CPU-bound phases in one worker avoids a second blocking-task
+/// handoff and prevents callers from handling parallel output/block vectors.
+pub(super) fn validate_and_settle(
+    state: &ServiceState,
+    blocks: window::AdmittedBlocks,
+    submitted_post_batch_calldata: Vec<u8>,
+    submitted_blobs: Vec<Vec<u8>>,
+    maximum_blobs: usize,
+    deadline: Instant,
+    cancellation: &CancellationToken,
+) -> Result<AttestationMaterial, PipelineError> {
+    let validated_window = state.validator.validate_window(blocks, cancellation)?;
+    if Instant::now() >= deadline {
+        return Err(PipelineError::DeadlineBeforeSettlement);
+    }
+    let (recomputed_public_inputs_hash, observation_claims) = run_settlement_with_observations(
+        SettlementInput {
+            #[cfg(test)]
+            legacy_da_oracle: state.legacy_da_oracle,
+            submitted_post_batch_calldata,
+            submitted_blobs: &submitted_blobs,
+            validated_window: &validated_window,
+            expected_rollup_id: state.expected_rollup_id,
+            expected_l2_system_address: state.expected_l2_system_address,
+            proof_system_vkey: state.attester.proof_system_vkey(),
+            expected_proof_system: state.attester.expected_proof_system(),
+            system_transaction_reconstructor: &state.system_transaction_reconstructor,
+            cancellation,
+        },
+        maximum_blobs,
+    )?;
+    ensure_settlement_active(cancellation)?;
+    if Instant::now() >= deadline {
+        return Err(PipelineError::DeadlineBeforeSettlement);
+    }
+    state
+        .validator
+        .verify_observations(&validated_window, &observation_claims)
+        .map_err(SettlementPipelineError::from)?;
+
+    ensure_settlement_active(cancellation)?;
+    if Instant::now() >= deadline {
+        return Err(PipelineError::DeadlineBeforeSettlement);
+    }
+    Ok(AttestationMaterial {
+        attestable_public_inputs: AttestablePublicInputsHash(recomputed_public_inputs_hash),
+        validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
+        validated_window_post_block_hash: validated_window.window_post_block_hash(),
+    })
+}
+
+/// Inputs for the synchronous settlement job.
+///
+/// The job consumes the submitted calldata at its decode boundary. Other large
+/// values remain borrowed from the validated window owned by the worker.
+pub(super) struct SettlementInput<'a> {
+    #[cfg(test)]
+    pub(super) legacy_da_oracle: bool,
+    pub(super) submitted_post_batch_calldata: Vec<u8>,
+    pub(super) submitted_blobs: &'a [Vec<u8>],
+    pub(super) validated_window: &'a validate::ValidatedWindow,
+    pub(super) expected_rollup_id: NonZeroU64,
+    pub(super) expected_l2_system_address: Address,
+    pub(super) proof_system_vkey: crate::attest::NonZeroProofSystemVkey,
+    pub(super) expected_proof_system: Address,
+    pub(super) system_transaction_reconstructor: &'a settlement::SystemTransactionReconstructor,
+    pub(super) cancellation: &'a CancellationToken,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum SettlementPipelineError {
+    #[error("{source}")]
+    Actionable {
+        source: Box<SettlementPipelineError>,
+        failure: ProveFailure,
+    },
+    #[error(transparent)]
+    PostBatchCalldata(#[from] settlement::PostBatchDecodeError),
+    #[error(transparent)]
+    PublicInputs(#[from] settlement::PublicInputError),
+    #[error(transparent)]
+    BlockInspection(#[from] settlement::BlockInspectionError),
+    #[error(transparent)]
+    RootUpdateChain(#[from] settlement::RootUpdateChainError),
+    #[error(transparent)]
+    EffectPrefix(#[from] settlement::EffectPrefixError),
+    #[error(transparent)]
+    InboundEffects(#[from] settlement::InboundEffectError),
+    #[error(transparent)]
+    OutboundEffects(#[from] settlement::OutboundEffectError),
+    #[error(transparent)]
+    DaPayload(#[from] settlement::DaPayloadError),
+    #[error(transparent)]
+    BlobDa(#[from] settlement::BlobDaError),
+    #[error(transparent)]
+    BlobSemantics(#[from] settlement::SemanticBindingError),
+    #[error(transparent)]
+    ObservationReplay(#[from] validate::ObservationValidationError),
+    #[error("request cancelled")]
+    Cancelled,
+}
+
+impl SettlementPipelineError {
+    pub(super) const fn gate(&self) -> &'static str {
+        match self {
+            Self::Actionable { source, .. } => source.gate(),
+            Self::PostBatchCalldata(_) => "post_batch_calldata",
+            Self::PublicInputs(_) => "public_inputs",
+            Self::BlockInspection(_) => "block_inspection",
+            Self::RootUpdateChain(_) => "root_update_chain",
+            Self::EffectPrefix(_) => "effect_prefix",
+            Self::InboundEffects(_) => "inbound_effects",
+            Self::OutboundEffects(_) => "outbound_effects",
+            Self::DaPayload(_) => "da_payload",
+            Self::BlobDa(_) => "blob_da",
+            Self::BlobSemantics(_) => "blob_semantics",
+            Self::ObservationReplay(_) => "observation_replay",
+            Self::Cancelled => "cancellation",
+        }
+    }
+
+    /// Map every pipeline error to its public gRPC code and message.
+    pub(super) fn status(&self) -> Status {
+        if let Self::Actionable { source, failure } = self {
+            let status = source.status();
+            debug_assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+            return Status::with_details(
+                status.code(),
+                status.message(),
+                eez_control_rpc::encode_prove_failure(failure).into(),
+            );
+        }
+
+        let (code, message) = match self {
+            Self::Actionable { .. } => unreachable!("handled above"),
+            Self::PostBatchCalldata(_) => {
+                (tonic::Code::InvalidArgument, "invalid PostBatch calldata")
+            }
+            Self::PublicInputs(
+                settlement::PublicInputError::Computation(_)
+                | settlement::PublicInputError::HashCount { .. },
+            ) => (
+                tonic::Code::Internal,
+                "public-input hash computation violated its contract",
+            ),
+            Self::BlockInspection(error) => match error {
+                settlement::BlockInspectionError::InvalidRlp { .. }
+                | settlement::BlockInspectionError::SystemSenderCount { .. }
+                | settlement::BlockInspectionError::StatusCount { .. } => (
+                    tonic::Code::Internal,
+                    "validation backend returned invalid output",
+                ),
+                settlement::BlockInspectionError::IntermediateSystemTransaction { .. }
+                | settlement::BlockInspectionError::IntermediateOutboundEvent { .. }
+                | settlement::BlockInspectionError::RevertedSystemTransaction { .. }
+                | settlement::BlockInspectionError::ReservedSystemSender { .. } => (
+                    tonic::Code::FailedPrecondition,
+                    "settlement validation rejected",
+                ),
+            },
+            Self::EffectPrefix(error) => match error {
+                settlement::EffectPrefixError::TransactionStateCheckpointCountMismatch {
+                    ..
+                }
+                | settlement::EffectPrefixError::TransactionStateCheckpointIndexMismatch {
+                    ..
+                } => (
+                    tonic::Code::Internal,
+                    "validation backend returned invalid output",
+                ),
+                settlement::EffectPrefixError::LeadingEntryNotAnchor { .. }
+                | settlement::EffectPrefixError::InvalidEntry { .. }
+                | settlement::EffectPrefixError::LaterAnchor { .. }
+                | settlement::EffectPrefixError::EffectCountMismatch { .. }
+                | settlement::EffectPrefixError::AnchorRootMismatch { .. }
+                | settlement::EffectPrefixError::EffectKindMismatch { .. }
+                | settlement::EffectPrefixError::EffectBlockHashMismatch { .. }
+                | settlement::EffectPrefixError::NonZeroAnchorEtherDelta { .. }
+                | settlement::EffectPrefixError::InvalidEffectTransactionLayout { .. } => (
+                    tonic::Code::FailedPrecondition,
+                    "settlement validation rejected",
+                ),
+            },
+            Self::PublicInputs(settlement::PublicInputError::InvalidStructure(_))
+            | Self::RootUpdateChain(_)
+            | Self::InboundEffects(_)
+            | Self::OutboundEffects(_)
+            | Self::BlobSemantics(_)
+            | Self::ObservationReplay(_) => (
+                tonic::Code::FailedPrecondition,
+                "settlement validation rejected",
+            ),
+            Self::DaPayload(error) => match error {
+                #[cfg(test)]
+                settlement::DaPayloadError::TrailingBytes { .. } => (
+                    tonic::Code::InvalidArgument,
+                    "invalid blob operations payload",
+                ),
+                settlement::DaPayloadError::Decode { .. } => (
+                    tonic::Code::InvalidArgument,
+                    "invalid blob operations payload",
+                ),
+                settlement::DaPayloadError::InvalidBlockRlp { .. }
+                | settlement::DaPayloadError::SystemTransactionReconstruction { .. }
+                | settlement::DaPayloadError::InvalidEffectTransactionLayout => (
+                    tonic::Code::Internal,
+                    "validation backend returned invalid output",
+                ),
+                settlement::DaPayloadError::BlockCount { .. }
+                | settlement::DaPayloadError::MissingReconstruction { .. }
+                | settlement::DaPayloadError::EnvironmentMismatch { .. }
+                | settlement::DaPayloadError::BlockRlpMismatch { .. }
+                | settlement::DaPayloadError::UnexpectedItems { .. }
+                | settlement::DaPayloadError::ProjectedTransactionCount { .. }
+                | settlement::DaPayloadError::TransactionMismatch { .. }
+                | settlement::DaPayloadError::MissingL2Entry { .. }
+                | settlement::DaPayloadError::L2EntryMismatch { .. }
+                | settlement::DaPayloadError::OutboundGroupSizes
+                | settlement::DaPayloadError::SyncBlockTransactionCount { .. }
+                | settlement::DaPayloadError::SyncBlockTransactionMismatch { .. } => (
+                    tonic::Code::FailedPrecondition,
+                    "settlement validation rejected",
+                ),
+            },
+            Self::BlobDa(_) => (tonic::Code::InvalidArgument, "invalid batch blob DA"),
+            Self::Cancelled => (tonic::Code::Cancelled, "Prove request cancelled"),
+        };
+        Status::new(code, message)
+    }
+
+    /// Attach a machine-readable eviction hint without changing the public
+    /// status code, message, or settlement gate.
+    fn with_actionable(self, failure: Option<ProveFailure>) -> Self {
+        match failure {
+            Some(failure) => Self::Actionable {
+                source: Box::new(self),
+                failure,
+            },
+            None => self,
+        }
+    }
+}
+
+/// Run the synchronous settlement gates, stopping at the first failure.
+///
+/// Cancellation is checked before decoding and before `verify_da_payload`;
+/// each settlement gate is synchronous and non-interruptible.
+fn run_settlement_with_observations(
+    input: SettlementInput<'_>,
+    maximum_blobs: usize,
+) -> Result<
+    (
+        settlement::RecomputedPublicInputsHash,
+        Vec<eez_protocol::settlement::FifoObservationClaim>,
+    ),
+    SettlementPipelineError,
+> {
+    let SettlementInput {
+        #[cfg(test)]
+        legacy_da_oracle,
+        submitted_post_batch_calldata,
+        submitted_blobs,
+        validated_window,
+        expected_rollup_id,
+        expected_l2_system_address,
+        proof_system_vkey,
+        expected_proof_system,
+        system_transaction_reconstructor,
+        cancellation,
+    } = input;
+    ensure_settlement_active(cancellation)?;
+    let settling_block = validated_window.settling_block();
+    let canonical_batch = settlement::decode_canonical_post_batch(submitted_post_batch_calldata)?;
+    let checked_public_input_profile = settlement::CheckedPublicInputProfile::new(
+        &canonical_batch,
+        expected_rollup_id,
+        expected_proof_system,
+    )?;
+
+    let verified_state_chain = settlement::verify_root_update_chain(
+        &canonical_batch,
+        expected_rollup_id,
+        validated_window.window_pre_block_hash(),
+        validated_window.window_post_block_hash(),
+    )?;
+
+    // If an outbound load reverted, report its paired user transaction.
+    // Reverted inbound deliveries are handled by the inbound gate below.
+    let settling_observations = settlement::inspect_validated_settling_block(
+        settling_block.block(),
+        settling_block.receipt_successes(),
+        expected_rollup_id,
+    )
+    .map_err(|error| {
+        let failure = actionable_block_inspection_failure(&error, settling_block.block());
+        SettlementPipelineError::BlockInspection(error).with_actionable(failure)
+    })?;
+    settlement::verify_validated_intermediate_blocks(validated_window.preceding_blocks())?;
+
+    let bound_effects = settlement::bind_effects_to_execution(
+        &verified_state_chain,
+        validated_window.settling_pre_block_hash(),
+        settling_block.transaction_state_checkpoints(),
+        &settling_observations,
+    )?;
+
+    // Direction-specific gates turn the ordered bindings into the only effect
+    // capabilities accepted by exact DA reconstruction.
+    let authorized_inbound_effects = settlement::authorize_inbound_effects(
+        &bound_effects,
+        expected_rollup_id,
+        expected_l2_system_address,
+    )
+    .map_err(|error| {
+        let failure = actionable_inbound_failure(&error, &canonical_batch);
+        SettlementPipelineError::InboundEffects(error).with_actionable(failure)
+    })?;
+    let authorized_outbound_effects = settlement::authorize_outbound_effects(
+        &bound_effects,
+        expected_rollup_id,
+        expected_l2_system_address,
+    )
+    .map_err(|error| {
+        let failure = actionable_outbound_failure(&error, settling_block.block());
+        SettlementPipelineError::OutboundEffects(error).with_actionable(failure)
+    })?;
+
+    ensure_settlement_active(cancellation)?;
+
+    let verified_da = settlement::verify_da_carrier_with_limit(
+        &canonical_batch,
+        submitted_blobs,
+        expected_rollup_id.get(),
+        maximum_blobs,
+    )?;
+
+    // Bind posted transactions and effect sidecars to the validated block bytes,
+    // including the reconstructed Sync-block transaction sequence.
+    settlement::verify_da_payload(
+        verified_da.payload(),
+        validated_window,
+        &authorized_outbound_effects,
+        &authorized_inbound_effects,
+        system_transaction_reconstructor,
+        #[cfg(test)]
+        legacy_da_oracle,
+    )?;
+    let observation_claims = settlement::verify_native_semantics_with_observations(
+        verified_da.semantic_transactions(),
+        validated_window,
+        &authorized_outbound_effects,
+        &authorized_inbound_effects,
+        &canonical_batch,
+        expected_rollup_id,
+    )?;
+
+    let recomputed_public_inputs_hash = checked_public_input_profile
+        .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;
+    Ok((recomputed_public_inputs_hash, observation_claims))
+}
+
+/// Test-only entry point for settlement fixtures that contain no replay-only
+/// lookup/static observations. Production always consumes and executes the
+/// claims returned by `run_settlement_with_observations` before signing.
+#[cfg(test)]
+pub(super) fn run_settlement(
+    input: SettlementInput<'_>,
+) -> Result<settlement::RecomputedPublicInputsHash, SettlementPipelineError> {
+    let (hash, observations) =
+        run_settlement_with_observations(input, eez_blob_codec::MAX_BLOBS_PER_TRANSACTION)?;
+    assert!(
+        observations.is_empty(),
+        "pipeline fixture with observations must exercise validate_and_settle"
+    );
+    Ok(hash)
+}
+
+fn actionable_block_inspection_failure(
+    error: &settlement::BlockInspectionError,
+    block: &validate::ValidatedBlock,
+) -> Option<ProveFailure> {
+    let settlement::BlockInspectionError::RevertedSystemTransaction { index } = error else {
+        return None;
+    };
+    let (transaction_index, transaction_hash) =
+        settlement::paired_outbound_transaction(block, *index)?;
+    outbound_failure(transaction_index, transaction_hash)
+}
+
+fn actionable_outbound_failure(
+    error: &settlement::OutboundEffectError,
+    block: &validate::ValidatedBlock,
+) -> Option<ProveFailure> {
+    let transaction_index = error.poisoned_transaction_index()?;
+    let transaction_hash = settlement::transaction_hash_at(block, transaction_index)?;
+    outbound_failure(transaction_index, transaction_hash)
+}
+
+fn outbound_failure(transaction_index: usize, transaction_hash: B256) -> Option<ProveFailure> {
+    Some(ProveFailure {
+        actionable_failure: Some(prove_failure::ActionableFailure::Outbound(
+            OutboundFailure {
+                transaction_index: transaction_index.try_into().ok()?,
+                transaction_hash: transaction_hash.as_slice().to_vec(),
+            },
+        )),
+    })
+}
+
+fn actionable_inbound_failure(
+    error: &settlement::InboundEffectError,
+    batch: &settlement::CanonicalPostBatch,
+) -> Option<ProveFailure> {
+    let entry_index = error.poisoned_entry_index()?;
+    let entry_hash = batch.entry_hash_at(entry_index)?;
+    Some(ProveFailure {
+        actionable_failure: Some(prove_failure::ActionableFailure::Inbound(InboundFailure {
+            entry_index: entry_index.try_into().ok()?,
+            entry_hash: entry_hash.as_slice().to_vec(),
+        })),
+    })
+}
+
+/// Stop settlement work after its request has been cancelled.
+fn ensure_settlement_active(
+    cancellation: &CancellationToken,
+) -> Result<(), SettlementPipelineError> {
+    if cancellation.is_cancelled() {
+        Err(SettlementPipelineError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+===== UPDATED PREVIOUSLY SHARED SOURCE: crates/eez-proof-signer/src/validate/stateless.rs =====
+//! Adapter for in-process Stateless validation.
+//!
+//! This module exact-decodes and binds streamed block claims, loads the
+//! operator-configured chain trust input, derives checkpoint plans, invokes
+//! Stateless/Reth, checks window continuity, and maps validated execution facts
+//! into associated per-block output.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Instant;
+
+use alloy_consensus::{
+    BlockHeader as _, EthereumReceipt, Transaction as _, TxReceipt as _,
+    proofs::{calculate_receipt_root, calculate_transaction_root},
+};
+#[cfg(test)]
+use alloy_genesis::ChainConfig;
+use alloy_genesis::Genesis;
+use alloy_primitives::{Address, B256, Bloom, Bytes, U256, keccak256, map::B256IndexMap};
+use alloy_sol_types::SolEvent as _;
+use eez_driver::observation::{BlockObservation, ObservedOutcome, replay_block_with_observations};
+use eez_protocol::abi::eez_l2_events::CrossChainCallExecuted;
+use eez_protocol::settlement::FifoObservationClaim;
+use eez_protocol::settlement::{is_system_tx, pair_end_positions};
+use reth_chainspec::{ChainSpec, EthereumHardforks as _};
+use reth_ethereum_primitives::Block;
+use reth_evm_ethereum::EthEvmConfig;
+use reth_primitives_traits::RecoveredBlock;
+use revm::Database;
+use revm::bytecode::Bytecode;
+use revm::database::State;
+use revm::state::AccountInfo;
+use stateless_reth::validation::StatelessValidationError;
+use stateless_reth::{
+    StatelessValidationOutput, stateless_validation_recovered,
+    stateless_validation_recovered_with_state_checkpoints,
+};
+use stateless_tries::{WitnessDbError, default::StatelessSparseTrie};
+use tracing::{debug, info, trace};
+
+use super::{
+    BackendBlockOutput, BackendWindowOutput, DecodedOutboundEvent, ObservationValidationError,
+    OutboundEventObservation, SettlementBlockEvidence, TransactionStateCheckpoint, ValidatedWindow,
+    ValidationError,
+};
+use crate::EEZL2_ADDRESS;
+use crate::cancel::CancellationToken;
+use crate::window::AdmittedBlock;
+
+use eez_l1::chain_config::{ChainDocumentKind, load_chain_document};
+
+const DEBUG_PROGRESS_INTERVAL: usize = 100;
+const BLOCKHASH_ANCESTOR_LIMIT: usize = 256;
+
+pub(super) mod reconstruction;
+
+/// Transaction boundaries at which settlement framing needs replay-state
+/// checkpoints in order to derive canonical prefix-block hashes.
+///
+/// The indices are derived locally from the recovered block. Composer-supplied
+/// metadata never participates in checkpoint selection.
+#[derive(Debug, PartialEq, Eq)]
+struct CheckpointPlan {
+    transaction_indices: Vec<usize>,
+}
+
+impl CheckpointPlan {
+    /// Derive effect-candidate boundaries and system-sender flags from the
+    /// locally recovered transactions.
+    fn from_recovered_block(
+        block: &RecoveredBlock<Block>,
+        expected_l2_system_address: Address,
+    ) -> (Self, Vec<bool>) {
+        let transaction_count = block.body().transactions.len();
+        let mut system_sender_flags = Vec::with_capacity(transaction_count);
+        let mut sync_system_transaction_flags = Vec::with_capacity(transaction_count);
+        for transaction in block.transactions_recovered() {
+            let is_system_sender = transaction.signer() == expected_l2_system_address;
+            system_sender_flags.push(is_system_sender);
+            sync_system_transaction_flags.push(is_system_tx(
+                transaction.signer(),
+                transaction.to(),
+                expected_l2_system_address,
+                EEZL2_ADDRESS,
+            ));
+        }
+        let plan = Self {
+            transaction_indices: pair_end_positions(&sync_system_transaction_flags),
+        };
+        (plan, system_sender_flags)
+    }
+
+    /// Check that a checkpoint-capable backend honored the selection exactly.
+    fn verify_returned(
+        &self,
+        checkpoints: &[ReplayStateCheckpoint],
+    ) -> Result<(), ValidationError> {
+        let selection_matches = checkpoints.len() == self.transaction_indices.len()
+            && checkpoints
+                .iter()
+                .zip(&self.transaction_indices)
+                .all(|(checkpoint, requested)| checkpoint.transaction_index == *requested);
+        if !selection_matches {
+            let returned = checkpoints
+                .iter()
+                .map(|checkpoint| checkpoint.transaction_index)
+                .collect::<Vec<_>>();
+            return Err(ValidationError::InvalidBackendOutput(format!(
+                "stateless checkpoint response targeted transaction indices {returned:?}; \
+                 requested {:?}",
+                self.transaction_indices,
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Stateless replay's internal state commitment at a transaction boundary.
+/// It is never exposed to settlement directly: the accepted block template,
+/// prefix transactions and replayed receipts are required to turn it into a
+/// canonical prefix-block hash first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayStateCheckpoint {
+    transaction_index: usize,
+    state_root: B256,
+}
+
+/// Signer-recovered settling block prepared before replay.
+///
+/// This block is exact-decoded and its signers are recovered, but it remains
+/// untrusted until Stateless accepts the same `RecoveredBlock`. Preparing it
+/// early keeps checkpoint selection independent from execution side effects.
+struct PreparedSettlingBlock {
+    block: RecoveredBlock<Block>,
+    checkpoint_plan: CheckpointPlan,
+    system_sender_flags: Vec<bool>,
+}
+
+/// In-process Stateless/Reth backend configured from operator-selected rules.
+#[derive(Debug)]
+pub(crate) struct Backend {
+    chain_spec: Arc<ChainSpec>,
+    evm_config: EthEvmConfig,
+    expected_l2_system_address: Address,
+    #[cfg(test)]
+    pub(super) derivation_enabled: bool,
+}
+
+impl Backend {
+    /// EIP-155 identity pinned by the loaded execution chain specification.
+    pub(super) fn chain_id(&self) -> u64 {
+        self.chain_spec.chain().id()
+    }
+
+    /// Deployment address used to classify privileged L2 transactions.
+    pub(super) const fn expected_l2_system_address(&self) -> Address {
+        self.expected_l2_system_address
+    }
+
+    pub(super) fn from_chain_document_file(
+        path: &Path,
+        expected_l2_system_address: Address,
+    ) -> eyre::Result<Self> {
+        let (genesis, document_kind) = load_chain_document(path)?;
+        let chain_config = &genesis.config;
+        let genesis_timestamp =
+            (document_kind == ChainDocumentKind::Genesis).then_some(genesis.timestamp);
+        info!(
+            path = %path.display(),
+            source = document_kind.label(),
+            chain_id = chain_config.chain_id,
+            "loaded stateless chain configuration",
+        );
+        debug!(
+            ?chain_config,
+            ?genesis_timestamp,
+            "stateless chain configuration details",
+        );
+        Ok(Self::from_genesis(genesis, expected_l2_system_address))
+    }
+
+    #[cfg(test)]
+    pub(super) fn new(chain_config: ChainConfig, expected_l2_system_address: Address) -> Self {
+        Self::from_genesis(
+            Genesis {
+                config: chain_config,
+                ..Default::default()
+            },
+            expected_l2_system_address,
+        )
+    }
+
+    fn from_genesis(genesis: Genesis, expected_l2_system_address: Address) -> Self {
+        let chain_spec = Arc::new(ChainSpec::from_genesis(genesis));
+        let evm_config = EthEvmConfig::new(Arc::clone(&chain_spec));
+        Self {
+            chain_spec,
+            evm_config,
+            expected_l2_system_address,
+            #[cfg(test)]
+            derivation_enabled: true,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn validate(
+        &self,
+        blocks: &[AdmittedBlock],
+    ) -> Result<BackendWindowOutput, ValidationError> {
+        self.validate_blocks(&mut blocks.to_vec(), &CancellationToken::default())
+    }
+
+    /// Replay every admitted block and return associated per-block output. The
+    /// caller still consumes and checks that output before exposing settlement evidence.
+    pub(super) fn validate_blocks(
+        &self,
+        blocks: &mut [AdmittedBlock],
+        cancellation: &CancellationToken,
+    ) -> Result<BackendWindowOutput, ValidationError> {
+        let validation_started = Instant::now();
+        let total_blocks = blocks.len();
+        let mut block_outputs = Vec::<BackendBlockOutput>::with_capacity(total_blocks);
+        let mut window_pre_state_root = None;
+
+        // Derive the final block's complete checkpoint plan before any witness
+        // is consumed or earlier block is replayed.
+        check_cancellation(cancellation, 0, total_blocks)?;
+        let mut prepared_settling_block = blocks
+            .last()
+            .map(|admitted| {
+                let recovered_block = decode_match_and_recover_signers(admitted, &self.chain_spec)?;
+                let (checkpoint_plan, system_sender_flags) = CheckpointPlan::from_recovered_block(
+                    &recovered_block,
+                    self.expected_l2_system_address,
+                );
+                Ok(PreparedSettlingBlock {
+                    block: recovered_block,
+                    checkpoint_plan,
+                    system_sender_flags,
+                })
+            })
+            .transpose()?;
+
+        for (index, admitted) in blocks.iter_mut().enumerate() {
+            check_cancellation(cancellation, index, total_blocks)?;
+            let block_started = Instant::now();
+            let block_ordinal = index + 1;
+            let (recovered_block, checkpoint_plan, system_sender_flags) = if block_ordinal
+                == total_blocks
+            {
+                let prepared = prepared_settling_block.take().ok_or_else(|| {
+                    ValidationError::InternalInvariant(
+                        "prepared settling block unexpectedly missing".to_owned(),
+                    )
+                })?;
+                (
+                    prepared.block,
+                    Some(prepared.checkpoint_plan),
+                    prepared.system_sender_flags,
+                )
+            } else {
+                let recovered_block = decode_match_and_recover_signers(admitted, &self.chain_spec)?;
+                let system_sender_flags =
+                    system_sender_flags(&recovered_block, self.expected_l2_system_address);
+                (recovered_block, None, system_sender_flags)
+            };
+            let block_number = recovered_block.header().number;
+            let decoded_parent_hash = recovered_block.header().parent_hash;
+            let timestamp = recovered_block.header().timestamp;
+            let transaction_count = recovered_block.body().transactions.len();
+            let settling_block_template = checkpoint_plan.as_ref().map(|_| recovered_block.clone());
+            // Retain only this block's inputs while its witness is consumed. The
+            // descriptor is created after replay, never from claimed roots.
+            let reconstruct = true;
+            #[cfg(test)]
+            let reconstruct = reconstruct && self.derivation_enabled;
+            let reconstruction_input = reconstruct.then(|| {
+                (
+                    recovered_block.clone().into_sealed_block().into_block(),
+                    admitted.witness.headers.last().cloned(),
+                )
+            });
+            trace!(
+                block_ordinal,
+                block_number,
+                claimed_block_hash = %admitted.claimed_hash,
+                timestamp,
+                transactions = transaction_count,
+                "validating stateless block",
+            );
+
+            // Before this call the decoded block and witness remain untrusted.
+            // Successful Stateless output means consensus, witness pre-state,
+            // execution receipts, and the recomputed post-state commitment all
+            // passed. Only a non-empty final selection uses the checkpoint path.
+            let witness = std::mem::take(&mut admitted.witness);
+            let (stateless_output, replay_state_checkpoints) = match checkpoint_plan {
+                Some(plan) if !plan.transaction_indices.is_empty() => {
+                    let output = stateless_validation_recovered_with_state_checkpoints(
+                        recovered_block,
+                        witness,
+                        Arc::clone(&self.chain_spec),
+                        self.evm_config.clone(),
+                        &plan.transaction_indices,
+                    )
+                    .map_err(|error| map_stateless_error(block_number, error))?;
+                    let checkpoints = output
+                        .checkpoints
+                        .transaction_state_checkpoints
+                        .into_iter()
+                        .map(|checkpoint| ReplayStateCheckpoint {
+                            transaction_index: checkpoint.transaction_index,
+                            state_root: checkpoint.state_root,
+                        })
+                        .collect::<Vec<_>>();
+                    plan.verify_returned(&checkpoints)?;
+                    (output.validation, checkpoints)
+                }
+                _ => {
+                    let output = stateless_validation_recovered(
+                        recovered_block,
+                        witness,
+                        Arc::clone(&self.chain_spec),
+                        self.evm_config.clone(),
+                    )
+                    .map_err(|error| map_stateless_error(block_number, error))?;
+                    (output, Vec::new())
+                }
+            };
+
+            let reconstruction = reconstruction_input
+                .map(|(block, parent)| {
+                    reconstruction::reconstruct(
+                        &self.evm_config,
+                        &block,
+                        &admitted.rlp,
+                        parent.as_ref().map(AsRef::as_ref),
+                        &stateless_output,
+                    )
+                    .map_err(|error| {
+                        ValidationError::Rejected(format!(
+                            "block {block_number} cannot reconstruct under the operations profile: {error}"
+                        ))
+                    })
+                })
+                .transpose()?;
+            let StatelessValidationOutput {
+                block_hash: computed_hash,
+                pre_state_root,
+                post_state_root,
+                execution_output,
+                block_access_list: _validated_block_access_list,
+            } = stateless_output;
+            if let Some(previous_post_state_root) =
+                block_outputs.last().map(|output| output.post_state_root)
+                && pre_state_root != previous_post_state_root
+            {
+                return Err(ValidationError::Rejected(format!(
+                    "stateless state roots do not telescope at block {block_number}: expected \
+                     pre-state root {previous_post_state_root}, got {pre_state_root}",
+                )));
+            }
+            window_pre_state_root.get_or_insert(pre_state_root);
+
+            // These receipts come from successful replay. Observed outbound
+            // events are retained here but authorized against batch entries only
+            // later by settlement.
+            let has_execution_requests = !execution_output.result.requests.is_empty();
+            let validated_receipts = execution_output.result.receipts;
+            let transaction_state_checkpoints = match settling_block_template {
+                Some(block) => derive_prefix_block_hashes(
+                    &block,
+                    &validated_receipts,
+                    &replay_state_checkpoints,
+                    has_execution_requests,
+                )?,
+                None => Vec::new(),
+            };
+            let receipt_successes = validated_receipts
+                .iter()
+                .map(|receipt| receipt.success)
+                .collect::<Vec<_>>();
+            let observed_outbound_events = observe_outbound_events(&validated_receipts);
+
+            if tracing::enabled!(tracing::Level::TRACE) {
+                let failed_transactions = receipt_successes
+                    .iter()
+                    .filter(|&&success| !success)
+                    .count();
+                let malformed_outbound_events = observed_outbound_events
+                    .iter()
+                    .filter(|observation| observation.decoded_event.is_none())
+                    .count();
+                trace!(
+                    block_ordinal,
+                    total_blocks,
+                    block_number,
+                    computed_block_hash = %computed_hash,
+                    validated_pre_state_root = %pre_state_root,
+                    validated_post_state_root = %post_state_root,
+                    transactions = transaction_count,
+                    failed_transactions,
+                    outbound_events = observed_outbound_events.len(),
+                    malformed_outbound_events,
+                    block_elapsed_ms = elapsed_millis(block_started),
+                    "stateless block validated",
+                );
+            }
+            block_outputs.push(BackendBlockOutput {
+                reconstruction,
+                decoded_number: block_number,
+                decoded_parent_hash,
+                computed_hash,
+                decoded_transaction_count: transaction_count,
+                receipt_successes,
+                transaction_state_checkpoints,
+                post_state_root,
+                settlement_evidence: SettlementBlockEvidence {
+                    system_sender_flags,
+                    observed_outbound_events,
+                },
+            });
+
+            if block_ordinal.is_multiple_of(DEBUG_PROGRESS_INTERVAL) {
+                debug!(
+                    validated_blocks = block_ordinal,
+                    total_blocks,
+                    block_number,
+                    validated_post_state_root = %post_state_root,
+                    elapsed_ms = elapsed_millis(validation_started),
+                    "stateless validation progress",
+                );
+            }
+        }
+
+        let pre_state_root = window_pre_state_root.ok_or_else(|| {
+            ValidationError::Rejected("refusing to validate an empty window".to_owned())
+        })?;
+        Ok(BackendWindowOutput {
+            pre_state_root,
+            blocks: block_outputs,
+        })
+    }
+
+    /// Re-execute every non-applying lookup/static root from the exact witness
+    /// already accepted for the terminal block.
+    pub(super) fn verify_observations(
+        &self,
+        window: &ValidatedWindow,
+        claims: &[FifoObservationClaim],
+    ) -> Result<(), ObservationValidationError> {
+        let outcomes = self.replay_observations(window, claims)?;
+        for (index, (claim, outcome)) in claims.iter().zip(outcomes).enumerate() {
+            if claim.expected_success != outcome.success || claim.expected_output != outcome.output
+            {
+                return Err(ObservationValidationError::OutcomeMismatch { index });
+            }
+        }
+        Ok(())
+    }
+
+    fn replay_observations(
+        &self,
+        window: &ValidatedWindow,
+        claims: &[FifoObservationClaim],
+    ) -> Result<Vec<ObservedOutcome>, ObservationValidationError> {
+        let settling = window.settling_block();
+        let replay = settling.replay_input();
+        let block = alloy_rlp::decode_exact::<Block>(settling.block().rlp())
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
+        let block = recover_block(block, &self.chain_spec)
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
+        let transaction_count = block.body().transactions.len();
+
+        let mut observations = Vec::with_capacity(claims.len());
+        for (index, claim) in claims.iter().cloned().enumerate() {
+            let after_transactions = if claim.pinned_block_hash == window.settling_pre_block_hash()
+            {
+                0
+            } else if let Some(checkpoint) = settling
+                .transaction_state_checkpoints()
+                .iter()
+                .find(|checkpoint| checkpoint.block_hash == claim.pinned_block_hash)
+            {
+                checkpoint.transaction_index + 1
+            } else if claim.pinned_block_hash == window.window_post_block_hash() {
+                transaction_count
+            } else {
+                return Err(ObservationValidationError::UnknownPinnedRoot {
+                    index,
+                    block_hash: claim.pinned_block_hash,
+                });
+            };
+            observations.push(BlockObservation {
+                after_transactions,
+                manager_address: crate::EEZL2_ADDRESS,
+                claim,
+            });
+        }
+        if observations
+            .windows(2)
+            .any(|pair| pair[0].after_transactions > pair[1].after_transactions)
+        {
+            return Err(ObservationValidationError::Replay(
+                "observation pins are not in FIFO prefix order".to_owned(),
+            ));
+        }
+
+        // The ordinary validation pass consumed an identical clone and
+        // accepted its ancestor chain and pre-state commitment. Rebuilding the
+        // sparse trie here authenticates every supplemental observation read;
+        // missing account/code/storage nodes fail closed.
+        let (trie, bytecode) =
+            StatelessSparseTrie::new(replay.witness.clone(), replay.pre_state_root)
+                .map_err(|error| ObservationValidationError::Replay(format!("{error:?}")))?;
+        // Validate the retained header chain again before exposing it through
+        // BLOCKHASH. This is redundant with the first Stateless pass, but it
+        // keeps the observation verifier fail-closed if the retained replay
+        // representation is ever refactored or made mutable.
+        let ancestor_hashes = authenticated_ancestor_hashes(&block, &replay.witness.headers)?;
+        let db = ObservationWitnessDatabase::new(&trie, bytecode, ancestor_hashes);
+        let has_bal = block.sealed_header().block_access_list_hash().is_some();
+        let mut state = State::builder()
+            .with_database(db)
+            .with_bundle_update()
+            .with_bal_builder_if(has_bal)
+            .build();
+        replay_block_with_observations(&mut state, &self.evm_config, &block, &observations)
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))
+    }
+}
+
+/// Decode and authenticate the EVM `BLOCKHASH` window against the exact
+/// terminal block header. Witness headers are ordered oldest-to-newest, so the
+/// parent is checked first by iterating in reverse.
+fn authenticated_ancestor_hashes(
+    block: &RecoveredBlock<Block>,
+    headers: &[Bytes],
+) -> Result<BTreeMap<u64, B256>, ObservationValidationError> {
+    if headers.len() > BLOCKHASH_ANCESTOR_LIMIT {
+        return Err(ObservationValidationError::Replay(format!(
+            "ancestor header count {} exceeds limit {BLOCKHASH_ANCESTOR_LIMIT}",
+            headers.len(),
+        )));
+    }
+    if headers.is_empty() {
+        return Err(ObservationValidationError::Replay(
+            "terminal replay witness has no parent header".to_owned(),
+        ));
+    }
+
+    let decoded = headers
+        .iter()
+        .map(|bytes| {
+            alloy_rlp::decode_exact::<alloy_consensus::Header>(bytes)
+                .map(|header| (header, keccak256(bytes)))
+                .map_err(|error| ObservationValidationError::Replay(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut hashes = BTreeMap::new();
+    let mut child_number = block.header().number;
+    let mut expected_parent_hash = block.header().parent_hash;
+    for (parent, actual_hash) in decoded.iter().rev() {
+        let expected_parent_number = child_number.checked_sub(1).ok_or_else(|| {
+            ObservationValidationError::Replay(
+                "genesis block cannot have an ancestor-header witness".to_owned(),
+            )
+        })?;
+        if parent.number != expected_parent_number {
+            return Err(ObservationValidationError::Replay(format!(
+                "invalid ancestor number: block {child_number} expects parent {expected_parent_number}, got {}",
+                parent.number,
+            )));
+        }
+        if *actual_hash != expected_parent_hash {
+            return Err(ObservationValidationError::Replay(format!(
+                "invalid ancestor hash at block {}: expected {expected_parent_hash}, got {actual_hash}",
+                parent.number,
+            )));
+        }
+        hashes.insert(parent.number, *actual_hash);
+        child_number = parent.number;
+        expected_parent_hash = parent.parent_hash;
+    }
+    Ok(hashes)
+}
+
+/// Minimal witness-backed revm database used only for observation replay.
+/// This mirrors Stateless's private validation adapter while deliberately
+/// keeping account/storage reads fail-closed through `StatelessSparseTrie`.
+#[derive(Debug)]
+struct ObservationWitnessDatabase<'a> {
+    trie: &'a StatelessSparseTrie,
+    bytecode: B256IndexMap<Bytes>,
+    block_hashes: BTreeMap<u64, B256>,
+}
+
+impl<'a> ObservationWitnessDatabase<'a> {
+    const fn new(
+        trie: &'a StatelessSparseTrie,
+        bytecode: B256IndexMap<Bytes>,
+        block_hashes: BTreeMap<u64, B256>,
+    ) -> Self {
+        Self {
+            trie,
+            bytecode,
+            block_hashes,
+        }
+    }
+}
+
+impl Database for ObservationWitnessDatabase<'_> {
+    type Error = WitnessDbError;
+
+    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.trie.account(address).map(|account| {
+            account.map(|account| AccountInfo {
+                balance: account.balance,
+                nonce: account.nonce,
+                code_hash: account.code_hash,
+                code: None,
+                account_id: None,
+            })
+        })
+    }
+
+    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
+        self.trie.storage(address, slot)
+    }
+
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.bytecode
+            .get(&code_hash)
+            .cloned()
+            .map(Bytecode::new_raw)
+            .ok_or_else(|| {
+                WitnessDbError::TrieWitness(format!("bytecode for {code_hash} not found"))
+            })
+    }
+
+    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+        self.block_hashes
+            .get(&block_number)
+            .copied()
+            .ok_or(WitnessDbError::StateNotFound(block_number))
+    }
+}
+
+/// Convert replayed transaction-state checkpoints into complete canonical
+/// block-hash commitments. Every header field not affected by truncating the
+/// transaction list is inherited from the exact block accepted by Stateless.
+/// Transaction/receipt roots, bloom, gas and state commitment are recomputed
+/// for each prefix.
+fn derive_prefix_block_hashes(
+    block: &RecoveredBlock<Block>,
+    receipts: &[EthereumReceipt],
+    checkpoints: &[ReplayStateCheckpoint],
+    has_execution_requests: bool,
+) -> Result<Vec<TransactionStateCheckpoint>, ValidationError> {
+    if checkpoints.is_empty() {
+        return Ok(Vec::new());
+    }
+    if receipts.len() != block.body().transactions.len() {
+        return Err(ValidationError::InvalidBackendOutput(format!(
+            "cannot derive prefix block hashes for block {}: replay returned {} receipts for {} transactions",
+            block.header().number,
+            receipts.len(),
+            block.body().transactions.len(),
+        )));
+    }
+    if block
+        .body()
+        .withdrawals
+        .as_ref()
+        .is_some_and(|withdrawals| !withdrawals.is_empty())
+    {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} has withdrawals; prefix block-hash commitments require no post-transaction state changes",
+            block.header().number,
+        )));
+    }
+    if !block.body().ommers.is_empty() {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} has ommers; prefix block-hash commitments require a post-merge block body",
+            block.header().number,
+        )));
+    }
+    if has_execution_requests {
+        return Err(ValidationError::Rejected(format!(
+            "settling block {} produces EIP-7685 requests; prefix block-hash commitments currently support only empty requests",
+            block.header().number,
+        )));
+    }
+
+    let mut block_hashes = Vec::with_capacity(checkpoints.len());
+    for checkpoint in checkpoints {
+        let prefix_len = checkpoint.transaction_index + 1;
+        let prefix_receipts = receipts[..prefix_len]
+            .iter()
+            .map(alloy_consensus::TxReceipt::with_bloom_ref)
+            .collect::<Vec<_>>();
+        let mut header = block.header().clone();
+        header.state_root = checkpoint.state_root;
+        header.transactions_root =
+            calculate_transaction_root(&block.body().transactions[..prefix_len]);
+        header.receipts_root = calculate_receipt_root(&prefix_receipts);
+        header.logs_bloom = prefix_receipts
+            .iter()
+            .fold(Bloom::ZERO, |bloom, receipt| bloom | receipt.bloom_ref());
+        header.gas_used = receipts[checkpoint.transaction_index].cumulative_gas_used();
+        if header.blob_gas_used.is_some() {
+            header.blob_gas_used = Some(
+                block.body().transactions[..prefix_len]
+                    .iter()
+                    .try_fold(0u64, |total, transaction| {
+                        total.checked_add(transaction.blob_gas_used().unwrap_or(0))
+                    })
+                    .ok_or_else(|| {
+                        ValidationError::InvalidBackendOutput(format!(
+                            "blob gas overflow while deriving a prefix hash for block {}",
+                            block.header().number,
+                        ))
+                    })?,
+            );
+        }
+        let block_hash = header.hash_slow();
+        if prefix_len == block.body().transactions.len() {
+            let full_block_hash = block.header().hash_slow();
+            if block_hash != full_block_hash {
+                return Err(ValidationError::InvalidBackendOutput(format!(
+                    "final prefix hash {block_hash} for block {} does not match validated full block hash {full_block_hash}",
+                    block.header().number,
+                )));
+            }
+        }
+        block_hashes.push(TransactionStateCheckpoint {
+            transaction_index: checkpoint.transaction_index,
+            block_hash,
+        });
+    }
+    Ok(block_hashes)
+}
+
+/// Classify a rejected local checkpoint plan as an internal invariant failure;
+/// all other Stateless errors reject the input.
+fn map_stateless_error(block_number: u64, error: StatelessValidationError) -> ValidationError {
+    match error {
+        error @ (StatelessValidationError::UnorderedTransactionCheckpoints { .. }
+        | StatelessValidationError::TransactionCheckpointOutOfBounds { .. }) => {
+            ValidationError::InternalInvariant(format!(
+                "stateless rejected the locally derived checkpoint plan for block {block_number}: \
+                 {error}",
+            ))
+        }
+        error => ValidationError::Rejected(format!(
+            "stateless validation rejected block {block_number}: {error}",
+        )),
+    }
+}
+
+/// Classify each locally recovered signer for later settlement policy.
+fn system_sender_flags(
+    block: &RecoveredBlock<Block>,
+    expected_l2_system_address: Address,
+) -> Vec<bool> {
+    block
+        .transactions_recovered()
+        .map(|transaction| transaction.signer() == expected_l2_system_address)
+        .collect()
+}
+
+/// Stop between non-interruptible block executions after request cancellation.
+fn check_cancellation(
+    cancellation: &CancellationToken,
+    validated_blocks: usize,
+    total_blocks: usize,
+) -> Result<(), ValidationError> {
+    if cancellation.is_cancelled() {
+        debug!(
+            validated_blocks,
+            total_blocks, "stateless validation stopped after request cancellation",
+        );
+        Err(ValidationError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn elapsed_millis(since: Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Exact-decode Composer-supplied RLP and match its identity to stream metadata.
+/// The returned block is still untrusted until Stateless accepts it.
+fn decode_and_match_stream_metadata(admitted: &AdmittedBlock) -> Result<Block, ValidationError> {
+    let block = alloy_rlp::decode_exact::<Block>(&admitted.rlp).map_err(|error| {
+        ValidationError::Rejected(format!(
+            "block {} carries invalid consensus RLP: {error}",
+            admitted.declared_number,
+        ))
+    })?;
+    if block.header.number != admitted.declared_number {
+        return Err(ValidationError::Rejected(format!(
+            "decoded block number {} does not match streamed block {}",
+            block.header.number, admitted.declared_number,
+        )));
+    }
+    if block.header.parent_hash != admitted.claimed_parent_hash {
+        return Err(ValidationError::Rejected(format!(
+            "decoded parent hash {} for block {} does not match streamed parent hash {}",
+            block.header.parent_hash, admitted.declared_number, admitted.claimed_parent_hash,
+        )));
+    }
+    let computed_hash = block.header.hash_slow();
+    if computed_hash != admitted.claimed_hash {
+        return Err(ValidationError::Rejected(format!(
+            "computed block hash {computed_hash} for block {} does not match streamed block hash {}",
+            admitted.declared_number, admitted.claimed_hash,
+        )));
+    }
+    Ok(block)
+}
+
+/// Exact-decode, match stream metadata, and recover transaction signers under
+/// the configured fork rules. Signer recovery is not execution validation.
+fn decode_match_and_recover_signers(
+    admitted: &AdmittedBlock,
+    chain_spec: &ChainSpec,
+) -> Result<RecoveredBlock<Block>, ValidationError> {
+    let block = decode_and_match_stream_metadata(admitted)?;
+    let number = block.header.number;
+    recover_block(block, chain_spec).map_err(|error| {
+        ValidationError::Rejected(format!(
+            "block {number} transaction recovery failed: {error}",
+        ))
+    })
+}
+
+/// Homestead (EIP-2) forbids high-s signatures, so enforce the low-s rule
+/// during recovery only for blocks where that fork is active.
+fn recover_block(
+    block: Block,
+    chain_spec: &ChainSpec,
+) -> Result<RecoveredBlock<Block>, reth_primitives_traits::transaction::signed::RecoveryError> {
+    if chain_spec.is_homestead_active_at_block(block.header.number) {
+        RecoveredBlock::try_recover(block)
+    } else {
+        RecoveredBlock::try_recover_unchecked(block)
+    }
+}
+
+/// Retain every EEZL2 outbound-event candidate with receipt provenance.
+///
+/// Matching emitter/signature logs remain observations in receipt order.
+/// Canonical encodings expose the emitted hash and manager-entry gas;
+/// malformed or non-canonical encodings remain undecoded observations.
+fn observe_outbound_events(
+    validated_receipts: &[EthereumReceipt],
+) -> Vec<OutboundEventObservation> {
+    let mut observations = Vec::new();
+    for (transaction_index, receipt) in validated_receipts.iter().enumerate() {
+        for (receipt_log_index, log) in receipt.logs.iter().enumerate() {
+            if log.address != EEZL2_ADDRESS
+                || log.data.topics().first() != Some(&CrossChainCallExecuted::SIGNATURE_HASH)
+            {
+                continue;
+            }
+            let decoded_event = CrossChainCallExecuted::decode_log_validate(log)
+                .ok()
+                .filter(|decoded| &CrossChainCallExecuted::encode_log(decoded) == log)
+                .map(|decoded| {
+                    DecodedOutboundEvent::new(decoded.data.crossChainCallHash, decoded.data.callGas)
+                });
+            observations.push(OutboundEventObservation {
+                transaction_index,
+                receipt_log_index,
+                decoded_event,
+            });
+        }
+    }
+    observations
+}
+
+#[cfg(test)]
+mod tests;

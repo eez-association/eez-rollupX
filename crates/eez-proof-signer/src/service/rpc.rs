@@ -89,6 +89,73 @@ impl RequestTiming {
 
 #[tonic::async_trait]
 impl Prover for ProveSvc {
+    async fn retain_ordinary_ranges(
+        &self,
+        request: Request<eez_control_rpc::v1::RetainOrdinaryRangesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::RetainOrdinaryRangesResponse>, Status> {
+        let span = tracing::info_span!(target: "eez_trace", "retain_ordinary_ranges",
+            otel.kind = "server", trace_id = tracing::field::Empty);
+        eez_telemetry::traces::attach_remote_parent(&span, request.metadata());
+        eez_telemetry::traces::record_trace_id(&span);
+        tracing::Instrument::instrument(
+            super::preparation::retain(self, request.into_inner()),
+            span,
+        )
+        .await
+    }
+
+    async fn prepare_ordinary(
+        &self,
+        request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
+    ) -> Result<Response<eez_control_rpc::v1::PrepareResponse>, Status> {
+        let span = tracing::info_span!(target: "eez_trace", "prepare_ordinary",
+            otel.kind = "server", trace_id = tracing::field::Empty);
+        eez_telemetry::traces::attach_remote_parent(&span, request.metadata());
+        eez_telemetry::traces::record_trace_id(&span);
+        let mut timer = eez_telemetry::operational::StageTimer::start(
+            eez_telemetry::operational::Stage::SignerPreparation,
+        );
+        let result =
+            tracing::Instrument::instrument(super::preparation::prepare(self, request), span).await;
+        timer.finish(stage_outcome(result.as_ref().err()));
+        result
+    }
+
+    async fn capabilities(
+        &self,
+        request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
+        let span = tracing::info_span!(target: "eez_trace", "capabilities",
+            otel.kind = "server", trace_id = tracing::field::Empty);
+        eez_telemetry::traces::attach_remote_parent(&span, request.metadata());
+        eez_telemetry::traces::record_trace_id(&span);
+        let _entered = span.enter();
+        let limits = self.limits;
+        let window = limits.window_limits();
+        // Use the enforced limits, including the aggregate-byte reduction of
+        // the per-message ceiling. No permit, witness, or attestable value is
+        // acquired/constructed here.
+        Ok(Response::new(eez_control_rpc::v1::CapabilitiesResponse {
+            operations_tag: u32::from(eez_payload_codec::derivable::TAG),
+            profile_id: u32::from(eez_payload_codec::derivable::PROFILE),
+            validation_identity: self.state.validation_identity.to_vec(),
+            max_window_blocks: window.blocks as u64,
+            max_request_bytes: window.payload_bytes as u64,
+            max_request_witness_items: window.witness_items as u64,
+            max_message_bytes: limits.max_decoding_message_bytes() as u64,
+            preparation_max_blocks: super::preparation::MAX_PREPARATION_BLOCKS,
+            stream_idle_timeout_millis: u64::try_from(limits.stream_idle_timeout().as_millis())
+                .map_err(|_| Status::internal("stream idle timeout exceeds capability range"))?,
+            request_timeout_millis: u64::try_from(limits.request_timeout().as_millis())
+                .map_err(|_| Status::internal("request timeout exceeds capability range"))?,
+            cache_max_entries: crate::prepared_cache::DEFAULT_MAX_ENTRIES as u64,
+            cache_max_bytes: crate::prepared_cache::DEFAULT_MAX_BYTES as u64,
+            maximum_leases: 2,
+            lease_lifetime_millis: u64::try_from(limits.lease_lifetime().as_millis())
+                .map_err(|_| Status::internal("lease lifetime exceeds capability range"))?,
+        }))
+    }
+
     async fn prove(
         &self,
         request: Request<Streaming<ProveChunk>>,
@@ -294,6 +361,8 @@ impl ProveSvc {
         let ingestion = read_window(
             stream,
             self.state.expected_rollup_id,
+            self.state.validation_identity,
+            Arc::clone(&self.prepared_cache),
             self.limits.window_limits(),
             self.limits.stream_idle_timeout(),
         );
@@ -334,6 +403,22 @@ impl ProveSvc {
         pipeline_started: Instant,
         timing: RequestTiming,
     ) -> Result<CompletedPipeline, Status> {
+        // Preparation releases this permit after each block. A final request
+        // therefore waits for at most the currently executing preparation
+        // block, then owns the worker through complete settlement/signing data.
+        let validation_permit = timeout_at(
+            timing.deadline,
+            Arc::clone(&self.validation_worker).acquire_owned(),
+        )
+        .await
+        .map_err(|_| {
+            timing.deadline_exceeded(
+                "validation_wait",
+                "Prove request deadline exceeded waiting for validation worker",
+                None,
+            )
+        })?
+        .map_err(|_| Status::internal("validation worker closed"))?;
         let submitted_post_batch_calldata_bytes = submitted_post_batch_calldata.len();
         debug!(
             phase = "pipeline",
@@ -350,6 +435,7 @@ impl ProveSvc {
         // Blocking tasks do not inherit the async request span automatically.
         let span = Span::current();
         let pipeline_work = tokio::task::spawn_blocking(move || {
+            let _validation_guard = validation_permit;
             let result = span.in_scope(|| {
                 validate_and_settle(
                     &state,

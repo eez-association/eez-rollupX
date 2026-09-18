@@ -5,6 +5,13 @@ use alloy_primitives::U256;
 
 use crate::{BundleTarget, L1BlockRef};
 
+/// Recent canonical blocks used to price an exact-next-block submission.
+pub const PRIORITY_FEE_HISTORY_BLOCKS: u64 = 20;
+/// Gas-weighted reward percentile requested for each historical block.
+pub const PRIORITY_FEE_REWARD_PERCENTILE: f64 = 90.0;
+/// Percentile of the per-block rewards selected as the next-block bid.
+const PRIORITY_FEE_CONFIDENCE_PERCENTILE: usize = 90;
+
 /// All prices are native base units per gas unit. Ceilings are mandatory for
 /// enabled production posting; profile examples choose their own values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,9 +19,6 @@ pub struct PostingFeeConfig {
     pub priority_override: Option<u128>,
     pub priority_min: u128,
     pub priority_max: u128,
-    /// Added to the network estimate before applying bounds; fixed overrides
-    /// remain exact. Zero preserves the unadjusted estimator.
-    pub priority_margin_bps: u64,
     pub execution_price_ceiling: u128,
     pub blob_price_ceiling: u128,
     pub execution_headroom_bps: u64,
@@ -43,7 +47,7 @@ pub enum PostingFeeError {
 }
 
 impl PostingFeeConfig {
-    /// Parse an immutable startup snapshot. The priority estimator is used
+    /// Parse an immutable startup snapshot. The fee-history estimator is used
     /// unless the existing explicit priority override is supplied.
     pub fn parse(
         mut get: impl FnMut(&str) -> Result<Option<String>, PostingFeeError>,
@@ -72,17 +76,25 @@ impl PostingFeeConfig {
         )?;
         let priority_override = integer("EEZ_L1_POSTBATCH_PRIORITY_FEE")?;
         let priority_min = integer("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE")?.unwrap_or(0);
-        let priority_max =
-            integer("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")?.unwrap_or(execution_price_ceiling);
+        let configured_priority_max = integer("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")?;
         let mut bps = |name: &str, default: u64| -> Result<u64, PostingFeeError> {
             u64::try_from(integer(name)?.unwrap_or(u128::from(default)))
                 .map_err(|_| PostingFeeError::Config(format!("{name} exceeds u64")))
+        };
+        let priority_max = match (configured_priority_max, priority_override) {
+            (Some(maximum), _) => maximum,
+            (None, Some(fixed)) => fixed,
+            (None, None) => {
+                return Err(PostingFeeError::Config(
+                    "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE is required when using the fee-history priority estimator"
+                        .into(),
+                ));
+            }
         };
         let config = Self {
             priority_override,
             priority_min,
             priority_max,
-            priority_margin_bps: bps("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", 0)?,
             execution_price_ceiling,
             blob_price_ceiling,
             // These retain the existing 2x base-fee headroom, now configurable.
@@ -129,13 +141,10 @@ impl PostingFeeConfig {
             .ok_or(PostingFeeError::Unavailable("blob base fee"))?;
         let priority = match self.priority_override {
             Some(value) => value,
-            None => with_margin(
-                sample
-                    .estimated_priority_fee
-                    .ok_or(PostingFeeError::Unavailable("network priority estimator"))?,
-                self.priority_margin_bps,
-            )?
-            .clamp(self.priority_min, self.priority_max),
+            None => sample
+                .estimated_priority_fee
+                .ok_or(PostingFeeError::Unavailable("priority fee history"))?
+                .clamp(self.priority_min, self.priority_max),
         };
         let required_execution = execution_base
             .checked_add(priority)
@@ -198,6 +207,40 @@ impl PostingFeeConfig {
         // so the quotient is no greater than maximum and fits u64.
         (u128::from(maximum) * 10_000 / factor) as u64
     }
+}
+
+/// Select a deadline-oriented priority fee from `eth_feeHistory` rewards.
+///
+/// The RPC request asks for one gas-weighted p90 reward per block. Taking the
+/// p90 of those recent block samples avoids reacting to one isolated spike but
+/// prices above ordinary transactions in most recent blocks. Empty blocks
+/// contribute the zero reward returned by the RPC; configured bounds are
+/// applied later by [`PostingFeeConfig::quote`].
+pub fn estimate_next_block_priority_fee(
+    oldest_block: u64,
+    head_block: u64,
+    rewards: Option<&[Vec<u128>]>,
+) -> Result<u128, PostingFeeError> {
+    let rewards = rewards
+        .filter(|rewards| !rewards.is_empty())
+        .ok_or(PostingFeeError::Unavailable("priority fee history"))?;
+    let reward_count = u64::try_from(rewards.len())
+        .map_err(|_| PostingFeeError::Unavailable("priority fee history is too large"))?;
+    if oldest_block.checked_add(reward_count - 1) != Some(head_block) {
+        return Err(PostingFeeError::Unavailable(
+            "priority fee history canonical range",
+        ));
+    }
+    let mut samples = Vec::with_capacity(rewards.len());
+    for reward in rewards {
+        let [sample] = reward.as_slice() else {
+            return Err(PostingFeeError::Unavailable("priority fee history shape"));
+        };
+        samples.push(*sample);
+    }
+    samples.sort_unstable();
+    let index = (samples.len() - 1) * PRIORITY_FEE_CONFIDENCE_PERCENTILE / 100;
+    Ok(samples[index])
 }
 
 /// All network observations for a quote refer to the same canonical sample.
@@ -374,6 +417,7 @@ mod tests {
         let mut values = std::collections::HashMap::from([
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1000"),
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS", "100"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "500"),
         ]);
         values.extend(extra.iter().copied());
         PostingFeeConfig::parse(|key| Ok(values.get(key).map(|value| (*value).into())))
@@ -397,99 +441,118 @@ mod tests {
     }
 
     #[test]
-    fn defaults_use_network_estimator_and_explicit_ceiling_requirements() {
+    fn dynamic_fee_history_requires_an_independent_priority_ceiling() {
         let config = config(&[]).unwrap();
         assert_eq!(config.priority_override, None);
         assert_eq!(config.priority_min, 0);
-        assert_eq!(config.priority_max, 1000);
-        assert_eq!(config.priority_margin_bps, 0);
+        assert_eq!(config.priority_max, 500);
         assert_eq!(config.gas_margin_bps, 2000);
         let quote = config.quote(sample()).unwrap();
         assert_eq!(quote.max_fee_per_gas, 202);
         assert_eq!(quote.max_fee_per_blob_gas, 6);
         assert!(PostingFeeConfig::parse(|_| Ok(None)).is_err());
+
+        let values = std::collections::HashMap::from([
+            ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1000"),
+            ("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS", "100"),
+        ]);
+        let error = PostingFeeConfig::parse(|key| Ok(values.get(key).map(|value| (*value).into())))
+            .unwrap_err();
+        assert!(error.to_string().contains("MAX_PRIORITY_FEE is required"));
+
+        // An exact override is itself a safe independent ceiling when no
+        // separate maximum is supplied.
+        let mut fixed = values;
+        fixed.insert("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7");
+        let config =
+            PostingFeeConfig::parse(|key| Ok(fixed.get(key).map(|value| (*value).into()))).unwrap();
+        assert_eq!(config.priority_override, Some(7));
+        assert_eq!(config.priority_max, 7);
     }
 
     #[test]
-    fn priority_margin_tracks_network_changes_and_rounds_up_before_bounds() {
-        let config = config(&[
-            ("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000"),
-            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
-            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
-        ])
-        .unwrap();
-        // A 20% margin never increases the configured floor itself. Quotes
-        // follow decreasing prices too, rather than retaining an earlier tip.
-        for (estimated, selected) in [(0, 5), (1, 5), (10, 12), (41, 50), (100, 50), (6, 8)] {
-            for chain_id in [1, 10200] {
-                let input = FeeSample {
-                    chain_id,
-                    estimated_priority_fee: Some(estimated),
-                    ..sample()
-                };
-                let quote = config.quote(input).unwrap();
-                assert_eq!(quote, config.quote(input).unwrap());
-                assert_eq!(quote.max_priority_fee_per_gas, selected);
-                assert_eq!(quote.estimated_effective_gas_price, 100 + selected);
-                assert_eq!(quote.max_fee_per_gas, 200 + selected);
-                assert_eq!(quote.estimated_blob_gas_price, 3);
-                assert_eq!(quote.max_fee_per_blob_gas, 6);
-            }
+    fn observed_percentage_uplift_reproduces_the_self_feedback_loop() {
+        let mut estimate = 114_475_460_012;
+        for expected in [137_370_552_015, 164_844_662_418, 197_813_594_902] {
+            estimate = with_margin(estimate, 2_000).unwrap();
+            assert_eq!(estimate, expected);
         }
     }
 
     #[test]
-    fn priority_margin_defaults_zero_and_accepts_zero_and_over_one_hundred_percent() {
-        for (margin, selected) in [
-            (None, 7),
-            (Some("0"), 7),
-            (Some("1"), 8),
-            (Some("12500"), 16),
+    fn fee_history_selects_recent_p90_of_p90_without_chasing_one_spike() {
+        let ascending: Vec<_> = (1..=20).map(|reward| vec![reward]).collect();
+        assert_eq!(
+            estimate_next_block_priority_fee(81, 100, Some(&ascending)).unwrap(),
+            18
+        );
+
+        let mut one_spike = vec![vec![7]; 20];
+        one_spike[19][0] = u128::MAX;
+        assert_eq!(
+            estimate_next_block_priority_fee(81, 100, Some(&one_spike)).unwrap(),
+            7
+        );
+
+        for malformed in [
+            None,
+            Some([].as_slice()),
+            Some([vec![]].as_slice()),
+            Some([vec![1, 2]].as_slice()),
         ] {
-            let extra: Vec<_> = margin
-                .map(|value| ("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", value))
-                .into_iter()
-                .collect();
-            let quote = config(&extra)
-                .unwrap()
+            assert!(estimate_next_block_priority_fee(81, 100, malformed).is_err());
+        }
+        assert!(estimate_next_block_priority_fee(80, 100, Some(&ascending)).is_err());
+        assert!(estimate_next_block_priority_fee(u64::MAX, u64::MAX, Some(&ascending)).is_err());
+    }
+
+    #[test]
+    fn sustained_self_posting_does_not_amplify_estimator_samples() {
+        let config = config(&[
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+        ])
+        .unwrap();
+        // One poster transaction among nineteen empty blocks cannot move the
+        // market percentile. The optional relay floor is stable and cannot
+        // become an input to a recursive uplift.
+        let mut estimate = 10;
+        for _ in 0..20 {
+            let mut history = vec![vec![0]; 20];
+            history[19][0] = estimate;
+            let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
+            let quote = config
                 .quote(FeeSample {
-                    estimated_priority_fee: Some(7),
+                    estimated_priority_fee: Some(market),
+                    ..sample()
+                })
+                .unwrap();
+            assert_eq!(quote.max_priority_fee_per_gas, 5);
+            estimate = quote.max_priority_fee_per_gas;
+        }
+    }
+
+    #[test]
+    fn sparse_samples_use_the_floor_and_spikes_use_the_priority_ceiling() {
+        let config = config(&[
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+        ])
+        .unwrap();
+        for (estimated, selected) in [(0, 5), (1, 5), (5, 5), (49, 49), (50, 50), (u128::MAX, 50)] {
+            let quote = config
+                .quote(FeeSample {
+                    estimated_priority_fee: Some(estimated),
                     ..sample()
                 })
                 .unwrap();
             assert_eq!(quote.max_priority_fee_per_gas, selected);
         }
-        // No intermediate multiplication for the identity margin: preserve
-        // legacy clipping even for an estimator returning the largest value.
-        assert_eq!(
-            config(&[("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50")])
-                .unwrap()
-                .quote(FeeSample {
-                    estimated_priority_fee: Some(u128::MAX),
-                    ..sample()
-                })
-                .unwrap()
-                .max_priority_fee_per_gas,
-            50
-        );
     }
 
     #[test]
-    fn priority_margin_is_validated_even_with_an_exact_fixed_override() {
-        for value in ["", "bad", "-1", "1.5", "18446744073709551616"] {
-            for fixed in [false, true] {
-                let mut extra = vec![("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", value)];
-                if fixed {
-                    extra.push(("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7"));
-                }
-                assert!(matches!(config(&extra), Err(PostingFeeError::Config(_))));
-            }
-        }
-        let config = config(&[
-            ("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000"),
-            ("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7"),
-        ])
-        .unwrap();
+    fn fixed_priority_override_is_exact_and_does_not_query_the_estimator() {
+        let config = config(&[("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7")]).unwrap();
         for estimate in [None, Some(500)] {
             let quote = config
                 .quote(FeeSample {
@@ -502,25 +565,42 @@ mod tests {
     }
 
     #[test]
-    fn priority_margin_cannot_bypass_caps_missing_estimates_or_checked_arithmetic() {
-        let config = config(&[("EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS", "2000")]).unwrap();
+    fn external_fee_history_changes_are_followed_within_independent_bounds() {
+        let config = config(&[
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+        ])
+        .unwrap();
+        let selected: Vec<_> = [5, 8, 13, 21, 34, 55]
+            .into_iter()
+            .map(|estimate| {
+                let history = vec![vec![estimate]; 20];
+                let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
+                config
+                    .quote(FeeSample {
+                        estimated_priority_fee: Some(market),
+                        ..sample()
+                    })
+                    .unwrap()
+                    .max_priority_fee_per_gas
+            })
+            .collect();
+        assert_eq!(selected, [5, 8, 13, 21, 34, 50]);
+    }
+
+    #[test]
+    fn unavailable_estimates_and_execution_caps_fail_closed() {
+        let config = config(&[]).unwrap();
         assert!(matches!(
             config.quote(FeeSample {
                 estimated_priority_fee: None,
                 ..sample()
             }),
-            Err(PostingFeeError::Unavailable("network priority estimator"))
-        ));
-        assert!(matches!(
-            config.quote(FeeSample {
-                estimated_priority_fee: Some(u128::MAX),
-                ..sample()
-            }),
-            Err(PostingFeeError::Arithmetic(_))
+            Err(PostingFeeError::Unavailable("priority fee history"))
         ));
         let expensive = FeeSample {
             execution_base_fee: Some(989),
-            estimated_priority_fee: Some(10),
+            estimated_priority_fee: Some(12),
             ..sample()
         };
         assert!(matches!(
@@ -563,6 +643,9 @@ mod tests {
         for extra in [
             vec![("EEZ_L1_POSTBATCH_PRIORITY_FEE", "bad")],
             vec![("EEZ_L1_POSTBATCH_PRIORITY_FEE", "1001")],
+            vec![("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "")],
+            vec![("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "bad")],
+            vec![("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "1001")],
             vec![
                 ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "3"),
                 ("EEZ_L1_POSTBATCH_PRIORITY_FEE", "2"),
@@ -576,14 +659,19 @@ mod tests {
         ] {
             assert!(config(&extra).is_err(), "{extra:?}");
         }
-        let config = config(&[("EEZ_L1_POSTBATCH_PRIORITY_FEE", "0")]).unwrap();
-        let quote = config
+        let fixed_zero = config(&[("EEZ_L1_POSTBATCH_PRIORITY_FEE", "0")]).unwrap();
+        let quote = fixed_zero
             .quote(FeeSample {
                 estimated_priority_fee: None,
                 ..sample()
             })
             .unwrap();
         assert_eq!(quote.max_priority_fee_per_gas, 0);
+        let zero_dynamic = config(&[("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "0")])
+            .unwrap()
+            .quote(sample())
+            .unwrap();
+        assert_eq!(zero_dynamic.max_priority_fee_per_gas, 0);
     }
 
     #[test]

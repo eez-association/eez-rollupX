@@ -80,6 +80,15 @@ stream and tail without retaining the decoded message list. This preserves legal
 nonminimal varints (pinned blob spec §5.8), which a re-encoding could shorten;
 trimming zeros would also miscount real zero-valued payload bytes.
 
+The new-network derivable operations format uses inner tag 3/profile 1; it does
+not change this outer version-00 stream, KZG authentication, 126,976-byte purchased
+blob capacity, or receipt charge arithmetic. The measurement's `codec_version=0`
+refers to that outer stream. Inner operation bytes are counted as opaque payload:
+measuring them neither validates the derivation recipe nor authorizes settlement.
+The node/signer's inner decoder and execution checks retain that responsibility.
+Historical measured content and costs are preserved; this distinction does not
+provide a legacy-network replay or mixed-format migration path.
+
 The collector rechecks EL identity, cursor and exact inclusion hash after retrieval.
 It locks the current scan cursor and requires that inclusion to remain canonical
 before atomically committing metadata, measurement and attempt state. It does not

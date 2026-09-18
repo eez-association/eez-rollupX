@@ -48,10 +48,12 @@ use crate::EEZL2_ADDRESS;
 use crate::cancel::CancellationToken;
 use crate::window::AdmittedBlock;
 
-use eez_l1::chain_config::{ChainDocumentKind, load_chain_document};
+use eez_l1::chain_config::{ChainDocumentKind, load_chain_document_with_digest};
 
 const DEBUG_PROGRESS_INTERVAL: usize = 100;
 const BLOCKHASH_ANCESTOR_LIMIT: usize = 256;
+
+pub(super) mod reconstruction;
 
 /// Transaction boundaries at which settlement framing needs replay-state
 /// checkpoints in order to derive canonical prefix-block hashes.
@@ -141,9 +143,16 @@ pub(crate) struct Backend {
     chain_spec: Arc<ChainSpec>,
     evm_config: EthEvmConfig,
     expected_l2_system_address: Address,
+    chain_document_digest: B256,
+    #[cfg(test)]
+    pub(super) derivation_enabled: bool,
 }
 
 impl Backend {
+    pub(super) const fn chain_document_digest(&self) -> B256 {
+        self.chain_document_digest
+    }
+
     /// EIP-155 identity pinned by the loaded execution chain specification.
     pub(super) fn chain_id(&self) -> u64 {
         self.chain_spec.chain().id()
@@ -158,7 +167,10 @@ impl Backend {
         path: &Path,
         expected_l2_system_address: Address,
     ) -> eyre::Result<Self> {
-        let (genesis, document_kind) = load_chain_document(path)?;
+        let loaded = load_chain_document_with_digest(path)?;
+        let document_kind = loaded.kind();
+        let chain_document_digest = loaded.digest();
+        let genesis = loaded.into_genesis();
         let chain_config = &genesis.config;
         let genesis_timestamp =
             (document_kind == ChainDocumentKind::Genesis).then_some(genesis.timestamp);
@@ -173,27 +185,41 @@ impl Backend {
             ?genesis_timestamp,
             "stateless chain configuration details",
         );
-        Ok(Self::from_genesis(genesis, expected_l2_system_address))
+        Ok(Self::from_genesis(
+            genesis,
+            expected_l2_system_address,
+            chain_document_digest,
+        ))
     }
 
     #[cfg(test)]
     pub(super) fn new(chain_config: ChainConfig, expected_l2_system_address: Address) -> Self {
+        let document = serde_json::to_vec(&chain_config).unwrap();
+        let digest = keccak256(eez_l1::chain_config::canonicalize_chain_json(&document).unwrap());
         Self::from_genesis(
             Genesis {
                 config: chain_config,
                 ..Default::default()
             },
             expected_l2_system_address,
+            digest,
         )
     }
 
-    fn from_genesis(genesis: Genesis, expected_l2_system_address: Address) -> Self {
+    fn from_genesis(
+        genesis: Genesis,
+        expected_l2_system_address: Address,
+        chain_document_digest: B256,
+    ) -> Self {
         let chain_spec = Arc::new(ChainSpec::from_genesis(genesis));
         let evm_config = EthEvmConfig::new(Arc::clone(&chain_spec));
         Self {
             chain_spec,
             evm_config,
             expected_l2_system_address,
+            chain_document_digest,
+            #[cfg(test)]
+            derivation_enabled: true,
         }
     }
 
@@ -264,6 +290,17 @@ impl Backend {
             let timestamp = recovered_block.header().timestamp;
             let transaction_count = recovered_block.body().transactions.len();
             let settling_block_template = checkpoint_plan.as_ref().map(|_| recovered_block.clone());
+            // Retain only this block's inputs while its witness is consumed. The
+            // descriptor is created after replay, never from claimed roots.
+            let reconstruct = true;
+            #[cfg(test)]
+            let reconstruct = reconstruct && self.derivation_enabled;
+            let reconstruction_input = reconstruct.then(|| {
+                (
+                    recovered_block.clone().into_sealed_block().into_block(),
+                    admitted.witness.headers.last().cloned(),
+                )
+            });
             trace!(
                 block_ordinal,
                 block_number,
@@ -312,6 +349,22 @@ impl Backend {
                 }
             };
 
+            let reconstruction = reconstruction_input
+                .map(|(block, parent)| {
+                    reconstruction::reconstruct(
+                        &self.evm_config,
+                        &block,
+                        &admitted.rlp,
+                        parent.as_ref().map(AsRef::as_ref),
+                        &stateless_output,
+                    )
+                    .map_err(|error| {
+                        ValidationError::Rejected(format!(
+                            "block {block_number} cannot reconstruct under the operations profile: {error}"
+                        ))
+                    })
+                })
+                .transpose()?;
             let StatelessValidationOutput {
                 block_hash: computed_hash,
                 pre_state_root,
@@ -375,6 +428,7 @@ impl Backend {
                 );
             }
             block_outputs.push(BackendBlockOutput {
+                reconstruction,
                 decoded_number: block_number,
                 decoded_parent_hash,
                 computed_hash,

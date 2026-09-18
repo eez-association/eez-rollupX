@@ -1,6 +1,13 @@
 # Self-hosted EEZ observability
 
-Implementation branch: `feat/network-observability`. The database-free RPC exporter
+Implementation branch: `feat/network-observability`, integrating on top of
+[PR #26](https://github.com/eduadiez/rollupX/pull/26). The
+[PR26 integration record](validation/pr26-integration.md) tracks current
+compatibility and validation; earlier release records apply only to their named
+pre-integration binaries. Settlement policy is mandatory on this baseline while
+telemetry remains optional.
+
+The database-free RPC exporter
 and the self-hosted Prometheus/Grafana/Loki/Alloy backend are implemented. Two
 stage-1 dashboards cover network and collection health; the database profile
 adds cross-chain, settlement, blob and gas dashboards. See the
@@ -231,7 +238,7 @@ covers real PostgreSQL recovery fixtures, not live deployment acceptance.
 
 CI requires real Chromium navigation in addition to datasource query checks. For
 an isolated local run, use the same disposable Playwright installation as the
-[existing explorer verifier](../testing/explorers/README.md):
+[existing explorer verifier](../deploy/explorers/README.md):
 
 ```bash
 browser_work="$(mktemp -d /tmp/eez-observability-browser.XXXXXXXX)"

@@ -8,6 +8,17 @@ description            = "Engine-API consumer that drives a reth node to produce
 
 [features]
 default = []
+derivation = [
+    "dep:alloy-eips",
+    "dep:eez-payload-codec",
+    "dep:eyre",
+    "dep:reth-ethereum-primitives",
+    "dep:reth-evm",
+    "dep:reth-evm-ethereum",
+    "dep:revm",
+    "dep:alloy-rlp",
+    "dep:reth-trie",
+]
 observation = [
     "dep:eez-protocol",
     "dep:eyre",
@@ -35,6 +46,7 @@ eez-prover = { workspace = true, optional = true }
 eez-protocol = { workspace = true, optional = true }
 
 eez-l1.workspace = true
+eez-payload-codec = { workspace = true, optional = true }
 # reth
 reth-chainspec.workspace                  = true
 reth-engine-primitives.workspace          = true
@@ -52,6 +64,7 @@ reth-trie = { workspace = true, optional = true }
 
 # alloy
 alloy-consensus.workspace        = true
+alloy-eips = { workspace = true, optional = true }
 alloy-primitives.workspace       = true
 alloy-rlp = { workspace = true, optional = true }
 alloy-rpc-types-debug = { workspace = true, optional = true }

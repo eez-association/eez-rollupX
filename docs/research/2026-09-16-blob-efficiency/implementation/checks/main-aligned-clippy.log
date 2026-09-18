@@ -1,0 +1,11 @@
+    Checking eez-blob-codec v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-blob-codec)
+   Compiling eez-control-rpc v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-control-rpc)
+    Checking eez-payload-codec v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-payload-codec)
+    Checking eez-protocol v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-protocol)
+    Checking eez-l1 v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-l1)
+    Checking eez-prover v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-prover)
+    Checking eez-testkit v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-testkit)
+    Checking eez-prover-client v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-prover-client)
+    Checking eez-driver v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-driver)
+    Checking eez-proof-signer v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-proof-signer)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 8.25s

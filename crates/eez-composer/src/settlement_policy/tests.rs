@@ -48,6 +48,7 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
             endpoint: endpoint(number),
             parent_hash: endpoint(number - 1).hash,
             encoded_item_bytes: 700,
+            ordinary: eez_payload_codec::DerivablePayloadSizer::full_block(&[0; 700], 0).unwrap(),
             pure_transactions: u64::from(number == 4),
         })
     };
@@ -57,9 +58,11 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
             candidate: endpoint(height),
             target_l1_timestamp: time,
             latest_pure_block: index.latest_pure(),
-            estimated_stream_bytes: index
-                .estimated_stream_bytes_with_overhead(700, Default::default())
-                .unwrap(),
+            estimated_stream_bytes: Some(
+                index
+                    .estimated_stream_bytes_with_overhead(700, Default::default())
+                    .unwrap(),
+            ),
             drain_coverage: coverage,
             ..snapshot(height)
         };
@@ -123,6 +126,8 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
                     replacement(number - 1).hash
                 },
                 encoded_item_bytes: 650,
+                ordinary: eez_payload_codec::DerivablePayloadSizer::full_block(&[0; 650], 0)
+                    .unwrap(),
                 pure_transactions: 0,
             })
         })
@@ -168,6 +173,7 @@ fn config(interval_ms: Option<u64>, blocks: u64, fullness: Option<u16>) -> Polic
         max_unsettled_l2_blocks: std::num::NonZeroU64::new(blocks).unwrap(),
         blob_fullness_bps: fullness.map(|value| std::num::NonZeroU16::new(value).unwrap()),
         inactive_interval_ms: None,
+        max_speculative_depth: 0,
     }
 }
 
@@ -178,11 +184,35 @@ fn snapshot(height: u64) -> PolicySnapshot {
         target_l1_timestamp: 1012,
         latest_pure_block: None,
         cross_chain: CrossChainWork::None,
-        estimated_stream_bytes: 0,
+        estimated_stream_bytes: Some(0),
+        window_limit_due: false,
         effective_blobs: 10,
         usable_bytes_per_blob: eez_blob_codec::DATA_BYTES_PER_BLOB.try_into().unwrap(),
         drain_coverage: DrainCoverage::Pending,
     }
+}
+
+#[test]
+fn idle_window_limit_requires_posting_without_pure_activity_or_blob_fullness() {
+    let cfg = config(None, 100_000, None);
+    let mut policy = PolicyState::default();
+    let mut input = snapshot(65_532);
+    input.window_limit_due = true;
+    let decision = policy.evaluate(&cfg, input).unwrap();
+    assert!(decision.is_due());
+    assert!(decision.reasons.contains(DueReasons::WINDOW_LIMIT));
+    assert!(!decision.reasons.contains(DueReasons::GENERAL));
+    assert!(!decision.reasons.contains(DueReasons::FULLNESS));
+    assert_eq!(decision.required_endpoint, Some(input.candidate));
+    // A stalled/restarted node with a larger backlog still acquires a finite
+    // drain obligation; the composer must select a supported historical prefix.
+    input.candidate = endpoint(70_002);
+    input.estimated_stream_bytes = None;
+    assert!(policy.evaluate(&cfg, input).unwrap().is_due());
+    input.window_limit_due = false;
+    let before = policy.clone();
+    assert!(policy.evaluate(&cfg, input).is_err());
+    assert_eq!(policy, before);
 }
 
 #[test]
@@ -288,7 +318,7 @@ fn simultaneous_rules_make_one_decision_and_cross_chain_ignores_timers() {
     let mut input = snapshot(12);
     input.latest_pure_block = Some(endpoint(3));
     input.cross_chain = CrossChainWork::Executable;
-    input.estimated_stream_bytes = 126_976;
+    input.estimated_stream_bytes = Some(126_976);
     let decision = PolicyState::default().evaluate(&cfg, input).unwrap();
     for reason in [
         DueReasons::GENERAL,
@@ -300,7 +330,7 @@ fn simultaneous_rules_make_one_decision_and_cross_chain_ignores_timers() {
     }
     assert_eq!(decision.required_endpoint, Some(endpoint(12)));
     input.latest_pure_block = None;
-    input.estimated_stream_bytes = 0;
+    input.estimated_stream_bytes = Some(0);
     let decision = PolicyState::default()
         .evaluate(&config(Some(900_000), 150, None), input)
         .unwrap();
@@ -319,13 +349,13 @@ fn fullness_is_aggregate_integer_soft_trigger_including_empty_history() {
     ] {
         let mut input = snapshot(12);
         input.effective_blobs = blobs;
-        input.estimated_stream_bytes = bytes;
+        input.estimated_stream_bytes = Some(bytes);
         let decision = PolicyState::default().evaluate(&cfg, input).unwrap();
         assert_eq!(decision.is_due(), due);
         assert_eq!(decision.required_endpoint, due.then(|| endpoint(12)));
     }
     let mut input = snapshot(12);
-    input.estimated_stream_bytes = u64::MAX;
+    input.estimated_stream_bytes = Some(u64::MAX);
     assert!(
         !PolicyState::default()
             .evaluate(&config(None, 150, None), input)
@@ -503,7 +533,7 @@ fn restart_uses_current_settings_and_never_process_start_time() {
             .is_due()
     );
     input.latest_pure_block = None;
-    input.estimated_stream_bytes = 100_000;
+    input.estimated_stream_bytes = Some(100_000);
     input.effective_blobs = 6;
     assert!(
         PolicyState::default()
@@ -526,7 +556,7 @@ fn changing_allowance_does_not_cancel_existing_drain() {
     let mut state = PolicyState::default();
     let mut input = snapshot(12);
     input.effective_blobs = 6;
-    input.estimated_stream_bytes = 100_000;
+    input.estimated_stream_bytes = Some(100_000);
     state.evaluate(&cfg, input).unwrap();
     input.effective_blobs = 10;
     assert_eq!(
@@ -631,7 +661,8 @@ fn truth_table_is_deterministic_across_independent_rule_combinations() {
                             } else {
                                 CrossChainWork::None
                             };
-                            input.estimated_stream_bytes = if full { 126_976 } else { 126_975 };
+                            input.estimated_stream_bytes =
+                                Some(if full { 126_976 } else { 126_975 });
                             let first = PolicyState::default().evaluate(&cfg, input).unwrap();
                             let second = PolicyState::default().evaluate(&cfg, input).unwrap();
                             assert_eq!(first, second);

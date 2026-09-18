@@ -140,10 +140,13 @@ mod tests {
     use eez_blob_codec::{Message, blob_kzg_commitments, blob_versioned_hashes, encode, pack};
     use serde_json::json;
     fn fixture(version: u8) -> (Vec<Blob>, Metadata, Value) {
+        fixture_operations(version, vec![0; 31])
+    }
+    fn fixture_operations(version: u8, operations: Vec<u8>) -> (Vec<Blob>, Metadata, Value) {
         let encoded = encode(&[
             Message::ChainOperation {
                 chain_id: 7,
-                operations: vec![0; 31].into(),
+                operations: operations.into(),
             },
             Message::CloseBlobStream,
         ])
@@ -161,6 +164,18 @@ mod tests {
         let response = json!({"data":bodies.iter().map(|blob|format!("0x{}",alloy_primitives::hex::encode(blob.as_bytes()))).collect::<Vec<_>>()});
         (bodies, metadata, response)
     }
+    #[test]
+    fn inner_derivable_tag_is_opaque_to_outer_version_zero_measurement() {
+        // Transport accounting deliberately does not authorize the inner recipe.
+        // Tag 3/profile bytes (including zeros) remain part of the exact length;
+        // the protocol's inner decoder independently validates their semantics.
+        let mut operations = vec![0; 31];
+        operations[0] = 3;
+        operations[1] = 1;
+        let (_, metadata, response) = fixture_operations(0, operations);
+        assert_eq!(measure(response, false, &metadata), Ok(43));
+    }
+
     #[test]
     fn authentication_is_required_before_exact_measurement_and_version_interpretation() {
         let (_, mut metadata, response) = fixture(0);

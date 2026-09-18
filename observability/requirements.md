@@ -43,6 +43,18 @@ criteria; see the [current release checkpoint](validation/release-runtime.md#cur
 | R29 | Clean-host restore including SQL/config/contact points; measured RPO/RTO | Standard SQL dump/restore and cold configuration/diagnostic archives; smoke-restore.py; runbooks/restore.md | validation/restore.md and restore.json: 6 groups passed in fresh projects/volumes, exact costs/cursors/checksums/roles, idempotent catch-up, retained history and actual alert routing; schema21 follow-up verifies all21 migration checksums and restored operator runbook contents; 32.77s backup, 68.91s restore on the schema21 standalone observer, explicit one-record lifecycle loss | Partial: application-level separate-instance recovery measured on the same Docker host; physical-host loss, off-host transfer/key recovery, full-size data and production schedule/RPO/RTO remain deployment gates |
 | R30 | Real rollout manifest, owner, endpoints, bootstrap, private network, capped backfill | runbooks/deployment.md provides the private manifest template, existing config mapping and ordered rollout; actual deployment inputs pending | Seven-day baseline, workload/quiet, cardinality/latency/storage/alert calibration; operator clean-host recovery and handover | Open: prepared template is not a live manifest or rollout result |
 
+## PR26 baseline integration
+
+The [PR26 integration record](validation/pr26-integration.md) supersedes earlier
+baseline assumptions for current source. R02 preserves disabled-telemetry
+behavior relative to PR26; it does not restore disabled settlement policy or old
+operations formats removed by that PR. R09/R13 must cover 65,536-block canonical
+ranges with bounded paging and a forward schema22 migration. R20/R23 distinguish
+ordinary preparation/control RPCs from final signing. R28 combines the PR26
+partitioned native CI with the observer artifact and physical-quota checks.
+Earlier requirement evidence remains historical until revalidated at the stated
+integration scope; performance tests remain explicitly deferred.
+
 ## Interpretation and findings
 
 - The earlier proposal-only Claude review is complete. Its unaccepted recommendations

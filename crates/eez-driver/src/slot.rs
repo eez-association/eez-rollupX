@@ -117,8 +117,6 @@ pub struct SyncSlotBlock {
 #[derive(Debug)]
 pub enum SyncSlotOutcome {
     Built(Box<SyncSlotBlock>),
-    /// Compatibility with composers that use the original optional interface.
-    LegacyPool,
     /// A stale parent or failed required empty build ends this tick. The
     /// existing scheduler will catch up from the current head on its next tick.
     EndTick,
@@ -158,37 +156,27 @@ pub enum SyncSlotMode {
 ///
 /// Called by the Sequencer before each Sync block. The production impl
 /// (`eez-composer::Composer`) drains its `HeldPool`, resolves each held
-/// tx into system txs, builds the Sync block in-process, and returns it.
-/// `None` = no content → the Sequencer does a pool-driven Sync commit.
-/// `mode` gates the drain (see [`SyncSlotMode`]). Lives here, not in
+/// tx into system txs and selects an explicit outcome. `mode` gates the drain
+/// (see [`SyncSlotMode`]). Lives here, not in
 /// `eez-composer`, to avoid a dependency cycle.
 #[async_trait]
 pub trait SyncSlotComposer: Send + Sync + 'static {
-    /// Policy composers preserve empty grid boundaries during ordinary catch-up.
-    fn guards_sequencing_da(&self) -> bool {
-        false
-    }
-
     /// The scheduler owns the Sync grid, including its genesis/slot offset.
     /// Publish its target before starting an ordinary payload job.
-    fn set_sequencing_target(&self, _rollup_id: u64, _sync_height: u64) {}
+    fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64);
 
-    /// Maximum encoded block item size for this exact parent. `None` preserves
-    /// the legacy payload builder. Errors stop production, never remove a bound.
+    /// Maximum encoded block item size for this exact parent. Errors stop
+    /// production, never remove a bound.
     fn ordinary_block_da_limit(
         &self,
-        _rollup_id: u64,
-        _parent: &SealedHeader<Header>,
-        _timestamp: u64,
-    ) -> Result<Option<usize>, String> {
-        Ok(None)
-    }
+        rollup_id: u64,
+        parent: &SealedHeader<Header>,
+        timestamp: u64,
+    ) -> Result<usize, String>;
 
     /// Fresh-interval bound used to reject individually unpostable ordinary
     /// transactions without rejecting valid transactions waiting for capacity.
-    fn ordinary_transaction_da_limit(&self, _rollup_id: u64) -> Result<Option<usize>, String> {
-        Ok(None)
-    }
+    fn ordinary_transaction_da_limit(&self, rollup_id: u64) -> Result<usize, String>;
 
     /// Compose a Sync slot. `target_l1_block`: `Some(n)` aims the postBatch
     /// at exactly L1 block `n` (steady state, `l1_head + 1`); `None` aims the
@@ -201,24 +189,7 @@ pub trait SyncSlotComposer: Send + Sync + 'static {
         timestamp: u64,
         target_l1_block: Option<u64>,
         mode: SyncSlotMode,
-    ) -> Option<SyncSlotBlock>;
-
-    /// Explicit outcome interface. Existing composers retain their fallback;
-    /// policy-aware composers override this to prohibit it.
-    async fn compose_sync_slot_outcome(
-        &self,
-        rollup_id: u64,
-        parent: ParentContext,
-        timestamp: u64,
-        target_l1_block: Option<u64>,
-        mode: SyncSlotMode,
-    ) -> SyncSlotOutcome {
-        self.compose_sync_slot(rollup_id, parent, timestamp, target_l1_block, mode)
-            .await
-            .map_or(SyncSlotOutcome::LegacyPool, |built| {
-                SyncSlotOutcome::Built(Box::new(built))
-            })
-    }
+    ) -> SyncSlotOutcome;
 
     /// Run pending failed-bundle recovery before this tick's commit. May move
     /// the head (reorg + substitution), so callers re-read it. Default: no-op.
@@ -432,9 +403,9 @@ mod tests {
             block_hash: [1; 32],
             timestamp: 100,
         };
-        let legacy = RollupTiming::new(5000, 1000, 500, 700);
-        let pending = PendingSyncSlot::new(head, legacy.with_preparation_time_ms(500), 1);
-        let old = PendingSyncSlot::new(head, legacy, 1);
+        let base = RollupTiming::new(5000, 1000, 500, 700);
+        let pending = PendingSyncSlot::new(head, base.with_preparation_time_ms(500), 1);
+        let old = PendingSyncSlot::new(head, base, 1);
         assert_eq!(
             (pending.block_height, pending.timestamp, pending.l1_head),
             (104, 105, 7)
