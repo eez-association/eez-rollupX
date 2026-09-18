@@ -2,7 +2,8 @@
   "exporter": {
     "l1": {"url": "http://127.0.0.1:8545", "chain_id": 10200, "genesis_hash": "REPLACE_WITH_VERIFIED_L1_GENESIS_HASH"},
     "l2": {"url": "http://127.0.0.1:9545", "chain_id": 999, "genesis_hash": "REPLACE_WITH_VERIFIED_L2_GENESIS_HASH"},
-    "listen": "127.0.0.1:19100"
+    "listen": "127.0.0.1:19100",
+    "registry_escrow": null
   },
   "environment": "chiado",
   "deployment": "eez-chiado",

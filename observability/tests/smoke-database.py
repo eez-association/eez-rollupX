@@ -76,7 +76,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '22'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '23'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -294,6 +294,9 @@ def main():
         cost_query_boundaries.exercise(run, psql, report)
         canonical_query_boundaries.exercise(run, psql, report)
         canonical_progress.exercise(run, psql, report)
+        activity_result = run(psql, data=(ROOT / 'tests/block-activity.sql').read_text())
+        assert 'block activity invariants passed' in activity_result.stdout
+        report['checks'].append('block_activity_known_unknown_parent_cadence_health_reorg_and_immutable_facts')
         historical_checkpoints.exercise(run, psql, report)
         run(psql,data=(ROOT / 'tests/settled-transaction-costs.sql').read_text())
         report['checks'].append('settled_transaction_costs_deduplicate_overlaps_and_retract_unknown_prefixes_reorgs_and_coverage_gaps')
@@ -381,6 +384,20 @@ def main():
         control(phase='healthy')
         run(index)
         assert total() == '738216', total()
+        activity = scalar("SELECT jsonb_agg(jsonb_build_array(a.block_number,a.transaction_count,a.gas_used,a.gas_limit,a.blob_gas_used,a.excess_blob_gas,a.interval_seconds) ORDER BY a.block_number) FROM eez.canonical_block_activity a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='scanner' AND a.chain='l1' AND a.source_valid;")
+        assert json.loads(activity) == [[1,1,21000,30000000,0,0,None],[2,1,21000,30000000,131072,0,5],[3,0,0,30000000,0,0,5]], activity
+        report['checks'].append('actual_scanner_persists_whole_block_metadata_and_cadence_with_receipt_retry')
+        unselected = copy.deepcopy(index_config)
+        unselected['deployment'] = 'block-activity-unselected'
+        unselected['l1']['wallets'] = ['0x' + 'cc' * 20]
+        unselected['l2'] = {'bootstrap': 1, 'wallets': ['0x' + 'cc' * 20]}
+        write_index(unselected)
+        run(index)
+        assert scalar("SELECT count(*) FROM eez.selected_transactions t JOIN eez.chain_instances c ON c.id=t.chain_instance_id JOIN eez.deployments d ON d.id=c.deployment_id WHERE d.name='block-activity-unselected';") == '0'
+        unselected_activity = scalar("SELECT jsonb_agg(jsonb_build_array(a.block_number,a.transaction_count) ORDER BY a.block_number) FROM eez.canonical_block_activity a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='block-activity-unselected' AND a.chain='l1' AND a.source_valid;")
+        assert json.loads(unselected_activity) == [[1,1],[2,1],[3,0]], unselected_activity
+        write_index(index_config)
+        report['checks'].append('actual_scanner_counts_all_transactions_when_no_receipts_selected')
         run(index)
         assert total() == '738216'
         control(phase='fork')

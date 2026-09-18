@@ -1,4 +1,4 @@
-use super::{Block, Config, Endpoint, Error, Receipt, Selection, Transaction};
+use super::{Block, BlockMetadata, Config, Endpoint, Error, Receipt, Selection, Transaction};
 use crate::database::Database;
 use alloy_primitives::B256;
 use std::time::Duration;
@@ -275,16 +275,31 @@ pub(super) async fn save_receipt(
     Ok(())
 }
 
+async fn save_block_metadata(
+    client: &impl GenericClient,
+    id: i64,
+    block: &Block,
+    metadata: &BlockMetadata,
+) -> Result<(), Error> {
+    client.execute("UPDATE eez.blocks SET transaction_count=$3::text::numeric,gas_used=COALESCE($4::text::numeric,gas_used),gas_limit=COALESCE($5::text::numeric,gas_limit),blob_gas_used=COALESCE($6::text::numeric,blob_gas_used),excess_blob_gas=COALESCE($7::text::numeric,excess_blob_gas) WHERE chain_instance_id=$1 AND hash=$2::bytea",
+        &[&id,&block.hash.as_slice(),&metadata.transaction_count.to_string(),
+          &metadata.gas_used.map(|v| v.to_string()),&metadata.gas_limit.map(|v| v.to_string()),
+          &metadata.blob_gas_used.map(|v| v.to_string()),&metadata.excess_blob_gas.map(|v| v.to_string())]).bounded().await?;
+    Ok(())
+}
+
 pub(super) async fn commit_block(
     db: &mut Database,
     id: i64,
     expected: Option<&Block>,
     block: &Block,
+    metadata: &BlockMetadata,
     receipts: &[(Transaction, Option<Receipt>)],
 ) -> Result<(), Error> {
     let transaction = db.client.transaction().bounded().await?;
     lock_cursor(&transaction, id, expected).bounded().await?;
     transaction.execute("INSERT INTO eez.blocks(chain_instance_id,hash,number,parent_hash,timestamp_seconds,canonical,receipt_coverage) VALUES($1,$2::bytea,$3::text::numeric,$4::bytea,$5::text::numeric,true,'pending') ON CONFLICT(chain_instance_id,hash) DO UPDATE SET number=EXCLUDED.number,parent_hash=EXCLUDED.parent_hash,timestamp_seconds=EXCLUDED.timestamp_seconds,canonical=true",&[&id,&block.hash.as_slice(),&block.number.to_string(),&block.parent.as_slice(),&block.timestamp.to_string()]).bounded().await?;
+    save_block_metadata(&transaction, id, block, metadata).await?;
     for (tx, receipt) in receipts {
         save_receipt(&transaction, id, block, tx, receipt.as_ref(), true)
             .bounded()
@@ -362,6 +377,7 @@ pub(super) async fn repair_block(
     db: &mut Database,
     id: i64,
     block: &Block,
+    metadata: &BlockMetadata,
     observations: &[(Transaction, Option<Receipt>)],
 ) -> Result<(), Error> {
     let transaction = db.client.transaction().bounded().await?;
@@ -379,6 +395,7 @@ pub(super) async fn repair_block(
     if !canonical {
         return Err(Error::Inconsistent);
     }
+    save_block_metadata(&transaction, id, block, metadata).await?;
     for (tx, receipt) in observations {
         save_receipt(&transaction, id, block, tx, receipt.as_ref(), true)
             .bounded()

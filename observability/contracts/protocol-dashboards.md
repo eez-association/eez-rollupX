@@ -338,3 +338,34 @@ with a letter; other keys/types/empty symbols fail preparation. Missing roles us
 chain panels apply per-series units and retain separate populations/axes. The
 setting is recorded in the preparation manifest and affects display labels only.
 Reconfiguration rebuilds the overrides without retaining an old currency label.
+
+## Whole-chain activity and registry escrow
+
+Network panels27–33 add five-minute histories from schema23
+`eez.canonical_block_activity`, scoped to the selected environment/deployment.
+They do not use the native-process selector: every canonical chain block is one
+observation, independently of selected wallets/receipts or cross-chain admission.
+
+| Question | Panel | Population and invariant |
+| --- | --- | --- |
+| Is L2 producing blocks regularly? |27, mean/p95 interval | Exact canonical parent at height minus one; missing/backwards time is unknown |
+| How much activity is in each L2 block? |28, mean/max transaction count | Complete block body, including system transactions where present |
+| How many L2 blocks are empty? |29, empty fraction and coverage | Zero transactions divided by known counts; absent metadata is never empty |
+| How occupied are L1 and L2? |30, execution utilization | Sum gas used / sum gas limits over covered blocks, separate chains |
+| How many blobs are others posting on L1? |31, mean/max blobs per block | Global blob gas /131072; no guessed fork-dependent capacity limit |
+| Is L1 blob fee pressure accumulating? |32, mean/max excess blob gas | Canonical header field, not a monetary fee or EEZ queue |
+| How complete are these observations? |33, metadata coverage | Known execution/blob headers and exact parent intervals / indexed blocks |
+
+Schema23 does not invent historical metadata. New complete block observations
+populate it atomically; existing rows remain unknown unless a normal bounded
+repair revisits them. Averages and ratios use covered observations and retain
+NULL when the denominator is absent. Coverage measures indexed rows, not
+missing heights or a gap-free chain. Failed, stale or frozen indexing suppresses
+activity values. All charts retain sparse gaps and unstacked values.
+
+Gas panel23 shows the optional [registry escrow](registry-escrow.md) gauge beside
+the poster wallet. It is the registry's rollup balance, not the poster balance,
+TVL or a spendability guarantee. Its unit follows configured L1 currency metadata.
+Disabled, stale, failed and unregistered observations remain unknown. No alerts
+are enabled by this addition. Database-free preparation omits SQL activity
+panels and retains the existing network dashboard.

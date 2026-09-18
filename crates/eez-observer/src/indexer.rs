@@ -145,6 +145,14 @@ impl Config {
 
     pub fn validate(&self) -> Result<(), &'static str> {
         self.exporter.validate()?;
+        if self
+            .exporter
+            .registry_escrow
+            .as_ref()
+            .is_some_and(|escrow| escrow.rollup_id != self.rollup_id)
+        {
+            return Err("registry escrow rollup must match the indexed deployment");
+        }
         self.l1.validate()?;
         self.l2.validate()?;
         lifecycle::validate_sources(self)?;
@@ -250,6 +258,46 @@ impl Block {
             parent: hash(&value["parentHash"])?,
             timestamp: head.timestamp,
         })
+    }
+}
+
+/// Full block observations, captured before receipt selection. Missing optional
+/// header fields remain unknown; a known value cannot later be overwritten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockMetadata {
+    transaction_count: u64,
+    gas_used: Option<u64>,
+    gas_limit: Option<u64>,
+    blob_gas_used: Option<u64>,
+    excess_blob_gas: Option<u64>,
+}
+impl BlockMetadata {
+    fn parse(value: &Value, transaction_count: usize) -> Result<Self, Error> {
+        let optional = |field: &str| {
+            if value[field].is_null() {
+                Ok(None)
+            } else {
+                quantity(&value[field]).map(Some).map_err(Error::from)
+            }
+        };
+        let metadata = Self {
+            transaction_count: u64::try_from(transaction_count).map_err(|_| Failure::Oversized)?,
+            gas_used: optional("gasUsed")?,
+            gas_limit: optional("gasLimit")?,
+            blob_gas_used: optional("blobGasUsed")?,
+            excess_blob_gas: optional("excessBlobGas")?,
+        };
+        if metadata
+            .gas_used
+            .zip(metadata.gas_limit)
+            .is_some_and(|(used, limit)| used > limit)
+            || metadata
+                .blob_gas_used
+                .is_some_and(|used| used % 131_072 != 0)
+        {
+            return Err(Error::Inconsistent);
+        }
+        Ok(metadata)
     }
 }
 
@@ -696,7 +744,7 @@ async fn scan_chain(
     };
     if let Some(first) = first {
         for number in first..=head.number.min(first.saturating_add(batch - 1)) {
-            let (block, observations) =
+            let (block, metadata, observations) =
                 match fetch_observations(rpc, endpoint, selection, number).await {
                     Ok(value) => value,
                     Err(error) => {
@@ -723,7 +771,15 @@ async fn scan_chain(
             {
                 return Err(Error::Inconsistent);
             }
-            ledger::commit_block(database, id, cursor.as_ref(), &block, &observations).await?;
+            ledger::commit_block(
+                database,
+                id,
+                cursor.as_ref(),
+                &block,
+                &metadata,
+                &observations,
+            )
+            .await?;
             cursor = Some(block);
         }
     }
@@ -731,13 +787,13 @@ async fn scan_chain(
     // of the new-block cursor. Pruned or missing receipts cannot starve headers.
     for pending in ledger::pending_blocks(database, id).await? {
         ledger::touch_receipt_attempt(database, id, &pending).await?;
-        if let Ok((block, observations)) =
+        if let Ok((block, metadata, observations)) =
             fetch_observations(rpc, endpoint, selection, pending.number).await
             && block == pending
             && remote_block(rpc, endpoint, block.number).await?.hash == block.hash
         {
             rpc.validate_identity(endpoint).await?;
-            ledger::repair_block(database, id, &block, &observations).await?;
+            ledger::repair_block(database, id, &block, &metadata, &observations).await?;
         }
     }
     // Old schema rows may lack method evidence. A bounded fair retry lane
@@ -828,7 +884,7 @@ async fn fetch_observations(
     endpoint: &Endpoint,
     selection: &Selection,
     number: u64,
-) -> Result<(Block, Vec<(Transaction, Option<Receipt>)>), Error> {
+) -> Result<(Block, BlockMetadata, Vec<(Transaction, Option<Receipt>)>), Error> {
     let value = rpc
         .block(endpoint, json!(format!("{number:#x}")), true)
         .await?;
@@ -840,6 +896,7 @@ async fn fetch_observations(
     if values.len() > 10000 {
         return Err(Failure::Oversized.into());
     }
+    let metadata = BlockMetadata::parse(&value, values.len())?;
     let mut selected = Vec::new();
     let mut hashes = HashSet::new();
     for (index, value) in values.iter().enumerate() {
@@ -873,7 +930,7 @@ async fn fetch_observations(
 
         observations.push((transaction, receipt));
     }
-    Ok((block, observations))
+    Ok((block, metadata, observations))
 }
 
 #[cfg(test)]
@@ -1028,6 +1085,60 @@ mod tests {
         let mut changed = value;
         changed.as_object_mut().unwrap().remove("to");
         assert!(Transaction::parse(&changed, &block, 0).is_err());
+    }
+
+    #[test]
+    fn block_metadata_preserves_missing_zero_and_full_width_values() {
+        let absent = BlockMetadata::parse(&json!({}), 7).unwrap();
+        assert_eq!(absent.transaction_count, 7);
+        assert_eq!(absent.gas_used, None);
+        assert_eq!(absent.gas_limit, None);
+        assert_eq!(absent.blob_gas_used, None);
+        assert_eq!(absent.excess_blob_gas, None);
+        let zero = BlockMetadata::parse(
+            &json!({"gasUsed":"0x0","gasLimit":"0x0",
+            "blobGasUsed":"0x0","excessBlobGas":"0x0"}),
+            0,
+        )
+        .unwrap();
+        assert_eq!(zero.transaction_count, 0);
+        assert_eq!(zero.gas_used, Some(0));
+        assert_eq!(zero.blob_gas_used, Some(0));
+        let maximum = BlockMetadata::parse(
+            &json!({"gasUsed":"0xffffffffffffffff",
+            "gasLimit":"0xffffffffffffffff","excessBlobGas":"0xffffffffffffffff",
+            "blobGasUsed":"0x40000"}),
+            10_000,
+        )
+        .unwrap();
+        assert_eq!(maximum.gas_used, Some(u64::MAX));
+        assert_eq!(maximum.excess_blob_gas, Some(u64::MAX));
+        assert_eq!(maximum.blob_gas_used, Some(262_144));
+    }
+
+    #[test]
+    fn block_metadata_rejects_invalid_quantities_and_inconsistent_headers() {
+        for field in ["gasUsed", "gasLimit", "blobGasUsed", "excessBlobGas"] {
+            for invalid in [
+                json!("0x01"),
+                json!("0x"),
+                json!("0x10000000000000000"),
+                json!(1),
+                json!("bad"),
+            ] {
+                assert!(BlockMetadata::parse(&json!({field:invalid}), 1).is_err());
+            }
+        }
+        assert_eq!(
+            BlockMetadata::parse(&json!({"gasUsed":"0x2","gasLimit":"0x1"}), 1),
+            Err(Error::Inconsistent)
+        );
+        assert_eq!(
+            BlockMetadata::parse(&json!({"blobGasUsed":"0x1"}), 1),
+            Err(Error::Inconsistent)
+        );
+        // No blob capacity or fee-market denominator is inferred from a header.
+        assert!(BlockMetadata::parse(&json!({"blobGasUsed":"0x40000"}), 1).is_ok());
     }
 
     #[test]

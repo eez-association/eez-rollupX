@@ -228,6 +228,10 @@ def main():
             block_sql = run(psql, block_dashboard_queries.fixture())
             assert 'block dashboard query invariants passed' in block_sql
             report['checks'].append('per_block_source_dedup_gas_unknown_coverage_selectors_reorg_and_paid_post_membership')
+            import network_activity_queries
+            activity_sql = run(psql, network_activity_queries.fixture())
+            assert 'network activity dashboard invariants passed' in activity_sql
+            report['checks'].append('network_activity_cadence_empty_full_body_gas_blobs_unknown_coverage_scope_and_staleness')
             seed=(ROOT/'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
             reader_password=(runtime/'secrets/postgres-reader-password').read_text()
             run(psql,seed+BLOBS+COSTS+"\nALTER ROLE eez_observer_reader LOGIN PASSWORD '"+reader_password+"';\nCOMMIT;\n")

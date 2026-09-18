@@ -628,6 +628,9 @@ def prepare_dashboards(config, runtime):
     explorers = config.get('explorer_urls', {})
     for name in names:
         dashboard = runbook_dashboard(config) if name == 'runbooks.json' else json.loads((ROOT / 'grafana/dashboards' / name).read_text())
+        if not config.get('database_enabled', False):
+            dashboard['panels'] = [panel for panel in dashboard['panels']
+                                   if panel.get('datasource', {}).get('uid') != 'eez-postgres']
         for variable in dashboard['templating']['list']:
             if variable['name'] == 'instance' and variable.get('datasource', {}).get('uid') == 'eez-postgres':
                 # Built-in All expands into quoted SQL values and escaped PromQL

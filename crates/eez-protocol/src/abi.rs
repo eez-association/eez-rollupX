@@ -9,6 +9,11 @@ use alloy_sol_types::sol;
 pub type EtherDeltaSol = alloy_primitives::Signed<192, 3>;
 
 sol! {
+    /// Pinned EEZ registry public mapping getter, in RollupConfig declaration order.
+    /// A zero rollupContract denotes an unregistered rollup, not a funded account.
+    function rollups(uint64 rollupId) external view
+        returns (address rollupContract, bytes32 root, uint256 etherBalance);
+
     /// One rollup state transition carried by an L1 entry.
     ///
     /// Solidity names this `RollupUpdate`; the field order and `int192` width

@@ -240,7 +240,7 @@
       "gridPos": {
         "x": 0,
         "y": 9,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "description": "Observed balance of the configured L1 poster account. One whole native unit equals 10^18 wei. Currency labels come from deployment configuration; no asset or fiat conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
@@ -256,6 +256,73 @@
           "range": true,
           "legendFormat": "Poster \u00b7 {{instance}}",
           "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: native units",
+          "noValue": "Unknown",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          },
+          "decimals": 4
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Rollup registry escrow balance \u00b7 native units",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Registry RollupConfig.etherBalance for the configured rollup, read at an identity-checked canonical L1 block. Distinct from the poster wallet and not TVL or a claim of freely spendable funds. Whole L1 native units, no currency conversion. Disabled, stale, failed or unregistered observations remain unknown. History begins when this optional capability is enabled.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_registry_escrow_balance_native_units{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\"} and on(environment,deployment,job,instance,chain,rollup) (eez_observer_registry_escrow_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\"} == 1)",
+          "legendFormat": "Registry escrow \u00b7 rollup {{rollup}}",
+          "range": true,
+          "instant": false,
+          "format": "time_series"
         }
       ],
       "fieldConfig": {

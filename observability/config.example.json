@@ -11,5 +11,6 @@
     "chain_id": 6290,
     "genesis_hash": "REPLACE_WITH_VERIFIED_L2_GENESIS_HASH"
   },
-  "reference_l1_url": null
+  "reference_l1_url": null,
+  "registry_escrow": null
 }

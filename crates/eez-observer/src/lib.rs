@@ -12,6 +12,7 @@ pub mod network;
 pub mod outcomes;
 mod posting;
 pub mod protocol_logs;
+pub mod registry_escrow;
 pub mod rpc;
 
 use axum::{Router, extract::State, http::header, routing::get};
@@ -48,6 +49,7 @@ struct ScrapeState {
     samples: Samples,
     index: Option<indexer::SharedStatus>,
     network: network::SharedStatus,
+    registry_escrow: registry_escrow::SharedStatus,
 }
 
 async fn scrape(
@@ -57,6 +59,10 @@ async fn scrape(
     let now = now_ms();
     let mut rendered = metrics::render(&snapshot, now);
     rendered.push_str(&network::render(&state.network.read().await, now));
+    rendered.push_str(&registry_escrow::render(
+        state.registry_escrow.read().await.as_ref(),
+        now,
+    ));
     if let Some(index) = state.index {
         let status = index.read().await;
         rendered.push_str(&indexer::render(&status.chains, now));
@@ -113,6 +119,9 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         (Source::L2, config.l2.clone()),
         (Source::Queue, config.l2.clone()),
     ];
+    let escrow_config = config.registry_escrow.clone();
+    let escrow_endpoint = config.l1.clone();
+    let escrow_status = registry_escrow::status(escrow_config.as_ref());
     let network_workers = network::workers(&config);
     let network_status = network::status(&network_workers);
     if let Some(url) = config.reference_l1_url {
@@ -130,6 +139,14 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
         .await
         .map_err(|_| "cannot bind observer metrics listener")?;
     let mut tasks = JoinSet::new();
+    if let Some(escrow) = escrow_config {
+        tasks.spawn(registry_escrow::run(
+            escrow,
+            escrow_endpoint,
+            rpc.clone(),
+            escrow_status.clone(),
+        ));
+    }
     for (index, worker) in network_workers.into_iter().enumerate() {
         let rpc = rpc.clone();
         let status = network_status.clone();
@@ -179,6 +196,7 @@ async fn serve_runtime(config: Config, index: Option<indexer::Config>) -> Result
             samples,
             index: index_status,
             network: network_status,
+            registry_escrow: escrow_status,
         });
     tracing::info!(listen = %config.listen, "starting read-only EEZ observer");
     let (stop, stopped) = tokio::sync::oneshot::channel();

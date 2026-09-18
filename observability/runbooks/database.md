@@ -239,3 +239,27 @@ PostgreSQL/128 MiB shared-buffer guards and observer resource limits are unchang
 Measure representative maximum-range ingestion and recovery before claiming
 production capacity or memory headroom; earlier release measurements used the
 previous runtime and do not establish that new maximum.
+
+Schema 23 adds [canonical block activity](../contracts/block-activity.md): nullable
+full-block transaction counts and execution/blob header fields, immutable-known
+fact checks, and the reader view `eez.canonical_block_activity`. It preserves
+existing receipts, selections, cursors and costs. It introduces no new node RPC
+or required configuration.
+
+Before upgrading, stop the observer writer and take the verified database/config
+backup described in the [restore runbook](restore.md). Apply the new verified
+observer binary's explicit `migrate --database-config <private-admin-file>` command
+on the private database transport, then start that same binary with the existing
+writer configuration. Verify schema version 23, fresh source health, new canonical
+rows with known `transaction_count`, and metadata coverage in the network dashboard.
+An observed empty block has count zero; pre-upgrade rows remain null. Do not reset
+bootstrap, recreate the namespace, or overwrite historical metadata to fill a graph.
+Existing receipt retries may enrich revisited blocks; no general history backfill
+is introduced.
+
+An older observer refuses schema 23. Reverting the executable alone is not a
+rollback. To roll back, stop the new writer and restore the pre-upgrade backup
+into a separate verified instance with its compatible binary/configuration; retain
+the upgraded database for evidence and account for observations collected after
+the backup. A contradictory known metadata field freezes the affected source;
+retain the RPC/block evidence and investigate rather than clearing the guard.

@@ -28,6 +28,8 @@ pub struct Config {
     pub reference_l1_url: Option<String>,
     #[serde(default)]
     pub network: Option<crate::network::Config>,
+    #[serde(default)]
+    pub registry_escrow: Option<crate::registry_escrow::Config>,
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
     #[serde(default)]
@@ -82,6 +84,9 @@ impl Config {
         }
         if let Some(url) = &self.reference_l1_url {
             validate_url(url)?;
+        }
+        if let Some(escrow) = &self.registry_escrow {
+            escrow.validate()?;
         }
         if let Some(network) = &self.network {
             network.validate()?;

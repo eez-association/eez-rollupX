@@ -22,6 +22,30 @@ def dashboard(name):
 
 
 class DashboardTrends(unittest.TestCase):
+    def test_block_activity_uses_whole_canonical_blocks_and_explicit_coverage(self):
+        panels = {p['id']: p for p in dashboard('network')['panels']}
+        for panel_id in range(27, 34):
+            panel = panels[panel_id]
+            query = panel['targets'][0]['rawSql']
+            self.assertEqual(panel['type'], 'timeseries')
+            self.assertIn('eez.canonical_block_activity', query)
+            self.assertIn('r.source_valid', query)
+            self.assertIn('${environment:sqlstring}', query)
+            self.assertIn('${deployment:sqlstring}', query)
+            self.assertIn('$__timeFrom()', query)
+            self.assertIn('$__timeTo()', query)
+            self.assertNotIn('COALESCE', query)
+            self.assertNotIn('receipts', query)
+            self.assertEqual(panel['fieldConfig']['defaults']['noValue'], 'Unknown')
+            self.assertIs(panel['fieldConfig']['defaults']['custom']['spanNulls'], False)
+        self.assertIn('NULLIF(count(r.transaction_count),0)', panels[29]['targets'][0]['rawSql'])
+        self.assertIn('covered_percent', panels[29]['targets'][0]['rawSql'])
+        self.assertIn('blob_header_percent', panels[33]['targets'][0]['rawSql'])
+        escrow = next(p for p in dashboard('gas')['panels'] if p['id'] == 23)
+        self.assertEqual(escrow['fieldConfig']['defaults']['unit'], 'suffix: native units')
+        self.assertIn('eez_observer_registry_escrow_evaluation_valid', escrow['targets'][0]['expr'])
+        self.assertNotIn('or vector(0)', escrow['targets'][0]['expr'])
+
     def test_prominent_history_charts_preserve_sparse_values_and_use_real_time_series(self):
         self.assertEqual(sum(len(ids) for ids in NEW.values()), 22)
         for name, ids in NEW.items():

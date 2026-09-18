@@ -35,6 +35,7 @@ class Preparation(unittest.TestCase):
         self.assertEqual(panel('gas', 21)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
         self.assertEqual(panel('gas', 21)['targets'], original['targets'])
         self.assertEqual(panel('gas', 22)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
+        self.assertEqual(panel('gas', 23)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
         self.assertEqual(panel('blobs', 12)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
         self.assertIn('xDAI', panel('gas', 21)['title'])
         for panel_id in (12, 18, 20):
@@ -60,6 +61,16 @@ class Preparation(unittest.TestCase):
         for invalid in (None, [], {'l3': 'ETH'}, {'l1': ''}, {'l1': 123}, {'l1': '$ETH'}, {'l1': 'a' * 13}):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'native_currencies'):
                 prepare.prepare({**config, 'native_currencies': invalid}, runtime)
+
+    def test_network_block_activity_requires_database_profile(self):
+        runtime = prepare.prepare(self.config, self.root / 'activity')
+        def panels():
+            return json.loads((runtime / 'grafana/dashboards/network.json').read_text())['panels']
+        self.assertFalse(any(p.get('datasource', {}).get('uid') == 'eez-postgres' for p in panels()))
+        prepare.prepare({**self.config, 'database_enabled': True}, runtime)
+        self.assertTrue(set(range(27, 34)) <= {p['id'] for p in panels()})
+        prepare.prepare(self.config, runtime)
+        self.assertFalse(any(p.get('datasource', {}).get('uid') == 'eez-postgres' for p in panels()))
 
     def test_configuration_rerun_preserves_password_and_explicit_target_identity(self):
         runtime = prepare.prepare(self.config, self.root / 'runtime')

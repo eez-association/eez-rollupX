@@ -287,3 +287,11 @@ This labels amounts already expressed in 18-decimal native units; it does not
 convert assets or query exchange rates. Omitted roles show `native units`.
 Use symbols matching the deployed chains. Re-run preparation to apply changes;
 no node restart or database migration is needed.
+
+Whole-chain activity charts require schema23 and the database profile. They show
+L2 cadence, transactions/empty blocks, per-chain execution utilization and global
+L1 blob pressure, with metadata coverage. Historical metadata before this upgrade
+remains unknown unless revisited by normal repair. Registry escrow history is an
+independent optional exporter capability; configure
+[`registry_escrow`](contracts/registry-escrow.md) using the actual registry and
+rollup ID to compare it with the poster's balance.

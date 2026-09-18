@@ -86,3 +86,7 @@ subscription wakeups are not implemented: existing configured endpoints are
 HTTP-only, and adding a parallel subscription connection is unnecessary for
 canonical recovery. This is an explicit implementation deviation; observations
 and latency measurements include the documented polling delay.
+
+The independent optional [registry escrow collector](registry-escrow.md) observes
+a configured rollup's L1 registry balance with hash-pinned calls. It does not
+replace these safe-head/explorer observations or wallet funding accounting.
