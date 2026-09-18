@@ -79,12 +79,15 @@ struct Progress {
 struct Canonical {
     valid: bool,
     cursors: [B256; 2],
+    heights: [u64; 2],
+    revisions: [i64; 2],
     unresolved: i64,
     rows: Vec<Progress>,
 }
 
-/// Recomputed admission totals, never process counters. Cursor fencing suppresses
-/// an old snapshot as soon as the scanner publishes another canonical cursor.
+/// Recomputed admission totals, never process counters. Ordinary appends preserve
+/// a fresh snapshot; a published reorg revision invalidates it even if the same
+/// hash later becomes canonical again. SQL views always read current evidence.
 pub fn render_progress(runtime: &super::RuntimeStatus, now: u64) -> String {
     use std::fmt::Write;
     let Some(state) = runtime.outcomes.as_ref() else {
@@ -97,15 +100,17 @@ pub fn render_progress(runtime: &super::RuntimeStatus, now: u64) -> String {
         && fresh(state.last_success)
         && state.canonical.as_ref().is_some_and(|snapshot| {
             snapshot.valid
-                && runtime
-                    .chains
-                    .iter()
-                    .zip(snapshot.cursors)
-                    .all(|(chain, cursor)| {
-                        chain.error.is_none()
-                            && fresh(chain.last_success)
-                            && chain.cursor_hash == Some(cursor)
-                    })
+                && runtime.chains.iter().enumerate().all(|(i, chain)| {
+                    chain.error.is_none()
+                        && fresh(chain.last_success)
+                        && chain.canonical_revision == Some(snapshot.revisions[i])
+                        && chain.cursor_hash.is_some()
+                        && chain.cursor.is_some_and(|height| {
+                            height > snapshot.heights[i]
+                                || (height == snapshot.heights[i]
+                                    && chain.cursor_hash == Some(snapshot.cursors[i]))
+                        })
+                })
         });
     let mut text = format!(
         "eez_observer_canonical_outcome_evaluation_valid {}\n",
@@ -145,10 +150,11 @@ pub fn render_progress(runtime: &super::RuntimeStatus, now: u64) -> String {
     text
 }
 
-// One SQL statement observes counts, health and cursors in the same MVCC snapshot.
+// One SQL statement observes counts, health, canonical cursors and persisted
+// reorg revisions in the same MVCC snapshot. Do not fetch the fence separately.
 async fn canonical_snapshot(db: &Database, chains: [i64; 2]) -> Result<Canonical, Error> {
     let row = db.client.query_one(
-        "WITH outcomes AS (SELECT * FROM eez.lifecycle_canonical_outcomes WHERE context_l1=$1 AND context_l2=$2), progress AS (SELECT source->>'direction' AS direction,outcome,count(*) AS count,max(progress_timestamp_seconds) AS timestamp FROM outcomes WHERE evidence_class='node_reconciled' GROUP BY source->>'direction',outcome) SELECT (l1.frozen_reason IS NULL AND l2.frozen_reason IS NULL AND l1.collection_error IS NULL AND l2.collection_error IS NULL AND l1.last_success_at BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds' AND l2.last_success_at BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds' AND NOT EXISTS(SELECT FROM eez.correlation_sources c WHERE c.l1_chain_id=$1 AND c.l2_chain_id=$2 AND (c.frozen_reason IS NOT NULL OR c.collection_error IS NOT NULL OR c.last_success_at IS NULL OR c.last_success_at NOT BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds'))) IS TRUE, c1.block_hash::bytea,c2.block_hash::bytea,(SELECT count(*) FROM outcomes WHERE evidence_class='unknown' AND native_claims>0),COALESCE((SELECT jsonb_agg(to_jsonb(progress)) FROM progress),'[]'::jsonb) FROM eez.chain_instances l1 JOIN eez.chain_instances l2 ON l2.id=$2 LEFT JOIN eez.scan_cursors c1 ON c1.chain_instance_id=l1.id LEFT JOIN eez.scan_cursors c2 ON c2.chain_instance_id=l2.id WHERE l1.id=$1",
+        "WITH outcomes AS (SELECT * FROM eez.lifecycle_canonical_outcomes WHERE context_l1=$1 AND context_l2=$2), progress AS (SELECT source->>'direction' AS direction,outcome,count(*) AS count,max(progress_timestamp_seconds) AS timestamp FROM outcomes WHERE evidence_class='node_reconciled' GROUP BY source->>'direction',outcome) SELECT (l1.frozen_reason IS NULL AND l2.frozen_reason IS NULL AND l1.collection_error IS NULL AND l2.collection_error IS NULL AND l1.last_success_at BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds' AND l2.last_success_at BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds' AND NOT EXISTS(SELECT FROM eez.correlation_sources c WHERE c.l1_chain_id=$1 AND c.l2_chain_id=$2 AND (c.frozen_reason IS NOT NULL OR c.collection_error IS NOT NULL OR c.last_success_at IS NULL OR c.last_success_at NOT BETWEEN now()-interval '90 seconds' AND now()+interval '5 seconds'))) IS TRUE, c1.block_hash::bytea,c2.block_hash::bytea,(SELECT count(*) FROM outcomes WHERE evidence_class='unknown' AND native_claims>0),COALESCE((SELECT jsonb_agg(to_jsonb(progress)) FROM progress),'[]'::jsonb),b1.number::text,b2.number::text,l1.canonical_revision,l2.canonical_revision FROM eez.chain_instances l1 JOIN eez.chain_instances l2 ON l2.id=$2 LEFT JOIN eez.scan_cursors c1 ON c1.chain_instance_id=l1.id LEFT JOIN eez.scan_cursors c2 ON c2.chain_instance_id=l2.id LEFT JOIN eez.blocks b1 ON b1.chain_instance_id=l1.id AND b1.hash=c1.block_hash AND b1.canonical LEFT JOIN eez.blocks b2 ON b2.chain_instance_id=l2.id AND b2.hash=c2.block_hash AND b2.canonical WHERE l1.id=$1",
         &[&chains[0],&chains[1]],
     ).bounded().await?;
     let cursor = |column: usize| -> Result<B256, Error> {
@@ -157,6 +163,12 @@ async fn canonical_snapshot(db: &Database, chains: [i64; 2]) -> Result<Canonical
             <[u8; 32]>::try_from(bytes.ok_or(Error::Bootstrap)?)
                 .map_err(|_| Error::Inconsistent)?,
         ))
+    };
+    let height = |column: usize| -> Result<u64, Error> {
+        row.try_get::<_, Option<String>>(column)?
+            .ok_or(Error::Bootstrap)?
+            .parse()
+            .map_err(|_| Error::Inconsistent)
     };
     let rows: Vec<Progress> =
         serde_json::from_value(row.try_get(4)?).map_err(|_| Error::Inconsistent)?;
@@ -170,6 +182,8 @@ async fn canonical_snapshot(db: &Database, chains: [i64; 2]) -> Result<Canonical
     Ok(Canonical {
         valid: row.try_get(0)?,
         cursors: [cursor(1)?, cursor(2)?],
+        heights: [height(5)?, height(6)?],
+        revisions: [row.try_get(7)?, row.try_get(8)?],
         unresolved: row.try_get(3)?,
         rows,
     })
@@ -453,12 +467,14 @@ async fn cycle(config: &Config) -> Result<(Canonical, bool), Error> {
 mod tests {
     use super::*;
     #[test]
-    fn canonical_progress_is_recomputed_and_fenced_by_cursor_and_health() {
+    fn canonical_progress_survives_append_but_rejects_reorg_and_unhealthy_state() {
         let cursors = [B256::repeat_byte(1), B256::repeat_byte(2)];
         let mut runtime = super::super::RuntimeStatus {
             chains: cursors.map(|cursor| super::super::Status {
                 last_success: Some(100_000),
                 cursor_hash: Some(cursor),
+                cursor: Some(10),
+                canonical_revision: Some(0),
                 ..Default::default()
             }),
             outcomes: Some(Status {
@@ -467,6 +483,8 @@ mod tests {
                 canonical: Some(Canonical {
                     valid: true,
                     cursors,
+                    heights: [10, 10],
+                    revisions: [0, 0],
                     unresolved: 3,
                     rows: vec![
                         Progress {
@@ -500,12 +518,72 @@ mod tests {
             "canonical_terminal_admissions{direction=\"inbound\",outcome=\"committed\"} 2"
         ));
         assert!(!rendered.contains("timestamp_seconds{direction=\"outbound\"}"));
-        runtime.chains[0].cursor_hash = Some(B256::repeat_byte(3));
-        assert_eq!(
-            render_progress(&runtime, 100_000),
-            "eez_observer_canonical_outcome_evaluation_valid 0\n"
-        );
-        runtime.chains[0].cursor_hash = Some(cursors[0]);
+        for index in 0..2 {
+            let original = runtime.chains[index].clone();
+            // Both scanners can append independently between projection passes.
+            runtime.chains[index].cursor = Some(11);
+            runtime.chains[index].cursor_hash = Some(B256::repeat_byte(3));
+            assert_eq!(render_progress(&runtime, 100_000), rendered);
+            let appended = runtime.chains[index].clone();
+            for state in [
+                super::super::Status {
+                    canonical_revision: Some(1),
+                    ..appended.clone()
+                },
+                // Restoring the original hash does not restore the old revision.
+                super::super::Status {
+                    canonical_revision: Some(1),
+                    ..original.clone()
+                },
+                super::super::Status {
+                    canonical_revision: None,
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    cursor: Some(9),
+                    ..original.clone()
+                },
+                super::super::Status {
+                    cursor: None,
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    cursor: Some(10),
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    cursor_hash: None,
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    last_success: Some(9_999),
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    last_success: Some(105_001),
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    error: Some(Error::Frozen),
+                    ..appended.clone()
+                },
+                super::super::Status {
+                    error: Some(Error::Database),
+                    ..appended.clone()
+                },
+            ] {
+                runtime.chains[index] = state;
+                assert_eq!(
+                    render_progress(&runtime, 100_000),
+                    "eez_observer_canonical_outcome_evaluation_valid 0\n"
+                );
+            }
+            runtime.chains[index] = appended;
+            assert_eq!(render_progress(&runtime, 100_000), rendered);
+        }
+        runtime.outcomes.as_mut().unwrap().error = Some(Error::Database);
+        assert!(!render_progress(&runtime, 100_000).contains("terminal_admissions"));
+        runtime.outcomes.as_mut().unwrap().error = None;
         runtime.chains[1].error = Some(Error::Frozen);
         assert!(!render_progress(&runtime, 100_000).contains("terminal_admissions"));
         runtime.chains[1].error = None;

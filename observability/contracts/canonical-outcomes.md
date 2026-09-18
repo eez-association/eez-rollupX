@@ -103,9 +103,14 @@ UTC emission time. A direction without known progress omits its timestamp rather
 than emitting epoch zero. Repeated admissions of one transaction remain separate
 admission observations here; these counts are not unique paid-source totals.
 
-Counts, chain health and scan cursors are read in one PostgreSQL statement/snapshot.
-Scraping suppresses them after a cursor change, a chain error, invalid source
-health or 90-second staleness. SQL anchor/outcome views retract immediately on
+Counts, chain health, canonical scan cursor heights/hashes and persisted reorg
+revisions are read in one PostgreSQL statement/snapshot. Ordinary scanner appends
+retain a fresh snapshot while its reorg revisions match. Both published scanner
+cursors must be at or above the captured heights, with the exact hash required
+at equal height. Missing fences, a changed revision (including a reorg that later
+restores the same hash), a backwards cursor, a chain error, invalid source health
+or 90-second staleness suppress the gauges. Reorg/error suppression follows scanner
+status publication; it is not a synchronous database read on every scrape. SQL anchor/outcome views retract immediately on
 committed evidence changes; cached gauges refresh on the next bounded projection
 pass and carry the existing projection last-success timestamp. Missing/gapped
 history remains visible and must accompany dashboard/alert interpretation.
