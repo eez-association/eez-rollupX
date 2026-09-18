@@ -9,7 +9,7 @@ deployment.
 
 The reviewed implementation files are enumerated by
 [`implementation-source.sha256`](implementation-source.sha256); that manifest's
-SHA-256 is `2c9c5d9dea5b9083931aee82e4d987c893402794e0507ed2c3046ad02902c27d`.
+SHA-256 is `d5d983f626294111ae4a4d7f724c015f02502b5a64f84be3ec814d2de707fa74`.
 Any later source edit invalidates this checkpoint until the manifest and focused
 review are repeated.
 

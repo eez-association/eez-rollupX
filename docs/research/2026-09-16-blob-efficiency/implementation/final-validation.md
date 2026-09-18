@@ -4,7 +4,7 @@ Date: 2026-09-17. Current integration base and freshly fetched fork `origin/main
 `fc0ee0516a1dbbdf9f785a3fa3d2f1789b6d2af7`. Protocol gitlink:
 `3c0cdf4955941a5c23639346932b55b33babebbd`. Reviewed source manifest:
 [`implementation-source.sha256`](implementation-source.sha256), manifest digest
-`2c9c5d9dea5b9083931aee82e4d987c893402794e0507ed2c3046ad02902c27d`.
+`d5d983f626294111ae4a4d7f724c015f02502b5a64f84be3ec814d2de707fa74`.
 
 ## Static and component checks
 
