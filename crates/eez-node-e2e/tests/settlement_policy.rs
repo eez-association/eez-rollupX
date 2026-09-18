@@ -623,9 +623,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
     wait_for_latest_height(&world.node, receipt.block_number.unwrap() + 12, TIMEOUT)
         .await
         .unwrap();
-    world
-        .fail_rpc_methods(&["eth_feeHistory"])
-        .unwrap();
+    world.fail_rpc_methods(&["eth_feeHistory"]).unwrap();
     let rpc = world.fault_rpc_url().to_owned();
     world
         .restart_composer_with_env(&[
@@ -636,11 +634,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
         .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
-        Ok((world
-            .node
-            .log_count_matching(&["priority fee history"])?
-            >= 2)
-            .then_some(()))
+        Ok((world.node.log_count_matching(&["priority fee history"])? >= 2).then_some(()))
     })
     .await
     .unwrap_or_else(|error| {
