@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare_trends', ROOT / 'prepare.py')
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
-NEW = {'cross-chain': range(24, 29), 'gas': range(18, 22),
+NEW = {'cross-chain': range(24, 31), 'gas': range(18, 22),
        'blobs': range(10, 14), 'settlement': range(15, 17), 'network': range(24, 27)}
 
 
@@ -23,19 +23,19 @@ def dashboard(name):
 
 class DashboardTrends(unittest.TestCase):
     def test_prominent_history_charts_preserve_sparse_values_and_use_real_time_series(self):
-        self.assertEqual(sum(len(ids) for ids in NEW.values()), 18)
+        self.assertEqual(sum(len(ids) for ids in NEW.values()), 20)
         for name, ids in NEW.items():
             panels = {panel['id']: panel for panel in dashboard(name)['panels']}
             for panel_id in ids:
                 with self.subTest(dashboard=name, panel=panel_id):
                     panel = panels[panel_id]
                     self.assertEqual(panel['type'], 'timeseries')
-                    self.assertLessEqual(panel['gridPos']['y'], 31)
+                    self.assertLessEqual(panel['gridPos']['y'], 60 if name == 'cross-chain' else 31)
                     self.assertGreaterEqual(panel['gridPos']['h'], 7)
                     defaults = panel['fieldConfig']['defaults']
                     self.assertEqual(defaults['noValue'], 'Unknown')
                     self.assertIs(defaults['custom']['spanNulls'], False)
-                    self.assertEqual(defaults['custom']['stacking']['mode'], 'none')
+                    self.assertEqual(defaults['custom']['stacking']['mode'], 'normal' if name == 'cross-chain' and panel_id in (26, 29) else 'none')
                     self.assertEqual(panel['options']['tooltip']['mode'], 'multi')
                     self.assertTrue(panel['description'])
                     for target in panel['targets']:
@@ -123,6 +123,27 @@ class DashboardTrends(unittest.TestCase):
         for panel_id in (12, 21):
             self.assertEqual(gas[panel_id]['fieldConfig']['defaults']['unit'], 'suffix: gwei')
             self.assertTrue(gas[panel_id]['targets'][0]['expr'].endswith(' * 1e9'))
+
+    def test_queue_directions_partition_states_and_keep_snapshot_freshness(self):
+        panels = {p['id']: p for p in dashboard('cross-chain')['panels']}
+        states = ('queued_ready', 'queued_blocked', 'queued_unknown', 'in_flight')
+        for panel_id, direction in ((26, 'inbound'), (29, 'outbound')):
+            panel = panels[panel_id]
+            self.assertLessEqual(panel['gridPos']['y'], 10)
+            self.assertEqual(len(panel['targets']), 4)
+            for target, state in zip(panel['targets'], states):
+                expr = target['expr']
+                self.assertIn('direction="' + direction + '",state="' + state + '"', expr)
+                self.assertIn('eez_native_queue_sample_valid', expr)
+                self.assertIn('<= 45', expr)
+                self.assertIn('>= -5', expr)
+                self.assertIn('up{', expr)
+                self.assertNotIn('rate(', expr)
+                self.assertNotIn('or vector(0)', expr)
+        age = panels[30]
+        self.assertEqual(age['fieldConfig']['defaults']['unit'], 's')
+        self.assertIn('eez_native_queue_oldest_age_seconds', age['targets'][0]['expr'])
+        self.assertNotIn('rate(', age['targets'][0]['expr'])
 
     def test_layouts_have_stable_unique_ids_and_no_overlapping_panels(self):
         for file in (ROOT / 'grafana/dashboards').glob('*.json'):

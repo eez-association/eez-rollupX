@@ -158,7 +158,7 @@ chain or typed outcome; shared tooltips compare observations without summing the
 
 | Dashboard | New time-series panels (IDs) |
 | --- | --- |
-| Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); queue direction/state (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28) |
+| Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); inbound queue states (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28); outbound queue states (29); oldest active/serviceable age (30) |
 | Gas | Configured-wallet spend (18); paid-posting execution/blob/total fees by success (19); selected-receipt execution/blob/total fees (20); configured L1 poster balance history (21) |
 | Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob/total fees (12); known purchased blobs and measured subset (13) |
 | Settlement | Included paid-call count by success (15); receipt execution gas (16) |
@@ -198,7 +198,7 @@ purchased usable capacity for those same measured posts; its measured-subset
 count is not added to the all-post count.
 
 Focused generated/static coverage is in `tests/test_dashboard_trends.py`:
-eighteen panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
+twenty time-series panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
 gates, preserved exact detail tables, sparse displays, unique IDs and non-overlapping
 layout. The real datasource/browser smoke gate remains necessary for SQL execution,
 PromQL evaluation and rendering; static checks alone do not claim those results.
@@ -238,3 +238,53 @@ competing claim or changes the denominator. Environment/deployment/chain/rollup
 selection, unknown states, gwei arithmetic, sorting and limits are unchanged. The
 reader keeps its 10-second statement timeout; no migration or runtime update is
 required.
+
+
+## Cross-chain operational overview
+
+The overview now orders information around operational questions, preserving the
+existing detailed evidence tables and their filters below:
+
+| Question | Panels | Interpretation |
+| --- | --- | --- |
+| Is work accumulating, and in which direction? | Inbound 26 and outbound 29 | Ready, blocked, unknown readiness and in-flight reservations are disjoint stacked populations; missing/stale samples are unknown |
+| Is something stuck while completed latency looks normal? | Oldest active/serviceable age 30 beside arrivals 24 | Active age is a gauge, not a rate or a completed latency; empty/missing clocks are not zero |
+| Where is processing time spent? | Native terminal duration 27, readiness partitions 22, observed finality 28 and coverage 23 | Native duration includes queue time; serviceable includes in-flight processing; quantiles are not additive and sparse samples are not a reliable tail estimate |
+| How much observed crosschain traffic enters each block? | Source transactions/block 31 | Unique explicit scoped source transaction identities with canonical receipts, not admissions, internal protocol calls or completed effects |
+| How much source gas does that traffic consume? | Source gas/block 32 | Sum of receipt gas_used for the same source-block population; any missing gas leaves the block total NULL |
+| How large are paid posting populations? | Verified source members/post 33 | Full verified unique source population per paid post/context, including reverted attempts; known empty is 0, incomplete/contradictory evidence is NULL |
+
+Native snapshots remain 15 seconds; short-lived queue spikes can occur between
+samples. All monetary charts elsewhere remain in gwei. Gas quantities here are
+gas units, distinct from fees and from destination execution attribution.
+
+Source-block charts materialize distinct `(chain_instance_id, transaction_hash,
+direction)` from current linked explicit source references before joining receipts.
+Repeated admissions, attempts and later recovery references therefore do not
+multiply a transaction. Reference emission time is not a source receipt-time
+filter. Chart categories retain context IDs and show the last 50 nonempty canonical
+source blocks in deterministic chronological order, within the selected range.
+Missing/unindexed history is not reconstructed as empty blocks. Source hash and
+native instance restrict this observed subset. L1 sources do not imply a target
+rollup; existing source-chain/rollup scope rules are retained.
+
+Gas coverage tests the actual `gas_used` field, not fee-price completeness as a
+proxy. The current receipt schema can store NULL gas alongside a missing-price
+accounting gap; those historical values cannot be recovered by a dashboard query.
+Known zero-price gas still counts. Unknown-gas transaction count is tooltip
+coverage and is hidden from the gas axis.
+
+Paid-post membership uses the existing materialized allocation projection and
+keeps all authoritative competing claims in scope. It follows deployment/chain/
+rollup selection independently of native-instance selection. A source/post hash
+selects whole populations after validation; it does not reduce their denominator.
+Each of the last 50 paid posts retains its own transaction index within the block,
+rollup/context and unknown/reverted label. Known pure-L2/empty populations remain
+zero; a missing or conflicting membership never becomes zero or completion.
+
+`tests/block_dashboard_queries.py` runs actual shipped SQL through the reader
+under the existing 10-second deadline, with rollback-only source/receipt/claim
+fixtures for duplication, same-block sources/posts, unknown gas, zero-price gas,
+selectors, freshness, conflicts, reorgs and deterministic last 50 boundaries. The
+Grafana smoke additionally exercises each plotted queue state and oldest age
+through active, idle, incomplete and stale snapshots.

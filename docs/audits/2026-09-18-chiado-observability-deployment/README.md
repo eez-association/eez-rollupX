@@ -302,3 +302,39 @@ attribution uncertainty/retraction cases. Initial comparisons require nonempty
 results; explicit NULL accounting retains gaps and missing estimates.
 Private plans, served-query results and table screenshots are retained under
 `validation/allocation-queries-20260918/` in the deployment directory.
+
+
+## Useful cross-chain operations overview
+
+The Cross-chain dashboard now starts with readable current activity and retained
+canonical evidence, followed by separate inbound/outbound queue charts. Ready,
+blocked, unknown readiness and in-flight states are disjoint stacked populations.
+Oldest active/serviceable age sits beside arrival rate; completed-request latency,
+readiness partitions, observed finality and sample coverage remain distinct.
+
+Three categorical block charts show unique observed source transactions per
+canonical source block, their receipt gas, and verified full source populations
+per paid posting transaction. Later references/readmissions do not multiply source
+transactions. Multiple sources or paid posts in one block remain distinct; a
+source-hash filter never shrinks the paid post's verified population. These are
+observed source transactions and attempted posting populations, not internal-call
+counts or a claim that every member completed. Known empty posts are zero;
+unavailable membership or gas stays unknown. The latest 50 rows retain deterministic
+ordering and explicit block/context labels, with shorter readable axis text.
+
+No producer, database schema, collection cadence or runtime container changed.
+Monetary dashboards stay in gwei; this gas chart measures gas units. Fifteen-second
+queue samples can miss short-lived spikes; block history is the observed subset,
+not fabricated zeroes for unindexed blocks. Native latency includes waiting and
+needs its observation-count coverage, especially on this low-traffic deployment.
+
+Validation passed 125 generated queries in the isolated Grafana/PostgreSQL/
+Prometheus fixture, eight dashboard checks, 15 focused actual-reader SQL assertions,
+and 32 live panel queries. The browser rendered 13 charts without datasource errors.
+Known inbound/outbound receipts independently matched the new source-block charts:
+one transaction each, 86,212 and 82,074 gas respectively, and two verified source
+members for their shared paid post even when filtering to one source. No new
+transactions were submitted for this presentation update. The final display
+review also removed hidden activity columns and prevented intentionally skipped
+axis labels from displaying a misleading Unknown; missing numeric observations
+retain Unknown. Evidence: deployment `validation/crosschain-operations-20260918/`.

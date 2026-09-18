@@ -216,6 +216,10 @@ def main():
                 sql=migration.read_text()
                 report['migration_sha256'][migration.name]=hashlib.sha256(sql.encode()).hexdigest()
                 run(psql,sql)
+            import block_dashboard_queries
+            block_sql = run(psql, block_dashboard_queries.fixture())
+            assert 'block dashboard query invariants passed' in block_sql
+            report['checks'].append('per_block_source_dedup_gas_unknown_coverage_selectors_reorg_and_paid_post_membership')
             seed=(ROOT/'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
             reader_password=(runtime/'secrets/postgres-reader-password').read_text()
             run(psql,seed+BLOBS+COSTS+"\nALTER ROLE eez_observer_reader LOGIN PASSWORD '"+reader_password+"';\nCOMMIT;\n")
@@ -333,6 +337,22 @@ except urllib.error.HTTPError as error:
                 run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'queue':mode}))
                 until('current activity '+mode,lambda:activity_values()==expected,seconds=30)
                 assert query(last_success['targets'][0],last_success['datasource'])==retained_success
+                # Exercise the actual plotted state selectors at the current
+                # sample, not a historical window containing preceding modes.
+                for panel_id, direction in ((26, 'inbound'), (29, 'outbound')):
+                    panel = next(p for p in cross['panels'] if p['id'] == panel_id)
+                    for index, target in enumerate(panel['targets']):
+                        current = {**target, 'instant': True, 'range': False}
+                        values = [v for row in query(current, panel['datasource'])
+                                  for key, v in row.items() if key.lower() != 'time' and isinstance(v, (float, int))]
+                        expected_state = ([] if mode in ('unknown', 'stale') else
+                                          [int(mode == 'active' and direction == 'inbound' and index == 0)])
+                        assert values == expected_state, (mode, direction, index, values)
+                age = next(p for p in cross['panels'] if p['id'] == 30)
+                values = [v for row in query({**age['targets'][0], 'instant': True, 'range': False}, age['datasource'])
+                          for key, v in row.items() if key.lower() != 'time' and isinstance(v, (float, int))]
+                assert values == ([60, 60] if mode == 'active' else []), (mode, values)
+            report['checks'].append('directional_queue_charts_and_oldest_age_preserve_active_idle_unknown_stale_states')
             report['checks'].append('idle_activity_recent_history_unknown_and_stale_are_distinct_without_synthetic_health')
 
             outcome=results['Currently anchored outcomes · L1 watermark in selected range']
