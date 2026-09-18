@@ -92,6 +92,56 @@ def fixture():
 
 
 class Adapter(unittest.TestCase):
+    def test_reserved_ownership_normalizes_only_declared_ephemeral_identity(self):
+        raw, plan, bundles = fixture()
+        original_common = copy.deepcopy(plan['value']['config_preimages']['common'])
+        arms = {}
+        for index, files in enumerate(bundles):
+            data = {key: item['value'] for key, item in files.items()}
+            token = f'{index:032x}'
+            ownership = {'database_parent':f'/workspace/target/native-observer-databases/overhead-{token}',
+                         'socket_parent':f'/tmp/eez-opg-{token}', 'container_name':f'eez-native-observer-{token}'}
+            data['config']['observer_fixture'] = ownership
+            data['ready']['postgres_container'] = ownership['container_name']
+            data['resources']['postgres_identity']['name'] = ownership['container_name']
+            run = raw['value']['runs'][index]
+            run.update(owned_processes_stopped=True, owned_container_absent=True, owned_parents_removed=True, retained_owned_paths=[])
+            data['result'] = copy.deepcopy(run)
+            common, arm = normalize(data['config'], data['ready'], {r:data[r] for r in ('composer','signer','follower')}, data['effective_config'])
+            self.assertEqual(common, original_common)
+            if run['arm'] in arms:
+                self.assertEqual(arms[run['arm']], arm)
+            arms[run['arm']] = arm
+            bundles[index] = {key:artifact(value) for key,value in data.items()}
+        plan['value']['config_preimages']['arms'] = arms
+        plan['value']['frozen']['expected_identity']['arm_config_sha256'] = {key:digest(value) for key,value in arms.items()}
+        result = adapt(raw, plan, bundles)
+        self.assertEqual(result['status'], 'ready', result['issues'])
+        # Metadata cannot replace the evidence that processes, container AND paths are gone.
+        for key in ('owned_processes_stopped', 'owned_container_absent', 'owned_parents_removed', 'retained_owned_paths'):
+            bad_raw, bad_bundles = copy.deepcopy(raw), copy.deepcopy(bundles)
+            del bad_raw['value']['runs'][0][key]
+            bad_bundles[0]['result'] = artifact(copy.deepcopy(bad_raw['value']['runs'][0]))
+            self.assertNotEqual(adapt(bad_raw, plan, bad_bundles)['status'], 'ready')
+
+    def test_optional_ownership_contract_rejects_unknown_null_and_mismatched_fields(self):
+        _, _, bundles = fixture()
+        data = {key:item['value'] for key,item in bundles[0].items()}
+        cfg, ready = data['config'], data['ready']
+        profiles = {role:data[role] for role in ('composer','signer','follower')}
+        # Absence preserves exactly the legacy normalized preimage.
+        self.assertNotIn('observer_fixture', normalize(cfg, ready, profiles, data['effective_config'])[1])
+        good = {'database_parent':'/workspace/target/native-observer-databases/overhead-'+'a'*32,
+                'socket_parent':'/tmp/eez-opg-'+'a'*32, 'container_name':'eez-native-observer-'+'a'*32}
+        ready['postgres_container'] = good['container_name']
+        for bad in (None, {}, {**good,'unknown':1}, {**good,'socket_parent':'/tmp/other'},
+                    {**good,'database_parent':'/workspace/../target/native-observer-databases/overhead-'+'a'*32},
+                    {**good,'container_name':'eez-native-observer-'+'b'*32}):
+            with self.assertRaises(ValueError):
+                normalize({**cfg,'observer_fixture':bad}, ready, profiles, data['effective_config'])
+        with self.assertRaises(ValueError):
+            normalize({**cfg,'unknown':True}, ready, profiles, data['effective_config'])
+
     def test_nested_postgres_settings_are_preserved_and_bound_to_the_frozen_configuration(self):
         raw,plan,bundles=fixture()
         expected=plan['value']['config_preimages']['common']['observer_indexer']['postgres']

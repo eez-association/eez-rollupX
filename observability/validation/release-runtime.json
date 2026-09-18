@@ -158,5 +158,286 @@
     "publication approval",
     "private rollout inputs and independent heartbeat",
     "off-host recovery and seven-day baseline"
-  ]
+  ],
+  "schema21_release_checkpoint": {
+    "recorded_utc": "2026-09-18T07:53:06.697648+00:00",
+    "status": "partial_release_validation_with_retained_native_failure",
+    "runtime_revision": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+    "scope": "sealed local schema21 release; later working-tree test/controller fixes are separate and need live validation",
+    "evidence_root_local_only": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-45e5c015-20260918T050517Z",
+    "availability": "Raw artifacts are retained locally, not bundled with this repository or published.",
+    "evidence_sha256": {
+      "runtime/manifest.json": "d2679949cabb359cdd718d5102b67b3cbe65a0f5c0f49aa958102d4fd0c126a9",
+      "tests/manifest.json": "7a36a8a330af29af3800e7fc6abbf02dcba5cc50b2a9fd73fd36a92199b36998",
+      "validation/status.json": "0e99a16430b8ec124b14fd260333d25076b44aba40ed99e297ca98d5971dda75",
+      "validation/backend-checks/database.json": "7bb51496912c5ef018028766d2b14be8c6387e7bedfb73eca37f329da720aa5c",
+      "validation/backend-checks/dashboards.json": "411523a59202e8ec5ef95cd3af3147ca02ce3866eda0f887de73d78f6ab4f9ae",
+      "validation/network-summary.json": "5f5c2fc09eeeb1d017ac59cae5806515e97fbbcd86dc384029f31854447f00bb",
+      "validation/capacity-summary.json": "cc283041bbfc3597b468a080512fb5a9628e66bd0333f0e466fed094e90689a7",
+      "validation/schema21-static-compatibility.json": "f0d4e193916285f8365d6ebafdcc0b5e6aaecc32ea3f251650f029cc8e139b9c",
+      "validation/embedded-release.log": "d28aa599e3bd9d3c45e11e70113e0cbd64b3caca7366ae2b416adb88a4e518a5"
+    },
+    "release_units": {
+      "passed": 1194,
+      "skipped": 0
+    },
+    "postgresql_groups": 58,
+    "grafana_queries": 96,
+    "network": {
+      "protocol_scenarios": {
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "suite_complete": true,
+        "accounting_valid": true,
+        "evidence_complete": true,
+        "causal_coverage_complete": true,
+        "semantic_blob_coverage_complete": true
+      },
+      "modes": [
+        "inbound",
+        "outbound",
+        "mixed",
+        "mixed-pure"
+      ],
+      "proof_flow": {
+        "signed_windows": 130,
+        "remote_attestations": 130
+      },
+      "cross_chain_convergence": "pass",
+      "state_chaining": "pass",
+      "safe_head_convergence": "pass",
+      "l1_l2_root_divergence": 0,
+      "owned_enclave_removed": "eez-obs-45e5c015-115923f7"
+    },
+    "embedded": {
+      "status": "failed",
+      "exit_code": 100,
+      "elapsed_seconds": 5257.271474487003,
+      "passed": 50,
+      "failed": 1,
+      "skipped": 1,
+      "failure": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals passed only on third attempt; strict CI treats it as failure"
+    },
+    "cross_chain": {
+      "status": "failed",
+      "exit_code": 100,
+      "elapsed_seconds": 6126.246613594994,
+      "nextest_seconds": 6122.43,
+      "selected": 74,
+      "passed": 73,
+      "failed": 1,
+      "skipped": 2,
+      "failure": "Ethereum fitting40 case passed only on second attempt; strict CI treats it as failure"
+    },
+    "original_burst_baseline": {
+      "status": "not_reproduced_in_this_run",
+      "root_commit": "5469c88860408daf776ee812156dd280c1a9e262",
+      "selected": 1,
+      "passed": 1,
+      "retries": 0,
+      "test_seconds": 172.137,
+      "wrapper_seconds": 174.1560046779923,
+      "log_sha256": "4c3c272a0e91f7e709d1b02d4680a51398c302b7ac3951743d8099ce31b3729f",
+      "scope": "unchanged archived release test; one functional run, no performance or baseline-failure reproduction claim"
+    },
+    "forty_wave_failure": {
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "observed": "fully queued first wave split39+1 by preparation-time admission, two canonical L1 receipt blocks instead of one",
+      "failed_admission_ms": 163,
+      "retry_admission_ms": [
+        93,
+        107
+      ],
+      "baseline_comparison": "admission decision code and test helper unchanged; measured-path instrumentation differs; runtime comparison pending",
+      "disposition": "preserve original assertion and budgets; no established cause or runtime fix",
+      "comparison_preflight": {
+        "status": "stopped_before_workload",
+        "elapsed_seconds": 60.045881382975494,
+        "swap_in_pages": 57,
+        "swap_out_pages": 0,
+        "major_faults": 59,
+        "reason": "declared zero-swap quiet-host prerequisite not met; no runtime comparison result"
+      },
+      "triage_manifest_sha256": "14a18081e59a6934910f72e92a48063cc3ab14b672148022815c152e06c0f665",
+      "quota_handoff": "automatic handoff skipped on suite failure; separate exact-artifact check required"
+    },
+    "capacity": {
+      "canonical_sources": 2722,
+      "oom_kills": 0,
+      "memory_peak_bytes": 536870912,
+      "memory_limit_bytes": 536870912,
+      "memory_limit_events": 107,
+      "scope": "single enabled-arm diagnostic, not comparative overhead or production headroom"
+    },
+    "remaining": [
+      "compare fitting40 timing failure against frozen-main runtime under equivalent conditions",
+      "shipping overhead and probe calibration",
+      "publication and deployment gates remain unchanged"
+    ],
+    "corrected_burst": {
+      "status": "passed",
+      "test_sha256": "cfb2cf02d0726d23c85c8137bb25e1fc73d6e78a1311025251787da8def9e684",
+      "scope": "corrected source-built functional test against verified baseline/candidate shipping runtimes; no performance or resealed archive claim",
+      "original_baseline_status": "not_reproduced_in_this_run",
+      "cases": [
+        {
+          "name": "ethereum-baseline",
+          "test": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 172.68276014301227,
+          "owned_processes_stopped": true,
+          "log_sha256": "6f158da3c9cec413210fded13fa83f4744cc01a9a5ceddd4e25c5cb324464bb7",
+          "selected_one": true
+        },
+        {
+          "name": "ethereum-candidate",
+          "test": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 171.74172607899527,
+          "owned_processes_stopped": true,
+          "log_sha256": "a2f734e5f88d7a339da56ddfd8660f52a1603fe24b5e5b4bf901745531200f9e",
+          "selected_one": true
+        },
+        {
+          "name": "gnosis-baseline",
+          "test": "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 191.0294522450131,
+          "owned_processes_stopped": true,
+          "log_sha256": "1475d0f40584c8c5543f0452c8ab29cbe52d69db5867791598868e496cbba954",
+          "selected_one": true
+        },
+        {
+          "name": "gnosis-candidate",
+          "test": "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 186.26233314198907,
+          "owned_processes_stopped": true,
+          "log_sha256": "ad252dab4282cb6f3d1332b5d24443f09383f35ad707f8e344e316c81d73c950",
+          "selected_one": true
+        }
+      ],
+      "candidate_ethereum_without_catchup": {
+        "empty_events": 7,
+        "steady_events": 27,
+        "catchup_events": 0,
+        "interpretation": "Permitted path passes strict missed-boundary emptiness plus retained protocol assertions."
+      }
+    },
+    "cleanup_generation_guard": {
+      "status": "unit_and_native_cleanup_verified",
+      "runner_tests_passed": 31,
+      "new_mocked_generation_cases": 4,
+      "prior_source_failed_cases": 2,
+      "scope": "Detect visible session-leader PID reuse before scanning/signalling; keeps absent-leader sibling cleanup. Does not establish atomic session ancestry across unobserved replacement lifetimes.",
+      "runner_tests_log_sha256": "694e86d0c9d8a14c55500cab06bfec1ead7c3372847b77594b3a294e61352404"
+    },
+    "physical_quota": {
+      "status": "passed",
+      "elapsed_seconds": 129.47478640600457,
+      "owned_container_absent": true,
+      "report_sha256": "d3f8a8e6196b7afaade781a45d8f163de72ce8e110128331082b8762f5f6cfa0",
+      "checks": [
+        "native_writer_started_and_persisted_real_records_before_failure",
+        "real_writer_io_loss_and_bidirectional_effects_canonical_state_and_signature_while_full",
+        "stopped_alloy_and_held_unlinked_ballast_remain_present_during_protocol_progress",
+        "native_semantics_test_passes_and_writer_recovers_without_restart"
+      ],
+      "image_capacity_bytes": 3221225472,
+      "held_unlinked_bytes": 2804600832,
+      "full_native_result": {
+        "dropped_io": 18.0,
+        "source_count": 2,
+        "writer_errors": 3.0
+      },
+      "fresh_post_release_persisted_commits": 2,
+      "memory_peak_bytes": 4295032832,
+      "memory_limit_events": 8589,
+      "oom_kills": 0,
+      "scope": "actual native bidirectional protocol and writer under physical ENOSPC; no overhead claim",
+      "limit": "Memory-limit reclaim pressure occurred; no memory-headroom claim. Independent follow-up does not make the original CI suite pass."
+    },
+    "controller_cleanup": {
+      "status": "passed",
+      "scope": "actual owned native/controller cleanup integration; no comparative performance claim",
+      "candidate_manifest_sha256": "d6be79c2cae55063dd2fafdf3346a1071b6a20520d0d7c54eb4c99ceea8fb238",
+      "status_sha256": "c286fa5f52ba35bc3273236bf9cec3a1b3c3c972c35a7f7ac7be7551553c1c94",
+      "elapsed_seconds": 348.21011466300115,
+      "cases": [
+        {
+          "name": "healthy-A",
+          "status": "passed",
+          "actual_arm_status": "captured",
+          "result_sha256": "1740fa16e1fdbaab7b12db2174d773a3525183dd94812326f72dc7bd9df280e0",
+          "retained_failure_datadir_count": 0,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 93.13898309602519
+        },
+        {
+          "name": "healthy-B",
+          "status": "passed",
+          "actual_arm_status": "captured",
+          "result_sha256": "f60a59ec397c9c3354822cfb6c791f267fef279836034ce9cfcd7696339ec45c",
+          "retained_failure_datadir_count": 0,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 120.67208618400036
+        },
+        {
+          "name": "forced-after-ready",
+          "status": "passed",
+          "actual_arm_status": "failed",
+          "result_sha256": "66f9da56d1ce5c69bbe6173295364b6d39bb687d61113582aba071a18b0b4ac9",
+          "dump_validation": {
+            "dump_sha256": "e97afefd83a51b1d28032a7f6ad509bbabef589b859df9ec45f43139c92318fd",
+            "bytes": 311430,
+            "pg_restore_list_sha256": "a90f473155245d7092540e950eb4dbd5e932c650fe8f009c51e90b64ee04407b"
+          },
+          "retained_failure_datadir_count": 2,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 61.882017965981504
+        },
+        {
+          "name": "early-deadline",
+          "status": "passed",
+          "actual_arm_status": "budget_exhausted",
+          "result_sha256": "b83452ce39c28e08e5f865f3708b8d111d2d40da29f04101efae79cef8d1639c",
+          "retained_failure_datadir_count": 1,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 1.092490044014994
+        },
+        {
+          "name": "ordinary-default-fixture",
+          "status": "passed",
+          "test_sha256": "28344563aed94a7374ac16248de4eab95477a828e9bb7a84f152e0c4a6f5147a",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "owned_processes_stopped": true,
+          "log_sha256": "4e4a3b376eb378964309c96ba4817d533177b4b2887473edea788ce4bf9bc69b",
+          "retained_failure_datadir_count": 0
+        }
+      ],
+      "retention": "Intentional native failure datadirs/dumps remain as evidence, separate from PostgreSQL owned-parent teardown; no performance acceptance claim."
+    }
+  }
 }

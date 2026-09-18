@@ -92,6 +92,18 @@ Each run retains `config.json`, `ready.json`, the three native role profiles,
 native evidence must agree byte-independently as JSON values; original file
 hashes are retained separately.
 
+New controller-owned captures add an exact `observer_fixture` object to
+`config.json`: `database_parent`, `socket_parent`, and `container_name`. The
+adapter validates their shared ownership token and the ready container identity,
+then normalizes only these ephemeral identifiers in the arm preimage. This is a
+prospective preimage change requiring a newly frozen plan. The common PostgreSQL
+settings remain unchanged. Absent ownership metadata preserves the legacy
+interpretation; explicit null, unknown fields, or inconsistent identities fail.
+New results additionally require `owned_processes_stopped`,
+`owned_container_absent`, and `owned_parents_removed` to be true, with empty
+`retained_owned_paths`. `ownership.json` is retained for operational recovery;
+it is not an additional analysis input or a substitute for these result checks.
+
 `effective_config.json` has exactly:
 
 - `schema_version: 1`;

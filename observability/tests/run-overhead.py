@@ -11,6 +11,10 @@ import math
 import os
 from pathlib import Path
 import signal
+import selectors
+import shutil
+import tempfile
+import uuid
 import subprocess
 import time
 
@@ -150,11 +154,280 @@ def verify_candidate(candidate, manifest):
             raise ValueError(f'candidate mismatch: {relative}')
 
 
+def native_manifest_directory(environment):
+    """Respect an explicit manifest root; otherwise support repository-root invocation."""
+    if 'CARGO_MANIFEST_DIR' in environment:
+        value = environment['CARGO_MANIFEST_DIR']
+        if not value or not Path(value).is_absolute():
+            raise ValueError('explicit CARGO_MANIFEST_DIR must be an absolute native manifest directory')
+        manifest = Path(value).resolve(strict=True)
+    else:
+        manifest = (Path.cwd() / 'crates/eez-node-e2e').resolve(strict=True)
+    repo = manifest.parent.parent
+    if (manifest.name != 'eez-node-e2e' or manifest.parent.name != 'crates'
+            or not (manifest / 'Cargo.toml').is_file()
+            or not (repo / 'Cargo.toml').is_file()):
+        raise ValueError('invalid native manifest/repository root')
+    return manifest
+
+
+def reserve_observer(repo):
+    """Reserve exact private roots before native launch; never infer ownership from PID prefixes."""
+    token = uuid.uuid4().hex
+    database_root = repo.resolve(strict=True) / 'target/native-observer-databases'
+    database_root.mkdir(parents=True, exist_ok=True)
+    if database_root.resolve(strict=True) != database_root:
+        raise ValueError('database root contains symlink')
+    fixture = {'database_parent': str(database_root / ('overhead-' + token)),
+               'socket_parent': '/tmp/eez-opg-' + token,
+               'container_name': 'eez-native-observer-' + token}
+    identities = {}
+    try:
+        for key in ('database_parent', 'socket_parent'):
+            path = Path(fixture[key])
+            path.mkdir(mode=0o700)
+            stat = path.lstat()
+            identities[key] = (stat.st_dev, stat.st_ino, stat.st_uid)
+    except Exception:
+        for key in identities:
+            Path(fixture[key]).rmdir()  # still empty; no native process has been launched
+        raise
+    return {'fixture': fixture, 'identities': identities, 'repo': repo}
+
+
+def validate_owned_roots(owned):
+    for key, expected in owned['identities'].items():
+        path = Path(owned['fixture'][key])
+        stat = path.lstat()
+        if (stat.st_dev, stat.st_ino, stat.st_uid) != expected or not path.is_dir() or path.is_symlink() or path.resolve(strict=True) != path or stat.st_mode & 0o777 != 0o700:
+            raise ValueError('owned reservation identity changed')
+
+
+def process_identity(pid):
+    try:
+        fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+        return (int(fields[2]), int(fields[3]), int(fields[19]), fields[0])
+    except FileNotFoundError:
+        return None
+
+
+def stop_owned_processes(child, identity, grace=10):
+    """Verify the fresh session, including siblings after its leader exits."""
+    if child is None:
+        return True
+    if identity is None or identity[:2] != (child.pid, child.pid):
+        return False
+    def verify_leader_generation():
+        current = process_identity(child.pid)
+        if current is not None and current[:3] != identity[:3]:
+            raise ValueError('owned native leader PID was reused or its session changed')
+
+    def members():
+        verify_leader_generation()
+        found = []
+        for entry in Path('/proc').iterdir():
+            if not entry.name.isdecimal():
+                continue
+            value = process_identity(int(entry.name))
+            if value and value[1] == child.pid and value[2] >= identity[2] and value[3] != 'Z':
+                try:
+                    uid = entry.stat().st_uid
+                except FileNotFoundError:
+                    continue
+                if uid != os.getuid():
+                    raise ValueError('owned session contains unexpected UID')
+                found.append((int(entry.name), value))
+        return found
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        deadline = time.monotonic() + grace
+        while True:
+            active = members()
+            if not active:
+                child.wait(timeout=1)
+                return True
+            for pid, expected in active:
+                try:
+                    descriptor = os.pidfd_open(pid)
+                    try:
+                        verify_leader_generation()
+                        if (current := process_identity(pid)) is not None and current[:3] == expected[:3]:
+                            signal.pidfd_send_signal(descriptor, sig)
+                    finally:
+                        os.close(descriptor)
+                except ProcessLookupError:
+                    pass
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(.05)
+    if members():
+        return False
+    child.wait(timeout=1)
+    return True
+
+
+def docker_inventory(name):
+    inventory = subprocess.run(['docker', 'ps', '-a', '--no-trunc', '--filter', f'name=^/{name}$', '--format', '{{.ID}}'],
+                               capture_output=True, text=True, timeout=10, check=True)
+    ids = inventory.stdout.splitlines()
+    if not ids:
+        return None
+    if len(ids) != 1 or len(ids[0]) != 64 or any(c not in '0123456789abcdef' for c in ids[0]):
+        raise ValueError('ambiguous exact container identity')
+    inspected = subprocess.run(['docker', 'inspect', ids[0]], capture_output=True, text=True, timeout=10, check=True)
+    values = json.loads(inspected.stdout)
+    if len(values) != 1 or values[0]['Id'] != ids[0]:
+        raise ValueError('container inventory changed')
+    return values[0]
+
+
+def validate_owned_container(owned, inspected):
+    validate_owned_roots(owned)
+    fixture = owned['fixture']
+    if inspected['Name'] != '/' + fixture['container_name'] or inspected['Config'].get('Labels', {}).get('eez.overhead.owner') != fixture['container_name']:
+        raise ValueError('foreign container identity/label')
+    mounts = inspected['Mounts']
+    if len(mounts) != 2 or any(m['Type'] != 'bind' for m in mounts):
+        raise ValueError('unexpected container mounts')
+    paths = {m['Destination']: Path(m['Source']) for m in mounts}
+    if set(paths) != {'/var/lib/postgresql', '/var/run/postgresql'}:
+        raise ValueError('unexpected mount destinations')
+    data, socket = paths['/var/lib/postgresql'], paths['/var/run/postgresql']
+    if data.parent != Path(fixture['database_parent']) or socket.parent.parent != Path(fixture['socket_parent']) or socket.name != 'socket':
+        raise ValueError('foreign container mount')
+    for path in (data, socket):
+        if path.resolve(strict=True) != path or not path.is_dir():
+            raise ValueError('container mount contains symlink')
+    receipt = Path(fixture['database_parent']) / 'container.json'
+    if not receipt.is_file() or receipt.is_symlink() or load(receipt, 1024) != {'name': fixture['container_name'], 'id': inspected['Id']}:
+        raise ValueError('completed container creation receipt unavailable')
+
+
+def bounded_diagnostic(args, path, seconds, limit):
+    # Never use Popen as a context manager: __exit__ waits without a deadline
+    # when selector/read/write fails (for example, a full diagnostic disk).
+    deadline = time.monotonic() + seconds
+    with path.open('xb') as output, path.with_suffix(path.suffix + '.stderr').open('xb') as errors:
+        child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        counts = {output: 0, errors: 0}
+        complete, reason, code, reaped = True, None, None, False
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(child.stdout, selectors.EVENT_READ, output)
+                selector.register(child.stderr, selectors.EVENT_READ, errors)
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        complete, reason = False, 'timeout'
+                        break
+                    for key, _ in selector.select(min(remaining, .1)):
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        target = key.data
+                        available = limit - counts[target]
+                        target.write(chunk[:available])
+                        counts[target] += min(available, len(chunk))
+                        if len(chunk) > available:
+                            complete, reason = False, 'byte_limit'
+                            break
+                    if not complete:
+                        break
+                if complete:
+                    code = child.wait(timeout=max(.1, deadline - time.monotonic()))
+                    reaped = True
+        except subprocess.TimeoutExpired:
+            complete, reason = False, 'timeout'
+        except Exception as error:
+            complete, reason = False, f'{type(error).__name__}: {error}'
+        finally:
+            # Unconditional bounded stop/reap, including selector and disk errors.
+            # A cleanup failure remains incomplete and never invokes an unbounded wait.
+            try:
+                if child.poll() is None:
+                    child.kill()
+                code = child.wait(timeout=2)
+                reaped = True
+            except Exception as error:
+                complete, reason = False, f'{reason or "cleanup"}; child cleanup: {error}'
+            finally:
+                child.stdout.close()
+                child.stderr.close()
+        return {'exit_code': code, 'complete': complete and code == 0 and reaped,
+                'reason': reason, 'bytes': counts[output], 'child_reaped': reaped}
+
+
+def preserve_failure(owned, container_id):
+    root = owned['repo'] / 'target/native-observer-failures'
+    root.mkdir(parents=True, exist_ok=True)
+    if root.resolve(strict=True) != root:
+        raise ValueError('failure diagnostic root contains symlink')
+    directory = Path(tempfile.mkdtemp(prefix='controller-', dir=root))
+    commands = {
+        'postgres.dump': (['docker', 'exec', container_id, 'pg_dump', '-U', 'postgres', '-d', 'eez_observer', '--format=custom'], 15, 128 * 1024**2),
+        'postgres.log': (['docker', 'logs', '--tail', '20000', container_id], 5, 4 * 1024**2),
+        'memory.txt': (['docker', 'exec', container_id, 'sh', '-c', 'cat /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.stat'], 5, 1024**2),
+    }
+    captures = {}
+    for name, (args, seconds, limit) in commands.items():
+        try:
+            captures[name] = bounded_diagnostic(args, directory / name, seconds, limit)
+        except Exception as error:
+            captures[name] = {'complete': False, 'error': str(error)}
+    record = {'path': str(directory), 'status': 'preserved' if all(c['complete'] for c in captures.values()) else 'incomplete', 'captures': captures}
+    write(directory / 'capture.json', record)
+    return record
+
+
+def cleanup_observer(owned, failed, processes_stopped):
+    fixture = owned['fixture']
+    result = {'owned_processes_stopped': processes_stopped, 'owned_container_absent': False,
+              'owned_parents_removed': False, 'owned_cleanup_verified': False,
+              'retained_owned_paths': [fixture[k] for k in ('database_parent', 'socket_parent')]}
+    try:
+        validate_owned_roots(owned)
+        if not processes_stopped:
+            raise ValueError('owned processes still active; data retained')
+        inspected = docker_inventory(fixture['container_name'])
+        preserved = True
+        if inspected is not None:
+            validate_owned_container(owned, inspected)
+            if failed:
+                try:
+                    result['failure_diagnostics'] = preserve_failure(owned, inspected['Id'])
+                    preserved = result['failure_diagnostics']['status'] == 'preserved'
+                except Exception as error:
+                    result['failure_diagnostics'] = {'status': 'incomplete', 'error': str(error)}
+                    preserved = False
+            removed = subprocess.run(['docker', 'rm', '--force', '--volumes', inspected['Id']], capture_output=True, text=True, timeout=15)
+            if removed.returncode:
+                raise RuntimeError('owned container removal failed')
+            if docker_inventory(fixture['container_name']) is not None:
+                raise RuntimeError('owned container remains or identity changed after removal')
+            result['owned_container_absent'] = True
+        else:
+            result['owned_container_absent'] = True
+            # A killed Docker CLI can leave a daemon-side create pending. Only
+            # untouched empty reservations justify absence without its receipt.
+            if any(any(Path(fixture[key]).iterdir()) for key in ('database_parent', 'socket_parent')):
+                raise ValueError('nonempty reservation without live verified container; retain for reconciliation')
+        if not preserved:
+            raise ValueError('failure preservation incomplete; owned data retained')
+        validate_owned_roots(owned)
+        for key in ('database_parent', 'socket_parent'):
+            shutil.rmtree(fixture[key])
+        result.update(owned_parents_removed=True, owned_cleanup_verified=True, retained_owned_paths=[])
+    except Exception as error:
+        result['cleanup_error'] = str(error)
+        result['retained_owned_paths'] = [fixture[k] for k in ('database_parent', 'socket_parent') if Path(fixture[k]).exists() or Path(fixture[k]).is_symlink()]
+    return result
+
+
 def arm(candidate, directory, pair, name, waves, probe, sink, arm_seconds, experiment_seconds, experiment_deadline):
     directory.mkdir()
+    owned = None
     config = {'arm': name, 'probe': probe, 'waves': waves, 'arm_seconds': arm_seconds, 'experiment_seconds': experiment_seconds,
               'receiver': sink.address, 'directory': str(directory)}
-    write(directory / 'config.json', config)
     environment = os.environ.copy()
     # Operator telemetry must not leak into the explicitly disabled arm.
     environment.pop('EEZ_TELEMETRY_CONFIG', None)
@@ -170,13 +443,33 @@ def arm(candidate, directory, pair, name, waves, probe, sink, arm_seconds, exper
     result = {'pair': pair, 'arm': name, 'probe': probe, 'status': 'failed', 'directory': str(directory)}
     ready = None
     sampler = None
+    child = None
+    identity = None
+    known_processes = []
     with (directory / 'test.log').open('wb') as log:
-        child = subprocess.Popen([str(candidate / 'dynamic_admission'), '--ignored', '--exact',
-                                  'overhead::observability_overhead_arm', '--nocapture'],
-                                 env=environment, stdout=log, stderr=subprocess.STDOUT,
-                                 start_new_session=True)
         try:
+            manifest_directory = native_manifest_directory(environment)
+            environment['CARGO_MANIFEST_DIR'] = str(manifest_directory)
+            repo = manifest_directory.parent.parent
+            owned = reserve_observer(repo)
+            config['observer_fixture'] = owned['fixture']
+            write(directory / 'ownership.json', {'fixture': owned['fixture'], 'identities': owned['identities']})
+            write(directory / 'config.json', config)
+            child = subprocess.Popen([str(candidate / 'dynamic_admission'), '--ignored', '--exact',
+                                      'overhead::observability_overhead_arm', '--nocapture'],
+                                     env=environment, stdout=log, stderr=subprocess.STDOUT,
+                                     start_new_session=True)
+            identity = process_identity(child.pid)
             ready = wait_file(directory / 'ready.json', child, deadline)
+            for pid in ready['processes'].values():
+                if pid is None:
+                    continue
+                value = process_identity(pid)
+                if value is None:
+                    raise ValueError('ready native process already exited')
+                known_processes.append((pid, value[:3]))
+                if value[1] != child.pid or value[2] < identity[2]:
+                    raise ValueError('ready native process is outside the owned session')
             with ResourceSampler(ready, interval_seconds=1.0, metrics_interval_seconds=15.0, max_samples=arm_seconds+32) as sampler:
                 effective_configuration(candidate, directory, ready, sampler)
                 (directory / 'start').touch()
@@ -211,30 +504,28 @@ def arm(candidate, directory, pair, name, waves, probe, sink, arm_seconds, exper
             if (directory / 'progress.json').exists():
                 result['partial_evidence'] = load(directory / 'progress.json')
             (directory / 'finish').touch()
-            if child.poll() is None:
-                # Only this fresh process group belongs to this runner.
-                os.killpg(child.pid, signal.SIGTERM)
-                try:
-                    child.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    os.killpg(child.pid, signal.SIGKILL)
-                    child.wait(timeout=10)
         finally:
             try:
-                if result['status'] == 'failed':
-                    # Only names tied to this exact owned native test PID.
-                    prefix = f'eez-native-observer-{child.pid}-'
-                    inventory = subprocess.run(['docker', 'ps', '-a', '--format', '{{.Names}}'], capture_output=True, text=True, timeout=10, check=True)
-                    owned = [name for name in inventory.stdout.splitlines() if name.startswith(prefix)]
-                    if owned:
-                        subprocess.run(['docker', 'rm', '-f', *owned], capture_output=True, timeout=30, check=True)
-                inventory = subprocess.run(['docker', 'ps', '-a', '--format', '{{.Names}}'], capture_output=True, text=True, timeout=10, check=True)
-                if any(name.startswith(f'eez-native-observer-{child.pid}-') for name in inventory.stdout.splitlines()):
-                    raise RuntimeError('owned PostgreSQL still exists after cleanup')
-                result['owned_cleanup_verified'] = True
+                stopped = stop_owned_processes(child, identity)
+                for pid, expected in known_processes:
+                    current = process_identity(pid)
+                    if current is not None and current[:3] == expected and current[3] != 'Z':
+                        stopped = False
+                if owned is not None:
+                    result.update(cleanup_observer(owned, result['status'] == 'failed', stopped))
+                else:
+                    result.update(owned_processes_stopped=stopped, owned_container_absent=True,
+                                  owned_parents_removed=True, retained_owned_paths=[], owned_cleanup_verified=stopped)
+                if not result['owned_cleanup_verified']:
+                    result['status'] = 'failed'
             except Exception as error:
-                result['cleanup_error'] = str(error)
-                result['status'] = 'failed'
+                # Shutdown/identity errors must not erase known ownership. No
+                # resource removal is attempted after uncertain process teardown.
+                result.update(owned_cleanup_verified=False, owned_processes_stopped=False,
+                              owned_container_absent=False, owned_parents_removed=False,
+                              retained_owned_paths=[owned['fixture'][key] for key in
+                                  ('database_parent', 'socket_parent')] if owned is not None else [],
+                              cleanup_error=str(error), status='failed')
             result['elapsed_seconds'] = time.monotonic() - started
             if time.monotonic() > deadline:
                 result['status'] = 'budget_exhausted'

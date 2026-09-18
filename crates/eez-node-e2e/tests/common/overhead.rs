@@ -28,7 +28,18 @@ struct Config {
     experiment_seconds: u64,
     receiver: SocketAddr,
     directory: PathBuf,
+    #[serde(default, deserialize_with = "deserialize_observer_fixture")]
+    observer_fixture: Option<observer::ReservedParents>,
 }
+fn deserialize_observer_fixture<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<observer::ReservedParents>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    observer::ReservedParents::deserialize(deserializer).map(Some)
+}
+
 fn default_arm_seconds() -> u64 {
     600
 }
@@ -53,6 +64,9 @@ impl Config {
         Ok(())
     }
     fn validate(&self) -> Result<()> {
+        if let Some(parents) = &self.observer_fixture {
+            parents.validate(&self.directory)?;
+        }
         ensure!(matches!(self.arm.as_str(), "A" | "B"), "arm must be A or B");
         self.validate_limits()?;
         ensure!(
@@ -276,7 +290,13 @@ async fn run(config: Config) -> Result<()> {
         &follower_env,
     )
     .await?;
-    let observer = observer::Observer::prepare(&world, &spool, "overhead").await?;
+    let observer = observer::Observer::prepare_reserved(
+        &world,
+        &spool,
+        "overhead",
+        config.observer_fixture.as_ref(),
+    )
+    .await?;
     let failure_capture = observer.capture_on_error();
     if enabled {
         observer.start_prepared().await?;
@@ -477,6 +497,34 @@ mod tests {
             .validate_limits()
             .unwrap();
     }
+    #[test]
+    fn optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields() {
+        assert!(
+            serde_json::from_value::<Config>(config())
+                .unwrap()
+                .observer_fixture
+                .is_none()
+        );
+        let mut value = config();
+        value["observer_fixture"] = Value::Null;
+        assert!(serde_json::from_value::<Config>(value.clone()).is_err());
+        value["observer_fixture"] = json!({
+            "database_parent": "/tmp/not-the-database-root",
+            "socket_parent": "/tmp/not-the-reserved-socket-root",
+            "container_name": "eez-native-observer-invalid"
+        });
+        let parsed = serde_json::from_value::<Config>(value.clone()).unwrap();
+        assert!(
+            parsed
+                .observer_fixture
+                .unwrap()
+                .validate(Path::new("/tmp"))
+                .is_err()
+        );
+        value["observer_fixture"]["unknown"] = json!(true);
+        assert!(serde_json::from_value::<Config>(value).is_err());
+    }
+
     #[test]
     fn invalid_limits_and_combinations_fail_before_runtime() {
         for (field, value) in [

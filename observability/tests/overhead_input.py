@@ -91,7 +91,21 @@ def elapsed_within(value, budget, scope):
 
 def normalize(config, ready, profiles, effective):
     """Return semantic preimages without discarding unknown profile fields."""
-    require(set(config) == {'arm', 'probe', 'waves', 'receiver', 'directory', 'arm_seconds', 'experiment_seconds'}, 'unknown/missing arm configuration')
+    legacy_keys = {'arm', 'probe', 'waves', 'receiver', 'directory', 'arm_seconds', 'experiment_seconds'}
+    require(set(config) in (legacy_keys, legacy_keys | {'observer_fixture'}), 'unknown/missing arm configuration')
+    ownership = config.get('observer_fixture')
+    if 'observer_fixture' in config:
+        require(isinstance(ownership, dict) and set(ownership) == {'database_parent', 'socket_parent', 'container_name'}, 'invalid observer ownership contract')
+        name = ownership['container_name']
+        require(isinstance(name, str) and name.startswith('eez-native-observer-'), 'invalid owned container name')
+        token = name.removeprefix('eez-native-observer-')
+        require(len(token) == 32 and all(c in '0123456789abcdef' for c in token), 'invalid owned container token')
+        require(all(isinstance(ownership[k], str) for k in ('database_parent', 'socket_parent')), 'invalid owned parent paths')
+        database, socket = Path(ownership['database_parent']), Path(ownership['socket_parent'])
+        require(database.is_absolute() and '..' not in database.parts
+                and database.parts[-3:] == ('target', 'native-observer-databases', 'overhead-' + token)
+                and str(socket) == '/tmp/eez-opg-' + token, 'invalid owned parent paths')
+        require(ready.get('postgres_container') == name, 'owned container differs from ready identity')
     require(config['arm'] in ('A', 'B') and config['probe'] is False, 'shipping arm requires disabled probe')
     require(type(config['waves']) is int and 1 <= config['waves'] <= 64, 'invalid measured wave count')
     budgets(config)
@@ -129,6 +143,10 @@ def normalize(config, ready, profiles, effective):
             profile['lifecycle']['directory'] = '<RUN>/lifecycle'
     arm = {'telemetry_enabled': enabled, 'observer_running': enabled, 'probe': False,
            'receiver': receiver, 'directory': '<RUN>', 'profiles': normalized}
+    if ownership is not None:
+        arm['observer_fixture'] = {'database_parent': '<REPO>/target/native-observer-databases/overhead-<OWNER>',
+                                  'socket_parent': '/tmp/eez-opg-<OWNER>',
+                                  'container_name': 'eez-native-observer-<OWNER>'}
     return copy.deepcopy(effective['common']), arm
 
 
@@ -263,6 +281,9 @@ def adapt(raw_artifact, plan_artifact, artifacts):
             data = {key: value['value'] for key, value in files.items()}
             require(data['result'] == run and data['evidence'] == run['evidence'], 'raw report differs from retained result/evidence')
             cfg, evidence, resources = data['config'], data['evidence'], data['resources']
+            if 'observer_fixture' in cfg:
+                require(all(run.get(key) is True for key in ('owned_processes_stopped', 'owned_container_absent', 'owned_parents_removed'))
+                        and run.get('retained_owned_paths') == [], 'controller-owned cleanup evidence incomplete')
             require(cfg['directory'] == run['directory'] and cfg['arm'] == run['arm'] and cfg['waves'] == frozen['measured_waves'],
                     'actual arm configuration differs from report/plan')
             require(budgets(cfg) == frozen_budgets, 'actual arm budgets differ from frozen plan')

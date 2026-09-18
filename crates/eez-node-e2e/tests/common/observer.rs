@@ -108,8 +108,64 @@ fn binary() -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Private parent reservations created by the overhead controller before launch.
+/// Ordinary functional fixtures do not use this contract.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReservedParents {
+    pub database_parent: PathBuf,
+    pub socket_parent: PathBuf,
+    pub container_name: String,
+}
+
+impl ReservedParents {
+    pub fn validate(&self, owner: &Path) -> Result<()> {
+        let token = self
+            .container_name
+            .strip_prefix("eez-native-observer-")
+            .context("invalid reserved container prefix")?;
+        ensure!(
+            token.len() == 32
+                && token
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+            "invalid reserved container token"
+        );
+        ensure!(
+            self.database_parent
+                == repo_root()
+                    .join("target/native-observer-databases")
+                    .join(format!("overhead-{token}")),
+            "unexpected database reservation"
+        );
+        ensure!(
+            self.socket_parent == Path::new("/tmp").join(format!("eez-opg-{token}")),
+            "unexpected socket reservation"
+        );
+        for path in [&self.database_parent, &self.socket_parent] {
+            ensure!(
+                path.is_absolute() && path.canonicalize()? == *path,
+                "reservation must be canonical and not a symlink"
+            );
+            let metadata = std::fs::symlink_metadata(path)?;
+            ensure!(
+                metadata.is_dir()
+                    && metadata.uid() == owner.metadata()?.uid()
+                    && metadata.permissions().mode() & 0o777 == 0o700,
+                "reservation ownership or permissions differ"
+            );
+            ensure!(
+                std::fs::read_dir(path)?.next().is_none(),
+                "reservation must be empty before setup"
+            );
+        }
+        Ok(())
+    }
+}
+
 pub struct Observer {
     container: String,
+    controller_owned: bool,
     directory: tempfile::TempDir,
     database_directory: Option<tempfile::TempDir>,
     postgres_settings: Value,
@@ -154,16 +210,39 @@ impl Observer {
     /// Reserve the same initialized database/configuration while keeping the
     /// observer idle, for a resource-matched disabled overhead arm.
     pub async fn prepare(world: &CrossChainWorld, spool: &Path, deployment: &str) -> Result<Self> {
-        let directory = tempfile::tempdir()?;
+        Self::prepare_reserved(world, spool, deployment, None).await
+    }
+
+    pub async fn prepare_reserved(
+        world: &CrossChainWorld,
+        spool: &Path,
+        deployment: &str,
+        reserved: Option<&ReservedParents>,
+    ) -> Result<Self> {
+        if let Some(parents) = reserved {
+            parents.validate(spool)?;
+        }
+        let mut directory = if let Some(parents) = reserved {
+            tempfile::Builder::new()
+                .prefix("fixture-")
+                .tempdir_in(&parents.socket_parent)?
+        } else {
+            tempfile::tempdir()?
+        };
+        // Retain controller-owned children even on setup errors before Self exists.
+        directory.disable_cleanup(reserved.is_some());
         // Keep PGDATA with target artifacts instead of allocating a dedicated
         // tmpfs inside PostgreSQL's cgroup. Measurement rejects RAM-backed
         // targets separately; functional fixtures retain workspace flexibility.
         // Keep the short Unix socket/config path in /tmp.
-        let database_root = repo_root().join("target/native-observer-databases");
+        let database_root = reserved
+            .map(|parents| parents.database_parent.clone())
+            .unwrap_or_else(|| repo_root().join("target/native-observer-databases"));
         std::fs::create_dir_all(&database_root)?;
-        let database_directory = tempfile::Builder::new()
+        let mut database_directory = tempfile::Builder::new()
             .prefix("eez-native-observer-")
             .tempdir_in(database_root)?;
+        database_directory.disable_cleanup(reserved.is_some());
         let filesystem = output(
             tokio::process::Command::new("stat")
                 .args(["--file-system", "--format=%T"])
@@ -181,6 +260,9 @@ impl Observer {
                 .to_string_lossy()
                 .trim_start_matches('.')
         );
+        let container = reserved
+            .map(|parents| parents.container_name.clone())
+            .unwrap_or(container);
         let log_root = std::env::var_os("EEZ_TEST_LOG_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| directory.path().to_owned());
@@ -188,6 +270,7 @@ impl Observer {
         let log = log_root.join(format!("{container}.log"));
         let mut fixture = Self {
             container,
+            controller_owned: reserved.is_some(),
             directory,
             database_directory: Some(database_directory),
             postgres_settings: Value::Null,
@@ -219,9 +302,16 @@ impl Observer {
             .find(|(name, _)| name.starts_with("postgres:"))
             .context("pinned PostgreSQL image")?;
         let image = format!("{name}@{}", digest.as_str().context("image digest")?);
-        output(
-            tokio::process::Command::new("docker").args([
-                "run",
+        let mut docker = tokio::process::Command::new("docker");
+        docker.arg("run");
+        if fixture.controller_owned {
+            docker.args([
+                "--label",
+                &format!("eez.overhead.owner={}", fixture.container),
+            ]);
+        }
+        let container_id = output(
+            docker.args([
                 "--detach",
                 "--rm",
                 "--name",
@@ -262,6 +352,21 @@ impl Observer {
             None,
         )
         .await?;
+        if let Some(parents) = reserved {
+            let id = container_id.trim();
+            ensure!(
+                id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
+                "invalid Docker container ID"
+            );
+            // Receipt is committed only after daemon-side creation completed.
+            // Missing receipt is deliberately not proof that no creation is pending.
+            let temporary = parents.database_parent.join("container.pending");
+            std::fs::write(
+                &temporary,
+                serde_json::to_vec(&json!({"name": fixture.container, "id": id}))?,
+            )?;
+            std::fs::rename(temporary, parents.database_parent.join("container.json"))?;
+        }
         wait_for(Duration::from_secs(60), || async {
             let logs = output(
                 tokio::process::Command::new("docker").args(["logs", &fixture.container]),
@@ -671,6 +776,11 @@ impl Observer {
             let _ = child.kill();
             let _ = child.wait();
         }
+        if self.controller_owned {
+            // The controller owns diagnostics and both success/failure teardown.
+            // This also covers external SIGTERM, which cannot run Rust Drops.
+            return;
+        }
         {
             // Local diagnostics only: these bulk fixtures intentionally live
             // outside EEZ_TEST_LOG_DIR and are not CI log-upload inputs. Store
@@ -801,6 +911,9 @@ impl Drop for Observer {
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
+        }
+        if self.controller_owned {
+            return;
         }
         if std::thread::panicking() {
             self.capture_failure();

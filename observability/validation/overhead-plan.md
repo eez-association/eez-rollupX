@@ -150,6 +150,23 @@ it records conservative sample brackets and host contamination. Use its overall 
 HTTP sink measures export cost, not Tempo storage. Native metrics scrape transport
 is included at the configured cadence; Prometheus storage is outside this scope.
 
+The controller reserves private database and socket/configuration parents before
+launching each native arm. Its internal `observer_fixture` configuration binds
+those parents and the exact container name. Native setup records the created
+container ID; the controller owns teardown on both success and failure. Ordinary
+functional fixtures retain their existing native cleanup. Repository-root
+invocation supplies the native manifest directory when `CARGO_MANIFEST_DIR` is
+absent; an explicit value takes precedence and is validated before launch.
+
+Forced termination verifies the owned process session and reaps its leader before
+database capture or removal. Failed arms with a verified container attempt bounded
+database/log/memory capture outside CI log-upload directories. Capture deadlines are 15/5/5
+seconds, with a two-second forced-reap allowance; stdout and stderr limits are
+128/4/1 MiB respectively. Incomplete creation, preservation, or removal retains
+the known owned paths and reports incomplete cleanup. Cleanup after a measurement
+deadline never turns the arm into a successful measurement. Controller crashes
+require explicit reconciliation using the retained `ownership.json` record.
+
 Primary throughput/preparation evidence must use identical default shipping
 feature binaries. Record the compiler/profile explicitly: optimized development
 pilot bytes are not a release-profile deployment claim. The separate probe
