@@ -145,7 +145,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees remain separate. Reverted receipts are charged. Shared posting overhead uses equal_share_v1 estimates over verified native membership; these are not exact per-user charges. Missing or ambiguous populations remain unallocated. Settled-L2-transaction unit cost, live balances and runway remain unavailable."
+        "content": "Costs are exact receipt charges in each chain\u2019s integer base units (wei). L1 external spend and L2 user fees remain separate. Reverted receipts are charged. Shared posting overhead uses equal_share_v1 estimates over verified native membership; these are not exact per-user charges. Missing or ambiguous populations remain unallocated. Settled-L2-transaction unit cost remains unavailable. Optional live funding panels show separately configured accounts and actual runtime candidate observations with explicit unknown evidence."
       }
     },
     {
@@ -194,7 +194,8 @@
             },
             "barAlignment": 0,
             "barWidthFactor": 0.7
-          }
+          },
+          "decimals": 5
         },
         "overrides": []
       },
