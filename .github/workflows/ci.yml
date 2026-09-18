@@ -224,8 +224,9 @@ jobs:
       contents: read
       packages: read
     runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
-    # Execution only: the producer owns all Rust compilation.
-    timeout-minutes: 90
+    # Execution only. Serial native/observer checks plus physical ENOSPC exceeded
+    # 90 minutes locally; retain every case and leave room for artifact setup.
+    timeout-minutes: 120
     env:
       CARGO_INCREMENTAL: "0"
     steps:

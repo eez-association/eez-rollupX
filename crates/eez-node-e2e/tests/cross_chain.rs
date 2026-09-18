@@ -295,7 +295,16 @@ async fn lifecycle_policy_bidirectional_cross_chain_smoke() {
 /// a multi-source batch and a retryable transport failure before valid signing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn traced_bidirectional_cross_chain_smoke() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = match std::env::var_os("EEZ_TEST_LOG_DIR") {
+        Some(root) => {
+            std::fs::create_dir_all(&root).unwrap();
+            tempfile::Builder::new()
+                .prefix("native-trace-lifecycle-")
+                .tempdir_in(root)
+                .unwrap()
+        }
+        None => tempfile::tempdir().unwrap(),
+    };
     let spool = directory.path().join("lifecycle");
     let collector = traces::Collector::start().await.unwrap();
     let composer_config = directory.path().join("composer-telemetry.json");
@@ -325,33 +334,41 @@ async fn traced_bidirectional_cross_chain_smoke() {
     let proxy = world.prover_proxy.as_ref().unwrap();
     proxy.set_mutation(ProverMutation::Unavailable);
     let hashes = submit_bidirectional_smoke(&world).await;
-    // Recover only after actual exported retries reference a preparation that
-    // contains both admitted sources. A sleep or proxy attempt count could match
-    // unrelated historical/pure-L2 work and falsely claim batch retry coverage.
-    wait_for(SETTLE_TIMEOUT, || async {
+    // Recover only after actual exported retries and the closed preparation
+    // contain both admitted sources. This deliberately exhausts that window's
+    // cutoff and tests requeue into a new signed preparation. A sleep or proxy
+    // attempt count could match unrelated historical/pure-L2 work instead.
+    let retried = wait_for(SETTLE_TIMEOUT, || async {
         Ok(collector.retried_batch(&spool, &hashes)?.then_some(()))
     })
-    .await
-    .unwrap_or_else(|error| {
+    .await;
+    if let Err(error) = retried {
         collector.report().unwrap();
+        let retained = directory.keep();
         panic!(
-            "missing multi-source native retry: {error:#}{}",
+            "missing multi-source native retry: {error:#}; retained lifecycle fixture at {}{}",
+            retained.display(),
             world.settlement_diagnostics()
-        )
-    });
+        );
+    }
     proxy.set_mutation(ProverMutation::None);
     assert_bidirectional_smoke(&world, hashes).await;
-    let trace_ids = wait_for(SETTLE_TIMEOUT, || async {
+    let connected = wait_for(SETTLE_TIMEOUT, || async {
         collector.connected_sources(&spool, &hashes)
     })
-    .await
-    .unwrap_or_else(|error| {
-        collector.report().unwrap();
-        panic!(
-            "missing native trace ancestry/source identities: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
+    .await;
+    let trace_ids = match connected {
+        Ok(ids) => ids,
+        Err(error) => {
+            collector.report().unwrap();
+            let retained = directory.keep();
+            panic!(
+                "missing native trace ancestry/source identities: {error:#}; retained lifecycle fixture at {}{}",
+                retained.display(),
+                world.settlement_diagnostics()
+            );
+        }
+    };
     let composer_logs = std::fs::read_to_string(&world.node.log_path).unwrap();
     let signer_logs = world.proof_signer.log_tail(10_000);
     let correlated_event = |logs: &str, event: &str, trace_id: &str| {

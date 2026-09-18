@@ -140,6 +140,13 @@ impl Collector {
                     .iter()
                     .any(|member| member.source.transaction_hash.0 == hash.0)
             }) && captured.iter().any(|entry| {
+                // Ended spans are exported only after the preparation closes.
+                // Keeping the outage active until then deterministically tests
+                // cutoff/requeue recovery instead of racing the next retry.
+                entry.span.name == "composer_preparation"
+                    && entry.span.trace_id == context.trace_id.0
+                    && entry.span.span_id == context.span_id.0
+            }) && captured.iter().any(|entry| {
                 entry.span.name == "prover_attempt"
                     && entry.span.trace_id == context.trace_id.0
                     && integer_value(&entry.span.attributes, "retry_attempt")
@@ -156,119 +163,76 @@ impl Collector {
         spool: &std::path::Path,
         hashes: &[alloy_primitives::TxHash],
     ) -> Result<Option<Vec<String>>> {
-        use eez_telemetry::schema::Event;
-        let captured = self.spans()?;
-        for entry in &captured {
-            let service = entry
-                .resource
-                .get("service.name")
-                .context("missing service identity")?;
-            anyhow::ensure!(matches!(
-                service.as_str(),
-                "eez-composer" | "eez-proof-signer"
-            ));
+        connected_sources(&self.spans()?, &lifecycle_payloads(spool)?, hashes)
+    }
+}
+
+impl Drop for Collector {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn ancestor<'a>(
+    captured: &'a [CapturedSpan],
+    mut child: &'a CapturedSpan,
+    names: &[&str],
+) -> Result<Option<&'a CapturedSpan>> {
+    for expected in names {
+        let Some(parent) = captured.iter().find(|entry| {
+            entry.span.trace_id == child.span.trace_id
+                && entry.span.span_id == child.span.parent_span_id
+        }) else {
+            return Ok(None);
+        };
+        anyhow::ensure!(
+            parent.span.name == *expected,
+            "unexpected parent of {}: {}",
+            child.span.name,
+            parent.span.name
+        );
+        anyhow::ensure!(parent.resource["service.name"] == "eez-composer");
+        anyhow::ensure!(parent.span.span_id != child.span.span_id);
+        if *expected == "prover_attempt" {
             anyhow::ensure!(
-                entry
-                    .resource
-                    .get("deployment.environment.name")
-                    .map(String::as_str)
-                    == Some("devnet")
-            );
-            anyhow::ensure!(
-                entry.resource.get("eez.deployment").map(String::as_str)
-                    == Some("native-trace-pilot")
-            );
-            anyhow::ensure!(
-                entry
-                    .resource
-                    .get("service.instance.id")
-                    .map(String::as_str)
-                    == Some("fixture")
-            );
-            anyhow::ensure!(entry.span.trace_id.len() == 16 && entry.span.span_id.len() == 8);
-            anyhow::ensure!(entry.span.end_time_unix_nano >= entry.span.start_time_unix_nano);
-            anyhow::ensure!(
-                entry.span.dropped_attributes_count == 0 && entry.span.dropped_links_count == 0
-            );
-            anyhow::ensure!(
-                entry.span.events.is_empty(),
-                "arbitrary diagnostic events exported"
+                integer_value(&parent.span.attributes, "retry_attempt")
+                    .is_some_and(|attempt| attempt >= 1)
             );
         }
-        let mut connected = Vec::new();
-        for signer in captured.iter().filter(|entry| entry.span.name == "prove") {
-            anyhow::ensure!(signer.resource["service.name"] == "eez-proof-signer");
-            let mut child = signer;
-            let mut complete = true;
-            let mut retried = false;
-            for expected in [
-                "prover_client",
-                "prover_attempt",
-                "composer_proving",
-                "composer_preparation",
-            ] {
-                let Some(parent) = captured.iter().find(|entry| {
-                    entry.span.trace_id == child.span.trace_id
-                        && entry.span.span_id == child.span.parent_span_id
-                }) else {
-                    complete = false;
-                    break;
-                };
-                anyhow::ensure!(
-                    parent.span.name == expected,
-                    "unexpected parent of {}: {}",
-                    child.span.name,
-                    parent.span.name
-                );
-                anyhow::ensure!(parent.resource["service.name"] == "eez-composer");
-                anyhow::ensure!(parent.span.span_id != child.span.span_id);
-                if expected == "prover_attempt" {
-                    anyhow::ensure!(
-                        integer_value(&parent.span.attributes, "retry_attempt")
-                            .is_some_and(|attempt| attempt >= 1)
-                    );
-                    retried = integer_value(&parent.span.attributes, "retry_attempt")
-                        .is_some_and(|attempt| attempt > 1)
-                        && captured.iter().any(|earlier| {
-                            earlier.span.name == "prover_attempt"
-                                && earlier.span.trace_id == parent.span.trace_id
-                                && earlier.span.parent_span_id == parent.span.parent_span_id
-                                && earlier.span.span_id != parent.span.span_id
-                                && integer_value(&earlier.span.attributes, "retry_attempt")
-                                    == Some(1)
-                        });
-                }
-                child = parent;
-            }
-            if complete && retried {
-                connected.push(child);
-            }
+        child = parent;
+    }
+    Ok(Some(child))
+}
+
+fn linked_members(
+    captured: &[CapturedSpan],
+    events: &[eez_telemetry::schema::Payload],
+    preparation: &CapturedSpan,
+    hashes: &[alloy_primitives::TxHash],
+) -> Option<Vec<eez_telemetry::schema::Member>> {
+    use eez_telemetry::schema::{Direction, Event};
+    events.iter().find_map(|payload| {
+        let Event::PreparationStarted { members, .. } = &payload.event else {
+            return None;
+        };
+        let context = payload.trace?;
+        if context.trace_id.0.as_slice() != preparation.span.trace_id
+            || context.span_id.0.as_slice() != preparation.span.span_id
+        {
+            return None;
         }
-        let events = lifecycle_payloads(spool)?;
-        let mut trace_ids = Vec::new();
-        for hash in hashes {
-            let hash_hex = hex_id(&hash.0);
-            let matched = connected.iter().find(|preparation| {
-                events.iter().any(|payload| {
-                    let Event::PreparationStarted { members, .. } = &payload.event else {
-                        return false;
-                    };
-                    let Some(context) = payload.trace else {
-                        return false;
-                    };
-                    if context.trace_id.0.as_slice() != preparation.span.trace_id
-                        || context.span_id.0.as_slice() != preparation.span.span_id
-                    {
-                        return false;
-                    }
-                    members
-                        .iter()
-                        .filter(|member| member.source.transaction_hash.0 == hash.0)
-                        .any(|member| {
-                            captured.iter().any(|source| {
+        hashes
+            .iter()
+            .map(|hash| {
+                members
+                    .iter()
+                    .find(|member| {
+                        member.source.transaction_hash.0 == hash.0
+                            && captured.iter().any(|source| {
                                 source.span.name == "batch_member"
+                                    && source.resource["service.name"] == "eez-composer"
                                     && string_value(&source.span.attributes, "source_hash")
-                                        == Some(hash_hex.as_str())
+                                        == Some(hex_id(&hash.0).as_str())
                                     && string_value(&source.span.attributes, "admission_epoch")
                                         == Some(hex_id(&member.admission.epoch.0).as_str())
                                     && integer_value(&source.span.attributes, "admission_sequence")
@@ -279,10 +243,8 @@ impl Collector {
                                         == i64::try_from(member.source.rollup_id).ok()
                                     && string_value(&source.span.attributes, "direction")
                                         == Some(match member.source.direction {
-                                            eez_telemetry::schema::Direction::Inbound => "Inbound",
-                                            eez_telemetry::schema::Direction::Outbound => {
-                                                "Outbound"
-                                            }
+                                            Direction::Inbound => "Inbound",
+                                            Direction::Outbound => "Outbound",
                                         })
                                     && string_value(&source.span.attributes, "genesis_hash")
                                         == Some(hex_id(&member.source.genesis_hash.0).as_str())
@@ -291,25 +253,116 @@ impl Collector {
                                             && link.span_id == source.span.span_id
                                     })
                             })
-                        })
-                })
-            });
-            let Some(preparation) = matched else {
-                return Ok(None);
-            };
-            trace_ids.push(hex_id(&preparation.span.trace_id));
-        }
-        if trace_ids.windows(2).any(|ids| ids[0] != ids[1]) {
-            return Ok(None);
-        }
-        Ok(Some(trace_ids))
-    }
+                    })
+                    .copied()
+            })
+            .collect()
+    })
 }
 
-impl Drop for Collector {
-    fn drop(&mut self) {
-        self.task.abort();
+fn connected_sources(
+    captured: &[CapturedSpan],
+    events: &[eez_telemetry::schema::Payload],
+    hashes: &[alloy_primitives::TxHash],
+) -> Result<Option<Vec<String>>> {
+    anyhow::ensure!(!hashes.is_empty(), "empty native source population");
+    for entry in captured {
+        let service = entry
+            .resource
+            .get("service.name")
+            .context("missing service identity")?;
+        anyhow::ensure!(matches!(
+            service.as_str(),
+            "eez-composer" | "eez-proof-signer"
+        ));
+        for (key, expected) in [
+            ("deployment.environment.name", "devnet"),
+            ("eez.deployment", "native-trace-pilot"),
+            ("service.instance.id", "fixture"),
+        ] {
+            anyhow::ensure!(entry.resource.get(key).map(String::as_str) == Some(expected));
+        }
+        anyhow::ensure!(entry.span.trace_id.len() == 16 && entry.span.span_id.len() == 8);
+        anyhow::ensure!(entry.span.end_time_unix_nano >= entry.span.start_time_unix_nano);
+        anyhow::ensure!(
+            entry.span.dropped_attributes_count == 0 && entry.span.dropped_links_count == 0
+        );
+        anyhow::ensure!(
+            entry.span.events.is_empty(),
+            "arbitrary diagnostic events exported"
+        );
     }
+
+    // A transport outage can exhaust the exact-target cutoff. The selected
+    // admissions then move to a new preparation (RPC SPEC section 6.3). Require
+    // complete retry and successful-signing graphs joined by the same complete
+    // admission identities, rather than requiring the failed window to sign.
+    let mut retried = Vec::new();
+    for client in captured
+        .iter()
+        .filter(|entry| entry.span.name == "prover_client")
+    {
+        anyhow::ensure!(client.resource["service.name"] == "eez-composer");
+        let Some(attempt) = ancestor(captured, client, &["prover_attempt"])? else {
+            continue;
+        };
+        if integer_value(&attempt.span.attributes, "retry_attempt").is_none_or(|n| n <= 1) {
+            continue;
+        }
+        let Some(preparation) = ancestor(
+            captured,
+            attempt,
+            &["composer_proving", "composer_preparation"],
+        )?
+        else {
+            continue;
+        };
+        let first = captured.iter().find(|earlier| {
+            earlier.span.name == "prover_attempt"
+                && earlier.resource["service.name"] == "eez-composer"
+                && earlier.span.trace_id == attempt.span.trace_id
+                && earlier.span.parent_span_id == attempt.span.parent_span_id
+                && earlier.span.span_id != attempt.span.span_id
+                && integer_value(&earlier.span.attributes, "retry_attempt") == Some(1)
+                && captured.iter().any(|client| {
+                    client.span.name == "prover_client"
+                        && client.resource["service.name"] == "eez-composer"
+                        && client.span.trace_id == earlier.span.trace_id
+                        && client.span.parent_span_id == earlier.span.span_id
+                })
+        });
+        if first.is_some()
+            && let Some(members) = linked_members(captured, events, preparation, hashes)
+        {
+            retried.push((preparation, members));
+        }
+    }
+    for signer in captured.iter().filter(|entry| entry.span.name == "prove") {
+        anyhow::ensure!(signer.resource["service.name"] == "eez-proof-signer");
+        let Some(preparation) = ancestor(
+            captured,
+            signer,
+            &[
+                "prover_client",
+                "prover_attempt",
+                "composer_proving",
+                "composer_preparation",
+            ],
+        )?
+        else {
+            continue;
+        };
+        let Some(members) = linked_members(captured, events, preparation, hashes) else {
+            continue;
+        };
+        if retried.iter().any(|(retry, retry_members)| {
+            *retry_members == members
+                && retry.span.start_time_unix_nano <= preparation.span.start_time_unix_nano
+        }) {
+            return Ok(Some(vec![hex_id(&preparation.span.trace_id); hashes.len()]));
+        }
+    }
+    Ok(None)
 }
 
 async fn receive(
@@ -421,4 +474,288 @@ fn lifecycle_payloads(directory: &std::path::Path) -> Result<Vec<eez_telemetry::
         .filter(|chunks| chunks.len() == chunks[0].chunk_count as usize)
         .map(|chunks| eez_telemetry::assemble(chunks).map_err(anyhow::Error::msg))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::TxHash;
+    use eez_telemetry::schema::{
+        AdmissionId, BlockRef, Direction, Epoch, Event, Hash32, Member, Payload, Source, SpanId,
+        TraceContext, TraceId,
+    };
+    use opentelemetry_proto::tonic::{common::v1::AnyValue, trace::v1::span::Link};
+
+    fn attribute(key: &str, value: impl ToString) -> KeyValue {
+        KeyValue {
+            key: key.into(),
+            value: Some(AnyValue {
+                value: Some(Value::StringValue(value.to_string())),
+            }),
+        }
+    }
+
+    fn span(name: &str, trace: u8, id: u8, parent: u8) -> CapturedSpan {
+        CapturedSpan {
+            resource: [
+                (
+                    "service.name",
+                    if name == "prove" {
+                        "eez-proof-signer"
+                    } else {
+                        "eez-composer"
+                    },
+                ),
+                ("deployment.environment.name", "devnet"),
+                ("eez.deployment", "native-trace-pilot"),
+                ("service.instance.id", "fixture"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect(),
+            span: Span {
+                name: name.into(),
+                trace_id: vec![trace; 16],
+                span_id: vec![id; 8],
+                parent_span_id: if parent == 0 { vec![] } else { vec![parent; 8] },
+                start_time_unix_nano: u64::from(trace) * 100,
+                end_time_unix_nano: u64::from(trace) * 100 + 50,
+                ..Default::default()
+            },
+        }
+    }
+
+    // Both windows carry the same two exact admissions. A second window models
+    // the retained failure: the first preparation exhausted its cutoff, then a
+    // new preparation signed the requeued sources on its first RPC attempt.
+    fn fixture(rollover: bool) -> (Vec<CapturedSpan>, Vec<Payload>, [TxHash; 2]) {
+        let hashes = [TxHash::repeat_byte(7), TxHash::repeat_byte(8)];
+        let members: Vec<_> = hashes
+            .iter()
+            .enumerate()
+            .map(|(i, hash)| Member {
+                source: Source {
+                    chain_id: 1,
+                    genesis_hash: Hash32([9; 32]),
+                    rollup_id: 1,
+                    transaction_hash: Hash32(hash.0),
+                    direction: if i == 0 {
+                        Direction::Inbound
+                    } else {
+                        Direction::Outbound
+                    },
+                },
+                admission: AdmissionId {
+                    epoch: Epoch([10; 16]),
+                    sequence: i as u64 + 1,
+                },
+            })
+            .collect();
+        let mut spans = Vec::new();
+        let mut events = Vec::new();
+        for trace in 1..=if rollover { 2 } else { 1 } {
+            let mut preparation = span("composer_preparation", trace, 1, 0);
+            for (i, member) in members.iter().enumerate() {
+                let mut source = span("batch_member", trace + 10, i as u8 + 20, 0);
+                source.span.attributes = vec![
+                    attribute("source_hash", hex_id(&member.source.transaction_hash.0)),
+                    attribute("admission_epoch", hex_id(&member.admission.epoch.0)),
+                    attribute("admission_sequence", member.admission.sequence),
+                    attribute("chain_id", member.source.chain_id),
+                    attribute("rollup_id", member.source.rollup_id),
+                    attribute("direction", if i == 0 { "Inbound" } else { "Outbound" }),
+                    attribute("genesis_hash", hex_id(&member.source.genesis_hash.0)),
+                ];
+                preparation.span.links.push(Link {
+                    trace_id: source.span.trace_id.clone(),
+                    span_id: source.span.span_id.clone(),
+                    ..Default::default()
+                });
+                spans.push(source);
+            }
+            events.push(Payload {
+                observed_at_unix_ms: 0,
+                trace: Some(TraceContext {
+                    trace_id: TraceId([trace; 16]),
+                    span_id: SpanId([1; 8]),
+                }),
+                event: Event::PreparationStarted {
+                    l2_chain_id: 1,
+                    l2_genesis_hash: Hash32([9; 32]),
+                    rollup_id: 1,
+                    sync: BlockRef {
+                        number: u64::from(trace) * 5,
+                        hash: Hash32([trace; 32]),
+                    },
+                    members: members.clone(),
+                },
+            });
+            spans.push(preparation);
+            spans.push(span("composer_proving", trace, 2, 1));
+            let attempts = if trace == 1 { 2 } else { 1 };
+            for attempt in 1..=attempts {
+                let id = 2 + attempt * 2;
+                let mut a = span("prover_attempt", trace, id, 2);
+                a.span.attributes.push(attribute("retry_attempt", attempt));
+                spans.push(a);
+                spans.push(span("prover_client", trace, id + 1, id));
+            }
+            if !rollover || trace == 2 {
+                spans.push(span("prove", trace, 9, 3 + attempts * 2));
+            }
+        }
+        (spans, events, hashes)
+    }
+
+    #[test]
+    fn signing_can_follow_retry_in_same_or_later_window() {
+        for rollover in [false, true] {
+            let (mut spans, mut events, hashes) = fixture(rollover);
+            let expected = vec![hex_id(&[if rollover { 2 } else { 1 }; 16]); 2];
+            assert_eq!(
+                connected_sources(&spans, &events, &hashes).unwrap(),
+                Some(expected.clone())
+            );
+            spans.reverse();
+            events.reverse();
+            assert_eq!(
+                connected_sources(&spans, &events, &hashes).unwrap(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn complete_retry_and_signer_parent_chains_are_required() {
+        for (trace, name, id) in [
+            (1, "prover_attempt", 4),
+            (1, "prover_client", 5),
+            (1, "composer_proving", 2),
+            (1, "composer_preparation", 1),
+            (2, "prover_client", 5),
+            (2, "prover_attempt", 4),
+            (2, "composer_proving", 2),
+            (2, "composer_preparation", 1),
+            (2, "prove", 9),
+        ] {
+            let (mut spans, events, hashes) = fixture(true);
+            spans.retain(|s| {
+                !(s.span.trace_id == vec![trace; 16]
+                    && s.span.name == name
+                    && s.span.span_id == vec![id; 8])
+            });
+            assert!(
+                connected_sources(&spans, &events, &hashes)
+                    .unwrap()
+                    .is_none(),
+                "{trace}/{name}"
+            );
+        }
+        let (mut spans, events, hashes) = fixture(true);
+        spans
+            .iter_mut()
+            .find(|s| s.span.name == "prove")
+            .unwrap()
+            .span
+            .parent_span_id = vec![2; 8];
+        assert!(connected_sources(&spans, &events, &hashes).is_err());
+    }
+
+    #[test]
+    fn both_windows_require_exact_lifecycle_members_and_exported_links() {
+        for index in 0..2 {
+            let (spans, mut events, hashes) = fixture(true);
+            events.remove(index);
+            assert!(
+                connected_sources(&spans, &events, &hashes)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for trace in [1, 2] {
+            for field in [
+                "source_hash",
+                "admission_epoch",
+                "admission_sequence",
+                "chain_id",
+                "rollup_id",
+                "direction",
+                "genesis_hash",
+            ] {
+                let (mut spans, events, hashes) = fixture(true);
+                spans
+                    .iter_mut()
+                    .find(|s| {
+                        s.span.name == "batch_member" && s.span.trace_id == vec![trace + 10; 16]
+                    })
+                    .unwrap()
+                    .span
+                    .attributes
+                    .retain(|a| a.key != field);
+                assert!(
+                    connected_sources(&spans, &events, &hashes)
+                        .unwrap()
+                        .is_none(),
+                    "{trace}/{field}"
+                );
+            }
+            let (mut spans, events, hashes) = fixture(true);
+            spans
+                .iter_mut()
+                .find(|s| {
+                    s.span.name == "composer_preparation" && s.span.trace_id == vec![trace; 16]
+                })
+                .unwrap()
+                .span
+                .links
+                .pop();
+            assert!(
+                connected_sources(&spans, &events, &hashes)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn same_source_hash_on_a_new_admission_does_not_join_old_retries() {
+        let (mut spans, mut events, hashes) = fixture(true);
+        let Event::PreparationStarted { members, .. } = &mut events[1].event else {
+            unreachable!()
+        };
+        members[0].admission.sequence = 99;
+        let source = spans
+            .iter_mut()
+            .find(|s| s.span.name == "batch_member" && s.span.trace_id == vec![12; 16])
+            .unwrap();
+        source
+            .span
+            .attributes
+            .retain(|a| a.key != "admission_sequence");
+        source
+            .span
+            .attributes
+            .push(attribute("admission_sequence", 99));
+        assert!(
+            connected_sources(&spans, &events, &hashes)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn retries_after_the_successful_window_do_not_prove_recovery() {
+        let (mut spans, events, hashes) = fixture(true);
+        for entry in &mut spans {
+            if entry.span.trace_id == vec![1; 16] {
+                entry.span.start_time_unix_nano += 200;
+                entry.span.end_time_unix_nano += 200;
+            }
+        }
+        assert!(
+            connected_sources(&spans, &events, &hashes)
+                .unwrap()
+                .is_none()
+        );
+    }
 }

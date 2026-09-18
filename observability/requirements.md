@@ -184,3 +184,9 @@ queue RPC/lifecycle formats. The updated [coverage record](validation/coverage-f
 keeps local checks, earlier failures and remaining acceptance gates separate.
 Polling-only collection is an explicit architecture deviation described in the
 network contract; subscriptions are not claimed as implemented.
+
+The [release validation record](validation/release-runtime.md) adds default-feature
+release binaries, 1,194 archived unit tests, 64 PostgreSQL groups, full Kurtosis
+coverage and physical ENOSPC evidence. It retains the original native timeout and
+retry-only failures, their diagnoses, and the status of corrected test oracles.
+These results do not close R27 overhead or the deployment/operations gates.

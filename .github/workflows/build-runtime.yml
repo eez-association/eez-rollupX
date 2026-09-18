@@ -28,7 +28,9 @@ jobs:
   build:
     runs-on: ${{ inputs.runner }}
     # No-write events execute all suites here without a registry/artifact handoff.
-    timeout-minutes: 180
+    # No-publication mode also runs both native suites and the Kurtosis lane
+    # serially after producing artifacts; measured lane times total about four hours.
+    timeout-minutes: 360
     env:
       # Optional registry layer cache; compiler caching is configured separately.
       EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}

@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "status": "local_release_evidence_with_test_corrections_performance_and_deployment_open",
+  "runtime_revision": "03a3caa1b92ca39e0119f7417e347c78c8f530c9",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "evidence_scope": "local only; ignored files unavailable to another checkout",
+  "evidence_root": "target/observability-release-03a3caa1-20260917T234016Z",
+  "evidence_sha256": {
+    "status.json": "284bccca9a80d6394f99359a3968ef561a82e874725d588604aea36a28d7b3c6",
+    "runtime/manifest.json": "5a7ec8e0bd2464d8778ee8cefa7634d39bff2b76e532c98fb9dda670ac6ba566",
+    "tests/manifest.json": "98e1e5eca5e8f15d0091761af4f87caa1e0281f1de0660ac39838e7a33c0cc9a",
+    "validation/status.json": "ba603591d958fe702ce8dbe2b08fc090093a82931768d4b3f8e30bb69d7cce57",
+    "validation/native-status.json": "78d5ea1c7fcc65871025e42014f1508d5f0ee1a32db367e56294eb2b0bf61f78",
+    "validation/kurtosis/status.json": "a9678dad7fcb95c382bdd92aa8f46d93a5815f664c9485042c0e84cf7be81675",
+    "validation/remaining-native/status.json": "c7b6f3287ba1b26d37d35b40faec2d08d94c8f8ed74107488f68aa8480d0f559",
+    "validation/remaining-native/native-quota.json": "6cf451f959a31a164e11d1f591a7090b2484f3aec1c139352151bf106dfd399a",
+    "validation/trace-first-failure.json": "ec68dd16ac104bef6602179630f80198a1869802fa78394969018ae746786132",
+    "validation/assertion-fixes/status.json": "951e3362200c5867ce98365b41cc49757b65c82aa5562f03770b5ec08a32e635",
+    "validation/fullness-fix-v2/status.json": "d1777acbf4ddfa9ea7dfaf52bf02cf84d2e6ebdf0952cd7b49dcbdb588343311"
+  },
+  "release_units": {
+    "main": 948,
+    "composer_separate_archive": 246,
+    "total": 1194
+  },
+  "release_postgresql": {
+    "grouped_checks": 64,
+    "status": "passed"
+  },
+  "original_embedded": {
+    "clean_passes": 50,
+    "retry_only_failure": 1,
+    "standard_skipped": 1,
+    "status": "failed"
+  },
+  "original_cross_chain": {
+    "clean_passes": 60,
+    "retry_only_failure": 1,
+    "unfinished": 7,
+    "deadline_seconds": 5400,
+    "exit_code": 124,
+    "status": "failed"
+  },
+  "supplemental_cross_chain": {
+    "clean_passes": 7,
+    "physical_quota": "passed",
+    "original_failure_preserved": true
+  },
+  "kurtosis": {
+    "status": "passed",
+    "all_upstream_scenarios": 28,
+    "max_parallel": 4,
+    "seconds": 1728.742441259994,
+    "signed_windows": 133,
+    "root_divergence": 0,
+    "owned_enclave_absent": true
+  },
+  "first_blob_failure": {
+    "reproduced_on_frozen_main": true,
+    "observed_blobs": 3,
+    "expected_blobs": 2
+  },
+  "first_trace_failure": {
+    "spans": 169,
+    "complete_signer_parent_chains": 31,
+    "retry_window": 65,
+    "signing_window": 70,
+    "same_admissions": true
+  },
+  "corrected_harness_profile": "optimized development; unchanged release runtime binaries; release test archives not rebuilt",
+  "corrected_fullness": [
+    {
+      "name": "baseline-fullness",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "runtime_sha256": {
+        "eez-composer": "32afc9395abcf3ff94edfb283a57f96a78dc31ac779cdb6bb9d28027977c53e8",
+        "eez-follower": "0296d4c7cc01b4366079572320e87894b157de8d3f122dc6e6872701c313744e",
+        "eez-proof-signer": "837399f6e39f7b48ea0f525a4eaee7b222f886f3608bef0d9370bb0cb8a46e6d"
+      },
+      "timeout_seconds": 600,
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/fullness-fix-v2/settlement_policy",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 110.8886559560051,
+      "selected_exactly_one": true,
+      "log_sha256": "17602ad0677ab2547cc023c2bcacdc5c3bd06bd720d5a940eeff38345b40c5f3"
+    },
+    {
+      "name": "candidate-fullness",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "runtime_sha256": {
+        "eez-composer": "83f0d2c04d0dcc2c3e91299ecb570b1a81c7a4c7200f437fbd3d2dbdac53a492",
+        "eez-follower": "6bd5b1e27e06d51018cbdd792fdb17fb18375111ab4b48238f4da3af19aa19c1",
+        "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+        "eez-observer": "45c60a156675b3d0a254c0db9bfd4fa8d15c29092095eb2877c0715b8b27f8d2"
+      },
+      "timeout_seconds": 600,
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/fullness-fix-v2/settlement_policy",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 109.30280292998941,
+      "selected_exactly_one": true,
+      "log_sha256": "1da24480144ccd442ce580557680ab542117d9ee1be3ddc0253d2b2061ad41b4"
+    }
+  ],
+  "corrected_trace": {
+    "name": "candidate-trace-rollover",
+    "test": "traced_bidirectional_cross_chain_smoke",
+    "runtime_sha256": {
+      "eez-composer": "83f0d2c04d0dcc2c3e91299ecb570b1a81c7a4c7200f437fbd3d2dbdac53a492",
+      "eez-follower": "6bd5b1e27e06d51018cbdd792fdb17fb18375111ab4b48238f4da3af19aa19c1",
+      "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+      "eez-observer": "45c60a156675b3d0a254c0db9bfd4fa8d15c29092095eb2877c0715b8b27f8d2"
+    },
+    "timeout_seconds": 600,
+    "command": [
+      "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/assertion-fixes/cross_chain",
+      "traced_bidirectional_cross_chain_smoke",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "status": "passed",
+    "exit_code": 0,
+    "elapsed_seconds": 86.87482463099877,
+    "selected_exactly_one": true,
+    "log_sha256": "6cafd229953a4ef8531f2c72872f34483e970580ebaf92a77506fc79f654ebbe"
+  },
+  "focused_validation": {
+    "trace_regressions": 5,
+    "workflow_contracts": 17,
+    "native_artifact_checks": 26,
+    "optional_native_relocation_not_rerun": 1,
+    "strict_affected_target_clippy": "passed",
+    "workspace_formatting": "passed",
+    "diff_check": "passed"
+  },
+  "ci_budgets_minutes": {
+    "cross_chain": 120,
+    "no_publication_producer_and_all_lanes": 360
+  },
+  "remaining": [
+    "uninterrupted final CI including corrected release test archives",
+    "shipping overhead and live lock-probe calibration",
+    "publication approval",
+    "private rollout inputs and independent heartbeat",
+    "off-host recovery and seven-day baseline"
+  ]
+}

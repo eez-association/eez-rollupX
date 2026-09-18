@@ -2232,10 +2232,22 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        tx.inner.blob_versioned_hashes().unwrap().len(),
-        2,
-        "a soft threshold must not cut a fitting two-blob range into one-blob posts"
+    // Empty history grows while an exact-target proof retries. Two large
+    // transactions require multiple blobs, but a later successful target can
+    // legitimately require a third. Check the whole canonical range and both
+    // replayed transactions rather than a wall-clock-dependent blob count.
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    assert!(
+        tx.inner.blob_versioned_hashes().unwrap().len() >= 2,
+        "a soft threshold must not split a fitting multi-blob range"
+    );
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input()).unwrap();
+    let update = &call.batch.entries[0].rootUpdates[0];
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    assert!(
+        terminal.header.number >= covered,
+        "the single post must cover both large transactions"
     );
     let follower = NodeHandle::start(
         "fullness-follower",
@@ -2247,9 +2259,28 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     )
     .await
     .unwrap();
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], terminal.header.number, TIMEOUT)
         .await
         .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for hash in hashes {
+        let original = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+        let derived = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
+        assert!(original.status() && derived.status());
+        assert_eq!(original.block_hash, derived.block_hash);
+        assert!(original.block_number.unwrap() <= terminal.header.number);
+    }
+    let head = l2.get_block_number().await.unwrap();
+    wait_for_latest_height(&world.node, head + 10, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        1,
+        "the fitting history must settle in one batch without follow-up chunks"
+    );
     let signals = world.node.signals_since(0).unwrap();
     assert!(signals.iter().any(|event| {
         event.name == "eez.composer.settlement.decision"
