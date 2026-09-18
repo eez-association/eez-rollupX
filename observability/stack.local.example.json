@@ -1,0 +1,14 @@
+{
+  "environment": "local",
+  "deployment": "eez-local",
+  "observer_instance": "observer",
+  "observer_target": "observer:19100",
+  "log_directory": "/REPLACE_WITH_DEDICATED_LOG_DIRECTORY",
+  "alerting_enabled": false,
+  "database_enabled": true,
+  "traces_enabled": false,
+  "grafana_port": 19300,
+  "prometheus_port": 19090,
+  "loki_port": 19310,
+  "postgres_port": 19432
+}

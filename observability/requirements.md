@@ -3,7 +3,14 @@
 Source of truth: [proposal](../docs/proposals/network-observability.md), including
 its final implementation decisions and [review dispositions](../docs/proposals/network-observability-review-disposition.md).
 `Verified` below means the named evidence exists, not production acceptance.
-An open row is a release gate, not an implicitly deferred requirement.
+The user clarified on 2026-09-18 that the current milestone is a good-enough,
+testable single-machine Docker Compose setup. The production gates recorded below
+remain useful follow-ups: independent heartbeat delivery (R07), off-host recovery
+(R29), seven-day calibration/operations (R30), and the full production release
+matrix do not block this local milestone. Basic ingestion, accounting correctness,
+truthful missing-data states and usable dashboards remain required. See the
+[local testing guide](runbooks/local-testing.md). This is an explicit user scope
+change, not a claim that those production requirements have passed.
 The user explicitly postponed timing/performance tests on 2026-09-18 until a
 suitable window or host is available: fitting40 baseline/candidate comparison,
 shipping overhead/confidence runs and lock-probe calibration. Do not retry those
@@ -42,6 +49,17 @@ criteria; see the [PR26 integration record](validation/pr26-integration.md).
 | R28 | CI validates affected crates/features and backend queries | Observability workflow, runtime Docker compile-input allowlist/COPY, existing CI contract tests | validation/runtime-packaging.md: real Docker context regression, tooling checks plus 27/27 actual tiny-workspace producer/relocated compilerless consumer tests passed, including observer artifact and required physical-quota archived handoff; codec/Tempo/dashboard gates wired; observer now ships in frozen runtime archive/node image and real tiny-workspace producer/consumer fixture passes | Partial: sealed45e5c015 application artifacts,1194 archived unit tests, release database/dashboard checks and the full28-scenario local network lane passed. The original embedded and cross-chain lanes each retain one retry-only failure (cross-chain:73 passes,1 failure,2 standard skips). The corrected burst assertion passed baseline/candidate checks on Ethereum and Gnosis; the independent sealed-runtime physical-quota follow-up also passed. The fitting40 admission split remains unresolved; its controlled timing comparison is user-deferred, and all five real controller-cleanup/fixture-compatibility cases passed. The two release harness variants now pass six configuration checks in total after a stale probe cache was detected and corrected; unchanged sealed runtime bytes are explicitly identified. Remote Actions acceptance is still required |
 | R29 | Clean-host restore including SQL/config/contact points; measured RPO/RTO | Standard SQL dump/restore and cold configuration/diagnostic archives; smoke-restore.py; runbooks/restore.md | validation/restore.md and restore.json: 6 groups passed in fresh projects/volumes, exact costs/cursors/checksums/roles, idempotent catch-up, retained history and actual alert routing; schema21 follow-up verifies all21 migration checksums and restored operator runbook contents; 32.77s backup, 68.91s restore on the schema21 standalone observer, explicit one-record lifecycle loss | Partial: application-level separate-instance recovery measured on the same Docker host; physical-host loss, off-host transfer/key recovery, full-size data and production schedule/RPO/RTO remain deployment gates |
 | R30 | Real rollout manifest, owner, endpoints, bootstrap, private network, capped backfill | runbooks/deployment.md provides the private manifest template, existing config mapping and ordered rollout; actual deployment inputs pending | Seven-day baseline, workload/quiet, cardinality/latency/storage/alert calibration; operator clean-host recovery and handover | Open: prepared template is not a live manifest or rollout result |
+
+## Single-machine testing checkpoint
+
+The user-requested local milestone now has [real Compose evidence](validation/local-testing.md):
+explicit migration, private writer-only observer, exact receipt costs and settlements,
+Prometheus scrape, Grafana SQL/dashboard queries, paused alerts without receivers,
+and observer/full-stack restart without duplicated fees. Five Compose configuration
+checks and the complete 145-test Python selection pass (144 passed, one opt-in skip).
+The verified release candidate has 1,308 passing archived unit tests. This covers
+the current local setup; the production-only rows below retain their historical
+scope and are not claimed complete.
 
 ## PR26 baseline integration
 

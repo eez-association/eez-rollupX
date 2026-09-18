@@ -1,5 +1,10 @@
 # Backup and restore
 
+For the current single-machine test setup, store backups in a private local
+directory and restore into separate Compose volumes on the same host. Off-host
+transfer and host-loss recovery below are later hardening steps, not prerequisites
+for the [local testing milestone](local-testing.md).
+
 Restore monitoring into a separate instance with new volumes. Preserve the old
 instance and its evidence until the recovered instance passes the checks below.
 Do not reset chain data, receipt cursors, lifecycle sequences or migration rows

@@ -267,5 +267,53 @@
     "fix": "Shared tiny-workspace archived handoff oracle used by both real packaging and relocation fixtures; production quota path unchanged.",
     "production_changes": false,
     "independent_review": "No weakened quota gate or physical ENOSPC claim found."
-  }
+  },
+  "release_candidate": {
+    "source_revision": "d633d87319497c44744512328271ad84e94b5a4e",
+    "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "profile": "release",
+    "published": false,
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eduadiez/rollupx-node:sha-d633d87319497c44744512328271ad84e94b5a4e-local-observability-pr26-1",
+        "image_id": "sha256:1281a09f1ced0ac9988b34f4e50fed84f3bfca4333cbe9658f2fea9a957a55b2"
+      },
+      "signer": {
+        "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-d633d87319497c44744512328271ad84e94b5a4e-local-observability-pr26-1",
+        "image_id": "sha256:0c992ce9540a4dc74c69337be03c515f2f11ffae113e81d134ddec66a007f33e"
+      },
+      "deploy": {
+        "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-d633d87319497c44744512328271ad84e94b5a4e-local-observability-pr26-1",
+        "image_id": "sha256:8b476476a192206adc918f426f84a83edf6704d2bd0ba6024d4acabd2bcf64e3"
+      }
+    },
+    "base_images": {
+      "rust": "rust@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f",
+      "runtime": "debian@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171"
+    },
+    "runtime_archive_sha256": "beb627fb09913cb7bb4d753ad722e3984eb878a4646cd2760e0f81658fa77269",
+    "runtime_sha256": {
+      "eez-composer": "9f1dbb7fe2686d77cba49b1ed2b6ed8e9bf8d4258866e404470127d464f5c120",
+      "eez-follower": "21726c2b0a59028b75a903ad6b2ccee38d7d9defea702e3320f9f9dc6d3758f0",
+      "eez-proof-signer": "affcb65f91e64f720be603908201ad513588ca2b52f89f9ef59465f3c9d85d90",
+      "eez-observer": "4994f5eb413b1a474d77edef2ce1207d733c75e06e1e4483a76e39a3470a723f"
+    },
+    "unit_tests_passed": 1308,
+    "unit_utilities_skipped": 2,
+    "runtime_consumer_verified": true,
+    "e2e_exported": true,
+    "full_native_release_matrix": "not run; production follow-up under user-specified local-testing milestone",
+    "local_evidence_root": "target/observability-release-pr26-d633d87-h7gdDWo8",
+    "evidence_sha256": {
+      "inputs.json": "b9235bed342c063e7b26f99acf5f27f9396fe88de45030cc4ca8189510b3fa77",
+      "producer.log": "da7f2861087fe6718677f2a142bfc75f2e3d182660d14b012fe059f3199771af",
+      "runtime/manifest.json": "3dfcf777a4207a3bb9cc908be68773ddf1cdb4831d69dd67dea3e4fb65980037",
+      "tests/manifest.json": "dae8bf95e751f40ab11903bd7b8edda5c60c837c7cabad4c9fa6d0ce0a284e2c",
+      "tests/unit-passed.json": "338db2b324e44dd891a16fa47d303910eb358b83c99aef59ec57cafe93472eb8",
+      "verify-runtime.log": "2d7e667025eb0429e821ec14670c6114e99abc198260af966365c48b74071a1f",
+      "unit-tests.log": "7e2f0abef87437ea40899a2d3c1ea051a2264bce201da5cb961ef5ad622e857c",
+      "export-e2e.log": "b4783d661b9633a58a6c1f83b7e6331a3dfed4b200ebab9ae2501255bd132dd5"
+    }
+  },
+  "current_user_milestone": "User clarified single-machine Docker Compose and testable/good-enough setup; production hardening is future work, not a current prerequisite."
 }

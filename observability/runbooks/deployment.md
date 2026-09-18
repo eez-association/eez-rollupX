@@ -1,5 +1,9 @@
 # Deployment record and acceptance
 
+For the current single-machine test milestone, use [local testing](local-testing.md).
+The owner/host/receiver/off-host requirements in this production template are
+future rollout inputs; they are not prerequisites for trying the Compose stack.
+
 Status: **prepared template; no live rollout performed**. Copy this record into
 the operator's private deployment directory and replace each `pending` value.
 It collects the WP7 inputs and evidence; it is not a new application configuration

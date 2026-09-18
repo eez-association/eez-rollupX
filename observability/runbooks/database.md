@@ -1,5 +1,11 @@
 # Private canonical database
 
+For the single-machine test setup, use the [Compose observer overlay](../compose.observer.yaml)
+and [local testing guide](local-testing.md). It uses generated `admin-container.json`
+and `writer-container.json` files with `postgres:5432` inside the ledger network.
+The host connection files below remain available for a separately reachable host
+or tunnel connection; internal-only Docker networks may not expose published ports.
+
 Set `database_enabled: true` in the stack input and rerun `prepare.py`. Optionally
 set `postgres_port` (default 19432; 1–65535). The generator preserves separate
 admin/writer/reader passwords across reruns, writes private connection files under

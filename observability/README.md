@@ -1,5 +1,10 @@
 # Self-hosted EEZ observability
 
+**Start here:** the current target is a [single-machine Docker Compose test setup](runbooks/local-testing.md).
+It includes the observer and PostgreSQL, with optional paused alerting so no
+webhook receivers or separate hosts are required to try it. Production rollout
+and operational hardening are later milestones.
+
 Implementation branch: `feat/network-observability`, integrated on top of
 [PR #26](https://github.com/eduadiez/rollupX/pull/26). The
 [PR26 integration record](validation/pr26-integration.md) tracks current

@@ -1,5 +1,12 @@
 # Observer on the node host
 
+For single-machine testing, the [Compose observer overlay](../compose.observer.yaml)
+and [local testing guide](local-testing.md) manage this same executable and explicit
+migration through private Compose networks. The standalone procedure below
+requires a separately working database network/tunnel: a published port on an
+internal-only Docker network is not sufficient on all Docker versions. The local
+Compose setup avoids that host-port dependency.
+
 The runtime producer now builds `eez-observer` with the shipping binaries,
 includes it in the checksummed runtime archive and freezes its identity in the
 native test payload. The existing node image also contains the same executable;

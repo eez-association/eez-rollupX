@@ -1,0 +1,9 @@
+# Optional: reach EEZ RPCs in another Compose project's existing network.
+services:
+  observer:
+    networks: [default, ledger, eez-node]
+
+networks:
+  eez-node:
+    external: true
+    name: ${EEZ_NODE_NETWORK:?set EEZ_NODE_NETWORK to the existing node Docker network}

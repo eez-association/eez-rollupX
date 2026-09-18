@@ -178,6 +178,96 @@ class Preparation(unittest.TestCase):
                 prepare.prepare(config, self.root / 'invalid')
             self.assertFalse((self.root / 'invalid').exists())
 
+    def test_alerting_defaults_enabled_and_requires_both_receivers(self):
+        for enabled in [None, True]:
+            config = self.config.copy()
+            if enabled is not None:
+                config['alerting_enabled'] = enabled
+            runtime = prepare.prepare(config, self.root / str(enabled))
+            alerts = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())
+            self.assertTrue(all(not rule['isPaused'] for group in alerts['groups'] for rule in group['rules']))
+            self.assertEqual(len(alerts['contactPoints']), 2)
+            self.assertEqual(alerts['policies'][0]['receiver'], 'eez-operator')
+            self.assertTrue(json.loads((runtime / 'manifest.json').read_text())['alerting_enabled'])
+            for receiver in ['alert_webhook_url', 'heartbeat_webhook_url']:
+                for missing in [True, False]:
+                    invalid = config.copy()
+                    if missing:
+                        invalid.pop(receiver)
+                    else:
+                        invalid[receiver] = None
+                    with self.subTest(enabled=enabled, receiver=receiver, missing=missing), self.assertRaises(ValueError):
+                        prepare.prepare(invalid, self.root / 'invalid-alerts')
+                    self.assertFalse((self.root / 'invalid-alerts').exists())
+
+    def test_disabled_alerting_is_paused_without_fabricated_receivers_or_policy_reset(self):
+        for nulls in [False, True]:
+            config = {key: value for key, value in self.config.items()
+                      if key not in ('alert_webhook_url', 'heartbeat_webhook_url')}
+            config['alerting_enabled'] = False
+            if nulls:
+                config.update(alert_webhook_url=None, heartbeat_webhook_url=None)
+            runtime = prepare.prepare(config, self.root / f'disabled-{nulls}')
+            alerts = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())
+            self.assertEqual(set(alerts), {'apiVersion', 'groups'})
+            self.assertTrue(alerts['groups'][0]['rules'])
+            self.assertTrue(all(rule['isPaused'] for group in alerts['groups'] for rule in group['rules']))
+            self.assertFalse(json.loads((runtime / 'manifest.json').read_text())['alerting_enabled'])
+            self.assertTrue((runtime / 'grafana/dashboards/network.json').exists())
+            self.assertTrue((runtime / 'prometheus/recording-rules.yaml').exists())
+
+    def test_disabled_alerting_rejects_dead_configuration_before_writes(self):
+        base = {**self.config, 'alerting_enabled': False, 'alert_webhook_url': None, 'heartbeat_webhook_url': None}
+        for field, value in [('alerting_enabled', None), ('alerting_enabled', 0),
+                             ('alerting_enabled', 'false'), ('alert_webhook_url', 'http://receiver'),
+                             ('heartbeat_webhook_url', 'http://receiver'), ('alert_webhook_url', ''),
+                             ('protocol_alerts', {'owner': 'ops'}), ('protocol_alerts', None)]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                prepare.prepare({**base, field: value}, self.root / 'invalid-disabled')
+            self.assertFalse((self.root / 'invalid-disabled').exists())
+
+    def test_disabling_alerts_pauses_previously_generated_optional_rules_and_reenable_restores_current(self):
+        enabled = {**self.config, 'database_enabled': True, 'protocol_alerts': {'owner': 'ops'},
+                   'node_exporter_target': 'host.docker.internal:19101'}
+        runtime = prepare.prepare(enabled, self.root / 'transition')
+        path = runtime / 'grafana/provisioning/alerting/eez.yaml'
+        old = json.loads(path.read_text())
+        previous_uids = {rule['uid'] for group in old['groups'] for rule in group['rules']}
+        self.assertIn('eez-progress-critical', previous_uids)
+        # This generator owns only its EEZ group, never unrelated Grafana rules.
+        old['groups'].append({'orgId': 1, 'folder': 'Other', 'name': 'other',
+                              'rules': [{'uid': 'eez-unrelated', 'isPaused': False}]})
+        path.write_text(json.dumps(old))
+        disabled = {**self.config, 'alerting_enabled': False, 'alert_webhook_url': None,
+                    'heartbeat_webhook_url': None}
+        for _ in range(2):
+            prepare.prepare(disabled, runtime)
+            paused = json.loads(path.read_text())
+            self.assertEqual(set(paused), {'apiVersion', 'groups'})
+            rules = paused['groups'][0]['rules']
+            self.assertEqual({rule['uid'] for rule in rules}, previous_uids)
+            self.assertEqual(len(rules), len(previous_uids))
+            self.assertTrue(all(rule['isPaused'] for rule in rules))
+        prepare.prepare(enabled, runtime)
+        restored = json.loads(path.read_text())
+        self.assertEqual({rule['uid'] for rule in restored['groups'][0]['rules']}, previous_uids)
+        self.assertTrue(all(not rule['isPaused'] for rule in restored['groups'][0]['rules']))
+        self.assertIn('contactPoints', restored)
+        self.assertIn('policies', restored)
+
+    def test_disabled_alerting_refuses_corrupt_previous_rule_inventory_before_writes(self):
+        runtime = prepare.prepare(self.config, self.root / 'corrupt-alerts')
+        manifest = (runtime / 'manifest.json').read_bytes()
+        path = runtime / 'grafana/provisioning/alerting/eez.yaml'
+        for invalid in ['not json', '[]', '{"groups":{}}', '{"groups":[null]}',
+                        '{"groups":[{"orgId":1,"folder":"EEZ","name":"eez-operational","rules":[null]}]}']:
+            path.write_text(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                prepare.prepare({**self.config, 'alerting_enabled': False,
+                                 'alert_webhook_url': None, 'heartbeat_webhook_url': None}, runtime)
+            self.assertEqual(path.read_text(), invalid)
+            self.assertEqual((runtime / 'manifest.json').read_bytes(), manifest)
+
     def test_dependency_alerts_suppress_missing_data_but_alert_on_query_errors(self):
         rules = prepare.alert_rules(self.config)[0]['rules']
         for rule in rules:
@@ -310,6 +400,28 @@ class Preparation(unittest.TestCase):
         datasources = json.loads((runtime / 'grafana/provisioning/datasources/eez.yaml').read_text())
         self.assertTrue(datasources['prune'])
         self.assertFalse(any(value['uid'] == 'eez-postgres' for value in datasources['datasources']))
+
+    def test_database_container_credentials_share_secrets_without_changing_host_files(self):
+        for port in [19432, 23456]:
+            config = {**self.config, 'database_enabled': True, 'postgres_port': port}
+            runtime = prepare.prepare(config, self.root / f'database-container-{port}')
+            for role, user in [('admin', 'postgres'), ('writer', 'eez_observer_writer')]:
+                password = (runtime / f'secrets/postgres-{role}-password').read_text()
+                host_path = runtime / f'database/{role}.json'
+                container_path = runtime / f'database/{role}-container.json'
+                host = json.loads(host_path.read_text())
+                container = json.loads(container_path.read_text())
+                self.assertEqual(host, {'connection_string':
+                    f'host=127.0.0.1 port={port} user={user} dbname=eez_observer password={password} sslmode=disable',
+                    'allow_private_plaintext': True})
+                self.assertEqual(container, {'connection_string':
+                    f'host=postgres port=5432 user={user} dbname=eez_observer password={password} sslmode=disable',
+                    'allow_private_plaintext': True})
+                self.assertEqual(host_path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(container_path.stat().st_mode & 0o777, 0o600)
+                saved = (host_path.read_bytes(), container_path.read_bytes())
+                prepare.prepare(config, runtime)
+                self.assertEqual((host_path.read_bytes(), container_path.read_bytes()), saved)
 
     def test_protocol_dashboards_follow_database_profile_and_optional_links(self):
         runtime = prepare.prepare(self.config, self.root / 'runtime')

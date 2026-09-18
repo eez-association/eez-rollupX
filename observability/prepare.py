@@ -109,12 +109,17 @@ def native_configs(config):
 
 
 def validate(config):
-    required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory',
-                'alert_webhook_url', 'heartbeat_webhook_url'}
-    allowed = required | {'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
+    required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory'}
+    receivers = {'alert_webhook_url', 'heartbeat_webhook_url'}
+    allowed = required | receivers | {'alerting_enabled', 'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
                           'probe_exporter_target', 'grafana_public_url', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port', 'traces_enabled', 'tempo_port', 'otlp_http_port', 'explorer_urls', 'protocol_alerts', 'queue_source', 'client_targets', 'node_agent'}
     if set(config) - allowed or required - set(config):
         raise ValueError('missing or unknown stack configuration fields')
+    alerting = config.get('alerting_enabled', True)
+    if type(alerting) is not bool:
+        raise ValueError('alerting_enabled must be a boolean')
+    if not alerting and (any(config.get(key) is not None for key in receivers) or 'protocol_alerts' in config):
+        raise ValueError('disabled alerting cannot configure receivers or protocol_alerts')
     protocol_alert_config(config)
     grafana_public_url(config)
     for key in ('environment', 'deployment', 'observer_instance'):
@@ -130,8 +135,8 @@ def validate(config):
                 raise ValueError('targets must be explicit private host:port values')
     for key in ('alert_webhook_url', 'heartbeat_webhook_url', 'public_rpc_url'):
         value = config.get(key)
-        if value is None and key != 'public_rpc_url':
-            raise ValueError('operator and independent heartbeat receivers are required')
+        if value is None and key != 'public_rpc_url' and alerting:
+            raise ValueError('enabled alerting requires operator and heartbeat receivers')
         if value is not None:
             try:
                 parsed = urlsplit(value)
@@ -412,6 +417,9 @@ def prepare(config, runtime, *, fast_test=False):
     # .env values are paths, never executable shell text or interpolated secrets.
     if any(c in str(runtime) + str(logs) for c in '\n\r$"\\'):
         raise ValueError('runtime/log paths cannot contain environment-file metacharacters')
+    alerts = alert_rules(config, fast_test=fast_test)
+    if not config.get('alerting_enabled', True):
+        pause_managed_alerts(alerts, runtime / 'grafana/provisioning/alerting/eez.yaml')
     runtime.mkdir(parents=True, exist_ok=True)
     runtime.chmod(0o700)
     secret = runtime / 'secrets/grafana-admin-password'
@@ -492,10 +500,11 @@ def prepare(config, runtime, *, fast_test=False):
         'folder': 'EEZ', 'type': 'file', 'disableDeletion': False, 'updateIntervalSeconds': 10,
         'allowUiUpdates': False, 'options': {'path': '/var/lib/grafana/dashboards'}}]})
     prepare_dashboards(config, runtime)
-    alerts = alert_rules(config, fast_test=fast_test)
     # Grafana expands $ in provisioning values, including URLs. Escape literal dollars.
     literal = lambda value: value.replace('$', '$$')
-    write_json(provision / 'alerting/eez.yaml', {'apiVersion': 1, 'groups': alerts, 'contactPoints': [
+    alerting = {'apiVersion': 1, 'groups': alerts}
+    if config.get('alerting_enabled', True):
+        alerting.update({'contactPoints': [
         {'orgId': 1, 'name': 'eez-operator', 'receivers': [{'uid': 'eez-operator-webhook', 'type': 'webhook',
          'settings': {'url': literal(config['alert_webhook_url']), 'httpMethod': 'POST'}, 'disableResolveMessage': False}]},
         {'orgId': 1, 'name': 'eez-heartbeat', 'receivers': [{'uid': 'eez-heartbeat-webhook', 'type': 'webhook',
@@ -506,6 +515,7 @@ def prepare(config, runtime, *, fast_test=False):
                          {'receiver': 'eez-heartbeat', 'object_matchers': [['alertname', '=', 'EEZHeartbeat']],
                           'group_wait': '0s', 'group_interval': '10s' if fast_test else '1m',
                           'repeat_interval': '10s' if fast_test else '1m'}]}]})
+    write_json(provision / 'alerting/eez.yaml', alerting)
     # Static paths only: applications write JSON into this dedicated directory.
     alloy = '''logging { level = "info" }
 local.file_match "eez" {
@@ -552,9 +562,41 @@ loki.write "local" {
         'native_processes': [name for name, _, _ in native_configs(config)],
         'probes_independent': (config.get('probe_exporter_target') or 'blackbox:9115') != 'blackbox:9115',
         'database_enabled': config.get('database_enabled', False),
+        'alerting_enabled': config.get('alerting_enabled', True),
         'traces_enabled': config.get('traces_enabled', False),
         'node_metrics_configured': bool(config.get('node_exporter_target'))})
     return runtime
+
+
+def pause_managed_alerts(groups, previous_path):
+    """Pause current and previously rendered EEZ rules without resetting Grafana routing.
+
+    Removing a provisioning file does not delete stored rules. Retain prior
+    optional-profile rules in the same owned group so disabling their inputs
+    together with alerting cannot leave those rules evaluating in Grafana.
+    """
+    current = groups[0]['rules']
+    uids = {rule['uid'] for rule in current}
+    if previous_path.exists():
+        previous = json.loads(previous_path.read_text())
+        if not isinstance(previous, dict) or not isinstance(previous.get('groups', []), list):
+            raise ValueError('invalid previously generated alert groups')
+        for group in previous.get('groups', []):
+            if not isinstance(group, dict):
+                raise ValueError('invalid previously generated alert group')
+            if (group.get('orgId'), group.get('folder'), group.get('name')) != (1, 'EEZ', 'eez-operational'):
+                continue
+            if not isinstance(group.get('rules', []), list):
+                raise ValueError('invalid previously generated alert rules')
+            for rule in group.get('rules', []):
+                if not isinstance(rule, dict):
+                    raise ValueError('invalid previously generated alert rule')
+                uid = rule.get('uid')
+                if isinstance(uid, str) and uid.startswith('eez-') and uid not in uids:
+                    current.append(rule)
+                    uids.add(uid)
+    for rule in current:
+        rule['isPaused'] = True
 
 
 def prepare_dashboards(config, runtime):
@@ -675,10 +717,14 @@ def prepare_database(config, runtime, datasources):
         passwords[role] = value
     for role in ('admin', 'writer'):
         user = 'postgres' if role == 'admin' else 'eez_observer_writer'
-        path = runtime / f'database/{role}.json'
-        write_json(path, {'connection_string': f"host=127.0.0.1 port={config.get('postgres_port',19432)} user={user} dbname=eez_observer password={passwords[role]} sslmode=disable",
-                          'allow_private_plaintext': True})
-        path.chmod(0o600)
+        # Host/tunnel consumers keep their existing files. Managed Compose
+        # services reach PostgreSQL only through the private ledger network.
+        for suffix, host, port in [('', '127.0.0.1', config.get('postgres_port',19432)),
+                                   ('-container', 'postgres', 5432)]:
+            path = runtime / f'database/{role}{suffix}.json'
+            write_json(path, {'connection_string': f"host={host} port={port} user={user} dbname=eez_observer password={passwords[role]} sslmode=disable",
+                              'allow_private_plaintext': True})
+            path.chmod(0o600)
     datasources.append({'name': 'EEZ Canonical ledger', 'uid': 'eez-postgres', 'type': 'postgres', 'access': 'proxy',
         'url': 'postgres:5432', 'user': 'eez_observer_reader', 'editable': False,
         'jsonData': {'database': 'eez_observer', 'sslmode': 'disable', 'postgresVersion': 1800,
@@ -1051,7 +1097,7 @@ def alert_rules(config, *, fast_test=False):
         extra = spec[6] if len(spec) > 6 else {}
         # Query models are raw JSON in Grafana provisioning; preserve the expression reference literally.
         rules.append({'uid': uid, 'title': title, 'condition': 'B', 'for': extra.get('for') or ('0s' if severity == 'heartbeat' else ('10s' if fast_test else '2m')),
-            'noDataState': nodata, 'execErrState': 'Alerting', 'isPaused': False,
+            'noDataState': nodata, 'execErrState': 'Alerting', 'isPaused': not config.get('alerting_enabled', True),
             'labels': {**labels, 'severity': severity, **({'owner': protocol['owner']} if protocol else {})}, 'annotations': {'summary': summary,
                 'runbook': extra.get('runbook', 'observability/runbooks/operations.md'),
                 **({'runbook_url': grafana_public_url(config) + '/d/eez-runbooks?viewPanel=' + ('2' if 'protocol-alerts.md' in extra.get('runbook', '') else '1')} if grafana_public_url(config) else {}), '__dashboardUid__': extra.get('dashboard', 'eez-infrastructure'), '__panelId__': '1'},

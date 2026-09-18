@@ -107,6 +107,24 @@ Migrations 0001–0021 remain byte-identical. Whitespace warnings in imported PR
 evidence and the pre-existing migration0019 EOF are preserved to retain artifact
 and migration identity; changed source/prose passes `git diff --check`.
 
+## Local release candidate
+
+The standard no-publication producer completed at source `d633d87319497c44744512328271ad84e94b5a4e`.
+It built release application binaries and both test archives, packaged the node,
+signer and deploy images, and sealed the test payload to the runtime archive.
+The standard consumer verified exact source/protocol/lock/image/archive identity.
+Both exported unit suites passed: **1,065 + 243 = 1,308 tests**, with two intentional
+utility exclusions. The verified E2E payload was exported. Artifact/image identities
+and local-only evidence hashes are in the companion JSON. The full native release
+matrix has not run on this candidate.
+
+The user subsequently clarified that the immediate target is a testable
+single-machine Docker Compose setup, not a perfect production environment.
+The [local testing guide](../runbooks/local-testing.md) defines that milestone.
+Separate hosts, independent heartbeat delivery, off-host recovery, seven-day
+calibration and the production matrix remain future work; performance comparisons
+remain explicitly deferred. They do not block trying this local setup.
+
 ## Evidence boundaries and remaining gates
 
 The [earlier release record](release-runtime.md) remains historical evidence for
@@ -120,7 +138,7 @@ Performance comparisons and calibration remain deferred at the user's request.
 The earlier fitting40 failure is retained with its original scope, without
 attributing it to the new baseline. Remote CI, publication approval, private
 rollout inputs/owner, independent heartbeat, off-host recovery and seven-day
-operational calibration remain separate acceptance gates. PR26's own outstanding
+operational calibration remain separate production follow-ups. PR26's own outstanding
 release-capacity/recovery measurements are not supplied by this integration.
 
 ## Existing PR26 follow-ups

@@ -1,0 +1,57 @@
+# Linux single-host overlay; use with compose.yaml and its database profile.
+x-observer: &observer
+  image: ${EEZ_NODE_IMAGE:?set EEZ_NODE_IMAGE to the verified local node image}
+  pull_policy: never
+  entrypoint: [/usr/local/bin/eez-observer]
+  user: "${OBS_OBSERVER_UID:?set OBS_OBSERVER_UID}:${OBS_OBSERVER_GID:?set OBS_OBSERVER_GID}"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  mem_limit: 256m
+  cpus: 1.0
+  pids_limit: 128
+  logging:
+    driver: local
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  observer:
+    <<: *observer
+    networks: [default, ledger]
+    profiles: [database]
+    restart: unless-stopped
+    command: [indexer, --config, /config/indexer.json]
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes:
+      - type: bind
+        source: ${OBS_INDEXER_CONFIG:?set OBS_INDEXER_CONFIG to the prepared indexer JSON}
+        target: /config/indexer.json
+        read_only: true
+        bind: {create_host_path: false}
+
+      - type: bind
+        source: ${OBS_RUNTIME:?run prepare.py}/database/writer-container.json
+        target: /config/writer.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${OBS_LIFECYCLE_DIR:?set OBS_LIFECYCLE_DIR to the readable lifecycle directory}
+        target: /lifecycle
+        read_only: true
+        bind: {create_host_path: false}
+
+  observer-migrate:
+    <<: *observer
+    networks: [ledger]
+    profiles: [migration]
+    restart: "no"
+    command: [migrate, --database-config, /config/admin.json]
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes:
+      - type: bind
+        source: ${OBS_RUNTIME:?run prepare.py}/database/admin-container.json
+        target: /config/admin.json
+        read_only: true
+        bind: {create_host_path: false}

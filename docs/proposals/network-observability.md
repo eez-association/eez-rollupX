@@ -4,6 +4,18 @@ Draft implementation plan, 2026-09-16. Based on repository inspection and curren
 
 Reviewed twice by Claude using the proposal text only, followed by local source verification by Codex. See the [original review](network-observability-claude-review.md), [follow-up review](network-observability-claude-followup.md), and [finding dispositions](network-observability-review-disposition.md). The implementation decisions at the end of this document resolve the review findings; remaining integration checks have explicit fallbacks and do not block the RPC-based first release.
 
+**Current milestone — single-machine testing (user clarification, 2026-09-18).**
+The immediate deliverable is a useful, testable Docker Compose setup on one
+machine, not a perfected production environment. The observer joins the existing
+Compose backend with explicit migration and persistent PostgreSQL storage. A
+local test configuration can pause alert evaluation without webhook receivers;
+missing evidence must still remain unknown. Independent heartbeat delivery,
+off-host recovery, separate monitoring hosts, seven-day production calibration
+and the full production release matrix are follow-ups rather than blockers for
+this milestone. Performance comparisons remain explicitly postponed. The stricter
+production acceptance sections below are retained as future work, not claims
+about the local setup. See the [local testing guide](../../observability/runbooks/local-testing.md).
+
 **Recommendation.** Deploy a fully self-hosted telemetry system: Grafana as the operator interface, Prometheus for metrics, Loki for searchable logs, and a small EEZ observer with PostgreSQL for canonical settlement and cost records. Use Alloy for log collection and OpenTelemetry transport, and add Tempo for distributed traces. Keep instrumentation and dashboards version-controlled. Keep the existing public monitor, Blockscout, and Blobscan as linked inspection tools. Self-hosting is a user requirement; no Grafana Cloud dependency is proposed.
 
 Assume one Chiado deployment initially, with a separate devnet environment and eventual additional nodes/rollups. The first objective is to answer: Is the network working? Which cross-chain requests are waiting, and why? What constrains settlement? How much are we spending? Can a follower recover the settled chain?
