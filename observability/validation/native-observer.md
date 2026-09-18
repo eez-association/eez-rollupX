@@ -49,7 +49,23 @@ and the exact earlier fixture residue was removed. Logs:
 `/tmp/eez-native-observer-socket-check.log` and
 `/tmp/eez-native-observer-socket-reviewed.log`.
 
-## Current live checkpoint
+## PR26 recovery checkpoint
+
+The [PR26 integration record](pr26-integration.md) now verifies current mandatory
+settlement-policy behavior with the schema22 observer. The default lifecycle
+canary passed in 68.94 seconds, partial-consumption Composer restart passed in
+133.29 seconds, and the actual outbound L1 reorg passed in 111.37 seconds.
+The recovery harnesses were built from `2b4056b4`, with unchanged production
+runtimes frozen at `5f3b36b3`. Both recovery cases used actual native RPCs and
+lifecycle spools, independently checked all schema checksums, and cleaned their
+owned PostgreSQL containers. The linked evidence manifest records artifact
+identities and local-only report digests.
+
+These results supersede the earlier baseline for those named cases. Historical
+legacy/policy variants below retain their original scope; PR26 has mandatory
+settlement policy. No performance comparison or deployment acceptance is implied.
+
+## Historical live checkpoint
 
 The legacy bidirectional live native→observer test now passed **1/1 in 177.27s**
 after the [historical collection fix](historical-checkpoints.md). It verified the

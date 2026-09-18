@@ -24,7 +24,7 @@ criteria; see the [PR26 integration record](validation/pr26-integration.md).
 | R10 | Exact gas/blob charges, canonical reverts, missing fields gaps; no join multiplication | Observer accounting parser, selected receipt views and schema-5/9 source receipt/reference views | validation/receipt-accounting.md and source-receipts.md: exact sums, missing/revert/reinclusion and deduplication fixtures | Partial: selected/source/companion receipt totals and integer shared estimates fixture-verified without join multiplication; mixed live native legacy/policy, partial-restart and reorg accounting passed with exact source/post fees and paid populations (validation/native-observer.md) |
 | R11 | Wallet spend, settlement/companion attribution and L2 fees distinct | Wallet/posting views, applied ranges and separate lifecycle-referenced source receipt worker (admissions and later explicit members) | SQL/RPC wallet/post/source separation, 30-second lookup budget, chain isolation, identity context fence; ABI bounds tests | Partial: schema-14 companion attribution and equal_share_v1 source overhead estimates implemented; validation/cost-allocation.md records paid requeues, duplicates/conflicts/reorgs and saved-v13 upgrade; schema-18 settled-L2-transaction unit costs now pass 16 focused SQL assertions; combined schema20 backend64-group gate, 88 real Grafana queries and mixed live native paid-population/source-fee audit pass; deployment calibration remains R30 |
 | R12 | Authenticated/versioned blob length; measured-subset weighted utilization and coverage | Count-only shared codec boundary, physical KZG authentication, optional bounded Beacon worker, schema-12 immutable metadata/measurement views | validation/blob-measurements.md: codec/KZG/mixed-traffic regressions and real RPC/Beacon weighted-subset/pruning/revert/recovery fixtures | Implemented and fixture-verified: final schema-13 duration/freshness/reader process checks passed; deployment archive coverage/capacity remain R27/R30 |
-| R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, append-only migration history through schema21, private PostgreSQL profile and separate role credentials/settings | Schema/checksum/downgrade refusal, no implicit DDL, populated upgrades; validation/restore.md: fresh-instance exact migration identity, reader/writer authentication, privileges and reader deadlines | Implemented and fixture-verified: prior saved1/4/5/6/8/13/14 upgrades are retained; the schema21 release gate passes58 groups including saved-v20 upgrade/downgrade refusal, and fresh-instance restore verifies all21 checksums (validation/observer-capacity.md). Deployment recovery targets remain R29/R30 |
+| R13 | Explicit migrations, schema compatibility, private writer/read-only viewer roles | migrate subcommand, append-only migration history through schema22, private PostgreSQL profile and separate role credentials/settings | Schema/checksum/downgrade refusal, no implicit DDL, populated upgrades; validation/restore.md: fresh-instance exact migration identity, reader/writer authentication, privileges and reader deadlines | Implemented and fixture-verified: historical upgrade evidence is retained; the PR26 schema22 gate passes 59 groups including saved-v21 upgrade/downgrade refusal, and fresh-instance restore verifies all 22 checksums (validation/pr26-integration.md). Deployment recovery targets remain R29/R30 |
 | R14 | Typed versioned events; epoch/sequence at owned transition; many-to-many membership | eez-telemetry schema; contracts/lifecycle-v1.md and native-lifecycle.md | Composer/component and source-built capture evidence in validation/native-attempts.md, native-preparation.md, native-reconciliation.md and native-local-dispositions.md; native-outcomes.md and canonical-outcomes.md add observer checks | Partial: owned admission/readiness, preparation/cancellation, attempt/repricing/dispatch, reconciliation/reorg and local dispositions verified in stated scopes; captured native decisions pass observer coherence, with separate canonical SQL fixtures; integrated native legacy/policy, both partial-restart modes and actual outbound reorg pass (validation/native-observer.md); overhead remains R27 |
 | R15 | Bounded nonblocking lifecycle writer independent of logging/sampling | eez-telemetry spool; 4096-record channel, 16 KiB records, 64 MiB segments, 24h/2 GiB retention | validation/lifecycle-transport.md: overflow, ENOSPC, rotation, shutdown, concurrency; validation/native-lifecycle.md: real native capture | Partial: native lifecycle capture and real 3 GiB disk-full/recovery gate passed (validation/native-enospc.md); comparative overhead and actual deployment quota provisioning remain |
 | R16 | Chunk completion+digest, immutable segment IDs, independent control/drop records | eez-telemetry wire/spool | Missing/reordered/conflicting chunks, bypassed-full-channel control tests | Verified at transport/SQL layer and through assembled native lifecycle evidence in R14/R19; workload overhead remains R27 |
@@ -51,7 +51,11 @@ behavior relative to PR26; it does not restore disabled settlement policy or old
 operations formats removed by that PR. R09/R13 now cover 65,536-block canonical
 ranges with bounded paging and a forward schema22 migration; the real PostgreSQL
 fixture passed 59 groups, including populated schema21 upgrade and downgrade
-refusal, and same-host fresh-volume restore passed six groups. R20/R23 distinguish
+refusal, and same-host fresh-volume restore passed six groups. R10/R11/R14/R17/R19
+now also have current native partial-consumption/restart and actual L1-reorg
+evidence: exact paid populations, separate readmission identity, orphan receipt/
+allocation retraction and canonical recovery passed without runtime changes.
+R20/R23 distinguish
 ordinary preparation/control RPCs from final signing. R28 combines the PR26
 partitioned native CI with the observer artifact and physical-quota checks.
 Earlier requirement evidence remains historical until revalidated at the stated
@@ -128,9 +132,11 @@ These exclusions are in the proposal; they do not defer any row above.
   There were no conflicts, uncommitted work was byte-for-byte preserved, and the
   protocol gitlink stayed `3c0cdf4955941a5c23639346932b55b33babebbd`. The user
   subsequently confirmed main will remain unchanged and explicitly requested no
-  periodic checks. Keep `5469c88` as the baseline without polling. The new root
-  AGENTS.md applies; subsequent builds/checks use Rust 1.94.0. Earlier
-  evidence remains tied to its recorded revision/toolchain.
+  periodic checks. The later request to stack on PR #26 superseded that baseline:
+  merge `5f3b36b3` includes PR head `2be04f7c` and its main base `fc0ee051`, with
+  the same protocol pin. Do not poll main periodically. The root AGENTS.md
+  applies; builds/checks use Rust 1.94.0. Earlier evidence remains tied to its
+  recorded revision/toolchain; see validation/pr26-integration.md.
 
 - Lifecycle segment enumeration is deterministic, not causal. Random filename
   order and writer UTC timestamps cannot establish event publication order or
@@ -206,7 +212,7 @@ network contract; subscriptions are not claimed as implemented.
 
 The [release validation record](validation/release-runtime.md) adds default-feature
 release binaries, 1,194 archived unit tests, 58 PostgreSQL groups and 96 Grafana
-queries for the current schema21 checkpoint, full Kurtosis coverage and physical
+queries for the historical schema21 checkpoint, full Kurtosis coverage and physical
 ENOSPC evidence. The earlier schema20 checkpoint retains its 64-group result.
 The record preserves original native timeout/retry-only failures, their diagnoses,
 and separate passing corrections without reclassifying the original suites.

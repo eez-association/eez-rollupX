@@ -61,7 +61,17 @@ are local-only and unavailable from another checkout; raw logs are not published
 | `smoke-restore.py` | Six groups passed in fresh projects/volumes on the same Docker host; owned-resource cleanup verified; recovered database, dashboards, credentials, trace/log/metric navigation and heartbeat delivery |
 | `lifecycle_bidirectional_cross_chain_smoke` | Passed in 68.94 seconds with native lifecycle, metrics and observer checks |
 | `minimal_bidirectional_cross_chain_smoke` | Passed in 42.91 seconds with telemetry disabled |
+| `restart_after_partial_keeps_accounting_and_rebuilds_intent` | Passed in 133.29 seconds: partial settlement/revert accounting, Composer restart, original unresolved admission, separate readmission, exact paid populations and follower convergence |
+| `native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order` | Passed in 111.37 seconds: actual L1 replacement, orphan receipt/allocation retraction, canonical recovery in nonce order and Composer/follower convergence |
 | `traced_bidirectional_cross_chain_smoke` | Passed in 48.41 seconds with the corrected success oracle; exact ancestry through control/preparation/retry/signing and matching Composer/signer success logs |
+
+The recovery harnesses were built at `2b4056b4`; production source remains
+identical to the frozen `5f3b36b3` runtimes. Both native recovery tests used actual
+RPCs, original lifecycle spools and the schema22 observer, with a private
+PostgreSQL socket and all migration checksums verified. Transient RPC/chain-fact
+gaps during restart/reorg recovered; neither test replaced native evidence with
+synthetic events. Both owned PostgreSQL containers were confirmed absent after
+completion. These functional results do not measure performance or sizing.
 
 The database and restore tests used a separate release-profile observer built
 from a minimal archive of `5f3b36b3` in pinned Rust/Bookworm tooling. The host GCC15

@@ -44,7 +44,17 @@
     "native_default": "passed",
     "native_telemetry_disabled": "passed",
     "native_tracing": "passed with corrected success oracle",
-    "native_tracing_seconds": 48.41
+    "native_tracing_seconds": 48.41,
+    "native_partial_restart": {
+      "status": "passed",
+      "seconds": 133.29,
+      "test": "restart_after_partial_keeps_accounting_and_rebuilds_intent"
+    },
+    "native_l1_reorg": {
+      "status": "passed",
+      "seconds": 111.37,
+      "test": "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order"
+    }
   },
   "database_restore": {
     "database-pr26-compatible": {
@@ -208,7 +218,13 @@
       "portable-observer/build.log": "886ad5a868fe731b1b7f6f853e34cef588b2b8f1fa9cc05418fbcb5ff627148c",
       "native-tracing-corrected/result.log": "afc80440994b5d00f108084de21dca5c8f0b79a55136dc81f990c85776032680",
       "native-harness-corrected-manifest.json": "b9725432c62819175cc74986be8e3b46b14825685af1bb88d27233ec33884026",
-      "native-harness-corrected-build.log": "7254e4411cfb0160e325237eb9ff0fa0ea36ac81ea4f74841e56d23b974408c2"
+      "native-harness-corrected-build.log": "7254e4411cfb0160e325237eb9ff0fa0ea36ac81ea4f74841e56d23b974408c2",
+      "recovery-harness-manifest.json": "df871ae45608b205d2ccbf94e71eabb2cf6aeda9b2a2860d43786c186d473240",
+      "recovery-harness-build.log": "cd0c82b9f720fef322a7b671ad95de7d96ff46b0301aabd288b31a60b3474e92",
+      "native-partial-restart/result.log": "e2262b2a6f8d1f5eba5e87bed0800b568ebaf563242ec11f24b4e8cd304170c3",
+      "native-partial-restart/logs/eez-native-observer-3121651-tmpbFx40q.provenance.json": "41ef8d72e25bd01cf765a955da57612ab88d05038f0d829a7b2e61bf53b203d8",
+      "native-l1-reorg/result.log": "de1aefd6e496dfe72ef7680bc62f45f6a9659ca88da04be1c1a947b2194fcc99",
+      "native-l1-reorg/logs/eez-native-observer-3132677-tmpFRZ2kh.provenance.json": "b659ddce4b63ae7b612dabfdfd8023f98d73dd4a9dddd572786c262065742a7c"
     }
   },
   "remaining_gates": [
@@ -217,5 +233,15 @@
     "Deployment inputs, private rollout, independent heartbeat, off-host recovery and seven-day operational calibration.",
     "Representative maximum-range native ingestion/recovery capacity; SQL/parser boundary checks do not establish production headroom."
   ],
-  "fixture_cleanup": "Completed test fixtures exited; final read-only Docker inventory contains the pre-existing operator/Kurtosis services, with both owned restore projects absent."
+  "fixture_cleanup": "Completed test fixtures exited; final read-only Docker inventory contains the pre-existing operator/Kurtosis services, with both owned restore projects absent.",
+  "recovery_harnesses": {
+    "source_revision": "2b4056b4127d12c44ea392907a400205163f764e",
+    "runtime_source_revision": "5f3b36b39af3ea8f56817fe1866cd49579c41806",
+    "scope": "functional recovery; unchanged production source and runtimes",
+    "sha256": {
+      "partial_consumption": "528d8e4d4d4eb56f7cee18f41b0cc297f04c9fe1c445bd23973ae7cd21a34741",
+      "queue_reorg": "3a676921ea8a82b33ad1580672e5dfe4b0da27423ad925b5e2360c724be09805"
+    }
+  },
+  "recovery_fixture_cleanup": "Both owned native observer PostgreSQL containers confirmed absent by exact-name read-only Docker checks after successful test exit."
 }
