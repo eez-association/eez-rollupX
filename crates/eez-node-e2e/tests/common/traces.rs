@@ -286,6 +286,35 @@ fn control_rpc_ancestry(captured: &[CapturedSpan]) -> Result<bool> {
     Ok(true)
 }
 
+fn preparation_succeeded(events: &[eez_telemetry::schema::Payload], span: &CapturedSpan) -> bool {
+    use eez_telemetry::schema::{Event, PreparationOutcome};
+    let Some(epoch) = string_value(&span.span.attributes, "preparation_epoch") else {
+        return false;
+    };
+    let Some(sequence) = integer_value(&span.span.attributes, "preparation_sequence")
+        .and_then(|value| u64::try_from(value).ok())
+    else {
+        return false;
+    };
+    let mut finishes = events.iter().filter_map(|payload| {
+        let Event::PreparationFinished {
+            preparation,
+            outcome,
+            ..
+        } = &payload.event
+        else {
+            return None;
+        };
+        let context = payload.trace?;
+        (hex_id(&preparation.epoch.0) == epoch
+            && preparation.sequence == sequence
+            && context.trace_id.0.as_slice() == span.span.trace_id
+            && context.span_id.0.as_slice() == span.span.span_id)
+            .then_some(*outcome)
+    });
+    finishes.next() == Some(PreparationOutcome::Prepared) && finishes.next().is_none()
+}
+
 fn connected_sources(
     captured: &[CapturedSpan],
     events: &[eez_telemetry::schema::Payload],
@@ -382,6 +411,12 @@ fn connected_sources(
         else {
             continue;
         };
+        // A connected server span can finish after the Composer cancels its
+        // request. Only this exact successful preparation can supply the
+        // attestation/log correlation checked by the caller.
+        if !preparation_succeeded(events, preparation) {
+            continue;
+        }
         let Some(members) = linked_members(captured, events, preparation, hashes) else {
             continue;
         };
@@ -511,8 +546,8 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use eez_telemetry::schema::{
-        AdmissionId, BlockRef, Direction, Epoch, Event, Hash32, Member, Payload, Source, SpanId,
-        TraceContext, TraceId,
+        AdmissionId, BlockRef, Direction, Epoch, Event, Hash32, Member, Payload, PreparationId,
+        PreparationOutcome, Source, SpanId, TraceContext, TraceId,
     };
     use opentelemetry_proto::tonic::{common::v1::AnyValue, trace::v1::span::Link};
 
@@ -586,8 +621,13 @@ mod tests {
             .collect();
         let mut spans = Vec::new();
         let mut events = Vec::new();
+        let mut finishes = Vec::new();
         for trace in 1..=if rollover { 2 } else { 1 } {
             let mut preparation = span("composer_preparation", trace, 1, 0);
+            preparation.span.attributes = vec![
+                attribute("preparation_epoch", hex_id(&[10; 16])),
+                attribute("preparation_sequence", trace),
+            ];
             for (i, member) in members.iter().enumerate() {
                 let mut source = span("batch_member", trace + 10, i as u8 + 20, 0);
                 source.span.attributes = vec![
@@ -623,6 +663,25 @@ mod tests {
                     members: members.clone(),
                 },
             });
+            finishes.push(Payload {
+                observed_at_unix_ms: 0,
+                trace: Some(TraceContext {
+                    trace_id: TraceId([trace; 16]),
+                    span_id: SpanId([1; 8]),
+                }),
+                event: Event::PreparationFinished {
+                    preparation: PreparationId {
+                        epoch: Epoch([10; 16]),
+                        sequence: u64::from(trace),
+                    },
+                    outcome: if !rollover || trace == 2 {
+                        PreparationOutcome::Prepared
+                    } else {
+                        PreparationOutcome::ProverFailed
+                    },
+                    elapsed_ns: 50,
+                },
+            });
             spans.push(preparation);
             spans.push(span("composer_proving", trace, 2, 1));
             let attempts = if trace == 1 { 2 } else { 1 };
@@ -637,7 +696,105 @@ mod tests {
                 spans.push(span("prove", trace, 9, 3 + attempts * 2));
             }
         }
+        events.extend(finishes);
         (spans, events, hashes)
+    }
+
+    #[test]
+    fn earlier_connected_failed_signer_does_not_replace_later_success() {
+        let (mut spans, mut events, hashes) = fixture(true);
+        // A timed-out server call still exports a fully connected graph.
+        spans.insert(0, span("prove", 1, 9, 7));
+        let expected = Some(vec![hex_id(&[2; 16]); 2]);
+        assert_eq!(
+            connected_sources(&spans, &events, &hashes).unwrap(),
+            expected
+        );
+        spans.reverse();
+        events.reverse();
+        assert_eq!(
+            connected_sources(&spans, &events, &hashes).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn success_requires_exact_finished_preparation_identity_and_context() {
+        for mutation in [
+            "missing",
+            "epoch",
+            "sequence",
+            "trace",
+            "span",
+            "context",
+            "duplicate",
+        ] {
+            let (spans, mut events, hashes) = fixture(true);
+            let index = events
+                .iter()
+                .position(|event| {
+                    matches!(
+                        event.event,
+                        Event::PreparationFinished {
+                            outcome: PreparationOutcome::Prepared,
+                            ..
+                        }
+                    )
+                })
+                .unwrap();
+            if mutation == "missing" {
+                events.remove(index);
+            } else if mutation == "duplicate" {
+                events.push(events[index].clone());
+            } else {
+                let finished = &mut events[index];
+                let Event::PreparationFinished { preparation, .. } = &mut finished.event else {
+                    unreachable!()
+                };
+                match mutation {
+                    "epoch" => preparation.epoch = Epoch([99; 16]),
+                    "sequence" => preparation.sequence = 99,
+                    "trace" => finished.trace.as_mut().unwrap().trace_id = TraceId([99; 16]),
+                    "span" => finished.trace.as_mut().unwrap().span_id = SpanId([99; 8]),
+                    "context" => finished.trace = None,
+                    _ => unreachable!(),
+                }
+            }
+            assert!(
+                connected_sources(&spans, &events, &hashes)
+                    .unwrap()
+                    .is_none(),
+                "{mutation}"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_cancelled_or_panicked_preparation_never_qualifies_as_signed_success() {
+        for failure in [
+            PreparationOutcome::ConstructionFailed,
+            PreparationOutcome::CapacityLimited,
+            PreparationOutcome::ProverFailed,
+            PreparationOutcome::ValidationRejected,
+            PreparationOutcome::Cancelled,
+            PreparationOutcome::Panicked,
+        ] {
+            let (spans, mut events, hashes) = fixture(false);
+            let finished = events
+                .iter_mut()
+                .find(|event| matches!(event.event, Event::PreparationFinished { .. }))
+                .unwrap();
+            let Event::PreparationFinished { outcome, .. } = &mut finished.event else {
+                unreachable!()
+            };
+            *outcome = failure;
+            assert!(
+                connected_sources(&spans, &events, &hashes)
+                    .unwrap()
+                    .is_none(),
+                "{failure:?}"
+            );
+        }
     }
 
     #[test]

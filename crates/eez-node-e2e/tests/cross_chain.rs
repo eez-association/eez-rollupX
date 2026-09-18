@@ -388,14 +388,19 @@ async fn traced_bidirectional_cross_chain_smoke() {
             })
     };
     for trace_id in trace_ids {
-        assert!(
-            correlated_event(&composer_logs, "eez.prover_client.attested", &trace_id),
-            "Composer JSON log correlation missing"
-        );
-        assert!(
-            correlated_event(&signer_logs, "eez.proof_signer.window_signed", &trace_id),
-            "signer JSON log correlation missing"
-        );
+        let composer_correlated =
+            correlated_event(&composer_logs, "eez.prover_client.attested", &trace_id);
+        let signer_correlated =
+            correlated_event(&signer_logs, "eez.proof_signer.window_signed", &trace_id);
+        if !composer_correlated || !signer_correlated {
+            collector.report().unwrap();
+            let retained = directory.keep();
+            panic!(
+                "JSON log correlation missing for trace {trace_id}: Composer={composer_correlated}, signer={signer_correlated}; retained lifecycle fixture at {}{}",
+                retained.display(),
+                world.settlement_diagnostics()
+            );
+        }
     }
     collector.report().unwrap();
     world.node.assert_no_process_death();
