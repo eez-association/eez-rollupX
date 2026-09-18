@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import pathlib
 import subprocess
 import tempfile
@@ -319,6 +320,7 @@ except urllib.error.HTTPError as error:
             assert len(endpoints) == 2 and {r['applied_endpoint'] for r in endpoints} == {f'0x{32:064x}', f'0x{33:064x}'}, endpoints
             assert all(r['l2_height'] == '3' for r in endpoints), endpoints
             gas = json.loads((runtime/'grafana/dashboards/gas.json').read_text())
+            blobs=json.loads((runtime/'grafana/dashboards/blobs.json').read_text())
             receipt_panel = next(p for p in gas['panels'] if p['title'].startswith('Receipt detail'))
             selected = query(receipt_panel['targets'][0], receipt_panel['datasource'], source_hash=f'0x{1002:064x}')
             assert len(selected) == 2 and {r['role'] for r in selected} == {'l1', 'l2'}, selected
@@ -417,6 +419,35 @@ except urllib.error.HTTPError as error:
                     assert isinstance(row['known_total_paid_gwei'], str), row
                     assert Decimal(row['known_execution_paid_gwei']) + Decimal(row['known_blob_paid_gwei']) == Decimal(row['known_total_paid_gwei']), row
             report['checks'].append('gwei_exact_decimal_strings_u256_max_plus_one_wei_nulls_and_fee_components')
+            # Charts intentionally use approximate floating native units while
+            # detail tables retain exact decimal gwei. Compare only identical
+            # receipt populations; never add L1 and L2 currencies together.
+            def chart_rows(dashboard, panel_id):
+                panel = next(p for p in dashboard['panels'] if p['id'] == panel_id)
+                return query({**panel['targets'][0], 'format':'table'},panel['datasource'])
+            def compare_native_components(actual, exact):
+                assert actual and exact, (actual,exact)
+                for row in actual:
+                    components = [row[name+'_native'] for name in ('execution','blob','total')]
+                    assert all(isinstance(value,(float,int)) and math.isfinite(value) for value in components), row
+                    assert math.isclose(components[0]+components[1],components[2],rel_tol=1e-12,abs_tol=1e-27),row
+                for component in ('execution','blob','total'):
+                    expected = sum(Decimal(row['known_'+component+'_paid_gwei']) for row in exact)/Decimal(10**9)
+                    actual_sum = sum(row[component+'_native'] for row in actual)
+                    assert math.isclose(actual_sum,float(expected),rel_tol=1e-12,abs_tol=1e-27),(component,actual_sum,str(expected))
+            run(psql,"UPDATE eez.chain_instances SET last_success_at=now();")
+            wallet_native = chart_rows(gas,22)
+            compare_native_components(wallet_native,[row for row in results['Configured wallet spend · separate chain populations'] if row['role']=='l1'])
+            posting_native = chart_rows(gas,19)
+            for exact in results['Paid posting calls · successful versus reverted']:
+                suffix = ' · successful' if exact['success'] else ' · reverted'
+                compare_native_components([row for row in posting_native if row['metric'].endswith(suffix)],[exact])
+            selected_native = chart_rows(gas,20)
+            for role,chain in {(row['role'],row['chain_id']) for row in results['Daily selected receipt spend · chain-separated']}:
+                compare_native_components([row for row in selected_native if row['metric']==role+' chain '+chain],
+                    [row for row in results['Daily selected receipt spend · chain-separated'] if (row['role'],row['chain_id'])==(role,chain)])
+            compare_native_components(chart_rows(blobs,12),results['Execution versus blob fees · exact included spend'])
+            report['checks'].append('native_currency_chart_components_match_exact_gwei_tables_by_receipt_population_without_cross_chain_conversion')
             allocations = results['Shared posting overhead estimates · per source']
             assert len(allocations) == 2 and {row['direction'] for row in allocations} == {'inbound','outbound'}, allocations
             assert all(row['allocation_rule'] == 'equal_share_v1' and row['estimated_total_gwei'] == gwei_text(100) for row in allocations), allocations
@@ -514,11 +545,11 @@ except urllib.error.HTTPError as error:
                 return [value for row in query(panel['targets'][0],panel['datasource']) for key,value in row.items() if key.lower()!='time' and isinstance(value,(float,int))]
             def funding_control(mode):
                 run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'funding':mode}))
-            for mode,balance,runway,affordable in [('healthy',[5e9],[172800],[1]),('zero_burn',[5e9],[],[1]),('balance_unknown',[],[],[1]),('native_unknown',[5e9],[172800],[]),('expired',[5e9],[172800],[]),('underfunded',[0],[0],[0])]:
+            for mode,balance,runway,affordable in [('healthy',[5],[172800],[1]),('zero_burn',[5],[],[1]),('balance_unknown',[],[],[1]),('native_unknown',[5],[172800],[]),('expired',[5],[172800],[]),('underfunded',[0],[0],[0])]:
                 funding_control(mode)
                 until('funding '+mode+' exact current dashboard semantics',lambda:funding_values(12)==balance and funding_values(13)==runway and funding_values(14)==affordable)
             funding_control('healthy')
-            until('funding evidence restored',lambda:funding_values(12)==[5e9] and funding_values(13)==[172800] and funding_values(14)==[1])
+            until('funding evidence restored',lambda:funding_values(12)==[5] and funding_values(13)==[172800] and funding_values(14)==[1])
             report['checks'].append('funding_real_zero_unknown_burn_stale_candidate_and_distinct_account_populations')
 
             unit_seed=(ROOT/'tests/settled-transaction-costs.sql').read_text().split('SELECT pg_temp.assert(')[0]
@@ -542,7 +573,6 @@ except urllib.error.HTTPError as error:
             finality_timing.exercise_dashboard(run, psql, query, cross, report)
 
             run(psql,"UPDATE eez.chain_instances SET collection_error='transport';")
-            blobs=json.loads((runtime/'grafana/dashboards/blobs.json').read_text())
             for title in ('Purchased and measured populations','Weighted purchased-capacity utilization'):
                 panel=next(p for p in blobs['panels'] if p['title']==title)
                 assert query(panel['targets'][0],panel['datasource'])==[],title

@@ -23,6 +23,44 @@ class Preparation(unittest.TestCase):
                        'alert_webhook_url': 'http://receiver:9000/alerts?token=$literal',
                        'heartbeat_webhook_url': 'http://independent:9000/heartbeat'}
 
+    def test_native_currency_labels_are_explicit_per_chain_and_do_not_change_amounts(self):
+        config = {**self.config, 'database_enabled': True}
+        runtime = prepare.prepare(config, self.root / 'currencies')
+        def panel(name, panel_id):
+            d = json.loads((runtime / f'grafana/dashboards/{name}.json').read_text())
+            return next(p for p in d['panels'] if p['id'] == panel_id)
+        original = panel('gas', 21)
+        self.assertEqual(original['fieldConfig']['defaults']['unit'], 'suffix: native units')
+        prepare.prepare({**config, 'native_currencies': {'l1': 'xDAI', 'l2': 'ETH'}}, runtime)
+        self.assertEqual(panel('gas', 21)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
+        self.assertEqual(panel('gas', 21)['targets'], original['targets'])
+        self.assertEqual(panel('gas', 22)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
+        self.assertEqual(panel('blobs', 12)['fieldConfig']['defaults']['unit'], 'suffix: xDAI')
+        self.assertIn('xDAI', panel('gas', 21)['title'])
+        for panel_id in (12, 18, 20):
+            overrides = panel('gas', panel_id)['fieldConfig']['overrides']
+            currency_units = {prop['value'] for o in overrides for prop in o['properties'] if prop['id'] == 'unit'}
+            self.assertTrue({'suffix: xDAI', 'suffix: ETH'} <= currency_units)
+            for ref_id, role, symbol in (('A', 'l1', 'xDAI'), ('B', 'l2', 'ETH')):
+                current = panel('gas', panel_id)
+                target = next(t for t in current['targets'] if t['refId'] == ref_id)
+                if panel_id == 12:
+                    self.assertIn('chain="' + role + '"', target['expr'])
+                else:
+                    self.assertIn("AND c.role='" + role + "' GROUP BY", target['rawSql'])
+                matched = [prop['value'] for override in overrides
+                           if override['matcher'] == {'id': 'byFrameRefID', 'options': ref_id}
+                           for prop in override['properties'] if prop['id'] == 'unit']
+                self.assertEqual(matched, ['suffix: ' + symbol])
+        self.assertIn('effective_gas_price_gwei', panel('gas', 5)['targets'][0]['rawSql'])
+        prepare.prepare({**config, 'native_currencies': {}}, runtime)
+        self.assertEqual(panel('gas', 21)['fieldConfig']['defaults']['unit'], 'suffix: native units')
+        self.assertFalse(any(o['matcher']['id'] == 'byFrameRefID' for o in panel('gas', 12)['fieldConfig']['overrides']))
+        self.assertEqual(len(panel('gas', 12)['targets']), 1)
+        for invalid in (None, [], {'l3': 'ETH'}, {'l1': ''}, {'l1': 123}, {'l1': '$ETH'}, {'l1': 'a' * 13}):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'native_currencies'):
+                prepare.prepare({**config, 'native_currencies': invalid}, runtime)
+
     def test_configuration_rerun_preserves_password_and_explicit_target_identity(self):
         runtime = prepare.prepare(self.config, self.root / 'runtime')
         secret = (runtime / 'secrets/grafana-admin-password').read_text()
@@ -517,13 +555,16 @@ class Preparation(unittest.TestCase):
         self.assertNotIn('__EEZ_', detail['targets'][0]['rawSql'])
         self.assertIn('NULL::text', detail['targets'][0]['rawSql'])
         string_override = {'matcher': {'id': 'byType', 'options': 'string'}, 'properties': [{'id': 'unit', 'value': 'string'}]}
-        self.assertEqual(detail['fieldConfig']['overrides'], [string_override])
+        original = json.loads((ROOT / 'grafana/dashboards/gas.json').read_text())
+        original_overrides = next(p for p in original['panels'] if p['id'] == detail['id'])['fieldConfig']['overrides']
+        self.assertEqual(detail['fieldConfig']['overrides'], original_overrides + [string_override])
         self.config.update(explorer_urls={'l1': "https://explorer.test/it's"}, traces_enabled=True)
         prepare.prepare(self.config, runtime)
         gas = json.loads((dashboards / 'gas.json').read_text())
         detail = next(p for p in gas['panels'] if p['title'].startswith('Receipt detail'))
         self.assertIn("https://explorer.test/it''s/tx/0x", detail['targets'][0]['rawSql'])
-        self.assertEqual(len(detail['fieldConfig']['overrides']), 2)
+        self.assertEqual(len(detail['fieldConfig']['overrides']), len(original_overrides) + 2)
+        self.assertEqual(detail['fieldConfig']['overrides'][:len(original_overrides)], original_overrides)
         self.assertIn(string_override, detail['fieldConfig']['overrides'])
         cross = json.loads((dashboards / 'cross-chain.json').read_text())
         trace = next(p for p in cross['panels'] if p['title'].startswith('Retained trace references'))

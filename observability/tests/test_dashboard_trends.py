@@ -87,10 +87,10 @@ class DashboardTrends(unittest.TestCase):
                 self.assertIn('FROM eez.' + view, query)
                 self.assertIn('bool_and(r.accounting_gap IS NULL', query)
                 self.assertIn('r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL', query)
-                self.assertIn('/1e9 END)::double precision', query)
+                self.assertIn('/1e18 END)::double precision', query)
                 self.assertNotIn('UNION', query)
                 self.assertNotIn('ELSE 0', query)
-                self.assertEqual('suffix: gwei', panels[panel_id]['fieldConfig']['defaults']['unit'])
+                self.assertEqual('suffix: native units', panels[panel_id]['fieldConfig']['defaults']['unit'])
         gas = {p['id']: p for p in dashboard('gas')['panels']}
         for panel_id in (2, 3, 4, 5, 9, 10, 11, 16, 17):
             self.assertEqual(gas[panel_id]['type'], 'table')
@@ -105,24 +105,24 @@ class DashboardTrends(unittest.TestCase):
         self.assertIn("sum(r.purchased_blobs*r.usable_bytes_per_blob) FILTER(WHERE r.measurement_state='measured')", utilization)
         self.assertIn('NULLIF(', utilization)
 
-    def test_fee_components_totals_and_balances_use_gwei_without_stacking_total(self):
+    def test_fee_components_totals_and_balances_use_native_units_without_stacking_total(self):
         for name, ids in [('gas', (19, 20, 22)), ('blobs', (12,))]:
             panels = {p['id']: p for p in dashboard(name)['panels']}
             for panel_id in ids:
                 p = panels[panel_id]
                 query = p['targets'][0]['rawSql']
-                self.assertEqual(p['fieldConfig']['defaults']['unit'], 'suffix: gwei')
-                for field in ('execution_gwei', 'blob_gwei', 'total_gwei'):
+                self.assertEqual(p['fieldConfig']['defaults']['unit'], 'suffix: native units')
+                for field in ('execution_native', 'blob_native', 'total_native'):
                     self.assertIn('AS ' + field, query)
-                self.assertIn('sum(r.execution_paid+r.blob_paid)/1e9', query)
+                self.assertIn('sum(r.execution_paid+r.blob_paid)/1e18', query)
                 self.assertNotIn('COALESCE', query)
                 if p['type'] == 'timeseries':
                     self.assertEqual(p['fieldConfig']['defaults']['custom']['stacking']['mode'], 'none')
         gas = {p['id']: p for p in dashboard('gas')['panels']}
         self.assertIn("c.role='l1'", gas[22]['targets'][0]['rawSql'])
         for panel_id in (12, 21):
-            self.assertEqual(gas[panel_id]['fieldConfig']['defaults']['unit'], 'suffix: gwei')
-            self.assertTrue(gas[panel_id]['targets'][0]['expr'].endswith(' * 1e9'))
+            self.assertEqual(gas[panel_id]['fieldConfig']['defaults']['unit'], 'suffix: native units')
+            self.assertNotIn(' * 1e9', gas[panel_id]['targets'][0]['expr'])
 
     def test_queue_directions_partition_states_and_keep_snapshot_freshness(self):
         panels = {p['id']: p for p in dashboard('cross-chain')['panels']}

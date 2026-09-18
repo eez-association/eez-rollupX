@@ -114,7 +114,7 @@ def validate(config):
     required = {'environment', 'deployment', 'observer_instance', 'observer_target', 'log_directory'}
     receivers = {'alert_webhook_url', 'heartbeat_webhook_url'}
     allowed = required | receivers | {'alerting_enabled', 'node_exporter_target', 'public_rpc_url', 'signer_tcp_target',
-                          'probe_exporter_target', 'grafana_public_url', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port', 'traces_enabled', 'tempo_port', 'otlp_http_port', 'explorer_urls', 'protocol_alerts', 'queue_source', 'client_targets', 'node_agent'}
+                          'probe_exporter_target', 'grafana_public_url', 'grafana_port', 'prometheus_port', 'loki_port', 'native_processes', 'database_enabled', 'postgres_port', 'traces_enabled', 'tempo_port', 'otlp_http_port', 'explorer_urls', 'protocol_alerts', 'queue_source', 'client_targets', 'node_agent', 'native_currencies'}
     if set(config) - allowed or required - set(config):
         raise ValueError('missing or unknown stack configuration fields')
     alerting = config.get('alerting_enabled', True)
@@ -122,6 +122,11 @@ def validate(config):
         raise ValueError('alerting_enabled must be a boolean')
     if not alerting and (any(config.get(key) is not None for key in receivers) or 'protocol_alerts' in config):
         raise ValueError('disabled alerting cannot configure receivers or protocol_alerts')
+    currencies = config.get('native_currencies', {})
+    if (not isinstance(currencies, dict) or set(currencies) - {'l1', 'l2'}
+            or any(not isinstance(symbol, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9]{0,11}', symbol)
+                   for symbol in currencies.values())):
+        raise ValueError('native_currencies must map l1/l2 to short currency symbols')
     protocol_alert_config(config)
     grafana_public_url(config)
     for key in ('environment', 'deployment', 'observer_instance'):
@@ -565,6 +570,7 @@ loki.write "local" {
     write_json(runtime / 'manifest.json', {'environment': config['environment'], 'deployment': config['deployment'],
         'observer_instance': config['observer_instance'], 'test_timings': fast_test, 'grafana_public_url': public_url,
         'queue_source': config.get('queue_source', 'rpc'),
+        'native_currencies': config.get('native_currencies', {}),
         'client_targets': [name for name, _, _ in client_targets(config)],
         'node_agent_enabled': node_agent_config(config) is not None,
         'native_processes': [name for name, _, _ in native_configs(config)],
@@ -645,6 +651,34 @@ def prepare_dashboards(config, runtime):
                 'expr': '{environment="$environment",deployment="$deployment",service="eez-composer"} | json | event_name=~"eez.composer.(settlement.policy|emission.limits)"',
                 'maxLines': 100, 'titleFormat': '{{event_name}}', 'tagKeys': 'service,instance'})
         for panel in dashboard['panels']:
+            if panel.get('fieldConfig', {}).get('defaults', {}).get('unit') == 'suffix: native units':
+                # These panels already use whole native amounts. Currency labels
+                # are explicit deployment metadata, never a price conversion.
+                currencies = config.get('native_currencies', {})
+                mixed = name == 'gas.json' and panel['id'] in (12, 18, 20)
+                if mixed:
+                    if currencies:
+                        # Match query frames, not SQL display-name aliases:
+                        # Grafana may keep chain labels outside the field name.
+                        original = panel['targets'][0]
+                        panel['targets'] = []
+                        for ref_id, role in (('A', 'l1'), ('B', 'l2')):
+                            target = dict(original, refId=ref_id)
+                            if 'rawSql' in target:
+                                target['rawSql'] = target['rawSql'].replace(' GROUP BY ', " AND c.role='" + role + "' GROUP BY ")
+                            else:
+                                target['expr'] = target['expr'].replace(
+                                    'eez_observer_funding_balance_native_units{',
+                                    'eez_observer_funding_balance_native_units{chain="' + role + '",', 1)
+                            panel['targets'].append(target)
+                            panel['fieldConfig']['overrides'].append({
+                                'matcher': {'id': 'byFrameRefID', 'options': ref_id},
+                                'properties': [{'id': 'unit', 'value': 'suffix: ' + currencies.get(role, 'native units')}]})
+                    label = ' / '.join(dict.fromkeys(currencies.get(role, 'native units') for role in ('l1', 'l2')))
+                else:
+                    label = currencies.get('l1', 'native units')
+                    panel['fieldConfig']['defaults']['unit'] = 'suffix: ' + label
+                panel['title'] = panel['title'].replace('native units', label)
             if panel['title'].startswith('Request timeline'):
                 panes = {'logs': {'datasource': 'eez-loki', 'queries': [{'refId': 'A',
                     'expr': '{environment="$environment",deployment="$deployment"} |= "$transaction"'}],

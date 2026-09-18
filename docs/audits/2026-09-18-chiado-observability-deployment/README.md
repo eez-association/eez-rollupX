@@ -367,3 +367,55 @@ a validator assumption that Grafana returns Prometheus labels as table columns;
 that KeyError was preserved and corrected using explicit PromQL label matching.
 This was a test-harness correction, not a change to the deployed metric queries.
 Evidence is retained under deployment `validation/crosschain-diagnostics-20260918/`.
+
+
+## Readable currency amounts and dashboard review
+
+Balances and aggregate fee panels now display whole native units instead of
+large gwei values. The private deployment config explicitly labels L1 as xDAI
+and L2 as ETH (the deployed explorer config identifies Test Ether). Exact detail
+tables and per-gas prices retain gwei. Storage, accounting, fee populations,
+missing-data behavior and runtime services are unchanged. Mixed-chain panels
+query each role separately and attach its unit to the returned query frame;
+no exchange-rate conversion or addition across currencies occurs.
+
+Source baseline: `4e0cdab3cfe2a7d66723f129b2fe52956c3b1bb6`, protocol pin
+`3c0cdf4955941a5c23639346932b55b33babebbd`. Preparation validation and regenerated
+dashboard files are the implementation; no native binary or schema changed.
+Optional `native_currencies` is validated, propagated and recorded in the
+manifest; omitted roles retain a neutral label. Reconfiguration removes old
+labels and query splits.
+
+Validation: 26 preparation tests and nine dashboard tests passed. The isolated
+Grafana/PostgreSQL/Prometheus fixture passed 132 generated queries and 22 semantic
+check groups, including chart-to-exact-table arithmetic, chain separation and
+unknown/zero/stale funding. This fixture used the default currency configuration;
+explicit labels and role-split queries were checked by preparation tests and live
+Grafana. All 48 live panels queried successfully; eight browser charts rendered
+without datasource errors (23 requests). Independent reader checks reconciled
+47 complete receipts and 72 fee buckets. Visual inspection confirmed xDAI on the
+balance, fee totals and mixed-wallet fee axis. Evidence and screenshots are
+local-only under deployment `validation/readable-currency-20260918/`.
+
+The first preparation run exposed an outdated test assumption that receipt
+panels had no source overrides; the assertion now preserves the existing exact
+string/gwei overrides and checks generated additions. Its failure log is retained.
+An initial display-name matcher did not label SQL frames reliably; query-frame
+matching replaced it before completion. No performance workload was run; the
+requested benchmark remains postponed.
+
+A read-only review of the original monitor and Grafana identified these useful
+follow-ups, not implemented in this display update:
+
+- L2 block cadence, empty-block fraction and all transactions per block. The
+  monitor's sampled 12 blocks were empty with one-second gaps; this short sample
+  is not a throughput or capacity measurement.
+- Registry rollup escrow balance (`RollupConfig.etherBalance`), distinct from the
+  poster's wallet and not a measure of freely spendable funds or TVL.
+- Global L1 blob pressure (`blobGasUsed`, `excessBlobGas`) and whole-block execution
+  gas utilization, complementing EEZ-specific costs and source receipt gas.
+
+Prefer existing canonical observer data where available and explicit producer
+coverage otherwise. Do not import browser-derived queue predictions or legacy
+BatchPosted decoding assumptions from the old visualizer. Queue size, latency,
+source gas, finality lag and peers already have dedicated Grafana coverage.

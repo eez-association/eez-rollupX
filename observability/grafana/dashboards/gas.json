@@ -135,7 +135,7 @@
         "w": 24,
         "h": 4
       },
-      "description": "Fees and balances are displayed in gwei (10^-9 native currency; xDAI on Chiado), without ETH or fiat conversion. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges.",
+      "description": "Balances and aggregate fee charts use whole native units (10^18 wei), with deployment-specific currency labels and no price conversion. Exact detail tables and per-gas prices remain in gwei. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -145,7 +145,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Fees and balances are displayed in gwei (10^-9 native currency; xDAI on Chiado), without ETH or fiat conversion. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges."
+        "content": "Balances and aggregate fee charts use whole native units (10^18 wei), with deployment-specific currency labels and no price conversion. Exact detail tables and per-gas prices remain in gwei. Execution and blob fees add to the displayed total. L1 configured-wallet fees, posting fees and selected receipts are overlapping populations; do not add their panels together. L2 user fees remain separate. Included reverts are charged; missing accounting remains unknown. Tables preserve exact decimal gwei values. Shared posting overhead uses equal_share_v1 estimates, not exact per-user charges."
       }
     },
     {
@@ -158,7 +158,7 @@
         "w": 24,
         "h": 5
       },
-      "description": "Sum of canonical included receipt fees for the configured L1 wallets in the selected time range, including reverts. Total = execution + blobs. Does not include transferred value, L2 user fees or unrelated wallets. Unknown if the selected population has incomplete fee accounting. Gwei is 10^-9 of L1 native currency (xDAI on Chiado), not an ETH price conversion. Do not add these totals to overlapping posting or selected-receipt panels.",
+      "description": "Sum of canonical included receipt fees for the configured L1 wallets in the selected time range, including reverts. Total = execution + blobs. Does not include transferred value, L2 user fees or unrelated wallets. Unknown if the selected population has incomplete fee accounting. Amounts use whole L1 native units (wei / 10^18), not a currency-price conversion. Do not add these totals to overlapping posting or selected-receipt panels.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -168,13 +168,12 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT (CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND c.role='l1'"
+          "rawSql": "SELECT (CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e18 END)::double precision AS execution_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e18 END)::double precision AS blob_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS total_native FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid AND c.role='l1'"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
-          "decimals": 3,
+          "unit": "suffix: native units",
           "noValue": "Unknown",
           "color": {
             "mode": "palette-classic"
@@ -184,7 +183,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "execution_gwei"
+              "options": "execution_native"
             },
             "properties": [
               {
@@ -196,7 +195,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "blob_gwei"
+              "options": "blob_native"
             },
             "properties": [
               {
@@ -208,7 +207,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "total_gwei"
+              "options": "total_native"
             },
             "properties": [
               {
@@ -236,7 +235,7 @@
     },
     {
       "id": 21,
-      "title": "Poster balance over time \u00b7 gwei",
+      "title": "Poster balance over time \u00b7 native units",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -244,7 +243,7 @@
         "w": 24,
         "h": 8
       },
-      "description": "Observed balance of the configured L1 poster account. One gwei is 10^-9 of the native currency (xDAI on Chiado); no ETH or fiat conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
+      "description": "Observed balance of the configured L1 poster account. One whole native unit equals 10^18 wei. Currency labels come from deployment configuration; no asset or fiat conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -256,12 +255,12 @@
           "instant": false,
           "range": true,
           "legendFormat": "Poster \u00b7 {{instance}}",
-          "expr": "(eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)) * 1e9"
+          "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
+          "unit": "suffix: native units",
           "noValue": "Unknown",
           "color": {
             "mode": "palette-classic"
@@ -281,7 +280,7 @@
             "barAlignment": 0,
             "barWidthFactor": 0.7
           },
-          "decimals": 3
+          "decimals": 4
         },
         "overrides": []
       },
@@ -303,7 +302,7 @@
     },
     {
       "id": 18,
-      "title": "Configured-wallet fees \u00b7 gwei / 5m",
+      "title": "Configured-wallet fees \u00b7 native units / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -311,7 +310,7 @@
         "w": 12,
         "h": 8
       },
-      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
+      "description": "Canonical included fees per five-minute bucket in whole native units (wei / 10^18). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -321,12 +320,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 0x'||encode(r.sender,'hex') AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS value FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 0x'||encode(r.sender,'hex') AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS value FROM eez.wallet_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
+          "unit": "suffix: native units",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -346,8 +345,7 @@
             },
             "barAlignment": 0,
             "barWidthFactor": 0.7
-          },
-          "decimals": 3
+          }
         },
         "overrides": []
       },
@@ -368,7 +366,7 @@
     },
     {
       "id": 19,
-      "title": "Posting fees \u00b7 execution, blobs and total \u00b7 gwei / 5m",
+      "title": "Posting fees \u00b7 execution, blobs and total \u00b7 native units / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -376,7 +374,7 @@
         "w": 12,
         "h": 8
       },
-      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
+      "description": "Canonical included fees per five-minute bucket in whole native units (wei / 10^18). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -386,12 +384,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e18 END)::double precision AS execution_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e18 END)::double precision AS blob_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS total_native FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
+          "unit": "suffix: native units",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -411,14 +409,13 @@
             },
             "barAlignment": 0,
             "barWidthFactor": 0.35
-          },
-          "decimals": 3
+          }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^execution_gwei"
+              "options": "^execution_native"
             },
             "properties": [
               {
@@ -430,7 +427,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^blob_gwei"
+              "options": "^blob_native"
             },
             "properties": [
               {
@@ -442,7 +439,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^total_gwei"
+              "options": "^total_native"
             },
             "properties": [
               {
@@ -486,7 +483,7 @@
     },
     {
       "id": 20,
-      "title": "Selected receipt fees \u00b7 execution, blobs and total \u00b7 gwei / 5m",
+      "title": "Selected receipt fees \u00b7 execution, blobs and total \u00b7 native units / 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -494,7 +491,7 @@
         "w": 24,
         "h": 8
       },
-      "description": "Canonical included fees per five-minute bucket in gwei (10^-9 native currency; xDAI on Chiado). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
+      "description": "Canonical included fees per five-minute bucket in whole native units (wei / 10^18). Includes reverted receipts. Execution and blob fees are separate components; total is their sum, never a third charge to add. Incomplete accounting suppresses the entire bucket. Missing buckets remain absent. This population overlaps other spend panels and must not be added to them. Exact decimal gwei amounts remain in the tables below.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "eez-postgres"
@@ -504,12 +501,12 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e9 END)::double precision AS execution_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e9 END)::double precision AS blob_gwei,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e9 END)::double precision AS total_gwei FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e18 END)::double precision AS execution_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e18 END)::double precision AS blob_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid+r.blob_paid)/1e18 END)::double precision AS total_native FROM eez.canonical_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
+          "unit": "suffix: native units",
           "noValue": "Unknown",
           "min": 0,
           "color": {
@@ -529,14 +526,13 @@
             },
             "barAlignment": 0,
             "barWidthFactor": 0.35
-          },
-          "decimals": 3
+          }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^execution_gwei"
+              "options": "^execution_native"
             },
             "properties": [
               {
@@ -548,7 +544,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^blob_gwei"
+              "options": "^blob_native"
             },
             "properties": [
               {
@@ -560,7 +556,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^total_gwei"
+              "options": "^total_native"
             },
             "properties": [
               {
@@ -604,7 +600,7 @@
     },
     {
       "id": 12,
-      "title": "Configured account balances \u00b7 current gwei",
+      "title": "Configured account balances \u00b7 current native units",
       "type": "stat",
       "gridPos": {
         "x": 0,
@@ -619,9 +615,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: gwei",
+          "unit": "suffix: native units",
           "noValue": "Unknown",
-          "decimals": 3
+          "decimals": 4
         },
         "overrides": []
       },
@@ -639,7 +635,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)) * 1e9",
+          "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)",
           "instant": true,
           "range": false,
           "format": "time_series",

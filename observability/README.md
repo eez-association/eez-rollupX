@@ -271,3 +271,19 @@ It collects host/owner/endpoint inputs, ordered rollout checks, backup recovery
 targets and the required seven-day baseline; the template is not live deployment
 evidence. Native trace-loss delivery and semantic recovery are covered separately
 by the [real native alert test](validation/native-loss-alerts.md).
+
+
+### Currency display
+
+Balance and aggregate fee charts use whole native units; exact receipt tables
+and gas prices remain in gwei. Set optional `native_currencies` in the private
+stack configuration to label each chain correctly, for example:
+
+```json
+"native_currencies": {"l1": "xDAI", "l2": "ETH"}
+```
+
+This labels amounts already expressed in 18-decimal native units; it does not
+convert assets or query exchange rates. Omitted roles show `native units`.
+Use symbols matching the deployed chains. Re-run preparation to apply changes;
+no node restart or database migration is needed.

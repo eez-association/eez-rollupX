@@ -182,8 +182,9 @@ cohort counts, coverage, exact identifiers and evidence details remain below.
 
 Monetary charts sum the existing receipt population in PostgreSQL numeric
 arithmetic, require complete accounting throughout each displayed bucket, divide
-by 10^9 and only then convert to plotting numbers. These **gwei plots are
-approximate visualizations**, not replacements for the exact decimal gwei tables.
+by 10^18 and only then convert to plotting numbers. These **whole-native-unit
+plots are approximate visualizations**, not replacements for the exact decimal
+gwei tables.
 Storage and protocol accounting remain in integer wei. One gwei is 10^-9 of the
 chain's native currency (xDAI on Chiado); no ETH/fiat conversion is performed.
 Chains remain separate; included reverts count as spend. Wallet, selected-receipt,
@@ -215,8 +216,8 @@ and introduces no RPC/native fallback or double counting; RPC remains the defaul
 
 The poster-balance history panel uses retained Prometheus observations of the
 configured L1 poster, gated by funding validity and observer reachability. Stored
-native-unit gauges are multiplied by 10^9 for display in gwei, without currency
-conversion. The current balance panel uses the same display unit. Funding increases and
+native-unit gauges are displayed directly, without currency conversion. The
+current balance panel uses the same whole-native-unit display. Funding increases and
 spending decreases are visible; history before collection or outside retention is
 not reconstructed. Like the current configured-account balance, this panel follows
 environment/deployment scope independently of native-instance/chain/rollup selectors.
@@ -255,7 +256,8 @@ existing detailed evidence tables and their filters below:
 | How large are paid posting populations? | Verified source members/post 33 | Full verified unique source population per paid post/context, including reverted attempts; known empty is 0, incomplete/contradictory evidence is NULL |
 
 Native snapshots remain 15 seconds; short-lived queue spikes can occur between
-samples. All monetary charts elsewhere remain in gwei. Gas quantities here are
+samples. Fees/balances in overview charts use whole native units; exact monetary tables
+and per-gas prices retain gwei. Gas quantities here are
 gas units, distinct from fees and from destination execution attribution.
 
 Source-block charts materialize distinct `(chain_instance_id, transaction_hash,
@@ -318,3 +320,21 @@ native processing, SQL assurance, monetary units, sampling cadence or alert stat
 The real Grafana/Prometheus fixture checks admission:terminal:committed ratios
 5:4:2 at one evaluation time, typed nonce-gap/replacement series, direct age-band
 boundaries 30/120/121, unknown clocks, idle zeroes and stale/incomplete suppression.
+
+
+## Readable amount units and currency labels
+
+Overview balance and aggregate fee panels use whole native units (10^18 wei), so
+large gwei amounts do not become unreadable strings of zeroes. Receipt detail,
+allocation tables and per-gas prices retain exact decimal gwei. Gas quantities,
+blob bytes and durations retain their own dimensions. This is a denomination
+change only: no exchange-rate lookup, asset conversion or accounting rewrite.
+
+The optional stack setting `native_currencies` maps `l1` and/or `l2` to the actual
+short currency symbols, for example `{"l1":"xDAI","l2":"ETH"}` for this Chiado/
+EEZ test deployment. Values must be 1–12 ASCII alphanumeric characters starting
+with a letter; other keys/types/empty symbols fail preparation. Missing roles use
+`native units` instead of assuming ETH. Single-L1 panels use its symbol; mixed
+chain panels apply per-series units and retain separate populations/axes. The
+setting is recorded in the preparation manifest and affects display labels only.
+Reconfiguration rebuilds the overrides without retaining an old currency label.
