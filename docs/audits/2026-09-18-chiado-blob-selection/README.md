@@ -41,3 +41,7 @@ Local-only logs (not portable CI artifacts):
 
 No performance comparison was run; the user has deferred those measurements.
 This record does not claim a complete CI release matrix or a live deployment.
+
+The subsequent [fresh Chiado deployment and live verification](../2026-09-18-chiado-observability-deployment/README.md)
+records deployment of this fix, a separate inherited L1 recovery, functional
+cross-chain checks and a native lifecycle-identity correction.

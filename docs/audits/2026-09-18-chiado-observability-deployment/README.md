@@ -2,9 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Date and status | 2026-09-18; deployment and monitoring running; native identity correction awaiting rollout |
+| Date and status | 2026-09-18; completed functional single-host deployment; current runtime and canonical monitoring verified |
 | Scope | User-authorized backup and fresh, testable single-host Compose network |
-| Runtime source | `3eeff740c5cd4d075a474ef676e92bb51fe1ade2` |
+| Initial deployment source | `3eeff740c5cd4d075a474ef676e92bb51fe1ade2` |
+| Current shipping source | `68e5da389b0df815a0b013dea7915735f544aa93` |
 | Protocol | `3c0cdf4955941a5c23639346932b55b33babebbd` |
 | Networks | Chiado L1 10200; fresh L2 6291, replacing 6290 at the public endpoints |
 | Related change | [Beacon blob selection fix](../2026-09-18-chiado-blob-selection/README.md) |
@@ -37,9 +38,9 @@ shipping helpers, rendered genesis and registered commitment.
 | Registry | `0x0ca34c68324dd5ef4bd6813af661d7817e4793b8` |
 | Rollup ID / deployment block | `1` / `23118328` |
 | L2 genesis block hash | `0x3f29c4f78394260473f543ae4602c3d5edc759a49303fa23c3b3497e903f61d0` |
-| Node image | `sha256:e4155b7c16cd802f573140b0771071d02fb636a684fbbb2ee5a1ed9bfb24d5bd` |
-| Signer image | `sha256:273f4d14f4b932ed231168d4e4c3b38fcb9883aae01cfba6ee81bd111f1b037e` |
-| Deploy image | `sha256:412807cf0da3775561fcf3b5e205c11cc2ac45f0997082d6c54bc1738ad049eb` |
+| Initial node image | `sha256:e4155b7c16cd802f573140b0771071d02fb636a684fbbb2ee5a1ed9bfb24d5bd` |
+| Initial signer image | `sha256:273f4d14f4b932ed231168d4e4c3b38fcb9883aae01cfba6ee81bd111f1b037e` |
+| Initial deploy image | `sha256:412807cf0da3775561fcf3b5e205c11cc2ac45f0997082d6c54bc1738ad049eb` |
 
 The supported no-publication producer and artifact consumer verified exact runtime
 identity. All **1,311 archived unit tests passed**; two intentional utility tests
@@ -129,8 +130,59 @@ Detailed artifacts are private, host-local, under
 The first boot, first canary attempt, diagnostic failures and successful recovery
 records are retained separately.
 
-The corrected native producer still needs a shipping build and a fresh two-way
-canary proving canonical observer correlation. Performance comparisons remain
-explicitly postponed by the user. Alerts
+The corrected producer was built with the standard shipping feature selection,
+Rust 1.94.0, locked dependencies and release flags, then verified by the standard
+runtime artifact consumer. This focused local build omitted regeneration of the
+full release test archives; the initial 1,311-test archive result is not presented
+as a rerun on the later image. All 46 affected node tests, workspace all-target
+strict Clippy, formatting and shell syntax passed for the correction. Two opt-in
+Docker fixture tests were selected but skipped; the actual shipping build and
+container inspection instead verified private Foundry cache/broadcast exclusion.
+The one-line deployment Dockerignore correction prevents private live test cache
+from entering future deployment images.
+
+Current immutable images:
+
+- node: `sha256:6bd87541c872b03f4d92ecdd89e984f51fae73597c1213b02238b699193d261e`
+- signer: `sha256:f8d81deb3d8be778bb7faba38393cb6b09381f32c585d671033d670d716d730d`
+- deploy: `sha256:2ed4179deada4996c421813c75c1637275b18bfe56f419c00f358d672ea3d1b7`
+
+Runtime archive SHA256: `9acb917dc56ad5dc53d67aafb27f7b767434b09b6711d3509bdb0b74dc8ceaea`. Local shipping method and
+source hashes are retained in private `validation/shipping-build/method.json`.
+
+The fresh inbound/outbound canary passed canonical receipts, distinct destination
+events and registry-backed values 242/343. SQL independently reports both exact
+source hashes as canonical/committed with `node_reconciled` evidence and the correct
+chain/genesis identities. All 62 receipt facts captured before the image upgrade
+remain unique and unchanged, including their exact fees. The seven historical bad
+admission payloads remain unchanged and unknown; no identity guard or historical
+record was relaxed. At verification, all 23 posting blobs had authenticated
+measurements and source-receipt coverage had no missing, lookup, accounting or
+index-coverage gaps. These are bounded observations, not perpetual guarantees.
+
+| Direction | Verified source transaction |
+| --- | --- |
+| Inbound | `0x945b191fdde04f71a76cd6dccb30dcf8db4aefb104d9f519283f3fd88ef00ad2` |
+| Outbound | `0x22873cc65c9550c90e60eaee95edf55ba4633ffe25170bb0a8d8aec08696c817` |
+
+Final public checks returned 200 for UI, monitor and unauthenticated Grafana
+login/health, with RPC chain IDs 10200/6291. Original core containers remained
+stopped; corrected node, signer and Beacon remained running.
+
+Performance comparisons remain explicitly postponed by the user. Alerts
 remain paused, distributed tracing and independent follower replay are not enabled,
 and no off-host disaster-recovery or production-readiness claim is made.
+
+## Requirement coverage
+
+| Requirement | Implementation / operation | Verification |
+| --- | --- | --- |
+| Preserve existing rollup | Cold filesystem/SQL/volume/image backup plus retained originals | Inventory/content/metadata hashes and archive checks; original writers remain stopped |
+| Fresh compatible network | New registry/profile, genesis6291, separate data/keys/Compose names | Six canonical deployment receipts, getter/genesis checks and both-direction functional effects |
+| Mixed Beacon applications | `crates/eez-l1/src/blob_source.rs` selects physical hashes before EEZ decoding | Baseline regression,145 L1 tests, initial archived units, live blob handling |
+| Correct native chain identity | `crates/eez-node/src/lib.rs` retains concrete Gnosis spec | Canonical-hash regressions,46 node tests, two live canonical SQL outcomes |
+| Usable functional driver | `scripts/xchain-test.sh` broadcast fee option | Reproduced estimate failure, successful corrected receipt and unchanged matrix assertions |
+| Private image build inputs | `testing/kurtosis/Dockerfile.deploy.dockerignore` excludes Foundry cache | Actual deploy image contains neither cache nor broadcasts |
+| Real self-hosted observability | Native overlays, schema22 observer/PG, Prometheus/Loki/Grafana | Scrapes, SQL fees/blobs, lifecycle streams,7 dashboards/3 data sources, snapshot uniqueness |
+| Existing public access | Preserved gateway, updated UI/monitor, isolated fresh explorers | HTTP/browser checks, actual chain/genesis/receipt/blob comparisons |
+| Recovery and persistence | Supported L1 unwind, graceful restart and image rollout | Canonical replay, retained safe block, advancing heads, unchanged62-row receipt snapshot |

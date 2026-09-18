@@ -47,3 +47,12 @@ The retained demo was subsequently published at the user's request through
 [the existing HTTPS gateway](../runbooks/gateway.md). Its current address is
 https://eez.asuscomm.com/grafana/; authentication remains enabled. The original
 local smoke report is retained unchanged as historical evidence.
+
+## Superseded live instance, 2026-09-18
+
+The subsequent [fresh Chiado deployment](../../docs/audits/2026-09-18-chiado-observability-deployment/README.md)
+replaced the public demo with real L1 10200 / L2 6291 monitoring. The simulated
+project is stopped; its original report, configuration and all five volumes are
+retained. The public Grafana URL and password are unchanged, but the active
+PostgreSQL/Prometheus/Loki/Grafana data belongs to a separate fresh project. The
+historical statements above describe the earlier simulated checkpoint.
