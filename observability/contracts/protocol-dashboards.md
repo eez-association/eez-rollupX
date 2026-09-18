@@ -220,3 +220,21 @@ conversion. The current balance panel uses the same display unit. Funding increa
 spending decreases are visible; history before collection or outside retention is
 not reconstructed. Like the current configured-account balance, this panel follows
 environment/deployment scope independently of native-instance/chain/rollup selectors.
+
+
+## Attribution-table evaluation boundary
+
+Gas tables 6 and 9 materialize the exact selected L1/L2 context IDs, then materialize
+the existing `posting_allocation_status` or `source_posting_allocations` projection
+for those pairs once. Receipt-time, source-hash, health and presentation filters
+remain outside that boundary. This prevents the flattened outer joins from
+re-evaluating shared claim evidence for each paid post. It does not cache results
+between requests or copy the allocation policy into the dashboard.
+
+The underlying views still inspect all applicable complete/unchecked declarations,
+positive orphan evidence, conflicts and the complete source population before
+calculating equal shares. No early time/source/producer filter or LIMIT removes a
+competing claim or changes the denominator. Environment/deployment/chain/rollup
+selection, unknown states, gwei arithmetic, sorting and limits are unchanged. The
+reader keeps its 10-second statement timeout; no migration or runtime update is
+required.

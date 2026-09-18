@@ -266,7 +266,39 @@ selected-range totals with no datasource errors in the visible panels.
 
 Two existing Gas attribution tables (IDs 6 and 9) exceed the unchanged 10-second
 SQL limit on the live population. Both the original wei queries and converted
-queries reproduce this timeout; isolated fixture cases pass. This is retained as
-a query-optimization follow-up, not hidden by increasing limits or reported as a
-passing live-table check. The requested fee charts, exact receipt table and totals
+queries reproduce this timeout; isolated fixture cases pass. This was retained as
+a query-optimization follow-up, subsequently resolved below; limits were not
+increased and that original check remains recorded as a failure. The requested fee charts, exact receipt table and totals
 passed. Private evidence: `validation/fees-gwei-20260918/` under the deployment.
+
+
+## Attribution-table query optimization
+
+The previously timed-out Gas tables 6 and 9 now materialize their existing allocation
+projection once for the exact selected L1/L2 contexts, before outer presentation
+filters. This is confined to their dashboard SQL. Source membership, unprojected
+claims, conflicts, positive orphaning, allocation denominators, exact gwei values,
+filters and row limits remain defined by the existing views. No schema migration,
+new configuration, longer timeout or runtime restart was required.
+
+On the live dataset, EXPLAIN ANALYZE completed in 289.7 ms and 246.8 ms, with separate
+planning times around 61 ms. The grouped membership and checked evidence each ran
+once (50 grouped posts, 88 checked claims in that snapshot). Grafana reader API
+requests took 318 ms and 337 ms and returned three coverage states and six source
+allocations; both tables also rendered in the browser. The original queries
+exceeded the unchanged 10-second deadline. These are bounded measurements on the
+shared host, not a network-performance benchmark or an unlimited-history claim.
+
+An initial API check immediately after writing provisioned files still retrieved
+the previous query text and timed out. The failure is preserved. After Grafana's
+dashboard reload, the validator required the actual served materialized SQL before
+executing or reporting timing; neither old-query failures nor empty fast results
+were counted as candidate success.
+
+Validation includes the isolated Grafana/PostgreSQL/Prometheus datasource suite,
+seven dashboard/selector tests, the existing 101-claim deadline regression, and
+60 full-row baseline/candidate comparisons across 30 context/time/source and
+attribution uncertainty/retraction cases. Initial comparisons require nonempty
+results; explicit NULL accounting retains gaps and missing estimates.
+Private plans, served-query results and table screenshots are retained under
+`validation/allocation-queries-20260918/` in the deployment directory.

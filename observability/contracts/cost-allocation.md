@@ -172,3 +172,13 @@ The reader-role regression keeps the same 512 MiB/one-CPU database and 10-second
 statement limit. It verifies all 101 claims remain active and verified while the
 source retains exactly one allocated share. Larger deployment capacity remains
 a measured rollout concern; this bound is not a claim of unlimited history.
+
+
+## Dashboard projection boundary
+
+The Gas allocation coverage and per-source tables additionally materialize the
+existing allocation view once for the selected chain pairs before presentation
+filters. This is a query-local evaluation boundary, not persisted evidence or a
+new allocation rule. All time/source filters stay after the complete projection;
+unchecked and conflicting claims therefore retain their existing invalidation
+semantics. See the [dashboard contract](protocol-dashboards.md#attribution-table-evaluation-boundary).
