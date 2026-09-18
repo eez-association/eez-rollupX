@@ -4,7 +4,7 @@ This stack is private operational tooling. The first dashboards show the RPC
 exporter's aggregate observations, scrape health and explicitly configured log
 files/probes. They do not establish canonical completion or finality.
 
-**Notification links.** `grafana_public_url` is the browser-facing HTTP(S) origin
+**Notification links.** `grafana_public_url` is the browser-facing HTTP(S) base URL, optionally including a safe path prefix
 used for alert, dashboard, panel and runbook links. It may be a private VPN or
 reverse-proxy origin; Grafana retains authentication and the existing loopback
 binding. Use an origin without credentials, query, fragment or a subpath, for

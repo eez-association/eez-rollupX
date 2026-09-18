@@ -61,10 +61,92 @@ class Preparation(unittest.TestCase):
         self.assertTrue(all('runbook_url' not in rule['annotations'] for rule in rules))
         for value in [None, '', 1, 'javascript:alert(1)', 'https://user:secret@monitor.test',
                       'http://@monitor.test', 'http://:@monitor.test', 'http://monitor.test?', 'http://monitor.test#', 'https://monitor.test?token=secret', 'https://monitor.test/#secret',
-                      'http://monitor.test:0', 'http://monitor.test:bad', 'http://monitor.test/grafana',
+                      'http://monitor.test:0', 'http://monitor.test:bad',
                       'http://bad host', 'http://host/$secret', 'http://host\n', 'http://host\x00']:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 prepare.validate({**self.config,'grafana_public_url':value})
+
+    def test_grafana_subpaths_propagate_to_root_flags_and_notification_links(self):
+        for url, base, subpath, secure in [
+            ('https://eez.asuscomm.com/grafana/', 'https://eez.asuscomm.com/grafana', True, True),
+            ('http://monitor.test/metrics/grafana', 'http://monitor.test/metrics/grafana', True, False),
+            ('https://monitor.test/', 'https://monitor.test', False, True),
+            ('http://monitor.test', 'http://monitor.test', False, False),
+        ]:
+            config = {**self.config, 'grafana_public_url': url, 'database_enabled': True,
+                      'protocol_alerts': {'owner': 'ops'}}
+            runtime = prepare.prepare(config, self.root / 'subpath')
+            environment = (runtime / 'compose.env').read_text().splitlines()
+            self.assertIn(f'GRAFANA_PUBLIC_URL={base}', environment)
+            self.assertIn(f'GRAFANA_SERVE_FROM_SUB_PATH={str(subpath).lower()}', environment)
+            self.assertIn(f'GRAFANA_COOKIE_SECURE={str(secure).lower()}', environment)
+            prefix = urlsplit(base).path
+            self.assertIn(f'GRAFANA_SUB_PATH={prefix}', environment)
+            prometheus = json.loads((runtime / 'prometheus/prometheus.yaml').read_text())
+            scrape = next(job for job in prometheus['scrape_configs'] if job['job_name'] == 'grafana')
+            self.assertEqual(scrape.get('metrics_path', '/metrics'), prefix + '/metrics')
+            self.assertEqual(scrape['static_configs'][0]['targets'], ['grafana:3000'])
+            rules = json.loads((runtime / 'grafana/provisioning/alerting/eez.yaml').read_text())['groups'][0]['rules']
+            self.assertTrue(all(rule['annotations']['runbook_url'].startswith(base + '/d/eez-runbooks?') for rule in rules))
+            self.assertEqual(json.loads((runtime / 'manifest.json').read_text())['grafana_public_url'], base)
+        for config in [self.config, {**self.config, 'grafana_port': 0}]:
+            runtime = prepare.prepare(config, self.root / 'subpath-default')
+            environment = (runtime / 'compose.env').read_text().splitlines()
+            self.assertIn('GRAFANA_SERVE_FROM_SUB_PATH=false', environment)
+            self.assertIn('GRAFANA_COOKIE_SECURE=false', environment)
+        compose = (ROOT / 'compose.yaml').read_text()
+        self.assertIn('GF_SERVER_SERVE_FROM_SUB_PATH: ${GRAFANA_SERVE_FROM_SUB_PATH:-false}', compose)
+        self.assertIn('GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}', compose)
+        self.assertIn('http://127.0.0.1:3000${GRAFANA_SUB_PATH:-}/api/health', compose)
+
+    def test_grafana_subpaths_reject_traversal_encoding_and_ambiguous_segments(self):
+        for path in ['//grafana', '/grafana//', '/one//two', '/./grafana', '/grafana/../other',
+                     '/..', '/grafana/.', '/%2e%2e/grafana', '/grafana%2fother', '/grafana%252fother',
+                     '/grafana?x=1', '/grafana#fragment', '/grafana;other', '/grafana\\other',
+                     '/grafana/$var', '/grafana/"quoted"', '/grafana/`command`', '/grafana/a b',
+                     '/grafana/é', '/' + 'a' * 256]:
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                prepare.prepare({**self.config, 'grafana_public_url': 'https://monitor.test' + path},
+                                self.root / 'invalid-subpath')
+            self.assertFalse((self.root / 'invalid-subpath').exists())
+
+    def test_subpath_dashboard_navigation_preserves_external_urls_and_template_links(self):
+        config = {**self.config, 'database_enabled': True, 'traces_enabled': True,
+                  'explorer_urls': {'l1': 'https://explorer.example'},
+                  'grafana_public_url': 'https://monitor.test/monitoring/grafana/'}
+        runtime = prepare.prepare(config, self.root / 'navigation')
+        def urls(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key == 'url':
+                        yield child
+                    else:
+                        yield from urls(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from urls(child)
+        rendered = [json.loads(path.read_text()) for path in (runtime / 'grafana/dashboards').glob('*.json')]
+        links = [url for dashboard in rendered for url in urls(dashboard)]
+        self.assertTrue(any(url.startswith('/monitoring/grafana/d/eez-settlement?') for url in links))
+        self.assertTrue(any(url.startswith('/monitoring/grafana/explore?') for url in links))
+        self.assertFalse(any(url.startswith(('/d/', '/explore?')) for url in links))
+        self.assertIn('${__value.raw}', links)
+        gas = json.loads((runtime / 'grafana/dashboards/gas.json').read_text())
+        self.assertIn('https://explorer.example/tx/0x', json.dumps(gas))
+        runbooks = json.loads((runtime / 'grafana/dashboards/runbooks.json').read_text())
+        content = '\n'.join(panel['options']['content'] for panel in runbooks['panels'])
+        self.assertIn('](/monitoring/grafana/d/eez-runbooks?', content)
+        self.assertNotIn('](/d/eez-runbooks?', content)
+        # Only app-route URL fields are rewritten; unrelated URLs/text remain literal.
+        external = {'url': 'https://example.test/d/foo', 'nested': [{'url': '/explorer'},
+                    {'url': '${__value.raw}'}], 'rawSql': "SELECT '/d/foo'"}
+        expected = json.loads(json.dumps(external))
+        prepare.grafana_subpath_links(external, '/grafana')
+        self.assertEqual(external, expected)
+        prepare.prepare({**config, 'grafana_public_url': 'http://localhost:19300'}, runtime)
+        dashboard = json.loads((runtime / 'grafana/dashboards/cross-chain.json').read_text())
+        self.assertTrue(any(url.startswith('/d/eez-settlement?') for url in urls(dashboard)))
+        self.assertFalse(any(url.startswith('/monitoring/grafana/') for url in urls(dashboard)))
 
     def test_protocol_alerts_opt_in_thresholds_owner_and_no_unknown_zero(self):
         self.assertFalse(any(rule['uid'] == 'eez-progress-critical' for rule in prepare.alert_rules(self.config)[0]['rules']))

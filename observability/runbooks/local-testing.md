@@ -104,6 +104,9 @@ Use `down` to remove the containers while preserving named volumes. Only use
 The [restore procedure](restore.md) also works with a private local backup
 directory; off-host copies can be added later.
 
+For access through the existing public hostname, follow [the HTTPS gateway guide](gateway.md).
+Grafana keeps its login while other monitoring services stay private.
+
 ## Enable notifications when useful
 
 Set `alerting_enabled: true` and provide the normal webhook URLs to enable

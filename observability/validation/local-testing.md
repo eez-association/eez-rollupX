@@ -42,3 +42,8 @@ alerts are paused, and missing native lifecycle/blob/trace evidence remains
 unknown. It is not monitoring the existing live Chiado deployment. Independent
 notification delivery, off-host disaster recovery, full production CI and
 operational calibration remain future work under the clarified milestone.
+
+The retained demo was subsequently published at the user's request through
+[the existing HTTPS gateway](../runbooks/gateway.md). Its current address is
+https://eez.asuscomm.com/grafana/; authentication remains enabled. The original
+local smoke report is retained unchanged as historical evidence.

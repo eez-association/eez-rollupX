@@ -169,7 +169,8 @@ parent directory mode 0700: generated backend configs can contain webhook
 credentials. The password file is readable by the container UID through its
 individual secret mount.
 
-Set `grafana_public_url` to the HTTP(S) origin reached by the operator’s browser
+Set `grafana_public_url` to the HTTP(S) URL reached by the operator’s browser
+(including a prefix such as `/grafana/` when using the [HTTPS gateway](runbooks/gateway.md))
 when it differs from `http://localhost:19300`. This controls delivered alert and
 private **EEZ operator runbooks** links; authentication and loopback binding remain
 in place. See [notification links](runbooks/operations.md) for private origins and

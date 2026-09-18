@@ -24,13 +24,15 @@ class ObserverCompose(unittest.TestCase):
                         EEZ_NODE_IMAGE="fixture-node@sha256:" + "ab" * 32)
         self.env.pop("COMPOSE_PROFILES", None)
 
-    def resolve(self, *, overlay=True, migration=False, node_network=False, env=None):
+    def resolve(self, *, overlay=True, migration=False, node_network=False, gateway=False, env=None):
         command = ["docker", "compose", "--project-name", "eez-observer-config-test",
                    "-f", str(ROOT / "compose.yaml")]
         if overlay:
             command += ["-f", str(ROOT / "compose.observer.yaml")]
         if node_network:
             command += ["-f", str(ROOT / "compose.node-network.yaml")]
+        if gateway:
+            command += ["-f", str(ROOT / "compose.gateway.yaml")]
         command += ["--profile", "database"]
         if migration:
             command += ["--profile", "migration"]
@@ -104,6 +106,25 @@ class ObserverCompose(unittest.TestCase):
         result = self.resolve(node_network=True, env=env)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("EEZ_NODE_NETWORK", result.stderr)
+
+    def test_gateway_network_attaches_only_grafana_with_stable_alias(self):
+        env = dict(self.env, GRAFANA_GATEWAY_NETWORK="existing-https-gateway")
+        result = self.resolve(gateway=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(result.stdout)
+        self.assertEqual(config["networks"]["public-gateway"]["name"], "existing-https-gateway")
+        self.assertTrue(config["networks"]["public-gateway"]["external"])
+        joined = [name for name, service in config["services"].items()
+                  if "public-gateway" in service.get("networks", {})]
+        self.assertEqual(joined, ["grafana"])
+        grafana = config["services"]["grafana"]
+        self.assertIn("eez-observability-grafana", grafana["networks"]["public-gateway"]["aliases"])
+        self.assertEqual(grafana["ports"][0]["host_ip"], "127.0.0.1")
+        self.assertEqual(grafana["environment"]["GF_AUTH_ANONYMOUS_ENABLED"], "false")
+        env.pop("GRAFANA_GATEWAY_NETWORK")
+        result = self.resolve(gateway=True, env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("GRAFANA_GATEWAY_NETWORK", result.stderr)
 
 
 if __name__ == "__main__":

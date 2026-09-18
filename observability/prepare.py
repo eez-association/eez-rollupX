@@ -22,15 +22,17 @@ def write_json(path, data):
 
 
 def grafana_public_url(config):
-    """Browser/operator origin; a dynamic Docker port has no inferred origin."""
+    """Browser/operator origin and optional path; dynamic ports have no inferred origin."""
     value = config.get('grafana_public_url')
     if 'grafana_public_url' not in config:
         port = config.get('grafana_port', 19300)
         return f'http://localhost:{port}' if port else None
     try:
         parsed = urlsplit(value)
+        path_valid = (len(parsed.path) <= 256 and re.fullmatch(r'(?:/[a-zA-Z0-9_.-]+)*/?', parsed.path)
+                      and all(segment not in ('.', '..') for segment in parsed.path.split('/')))
         valid = (isinstance(value, str) and parsed.scheme in ('http', 'https') and parsed.hostname
-                 and parsed.path in ('', '/') and parsed.username is None and parsed.password is None
+                 and path_valid and parsed.username is None and parsed.password is None
                  and '?' not in value and '#' not in value and parsed.port != 0
                  and re.fullmatch(r'[a-zA-Z0-9_.:-]+', parsed.hostname)
                  and not any(ord(c)<32 or ord(c)==127 or c.isspace() or c in '$"\\`' for c in value)
@@ -38,7 +40,7 @@ def grafana_public_url(config):
     except (ValueError, TypeError, AttributeError):
         valid = False
     if not valid:
-        raise ValueError('grafana_public_url must be an HTTP(S) origin without credentials, query or fragment')
+        raise ValueError('grafana_public_url requires HTTP(S), a safe optional path and no credentials, query or fragment')
     return value.rstrip('/')
 
 
@@ -435,6 +437,8 @@ def prepare(config, runtime, *, fast_test=False):
     for job, target in [('prometheus', 'prometheus:9090'), ('grafana', 'grafana:3000'),
                         ('loki', 'loki:3100'), ('alloy', 'alloy:12345'), ('blackbox', 'blackbox:9115')]:
         scrape.append({'job_name': job, 'static_configs': [{'targets': [target], 'labels': {**labels, 'service': job}}]})
+        if job == 'grafana' and (prefix := urlsplit(grafana_public_url(config) or '').path):
+            scrape[-1]['metrics_path'] = prefix + '/metrics'
     if config.get('traces_enabled', False):
         for job, target in [('tempo', 'tempo:3200'), ('alloy-traces', 'alloy-traces:12345')]:
             scrape.append({'job_name': job, 'static_configs': [{'targets': [target], 'labels': {**labels, 'service': job}}]})
@@ -552,6 +556,10 @@ loki.write "local" {
     public_url = grafana_public_url(config)
     environment = f'OBS_RUNTIME="{runtime}"\nOBS_LOG_DIR="{logs}"\n' + ''.join(f'{key.upper()}={value}\n' for key, value in ports.items())
     environment += 'GRAFANA_PUBLIC_URL=' + (public_url or '') + '\n'
+    public_parts = urlsplit(public_url or '')
+    environment += 'GRAFANA_SUB_PATH=' + public_parts.path + '\n'
+    environment += 'GRAFANA_SERVE_FROM_SUB_PATH=' + str(bool(public_parts.path)).lower() + '\n'
+    environment += 'GRAFANA_COOKIE_SECURE=' + str(public_parts.scheme == 'https').lower() + '\n'
     (runtime / 'compose.env').write_text(environment)
     (runtime / 'compose.env').chmod(0o600)
     write_json(runtime / 'manifest.json', {'environment': config['environment'], 'deployment': config['deployment'],
@@ -671,17 +679,34 @@ def prepare_dashboards(config, runtime):
                 # Grafana's default short unit otherwise parses/scales them.
                 panel['fieldConfig']['overrides'].append({'matcher': {'id': 'byType', 'options': 'string'},
                     'properties': [{'id': 'unit', 'value': 'string'}]})
+        grafana_subpath_links(dashboard, urlsplit(grafana_public_url(config) or '').path)
         write_json(destination / name, dashboard)
+
+
+def grafana_subpath_links(value, prefix):
+    """Prefix only reviewed Grafana app URLs, never SQL, external or template links."""
+    if not prefix:
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == 'url' and isinstance(child, str) and (child.startswith(('/d/', '/explore?')) or child == '/explore'):
+                value[key] = prefix + child
+            else:
+                grafana_subpath_links(child, prefix)
+    elif isinstance(value, list):
+        for child in value:
+            grafana_subpath_links(child, prefix)
 
 
 def runbook_dashboard(config):
     files = [('operations.md', 'Monitoring operations'), ('protocol-alerts.md', 'Protocol alert operations')]
     ids = {name: index for index, (name, _) in enumerate(files, 1)}
+    prefix = urlsplit(grafana_public_url(config) or '').path
     def local_link(match):
         label, target = match.groups()
         filename = target.split('#', 1)[0]
         if filename in ids:
-            return f'[{label}](/d/eez-runbooks?viewPanel={ids[filename]})'
+            return f'[{label}]({prefix}/d/eez-runbooks?viewPanel={ids[filename]})'
         if target.startswith(('http://', 'https://', '#')):
             return match.group(0)
         # Other repository references remain explicit local file paths, instead

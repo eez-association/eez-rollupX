@@ -1,0 +1,7 @@
+# Insert inside the existing domain's Caddy site block. Grafana owns the prefix.
+@grafana_exact path /grafana
+redir @grafana_exact /grafana/ 308
+
+handle /grafana/* {
+	reverse_proxy eez-observability-grafana:3000
+}
