@@ -149,12 +149,78 @@
       }
     },
     {
+      "id": 21,
+      "title": "Poster balance over time \u00b7 L1 native units",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Observed balance of the configured L1 poster account. One native unit is one xDAI on Gnosis/Chiado (test xDAI on Chiado); no USD conversion. Shows retained Prometheus samples, including funding increases and spending decreases, from when collection began. Missing/invalid samples remain gaps. This configured-account panel uses environment/deployment scope, independently of the native-instance, source-chain and rollup selectors. It does not reconstruct older balances from spending or identify the runtime signer automatically.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "Poster \u00b7 {{instance}}",
+          "expr": "eez_observer_funding_balance_native_units{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} and on(environment,deployment,job,instance,account,chain) (eez_observer_funding_source_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\",account=\"poster\",chain=\"l1\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",job=\"eez-observer\"} == 1)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: native units",
+          "noValue": "Unknown",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 18,
       "title": "Configured-wallet spend over time \u00b7 5m",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 12,
         "w": 12,
         "h": 8
       },
@@ -218,7 +284,7 @@
       "type": "timeseries",
       "gridPos": {
         "x": 12,
-        "y": 4,
+        "y": 12,
         "w": 12,
         "h": 8
       },
@@ -282,7 +348,7 @@
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 20,
         "w": 24,
         "h": 8
       },
@@ -346,7 +412,7 @@
       "type": "stat",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -390,7 +456,7 @@
       "type": "stat",
       "gridPos": {
         "x": 12,
-        "y": 20,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -434,7 +500,7 @@
       "type": "stat",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 36,
         "w": 12,
         "h": 8
       },
@@ -495,7 +561,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 28,
+        "y": 36,
         "w": 12,
         "h": 8
       },
@@ -532,7 +598,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 44,
         "w": 12,
         "h": 8
       },
@@ -570,7 +636,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 36,
+        "y": 44,
         "w": 12,
         "h": 8
       },
@@ -608,7 +674,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 52,
         "w": 24,
         "h": 8
       },
@@ -646,7 +712,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 52,
+        "y": 60,
         "w": 24,
         "h": 8
       },
@@ -684,7 +750,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 68,
         "w": 12,
         "h": 8
       },
@@ -722,7 +788,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 68,
         "w": 12,
         "h": 8
       },
@@ -764,7 +830,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 76,
         "w": 24,
         "h": 6
       },
@@ -793,7 +859,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 74,
+        "y": 82,
         "w": 24,
         "h": 9
       },
@@ -831,7 +897,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 83,
+        "y": 91,
         "w": 24,
         "h": 8
       },
@@ -869,7 +935,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 91,
+        "y": 99,
         "w": 24,
         "h": 8
       },
@@ -907,7 +973,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 99,
+        "y": 107,
         "w": 24,
         "h": 8
       },
@@ -945,7 +1011,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 107,
+        "y": 115,
         "w": 24,
         "h": 9
       },

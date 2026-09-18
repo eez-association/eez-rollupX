@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare_trends', ROOT / 'prepare.py')
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
-NEW = {'cross-chain': range(24, 29), 'gas': range(18, 21),
+NEW = {'cross-chain': range(24, 29), 'gas': range(18, 22),
        'blobs': range(10, 14), 'settlement': range(15, 17), 'network': range(24, 27)}
 
 
@@ -23,7 +23,7 @@ def dashboard(name):
 
 class DashboardTrends(unittest.TestCase):
     def test_prominent_history_charts_preserve_sparse_values_and_use_real_time_series(self):
-        self.assertEqual(sum(len(ids) for ids in NEW.values()), 17)
+        self.assertEqual(sum(len(ids) for ids in NEW.values()), 18)
         for name, ids in NEW.items():
             panels = {panel['id']: panel for panel in dashboard(name)['panels']}
             for panel_id in ids:

@@ -157,7 +157,7 @@ chain or typed outcome; shared tooltips compare observations without summing the
 | Dashboard | New time-series panels (IDs) |
 | --- | --- |
 | Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); queue direction/state (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28) |
-| Gas | Configured-wallet spend (18); paid-posting spend by success (19); selected-receipt execution/blob components (20) |
+| Gas | Configured-wallet spend (18); paid-posting spend by success (19); selected-receipt execution/blob components (20); configured L1 poster balance history (21) |
 | Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob fee components (12); known purchased blobs and measured subset (13) |
 | Settlement | Included paid-call count by success (15); receipt execution gas (16) |
 | Network | L2 head/safe/finalized settlement heights (24); L1 head/finalized timestamp ages (25); verified safe/explorer lag (26) |
@@ -190,7 +190,7 @@ purchased usable capacity for those same measured posts; its measured-subset
 count is not added to the all-post count.
 
 Focused generated/static coverage is in `tests/test_dashboard_trends.py`:
-seventeen panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
+eighteen panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
 gates, preserved exact detail tables, sparse displays, unique IDs and non-overlapping
 layout. The real datasource/browser smoke gate remains necessary for SQL execution,
 PromQL evaluation and rendering; static checks alone do not claim those results.
@@ -203,3 +203,11 @@ recordings retain the Composer instance, while chain/indexer recordings retain
 the observer instance. Selecting native queue mode no longer hides its series
 behind an observer-only catalog. This changes no recording-rule source selection
 and introduces no RPC/native fallback or double counting; RPC remains the default.
+
+
+The poster-balance history panel uses retained Prometheus observations of the
+configured L1 poster, gated by funding validity and observer reachability. Native
+units mean xDAI on Gnosis/Chiado, without fiat conversion. Funding increases and
+spending decreases are visible; history before collection or outside retention is
+not reconstructed. Like the current configured-account balance, this panel follows
+environment/deployment scope independently of native-instance/chain/rollup selectors.
