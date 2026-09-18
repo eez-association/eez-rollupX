@@ -8,7 +8,7 @@ The user explicitly postponed timing/performance tests on 2026-09-18 until a
 suitable window or host is available: fitting40 baseline/candidate comparison,
 shipping overhead/confidence runs and lock-probe calibration. Do not retry those
 preflights until explicit resumption. This changes scheduling, not acceptance
-criteria; see the [current release checkpoint](validation/release-runtime.md#current-schema21-checkpoint).
+criteria; see the [PR26 integration record](validation/pr26-integration.md).
 
 | ID | Requirement / invariant | Implementation and configuration | Tests / evidence / documentation | Status |
 | --- | --- | --- | --- | --- |
@@ -48,8 +48,10 @@ criteria; see the [current release checkpoint](validation/release-runtime.md#cur
 The [PR26 integration record](validation/pr26-integration.md) supersedes earlier
 baseline assumptions for current source. R02 preserves disabled-telemetry
 behavior relative to PR26; it does not restore disabled settlement policy or old
-operations formats removed by that PR. R09/R13 must cover 65,536-block canonical
-ranges with bounded paging and a forward schema22 migration. R20/R23 distinguish
+operations formats removed by that PR. R09/R13 now cover 65,536-block canonical
+ranges with bounded paging and a forward schema22 migration; the real PostgreSQL
+fixture passed 59 groups, including populated schema21 upgrade and downgrade
+refusal, and same-host fresh-volume restore passed six groups. R20/R23 distinguish
 ordinary preparation/control RPCs from final signing. R28 combines the PR26
 partitioned native CI with the observer artifact and physical-quota checks.
 Earlier requirement evidence remains historical until revalidated at the stated

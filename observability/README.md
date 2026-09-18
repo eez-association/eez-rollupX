@@ -1,6 +1,6 @@
 # Self-hosted EEZ observability
 
-Implementation branch: `feat/network-observability`, integrating on top of
+Implementation branch: `feat/network-observability`, integrated on top of
 [PR #26](https://github.com/eduadiez/rollupX/pull/26). The
 [PR26 integration record](validation/pr26-integration.md) tracks current
 compatibility and validation; earlier release records apply only to their named
@@ -27,8 +27,8 @@ exercised with local fixtures; it has not been connected to the live Chiado depl
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
 and [fault-test evidence](validation/lifecycle-transport.md). Native admission, preparation, attempt, reconciliation, reorg and local-disposition
 capture have component/process evidence. The
-[current release checkpoint](validation/release-runtime.md#current-schema21-checkpoint)
-records integrated native, database, dashboard, network and disk-full checks,
+[historical schema21 checkpoint](validation/release-runtime.md#current-schema21-checkpoint)
+records pre-PR26 native, database, dashboard, network and disk-full checks,
 retained strict-CI failures and separate passing corrections. Timing/performance
 comparisons are postponed at the user's request until a suitable window or host
 is available; deployment acceptance remains open. The

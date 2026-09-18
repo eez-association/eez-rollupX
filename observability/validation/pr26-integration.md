@@ -1,6 +1,7 @@
 # Observability integration on PR #26
 
-Status: integration in progress; validation results below are pending unless explicitly recorded.
+Status: local PR26 adaptation complete and functionally validated.
+All results below apply only to the stated source and local functional scope.
 
 The requested base is [PR #26](https://github.com/eduadiez/rollupX/pull/26),
 `2be04f7c8c3b9ac7ee96979ed27336324300da1d`, based on fork main
@@ -8,6 +9,7 @@ The requested base is [PR #26](https://github.com/eduadiez/rollupX/pull/26),
 `8d9da271a90a7f015db4cd2275b4d6b1ac76cbb6` is retained as
 `backup/network-observability-before-pr26-8d9da271`. The integration merges that
 exact PR head into `feat/network-observability`, preserving both histories.
+The merge commit is `5f3b36b39af3ea8f56817fe1866cd49579c41806`.
 The protocol pin remains `3c0cdf4955941a5c23639346932b55b33babebbd`.
 PR #26 must merge first; this branch can then follow it. No GitHub merge or
 publication is performed by this local integration.
@@ -24,19 +26,65 @@ formats, disabled-policy execution, or deprecated fee settings.
 
 | Requirement | Integration | Verification |
 | --- | --- | --- |
-| Native lifecycle and stage metrics retain their actual owners | Preserve capture at Composer transitions, PR26 hash-bound witnesses and cache repair | Focused all-target compilation passed; Composer:243 / client:31 tests passed |
-| New preparation/control RPCs remain distinct from signing | W3C propagation across capabilities/preparation/retention; preparation timing never increments authorized/signing counts | Signer:321 / client:31 / telemetry:44 / control RPC:6 tests passed; two explicit signer utilities ignored |
-| Long-span correlation remains bounded and complete | Add exact-transaction paged correlation with at most 1,024 members/page, immutable evidence digest and canonical checks | Observer84, deriver51 and node-common21 tests passed, including actual two-page fetch and rejected second pages |
-| PostgreSQL accepts the new format ceiling without rewriting history | Forward migration 0022 extends settlement count/ordinal bounds; retain older migration checksums | Upgrade from schema21, boundary and downgrade-refusal checks pending |
-| Blob accounting preserves physical-wire meaning | Outer blob codec remains version0; tag3 is an inner operations format, not a new physical capacity version | Blob codec24, payload codec32 and protocol169 tests passed; database accounting checks pending |
-| Native fixtures use the supported policy and exact runtime configuration | Default/custom mandatory-policy canaries; removed flags absent; fee ceiling present in captured settings | E2E compilation and seven native trace-checker regressions passed; functional canaries pending |
-| CI retains both PR26 partitioning and observability failure drills | Four serial partitions; first cross-chain partition owns physical quota, serial fallback also runs it | Artifact contract:32 passed/1 opt-in skipped; workflow:19 passed; resource:7 passed; full tooling:248 passed/5 explicit opt-in skips; real tiny-workspace compilerless relocation passed |
+| Native lifecycle and stage metrics retain their actual owners | Preserve capture at Composer transitions, PR26 hash-bound witnesses and cache repair | Focused all-target compilation passed; Composer: 243 / client: 31 tests passed |
+| New preparation/control RPCs remain distinct from signing | W3C propagation across capabilities/preparation/retention; preparation timing never increments authorized/signing counts | Signer: 321 / client: 31 / telemetry: 44 / control RPC: 6 tests passed; two explicit signer utilities ignored |
+| Long-span correlation remains bounded and complete | Add exact-transaction paged correlation with at most 1,024 members/page, immutable evidence digest and canonical checks | Observer: 84, deriver: 51 and node-common: 21 tests passed, including actual two-page fetch and rejected second pages |
+| PostgreSQL accepts the new format ceiling without rewriting history | Forward migration 0022 extends settlement count/ordinal bounds; retain older migration checksums | 59 real PostgreSQL groups passed, including saved-schema21 upgrade, boundaries, rollback/reorg and downgrade refusal |
+| Blob accounting preserves physical-wire meaning | Outer blob codec remains version0; tag3 is an inner operations format, not a new physical capacity version | Blob codec: 24, payload codec: 32 and protocol: 169 tests passed; real database accounting checks passed |
+| Native fixtures use the supported policy and exact runtime configuration | Default/custom mandatory-policy canaries; removed flags absent; fee ceiling present in captured settings | E2E compilation and ten native trace-checker regressions passed; default-policy lifecycle, disabled-telemetry and tracing native canaries passed |
+| CI retains both PR26 partitioning and observability failure drills | Four serial partitions; first cross-chain partition owns physical quota, serial fallback also runs it | Artifact contract:32 passed/1 opt-in skipped; workflow:19 passed; resource:7 passed; full tooling:249 passed/5 explicit opt-in skips; real tiny-workspace compilerless relocation passed |
 
 Workspace/all-target compilation, strict Clippy and formatting passed. The final
-unpaged correlation lookup change additionally passed all21 node-common tests
-and strict package Clippy. Driver56, L1144, node44, follower8 and testkit10 tests
+unpaged correlation lookup change additionally passed all 21 node-common tests
+and strict package Clippy. Driver: 56, L1: 144, node: 44, follower: 8 and testkit: 10 tests
 also passed. The existing correlation response shapes are retained while their
 canonicality check now uses one indexed pass for large ranges.
+
+## Executed local validation
+
+The source-built default-feature runtimes are frozen at merge commit `5f3b36b3`.
+They are development-profile functional artifacts, not a sealed release bundle.
+The [sanitized evidence manifest](pr26-integration.json) records source identities,
+binary and report digests, and local evidence paths. Those ignored `target/` paths
+are local-only and unavailable from another checkout; raw logs are not published.
+
+| Check | Result |
+| --- | --- |
+| `cargo +1.94.0 build --locked --offline --workspace` | Passed; all four shipping-role binaries also built with default features |
+| Workspace `check --all-targets`, strict Clippy, `fmt --all --check` | Passed |
+| Focused Rust suites and independent KZG/public-input/rolling-hash vectors | 1,304 passed; two explicit signer inventory/measurement utilities ignored |
+| `benchmark-lock-timing` feature | Affected targets compiled only; no benchmark or calibration executed |
+| CI Python tooling | 249 passed, five opt-in skips; 254 selected |
+| Real compilerless artifact relocation/shard/quota fixture | Passed with portable mold on PATH |
+| Observability Python tooling | 133 passed, one opt-in physical PostgreSQL cgroup test skipped; 134 selected |
+| `smoke-database.py --previous-v21-binary ...` | 59 groups passed, including populated schema21 upgrade, all 22 checksums, 65,536-member boundaries, atomic rollback/reorg and downgrade refusal |
+| `smoke-restore.py` | Six groups passed in fresh projects/volumes on the same Docker host; owned-resource cleanup verified; recovered database, dashboards, credentials, trace/log/metric navigation and heartbeat delivery |
+| `lifecycle_bidirectional_cross_chain_smoke` | Passed in 68.94 seconds with native lifecycle, metrics and observer checks |
+| `minimal_bidirectional_cross_chain_smoke` | Passed in 42.91 seconds with telemetry disabled |
+| `traced_bidirectional_cross_chain_smoke` | Passed in 48.41 seconds with the corrected success oracle; exact ancestry through control/preparation/retry/signing and matching Composer/signer success logs |
+
+The database and restore tests used a separate release-profile observer built
+from a minimal archive of `5f3b36b3` in pinned Rust/Bookworm tooling. The host GCC15
+binary needed `GLIBC_2.38` while the PostgreSQL fixture image uses Bookworm; the
+first database attempt therefore failed before migrations. That failure is
+retained. The compatible observer then passed both fixtures. This portability
+build does not validate the entire shipping image or replace remote CI.
+
+The first native tracing attempt failed its Composer log assertion. Retained
+OTLP and JSON logs establish that both Composer and signer logged the successful
+trace, but the test selected an earlier connected, failed signer request. The
+fixture correction requires the matching successful preparation outcome before
+selecting the trace; graph ancestry, retry, admission membership and both success
+log assertions remain mandatory. The original failure remains in the evidence. The correction is commit
+`70c44cb6bb6dda68827576590b4c598ed3624576`; its ten deterministic trace tests,
+strict Clippy and formatting passed. Its rebuilt harness passed the native
+tracing canary against the unchanged `5f3b36b3` runtime binaries.
+
+No external Cargo dependency version, source, checksum or dependency edge changed.
+Only existing workspace development dependencies were added for integration tests.
+Migrations 0001–0021 remain byte-identical. Whitespace warnings in imported PR26 raw
+evidence and the pre-existing migration0019 EOF are preserved to retain artifact
+and migration identity; changed source/prose passes `git diff --check`.
 
 ## Evidence boundaries and remaining gates
 
