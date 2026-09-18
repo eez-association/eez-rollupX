@@ -1,7 +1,15 @@
 # Local release validation and acceptance-test corrections
 
 Status: **release runtime built and exercised; full acceptance remains open**.
-The runtime revision is `03a3caa1b92ca39e0119f7417e347c78c8f530c9`, with the
+The current application runtime is `45e5c015`; its results are recorded in
+[the current checkpoint](#current-schema21-checkpoint) and the companion JSON's
+`schema21_release_checkpoint`. Timing/performance acceptance is explicitly
+postponed at the user's request until a suitable window or host is available.
+No further benchmark preflight or comparison should run before explicit resumption.
+
+## Historical schema20 checkpoint
+
+The earlier runtime revision is `03a3caa1b92ca39e0119f7417e347c78c8f530c9`, with the
 unchanged protocol pin `3c0cdf4955941a5c23639346932b55b33babebbd`. Frozen main is
 `5469c88860408daf776ee812156dd280c1a9e262`; it is included in the branch.
 
@@ -69,7 +77,7 @@ passed; one optional tiny-workspace relocation test was not rerun. The full
 release producer/consumer execution above remains separate evidence. The enlarged
 complete job has not yet been run as one uninterrupted release suite.
 
-## Open gates
+## Current schema21 checkpoint
 
 The later schema-21 release at `45e5c015` completed artifact verification,
 1,194 release unit tests, 58 PostgreSQL groups and 96 actual Grafana queries.
@@ -81,7 +89,7 @@ comparative overhead result.
 
 That release's embedded suite finished with 50 passes and one retry-only failure
 in the ordinary-burst test. The contract permits recovery into a future `Steady`
-slot, whereas the old assertion requires `Catchup`. The working-tree correction
+slot, whereas the old assertion requires `Catchup`. The correction committed in `17fb4c77`
 checks the actual missed empty boundaries and retains the existing semantics.
 The original frozen-main test passed on its first attempt in 172.14 seconds;
 the failure did not reproduce in that run. All four corrected process checks
@@ -109,14 +117,17 @@ memory-limit events occurred; this establishes no memory headroom. The original
 failed CI result remains unchanged. Terminal suite/watcher review confirmed no owned native
 processes or PostgreSQL containers remained. The fixed-order baseline/candidate
 diagnostic stopped before launching a workload: its 60-second preflight observed
-57 swap-in pages, exceeding its declared zero-swap prerequisite. No runtime
-comparison result exists. The separate burst regressions are functional checks,
+57 swap-in pages, exceeding its declared zero-swap prerequisite. A second
+preflight observed 14.50 busy CPU cores and 20 swap-in pages; it also stopped
+before launching a workload. The user then requested postponement because no
+quiet window or dedicated host is available. No runtime comparison result exists.
+The separate burst regressions are functional checks,
 without a performance claim.
 The companion JSON
 preserves the current hashes and explicitly local-only artifact locations;
 earlier results and failures above remain unchanged.
 
-The working-tree controller cleanup correction separately passed 50 focused
+The controller cleanup correction committed in `f55e0a8e` separately passed 50 focused
 Python tests, three native configuration tests, affected harness compilation,
 strict workspace Clippy and formatting. Subsequent ownership review reproduced
 visible session-leader PID reuse reaching the signal path in two mocked cases.
@@ -132,8 +143,28 @@ contents were readable with the pinned `pg_restore`; failed native chain datadir
 remain intentionally retained as evidence. These checks do not amend the sealed
 release's test result or establish performance acceptance.
 
+The release test-harness checkpoint at `f55e0a8e` is complete. Shipping and
+probe artifacts reuse the exact sealed45 runtime binaries, with separately
+recorded test-source provenance. All six pure configuration tests passed (three
+per variant, none ignored), including absent/default settings, invalid limits
+and owned-fixture compatibility. Artifact hashes were checked before and after
+execution. This did not run a chain workload or performance comparison.
+
+The first probe export failed verification: it contained the older two-test
+executable despite updated source inputs. A dependency-free Cargo reproduction
+confirmed that preserved source timestamps can predate inherited fingerprints.
+The corrected local recipe cleans only the overlaid `eez-node-e2e` release
+package and requires the exact three current tests before export. The rebuilt
+probe passed all three; the original failed artifact and verification remain
+retained and must not be used for measurement. The already verified shipping
+artifact was retained. The unbound v3 performance draft predates this correction
+and needs fresh artifact bindings before any future use after explicit resumption.
+
 The five trace regressions, affected-target strict Clippy, workspace formatting
 and diff checks passed after the corrections; the focused diff was reviewed.
-Shipping overhead, lock-probe calibration and paired confidence checks have not passed.
+The fitting40 timing comparison, shipping overhead, lock-probe calibration and
+paired confidence checks are **deferred by the user** until explicit resumption
+with a suitable window or host. Limits and acceptance criteria remain unchanged;
+deferral is not a passing result.
 Publication approval, private rollout inputs, an independent heartbeat receiver,
 off-host recovery and the seven-day deployment baseline also remain open.

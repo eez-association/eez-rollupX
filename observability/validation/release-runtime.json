@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "current_checkpoint": "schema21_release_checkpoint; earlier top-level results remain historical",
   "status": "local_release_evidence_with_test_corrections_performance_and_deployment_open",
   "runtime_revision": "03a3caa1b92ca39e0119f7417e347c78c8f530c9",
   "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
@@ -163,7 +164,7 @@
     "recorded_utc": "2026-09-18T07:53:06.697648+00:00",
     "status": "partial_release_validation_with_retained_native_failure",
     "runtime_revision": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
-    "scope": "sealed local schema21 release; later working-tree test/controller fixes are separate and need live validation",
+    "scope": "sealed local schema21 application runtime; committed test/controller corrections passed separate functional checks; release harness build and configuration verification are recorded separately",
     "evidence_root_local_only": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-45e5c015-20260918T050517Z",
     "availability": "Raw artifacts are retained locally, not bundled with this repository or published.",
     "evidence_sha256": {
@@ -260,7 +261,15 @@
         "reason": "declared zero-swap quiet-host prerequisite not met; no runtime comparison result"
       },
       "triage_manifest_sha256": "14a18081e59a6934910f72e92a48063cc3ab14b672148022815c152e06c0f665",
-      "quota_handoff": "automatic handoff skipped on suite failure; separate exact-artifact check required"
+      "quota_handoff": "automatic handoff skipped on suite failure; separate exact-artifact physical-quota check subsequently passed (see physical_quota); original CI failure retained",
+      "second_comparison_preflight": {
+        "status": "stopped_before_workload",
+        "busy_cores": 14.495465470733198,
+        "swap_in_pages": 20,
+        "swap_out_pages": 0,
+        "reason": "declared CPU/zero-swap prerequisites not met; no runtime comparison result",
+        "status_sha256": "70a505b286a03e6406b04909fd17ba327a7a77dd673b305a7f03efcda62a93e6"
+      }
     },
     "capacity": {
       "canonical_sources": 2722,
@@ -271,9 +280,9 @@
       "scope": "single enabled-arm diagnostic, not comparative overhead or production headroom"
     },
     "remaining": [
-      "compare fitting40 timing failure against frozen-main runtime under equivalent conditions",
-      "shipping overhead and probe calibration",
-      "publication and deployment gates remain unchanged"
+      "user-deferred: fitting40 frozen-main/candidate timing comparison, shipping overhead/confidence runs, and lock-probe calibration; resume only on explicit user instruction with a suitable window or host",
+      "strict native CI acceptance remains open; supplemental functional passes do not reclassify original failures",
+      "publication/remote CI, actual private rollout inputs/owner/independent heartbeat, off-host recovery and seven-day deployment baseline remain open"
     ],
     "corrected_burst": {
       "status": "passed",
@@ -438,6 +447,108 @@
         }
       ],
       "retention": "Intentional native failure datadirs/dumps remain as evidence, separate from PostgreSQL owned-parent teardown; no performance acceptance claim."
+    },
+    "performance_deferral": {
+      "status": "deferred_by_user",
+      "instruction": "User cannot provide a quiet window or dedicated host now and requested postponing this test until one is available.",
+      "scope": [
+        "fitting40 quiet-host baseline/candidate timing comparison",
+        "shipping overhead pilot and confirmatory performance runs",
+        "quiet-host probe calibration and lock-performance comparison"
+      ],
+      "resume_condition": "User explicitly provides a suitable window or host; do not periodically retry preflights or relax thresholds.",
+      "still_authorized": "Finish release-harness build, functional verification, evidence review and preparation of deferred procedures.",
+      "acceptance": "No timing or performance acceptance claim; preserve both rejected preflights and all earlier evidence."
+    },
+    "release_harness_verification": {
+      "source_revision": "f55e0a8e04f796d893e64c554053156b07515058",
+      "status": "passed_after_probe_cache_correction",
+      "scope": "release test artifacts with unchanged sealed45 runtime bytes; all six pure configuration units passed; no native chain or performance test run in this checkpoint",
+      "first_build": {
+        "shipping_elapsed_seconds": 3074.629978992016,
+        "probe_elapsed_seconds": 9.812266566004837
+      },
+      "first_verification": {
+        "status": "failed",
+        "shipping_configuration_tests_passed": 3,
+        "probe_missing_test": "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields",
+        "status_sha256": "d8666f870d28a109c2c4701205b8f06afc8990284fbc5a407abb01c8b2d83971"
+      },
+      "cause": "Probe executable hash exactly matched the old sealed45 probe test despite the new source map; inherited Cargo fingerprints reused a stale executable. Shipping feature selection rebuilt the changed package and passed all three configuration checks.",
+      "correction": "Invalidate only the overlaid eez-node-e2e release package with cargo clean --locked --release -p eez-node-e2e, then require all three configuration tests before exporting the probe archive.",
+      "invalid_candidate": "harness-rebuild-f55e0a8e/probe/candidate; retained for diagnosis, not usable for future measurement",
+      "cache_reproduction_manifest_sha256": "b41833cd6696cf2c9a97f1d207134cef41637d723bab070cd01776732c8f64eb",
+      "future_plan_status": "Existing unbound v3 performance draft predates the rejected probe artifact; it must be rebound to the corrected, configuration-verified artifact set before use after explicit user resumption.",
+      "verified_variants": {
+        "shipping": {
+          "status": "built_and_configuration_verified",
+          "candidate_local_only": "harness-rebuild-f55e0a8e/shipping/candidate",
+          "elapsed_seconds": 3074.629978992016,
+          "build_status_sha256": "74b7efde78d7e29038a73f2925ead73fb4c9067598c458146214f589e7d34980",
+          "manifest_sha256": "fa38cbf9846c22b869cbf1a80dec4dc1c4daa75617f822c1f1dd3b7687c78eb6",
+          "test_binary_sha256": "1caaf529b783dbf1bf7c8516685678c3d06d220938cf51bb90afd481c68b7f1f",
+          "source_map_sha256": "5af0bd1a35167e5b9465947ac4bdbfebd8a327b432dc54ff4937c09fadfaf5e0",
+          "runtime_reused_from": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+          "runtime_sha256": {
+            "eez-composer": "82f28080641b078fc30cd66d22b98883c1df56ed213d831db7a24e30f9fc1edc",
+            "eez-follower": "e516ccd70af42c88a4972a51eb5e9b90aa448a03c04cf19c7ee676baf045a04a",
+            "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+            "eez-observer": "669c37c4f8f2fa1e85a94f4b999830d3d64a0e12371fd5a154d9ce58a0dd0868"
+          },
+          "configuration_tests_passed": 3
+        },
+        "probe": {
+          "status": "built_and_configuration_verified",
+          "candidate_local_only": "harness-rebuild-probe-f55e0a8e-v2/probe/candidate",
+          "elapsed_seconds": 982.394266955991,
+          "build_status_sha256": "ee704cf77b0b39c146891275859382c0562276858a3b8529906c93cdbe6ac3bb",
+          "manifest_sha256": "8340babf0168d6a48f3e306ac678e7d111b7d851be58dd10d8dd27f436a74587",
+          "test_binary_sha256": "0f31e4d4da25ffc519556e928a252b65afa7b53c22bb461a9d50e63a537d06a4",
+          "source_map_sha256": "5af0bd1a35167e5b9465947ac4bdbfebd8a327b432dc54ff4937c09fadfaf5e0",
+          "runtime_reused_from": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+          "runtime_sha256": {
+            "eez-composer": "0bf28212812b0d26fb9f16bea1e39e2633b09c0809f30ef7c191752e61f478cf",
+            "eez-follower": "093c598b6fc06dde5b4b1739fb77298456707b396885f5080a5f3218dadc42aa",
+            "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+            "eez-observer": "669c37c4f8f2fa1e85a94f4b999830d3d64a0e12371fd5a154d9ce58a0dd0868"
+          },
+          "configuration_tests_passed": 3
+        }
+      },
+      "configuration_verification": {
+        "status": "passed",
+        "passed": 6,
+        "ignored": 0,
+        "status_sha256": "d843a6b473943c7c7efd11460a78ed57f2167c19072fbd7d6360b7466b98be2a",
+        "checks": [
+          {
+            "variant": "shipping",
+            "status": "passed",
+            "selected": [
+              "overhead::tests::absent_budgets_preserve_defaults_and_explicit_maxima_validate",
+              "overhead::tests::invalid_limits_and_combinations_fail_before_runtime",
+              "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields"
+            ],
+            "passed": 3,
+            "ignored": 0,
+            "manifest_sha256": "fa38cbf9846c22b869cbf1a80dec4dc1c4daa75617f822c1f1dd3b7687c78eb6",
+            "log_sha256": "5363db8d3c4b6b3529dc8f21da70f09a81179ec25258a319445c04af7411d081"
+          },
+          {
+            "variant": "probe",
+            "status": "passed",
+            "selected": [
+              "overhead::tests::absent_budgets_preserve_defaults_and_explicit_maxima_validate",
+              "overhead::tests::invalid_limits_and_combinations_fail_before_runtime",
+              "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields"
+            ],
+            "passed": 3,
+            "ignored": 0,
+            "manifest_sha256": "8340babf0168d6a48f3e306ac678e7d111b7d851be58dd10d8dd27f436a74587",
+            "log_sha256": "5363db8d3c4b6b3529dc8f21da70f09a81179ec25258a319445c04af7411d081"
+          }
+        ]
+      }
     }
   }
 }

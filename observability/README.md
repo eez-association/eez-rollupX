@@ -19,12 +19,15 @@ exercised with local fixtures; it has not been connected to the live Chiado depl
 
 The shared lifecycle transport now has a [versioned contract](contracts/lifecycle-v1.md)
 and [fault-test evidence](validation/lifecycle-transport.md). Native admission, preparation, attempt, reconciliation, reorg and local-disposition
-capture have component/process evidence; integrated mixed-workload and failure
-acceptance remains open. The [requirement ledger](requirements.md)
-tracks each implementation and acceptance gate without treating partial work as a
-completed release. The [implementation checkpoint](validation/implementation-checkpoint.md)
-summarizes completed local checks and the remaining performance, release and
-deployment gates.
+capture have component/process evidence. The
+[current release checkpoint](validation/release-runtime.md#current-schema21-checkpoint)
+records integrated native, database, dashboard, network and disk-full checks,
+retained strict-CI failures and separate passing corrections. Timing/performance
+comparisons are postponed at the user's request until a suitable window or host
+is available; deployment acceptance remains open. The
+[requirement ledger](requirements.md) maps implementation to evidence and remaining
+gates. The earlier [implementation checkpoint](validation/implementation-checkpoint.md)
+is retained as historical evidence, not the current release status.
 
 [Network health](contracts/network-health.md) documents optional verified safe-head
 and explorer probes, finality age, and the client/host infrastructure panels.
