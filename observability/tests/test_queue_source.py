@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -44,6 +45,39 @@ class SourceSelection(unittest.TestCase):
                           config()['native_processes'] + [{**config()['native_processes'][0], 'instance': 'other', 'metrics_target': 'other:19101'}]]:
             with self.assertRaises(ValueError):
                 prepare.recording_rules({**native, 'native_processes': processes})
+
+    def test_network_all_catalog_contains_observer_and_native_composer_instances(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / 'logs').mkdir()
+            base = {**config(), 'observer_instance': 'observer-6291',
+                    'observer_target': 'observer:19100', 'log_directory': str(root / 'logs'),
+                    'alert_webhook_url': 'http://alerts/', 'heartbeat_webhook_url': 'http://heartbeat/'}
+            for source in ('rpc', 'native'):
+                runtime = prepare.prepare({**base, 'queue_source': source}, root / source)
+                dashboard = json.loads((runtime / 'grafana/dashboards/network.json').read_text())
+                variable = next(v for v in dashboard['templating']['list'] if v['name'] == 'instance')
+                query = variable['query']['query']
+                self.assertEqual(variable['definition'], query)
+                self.assertIn('environment=~"$environment"', query)
+                self.assertIn('deployment=~"$deployment"', query)
+                self.assertTrue(variable['includeAll'])
+                self.assertEqual(variable['current']['value'], '$__all')
+                self.assertNotIn('allValue', variable)
+                job_pattern = re.search(r'job=~"([^"]+)"', query).group(1)
+                jobs = json.loads((runtime / 'prometheus/prometheus.yaml').read_text())['scrape_configs']
+                # Model label_values over the actual generated scrape labels;
+                # the Grafana datasource/browser gate tests real interpolation.
+                instances = {target['labels']['instance'] for job in jobs
+                             if re.fullmatch(job_pattern, job['job_name'])
+                             for target in job['static_configs']}
+                self.assertEqual(instances, {'observer-6291', 'node'})
+                for unrelated in ('eez-proof-signer-node', 'eez-follower-node', 'prometheus'):
+                    self.assertIsNone(re.fullmatch(job_pattern, unrelated))
+                rules = json.loads((runtime / 'prometheus/recording-rules.yaml').read_text())
+                queue = next(rule for group in rules['groups'] for rule in group['rules']
+                             if rule['record'] == 'eez:queue_transactions:current')
+                self.assertIn('reth_eez_native_queue_' if source == 'native' else 'eez_observer_queue_', queue['expr'])
 
     def test_reconfiguration_switches_all_current_rules_and_can_return_to_rpc(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -41,8 +41,8 @@ filled with `or vector(0)`, and stale SQL chains do not produce a fabricated zer
 population. An empty queue without completion evidence is idle/unexercised, not
 a continuously verified service.
 
-All monetary integer fields are selected as text, preserving exact decimal values
-through the Grafana PostgreSQL driver. L1 and L2 costs remain separate. Included
+Monetary detail tables select integer fields as text, preserving exact decimal
+values through the Grafana PostgreSQL driver. L1 and L2 costs remain separate. Included
 reverts count as spend. Posting calls, applied settlements and native candidate
 attempts are separate populations. Schema 14 adds receipt-deduplicated companion
 charges and `equal_share_v1` shared-overhead estimates over verified unique native
@@ -145,3 +145,61 @@ selected time range end; historical periods outside metric retention are Unknown
 Default relative ranges end at now. Stale native samples remain absent while
 independently valid SQL history can remain visible. Neither panel represents a
 continuous funded canary or independent replay verification.
+
+
+## Trend-first layout
+
+The dashboards retain all existing detailed tables and place these new trend
+panels above them. Existing readiness, stage-duration, planning-cut and target-miss
+charts also move into the overview. Legends identify the population, direction,
+chain or typed outcome; shared tooltips compare observations without summing them.
+
+| Dashboard | New time-series panels (IDs) |
+| --- | --- |
+| Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); queue direction/state (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28) |
+| Gas | Configured-wallet spend (18); paid-posting spend by success (19); selected-receipt execution/blob components (20) |
+| Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob fee components (12); known purchased blobs and measured subset (13) |
+| Settlement | Included paid-call count by success (15); receipt execution gas (16) |
+| Network | L2 head/safe/finalized settlement heights (24); L1 head/finalized timestamp ages (25); verified safe/explorer lag (26) |
+
+SQL trends use five-minute buckets, apply the existing SQL selectors and selected
+range before aggregation, and leave unobserved buckets absent. Counts, bytes, gas
+and charges use bars; sparse percentile/ratio cohorts use points without connecting
+lines, so missing observations do not become interpolated history. Prometheus
+charts use actual range queries, reset-aware native counters/histograms and the
+existing freshness gates for current-state gauges. A first scrape cannot establish
+a counter rate; missing retention or disabled capabilities remain unavailable.
+
+The confirmed-outcome chart groups **actual admission timestamps**, then shows
+which retained admissions have a currently canonical, node-reconciled outcome.
+It is retractable when evidence changes and is not a completion-rate counter.
+It does not bucket history by the moving scan watermark. Finality trends also
+use admission cohorts and retain the existing clock/finality exclusion rules.
+Native terminal latency is explicitly a different assurance population. Existing
+cohort counts, coverage, exact identifiers and evidence details remain below.
+
+Monetary charts sum the existing receipt population in PostgreSQL numeric
+arithmetic, require complete accounting throughout each displayed bucket, divide
+by 10^18 and only then convert to plotting numbers. These **native-unit plots are
+approximate visualizations**, not replacements for the exact integer wei tables.
+Chains remain separate; included reverts count as spend. Wallet, selected-receipt,
+posting and blob-posting charts overlap and must never be added together. Execution
+and blob fee lines are disjoint components within the same population. Blob
+utilization remains the ratio of summed authenticated measured bytes to summed
+purchased usable capacity for those same measured posts; its measured-subset
+count is not added to the all-post count.
+
+Focused generated/static coverage is in `tests/test_dashboard_trends.py`:
+seventeen panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
+gates, preserved exact detail tables, sparse displays, unique IDs and non-overlapping
+layout. The real datasource/browser smoke gate remains necessary for SQL execution,
+PromQL evaluation and rendering; static checks alone do not claim those results.
+
+
+The network overview's Instance catalog includes the observer job and configured
+`eez-composer-*` jobs within the selected environment/deployment. Its default
+built-in All therefore expands to both real instance labels: native queue
+recordings retain the Composer instance, while chain/indexer recordings retain
+the observer instance. Selecting native queue mode no longer hides its series
+behind an observer-only catalog. This changes no recording-rule source selection
+and introduces no RPC/native fallback or double counting; RPC remains the default.

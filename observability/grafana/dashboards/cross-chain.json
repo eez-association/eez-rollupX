@@ -7,7 +7,7 @@
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -149,12 +149,596 @@
       }
     },
     {
+      "id": 24,
+      "title": "Arrivals over time \u00b7 inbound / outbound",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Native admitted requests per second, reset-aware over Grafana\u2019s rate interval. Each selected process/direction stays separate. Missing scrape history is unavailable, not zero; retries/resubmissions can create distinct admissions.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(instance,direction) (rate(reth_eez_native_admissions_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Confirmed outcomes by admission time \u00b7 5m cohorts",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Currently canonical, node-reconciled outcomes grouped by actual retained admission UTC, direction and outcome. Cohorts can retract on reorg or loss of evidence. This is not a completion-rate counter or a chart of the moving scan watermark. Empty/missing cohorts are gaps. SQL chain/rollup/instance selectors apply.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(s.observed_at_ms/1000.0),to_timestamp(0)) AS \"time\",s.source->>'direction'||' \u00b7 '||s.outcome AS metric,count(*)::double precision AS value FROM eez.lifecycle_admission_status s JOIN eez.dashboard_chain_context c ON c.deployment_id=s.deployment_id AND c.chain_id=(s.source->>'chain_id')::numeric AND c.genesis_hash=decode(s.source->>'genesis_hash','hex') AND c.rollup_id=(s.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND s.instance IN (${instance:sqlstring}) AND (to_timestamp(s.observed_at_ms/1000.0) BETWEEN $__timeFrom() AND $__timeTo()) AND s.evidence_class='node_reconciled' AND s.status='canonical' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Queue over time \u00b7 direction and state",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "15-second snapshots; values disappear when scrape/sample validity expires. Ready, blocked and unknown partition queued work. In-flight is separate.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 {{state}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "title": "Admission \u2192 native terminal latency over time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Reset-aware histogram p50/p95/p99 by direction and typed terminal outcome. These are native terminal observations, not independently verified canonical completion; the canonical cohort chart and detailed assurance tables remain separate. No observed terminal population yields unavailable quantiles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by(le,direction,outcome) (rate(reth_eez_request_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{direction}} \u00b7 {{outcome}} \u00b7 p50",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le,direction,outcome) (rate(reth_eez_request_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{direction}} \u00b7 {{outcome}} \u00b7 p95",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by(le,direction,outcome) (rate(reth_eez_request_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{direction}} \u00b7 {{outcome}} \u00b7 p99",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "title": "Admission \u2192 observed finality over time \u00b7 5m cohorts",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Measured observed-finality p50/p95/p99 grouped by actual admission UTC. Only timing_state=observed_finalized contributes; missing admission clocks, stale sources, reorgs and unfinalized evidence are not zero latency. Cohort counts and exclusions remain in the detailed tables.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(f.admitted_at_ms/1000.0),to_timestamp(0)) AS \"time\",f.source->>'direction'||' \u00b7 '||f.outcome AS metric,percentile_cont(0.5) WITHIN GROUP(ORDER BY f.accepted_to_observed_finality_seconds::double precision) AS p50_seconds,percentile_cont(0.95) WITHIN GROUP(ORDER BY f.accepted_to_observed_finality_seconds::double precision) AS p95_seconds,percentile_cont(0.99) WITHIN GROUP(ORDER BY f.accepted_to_observed_finality_seconds::double precision) AS p99_seconds FROM eez.lifecycle_admission_finality f JOIN eez.dashboard_chain_context c ON c.deployment_id=f.deployment_id AND c.chain_id=(f.source->>'chain_id')::numeric AND c.genesis_hash=decode(f.source->>'genesis_hash','hex') AND c.rollup_id=(f.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND f.instance IN (${instance:sqlstring}) AND (f.admitted_at_ms BETWEEN extract(epoch FROM $__timeFrom()::timestamptz)*1000 AND extract(epoch FROM $__timeTo()::timestamptz)*1000) AND f.timing_state='observed_finalized' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Current accumulated readiness time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Sum of observed blocked, serviceable and unknown portions for currently active admissions, including in-flight work. Missing partition clocks contribute the whole known age to unknown. These are gauges, never rate().",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_native_queue_readiness_duration_sum_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Observed readiness time \u00b7 terminal p50 / p95 / p99",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Native terminal observations by outcome, including local dispositions and possible reorg repeats. Monotonic blocked/serviceable/unknown partitions sum per observation; their quantiles must not be summed. Serviceable includes in-flight processing. This is not a canonical unique-request cohort.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p50",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p95",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} p99",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Readiness timing coverage \u00b7 terminal observations",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Show counts beside percentile panels. Unknown includes pre-evaluation time, source changes, reorgs, expired observations and missing clocks. Zero counts require an observed series; absence is unknown. Whole terminal-capture gaps have separate counts because their missing source population cannot be inferred.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(direction,outcome,kind) (increase(reth_eez_request_readiness_duration_seconds_count{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} {{kind}} timed observations",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_readiness_clock_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} missing partition clock",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_duration_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "{{direction}} {{outcome}} missing admission clock",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by(reason) (increase(reth_eez_native_terminal_capture_gaps_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
+          "legendFormat": "capture gaps {{reason}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 19,
       "title": "Cross-chain activity \u00b7 selected range end",
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 36,
         "w": 12,
         "h": 6
       },
@@ -205,7 +789,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 4,
+        "y": 36,
         "w": 12,
         "h": 6
       },
@@ -243,7 +827,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -281,7 +865,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 10,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -319,7 +903,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -359,7 +943,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 18,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -399,7 +983,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 58,
         "w": 12,
         "h": 8
       },
@@ -439,7 +1023,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 58,
         "w": 12,
         "h": 8
       },
@@ -490,7 +1074,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 34,
+        "y": 66,
         "w": 12,
         "h": 8
       },
@@ -528,7 +1112,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 34,
+        "y": 66,
         "w": 12,
         "h": 8
       },
@@ -566,7 +1150,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 74,
         "w": 24,
         "h": 8
       },
@@ -623,7 +1207,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 82,
         "w": 24,
         "h": 6
       },
@@ -665,7 +1249,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 88,
         "w": 24,
         "h": 6
       },
@@ -698,7 +1282,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 62,
+        "y": 94,
         "w": 24,
         "h": 8
       },
@@ -756,7 +1340,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 70,
+        "y": 102,
         "w": 8,
         "h": 8
       },
@@ -796,7 +1380,7 @@
       "type": "table",
       "gridPos": {
         "x": 8,
-        "y": 70,
+        "y": 102,
         "w": 8,
         "h": 8
       },
@@ -836,7 +1420,7 @@
       "type": "table",
       "gridPos": {
         "x": 16,
-        "y": 70,
+        "y": 102,
         "w": 8,
         "h": 8
       },
@@ -876,7 +1460,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 78,
+        "y": 110,
         "w": 12,
         "h": 8
       },
@@ -927,7 +1511,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 78,
+        "y": 110,
         "w": 12,
         "h": 8
       },
@@ -971,229 +1555,6 @@
           "rawSql": "SELECT f.source->>'direction' AS direction,f.outcome,f.timing_state,f.clock_basis,count(*) AS admissions FROM eez.lifecycle_admission_finality f JOIN eez.dashboard_chain_context c ON c.deployment_id=f.deployment_id AND c.chain_id=(f.source->>'chain_id')::numeric AND c.genesis_hash=decode(f.source->>'genesis_hash','hex') AND c.rollup_id=(f.source->>'rollup_id')::numeric WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND f.instance IN (${instance:sqlstring}) AND (f.admitted_at_ms BETWEEN extract(epoch FROM $__timeFrom()::timestamptz)*1000 AND extract(epoch FROM $__timeTo()::timestamptz)*1000) GROUP BY 1,2,3,4 ORDER BY 1,2,3"
         }
       ]
-    },
-    {
-      "id": 21,
-      "title": "Current accumulated readiness time",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 86,
-        "w": 24,
-        "h": 7
-      },
-      "description": "Sum of observed blocked, serviceable and unknown portions for currently active admissions, including in-flight work. Missing partition clocks contribute the whole known age to unknown. These are gauges, never rate().",
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_native_queue_readiness_duration_sum_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
-          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      }
-    },
-    {
-      "id": 22,
-      "title": "Observed readiness time \u00b7 terminal p50 / p95 / p99",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 93,
-        "w": 24,
-        "h": 7
-      },
-      "description": "Native terminal observations by outcome, including local dispositions and possible reorg repeats. Monotonic blocked/serviceable/unknown partitions sum per observation; their quantiles must not be summed. Serviceable includes in-flight processing. This is not a canonical unique-request cohort.",
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
-          "legendFormat": "{{direction}} {{outcome}} {{kind}} p50",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
-          "legendFormat": "{{direction}} {{outcome}} {{kind}} p95",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        },
-        {
-          "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by(le,direction,outcome,kind) (rate(reth_eez_request_readiness_duration_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m])))",
-          "legendFormat": "{{direction}} {{outcome}} {{kind}} p99",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      }
-    },
-    {
-      "id": 23,
-      "title": "Readiness timing coverage \u00b7 terminal observations",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 100,
-        "w": 24,
-        "h": 7
-      },
-      "description": "Show counts beside percentile panels. Unknown includes pre-evaluation time, source changes, reorgs, expired observations and missing clocks. Zero counts require an observed series; absence is unknown. Whole terminal-capture gaps have separate counts because their missing source population cannot be inferred.",
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by(direction,outcome,kind) (increase(reth_eez_request_readiness_duration_seconds_count{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
-          "legendFormat": "{{direction}} {{outcome}} {{kind}} timed observations",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        },
-        {
-          "refId": "B",
-          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_readiness_clock_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
-          "legendFormat": "{{direction}} {{outcome}} missing partition clock",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        },
-        {
-          "refId": "C",
-          "expr": "sum by(direction,outcome) (increase(reth_eez_native_terminal_duration_unknown_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
-          "legendFormat": "{{direction}} {{outcome}} missing admission clock",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        },
-        {
-          "refId": "D",
-          "expr": "sum by(reason) (increase(reth_eez_native_terminal_capture_gaps_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[5m]))",
-          "legendFormat": "capture gaps {{reason}}",
-          "instant": false,
-          "range": true,
-          "format": "time_series"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Unknown",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      }
     }
   ],
   "annotations": {

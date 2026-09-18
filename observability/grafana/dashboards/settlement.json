@@ -1,13 +1,13 @@
 {
   "uid": "eez-settlement",
-  "title": "EEZ · Settlement pipeline",
+  "title": "EEZ \u00b7 Settlement pipeline",
   "tags": [
     "eez",
     "protocol"
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -64,8 +64,8 @@
           "type": "postgres",
           "uid": "eez-postgres"
         },
-        "query": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
-        "definition": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
         "refresh": 1,
         "multi": false,
         "includeAll": true,
@@ -150,7 +150,7 @@
     },
     {
       "id": 2,
-      "title": "Stage p95 by typed outcome · native",
+      "title": "Stage p95 by typed outcome \u00b7 native",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -162,11 +162,37 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "Unknown"
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
         },
         "overrides": []
       },
-      "options": {},
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -177,18 +203,266 @@
           "expr": "histogram_quantile(0.95, sum by(le,stage,outcome)(rate({__name__=~\"(reth_)?eez_stage_duration_seconds_bucket\",environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=~\"eez-composer|eez-proof-signer\"}[$__rate_interval])))",
           "instant": false,
           "range": true,
-          "legendFormat": "{{direction}} {{state}} {{outcome}} {{stage}}",
+          "legendFormat": "{{stage}} \u00b7 {{outcome}}",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Canonical paid posting calls over time \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Included canonical posting calls by success status and chain, using exact receipt block time. An included successful call alone does not prove application or cross-chain completion. Missing/stale buckets are not zero.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,count(*)::double precision AS value FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Posting execution gas over time \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Exact receipt gas_used summed per canonical posting bucket and success status, including included reverts. Not a gas-limit estimate or settled transaction denominator. Unknown receipt gas yields NULL for the bucket.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||CASE WHEN r.success THEN ' \u00b7 successful' ELSE ' \u00b7 reverted' END AS metric,(CASE WHEN bool_and(r.gas_used IS NOT NULL) THEN sum(r.gas_used) END)::double precision AS value FROM eez.posting_receipts r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: gas",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Planning cuts by reason",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "One counter per real finite planning cut. Count, gas, DA, preparation deadline and queue cleanup retain request ownership as before. These are not unique failed requests. No sample means unexercised.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(increase(reth_eez_admission_cuts_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{reason}}",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Exact target misses by reason",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Scheduled-late slots and submitted-bundle target misses are separate operational observations; do not sum them into a unique failed-admission count. Exclusion can reflect auction loss, relay rejection or simulation failure.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(increase(reth_eez_target_slot_misses_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{reason}}",
           "format": "time_series"
         }
       ]
     },
     {
       "id": 3,
-      "title": "Stage observations by outcome · native",
+      "title": "Stage observations by outcome \u00b7 native",
       "type": "table",
       "gridPos": {
-        "x": 12,
-        "y": 4,
+        "x": 0,
+        "y": 27,
         "w": 12,
         "h": 8
       },
@@ -227,8 +501,8 @@
       "title": "Retained candidate / retry / dispatch observations",
       "type": "table",
       "gridPos": {
-        "x": 0,
-        "y": 12,
+        "x": 12,
+        "y": 27,
         "w": 12,
         "h": 8
       },
@@ -265,8 +539,8 @@
       "title": "Canonical paid posting calls",
       "type": "table",
       "gridPos": {
-        "x": 12,
-        "y": 12,
+        "x": 0,
+        "y": 35,
         "w": 12,
         "h": 8
       },
@@ -299,12 +573,132 @@
       ]
     },
     {
-      "id": 6,
-      "title": "Attempt membership · optional source hash",
+      "id": 13,
+      "title": "Policy anchor age \u00b7 candidate target",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Actual enabled policy age: candidate L1 target minus last canonical L1 settlement timestamp. This is not the age of the oldest pending transaction. Only valid evaluations within45seconds are shown; rollup labels come from configured native runtime. Cross-chain and pure-L2 work may coexist.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_anchor_age_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Included pure-L2 transactions awaiting settlement",
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 43,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Fresh canonical policy activity index population, including reverted ordinary transactions. Empty history does not count as pure-L2 activity. Process/native rollup scope only; SQL source-chain selection does not change this process metric.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_pending_pure_l2_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Active process policy values",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Immutable startup settings until restart. Setting names carry their units. NaN means inactive/unbounded (including interval in always mode), never zero or a consensus limit. Configured process values are not source-chain scoped.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_settlement_policy_setting{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Attempt membership \u00b7 optional source hash",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
         "w": 24,
         "h": 8
       },
@@ -361,7 +755,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 67,
         "w": 24,
         "h": 8
       },
@@ -399,7 +793,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 75,
         "w": 24,
         "h": 6
       },
@@ -433,7 +827,7 @@
     },
     {
       "id": 9,
-      "title": "Posting classification coverage · full indexed interval",
+      "title": "Posting classification coverage \u00b7 full indexed interval",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -441,7 +835,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 81,
         "w": 24,
         "h": 6
       },
@@ -463,194 +857,6 @@
       "options": {
         "showHeader": true
       }
-    },
-    {
-      "id": 10,
-      "title": "Planning cuts by reason",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 0,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "description": "One counter per real finite planning cut. Count, gas, DA, preparation deadline and queue cleanup retain request ownership as before. These are not unique failed requests. No sample means unexercised.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Unknown"
-        },
-        "overrides": []
-      },
-      "options": {},
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by(reason)(increase(reth_eez_admission_cuts_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
-          "format": "time_series"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "title": "Exact target misses by reason",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 48,
-        "w": 12,
-        "h": 8
-      },
-      "description": "Scheduled-late slots and submitted-bundle target misses are separate operational observations; do not sum them into a unique failed-admission count. Exclusion can reflect auction loss, relay rejection or simulation failure.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Unknown"
-        },
-        "overrides": []
-      },
-      "options": {},
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by(reason)(increase(reth_eez_target_slot_misses_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}[$__range]))",
-          "instant": false,
-          "range": true,
-          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
-          "format": "time_series"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "title": "Active process policy values",
-      "type": "table",
-      "gridPos": {
-        "x": 0,
-        "y": 56,
-        "w": 24,
-        "h": 8
-      },
-      "description": "Immutable startup settings until restart. Setting names carry their units. NaN means inactive/unbounded (including interval in always mode), never zero or a consensus limit. Configured process values are not source-chain scoped.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Unknown"
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_settlement_policy_setting{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
-          "instant": true,
-          "range": false,
-          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 13,
-      "title": "Policy anchor age · candidate target",
-      "type": "table",
-      "gridPos": {
-        "x": 0,
-        "y": 64,
-        "w": 12,
-        "h": 8
-      },
-      "description": "Actual enabled policy age: candidate L1 target minus last canonical L1 settlement timestamp. This is not the age of the oldest pending transaction. Only valid evaluations within45seconds are shown; rollup labels come from configured native runtime. Cross-chain and pure-L2 work may coexist.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown"
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_settlement_anchor_age_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
-          "instant": true,
-          "range": false,
-          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 14,
-      "title": "Included pure-L2 transactions awaiting settlement",
-      "type": "table",
-      "gridPos": {
-        "x": 12,
-        "y": 64,
-        "w": 12,
-        "h": 8
-      },
-      "description": "Fresh canonical policy activity index population, including reverted ordinary transactions. Empty history does not count as pure-L2 activity. Process/native rollup scope only; SQL source-chain selection does not change this process metric.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "Unknown"
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_settlement_pending_pure_l2_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} and on(environment,deployment,job,instance,rollup) (reth_eez_settlement_policy_evaluation_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) <= 45) and on(environment,deployment,job,instance,rollup) ((time() - reth_eez_settlement_policy_evaluation_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"}) >= -5) and on(environment,deployment,job,instance) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",instance=~\"${instance:regex}\",service=\"eez-composer\"} == 1)",
-          "instant": true,
-          "range": false,
-          "legendFormat": "{{instance}} {{rollup}} {{reason}} {{setting}}",
-          "format": "table"
-        }
-      ]
     }
   ],
   "annotations": {

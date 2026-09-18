@@ -92,7 +92,8 @@ GRANT SELECT ON capacity_contexts TO eez_observer_reader,eez_observer_writer;
 """
     sql += r"""
 CREATE FUNCTION pg_temp.capacity_snapshot(l1 bigint,l2 bigint)
- RETURNS TABLE(valid boolean,l1_cursor bytea,l2_cursor bytea,unresolved bigint,progress jsonb)
+ RETURNS TABLE(valid boolean,l1_cursor bytea,l2_cursor bytea,unresolved bigint,progress jsonb,
+               l1_height text,l2_height text,l1_revision bigint,l2_revision bigint)
  LANGUAGE plpgsql AS $$ BEGIN
  RETURN QUERY EXECUTE $snapshot$""" + snapshot + r"""$snapshot$ USING l1,l2;
 END $$;

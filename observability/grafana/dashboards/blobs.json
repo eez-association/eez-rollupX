@@ -1,13 +1,13 @@
 {
   "uid": "eez-blobs",
-  "title": "EEZ · Blobs and data availability",
+  "title": "EEZ \u00b7 Blobs and data availability",
   "tags": [
     "eez",
     "protocol"
   ],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -64,8 +64,8 @@
           "type": "postgres",
           "uid": "eez-postgres"
         },
-        "query": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
-        "definition": "SELECT role||' · '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "query": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
+        "definition": "SELECT role||' \u00b7 '||chain_id::text AS __text,chain_instance_id::text AS __value FROM eez.dashboard_chain_context c WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} ORDER BY role",
         "refresh": 1,
         "multi": false,
         "includeAll": true,
@@ -149,12 +149,267 @@
       }
     },
     {
+      "id": 10,
+      "title": "Blob utilization and measurement coverage \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Weighted authenticated encoded bytes / purchased usable capacity for exactly the measured posts in each bucket. Coverage is measured posts / decoded type-3 posts. Reverted measured posts remain included. No measurement or capacity yields NULL; the two ratios are not added.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(sum(r.encoded_bytes) FILTER(WHERE r.measurement_state='measured')/NULLIF(sum(r.purchased_blobs*r.usable_bytes_per_blob) FILTER(WHERE r.measurement_state='measured'),0))::double precision AS utilization,(count(*) FILTER(WHERE r.measurement_state='measured')::numeric/NULLIF(count(*),0))::double precision AS measurement_coverage FROM eez.posting_blob_measurements r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Authenticated bytes and purchased capacity \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Sums for the measured subset only: authenticated encoded bytes and purchased usable capacity of those same posts. Unknown/unavailable measurements are excluded, not interpreted as empty blobs. Compare with measurement coverage.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(sum(r.encoded_bytes) FILTER(WHERE r.measurement_state='measured'))::double precision AS encoded_bytes,(sum(r.purchased_blobs*r.usable_bytes_per_blob) FILTER(WHERE r.measurement_state='measured'))::double precision AS purchased_usable_bytes FROM eez.posting_blob_measurements r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Blob posting execution / blob fees \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Disjoint execution/blob fee components for decoded canonical type-3 posting receipts, including included reverts. Any incomplete accounting makes the bucket unavailable. Native-unit plot uses exact numeric sums divided by1e18; exact wei stays in the detail tables. This overlaps the gas posting population.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.execution_paid)/1e18 END)::double precision AS execution_native,(CASE WHEN bool_and(r.accounting_gap IS NULL AND r.execution_paid IS NOT NULL AND r.blob_paid IS NOT NULL) THEN sum(r.blob_paid)/1e18 END)::double precision AS blob_native FROM eez.posting_blob_measurements r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: native units",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Known purchased blobs over time \u00b7 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Known purchased blobs on canonical decoded type-3 posting receipts. The measured-subset line is a subset of the total and is not stacked or added. Missing measurement remains NULL; a missing receipt bucket stays absent.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,sum(r.purchased_blobs)::double precision AS purchased_blobs,(sum(r.purchased_blobs) FILTER(WHERE r.measurement_state='measured'))::double precision AS measured_subset_blobs FROM eez.posting_blob_measurements r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND (${chain:sqlstring}='all' OR c.chain_instance_id::text=${chain:sqlstring}) AND (${rollup:sqlstring}='all' OR c.role='l1' OR c.rollup_id::text=${rollup:sqlstring}) AND (to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo()) AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "barWidthFactor": 0.7
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 2,
       "title": "Purchased and measured populations",
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -192,7 +447,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 4,
+        "y": 20,
         "w": 12,
         "h": 8
       },
@@ -226,11 +481,11 @@
     },
     {
       "id": 4,
-      "title": "Measurement states · canonical posts",
+      "title": "Measurement states \u00b7 canonical posts",
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -264,11 +519,11 @@
     },
     {
       "id": 5,
-      "title": "Execution versus blob fees · exact included spend",
+      "title": "Execution versus blob fees \u00b7 exact included spend",
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 28,
         "w": 12,
         "h": 8
       },
@@ -306,7 +561,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 36,
         "w": 24,
         "h": 8
       },
@@ -365,11 +620,11 @@
     },
     {
       "id": 7,
-      "title": "Composer-reported allowance utilization · candidate population",
+      "title": "Composer-reported allowance utilization \u00b7 candidate population",
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 44,
         "w": 24,
         "h": 8
       },
@@ -407,7 +662,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 52,
         "w": 24,
         "h": 6
       },
@@ -441,7 +696,7 @@
     },
     {
       "id": 9,
-      "title": "Posting classification coverage · full indexed interval",
+      "title": "Posting classification coverage \u00b7 full indexed interval",
       "type": "table",
       "datasource": {
         "type": "postgres",
@@ -449,7 +704,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 58,
         "w": 24,
         "h": 6
       },

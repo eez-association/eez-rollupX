@@ -5,7 +5,7 @@
 | Date and status | 2026-09-18; completed functional single-host deployment; current runtime and canonical monitoring verified |
 | Scope | User-authorized backup and fresh, testable single-host Compose network |
 | Initial deployment source | `3eeff740c5cd4d075a474ef676e92bb51fe1ade2` |
-| Current shipping source | `68e5da389b0df815a0b013dea7915735f544aa93` |
+| Current native core shipping source | `68e5da389b0df815a0b013dea7915735f544aa93` |
 | Protocol | `3c0cdf4955941a5c23639346932b55b33babebbd` |
 | Networks | Chiado L1 10200; fresh L2 6291, replacing 6290 at the public endpoints |
 | Related change | [Beacon blob selection fix](../2026-09-18-chiado-blob-selection/README.md) |
@@ -186,3 +186,56 @@ and no off-host disaster-recovery or production-readiness claim is made.
 | Real self-hosted observability | Native overlays, schema22 observer/PG, Prometheus/Loki/Grafana | Scrapes, SQL fees/blobs, lifecycle streams,7 dashboards/3 data sources, snapshot uniqueness |
 | Existing public access | Preserved gateway, updated UI/monitor, isolated fresh explorers | HTTP/browser checks, actual chain/genesis/receipt/blob comparisons |
 | Recovery and persistence | Supported L1 unwind, graceful restart and image rollout | Canonical replay, retained safe block, advancing heads, unchanged62-row receipt snapshot |
+
+
+## Chart and canonical-progress update
+
+The observer alone now runs source `4e60e3fd74a5aaf95a497b1afe8451b0751b9987`,
+image `sha256:7d3746280f4e26306fbd90819547c0a46aa0f73a821550dfd0c84b88b43737c1`.
+The local shipping-only producer and standard artifact consumer verified its exact
+revision. Native composer/signer image IDs and start times remained unchanged.
+Schema 22, credentials and data volumes were retained; no migration was needed.
+
+[Seventeen new trend panels](../../../observability/contracts/protocol-dashboards.md#trend-first-layout)
+cover arrivals, outcomes, queue state, latency, gas/spend, blob utilization/bytes/
+fees and chain assurance. Existing exact detail tables remain below the charts.
+The network instance catalog includes both observer and native Composer, so its
+built-in All selection no longer silently hides native queue metrics.
+
+The observer now captures heights and persisted reorg revisions alongside hashes,
+counts and health in one SQL snapshot. Normal published appends retain fresh
+canonical gauges; reorgs (including restored hashes), missing/backwards fences,
+errors and stale evidence still suppress them. This remains bounded snapshot
+telemetry: a snapshot ahead of scanner publication can briefly be unavailable.
+
+| Requirement | Implementation | Verification |
+| --- | --- | --- |
+| More useful graphs | Five dashboard JSON files; chart-first layout with original tables | 17 new panels; 25 total chart queries and browser renders against live data; no datasource errors |
+| Stable normal-append confirmation metrics | `indexer/outcomes.rs`; existing persisted revision, no schema/config change | 84 observer unit tests; actual PostgreSQL production-query fixtures for both chains, reorg/restored hashes, missing cursors, health and contradictions |
+| Native queue visible in network overview | Observer/Composer instance catalog, built-in All default | Generated RPC/native profile regression; live browser Current status and queue canvas |
+| Real inbound/outbound visibility | Guarded two-transaction canary on existing proxies | Canonical receipts, unique destination events, registered settled root, destination values 684/785; SQL and Prometheus committed counts 3 per direction |
+
+The new inbound hash is
+`0x93660444222192f6f9d551ebb714c1f58253999cd752f46438daa1aa58ac5521`;
+the outbound hash is
+`0x319262a2bea411bd4c78aa9c275523dade0bb06c2af540f969a684a96559af66`.
+Both SQL outcomes are canonical/committed with `node_reconciled` evidence.
+The before diagnostic had 9 invalid evaluations among 16 samples. After rollout,
+30 of 30 samples retained evaluation validity over roughly one minute while both
+chains advanced through five distinct scanner cursors. This bounded observation
+does not promise continuous availability or independent execution replay.
+
+Validation also passed workspace all-target strict Clippy, formatting, dashboard/
+selector/annotation/preparation checks and the existing 3,137-admission SQL query
+fixture. First failures were retained: sandbox denied local test sockets; the
+unrestricted observer suite passed 84/84. The standalone database harness initially
+used a host binary incompatible with the PostgreSQL container's libc; its final
+SQL-only run applied the 22 migrations directly and tested the production queries.
+This is not a new full migration-CLI or release-archive test run. Browser/HTTP test
+helpers were corrected to accept empty frames and the configured Unknown display;
+those were validator failures, not hidden dashboard query failures.
+
+Private evidence is retained under the deployment's
+`validation/metrics-charts-20260918T191808Z/`, including image manifests, queries,
+screenshots, canary receipts and before/after samples. Performance comparison
+remains postponed; no network reset, main merge or image publication occurred.

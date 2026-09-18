@@ -110,7 +110,10 @@ cursors must be at or above the captured heights, with the exact hash required
 at equal height. Missing fences, a changed revision (including a reorg that later
 restores the same hash), a backwards cursor, a chain error, invalid source health
 or 90-second staleness suppress the gauges. Reorg/error suppression follows scanner
-status publication; it is not a synchronous database read on every scrape. SQL anchor/outcome views retract immediately on
+status publication; it is not a synchronous database read on every scrape. A new
+SQL snapshot ahead of the scanner's published height remains conservatively
+unavailable until that publication catches up; normal published appends no longer
+invalidate the preceding snapshot. SQL anchor/outcome views retract immediately on
 committed evidence changes; cached gauges refresh on the next bounded projection
 pass and carry the existing projection last-success timestamp. Missing/gapped
 history remains visible and must accompany dashboard/alert interpretation.

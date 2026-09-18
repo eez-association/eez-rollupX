@@ -20,6 +20,7 @@ import historical_checkpoints
 import finality_timing
 import cost_query_boundaries
 import canonical_query_boundaries
+import canonical_progress
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGES = json.loads((ROOT / 'images.lock.json').read_text())
@@ -292,6 +293,7 @@ def main():
         finality_timing.exercise(run, psql, report)
         cost_query_boundaries.exercise(run, psql, report)
         canonical_query_boundaries.exercise(run, psql, report)
+        canonical_progress.exercise(run, psql, report)
         historical_checkpoints.exercise(run, psql, report)
         run(psql,data=(ROOT / 'tests/settled-transaction-costs.sql').read_text())
         report['checks'].append('settled_transaction_costs_deduplicate_overlaps_and_retract_unknown_prefixes_reorgs_and_coverage_gaps')
