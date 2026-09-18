@@ -338,3 +338,32 @@ transactions were submitted for this presentation update. The final display
 review also removed hidden activity columns and prevented intentionally skipped
 axis labels from displaying a misleading Unknown; missing numeric observations
 retain Unknown. Evidence: deployment `validation/crosschain-operations-20260918/`.
+
+
+## Additional pressure diagnostics
+
+Cross-chain request flow now compares admitted, terminal and committed-subset
+native observations. Two additional panels show active pending-age bands
+(<=30s,30–120s,>120s,unknown clock) and other typed terminal dispositions. These
+supplement actual queue size/oldest age rather than treating counter differences
+as a queue-size equation or a drain-time prediction. Replacements and already
+completed sources are not indiscriminately classified as failures.
+
+Age bands use direct snapshot gauges, matching buckets per instance before
+subtracting and aggregating. Missing data and negative bucket differences remain
+unavailable; unknown clocks stay separate from known ages. Pending clocks retain
+sample freshness independently of readiness evaluation. The bands are diagnostic
+boundaries, not a new SLO or enabled alert. Runtime behavior, collection cadence,
+monetary units and paused alerting remain unchanged.
+
+All three affected panels passed actual localhost Grafana queries and browser
+rendering. The live noncommitted series was absent in the selected history and
+remained Unknown, not a fabricated zero-error rate. Nine dashboard/selector tests
+passed. The final isolated datasource suite passed 132 queries and 21 semantic
+check groups, including 5:4:2 admission/terminal/committed
+rates, each noncommitted direction/disposition, 30/120/121-second boundaries,
+unknown clocks, idle zeroes and stale/incomplete suppression. Its first run exposed
+a validator assumption that Grafana returns Prometheus labels as table columns;
+that KeyError was preserved and corrected using explicit PromQL label matching.
+This was a test-harness correction, not a change to the deployed metric queries.
+Evidence is retained under deployment `validation/crosschain-diagnostics-20260918/`.

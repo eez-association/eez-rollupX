@@ -80,11 +80,14 @@ count=0
 follower='agree'
 funding='healthy'
 queue='active'
+pending_age=60
+clock_known=True
 class Handler(http.server.BaseHTTPRequestHandler):
  def do_POST(self):
-  global follower,funding,queue
+  global follower,funding,queue,pending_age,clock_known
   data=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
   follower=data.get('follower',follower);funding=data.get('funding',funding);queue=data.get('queue',queue)
+  pending_age=data.get('pending_age',pending_age);clock_known=data.get('clock_known',clock_known)
   self.send_response(200);self.send_header('Content-Length','0');self.end_headers()
  def do_GET(self):
   global count
@@ -92,6 +95,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
   lines=[f'reth_eez_native_queue_sample_valid {int(queue!="unknown")}', 'reth_eez_native_queue_evaluation_valid 1',f'reth_eez_native_queue_sample_timestamp_seconds {time.time()-(100 if queue=="stale" else 0)}']
   lines.extend(['reth_eez_native_terminal_capture_gaps_total{reason="capture_limit"} 0','reth_eez_native_terminal_capture_gaps_total{reason="capture_context"} 0'])
   for direction in ('inbound','outbound'):
+   lines.append(f'reth_eez_native_admissions_total{{direction="{direction}"}} {5*count}')
+   for outcome,multiplier in (('committed',2),('nonce_gap',1),('replaced',1)):
+    lines.append(f'reth_eez_native_terminal_observations_total{{direction="{direction}",outcome="{outcome}"}} {multiplier*count}')
    for kind,seconds in (('blocked',10),('serviceable',20),('unknown',30)):
     lines.append(f'reth_eez_native_queue_readiness_duration_sum_seconds{{direction="{direction}",kind="{kind}"}} {seconds if queue!="idle" and direction=="inbound" else 0}')
     for bound in ('1','5','10','20','30','60','+Inf'):
@@ -101,9 +107,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
    for state in ('queued_ready','queued_blocked','queued_unknown','in_flight'):
     lines.append(f'reth_eez_native_queue_transactions{{direction="{direction}",state="{state}"}} {int(queue!="idle" and direction=="inbound" and state=="queued_ready")}')
    for kind in ('pending','serviceable'):
-    lines.append(f'reth_eez_native_queue_oldest_age_seconds{{direction="{direction}",kind="{kind}"}} {60 if queue!="idle" and direction=="inbound" else "NaN"}')
+    lines.append(f'reth_eez_native_queue_age_unknown_transactions{{direction="{direction}",kind="{kind}"}} {int(queue!="idle" and direction=="inbound" and not clock_known)}')
+    lines.append(f'reth_eez_native_queue_oldest_age_seconds{{direction="{direction}",kind="{kind}"}} {pending_age if queue!="idle" and direction=="inbound" and clock_known else "NaN"}')
     for bound in ('0.1','1','5','10','30','60','120','300','600','1800','3600','21600','86400','+Inf'):
-     lines.append(f'reth_eez_native_queue_age_seconds_bucket{{direction="{direction}",kind="{kind}",le="{bound}"}} {int(queue!="idle" and direction=="inbound" and (bound=="+Inf" or float(bound)>=60))}')
+     lines.append(f'reth_eez_native_queue_age_seconds_bucket{{direction="{direction}",kind="{kind}",le="{bound}"}} {int(queue!="idle" and direction=="inbound" and clock_known and (bound=="+Inf" or float(bound)>=pending_age))}')
   lines.extend(['reth_eez_settlement_policy_enabled 1', 'reth_eez_settlement_policy_setting{setting="pure_l2_interval_seconds"} 60', 'reth_eez_settlement_policy_evaluation_valid{rollup="1"} 1', f'reth_eez_settlement_policy_evaluation_timestamp_seconds{{rollup="1"}} {time.time()}', 'reth_eez_settlement_anchor_age_seconds{rollup="1"} 75', 'reth_eez_settlement_pending_pure_l2_transactions{rollup="1"} 3', f'reth_eez_admission_cuts_total{{reason="gas"}} {count}', f'reth_eez_target_slot_misses_total{{reason="excluded"}} {count}'])
   lines.append(f'eez_observer_follower_comparison_known {int(follower in ("agree","mismatch","stale"))}')
   if follower!='disabled':lines.append(f'eez_observer_follower_last_attempt_timestamp_seconds {time.time()-(100 if follower=="stale" else 0)}')
@@ -352,6 +359,24 @@ except urllib.error.HTTPError as error:
                 values = [v for row in query({**age['targets'][0], 'instant': True, 'range': False}, age['datasource'])
                           for key, v in row.items() if key.lower() != 'time' and isinstance(v, (float, int))]
                 assert values == ([60, 60] if mode == 'active' else []), (mode, values)
+                bands = next(p for p in cross['panels'] if p['id'] == 34)
+                for index, target in enumerate(bands['targets']):
+                    values = sorted(v for row in query({**target, 'instant': True, 'range': False}, bands['datasource'])
+                                    for key, v in row.items() if key.lower() != 'time' and isinstance(v, (float, int)))
+                    expected_band = ([] if mode in ('unknown', 'stale') else
+                                     [0, int(mode == 'active' and index == 1)])
+                    assert values == expected_band, (mode, index, values)
+
+            bands = next(p for p in cross['panels'] if p['id'] == 34)
+            def band_values():
+                return [sorted(v for row in query({**target, 'instant': True, 'range': False}, bands['datasource'])
+                               for key, v in row.items() if key.lower() != 'time' and isinstance(v, (float, int)))
+                        for target in bands['targets']]
+            for seconds, known, expected_band in [(30, True, 0), (120, True, 1), (121, True, 2), (240, False, 3), (60, True, 1)]:
+                run(['docker','exec','-i',client,'python3','-c',"import sys,urllib.request; urllib.request.urlopen(urllib.request.Request('http://metrics-fixture:9000/control',data=sys.stdin.buffer.read(),headers={'Content-Type':'application/json'})).read()"],json.dumps({'pending_age':seconds,'clock_known':known}))
+                expected_bands = [[0, 1] if i == expected_band else [0, 0] for i in range(4)]
+                until('pending age band '+str(seconds)+'/'+str(known),lambda:band_values()==expected_bands,seconds=30)
+            report['checks'].append('pending_age_bands_use_gauges_preserve_boundaries_and_unknown_clocks')
             report['checks'].append('directional_queue_charts_and_oldest_age_preserve_active_idle_unknown_stale_states')
             report['checks'].append('idle_activity_recent_history_unknown_and_stale_are_distinct_without_synthetic_health')
 
@@ -428,6 +453,37 @@ except urllib.error.HTTPError as error:
                               for row in query(target,panel['datasource'])
                               for name,value in row.items() if name.lower()!='time'))
             report['checks'].append('observed_readiness_partitions_percentiles_and_coverage_against_real_prometheus')
+            flow = next(panel for panel in cross['panels'] if panel['id'] == 24)
+            dispositions = next(panel for panel in cross['panels'] if panel['id'] == 35)
+            flow_expressions = {target['refId']: target['expr'] for target in flow['targets']}
+            assert set(flow_expressions) == {'A','B','C'}
+            def current_prom_values(expression):
+                target = {'refId':'A','expr':expression,'instant':True,'range':False,'format':'table'}
+                return [value for row in query(target,flow['datasource']) for name,value in row.items()
+                        if name.lower() != 'time' and isinstance(value,(float,int))]
+            # Compare whole expressions at one evaluation timestamp, avoiding
+            # sampling/extrapolation drift between separate rate queries.
+            for numerator,denominator,expected_ratio in [('A','B',1.25),('A','C',2.5),('B','C',2.0)]:
+                expression = ('abs((' + flow_expressions[numerator] + ')/('
+                              + flow_expressions[denominator] + ')-' + str(expected_ratio) + ') < bool 0.000001')
+                until('actual flow rate cohort '+numerator+'/'+denominator,
+                      lambda expression=expression:current_prom_values(expression)==[1,1])
+            terminal_expression = dispositions['targets'][0]['expr']
+            until('typed noncommitted disposition series',lambda:
+                  current_prom_values('count('+terminal_expression+')')==[4])
+            # Grafana keeps Prometheus labels on field metadata, not guaranteed
+            # table columns. Test label-preserving matching in PromQL itself.
+            for direction in ('inbound','outbound'):
+                for outcome in ('nonce_gap','replaced'):
+                    selector = ('reth_eez_native_terminal_observations_total{environment="fixture",'
+                                'deployment="canonical-outcomes",service="eez-composer",direction="'
+                                + direction + '",outcome="' + outcome + '"}')
+                    matching = '(' + terminal_expression + ') and on(direction,outcome) ' + selector
+                    assert current_prom_values('count('+matching+')') == [1]
+                    assert all(value>0 for value in current_prom_values(matching))
+            assert current_prom_values('absent(('+terminal_expression+') and on(outcome) '
+                'reth_eez_native_terminal_observations_total{outcome="committed"})') == [1]
+            report['checks'].append('native_admission_total_committed_flow_ratios_and_typed_dispositions_preserve_distinct_populations')
             settlement=json.loads((runtime/'grafana/dashboards/settlement.json').read_text())
             for title, expected in [('Policy anchor age · candidate target',75),('Included pure-L2 transactions awaiting settlement',3)]:
                 panel=next(p for p in settlement['panels'] if p['title']==title)

@@ -158,7 +158,7 @@ chain or typed outcome; shared tooltips compare observations without summing the
 
 | Dashboard | New time-series panels (IDs) |
 | --- | --- |
-| Cross-chain | Arrival rate by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); inbound queue states (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28); outbound queue states (29); oldest active/serviceable age (30) |
+| Cross-chain | Admission/terminal/committed observation rates by instance/direction (24); currently confirmed outcomes by admission-time cohort (25); inbound queue states (26); native terminal latency p50/p95/p99 (27); observed-finality latency by admission-time cohort (28); outbound queue states (29); oldest active/serviceable age (30) |
 | Gas | Configured-wallet spend (18); paid-posting execution/blob/total fees by success (19); selected-receipt execution/blob/total fees (20); configured L1 poster balance history (21) |
 | Blobs | Weighted utilization and measurement coverage (10); authenticated bytes and measured purchased capacity (11); execution/blob/total fees (12); known purchased blobs and measured subset (13) |
 | Settlement | Included paid-call count by success (15); receipt execution gas (16) |
@@ -198,7 +198,7 @@ purchased usable capacity for those same measured posts; its measured-subset
 count is not added to the all-post count.
 
 Focused generated/static coverage is in `tests/test_dashboard_trends.py`:
-twenty time-series panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
+twenty-two time-series panels, range-query flags, scoped SQL/cohort clocks, complete-accounting
 gates, preserved exact detail tables, sparse displays, unique IDs and non-overlapping
 layout. The real datasource/browser smoke gate remains necessary for SQL execution,
 PromQL evaluation and rendering; static checks alone do not claim those results.
@@ -288,3 +288,33 @@ fixtures for duplication, same-block sources/posts, unknown gas, zero-price gas,
 selectors, freshness, conflicts, reorgs and deterministic last 50 boundaries. The
 Grafana smoke additionally exercises each plotted queue state and oldest age
 through active, idle, incomplete and stale snapshots.
+
+
+## Pressure and disposition diagnostics
+
+Cross-chain panel 24 now compares three reset-aware per-second native counters:
+admissions, all terminal observations and the committed subset. The exporter-up
+gate applies before aggregation. These are process observations, not unique
+canonical transactions: replacements and reorg reopening prevent using their
+difference as an exact queue size or drain-time estimate. The committed line is
+part of the terminal line, not another quantity to add. Assess a sustained flow
+imbalance together with actual queue size and oldest active age.
+
+Panel 34 splits active pending ages into <=30s, (30s,120s], >120s and unknown clocks.
+The first three bands use direct cumulative gauge buckets, never rate(), and
+subtract matching per-instance buckets with `ignoring(le)` before aggregation.
+Negative differences are unavailable rather than clamped to zero. Missing buckets
+remain missing. Unknown clocks are a separate gauge population even when there
+are no known-age observations. Pending ages retain the complete-sample/up/[-5,45]
+second freshness gates and intentionally do not depend on readiness evaluation.
+These are convenient diagnostic bands, not an agreed SLO or enabled alert.
+
+Panel 35 keeps each noncommitted terminal disposition separate. Reverted sources,
+exhausted attempts, nonce gaps, pool discards, replacements and already-completed
+sources have different meanings; they are not grouped into a fabricated failure
+rate. Missing series and failed scrapes remain absent. Neither diagnostic changes
+native processing, SQL assurance, monetary units, sampling cadence or alert state.
+
+The real Grafana/Prometheus fixture checks admission:terminal:committed ratios
+5:4:2 at one evaluation time, typed nonce-gap/replacement series, direct age-band
+boundaries 30/120/121, unknown clocks, idle zeroes and stale/incomplete suppression.

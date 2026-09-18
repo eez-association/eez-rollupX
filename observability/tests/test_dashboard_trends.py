@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('prepare_trends', ROOT / 'prepare.py')
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
-NEW = {'cross-chain': range(24, 31), 'gas': range(18, 22),
+NEW = {'cross-chain': tuple(range(24, 31)) + (34, 35), 'gas': range(18, 22),
        'blobs': range(10, 14), 'settlement': range(15, 17), 'network': range(24, 27)}
 
 
@@ -23,19 +23,19 @@ def dashboard(name):
 
 class DashboardTrends(unittest.TestCase):
     def test_prominent_history_charts_preserve_sparse_values_and_use_real_time_series(self):
-        self.assertEqual(sum(len(ids) for ids in NEW.values()), 20)
+        self.assertEqual(sum(len(ids) for ids in NEW.values()), 22)
         for name, ids in NEW.items():
             panels = {panel['id']: panel for panel in dashboard(name)['panels']}
             for panel_id in ids:
                 with self.subTest(dashboard=name, panel=panel_id):
                     panel = panels[panel_id]
                     self.assertEqual(panel['type'], 'timeseries')
-                    self.assertLessEqual(panel['gridPos']['y'], 60 if name == 'cross-chain' else 31)
+                    self.assertLessEqual(panel['gridPos']['y'], 68 if name == 'cross-chain' else 31)
                     self.assertGreaterEqual(panel['gridPos']['h'], 7)
                     defaults = panel['fieldConfig']['defaults']
                     self.assertEqual(defaults['noValue'], 'Unknown')
                     self.assertIs(defaults['custom']['spanNulls'], False)
-                    self.assertEqual(defaults['custom']['stacking']['mode'], 'normal' if name == 'cross-chain' and panel_id in (26, 29) else 'none')
+                    self.assertEqual(defaults['custom']['stacking']['mode'], 'normal' if name == 'cross-chain' and panel_id in (26, 29, 34) else 'none')
                     self.assertEqual(panel['options']['tooltip']['mode'], 'multi')
                     self.assertTrue(panel['description'])
                     for target in panel['targets']:
@@ -144,6 +144,26 @@ class DashboardTrends(unittest.TestCase):
         self.assertEqual(age['fieldConfig']['defaults']['unit'], 's')
         self.assertIn('eez_native_queue_oldest_age_seconds', age['targets'][0]['expr'])
         self.assertNotIn('rate(', age['targets'][0]['expr'])
+
+    def test_pressure_diagnostics_keep_rates_gauges_and_dispositions_separate(self):
+        panels = {p['id']: p for p in dashboard('cross-chain')['panels']}
+        flow = panels[24]['targets']
+        self.assertEqual([t['refId'] for t in flow], ['A', 'B', 'C'])
+        self.assertIn('admissions_total', flow[0]['expr'])
+        self.assertIn('terminal_observations_total', flow[1]['expr'])
+        self.assertNotIn('outcome=', flow[1]['expr'])
+        self.assertIn('outcome="committed"', flow[2]['expr'])
+        self.assertIn('outcome!="committed"', panels[35]['targets'][0]['expr'])
+        bands = panels[34]['targets']
+        for index, target in enumerate(bands):
+            self.assertNotIn('rate(', target['expr'])
+            self.assertNotIn('clamp_min', target['expr'])
+            self.assertNotIn('queue_evaluation_valid', target['expr'])
+            self.assertIn('queue_sample_valid', target['expr'])
+            if index in (1, 2):
+                self.assertIn(' - ignoring(le) ', target['expr'])
+                self.assertIn('>= 0', target['expr'])
+        self.assertIn('queue_age_unknown_transactions', bands[3]['expr'])
 
     def test_layouts_have_stable_unique_ids_and_no_overlapping_panels(self):
         for file in (ROOT / 'grafana/dashboards').glob('*.json'):

@@ -729,7 +729,7 @@
     },
     {
       "id": 24,
-      "title": "Arrivals over time \u00b7 inbound / outbound",
+      "title": "Request flow \u00b7 admitted, terminal and committed observations",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -737,7 +737,7 @@
         "w": 12,
         "h": 8
       },
-      "description": "Native admitted requests per second, reset-aware over Grafana\u2019s rate interval. Each selected process/direction stays separate. Missing scrape history is unavailable, not zero; retries/resubmissions can create distinct admissions.",
+      "description": "Reset-aware per-second native observations for each selected process and direction. Compare incoming admissions with terminal handling to spot accumulating work. Committed is a subset of terminal observations, not an additional flow to sum. Replacements, local dispositions and reorg reopening mean these counters are not unique canonical transactions or an exact queue-balance equation. Missing series/exporter stays absent. Check actual queue size, oldest age, disposition detail and canonical evidence alongside this chart.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -745,8 +745,24 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(instance,direction) (rate(reth_eez_native_admissions_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}} \u00b7 {{direction}}",
+          "expr": "sum by(instance,direction) (rate(reth_eez_native_admissions_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval]) and on(environment,deployment,service,instance,job) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 admitted",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(instance,direction) (rate(reth_eez_native_terminal_observations_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"}[$__rate_interval]) and on(environment,deployment,service,instance,job) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 all terminal",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(instance,direction) (rate(reth_eez_native_terminal_observations_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",outcome=\"committed\"}[$__rate_interval]) and on(environment,deployment,service,instance,job) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 committed subset",
           "instant": false,
           "range": true,
           "format": "time_series"
@@ -778,12 +794,156 @@
       },
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "title": "Active request age bands \u00b7 \u226430s, 30\u2013120s, >120s and unknown",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Current pending reservations, including in-flight work, split into disjoint age bands using direct cumulative gauge buckets. These are diagnostic bands, not an SLO. Unknown clocks remain a separate population, never age zero. Bucket subtraction matches each instance before aggregation; missing/inconsistent buckets stay unavailable. Readiness evaluation is not required for a retained pending clock. Fifteen-second snapshots can miss short-lived work.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(instance,direction) ((reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\",le=\"30\"}) and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1)))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 \u226430s",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(instance,direction) (((reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\",le=\"120\"} - ignoring(le) reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\",le=\"30\"}) >= 0) and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1)))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 30\u2013120s",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(instance,direction) (((reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\",le=\"+Inf\"} - ignoring(le) reth_eez_native_queue_age_seconds_bucket{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\",le=\"120\"}) >= 0) and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1)))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 >120s",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by(instance,direction) ((reth_eez_native_queue_age_unknown_transactions{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",kind=\"pending\"}) and on(environment,deployment,service,instance,job) ((up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} <= 45) and on(environment,deployment,service,instance,job) (time() - reth_eez_native_queue_sample_timestamp_seconds{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} >= -5) and on(environment,deployment,service,instance,job) (reth_eez_native_queue_sample_valid{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1)))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 unknown clock",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "pending-age"
+            }
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "title": "Other native terminal observations \u00b7 by disposition",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Per-second native terminal observations excluding committed, retaining each typed disposition: source_reverted, source_completed, source_completed_with_missing_effects, source_nonce_spent, attempts_exhausted, nonce_gap, pool_discarded and replaced. These are not all errors, unique users, or observer-verified canonical outcomes; reorg reopening can repeat a terminal observation. Missing outcome series or unavailable exporter stays absent, never zero-filled. Environment/deployment/native-instance scope; chain, rollup and source-hash selectors do not filter native metrics. Pair with capture-gap and unknown-duration coverage.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(instance,direction,outcome) (rate(reth_eez_native_terminal_observations_total{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\",outcome!=\"committed\"}[$__rate_interval]) and on(environment,deployment,service,instance,job) (up{environment=~\"${environment:regex}\",deployment=~\"${deployment:regex}\",service=\"eez-composer\",instance=~\"${instance:regex}\"} == 1))",
+          "legendFormat": "{{instance}} \u00b7 {{direction}} \u00b7 {{outcome}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
@@ -797,7 +957,7 @@
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -881,7 +1041,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -963,7 +1123,7 @@
       "type": "timeseries",
       "gridPos": {
         "x": 0,
-        "y": 34,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1029,7 +1189,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 34,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -1120,7 +1280,7 @@
       "type": "barchart",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 50,
         "w": 12,
         "h": 9
       },
@@ -1199,7 +1359,7 @@
       "type": "barchart",
       "gridPos": {
         "x": 12,
-        "y": 42,
+        "y": 50,
         "w": 12,
         "h": 9
       },
@@ -1302,7 +1462,7 @@
       "type": "barchart",
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 59,
         "w": 24,
         "h": 9
       },
@@ -1401,7 +1561,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 68,
         "w": 12,
         "h": 8
       },
@@ -1467,7 +1627,7 @@
       "type": "timeseries",
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 68,
         "w": 12,
         "h": 8
       },
@@ -1531,7 +1691,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1569,7 +1729,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 68,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1607,7 +1767,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -1647,7 +1807,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 76,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -1687,7 +1847,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1727,7 +1887,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1778,7 +1938,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 92,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -1816,7 +1976,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 92,
+        "y": 100,
         "w": 12,
         "h": 8
       },
@@ -1854,7 +2014,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 100,
+        "y": 108,
         "w": 24,
         "h": 8
       },
@@ -1911,7 +2071,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 108,
+        "y": 116,
         "w": 24,
         "h": 6
       },
@@ -1953,7 +2113,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 114,
+        "y": 122,
         "w": 24,
         "h": 6
       },
@@ -1986,7 +2146,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 120,
+        "y": 128,
         "w": 24,
         "h": 8
       },
@@ -2044,7 +2204,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 128,
+        "y": 136,
         "w": 8,
         "h": 8
       },
@@ -2084,7 +2244,7 @@
       "type": "table",
       "gridPos": {
         "x": 8,
-        "y": 128,
+        "y": 136,
         "w": 8,
         "h": 8
       },
@@ -2124,7 +2284,7 @@
       "type": "table",
       "gridPos": {
         "x": 16,
-        "y": 128,
+        "y": 136,
         "w": 8,
         "h": 8
       },
@@ -2164,7 +2324,7 @@
       "type": "table",
       "gridPos": {
         "x": 0,
-        "y": 136,
+        "y": 144,
         "w": 12,
         "h": 8
       },
@@ -2215,7 +2375,7 @@
       "type": "table",
       "gridPos": {
         "x": 12,
-        "y": 136,
+        "y": 144,
         "w": 12,
         "h": 8
       },
