@@ -15,6 +15,8 @@ use std::time::Duration;
 // dependencies individually, charging the normalized bytes before downloading.
 const MAX_RECORD_BYTES: i64 = 16 * 1024 * 1024;
 const MAX_CHECK_BYTES: i64 = 32 * 1024 * 1024;
+const NEW_TERMINALS_PER_PASS: i64 = 24;
+const REPAIRS_PER_PASS: i64 = 8;
 
 #[derive(Debug, Clone, Default)]
 pub struct Status {
@@ -179,35 +181,43 @@ pub(super) async fn run(config: &Config, status: &SharedStatus) {
     }
     let mut failures = 0u32;
     loop {
-        failures = if poll(config, status).await {
-            0
-        } else {
-            failures.saturating_add(1)
+        let delay = match poll(config, status).await {
+            Ok(backlog) => {
+                failures = 0;
+                // Keep the bounded/fair batch, but do not idle for five seconds
+                // while new terminals fill it. The pause yields to other workers.
+                if backlog {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                }
+            }
+            Err(_) => {
+                failures = failures.saturating_add(1);
+                Duration::from_secs(crate::retry_delay(failures))
+            }
         };
-        tokio::time::sleep(Duration::from_secs(if failures == 0 {
-            5
-        } else {
-            crate::retry_delay(failures)
-        }))
-        .await;
+        tokio::time::sleep(delay).await;
     }
 }
 
-pub(super) async fn poll(config: &Config, status: &SharedStatus) -> bool {
+/// Returns whether the completed pass filled its new-work lane. Errors retain
+/// the existing status/unknown behavior and are subject to the run loop's backoff.
+pub(super) async fn poll(config: &Config, status: &SharedStatus) -> Result<bool, Error> {
     if config.lifecycle.is_empty() {
-        return true;
+        return Ok(false);
     }
     match tokio::time::timeout(Duration::from_secs(30), cycle(config))
         .await
         .unwrap_or(Err(Error::OutcomeBudget))
     {
-        Ok(canonical) => {
+        Ok((canonical, backlog)) => {
             status.write().await.outcomes = Some(Status {
                 last_success: Some(crate::now_ms()),
                 error: None,
                 canonical: Some(canonical),
             });
-            true
+            Ok(backlog)
         }
         Err(error) => {
             status
@@ -217,7 +227,7 @@ pub(super) async fn poll(config: &Config, status: &SharedStatus) -> bool {
                 .get_or_insert_with(Status::default)
                 .error = Some(error);
             tracing::warn!(reason = error.label(), "native outcome projection failed");
-            false
+            Err(error)
         }
     }
 }
@@ -365,7 +375,7 @@ async fn check(
     })
 }
 
-async fn cycle(config: &Config) -> Result<Canonical, Error> {
+async fn cycle(config: &Config) -> Result<(Canonical, bool), Error> {
     let settings = DatabaseConfig::load(&config.database_config).map_err(|_| Error::Schema)?;
     let db = Database::connect(&settings)
         .await
@@ -401,9 +411,16 @@ async fn cycle(config: &Config) -> Result<Canonical, Error> {
     // Interleave repairs and new work, starting with a repair. Merely appending
     // repairs after 24 new checks could starve them at the pass deadline.
     let rows = db.client.query(
-        "WITH candidates AS (SELECT e.source_id,e.epoch,e.sequence,e.first_seen_at,previous.last_attempt_at FROM eez.lifecycle_events e JOIN eez.lifecycle_sources s ON s.id=e.source_id JOIN eez.deployments d ON d.id=s.deployment_id LEFT JOIN eez.lifecycle_native_checks previous ON previous.source_id=e.source_id AND previous.epoch=e.epoch AND previous.sequence=e.sequence AND previous.context_l1=$4 AND previous.context_l2=$5 WHERE d.environment=$1 AND d.name=$2 AND EXISTS(SELECT FROM jsonb_to_recordset($3::jsonb) configured(service text,instance text) WHERE configured.service=s.service AND configured.instance=s.instance) AND e.state='complete' AND e.payload->'event'->>'event'='terminal' AND e.payload->'event'->>'assurance'='node_reconciled') SELECT source_id,epoch::bytea,sequence::text FROM ((SELECT source_id,epoch,sequence,row_number() OVER(ORDER BY first_seen_at,source_id,epoch,sequence) AS turn,false AS repair FROM candidates WHERE last_attempt_at IS NULL ORDER BY first_seen_at,source_id,epoch,sequence LIMIT 24) UNION ALL (SELECT source_id,epoch,sequence,row_number() OVER(ORDER BY last_attempt_at,source_id,epoch,sequence) AS turn,true AS repair FROM candidates WHERE last_attempt_at IS NOT NULL ORDER BY last_attempt_at,source_id,epoch,sequence LIMIT 8)) scheduled ORDER BY turn,repair DESC",
-        &[&config.environment,&config.deployment,&identities,&chains[0],&chains[1]],
+        "WITH candidates AS (SELECT e.source_id,e.epoch,e.sequence,e.first_seen_at,previous.last_attempt_at FROM eez.lifecycle_events e JOIN eez.lifecycle_sources s ON s.id=e.source_id JOIN eez.deployments d ON d.id=s.deployment_id LEFT JOIN eez.lifecycle_native_checks previous ON previous.source_id=e.source_id AND previous.epoch=e.epoch AND previous.sequence=e.sequence AND previous.context_l1=$4 AND previous.context_l2=$5 WHERE d.environment=$1 AND d.name=$2 AND EXISTS(SELECT FROM jsonb_to_recordset($3::jsonb) configured(service text,instance text) WHERE configured.service=s.service AND configured.instance=s.instance) AND e.state='complete' AND e.payload->'event'->>'event'='terminal' AND e.payload->'event'->>'assurance'='node_reconciled') SELECT source_id,epoch::bytea,sequence::text,repair FROM ((SELECT source_id,epoch,sequence,row_number() OVER(ORDER BY first_seen_at,source_id,epoch,sequence) AS turn,false AS repair FROM candidates WHERE last_attempt_at IS NULL ORDER BY first_seen_at,source_id,epoch,sequence LIMIT $6) UNION ALL (SELECT source_id,epoch,sequence,row_number() OVER(ORDER BY last_attempt_at,source_id,epoch,sequence) AS turn,true AS repair FROM candidates WHERE last_attempt_at IS NOT NULL ORDER BY last_attempt_at,source_id,epoch,sequence LIMIT $7)) scheduled ORDER BY turn,repair DESC",
+        &[&config.environment,&config.deployment,&identities,&chains[0],&chains[1],&NEW_TERMINALS_PER_PASS,&REPAIRS_PER_PASS],
     ).bounded().await?;
+    let mut new_work = 0;
+    for row in &rows {
+        if !row.try_get::<_, bool>(3)? {
+            new_work += 1;
+        }
+    }
+    let backlog = new_work == NEW_TERMINALS_PER_PASS;
     for row in rows {
         let source: i64 = row.try_get(0)?;
         let epoch = Epoch(
@@ -429,7 +446,7 @@ async fn cycle(config: &Config) -> Result<Canonical, Error> {
             &[&source,&epoch.0.as_slice(),&sequence.to_string(),&chains[0],&chains[1],&result.state,&references,&result.parent_sequence,&result.generation,&result.decision],
         ).bounded().await?;
     }
-    canonical_snapshot(&db, chains).await
+    Ok((canonical_snapshot(&db, chains).await?, backlog))
 }
 
 #[cfg(test)]

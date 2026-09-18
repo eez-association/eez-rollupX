@@ -19,6 +19,7 @@ import chain_locks
 import historical_checkpoints
 import finality_timing
 import cost_query_boundaries
+import canonical_query_boundaries
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 IMAGES = json.loads((ROOT / 'images.lock.json').read_text())
@@ -74,7 +75,7 @@ def check_profile(binary, report):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('database profile did not recover after restart')
                 time.sleep(0.2)
-            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '20'
+            assert run(sql + ['SELECT count(*) FROM eez.schema_migrations;']).stdout.strip() == '21'
             report['checks'].append('opt_in_compose_profile_private_port_secret_roles_explicit_migration_and_persistence')
         finally:
             run(['docker','rm','--force',name],check=False)
@@ -94,6 +95,7 @@ def main():
     parser.add_argument('--previous-v8-binary', type=pathlib.Path, help='Optional saved schema-v8 observer for source-reference upgrade checks')
     parser.add_argument('--previous-v13-binary', type=pathlib.Path, help='Optional saved schema-v13 observer for populated cost-attribution upgrade checks')
     parser.add_argument('--previous-v14-binary', type=pathlib.Path, help='Optional saved schema-v14 observer for populated canonical-revision upgrade checks')
+    parser.add_argument('--previous-v20-binary', type=pathlib.Path, help='Optional saved schema-v20 observer for populated query-migration compatibility checks')
     parser.add_argument('--report', type=pathlib.Path, default=ROOT / 'validation/database.json')
     args = parser.parse_args()
     name = 'eez-obs-db-test-' + uuid.uuid4().hex[:10]
@@ -205,8 +207,22 @@ def main():
             run(psql,data=prior14_seed.replace('canonical-outcomes','schema14-upgrade')+'\nCOMMIT;')
             prior14_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema14-upgrade';").stdout.strip()
             report['previous_v14_binary_sha256']=hashlib.sha256(args.previous_v14_binary.read_bytes()).hexdigest()
+        if args.previous_v20_binary:
+            run(['docker','cp',str(args.previous_v20_binary.resolve()),name + ':/observer-v20'])
+            run(['docker','exec',name,'/observer-v20','migrate','--database-config','/tmp/database.json'])
+            assert run(psql + ['-Atq'],data='SELECT count(*) FROM eez.schema_migrations;').stdout.strip() == '20'
+            prior20_seed=(ROOT / 'tests/canonical-outcomes.sql').read_text().split("SELECT pg_temp.assert_state('verified','historical P accepted with current Q snapshot');")[0]
+            run(psql,data=prior20_seed.replace('canonical-outcomes','schema20-upgrade')+'\nCOMMIT;')
+            prior20_costs=run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema20-upgrade';").stdout.strip()
+            report['previous_v20_binary_sha256']=hashlib.sha256(args.previous_v20_binary.read_bytes()).hexdigest()
         run(migrate)
         run(migrate)
+        if args.previous_v20_binary:
+            refused=run(['docker','exec',name,'/observer-v20','migrate','--database-config','/tmp/database.json'],check=False)
+            assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout
+            assert run(psql + ['-Atq'],data="SELECT sum(execution_paid+blob_paid) FROM eez.canonical_receipt_facts r JOIN eez.deployments d ON d.id=r.deployment_id WHERE d.name='schema20-upgrade';").stdout.strip() == prior20_costs
+            assert run(psql + ['-Atq'],data="SELECT count(*) FROM eez.lifecycle_outcome_anchors a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='schema20-upgrade' AND a.evidence_class='node_reconciled';").stdout.strip() == '1'
+            report['checks'].append('saved_v20_populated_upgrade_preserves_costs_and_native_anchors_and_refuses_downgrade')
         if args.previous_v14_binary:
             refused=run(['docker','exec',name,'/observer-v14','migrate','--database-config','/tmp/database.json'],check=False)
             assert refused.returncode != 0 and 'automatic downgrade or rewrite is prohibited' in refused.stdout,refused.stdout
@@ -256,6 +272,7 @@ def main():
         follower_comparison.exercise(run, psql, report)
         finality_timing.exercise(run, psql, report)
         cost_query_boundaries.exercise(run, psql, report)
+        canonical_query_boundaries.exercise(run, psql, report)
         historical_checkpoints.exercise(run, psql, report)
         run(psql,data=(ROOT / 'tests/settled-transaction-costs.sql').read_text())
         report['checks'].append('settled_transaction_costs_deduplicate_overlaps_and_retract_unknown_prefixes_reorgs_and_coverage_gaps')

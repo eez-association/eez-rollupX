@@ -65,7 +65,10 @@ checks up to 24 new terminals in oldest-import order and 8 previously checked
 terminals in oldest-attempt order, interleaving the lanes starting with a repair.
 It records an attempt before loading dependencies so cancellation or a
 slow query cannot permanently monopolize the new-work lane. Successful passes
-wait five seconds; failures use the existing 15/30/60-second backoff. Database
+wait 100 milliseconds when all 24 new-work slots were filled, otherwise five
+seconds. Continuous backlog therefore does not impose an idle five-second delay
+between bounded batches; repairs retain their reserved/interleaved lane. Failures
+use the existing 15/30/60-second backoff. `--once` still executes one bounded pass. Database
 connections retain server statement/lock deadlines and close on cancellation.
 
 Each dependency is fetched separately with a 16 MiB normalized JSON bound; the

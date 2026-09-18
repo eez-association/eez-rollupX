@@ -543,7 +543,7 @@ pub async fn once(config: &Config, rpc: &Rpc, status: &SharedStatus) -> Result<(
     lifecycle::once(config, status).await;
     source_receipts::poll(config, rpc, status).await;
     protocol_logs::poll(config, rpc, status).await;
-    outcomes::poll(config, status).await;
+    let _ = outcomes::poll(config, status).await;
     costs::poll(config, status).await;
     blobs::poll(config, rpc, status).await;
     follower::poll(config, rpc, status).await;

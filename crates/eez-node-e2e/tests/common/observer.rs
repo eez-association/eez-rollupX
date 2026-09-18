@@ -12,7 +12,10 @@ use std::{
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::io::AsyncWriteExt;
@@ -108,16 +111,43 @@ fn binary() -> Result<PathBuf> {
 pub struct Observer {
     container: String,
     directory: tempfile::TempDir,
+    database_directory: Option<tempfile::TempDir>,
+    postgres_settings: Value,
     executable: PathBuf,
     log: PathBuf,
     spool: PathBuf,
     child: Mutex<Option<Child>>,
+    failure_captured: AtomicBool,
+}
+
+/// Keep the fixture alive while recording Result errors, panic, or cancellation.
+/// The caller disarms this only after its last successful assertion/barrier.
+#[must_use = "retain this guard until the operation succeeds"]
+pub struct FailureCapture<'a> {
+    observer: &'a Observer,
+    complete: bool,
+}
+
+impl FailureCapture<'_> {
+    pub fn success(mut self) {
+        self.complete = true;
+    }
+}
+
+impl Drop for FailureCapture<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            self.observer.capture_failure();
+        }
+    }
 }
 
 impl Observer {
     pub async fn start(world: &CrossChainWorld, spool: &Path, deployment: &str) -> Result<Self> {
         let fixture = Self::prepare(world, spool, deployment).await?;
+        let failure_capture = fixture.capture_on_error();
         fixture.start_prepared().await?;
+        failure_capture.success();
         Ok(fixture)
     }
 
@@ -125,6 +155,22 @@ impl Observer {
     /// observer idle, for a resource-matched disabled overhead arm.
     pub async fn prepare(world: &CrossChainWorld, spool: &Path, deployment: &str) -> Result<Self> {
         let directory = tempfile::tempdir()?;
+        // Keep PGDATA with target artifacts instead of allocating a dedicated
+        // tmpfs inside PostgreSQL's cgroup. Measurement rejects RAM-backed
+        // targets separately; functional fixtures retain workspace flexibility.
+        // Keep the short Unix socket/config path in /tmp.
+        let database_root = repo_root().join("target/native-observer-databases");
+        std::fs::create_dir_all(&database_root)?;
+        let database_directory = tempfile::Builder::new()
+            .prefix("eez-native-observer-")
+            .tempdir_in(database_root)?;
+        let filesystem = output(
+            tokio::process::Command::new("stat")
+                .args(["--file-system", "--format=%T"])
+                .arg(database_directory.path()),
+            None,
+        )
+        .await?;
         let container = format!(
             "eez-native-observer-{}-{}",
             std::process::id(),
@@ -140,14 +186,21 @@ impl Observer {
             .unwrap_or_else(|| directory.path().to_owned());
         std::fs::create_dir_all(&log_root)?;
         let log = log_root.join(format!("{container}.log"));
-        let fixture = Self {
+        let mut fixture = Self {
             container,
             directory,
+            database_directory: Some(database_directory),
+            postgres_settings: Value::Null,
             executable: binary()?,
             log,
             spool: spool.to_owned(),
             child: Mutex::new(None),
+            failure_captured: AtomicBool::new(false),
         };
+        // Capture setup failures before owned container/data cleanup as well.
+        // The guard borrows the fixture, so effective settings are installed
+        // only after the guarded setup has completed below.
+        let failure_capture = fixture.capture_on_error();
         let socket = fixture.directory.path().join("socket");
         std::fs::create_dir(&socket)?;
         std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o1777))?;
@@ -181,8 +234,16 @@ impl Observer {
                 "512m",
                 "--cpus",
                 "1",
-                "--tmpfs",
-                "/var/lib/postgresql:rw,mode=1777,size=268435456",
+                "--mount",
+                &format!(
+                    "type=bind,src={},dst=/var/lib/postgresql",
+                    fixture
+                        .database_directory
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .display()
+                ),
                 "--mount",
                 &format!("type=bind,src={},dst=/var/run/postgresql", socket.display()),
                 "--env",
@@ -193,6 +254,10 @@ impl Observer {
                 "postgres",
                 "-c",
                 "listen_addresses=",
+                "-c",
+                "shared_buffers=128MB",
+                "-c",
+                "max_connections=30",
             ]),
             None,
         )
@@ -217,6 +282,47 @@ impl Observer {
         })
         .await
         .context("private PostgreSQL readiness")?;
+        let settings: Value = serde_json::from_str(&fixture.sql(
+            "SELECT jsonb_build_object('shared_buffers_bytes',pg_size_bytes(current_setting('shared_buffers')),'max_connections',current_setting('max_connections')::bigint,'data_directory',current_setting('data_directory'))",
+        ).await?)?;
+        ensure!(
+            settings["shared_buffers_bytes"].as_u64() == Some(128 * 1024 * 1024)
+                && settings["max_connections"].as_u64() == Some(30),
+            "native PostgreSQL settings differ from the packaged profile"
+        );
+        let inspect: Value = serde_json::from_str(
+            &output(
+                tokio::process::Command::new("docker").args([
+                    "inspect",
+                    "--format",
+                    "{{json .}}",
+                    &fixture.container,
+                ]),
+                None,
+            )
+            .await?,
+        )?;
+        let database_path = fixture.database_directory.as_ref().unwrap().path();
+        ensure!(
+            inspect["Mounts"]
+                .as_array()
+                .is_some_and(|mounts| mounts.iter().any(|mount| {
+                    mount["Destination"] == "/var/lib/postgresql"
+                        && mount["Type"] == "bind"
+                        && mount["Source"]
+                            .as_str()
+                            .is_some_and(|source| Path::new(source) == database_path)
+                        && mount["RW"] == true
+                }))
+                && inspect["HostConfig"]["Memory"].as_u64() == Some(536870912)
+                && inspect["HostConfig"]["NanoCpus"].as_u64() == Some(1_000_000_000),
+            "native PostgreSQL storage or resource limits differ from the fixture contract"
+        );
+        let postgres_settings = json!({
+            "storage":{"type":"owned_bind","filesystem":filesystem,"data_directory":settings["data_directory"]},
+            "shared_buffers_bytes":settings["shared_buffers_bytes"],"max_connections":settings["max_connections"],
+            "memory_bytes":inspect["HostConfig"]["Memory"],"nano_cpus":inspect["HostConfig"]["NanoCpus"]
+        });
         let admin = fixture.directory.path().join("admin.json");
         let writer = fixture.directory.path().join("writer.json");
         for (path, user) in [(&admin, "postgres"), (&writer, "eez_observer_writer")] {
@@ -270,6 +376,7 @@ impl Observer {
                 "observer_sha256":digest,"schema":eez_observer::database::SCHEMA_VERSION,
                 "owned_container":fixture.container,
                 "schema_checksums_verified":true,"postgres_image":image,"postgres_memory_bytes":536870912u64,
+                "postgres":postgres_settings,
                 "database_transport":"private_unix_socket","database_network":"none",
                 "chain_source":"live_native_rpc","lifecycle_source":"actual_native_spool"
             }))?,
@@ -301,6 +408,8 @@ impl Observer {
         eez_observer::indexer::Config::load(&fixture.directory.path().join("indexer.json"))
             .map_err(anyhow::Error::msg)?;
         drop(port);
+        failure_capture.success();
+        fixture.postgres_settings = postgres_settings;
         Ok(fixture)
     }
 
@@ -337,14 +446,29 @@ impl Observer {
         &self.container
     }
 
+    pub fn capture_on_error(&self) -> FailureCapture<'_> {
+        FailureCapture {
+            observer: self,
+            complete: false,
+        }
+    }
+
     /// Emit the actual selected observer semantics, excluding only owned
     /// database/RPC/listen transports and the separately recorded spool path.
     pub fn measurement_settings(&self) -> Result<Value> {
+        // Functional tests may intentionally place their workspace on RAM.
+        // Performance arms must match the disk-backed deployment reservation.
+        ensure!(
+            self.postgres_settings["storage"]["filesystem"]
+                .as_str()
+                .is_some_and(|filesystem| !matches!(filesystem, "tmpfs" | "ramfs")),
+            "native observer measurement requires disk-backed target storage"
+        );
         let path = self.directory.path().join("indexer.json");
         let config: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
         let parsed = eez_observer::indexer::Config::load(&path).map_err(anyhow::Error::msg)?;
         Ok(
-            json!({"environment":parsed.environment,"deployment":parsed.deployment,"rollup_id":parsed.rollup_id,"batch_blocks":parsed.batch_blocks,"l1":config["l1"],"l2":config["l2"],"lifecycle":parsed.lifecycle.iter().map(|source| json!({"service":source.service,"instance":source.instance})).collect::<Vec<_>>(),"optional_collectors":{"blobs":parsed.blobs.is_some(),"follower":parsed.follower.is_some(),"funding":parsed.funding.is_some()}}),
+            json!({"environment":parsed.environment,"deployment":parsed.deployment,"rollup_id":parsed.rollup_id,"batch_blocks":parsed.batch_blocks,"l1":config["l1"],"l2":config["l2"],"lifecycle":parsed.lifecycle.iter().map(|source| json!({"service":source.service,"instance":source.instance})).collect::<Vec<_>>(),"optional_collectors":{"blobs":parsed.blobs.is_some(),"follower":parsed.follower.is_some(),"funding":parsed.funding.is_some()},"postgres":self.postgres_settings}),
         )
     }
 
@@ -538,22 +662,33 @@ impl Observer {
     }
 }
 
-impl Drop for Observer {
-    fn drop(&mut self) {
+impl Observer {
+    fn capture_failure(&self) {
+        if self.failure_captured.swap(true, Ordering::Relaxed) {
+            return;
+        }
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();
             let _ = child.wait();
         }
-        if std::thread::panicking() {
+        {
             // Local diagnostics only: these bulk fixtures intentionally live
-            // outside EEZ_TEST_LOG_DIR and are not CI log-upload inputs.
+            // outside EEZ_TEST_LOG_DIR and are not CI log-upload inputs. Store
+            // them beside target artifacts rather than copying PGDATA into
+            // /tmp again during the failure investigation.
+            let root = repo_root().join("target/native-observer-failures");
+            if let Err(error) = std::fs::create_dir_all(&root) {
+                eprintln!("cannot create local observer failure directory: {error}");
+                return;
+            }
             if let Ok(snapshot) = tempfile::Builder::new()
-                .prefix("eez-native-observer-failure-")
-                .tempdir()
+                .prefix(&format!("eez-native-observer-failure-{}-", self.container))
+                .tempdir_in(root)
             {
                 let snapshot = snapshot.keep();
+                let mut dump_status = None;
                 if let Ok(dump) = std::fs::File::create(snapshot.join("postgres.dump")) {
-                    let _ = Command::new("timeout")
+                    dump_status = Command::new("timeout")
                         .args([
                             "15",
                             "docker",
@@ -569,9 +704,56 @@ impl Drop for Observer {
                             "--no-privileges",
                         ])
                         .stdout(dump)
-                        .stderr(Stdio::null())
-                        .status();
+                        .stderr(
+                            std::fs::File::create(snapshot.join("pg-dump.stderr"))
+                                .map_or_else(|_| Stdio::null(), Stdio::from),
+                        )
+                        .status()
+                        .ok();
                 }
+                for (name, arguments) in [
+                    (
+                        "postgres.log",
+                        vec!["logs", "--tail", "20000", self.container.as_str()],
+                    ),
+                    (
+                        "memory.txt",
+                        vec![
+                            "exec",
+                            self.container.as_str(),
+                            "cat",
+                            "/sys/fs/cgroup/memory.events",
+                            "/sys/fs/cgroup/memory.peak",
+                            "/sys/fs/cgroup/memory.stat",
+                        ],
+                    ),
+                    (
+                        "filesystem.txt",
+                        vec![
+                            "exec",
+                            self.container.as_str(),
+                            "df",
+                            "-P",
+                            "/var/lib/postgresql",
+                        ],
+                    ),
+                ] {
+                    if let Ok(log) = std::fs::File::create(snapshot.join(name))
+                        && let Ok(stderr) = log.try_clone()
+                    {
+                        let _ = Command::new("timeout")
+                            .args(["5", "docker"])
+                            .args(arguments)
+                            .stdout(log)
+                            .stderr(stderr)
+                            .status();
+                    }
+                }
+                let _ = std::fs::copy(
+                    self.log.with_extension("provenance.json"),
+                    snapshot.join("provenance.json"),
+                );
+                let _ = std::fs::copy(&self.log, snapshot.join("observer.log"));
                 let spool_copy = snapshot.join("spool");
                 if std::fs::create_dir(&spool_copy).is_ok() {
                     let mut remaining = 32 * 1024 * 1024u64;
@@ -597,9 +779,12 @@ impl Drop for Observer {
                     }
                     let _ = std::fs::write(
                         snapshot.join("capture.json"),
-                        format!(
-                            "{{\"spool_byte_limit\":33554432,\"remaining_bytes\":{remaining},\"spool_capture_concurrent\":true,\"purpose\":\"SQL reproduction and diagnostics, not live reorg evidence\"}}"
-                        ),
+                        serde_json::to_vec_pretty(&json!({
+                            "spool_byte_limit":33554432,"remaining_bytes":remaining,"spool_capture_concurrent":true,
+                            "database_dump_complete":dump_status.is_some_and(|status| status.success()),
+                            "database_dump_exit_code":dump_status.and_then(|status| status.code()),
+                            "purpose":"SQL reproduction and diagnostics, not live reorg evidence"
+                        })).unwrap(),
                     );
                 }
                 eprintln!(
@@ -607,22 +792,22 @@ impl Drop for Observer {
                     snapshot.display()
                 );
             }
-            if let Ok(log) = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.log.with_extension("postgres.log"))
-                && let Ok(stderr) = log.try_clone()
-            {
-                let _ = Command::new("timeout")
-                    .args(["5", "docker", "logs", &self.container])
-                    .stdout(log)
-                    .stderr(stderr)
-                    .status();
-            }
+        }
+    }
+}
+
+impl Drop for Observer {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if std::thread::panicking() {
+            self.capture_failure();
         }
         // Named resource is private to this fixture; preserve observer log on
         // failure but never retain a running database or operator-owned state.
-        let _ = Command::new("timeout")
+        let removed = Command::new("timeout")
             .args([
                 "15",
                 "docker",
@@ -634,5 +819,117 @@ impl Drop for Observer {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
+        if !removed.is_ok_and(|status| status.success())
+            && let Some(directory) = self.database_directory.take()
+        {
+            // A failed/expired removal is not evidence that the container
+            // stopped using its mount. Preserve this owned path for cleanup.
+            eprintln!(
+                "could not confirm removal of {}; retained owned PGDATA at {}",
+                self.container,
+                directory.keep().display()
+            );
+        }
+        // On successful removal, TempDir fields drop only after this method.
     }
+}
+
+/// Process regression used once by cross_chain, rather than duplicated in every
+/// integration target that imports this shared fixture module.
+pub async fn assert_result_error_capture_and_cleanup(world: &CrossChainWorld) -> Result<()> {
+    let spool = tempfile::tempdir()?;
+    std::fs::write(
+        spool.path().join("diagnostic-marker"),
+        b"owned result-error fixture",
+    )?;
+    let observer = Observer::start(world, spool.path(), "observer-result-error").await?;
+    let database = observer
+        .database_directory
+        .as_ref()
+        .unwrap()
+        .path()
+        .to_owned();
+    let socket_directory = observer.directory.path().to_owned();
+    let container = observer.container.clone();
+    ensure!(
+        observer.process_id().is_some(),
+        "observer must actually run before failure"
+    );
+
+    // Return Err normally: no panic exists for Observer::drop to notice. The
+    // scoped guard must capture before this still-live fixture is destroyed.
+    let result: Result<()> = (|| {
+        let _capture = observer.capture_on_error();
+        anyhow::bail!("intentional observer Result failure")
+    })();
+    ensure!(result.unwrap_err().to_string() == "intentional observer Result failure");
+    ensure!(
+        observer.process_id().is_none(),
+        "failed observer worker was not stopped"
+    );
+    ensure!(database.is_dir(), "PGDATA removed before evidence capture");
+    let prefix = format!("eez-native-observer-failure-{container}-");
+    let snapshots = std::fs::read_dir(repo_root().join("target/native-observer-failures"))?
+        .collect::<std::io::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    ensure!(
+        snapshots.len() == 1,
+        "expected one snapshot for this owned fixture"
+    );
+    let snapshot = &snapshots[0];
+    let capture: Value = serde_json::from_slice(&std::fs::read(snapshot.join("capture.json"))?)?;
+    ensure!(capture["database_dump_complete"] == true && capture["database_dump_exit_code"] == 0);
+    ensure!(
+        std::fs::read(snapshot.join("spool/diagnostic-marker"))?.as_slice()
+            == b"owned result-error fixture"
+    );
+    ensure!(
+        std::fs::read_to_string(snapshot.join("postgres.log"))?
+            .contains("database system is ready to accept connections")
+    );
+    ensure!(std::fs::read_to_string(snapshot.join("memory.txt"))?.contains("oom_kill"));
+    ensure!(snapshot.join("observer.log").is_file() && snapshot.join("provenance.json").is_file());
+    // The pinned pg_restore must parse the captured archive before the owning
+    // database container is removed; header bytes alone do not prove a dump.
+    let archive = output(
+        tokio::process::Command::new("docker")
+            .args(["exec", "-i", &container, "pg_restore", "--list"])
+            .stdin(Stdio::from(std::fs::File::open(
+                snapshot.join("postgres.dump"),
+            )?)),
+        None,
+    )
+    .await?;
+    ensure!(
+        archive.contains("TABLE eez lifecycle_native_checks"),
+        "captured archive lacks native evidence schema"
+    );
+    drop(observer);
+    ensure!(
+        !database.exists() && !socket_directory.exists(),
+        "owned fixture directories survived confirmed cleanup"
+    );
+    let remaining = output(
+        tokio::process::Command::new("docker").args([
+            "ps",
+            "--all",
+            "--filter",
+            &format!("name=^/{container}$"),
+            "--format",
+            "{{.Names}}",
+        ]),
+        None,
+    )
+    .await?;
+    ensure!(
+        remaining.is_empty(),
+        "owned database container survived cleanup"
+    );
+    // Retain snapshots if any assertion fails; successful intentional failure
+    // tests remove only their own captured bulk data.
+    std::fs::remove_dir_all(snapshot)?;
+    Ok(())
 }

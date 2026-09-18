@@ -8,7 +8,7 @@ use tokio_postgres::{
     config::{Host, SslMode},
 };
 
-pub const SCHEMA_VERSION: i32 = 20;
+pub const SCHEMA_VERSION: i32 = 21;
 const MIGRATIONS: &[(i32, &str)] = &[
     (
         1,
@@ -89,6 +89,10 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (
         20,
         include_str!("../../../observability/migrations/0020-cost-query-boundaries.sql"),
+    ),
+    (
+        21,
+        include_str!("../../../observability/migrations/0021-outcome-query-boundaries.sql"),
     ),
 ];
 const CONFIG_LIMIT: u64 = 64 * 1024;

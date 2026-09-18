@@ -190,3 +190,10 @@ release binaries, 1,194 archived unit tests, 64 PostgreSQL groups, full Kurtosis
 coverage and physical ENOSPC evidence. It retains the original native timeout and
 retry-only failures, their diagnoses, and the status of corrected test oracles.
 These results do not close R27 overhead or the deployment/operations gates.
+
+- The failed release load pilot exposed observer capacity gaps. The
+  [capacity follow-up](validation/observer-capacity.md) records schema-21 query
+  improvements, representative native PostgreSQL storage, bounded backlog
+  scheduling and failure capture. Its synthetic SQL regression, 58 database check groups, returned-error cleanup
+  regression and bidirectional native observer canary pass. Release load and
+  comparative overhead acceptance remain open and are tracked there.

@@ -277,6 +277,7 @@ async fn run(config: Config) -> Result<()> {
     )
     .await?;
     let observer = observer::Observer::prepare(&world, &spool, "overhead").await?;
+    let failure_capture = observer.capture_on_error();
     if enabled {
         observer.start_prepared().await?;
         addresses.insert("observer", observer.metrics_address()?);
@@ -423,6 +424,7 @@ async fn run(config: Config) -> Result<()> {
         &json!({"schema_version":1,"preparation_clock":{"source":"admission.prepared.preparation_ns","unit":"ns","resolution_ns":1},"arm":config.arm,"probe":config.probe,"semantic_ok":true,"telemetry_healthy":true,"health":health,"stages":stages,"resource_phases":resource_phases,"verified_observer_source_count":if enabled {all_sources.len()} else {0},"measured_waves":config.waves,"extra_queue_brackets_per_arm":4}),
     )?;
     barrier(&config.directory.join("finish"), deadline).await?;
+    failure_capture.success();
     Ok(())
 }
 

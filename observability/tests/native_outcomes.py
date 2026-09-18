@@ -143,3 +143,26 @@ def exercise(run, psql, scalar, index, write_index, source_config, spool, header
     report['checks'].append('paid_attempt_projection_requeued_without_terminal_and_missing_chain_evidence_remains_unallocated')
     run(psql, data='SET ROLE eez_observer_reader; SELECT count(*) FROM eez.lifecycle_native_outcomes;')
     report['checks'].append('native_coherence_projection_late_parent_scope_fence_dedup_missing_admission_digest_and_lineage_retraction_without_canonical_promotion')
+
+    # A burst must drain without sleeping five seconds after each full batch.
+    # These are complete wire records sharing a deliberately invalid lineage;
+    # the real importer/checker must retain every gap and keep repairing older
+    # checks, rather than treating a malformed claim as successful completion.
+    burst_start, burst_count = 1000, 120
+    segment(6, [(burst_start + value, terminal) for value in range(burst_count)])
+    prior_attempt = observed('last_attempt_at::text', f"AND sequence=11 AND context_l2={saved['context_l2']}")
+    continuous = index[:-1]
+    assert index[-1] == '--once' and continuous[:2] == ['docker', 'exec']
+    # The in-container deadline owns the observer process as well as the Docker
+    # client; no orphan background worker remains after this bounded test.
+    result = run(continuous[:3] + ['timeout', '--signal=TERM', '--kill-after=5s', '20s'] + continuous[3:], check=False)
+    assert result.returncode == 124, result.stdout
+    count = observed('count(*)', f"AND sequence >= {burst_start} AND sequence < {burst_start+burst_count} AND context_l2={saved['context_l2']}")
+    assert count == str(burst_count), (count, result.stdout)
+    assert observed('count(*)', f"AND sequence >= {burst_start} AND native_state='coherent'") == '0'
+    assert observed('last_attempt_at::text', f"AND sequence=11 AND context_l2={saved['context_l2']}") != prior_attempt
+    assert 'native outcome projection failed' not in result.stdout, result.stdout
+    # Restarting a one-shot pass preserves the same terminal population.
+    scan()
+    assert observed('count(*)', f"AND sequence >= {burst_start} AND context_l2={saved['context_l2']}") == str(burst_count)
+    report['checks'].append('native_outcome_burst_120_gapped_terminals_drains_with_fair_repairs_and_restart_deduplication')

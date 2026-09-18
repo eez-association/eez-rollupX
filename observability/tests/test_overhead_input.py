@@ -29,7 +29,10 @@ def fixture():
         'cpu_allocation':{'affinity':[0,1]},'workers':{'native_test':4},'genesis':{'sha256':'7'*64},
         'native_l1_profile':'GnosisPrague','protocol':{'settlement':'always'},'logging':{'stdout':'synchronous_json'},
         'postgres_reservation':{'memory_limit_bytes':536870912,'nano_cpus':1000000000},
-        'resource_sampling':{'interval_seconds':1,'metrics_interval_seconds':15,'max_samples':632},'observer_indexer':{'l1_bootstrap':0,'l2_bootstrap':0},
+        'resource_sampling':{'interval_seconds':1,'metrics_interval_seconds':15,'max_samples':632},
+        'observer_indexer':{'l1_bootstrap':0,'l2_bootstrap':0,'postgres':{
+            'storage':{'type':'owned_bind','filesystem':'ext4','data_directory':'/var/lib/postgresql/18/docker'},
+            'shared_buffers_bytes':134217728,'max_connections':30,'memory_bytes':536870912,'nano_cpus':1000000000}},
         'workload':{'measured_waves':1,'stages':copy.deepcopy(plan_base['frozen']['stages']),'arm_seconds':600,'experiment_seconds':9000}}
     genesis_template={'timestamp':'<RUN_UNIX_SECONDS>','config':{'chainId':123},'alloc':{'0x01':{'balance':'0x1'}}}
     common['genesis']={role:{'template_sha256':digest(genesis_template),'timestamp_policy':'testkit_current_unix_seconds_shared_l1_l2'} for role in ('l1','l2')}
@@ -89,6 +92,30 @@ def fixture():
 
 
 class Adapter(unittest.TestCase):
+    def test_nested_postgres_settings_are_preserved_and_bound_to_the_frozen_configuration(self):
+        raw,plan,bundles=fixture()
+        expected=plan['value']['config_preimages']['common']['observer_indexer']['postgres']
+        result=adapt(raw,plan,bundles)
+        self.assertEqual(result['status'],'ready')
+        for config in result['normalized_configs']:
+            self.assertEqual(config['common']['observer_indexer']['postgres'],expected)
+        self.assertNotIn('postgres',result['normalized_configs'][0]['common'])
+
+        for field,value in [('max_connections',100),('shared_buffers_bytes',67108864),
+                            ('storage',{'type':'tmpfs','filesystem':'tmpfs'}),('new_unreviewed_setting',1)]:
+            raw,plan,bundles=fixture()
+            # Rehash both actual/effective evidence so the rejection reaches
+            # the predeclared semantic contract, not stale artifact digests.
+            for key in ('native-effective','effective_config'):
+                data=bundles[1][key]['value']
+                common=data if key=='native-effective' else data['common']
+                common['observer_indexer']['postgres'][field]=copy.deepcopy(value)
+                bundles[1][key]=artifact(data)
+            with self.subTest(field=field):
+                changed=adapt(raw,plan,bundles)
+                self.assertIsNone(changed['analysis_input'])
+                self.assertTrue(any('semantic configuration' in issue for issue in changed['issues']))
+
     def test_complete_synthetic_set_adapts_but_pilot_never_means_acceptance(self):
         raw,plan,bundles=fixture(); result=adapt(raw,plan,bundles)
         self.assertEqual(result['issues'],[])

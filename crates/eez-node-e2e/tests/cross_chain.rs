@@ -39,6 +39,14 @@ const WAVE_DEPOSITS: &[u128] = &[
     3_000_000_000_000_000,
 ];
 
+#[tokio::test]
+async fn observer_returned_error_captures_evidence_before_cleanup() {
+    let world = setup_cross_chain().await.unwrap();
+    observer::assert_result_error_capture_and_cleanup(&world)
+        .await
+        .expect("returned-error capture and owned-resource cleanup");
+}
+
 // The embedded bundle path preserves ordering but not all-or-nothing inclusion,
 // so a wave must check every source receipt independently.
 async fn assert_all_transactions_succeeded(

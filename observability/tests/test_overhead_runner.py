@@ -98,6 +98,9 @@ class RunnerTests(unittest.TestCase):
             candidate.mkdir()
             runner.write(candidate/'manifest.json', {'profile':'synthetic','sha256':{'rustc.txt':'a'*64}})
             native = {key:{} for key in ('workers','native_l1_profile','protocol','logging','observer_indexer','workload')}
+            native['observer_indexer']['postgres'] = {
+                'storage':{'type':'owned_bind','filesystem':'ext4','data_directory':'/var/lib/postgresql/18/docker'},
+                'shared_buffers_bytes':134217728,'max_connections':30,'memory_bytes':123,'nano_cpus':456}
             runner.write(directory/'native-effective.json', native)
             runner.write(directory/'genesis_evidence.json', {'l1':{},'l2':{}})
             for role in ('l1','l2'):
@@ -107,6 +110,8 @@ class RunnerTests(unittest.TestCase):
             runner.effective_configuration(candidate,directory,ready,sampler)
             effective = runner.load(directory/'effective_config.json')
             self.assertEqual(effective['common']['postgres_reservation'], sampler.postgres)
+            self.assertEqual(effective['common']['observer_indexer']['postgres'],native['observer_indexer']['postgres'])
+            self.assertNotIn('postgres',effective['common'])
             self.assertFalse(effective['observer_running'])
             self.assertEqual(effective['common']['genesis']['l1'],effective['common']['genesis']['l2'])
             self.assertEqual(runner.load(directory/'l1-genesis.json')['timestamp'],'0x1')

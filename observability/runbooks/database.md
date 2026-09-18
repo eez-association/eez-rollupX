@@ -195,3 +195,14 @@ query boundaries retain immediate conflict/reorg/freshness checks; they are not
 persisted caches. The earlier schema17/18 migrations are unchanged. Apply the same
 explicit upgrade procedure and verify reader query latency on representative data;
 small-fixture timings do not establish production capacity.
+
+Schema 21 adds indexes matching admission identity and settlement block lookups,
+and reuses canonical settlement evidence within each outcome query. It preserves
+all receipt amounts, event identities, view columns and grants. Reorgs, conflicts
+and freshness are evaluated within the same query snapshot, with no persisted
+cache. Stop the observer and back up before the explicit migration; building the
+indexes takes table locks and must fit the existing migration deadline. Measure
+that operation on a representative restored database before production rollout.
+Versions through schema 20 refuse schema 21; reverting only the executable is not
+a rollback. Keep a compatible binary or restore a backup into a separate database.
+The normal statement deadlines and memory limits are unchanged.
