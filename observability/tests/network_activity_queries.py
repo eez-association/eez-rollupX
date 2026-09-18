@@ -54,8 +54,8 @@ SELECT pg_temp.assert((pg_temp.chart(28)->0->>'mean_transactions')::numeric=2
 SELECT pg_temp.assert(abs((pg_temp.chart(29)->0->>'empty_percent')::numeric-100.0/3)<0.000001
  AND (pg_temp.chart(29)->0->>'covered_percent')::numeric=50,'empty denominator includes known zero and excludes old unknown');
 SELECT pg_temp.assert(jsonb_array_length(pg_temp.chart(30))=2
- AND pg_temp.chart(30)->0->>'metric'='l1 chain 1' AND (pg_temp.chart(30)->0->>'utilized_percent')::numeric=12.5
- AND pg_temp.chart(30)->1->>'metric'='l2 chain 2' AND (pg_temp.chart(30)->1->>'utilized_percent')::numeric=37.5,
+ AND pg_temp.chart(30)->0->>'metric' LIKE 'l1 chain 1 · context %' AND (pg_temp.chart(30)->0->>'utilized_percent')::numeric=12.5
+ AND pg_temp.chart(30)->1->>'metric' LIKE 'l2 chain 2 · context %' AND (pg_temp.chart(30)->1->>'utilized_percent')::numeric=37.5,
  'whole-chain gas weighted by covered capacity, separate chains');
 SELECT pg_temp.assert((pg_temp.chart(31)->0->>'mean_blobs')::numeric=1
  AND (pg_temp.chart(31)->0->>'maximum_blobs')::numeric=2,'global L1 blobs known zero/two excludes old unknown');
@@ -73,6 +73,21 @@ DO $$ DECLARE panel integer; BEGIN
     AND pg_temp.chart(panel,deployment=>''' OR true --')='[]'::jsonb,'scope and escaped deployment filter');
  END LOOP;
 END $$;
+RESET ROLE;
+-- Same displayed chain ID, distinct genesis/context: never blend either history.
+INSERT INTO eez.chain_instances(deployment_id,role,chain_id,genesis_hash,rollup_id,bootstrap_number,last_success_at)
+ VALUES(:deployment,'l2',2,pg_temp.h(222),1,0,now()) RETURNING id AS other_l2 \gset
+INSERT INTO eez.blocks(chain_instance_id,hash,number,parent_hash,timestamp_seconds,canonical,receipt_coverage,transaction_count,gas_used,gas_limit)
+ VALUES(:other_l2,pg_temp.h(2),2,pg_temp.h(1),101,true,'complete',8,75,100);
+SET LOCAL ROLE eez_observer_reader;
+SELECT pg_temp.assert(jsonb_array_length(pg_temp.chart(28))=2
+ AND EXISTS(SELECT FROM jsonb_array_elements(pg_temp.chart(28)) row
+   WHERE row->>'metric'='l2 chain 2 · context '||:other_l2::text
+   AND (row->>'mean_transactions')::numeric=8)
+ AND EXISTS(SELECT FROM jsonb_array_elements(pg_temp.chart(28)) row
+   WHERE row->>'metric'='l2 chain 2 · context '||:l2::text
+   AND (row->>'mean_transactions')::numeric=2), 'same chain number different genesis remains separate');
+SELECT pg_temp.assert(jsonb_array_length(pg_temp.chart(30))=3,'execution utilization retains every chain context');
 RESET ROLE;
 UPDATE eez.chain_instances SET last_success_at=now()-interval '91 seconds' WHERE deployment_id=:deployment;
 SET LOCAL ROLE eez_observer_reader;

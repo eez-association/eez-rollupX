@@ -1198,7 +1198,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,avg(r.interval_seconds)::double precision AS mean_seconds,percentile_cont(0.95) WITHIN GROUP(ORDER BY r.interval_seconds)::double precision AS p95_seconds FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.interval_seconds)::double precision AS mean_seconds,percentile_cont(0.95) WITHIN GROUP(ORDER BY r.interval_seconds)::double precision AS p95_seconds FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1260,7 +1260,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,avg(r.transaction_count)::double precision AS mean_transactions,max(r.transaction_count)::double precision AS maximum_transactions FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.transaction_count)::double precision AS mean_transactions,max(r.transaction_count)::double precision AS maximum_transactions FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1322,7 +1322,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,100.0*count(*) FILTER(WHERE r.transaction_count=0)/NULLIF(count(r.transaction_count),0) AS empty_percent,100.0*count(r.transaction_count)/count(*) AS covered_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*count(*) FILTER(WHERE r.transaction_count=0)/NULLIF(count(r.transaction_count),0) AS empty_percent,100.0*count(r.transaction_count)/count(*) AS covered_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1385,7 +1385,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,100.0*sum(r.gas_used) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL)/NULLIF(sum(r.gas_limit) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL),0) AS utilized_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*sum(r.gas_used) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL)/NULLIF(sum(r.gas_limit) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL),0) AS utilized_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1448,7 +1448,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,avg(r.blob_gas_used)/131072.0 AS mean_blobs,max(r.blob_gas_used)/131072.0 AS maximum_blobs FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.blob_gas_used)/131072.0 AS mean_blobs,max(r.blob_gas_used)/131072.0 AS maximum_blobs FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1510,7 +1510,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,avg(r.excess_blob_gas)::double precision AS mean_excess_blob_gas,max(r.excess_blob_gas)::double precision AS maximum_excess_blob_gas FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.excess_blob_gas)::double precision AS mean_excess_blob_gas,max(r.excess_blob_gas)::double precision AS maximum_excess_blob_gas FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {
@@ -1572,7 +1572,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text AS metric,100.0*count(*) FILTER(WHERE r.gas_used IS NOT NULL AND r.gas_limit>0)/count(*) AS execution_header_percent,CASE WHEN min(c.role)='l1' THEN 100.0*count(*) FILTER(WHERE r.blob_gas_used IS NOT NULL AND r.excess_blob_gas IS NOT NULL)/count(*) END AS blob_header_percent,100.0*count(r.interval_seconds)/count(*) AS parent_interval_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*count(*) FILTER(WHERE r.gas_used IS NOT NULL AND r.gas_limit>0)/count(*) AS execution_header_percent,CASE WHEN min(c.role)='l1' THEN 100.0*count(*) FILTER(WHERE r.blob_gas_used IS NOT NULL AND r.excess_blob_gas IS NOT NULL)/count(*) END AS blob_header_percent,100.0*count(r.interval_seconds)/count(*) AS parent_interval_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
         }
       ],
       "fieldConfig": {

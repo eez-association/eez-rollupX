@@ -631,6 +631,12 @@ def prepare_dashboards(config, runtime):
         if not config.get('database_enabled', False):
             dashboard['panels'] = [panel for panel in dashboard['panels']
                                    if panel.get('datasource', {}).get('uid') != 'eez-postgres']
+            if name == 'network.json':
+                # SQL activity occupies rows38–69 only in the database profile.
+                # Keep the original compact layout for exporter-only stacks.
+                for panel in dashboard['panels']:
+                    if panel['gridPos']['y'] >= 70:
+                        panel['gridPos']['y'] -= 32
         for variable in dashboard['templating']['list']:
             if variable['name'] == 'instance' and variable.get('datasource', {}).get('uid') == 'eez-postgres':
                 # Built-in All expands into quoted SQL values and escaped PromQL

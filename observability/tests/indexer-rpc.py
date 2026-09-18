@@ -152,8 +152,11 @@ class RPC(http.server.BaseHTTPRequestHandler):
                 'parentHash': digest(0) if height == 0 else block_hash(height - 1), 'timestamp': hex(timestamp),
                 'transactions': [(transaction(height, index) if full else transaction(height, index)['hash']) for index in range(post_count if chain == 1 and height == 2 else 1)] if height in (1, 2) else []}
             if value:
-                value.update(gasUsed=hex(len(value['transactions']) * 21000), gasLimit=hex(30000000),
-                             blobGasUsed=hex(131072 if height == 2 else 0), excessBlobGas='0x0')
+                blob_count = sum(len(BLOB_FIXTURES[index % len(BLOB_FIXTURES)]['blobs'])
+                                 if blob_mode != 'disabled' and chain == 1 else 1
+                                 for index in range(len(value['transactions']))) if height == 2 else 0
+                value.update(gasUsed=hex(len(value['transactions']) * (22000 if height == 2 else 21000)),
+                             gasLimit=hex(30000000), blobGasUsed=hex(131072 * blob_count), excessBlobGas='0x0')
             if value and not full and chain == 1 and height == 2 and source_hash_mismatch:
                 value['transactions'] = [digest(9999)]
             if phase == 'pruned' and height == 2 and full:

@@ -385,7 +385,7 @@ def main():
         run(index)
         assert total() == '738216', total()
         activity = scalar("SELECT jsonb_agg(jsonb_build_array(a.block_number,a.transaction_count,a.gas_used,a.gas_limit,a.blob_gas_used,a.excess_blob_gas,a.interval_seconds) ORDER BY a.block_number) FROM eez.canonical_block_activity a JOIN eez.deployments d ON d.id=a.deployment_id WHERE d.name='scanner' AND a.chain='l1' AND a.source_valid;")
-        assert json.loads(activity) == [[1,1,21000,30000000,0,0,None],[2,1,21000,30000000,131072,0,5],[3,0,0,30000000,0,0,5]], activity
+        assert json.loads(activity) == [[1,1,21000,30000000,0,0,None],[2,1,22000,30000000,131072,0,5],[3,0,0,30000000,0,0,5]], activity
         report['checks'].append('actual_scanner_persists_whole_block_metadata_and_cadence_with_receipt_retry')
         unselected = copy.deepcopy(index_config)
         unselected['deployment'] = 'block-activity-unselected'

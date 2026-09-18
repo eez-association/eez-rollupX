@@ -30,7 +30,7 @@ and Grafana credentials. A nonempty runtime directory is not overwritten.
 ## Connect your local EEZ deployment
 
 Use the same image and Compose overlay with verified chain inputs. The observer
-requires the PR26-compatible node RPC and schema22; this procedure does not
+requires the PR26-compatible node RPC and schema23; this procedure does not
 upgrade or reset an existing chain.
 
 1. Copy [stack.local.example.json](../stack.local.example.json) to a private file.

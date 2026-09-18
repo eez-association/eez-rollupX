@@ -25,10 +25,10 @@ missing executable in the deployment step.
 ## Node and database compatibility
 
 This observer requires the matching new-network node's
-`eez_getSettledL2RangePage` method and database schema 22. The previous full-range
+`eez_getSettledL2RangePage` method and database schema 23. The previous full-range
 RPC is not a fallback. Stop the old observer, back up its database/configuration,
 make the matching paged node RPC available, explicitly migrate with the new
-observer binary, then start indexing. Schema-21 and older binaries refuse the
+observer binary, then start indexing. Schema-22 and older binaries refuse the
 upgraded database. Follow the [database runbook](database.md) for rollback limits.
 This observer upgrade preserves historical accounting; it does not migrate a
 legacy chain to PR26's tag-3/profile-1 genesis or remove its mandatory settlement

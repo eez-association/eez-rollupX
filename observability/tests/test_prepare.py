@@ -67,8 +67,10 @@ class Preparation(unittest.TestCase):
         def panels():
             return json.loads((runtime / 'grafana/dashboards/network.json').read_text())['panels']
         self.assertFalse(any(p.get('datasource', {}).get('uid') == 'eez-postgres' for p in panels()))
+        self.assertEqual(next(p for p in panels() if p['id'] == 15)['gridPos']['y'], 38)
         prepare.prepare({**self.config, 'database_enabled': True}, runtime)
         self.assertTrue(set(range(27, 34)) <= {p['id'] for p in panels()})
+        self.assertEqual(next(p for p in panels() if p['id'] == 15)['gridPos']['y'], 70)
         prepare.prepare(self.config, runtime)
         self.assertFalse(any(p.get('datasource', {}).get('uid') == 'eez-postgres' for p in panels()))
 

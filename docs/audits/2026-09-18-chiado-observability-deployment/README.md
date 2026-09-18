@@ -419,3 +419,99 @@ Prefer existing canonical observer data where available and explicit producer
 coverage otherwise. Do not import browser-derived queue predictions or legacy
 BatchPosted decoding assumptions from the old visualizer. Queue size, latency,
 source gas, finality lag and peers already have dedicated Grafana coverage.
+
+## Four-hour settlement policy and block/escrow observations
+
+The operator requested the proposed activity/escrow/global-L1 charts and a
+four-hour global settlement interval. The existing architecture has independent
+ordinary-L2 interval and general block-count triggers, plus urgent cross-chain
+and safety/capacity triggers. The smallest compatible interpretation keeps those
+urgent/safety rules and adjusts both periodic settings on this one-second L2:
+
+| Live setting | Before | After |
+| --- | --- | --- |
+| `EEZ_SETTLEMENT_PURE_L2_MODE` | interval | interval |
+| `EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS` |30000|14400000|
+| `EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS` |150|14400|
+| `EEZ_SETTLEMENT_BLOB_FULLNESS_BPS` | unset | off |
+| `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` |2048|16384|
+| `EEZ_MAX_SPECULATIVE_DEPTH` |0|0|
+
+The signer limit was raised because the negotiated window ceiling is itself a
+posting trigger; leaving 2048 would publish before four hours. This remains below
+the 65536-block payload format ceiling. Existing gas/blob/fee/proof limits remain
+enforced and may cause earlier publication or deferred work. General consolidation
+is measured in blocks, so four hours assumes the configured one-second cadence;
+ordinary activity uses the existing L1-anchor timestamp timer. Cross-chain work
+continues at the next eligible L1 opportunity. No new timer or consensus behavior
+was introduced, and repository deployment defaults were not changed.
+
+Before the authorized restart, actual native queue samples were valid and empty.
+The private `.env` was copied before editing and the exact running node/signer
+image digests were retained. Only these two services were recreated. Live
+Prometheus subsequently reported 14400 seconds and 14400 blocks, the signer container
+received 16384, both original chain IDs remained 10200/6291, and L2 continued
+advancing. The full four-hour period had not elapsed at this startup verification;
+it is not evidence of a completed four-hour backlog/proof cycle. Local evidence:
+`validation/settlement-four-hours-20260918/` in the deployment directory.
+
+Observer source `345f003` adds schema23 whole-block metadata and an optional
+hash-pinned registry escrow collector. The observer-only local release build uses
+Rust 1.94.0 and the existing pinned Bookworm bases/release flags; it rebuilds no
+network role and publishes no images. Its binary checksum, build metadata and
+exact revision are retained in deployment `validation/activity-escrow-20260918/`.
+The implementation contract and requirement coverage are:
+
+| Requirement | Implementation | Checks |
+| --- | --- | --- |
+| L2 cadence/activity/empty blocks | Atomic header/body metadata; canonical parent-linked view; network27–29 | Observer parsing; actual scanner; SQL unknown/zero/parent-gap/backwards/reorg fixtures |
+| Global execution/blob pressure | Header gas used/limit/blob gas/excess; network30–33 | Exact weighted ratios, whole-body selection independence, per-context isolation and coverage |
+| Registry escrow distinct from wallet | Optional explicit registry/rollup; bounded hash-pinned getter; gas23 | Config/default/identity/ABI/U256/zero/stale/reorg/recovery tests; live anchored RPC comparison |
+| Existing deployments/configurations | Default-disabled escrow; nullable additive schema; database-free SQL panels omitted | Preparation enable/disable, migration/reader/indexer checks; retained exact charges |
+| Readable currency | Existing native-currency metadata applied to escrow | Exact wei-to-native conversion boundaries; xDAI live rendering |
+
+Before release validation, review caught and fixed two issues: the escrow's
+native-unit gauge initially rendered raw wei, and the new coverage SQL used an
+ungrouped role expression. Regression tests now cover exact denomination and
+actual PostgreSQL grouping. A later review separated SQL contexts with the same
+chain ID but different genesis rather than combining their activity. No live
+incorrect metric was deployed. First failures are retained privately. Initial
+restricted-sandbox Rust/Python runs could not open mock listeners; unrestricted
+reruns passed and are distinguished from application failures.
+
+Final validation and rollout evidence for this addition:
+
+- `cargo +1.94.0 test --locked -p eez-observer -p eez-protocol --lib`: 91 observer
+  and 169 protocol tests passed. Targeted build/Clippy and workspace
+  `cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings` passed;
+  `cargo +1.94.0 fmt --all --check` and diff checks passed.
+- Python discovery under `observability/tests` passed 160 tests, with the existing
+  opt-in real-Docker resource test skipped. Final preparation 27 and dashboard 10
+  checks passed after the context-isolation/layout follow-up. No workload
+  benchmark or native E2E matrix was rerun for this observer-only addition.
+- The shipping-compatible release binary passed 63 disposable database/scanner
+  checks. Grafana datasource smoke passed 133 queries/23 check groups; final
+  activity-query regression additionally checked equal chain IDs across distinct
+  genesis contexts. Disposable fixtures were cleaned up.
+- Image `sha256:a4ed9a12809b9b803e427f9a124a60c316df52c0584636879b0d8cf3238a5fc8`
+  contains the same tested binary, SHA256
+  `8bc9e9e095361480bb6b5d0b905ce8e20f055a099bcd20dfda5a452934f667e3`.
+- Stopped only the observer for the database upgrade, saved a private custom-format
+  dump and configuration copies, migrated 22→23 explicitly, then restarted it.
+  All 170 existing canonical receipts retained identical exact execution/blob
+  charges immediately across migration. The node/signer were not restarted by
+  this observer rollout.
+- Actual localhost Grafana queried 115 panels without errors. All eight new
+  charts rendered in a browser (34 datasource requests); screenshots were
+  inspected. Fifteen newly indexed L1/L2 block observations matched independent
+  block RPC reads; registry escrow matched a hash-pinned getter at 0.01 xDAI.
+- Final runtime inspection found node, signer and observer running with no OOM.
+  The four-hour policy remained active and unsettled height progressed beyond
+  the former 150-block trigger without periodic publication. Its first complete
+  four-hour cycle remains a later operational observation, not a completed test.
+
+This is a single-host functional rollout with paused alerts. New metadata history
+starts with actual observation; no archive backfill or full-history reconstruction
+was added. Backup/runtime files and screenshots stay private/local; the contracts,
+implementation and deterministic fixtures are committed. The postponed benchmark
+and broader production rollout remain outside this update.
