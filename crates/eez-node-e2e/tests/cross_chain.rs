@@ -241,6 +241,19 @@ async fn assert_real_signer_rejects(mutation: ProverMutation, tampered_input: &s
     let w = setup_cross_chain_proxied(mutation, attester).await.unwrap();
     let l1_rpc = w.l1_rpc();
     let proxy = w.prover_proxy.as_ref().expect("real signer proxy");
+    let starting_nonce = onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
+    let tx_hash = sign_and_send(
+        &w.l1_xchain(),
+        INBOUND_USER,
+        DEV_CHAIN_ID,
+        starting_nonce,
+        Some(w.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(75) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .expect("valid transaction must be admitted before mutating its proof");
 
     let rejected = wait_for(SETTLE_TIMEOUT, || async {
         Ok((proxy.rejections() >= 1).then_some(()))
@@ -284,6 +297,16 @@ async fn assert_real_signer_rejects(mutation: ProverMutation, tampered_input: &s
         root_after_rejection,
         "state root advanced while the signer repeatedly rejected tampered {tampered_input}",
     );
+    assert_eq!(
+        receipt_ok(&l1_rpc, tx_hash).await.unwrap(),
+        None,
+        "transaction with tampered {tampered_input} proof unexpectedly landed",
+    );
+    assert_eq!(
+        onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap(),
+        starting_nonce,
+        "rejected transaction must not consume its source nonce",
+    );
     w.proof_signer.assert_alive();
     w.node.assert_no_process_death();
 }
@@ -299,9 +322,11 @@ async fn real_signer_rejects_tampered_witness() {
 }
 
 /// Whether the response is intrinsically opaque (`ResourceExhausted` when
-/// resource capacity is exceeded) or becomes opaque because its actionable identity is unsafe, a valid
-/// transaction may be sacrificed but must leave the retry loop at the bound.
-async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation: ProverMutation) {
+/// resource capacity is exceeded) or becomes opaque because its actionable
+/// identity is unsafe, the Composer must retain source ownership for manual
+/// recovery. In particular, an untrusted identity must never select a source
+/// transaction for eviction.
+async fn assert_opaque_prover_rejection_retains_the_candidate(mutation: ProverMutation) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
     let w = setup_cross_chain_proxied(mutation, attester).await.unwrap();
     let l1_rpc = w.l1_rpc();
@@ -324,37 +349,39 @@ async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation
     .await
     .expect("valid transaction must be admitted before the prover rejects its batch");
 
-    let evicted = wait_for(SETTLE_TIMEOUT, || async {
-        Ok(w.node.signals_since(cursor)?.into_iter().find(|event| {
-            event.name == signals::TX_POISON_EVICTED
-                && event.b256("tx_hash").ok() == Some(tx_hash)
-                && event.fields["source"] == "Prover"
-        }))
+    wait_for(SETTLE_TIMEOUT, || async {
+        Ok((w.node.log_count_matching(&[
+            "proof unavailable or rejected; retaining the complete range and all source ownership",
+        ])? >= 4)
+            .then_some(()))
     })
     .await
     .unwrap_or_else(|error| {
         panic!(
-            "opaque prover rejection did not reach bounded eviction: {error:#}{}",
+            "composer did not retain and retry the opaque prover rejection beyond the old eviction bound: {error:#}{}",
             w.settlement_diagnostics(),
         );
     });
 
-    // The bound counts failed settlement episodes, including a Composer cutoff
-    // before a response arrives. Proxy rejection responses are not that counter;
-    // conversely, several transport retries can belong to one episode.
-    assert_eq!(
-        evicted.u64("attempts").unwrap(),
-        3,
-        "eviction must occur at the three-failed-settlement-episode bound"
-    );
     assert!(
         proxy.rejections() > starting_rejections,
-        "the candidate must exercise the injected opaque rejection before eviction"
+        "the candidate must exercise the injected opaque rejection"
+    );
+    assert!(
+        !w.node
+            .signals_since(cursor)
+            .unwrap()
+            .into_iter()
+            .any(|event| {
+                event.name == signals::TX_POISON_EVICTED
+                    && event.b256("tx_hash").ok() == Some(tx_hash)
+            }),
+        "opaque prover rejection must retain the source transaction for manual recovery"
     );
     assert_eq!(
         receipt_ok(&l1_rpc, tx_hash).await.unwrap(),
         None,
-        "a sacrificed valid transaction must not appear to have landed"
+        "the rejected and retained transaction must not appear to have landed"
     );
     assert_eq!(
         onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap(),
@@ -365,10 +392,6 @@ async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation
         l2_value(&l2_rpc, w.value_l2).await.unwrap(),
         starting_value,
         "the rejected cross-chain call must not change its target value"
-    );
-    assert!(
-        proxy.successes() > 0,
-        "anchor-only fallback proofs must remain healthy so recovery can make progress"
     );
     if matches!(mutation, ProverMutation::MismatchedActionable) {
         let logs = w.node.log_lines_matching(
@@ -384,19 +407,14 @@ async fn assert_opaque_prover_rejection_eventually_evicts_the_candidate(mutation
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn opaque_prover_rejection_eventually_evicts_the_candidate() {
-    assert_opaque_prover_rejection_eventually_evicts_the_candidate(
-        ProverMutation::ResourceExhausted,
-    )
-    .await;
+async fn opaque_prover_rejection_retains_the_candidate() {
+    assert_opaque_prover_rejection_retains_the_candidate(ProverMutation::ResourceExhausted).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn mismatched_actionable_rejection_eventually_evicts_the_candidate() {
-    assert_opaque_prover_rejection_eventually_evicts_the_candidate(
-        ProverMutation::MismatchedActionable,
-    )
-    .await;
+async fn mismatched_actionable_rejection_retains_the_candidate() {
+    assert_opaque_prover_rejection_retains_the_candidate(ProverMutation::MismatchedActionable)
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -406,6 +424,20 @@ async fn real_signer_attester_mismatch_never_submits_a_batch() {
         .await
         .unwrap();
     let proxy = w.prover_proxy.as_ref().expect("real signer proxy");
+    let l1_rpc = w.l1_rpc();
+    let starting_nonce = onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
+    let tx_hash = sign_and_send(
+        &w.l1_xchain(),
+        INBOUND_USER,
+        DEV_CHAIN_ID,
+        starting_nonce,
+        Some(w.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .expect("valid transaction must be admitted before checking attester identity");
 
     let attested = wait_for(SETTLE_TIMEOUT, || async {
         Ok((proxy.successes() >= 2).then_some(()))
@@ -421,18 +453,28 @@ async fn real_signer_attester_mismatch_never_submits_a_batch() {
         "the signer must have attested; only the composer may refuse here",
     );
     assert_eq!(
-        batches_posted(&w.l1_rpc(), w.cfg.eez_address, w.dep.deploy_block)
+        batches_posted(&l1_rpc, w.cfg.eez_address, w.dep.deploy_block)
             .await
             .unwrap(),
         0,
         "an attestation from an unexpected signer must never reach L1",
     );
     assert_eq!(
-        state_root(&w.l1_rpc(), w.cfg.eez_address, w.cfg.rollup_id)
+        state_root(&l1_rpc, w.cfg.eez_address, w.cfg.rollup_id)
             .await
             .unwrap(),
         w.cfg.initial_state,
         "signer mismatch must leave the registered state root unchanged",
+    );
+    assert_eq!(
+        receipt_ok(&l1_rpc, tx_hash).await.unwrap(),
+        None,
+        "transaction attested by the unexpected signer must not land",
+    );
+    assert_eq!(
+        onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap(),
+        starting_nonce,
+        "unexpected attestation must not consume the source nonce",
     );
     w.node.assert_no_process_death();
 }
