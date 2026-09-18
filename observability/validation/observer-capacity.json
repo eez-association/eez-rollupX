@@ -83,6 +83,17 @@
       "test": "lifecycle_bidirectional_cross_chain_smoke",
       "seconds": 122.59984503602027,
       "scope": "bidirectional semantic/signature/lifecycle/canonical observer canary, current optimized-development observer/test with unchanged verified release node/signer"
+    },
+    "restore": {
+      "result": "passed",
+      "groups": 6,
+      "backup_seconds": 32.765691084001446,
+      "restore_seconds": 68.90819167700829,
+      "scope": "new isolated project and empty volumes on the same Docker host; no operator services",
+      "owned_cleanup": "verified",
+      "report": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/schema21-restore/report.json",
+      "sha256": "da8a552d6437abdbafe0834c583ae3b371fb4411b1112783af72892c81fea68f",
+      "migration_count": 21
     }
   }
 }

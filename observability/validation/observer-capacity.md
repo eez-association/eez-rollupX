@@ -63,3 +63,10 @@ R16/R19 → immediate evidence retraction, duplicate/context regression and fair
 bounded native projection; R27 → representative storage and preserved failure
 evidence; R28 → database/process integration tests. R27's comparative overhead
 and R30's deployment/baseline gates remain open.
+
+The schema-21 restore drill passed all six groups with all 21 migration checksums:
+backup 32.77 seconds, restore through acceptance 68.91 seconds. Exact costs,
+cursors, roles, replay/gap handling, dashboards, retained diagnostics and actual
+heartbeat/fault/recovery delivery were verified in fresh owned instances on the
+same Docker host. Cleanup was verified. This adds R29 upgrade recovery evidence;
+it does not establish physical-host/off-host recovery or a production RPO/RTO.
