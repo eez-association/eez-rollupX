@@ -2325,8 +2325,15 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l1_before = l1.get_block_number().await.unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
-    let fault_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    // Query the unfaulted embedded L1 directly. A latest header keeps the
+    // outage boundary's number and timestamp in one canonical observation.
+    let outage_start = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The combined workload exceeds
     // even Ethereum's six-blob transaction bound. Queue nonce descendants too.
@@ -2348,7 +2355,18 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     }
     // Missing scheduler ticks must preserve intermediate empty boundaries.
     tokio::time::sleep(Duration::from_secs(12)).await;
-    assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
+    let outage_end = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+    assert!(outage_end.number >= l1_before + 2);
+    assert!(
+        outage_end.number >= outage_start.number + 2,
+        "the RPC outage must miss an intermediate L1 anchor"
+    );
+    let recovery_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
     for &hash in &hashes {
@@ -2391,6 +2409,7 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         .unwrap()
         .header
         .timestamp;
+    let mut missed_sync_timestamps = std::collections::BTreeSet::new();
     for height in (l1_before + 1)..=l1.get_block_number().await.unwrap() {
         let timestamp = l1
             .get_block_by_number(height.into())
@@ -2404,6 +2423,12 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             0,
             "the native L1 fixture must preserve its configured slot alignment"
         );
+        // PendingSyncSlot::new maps an anchor to its next L1 slot. Strict
+        // interior anchors were mined while reads were disabled and precede
+        // the recovery head; the current eligible terminal is excluded.
+        if height > outage_start.number && height < outage_end.number {
+            missed_sync_timestamps.insert(timestamp + k * l2_seconds);
+        }
         previous_l1_timestamp = timestamp;
     }
     wait_for_latest_height(&world.node, covered + 2 * k, TIMEOUT)
@@ -2419,16 +2444,40 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
     // actual empty Sync construction, never assume height % K == 0.
     let signals = world.node.signals_since(0).unwrap();
-    assert!(
-        world
-            .node
-            .signals_since(fault_cursor)
+    let recovered_empty_boundaries = world
+        .node
+        .signals_since(recovery_cursor)
+        .unwrap()
+        .into_iter()
+        .filter(|event| {
+            event.name == "eez.composer.sync_slot.invoked"
+                && matches!(event.fields["mode"].as_str(), Some("Empty" | "Catchup"))
+        })
+        .map(|event| event.fields["timestamp"].as_u64().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(!missed_sync_timestamps.is_empty());
+    for timestamp in missed_sync_timestamps {
+        // Catch-up can finish at the current target in Steady mode. Verify
+        // the actual missed intermediate boundaries instead of requiring a
+        // late terminal; a separately fired past terminal is Catchup/empty.
+        assert!(
+            recovered_empty_boundaries.contains(&timestamp),
+            "missed Sync boundary {timestamp} was not recovered structurally"
+        );
+        let offset = timestamp.checked_sub(genesis).unwrap();
+        assert_eq!(offset % l2_seconds, 0);
+        let number = offset / l2_seconds;
+        let recovered = l2
+            .get_block_by_number(number.into())
+            .await
             .unwrap()
-            .iter()
-            .any(|event| {
-                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Catchup"
-            })
-    );
+            .unwrap();
+        assert_eq!(recovered.header.timestamp, timestamp);
+        assert!(
+            recovered.transactions.is_empty(),
+            "ordinary data occupied missed Sync boundary {number}"
+        );
+    }
     let boundaries = signals
         .into_iter()
         .filter(|event| event.name == "eez.composer.sync_slot.invoked")
