@@ -171,20 +171,22 @@ async fn assert_reconciled(w: &CrossChainWorld) {
     .expect("L1 stored commitment never matched the L2 safe block hash");
 }
 
-/// Return just after the composer drains its pool. Transactions submitted next
-/// receive a complete collection interval before the following drain.
-async fn open_drain_window(w: &CrossChainWorld) {
+/// Return just after the composer starts a sync slot. Transactions submitted
+/// next receive a complete collection interval before the following slot.
+/// Idle slots do not drain now that empty postbatches are forbidden, so the
+/// invocation signal is the scheduling boundary these tests need.
+async fn open_collection_window(w: &CrossChainWorld) {
     let cursor = w.node.signal_cursor().unwrap();
     wait_for(SETTLE_TIMEOUT, || async {
-        let drained = w
+        let invoked = w
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|signal| signal.name == signals::COMPOSER_SYNC_SLOT_DRAIN);
-        Ok(drained.then_some(()))
+            .any(|signal| signal.name == signals::COMPOSER_SYNC_SLOT_INVOKED);
+        Ok(invoked.then_some(()))
     })
     .await
-    .expect("composer did not report a fresh sync-slot drain boundary");
+    .expect("composer did not report a fresh sync-slot invocation boundary");
 }
 
 async fn batches(w: &CrossChainWorld) -> Vec<EvmBatch> {
@@ -229,7 +231,7 @@ async fn identical_outbound_calls_in_separate_transactions_chain_state() {
         "the first call must change destination state",
     );
 
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let nonce = onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap();
     let first = sign_and_send(
         &w.l2_xchain(),
@@ -347,7 +349,7 @@ async fn three_order_dependent_inbound_calls_in_one_bundle() {
     .await
     .unwrap();
 
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let mut nonce = onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
     let mut hashes = Vec::new();
     for _ in 0..3 {
@@ -462,7 +464,7 @@ async fn mixed_direction_state_chain_in_one_slot() {
     }
     .abi_encode();
 
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let inbound = sign_and_send(
         &w.l1_xchain(),
         INBOUND_USER,
@@ -583,7 +585,7 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
     )
     .await
     .unwrap();
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let mut nonce = onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap();
     let first = sign_and_send(
         &w.l1_xchain(),
@@ -659,7 +661,7 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
     );
 
     // The window is not frozen: a later slot still settles.
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let third = sign_and_send(
         &w.l1_xchain(),
         INBOUND_USER,
@@ -705,7 +707,7 @@ async fn same_sender_outbound_chain() {
     }
     .abi_encode();
 
-    open_drain_window(&w).await;
+    open_collection_window(&w).await;
     let mut nonce = onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap();
     let mut hashes = Vec::new();
     for input in [increment.clone(), add_five.clone()] {

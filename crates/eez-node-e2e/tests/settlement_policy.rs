@@ -881,6 +881,9 @@ async fn ordinary_data_admission_tracks_operator_capacity_without_losing_valid_w
 async fn fee_ceiling_blocks_posting_without_losing_activity_or_splitting() {
     let mut env = policy_env(Vec::new(), "always");
     env.push(("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1".into()));
+    // Keep startup configuration valid while making base fee plus any
+    // selected priority exceed the execution ceiling at runtime.
+    env.push(("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "1".into()));
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let hash = send_l2_value_transfer_confirmed(
@@ -1248,7 +1251,11 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
     assert!(terminal.header.number >= 315);
-    assert!(post.inner.blob_versioned_hashes().unwrap().len() > 1);
+    assert_eq!(
+        post.inner.blob_versioned_hashes().unwrap().len(),
+        1,
+        "derivable ordinary blocks must not force a second physical blob"
+    );
     assert!(
         !world
             .node
@@ -2114,17 +2121,16 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
         );
     }
     let mut times = Vec::new();
-    for (index, post) in posts.iter().enumerate() {
+    let mut maximum_posted_blobs = 0;
+    for post in &posts {
         let tx = l1
             .get_transaction_by_hash(post.transaction_hash.unwrap())
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            tx.inner.blob_versioned_hashes().unwrap().len(),
-            if index < 2 { 2 } else { 1 },
-            "the history uses both allowed blobs before any separately eligible fresh group"
-        );
+        let blobs = tx.inner.blob_versioned_hashes().unwrap().len();
+        assert!((1..=2).contains(&blobs));
+        maximum_posted_blobs = maximum_posted_blobs.max(blobs);
         let receipt = l1
             .get_transaction_receipt(post.transaction_hash.unwrap())
             .await
@@ -2140,6 +2146,10 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
                 .timestamp,
         );
     }
+    assert_eq!(
+        maximum_posted_blobs, 2,
+        "the largest valid prefix must use the available two-blob allowance"
+    );
     if !restart_after_prefix {
         assert!(
             times[1] - times[0] < 45,
@@ -2632,7 +2642,10 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         assert!(count <= max_blobs);
         maximum_posted = maximum_posted.max(count);
     }
-    assert_eq!(maximum_posted, max_blobs);
+    assert!(
+        (2..=max_blobs).contains(&maximum_posted),
+        "the burst must exercise multi-blob posting within the configured cap"
+    );
     assert!(world.node.signals_since(0).unwrap().iter().any(|event| {
         event.name == "eez.submitter.policy.target_selected"
             && event.fields["preparation_ms"]

@@ -821,7 +821,7 @@ async fn launch_composer(
     // Build the Composer and Sequencer around the same binary-owned
     // BlockCommitter handle. The Deriver receives another clone below, so all
     // engine traffic shares one actor, reconcile lock, and head mirror.
-    let (sequencer, composer, held_pool, system_tx_cfg, l1_source_chain_id) = {
+    let (sequencer, composer, held_pool, system_tx_cfg, l1_source_chain_id, preparation_worker) = {
         let rollup_id = rollup_config.rollup_id;
         let l1_variant = &embedded_l1;
         let l1_source_chain_id = match l1_variant {
@@ -1060,7 +1060,7 @@ async fn launch_composer(
         // composer's witness source with its store. Capturing at commit (parent
         // state still fresh) is why this works on a non-archival node. Spawned
         // before `evm_config` is moved into `Composer::new` below.
-        let witness_source = match witness_capture {
+        let (witness_source, preparation_worker) = match witness_capture {
             WitnessCapture::Remote {
                 receiver: rx,
                 store,
@@ -1090,7 +1090,7 @@ async fn launch_composer(
                 });
                 let preparation_store = Arc::clone(&store);
                 let preparation_l1_head = Arc::clone(&l1_head);
-                task_executor.spawn_critical_task("eez-witness-preparation", async move {
+                let preparation_worker = async move {
                     run_preparation_worker(
                         preparation_rx,
                         preparation_notifier,
@@ -1101,16 +1101,19 @@ async fn launch_composer(
                         preparation_l1_head,
                     )
                     .await;
-                });
+                };
                 // Hybrid: read the store, else re-exec on demand the newest block
                 // the async capture hasn't drained yet (state still retained; fast
                 // for near-empty blocks).
-                Some(Arc::new(witness_source::NodeWitnessSource::new(
-                    store,
-                    ws_provider,
-                    ws_evm,
-                ))
-                    as Arc<dyn eez_prover::ProvingWitnessSource>)
+                (
+                    Some(Arc::new(witness_source::NodeWitnessSource::new(
+                        store,
+                        ws_provider,
+                        ws_evm,
+                    ))
+                        as Arc<dyn eez_prover::ProvingWitnessSource>),
+                    preparation_worker,
+                )
             }
         };
         let composer = Composer::new(
@@ -1148,6 +1151,7 @@ async fn launch_composer(
             held_pool,
             deriver_system_tx_cfg,
             l1_source_chain_id,
+            preparation_worker,
         )
     };
 
@@ -1290,6 +1294,10 @@ async fn launch_composer(
         }
     };
     composer.validate_settlement_policy_startup().await?;
+    // Retained-history validation must succeed before this process acquires
+    // proof-signer cache ownership. A rejected startup cannot release its
+    // process-local lease ID and must not consume restart overlap capacity.
+    task_executor.spawn_critical_task("eez-witness-preparation", preparation_worker);
     correlations.mark_ready();
     event!(
         name: "eez.node.deriver.spawned",

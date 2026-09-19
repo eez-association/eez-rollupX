@@ -116,7 +116,7 @@ fn validate(
         || capabilities.request_timeout_millis == 0
         || capabilities.cache_max_entries == 0
         || capabilities.cache_max_bytes == 0
-        || capabilities.maximum_leases != 2
+        || capabilities.maximum_leases != eez_control_rpc::MAX_PREPARATION_LEASES
         || capabilities.lease_lifetime_millis
             < capabilities
                 .request_timeout_millis

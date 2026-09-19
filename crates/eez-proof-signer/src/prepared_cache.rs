@@ -230,7 +230,12 @@ impl PreparedCache {
                     });
                 }
             }
-            None if self.leases.len() >= 2 => return Err(CacheError::Capacity),
+            None if self.leases.len()
+                >= usize::try_from(eez_control_rpc::MAX_PREPARATION_LEASES)
+                    .expect("lease limit fits usize") =>
+            {
+                return Err(CacheError::Capacity);
+            }
             None => {}
         }
         self.insert_range_unexpired(facts.clone())?;
@@ -359,7 +364,10 @@ impl PreparedCache {
                 Ok(id)
             }
             None => {
-                if self.leases.len() >= 2 {
+                if self.leases.len()
+                    >= usize::try_from(eez_control_rpc::MAX_PREPARATION_LEASES)
+                        .expect("lease limit fits usize")
+                {
                     return Err(CacheError::Capacity);
                 }
                 self.lease_nonce = self.lease_nonce.wrapping_add(1);

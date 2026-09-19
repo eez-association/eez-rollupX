@@ -221,7 +221,8 @@ held in a volatile cache bounded to 131,072 entries and 512 MiB of accounted
 block/evidence data. Final proving rechecks continuity, state-root telescoping,
 recipe/DA equality and the intermediate gate, and always validates a fresh
 terminal witness. Preparation creates/extends an opaque reservation and final
-proof replaces it with the exact ordinary range. At most two leases are active;
+proof replaces it with the exact ordinary range. At most eight leases are active,
+so rapid crash/restart sequences remain live while abandoned reservations expire;
 overlap is refcounted, expiry only makes facts evictable, and cloned final facts
 outlive lease expiry. The client reduces each preparation group below 64 when
 the negotiated aggregate-byte, per-message, or witness-item quota requires it;
