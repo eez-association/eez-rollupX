@@ -73,6 +73,8 @@ class ChiadoConfigTest(unittest.TestCase):
         self.assertEqual(services["eez-proof-signer"]["healthcheck"]["test"],
                          ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/50061"])
         self.assertIn("--http.api=eth,net,web3,debug,trace", services["eez-node"]["command"])
+        self.assertEqual(services["eez-node"]["command"].count(
+            "--metrics=127.0.0.1:19091"), 1)
         self.assertIn("--log.stdout.format=json", services["eez-node"]["command"])
         for key in ("EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_MAX_BLOCKS_PER_BATCH",
                     "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
