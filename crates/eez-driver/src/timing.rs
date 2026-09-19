@@ -10,7 +10,7 @@
 //!   relay before the next L1 slot. With `proof_time`, sizes the Future
 //!   region (see [`RollupTiming::future_count`]). Default 100 ms.
 //! - `preparation_time_ms` — optional separate preparation allowance. Unset
-//!   preserves the legacy rounded trigger; supplied uses millisecond precision.
+//!   preserves the rounded trigger; supplied uses millisecond precision.
 //!
 //! Derived helpers ([`RollupTiming::k`], [`RollupTiming::future_count`],
 //! [`RollupTiming::live_count`], [`RollupTiming::per_trigger_composition`])
@@ -44,17 +44,8 @@ use std::time::Duration;
 
 use crate::error::{DriverError, DriverResult};
 
-/// Cap on Live blocks produced per catchup trigger. Aligned with
-/// [`MAX_BLOCKS_PER_BATCH`] on the Composer side so one trigger's
-/// catchup output maps to exactly one postBatch submission. Drop to
-/// 100 if 300 turns out to produce calldata-gas pressure in practice.
+/// Cap on Live blocks produced per catchup trigger.
 pub const MAX_BLOCKS_PER_CATCHUP: u64 = 300;
-
-/// Cap on one postBatch's SETTLEMENT range, where [`MAX_BLOCKS_PER_CATCHUP`] caps
-/// production. `EEZ_MAX_BLOCKS_PER_BATCH` overrides it, rounded down to a multiple
-/// of K. A chunk shrinks no further than K blocks, so calldata heavier than
-/// `EEZ_MAX_POSTBATCH_GAS` allows over K blocks cannot settle at any cap.
-pub const MAX_BLOCKS_PER_BATCH: u64 = MAX_BLOCKS_PER_CATCHUP;
 
 const ENV_L1_BLOCK_TIME_MS: &str = "EEZ_L1_BLOCK_TIME_MS";
 const ENV_L2_BLOCK_TIME_MS: &str = "EEZ_L2_BLOCK_TIME_MS";
@@ -276,7 +267,7 @@ impl RollupTiming {
 
     /// Wall-clock offset after the anchor L1 block at which the trigger
     /// fires. An explicit preparation allowance reserves exactly preparation +
-    /// proof + slack, with millisecond precision. Otherwise the legacy trigger
+    /// proof + slack, with millisecond precision. Otherwise the rounded trigger
     /// remains at the end of the Live region, `l1 − (future + 1)·l2`.
     #[must_use]
     pub const fn proof_window_open(self) -> Duration {
@@ -927,7 +918,7 @@ mod tests {
         for sync_height in [6_000u64, 6_005] {
             for cursor in [0u64, 1, 7, 137, 5_000] {
                 let boundary = t
-                    .historical_chunk_boundary(cursor, sync_height, MAX_BLOCKS_PER_BATCH)
+                    .historical_chunk_boundary(cursor, sync_height, MAX_BLOCKS_PER_CATCHUP)
                     .expect("backlog exceeds the cap for every cursor here");
                 assert_eq!(
                     boundary % k,
@@ -935,7 +926,7 @@ mod tests {
                     "boundary {boundary} off-grid (cursor={cursor})"
                 );
                 assert!(boundary > cursor && boundary < sync_height);
-                assert!(boundary - cursor <= MAX_BLOCKS_PER_BATCH);
+                assert!(boundary - cursor <= MAX_BLOCKS_PER_CATCHUP);
             }
         }
     }

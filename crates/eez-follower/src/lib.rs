@@ -155,7 +155,6 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
         Arc::new(provider.clone()),
         l1_reader.clone(),
         chain_spec,
-        timing.l2_block_time().as_secs(),
         deploy_block,
         Arc::clone(&l1_head),
         Arc::clone(&correlations),

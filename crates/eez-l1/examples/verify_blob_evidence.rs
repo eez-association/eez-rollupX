@@ -7,6 +7,7 @@
 
 use std::{error::Error, fs, str::FromStr as _};
 
+use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{B256, Bytes, U256, hex, keccak256};
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
@@ -204,33 +205,63 @@ fn run() -> Result<(), Box<dyn Error>> {
     let native = decode_native_payload(&selected_blobs, rollup_id)?;
     let semantic_transactions =
         eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
-    let decoded = eez_payload_codec::decode(&native.operations)?;
-    if decoded.block_rlps.is_empty() {
-        return Err("blob payload is not the self-contained block profile".into());
+    let payload = eez_payload_codec::derivable::Payload::decode(&native.operations)?;
+    let mut payload_blocks = Vec::with_capacity(payload.block_count());
+    let mut block_tx_counts = Vec::with_capacity(payload.block_count());
+    let mut payload_transaction_hashes = Vec::new();
+    for plan in payload.blocks() {
+        use eez_payload_codec::derivable::BlockPlan;
+        match plan {
+            BlockPlan::Derived {
+                position,
+                environment,
+                transactions,
+            } => {
+                block_tx_counts.push(transactions.len());
+                payload_transaction_hashes
+                    .extend(transactions.iter().map(|raw| keccak256(raw).to_string()));
+                payload_blocks.push(json!({
+                    "number": payload.first_block_number() + position as u64,
+                    "representation": "derived",
+                    "transaction_count": transactions.len(),
+                    "timestamp_step_seconds": environment.timestamp_step_seconds,
+                    "fee_recipient": environment.fee_recipient,
+                    "prev_randao": environment.prev_randao,
+                    "gas_limit": environment.gas_limit,
+                    "extra_data": environment.extra_data,
+                    "parent_beacon_root": environment.cancun_parent_beacon_root,
+                    "execution_verified": false,
+                }));
+            }
+            BlockPlan::Full {
+                position,
+                rlp,
+                terminal,
+            } => {
+                let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(rlp)
+                    .map_err(|error| format!("decode full block {position}: {error}"))?;
+                block_tx_counts.push(block.body.transactions.len());
+                payload_transaction_hashes.extend(
+                    block
+                        .body
+                        .transactions
+                        .iter()
+                        .map(|tx| keccak256(tx.encoded_2718()).to_string()),
+                );
+                payload_blocks.push(json!({
+                    "number": block.header.number,
+                    "representation": if terminal { "terminal" } else { "full" },
+                    "hash": block.header.hash_slow(),
+                    "parent_hash": block.header.parent_hash,
+                    "timestamp": block.header.timestamp,
+                    "state_root": block.header.state_root,
+                    "transaction_count": block.body.transactions.len(),
+                    "rlp_bytes": rlp.len(),
+                    "execution_verified": false,
+                }));
+            }
+        }
     }
-    let payload_blocks = decoded
-        .block_rlps
-        .iter()
-        .enumerate()
-        .map(|(index, encoded)| {
-            let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(encoded)
-                .map_err(|error| format!("decode self-contained block {index}: {error}"))?;
-            Ok(json!({
-                "number": block.header.number,
-                "hash": block.header.hash_slow(),
-                "parent_hash": block.header.parent_hash,
-                "timestamp": block.header.timestamp,
-                "state_root": block.header.state_root,
-                "transaction_count": block.body.transactions.len(),
-                "rlp_bytes": encoded.len(),
-            }))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let payload_transaction_hashes = decoded
-        .transactions
-        .iter()
-        .map(|raw| keccak256(raw).to_string())
-        .collect::<Vec<_>>();
     let blob_indices = posted
         .batch
         .blobIndices
@@ -302,13 +333,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .map(|transaction| transaction.origin_chain.0)
                     .collect::<Vec<_>>(),
                 "semantic_transactions": semantic_details,
-                "block_count": decoded.block_count(),
-                "block_tx_counts": decoded.block_tx_counts,
+                "block_count": payload.block_count(),
+                "block_tx_counts": block_tx_counts,
                 "blocks": payload_blocks,
-                "transaction_count": decoded.transactions.len(),
+                "transaction_count": payload_transaction_hashes.len(),
                 "transaction_hashes": payload_transaction_hashes,
-                "l2_entry_count": decoded.l2_entries.len(),
-                "outbound_group_sizes": decoded.outbound_group_sizes,
+                "l2_entry_count": payload.l2_entries().len(),
+                "outbound_group_sizes": payload.outbound_group_sizes(),
             }
         }))?
     );

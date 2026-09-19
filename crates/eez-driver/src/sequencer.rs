@@ -78,26 +78,26 @@ mod tests {
     struct PolicyComposer {
         result: &'static str,
         calls: Arc<Mutex<Vec<SyncSlotMode>>>,
-        guard: bool,
     }
 
     #[async_trait::async_trait]
     impl SyncSlotComposer for PolicyComposer {
-        fn guards_sequencing_da(&self) -> bool {
-            self.guard
-        }
-        async fn compose_sync_slot(
+        fn set_sequencing_target(&self, _: u64, _: u64) {}
+
+        fn ordinary_block_da_limit(
             &self,
             _: u64,
-            _: ParentContext,
+            _: &SealedHeader<alloy_consensus::Header>,
             _: u64,
-            _: Option<u64>,
-            _: SyncSlotMode,
-        ) -> Option<SyncSlotBlock> {
-            panic!("explicit outcome interface is required");
+        ) -> Result<usize, String> {
+            Ok(usize::MAX)
         }
 
-        async fn compose_sync_slot_outcome(
+        fn ordinary_transaction_da_limit(&self, _: u64) -> Result<usize, String> {
+            Ok(usize::MAX)
+        }
+
+        async fn compose_sync_slot(
             &self,
             _: u64,
             parent: ParentContext,
@@ -134,29 +134,10 @@ mod tests {
         }
     }
 
-    struct LegacyComposer;
-    #[async_trait::async_trait]
-    impl SyncSlotComposer for LegacyComposer {
-        async fn compose_sync_slot(
-            &self,
-            _: u64,
-            _: ParentContext,
-            _: u64,
-            _: Option<u64>,
-            _: SyncSlotMode,
-        ) -> Option<SyncSlotBlock> {
-            None
-        }
-    }
-
     #[tokio::test]
-    async fn explicit_policy_outcomes_never_use_sync_pool_fallback_in_any_slot_mode() {
-        for mode in [
-            SyncSlotMode::Steady,
-            SyncSlotMode::Empty,
-            SyncSlotMode::Catchup,
-        ] {
-            for result in ["end", "empty", "stale", "legacy"] {
+    async fn explicit_policy_outcomes_never_use_sync_pool_fallback() {
+        for mode in [SyncSlotMode::Steady, SyncSlotMode::Empty] {
+            for result in ["end", "empty", "stale"] {
                 let future = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -174,15 +155,10 @@ mod tests {
                 });
                 let (committer, commands) = crate::block_committer::test_committer(parent);
                 let calls = Arc::new(Mutex::new(Vec::new()));
-                let composer: SyncSlotComposerHandle = if result == "legacy" {
-                    Arc::new(LegacyComposer)
-                } else {
-                    Arc::new(PolicyComposer {
-                        result,
-                        calls: Arc::clone(&calls),
-                        guard: false,
-                    })
-                };
+                let composer: SyncSlotComposerHandle = Arc::new(PolicyComposer {
+                    result,
+                    calls: Arc::clone(&calls),
+                });
                 let (_, receiver) = mpsc::channel(1);
                 let mut sequencer = Sequencer::composer(
                     EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
@@ -194,16 +170,14 @@ mod tests {
                     0,
                     Arc::default(),
                 );
-                let target = if mode == SyncSlotMode::Catchup { 15 } else { 5 };
+                let target = 5;
                 sequencer
                     .advance_sync_slot(target, timestamp, 1)
                     .await
                     .unwrap();
                 let commands = commands.lock().unwrap();
                 let live = usize::try_from(target - 5).unwrap();
-                if result != "legacy" {
-                    assert_eq!(*calls.lock().unwrap(), vec![mode]);
-                }
+                assert_eq!(*calls.lock().unwrap(), vec![mode]);
                 assert!(commands[..live].iter().all(|command| *command == "pool"));
                 match result {
                     "end" | "stale" => {
@@ -214,13 +188,6 @@ mod tests {
                         assert_eq!(&commands[live..], &["prebuilt"]);
                         assert_eq!(committer.last_header().number, target);
                         assert_eq!(
-                            committer.last_header().transactions_root,
-                            alloy_consensus::constants::EMPTY_ROOT_HASH
-                        );
-                    }
-                    "legacy" => {
-                        assert_eq!(&commands[live..], &["pool"]);
-                        assert_ne!(
                             committer.last_header().transactions_root,
                             alloy_consensus::constants::EMPTY_ROOT_HASH
                         );
@@ -252,7 +219,6 @@ mod tests {
                         Arc::new(PolicyComposer {
                             result,
                             calls: calls.clone(),
-                            guard: true,
                         }),
                         0,
                         Arc::default(),
@@ -328,7 +294,6 @@ mod tests {
                         Arc::new(PolicyComposer {
                             result: "empty",
                             calls: Arc::clone(&calls),
-                            guard: true,
                         }),
                         u64::from(case == "speculative_cap"),
                         Arc::default(),
@@ -766,36 +731,20 @@ where
                     header: last_header.clone(),
                 };
                 let prebuilt = composer
-                    .compose_sync_slot_outcome(rollup_id, parent, sync_ts, target, mode)
+                    .compose_sync_slot(rollup_id, parent, sync_ts, target, mode)
                     .await;
                 let prebuilt = match prebuilt {
-                    crate::SyncSlotOutcome::Built(built) => Some(*built),
-                    crate::SyncSlotOutcome::LegacyPool => None,
+                    crate::SyncSlotOutcome::Built(built) => *built,
                     crate::SyncSlotOutcome::EndTick => return Ok(()),
                 };
-                if let Some(built) = prebuilt {
-                    if let Err(err) = self.commit_one_prebuilt(SlotKind::Sync, built).await {
-                        if err.is_stale_parent() {
-                            log_stale_parent("catchup.sync.prebuilt");
-                            return Ok(());
-                        }
-                        return Err(err);
+                if let Err(err) = self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
+                    if err.is_stale_parent() {
+                        log_stale_parent("catchup.sync.prebuilt");
+                        return Ok(());
                     }
-                    self.off_grid_skips = 0;
-                } else {
-                    match self
-                        .commit_one(SlotKind::Sync, &last_header, sync_slot_block_height)
-                        .await
-                    {
-                        Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("catchup.sync");
-                            return Ok(());
-                        }
-                        Err(err) => return Err(err),
-                    }
-                    self.off_grid_skips = 0;
+                    return Err(err);
                 }
+                self.off_grid_skips = 0;
             }
             SlotComposition::Slot { live, future } => {
                 for _ in 0..live {
@@ -877,7 +826,7 @@ where
                         header: last_header.clone(),
                     };
                     composer
-                        .compose_sync_slot_outcome(
+                        .compose_sync_slot(
                             rollup_id,
                             parent,
                             expected_sync_ts,
@@ -892,7 +841,7 @@ where
                     composer
                         // Steady: aim the immediate next L1 block, pinned to
                         // expected_sync_ts (re-derivable; == the L1 slot ts on-grid).
-                        .compose_sync_slot_outcome(
+                        .compose_sync_slot(
                             rollup_id,
                             parent,
                             expected_sync_ts,
@@ -902,29 +851,13 @@ where
                         .await
                 };
                 let prebuilt = match prebuilt {
-                    crate::SyncSlotOutcome::Built(built) => Some(*built),
-                    crate::SyncSlotOutcome::LegacyPool => None,
+                    crate::SyncSlotOutcome::Built(built) => *built,
                     crate::SyncSlotOutcome::EndTick => return Ok(()),
                 };
-                if let Some(built) = prebuilt {
-                    match self.commit_one_prebuilt(SlotKind::Sync, built).await {
-                        Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("slot.sync.prebuilt");
-                        }
-                        Err(err) => return Err(err),
-                    }
-                    self.off_grid_skips = 0;
-                    return Ok(());
-                }
-
-                match self
-                    .commit_one(SlotKind::Sync, &last_header, sync_slot_block_height)
-                    .await
-                {
+                match self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
                     Ok(()) => {}
                     Err(err) if err.is_stale_parent() => {
-                        log_stale_parent("slot.sync");
+                        log_stale_parent("slot.sync.prebuilt");
                         return Ok(());
                     }
                     Err(err) => return Err(err),
@@ -1015,7 +948,6 @@ where
         let parent_ts = parent.timestamp();
         let next_ts = parent_ts.saturating_add(self.timing.l2_block_time().as_secs());
         if kind != SlotKind::Sync
-            && self.composer.guards_sequencing_da()
             && parent.number().checked_add(1).is_some_and(|n| {
                 n % u64::from(self.timing.k()) == sync_slot_height % u64::from(self.timing.k())
             })
@@ -1024,7 +956,7 @@ where
             // boundary must remain an admissible historical settlement endpoint.
             let outcome = self
                 .composer
-                .compose_sync_slot_outcome(
+                .compose_sync_slot(
                     self.rollup_id,
                     crate::ParentContext {
                         header: parent.clone(),

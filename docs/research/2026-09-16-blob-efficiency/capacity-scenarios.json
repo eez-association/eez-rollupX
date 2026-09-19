@@ -1,0 +1,50 @@
+{
+  "kind": "arithmetic scenarios, not replay benchmarks",
+  "assumptions": {
+    "blobs": 6,
+    "useful_bytes_per_blob": 126976,
+    "reserved_bytes_for_terminal_crosschain_profile_and_framing": 126976,
+    "ordinary_byte_budget": 634880,
+    "block_time_seconds": 2,
+    "average_bytes_include_placement_and_environment_overhead": true
+  },
+  "scenarios": [
+    {
+      "average_encoded_ordinary_bytes_per_block": 10,
+      "ordinary_blocks": 63488,
+      "ordinary_history_seconds": 126976,
+      "total_blocks_including_one_terminal": 63489
+    },
+    {
+      "average_encoded_ordinary_bytes_per_block": 100,
+      "ordinary_blocks": 6348,
+      "ordinary_history_seconds": 12696,
+      "total_blocks_including_one_terminal": 6349
+    },
+    {
+      "average_encoded_ordinary_bytes_per_block": 250,
+      "ordinary_blocks": 2539,
+      "ordinary_history_seconds": 5078,
+      "total_blocks_including_one_terminal": 2540
+    },
+    {
+      "average_encoded_ordinary_bytes_per_block": 1000,
+      "ordinary_blocks": 634,
+      "ordinary_history_seconds": 1268,
+      "total_blocks_including_one_terminal": 635
+    }
+  ],
+  "empty_history": {
+    "six_hours_ordinary_blocks": 10800,
+    "twenty_four_hours_ordinary_blocks": 43200,
+    "byte_capacity_maximum": null,
+    "note": "A block count and sparse transaction positions replace per-empty-block headers; replay limits still apply."
+  },
+  "source_defaults": {
+    "proof_signer_max_request_blocks": 512,
+    "max_request_bytes": 536870912,
+    "max_request_witness_items": 1000000,
+    "stream_idle_timeout_seconds": 120,
+    "request_timeout_seconds": 600
+  }
+}

@@ -23,7 +23,6 @@ sol! {
 
 fn env() -> Vec<(&'static str, String)> {
     [
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true"),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always"),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "1800"),
         ("EEZ_MAX_SPECULATIVE_DEPTH", "0"),

@@ -1,0 +1,51 @@
+{
+  "recorded_utc": "2026-09-17",
+  "base_commit": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "executables_sha256": {
+    "proof_signer": "3417e9d699d3da9ee70762252aee200ed5416f64998f7603626efce1f448debc",
+    "harness": "53c88d2b2527e7ec17767f8b4866332aa10f606fba50cb930e319b75f955aa3b"
+  },
+  "profiles": [
+    {
+      "profile": "EthereumOsaka",
+      "requested_ceiling": 65536,
+      "actual_blocks": 65535,
+      "operations_bytes": 3442,
+      "legacy_operations_bytes": 50139220,
+      "physical_blobs": 1,
+      "cache_misses": 0,
+      "warm_repetitions": 20,
+      "final_proof_median_ms": 178,
+      "final_proof_p95_ms": 188,
+      "final_proof_max_ms": 192,
+      "preparation_and_proof_ms": 38565,
+      "public_inputs_hash": "fb407cba0298901fb567361b2c18598bf1332b7d6c5d563441c8182b761c1a70",
+      "terminal_hash": "0x9658390d640a9f1a6bd83d6161c0730bddadabba8ab90b5245b634a40e373ab0",
+      "success": true
+    },
+    {
+      "profile": "GnosisPrague",
+      "requested_ceiling": 65536,
+      "actual_blocks": 65536,
+      "operations_bytes": 3447,
+      "legacy_operations_bytes": 50138637,
+      "physical_blobs": 1,
+      "cache_misses": 0,
+      "warm_repetitions": 20,
+      "final_proof_median_ms": 185,
+      "final_proof_p95_ms": 198,
+      "final_proof_max_ms": 202,
+      "preparation_and_proof_ms": 39167,
+      "public_inputs_hash": "0aaec8bbdd4eedc533aa98e637c4d2474fc563f458b7c52dd994ae5133e5ba02",
+      "terminal_hash": "0x887cdcc502b76f0148d25cbe015ac19096d2ab933ee9f36628802c72379afd03",
+      "success": true
+    }
+  ],
+  "notes": [
+    "Each run used a fresh standalone signer and the retained production WitnessDb after the original producer had exited.",
+    "All six required logical checkpoints passed; each prior prefix lease was released before preparing the next checkpoint.",
+    "The final request referenced prepared ordinary facts and carried a fresh terminal witness.",
+    "The retained native corpora and raw console logs are local-only; this compact result records the exact executed binary identities and observed values."
+  ]
+}

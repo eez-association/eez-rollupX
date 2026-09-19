@@ -7,7 +7,7 @@ rust-version.workspace = true
 description            = "Consumes L1 events, decodes posted batches, drives the BlockCommitter to keep L2 in sync with L1."
 
 [dependencies]
-eez-driver.workspace        = true
+eez-driver = { workspace = true, features = ["derivation"] }
 eez-protocol.workspace      = true
 eez-l1.workspace            = true
 eez-payload-codec.workspace = true

@@ -113,7 +113,7 @@ struct Args {
     #[arg(
         long,
         env = "EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS",
-        default_value = "512"
+        default_value = "65536"
     )]
     max_request_blocks: NonZeroUsize,
 

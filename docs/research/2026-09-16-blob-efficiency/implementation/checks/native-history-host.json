@@ -1,0 +1,14 @@
+{
+  "cpu_count": 22,
+  "kernel": "7.0.0-31-generic",
+  "architecture": "x86_64",
+  "memory": {
+    "MemTotal": "63866800 kB",
+    "MemAvailable": "33515588 kB",
+    "SwapTotal": "8388604 kB"
+  },
+  "cpu_model": "Intel(R) Core(TM) Ultra 9 185H",
+  "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)",
+  "base": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_pin": "160000 commit 3c0cdf4955941a5c23639346932b55b33babebbd\teez-core-protocol"
+}

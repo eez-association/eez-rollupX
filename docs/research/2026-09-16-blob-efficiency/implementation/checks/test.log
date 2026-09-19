@@ -1,0 +1,101 @@
+   Compiling eez-payload-codec v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-payload-codec)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2.79s
+     Running unittests src/lib.rs (/home/edu/Development/eez-rollup0-fork/target/debug/deps/eez_driver-159ec357104ef181)
+
+running 50 tests
+test slot::tests::scheduler_preserves_fractional_trigger_and_catches_up_without_extending_it ... ok
+test timing::tests::an_off_grid_cursor_realigns_on_the_next_slot ... ok
+test timing::tests::catchup_budget_bounds_chunk_to_speculative_room ... ok
+test timing::tests::catchup_chunk_never_exceeds_budget ... ok
+test timing::tests::catchup_converges_to_slot_mode_next_trigger ... ok
+test timing::tests::catchup_grid_snap_respects_genesis_offset ... ok
+test timing::tests::catchup_idle_when_budget_too_small ... ok
+test timing::tests::catchup_terminal_always_on_grid_when_far_behind ... ok
+test timing::tests::catchup_terminal_is_on_grid_and_a_moved_head_is_detectable ... ok
+test timing::tests::chiado_fast_steady_state_start_of_slot ... ok
+test timing::tests::chiado_fast_validates ... ok
+test timing::tests::chiado_slow_derived ... ok
+test timing::tests::chiado_slow_steady_state_start_of_slot ... ok
+test timing::tests::chiado_slow_validates ... ok
+test timing::tests::explicit_preparation_reserves_all_stages_without_rounding_the_trigger ... ok
+test timing::tests::historical_boundary_is_past_on_grid_and_within_cap ... ok
+test timing::tests::historical_boundary_none_when_backlog_fits_cap ... ok
+test timing::tests::historical_boundary_none_when_no_grid_height_fits_the_cap ... ok
+test timing::tests::historical_chunk_boundary_stays_on_the_sync_height_grid ... ok
+test timing::tests::idle_when_head_at_or_past_sync_slot ... ok
+test timing::tests::inside_future_region_produces_remainder ... ok
+test timing::tests::invalid_preparation_budgets_fail_before_scheduling ... ok
+test timing::tests::k_less_than_2_rejected ... ok
+test timing::tests::mainnet_catchup_clamped_to_cap_snaps_to_grid ... ok
+test timing::tests::mainnet_derived ... ok
+test timing::tests::chiado_fast_derived ... ok
+test timing::tests::mainnet_steady_state_at_live_region_end ... ok
+test timing::tests::mainnet_steady_state_one_live_behind ... ok
+test timing::tests::mainnet_steady_state_start_of_slot ... ok
+test timing::tests::mainnet_catchup_within_cap_lands_on_target ... ok
+test timing::tests::mainnet_validates ... ok
+test timing::tests::non_integer_k_rejected ... ok
+test timing::tests::proof_time_must_fit_future_region ... ok
+test timing::tests::sub_second_l2_rejected ... ok
+test sequencer::tests::explicit_policy_outcomes_never_use_sync_pool_fallback_in_any_slot_mode ... ok
+test timing::tests::zero_fields_rejected ... ok
+test timing::tests::proof_plus_slack_must_fit_l1_block_time ... ok
+test sequencer::tests::guarded_catchup_preserves_every_intermediate_empty_boundary ... ok
+test timing::tests::preparation_environment_preserves_defaults_and_rejects_invalid_values ... ok
+test sequencer::tests::catchup_can_use_the_current_future_slot_but_never_a_past_or_capped_slot ... ok
+test derivation::tests::empty_derived_blocks_execute_beacon_root_storage_updates ... ok
+test derivation::tests::no_header_or_body_component_is_ignored_by_equality ... ok
+test derivation::tests::state_commitment_and_parent_fee_are_taken_from_replay_and_parent ... ok
+test derivation::tests::arithmetic_and_invalid_environment_fail_before_reth ... ok
+test derivation::tests::rejects_false_parent_seal_and_receipt_count_mismatch ... ok
+test derivation::tests::nonempty_derived_block_uses_executed_transactions_receipts_and_gas ... ok
+test derivation::tests::all_environment_inputs_affect_the_block_where_applicable ... ok
+test derivation::tests::rejects_pre_merge_and_future_forks_including_boundary ... ok
+test derivation::tests::fork_crossings_use_child_timestamp_and_parent_history ... ok
+test derivation::tests::whole_block_matches_independent_fixture_at_each_supported_fork ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running unittests src/lib.rs (/home/edu/Development/eez-rollup0-fork/target/debug/deps/eez_payload_codec-79da0f244e67660b)
+
+running 37 tests
+test block_size::tests::arithmetic_overflow_fails_closed ... ok
+test derivable::tests::cumulative_record_coverage_cannot_consume_terminal ... ok
+test derivable::tests::empty_transaction_record_unknown_kind_and_noop_change_are_rejected ... ok
+test derivable::tests::environment_change_applies_to_its_own_block_and_persists_across_full_blocks ... ok
+test derivable::tests::environment_wire_has_fixed_field_order_and_byte_strings ... ok
+test derivable::tests::full_records_have_exact_number_and_immediately_checkable_parent_links ... ok
+test derivable::tests::gap_and_environment_wire_match_independent_encoder ... ok
+test derivable::tests::invalid_environment_fields_and_wrong_field_lengths_fail ... ok
+test derivable::tests::malformed_and_nonexact_transaction_envelopes_are_rejected ... ok
+test derivable::tests::noop_change_is_relative_to_the_active_not_initial_environment ... ok
+test derivable::tests::oversized_count_is_rejected_before_missing_environment ... ok
+test derivable::tests::out_of_range_gap_is_rejected_before_missing_record_data ... ok
+test derivable::tests::production_decoder_still_rejects_v3 ... ok
+test derivable::tests::rejects_noncanonical_integers_profile_and_trailing_fields ... ok
+test derivable::tests::terminal_only_payload_does_not_derive_a_block ... ok
+test derivable::tests::retained_terminal_entries_and_groups_keep_exact_legacy_wire ... ok
+test tests::roundtrip_multi_block_with_empties ... ok
+test tests::corrupt_rlp_rejected_on_decode ... ok
+test tests::roundtrip_single_block_with_two_txs ... ok
+test tests::self_contained_roundtrip_preserves_exact_blocks_and_metadata ... ok
+test tests::tag_byte_is_first_byte ... ok
+test tests::trailing_bytes_rejected_on_decode ... ok
+test tests::unsupported_tag_rejected_on_decode ... ok
+test tests::grouped_roundtrip_preserves_outbound_root_counts ... ok
+test tests::incremental_size_matches_existing_encoding_including_metadata ... ok
+test tests::too_short_rejected_on_decode ... ok
+test derivable::tests::maximum_empty_span_is_sparse_and_iterator_is_exact_and_fused ... ok
+test derivable::tests::exact_sizing_includes_all_rlp_width_boundaries_and_legacy_expansion ... ok
+test tests::roundtrip_with_l2_entries ... ok
+test tests::self_contained_blocks_must_be_hash_linked ... ok
+test derivable::tests::mutation_cannot_create_an_accepted_noncanonical_or_unbounded_payload ... ok
+test derivable::tests::transaction_count_is_bounded_before_decoding_an_excess_item ... ok
+test tests::block_overflow_rejected_on_encode ... ok
+test derivable::tests::arbitrary_bytes_never_panic_and_any_accepted_form_is_canonical ... ok
+test derivable::tests::sparse_model_preserves_transaction_positions ... ok
+test derivable::tests::mixed_records_match_an_independent_dense_environment_model ... ok
+test block_size::tests::bounds_the_actual_codec_for_typed_and_legacy_transactions ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

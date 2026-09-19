@@ -1,0 +1,34 @@
+$ rustc +1.94.0 --version
+rustc 1.94.0 (4a4ef493e 2026-03-02)
+exit_code=0
+
+$ git branch --show-current
+feat/derivable-chain-operations
+exit_code=0
+
+$ git rev-parse HEAD
+ddf40bc2eb5fac8f7973b112eb383256cd8aac74
+exit_code=0
+
+$ cargo +1.94.0 fmt -p eez-payload-codec -p eez-driver -- --check
+exit_code=0
+
+$ git diff --check
+exit_code=0
+
+$ git diff --exit-code -- crates/eez-proof-signer crates/eez-deriver crates/eez-composer crates/eez-protocol
+exit_code=0
+
+$ sha256sum --check docs/research/2026-09-16-blob-efficiency/implementation/source.sha256
+Cargo.lock: OK
+crates/eez-payload-codec/Cargo.toml: OK
+crates/eez-payload-codec/src/lib.rs: OK
+crates/eez-payload-codec/src/derivable.rs: OK
+crates/eez-payload-codec/src/derivable/tests.rs: OK
+crates/eez-driver/Cargo.toml: OK
+crates/eez-driver/src/lib.rs: OK
+crates/eez-driver/src/derivation.rs: OK
+crates/eez-driver/src/derivation/tests.rs: OK
+exit_code=0
+
+New implementation and documentation files: no trailing whitespace.

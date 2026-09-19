@@ -168,6 +168,7 @@ pub(crate) fn backend_output_for(blocks: &[AdmittedBlock]) -> BackendWindowOutpu
             .map(|block| {
                 let decoded_transaction_count = decode_transaction_count(block).unwrap_or_default();
                 BackendBlockOutput {
+                    reconstruction: None,
                     decoded_number: block.declared_number,
                     decoded_parent_hash: block.claimed_parent_hash,
                     computed_hash: block.claimed_hash,

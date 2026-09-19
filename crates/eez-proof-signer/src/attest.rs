@@ -50,6 +50,8 @@ impl fmt::Display for NonZeroProofSystemVkey {
 /// system address, whose key has separate authority to create system
 /// transactions.
 pub(crate) struct Attester {
+    #[cfg(test)]
+    signing_calls: std::sync::atomic::AtomicUsize,
     signer: EcdsaProofSigner,
     proof_system_vkey: NonZeroProofSystemVkey,
     expected_proof_system: Address,
@@ -102,6 +104,8 @@ impl Attester {
             return Err(AttesterConfigError::ReservedSystemAddress);
         }
         Ok(Self {
+            #[cfg(test)]
+            signing_calls: std::sync::atomic::AtomicUsize::new(0),
             signer,
             proof_system_vkey,
             expected_proof_system,
@@ -135,7 +139,15 @@ impl Attester {
         &self,
         public_inputs_hash: AttestablePublicInputsHash,
     ) -> Result<Bytes, SignerError> {
+        #[cfg(test)]
+        self.signing_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.signer.sign_prehash(public_inputs_hash.into_inner())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn signing_calls(&self) -> usize {
+        self.signing_calls.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 

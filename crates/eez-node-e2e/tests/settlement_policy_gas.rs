@@ -17,7 +17,6 @@ const TIMEOUT: Duration = Duration::from_secs(180);
 
 fn env() -> Vec<(&'static str, String)> {
     [
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true"),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval"),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000"),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000"),

@@ -1,0 +1,153 @@
+    Checking arbitrary v1.4.2
+    Checking num-traits v0.2.19
+    Checking rand v0.9.4
+    Checking rustix v1.1.4
+    Checking indexmap v2.14.0
+    Checking smallvec v1.15.1
+    Checking rand v0.8.6
+    Checking parking_lot_core v0.9.12
+    Checking tempfile v3.27.0
+    Checking c-kzg v2.1.7
+    Checking parking_lot v0.12.5
+    Checking rusty-fork v0.3.1
+    Checking dashmap v6.2.1
+    Checking tokio v1.52.3
+    Checking proptest v1.11.0
+    Checking num-integer v0.1.46
+    Checking num-bigint v0.4.6
+    Checking ruint v1.20.0
+    Checking proptest-arbitrary-interop v0.1.0
+    Checking alloy-primitives v1.6.0
+    Checking nybbles v0.4.8
+    Checking tokio-util v0.7.18
+    Checking icu_normalizer v2.0.1
+    Checking alloy-eip7928 v0.3.7
+    Checking alloy-eip2930 v0.2.3
+    Checking alloy-eip7702 v0.6.3
+    Checking alloy-eip2124 v0.2.0
+    Checking alloy-serde v2.0.5
+    Checking alloy-trie v0.9.5
+    Checking revm-primitives v23.0.0
+    Checking alloy-eips v2.0.5
+    Checking revm-bytecode v10.0.0
+    Checking alloy-sol-types v1.6.0
+    Checking revm-state v11.0.1
+    Checking alloy-consensus v2.0.5
+    Checking alloy-genesis v2.0.5
+    Checking revm-database-interface v11.0.1
+    Checking ark-std v0.5.0
+    Checking reth-codecs v0.3.1
+    Checking idna_adapter v1.2.1
+    Checking ark-serialize v0.5.0
+    Checking idna v1.1.0
+    Checking ark-ff v0.5.0
+    Checking reth-primitives-traits v0.3.1
+    Checking url v2.5.8
+    Checking revm-database v13.0.1
+    Checking revm-context-interface v17.0.1
+    Checking num-rational v0.4.2
+    Checking num-iter v0.1.45
+    Checking num-complex v0.4.6
+    Checking alloy-chains v0.2.34
+    Checking ark-poly v0.5.0
+    Checking num v0.4.3
+    Checking ark-ec v0.5.0
+    Checking revm-context v16.0.1
+    Checking aurora-engine-modexp v1.2.0
+    Checking reth-trie-common v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking revm-interpreter v35.0.1
+    Checking ark-bn254 v0.5.0
+    Checking ark-bls12-381 v0.5.0
+    Checking tokio-stream v0.1.18
+    Checking alloy-hardforks v0.4.7
+    Checking revm-precompile v34.0.0
+    Checking reth-ethereum-primitives v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-stages-types v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking h2 v0.4.16
+    Checking revm-handler v18.1.0
+    Checking reth-static-file-types v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking revm-inspector v19.0.0
+    Checking reth-prune-types v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking revm v38.0.0
+    Checking hyper v1.9.0
+    Checking reth-storage-errors v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-evm v0.34.0
+    Checking tower v0.5.3
+    Checking hyper-util v0.1.20
+    Checking reth-execution-types v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-consensus-any v2.0.5
+    Checking alloy-network-primitives v2.0.5
+    Checking alloy-json-rpc v2.0.5
+    Checking reth-execution-errors v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-rpc-types-eth v2.0.5
+    Checking reth-ethereum-forks v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-network-peers v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-rpc-types-engine v2.0.5
+    Checking reth-chainspec v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking tower-http v0.6.11
+    Checking reth-db-models v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-rpc-types-any v2.0.5
+    Checking alloy-signer v2.0.5
+    Checking reth-db-api v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-tokio-util v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-network v2.0.5
+    Checking tracing-subscriber v0.3.23
+    Checking reth-metrics v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-storage-api v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking tokio-rustls v0.26.4
+    Checking rlp v0.5.2
+    Checking reth-consensus v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking hyper-rustls v0.27.9
+    Checking hyper-timeout v0.5.2
+    Checking reth-errors v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking tonic v0.14.6
+    Checking triehash v0.8.4
+    Checking reqwest v0.12.28
+    Checking reth-trie-sparse v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-signer-local v2.0.5
+    Checking tonic-prost v0.14.6
+    Checking opentelemetry_sdk v0.31.0
+    Checking opentelemetry-http v0.31.0
+    Checking reth-trie v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-payload-primitives v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking opentelemetry-proto v0.31.0
+    Checking reth-evm v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking chrono v0.4.44
+    Checking opentelemetry-otlp v0.31.1
+    Checking tracing-opentelemetry v0.32.1
+    Checking reth-chain-state v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-payload-builder-primitives v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-tracing-otlp v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking tracing-appender v0.2.5
+    Checking reth-engine-primitives v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking rolling-file v0.2.0
+    Checking tracing-samply v0.1.5
+    Checking tracing-logfmt v0.3.7
+    Checking tracing-journald v0.3.2
+    Checking reth-nippy-jar v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-libmdbx v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-tracing v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-tasks v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-ethereum-engine-primitives v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-db v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-node-types v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-trie-db v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reqwest v0.13.3
+    Checking alloy-transport v2.0.5
+    Checking reth-revm v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-provider v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-transport-http v2.0.5
+    Checking alloy-rpc-client v2.0.5
+    Checking eez-blob-codec v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-blob-codec)
+    Checking alloy-provider v2.0.5
+    Checking eez-protocol v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-protocol)
+    Checking reth-trie-parallel v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-execution-cache v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking alloy-rpc-types v2.0.5
+    Checking fail v0.5.1
+    Checking reth-evm-ethereum v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking reth-payload-builder v2.2.0 (https://github.com/paradigmxyz/reth?rev=fd59fd2222b51239abebd9aa234f28b0b5f336eb#fd59fd22)
+    Checking eez-l1 v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-l1)
+    Checking eez-payload-codec v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-payload-codec)
+    Checking eez-driver v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-driver)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 46.70s

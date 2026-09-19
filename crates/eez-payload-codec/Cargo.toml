@@ -4,7 +4,7 @@ version.workspace      = true
 edition.workspace      = true
 license.workspace      = true
 rust-version.workspace = true
-description            = "Batch payload encode/decode shared by the Submitter and the Deriver."
+description            = "Sparse derivable ChainOperation payload codec."
 
 [dependencies]
 alloy-consensus.workspace           = true
@@ -16,6 +16,7 @@ thiserror.workspace                 = true
 
 [dev-dependencies]
 alloy-primitives.workspace = true
+proptest = "1"
 
 [lints]
 workspace = true

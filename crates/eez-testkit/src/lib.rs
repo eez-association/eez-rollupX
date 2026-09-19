@@ -401,7 +401,7 @@ impl BeaconStub {
         })
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 }
@@ -659,15 +659,16 @@ fn proof_signer_binary() -> Result<PathBuf> {
 
 /// Configuration for one real `eez-proof-signer` process.
 #[derive(Debug)]
-struct ProofSignerConfig<'a> {
-    chain_config: &'a std::path::Path,
-    l1_chain_config: Option<String>,
-    rollup_id: u64,
-    signer_key: &'a str,
+/// Launch configuration for real-signer native and retained-history tests.
+pub struct ProofSignerConfig<'a> {
+    pub chain_config: &'a std::path::Path,
+    pub l1_chain_config: Option<String>,
+    pub rollup_id: u64,
+    pub signer_key: &'a str,
     /// Expected verifier key under the signer's validation policy. Negative
     /// tests can deliberately configure a key that differs from L1's registry.
-    vkey: B256,
-    proof_system: Address,
+    pub vkey: B256,
+    pub proof_system: Address,
 }
 
 /// The native Anvil harness and embedded test L1 use this same fork profile.
@@ -691,7 +692,8 @@ pub struct ProofSignerHandle {
 }
 
 impl ProofSignerHandle {
-    async fn spawn(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
+    /// Start the configured signer on a leased loopback port and wait for readiness.
+    pub async fn spawn(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
         let port_lease = PortLease::tcp();
         let listen = format!("127.0.0.1:{}", port_lease.port());
         let attester = signer_address(cfg.signer_key)?;
@@ -770,7 +772,7 @@ impl ProofSignerHandle {
         )
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 
@@ -948,12 +950,54 @@ struct ProxyCounters {
 #[derive(Clone, Debug)]
 struct ProverProxyService {
     upstream: String,
+    fixture_directory: Option<PathBuf>,
     mutation: Arc<Mutex<ProverMutation>>,
     counters: Arc<ProxyCounters>,
 }
 
 #[tonic::async_trait]
 impl Prover for ProverProxyService {
+    async fn retain_ordinary_ranges(
+        &self,
+        request: Request<eez_control_rpc::v1::RetainOrdinaryRangesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::RetainOrdinaryRangesResponse>, Status> {
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .retain_ordinary_ranges(request)
+            .await
+    }
+
+    async fn prepare_ordinary(
+        &self,
+        request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
+    ) -> Result<Response<eez_control_rpc::v1::PrepareResponse>, Status> {
+        let mut input = request.into_inner();
+        let mut chunks = Vec::new();
+        while let Some(chunk) = input.message().await? {
+            if chunks.len() >= 65 {
+                return Err(Status::resource_exhausted("preparation proxy chunk limit"));
+            }
+            chunks.push(chunk);
+        }
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .prepare_ordinary(tokio_stream::iter(chunks))
+            .await
+    }
+
+    async fn capabilities(
+        &self,
+        request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
+    ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .capabilities(request)
+            .await
+    }
+
     async fn prove(
         &self,
         request: Request<Streaming<ProveChunk>>,
@@ -975,6 +1019,28 @@ impl Prover for ProverProxyService {
             return Err(status);
         }
 
+        // Explicit fixture export only. Preserve complete augmented witnesses
+        // from the real composer; ordinary debug RPC misses observation-only
+        // reads and removal-closure nodes. Never capture in normal test runs.
+        let fixture = if self.fixture_directory.is_some() {
+            use prost::Message as _;
+            let bytes = chunks.iter().try_fold(0usize, |sum, chunk| {
+                sum.checked_add(chunk.encoded_len())
+                    .ok_or_else(|| Status::resource_exhausted("fixture size overflow"))
+            })?;
+            if bytes > 16 * 1024 * 1024 {
+                return Err(Status::resource_exhausted("fixture capture exceeds 16 MiB"));
+            }
+            let mut encoded = Vec::new();
+            for chunk in &chunks {
+                chunk
+                    .encode_length_delimited(&mut encoded)
+                    .expect("Vec encoding");
+            }
+            Some(encoded)
+        } else {
+            None
+        };
         let mut client = ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(format!("connect upstream signer: {error}")))?
@@ -982,6 +1048,20 @@ impl Prover for ProverProxyService {
             .max_decoding_message_size(MAX_MESSAGE_BYTES);
         match client.prove(tokio_stream::iter(chunks)).await {
             Ok(response) => {
+                if let (Some(directory), Some(encoded)) = (&self.fixture_directory, fixture) {
+                    let hash = alloy_primitives::keccak256(&encoded);
+                    let path = directory.join(format!("{hash:x}"));
+                    std::fs::write(path.with_extension("protobuf"), &encoded).map_err(|error| {
+                        Status::internal(format!("write proving fixture: {error}"))
+                    })?;
+                    std::fs::write(path.with_extension("json"), serde_json::to_vec_pretty(&serde_json::json!({
+                        "request_hash": hash,
+                        "request_bytes": encoded.len(),
+                        "public_inputs_hash": hex::encode(&response.get_ref().public_inputs_hash),
+                        "signature": hex::encode(&response.get_ref().signature),
+                    })).expect("fixture metadata serialization"))
+                        .map_err(|error| Status::internal(format!("write proving fixture metadata: {error}")))?;
+                }
                 self.counters.successes.fetch_add(1, Ordering::Relaxed);
                 Ok(response)
             }
@@ -1011,13 +1091,18 @@ pub struct ProverProxyHandle {
 }
 
 impl ProverProxyHandle {
-    async fn spawn(upstream: String, mutation: ProverMutation) -> Result<Self> {
+    async fn spawn(
+        upstream: String,
+        mutation: ProverMutation,
+        fixture_directory: Option<PathBuf>,
+    ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let counters = Arc::new(ProxyCounters::default());
         let mutation = Arc::new(Mutex::new(mutation));
         let service = ProverProxyService {
             upstream,
+            fixture_directory,
             mutation: Arc::clone(&mutation),
             counters: Arc::clone(&counters),
         };
@@ -1038,7 +1123,7 @@ impl ProverProxyHandle {
         })
     }
 
-    fn endpoint(&self) -> &str {
+    pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 
@@ -1258,6 +1343,25 @@ impl Harness {
             ("EEZ_L2_BLOCK_TIME_MS", "2000".to_string()),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "86400000".to_string()),
+            (
+                "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+                "1000000".to_string(),
+            ),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".to_string()),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
+            ),
             (
                 "EEZ_REGISTRY_ADDRESS",
                 format!("{:#x}", self.dep.eez_address),
@@ -1796,8 +1900,24 @@ impl NodeHandle {
         // Each role binary loads dotenv files from its working directory. Running from
         // the datadir prevents repository settings from changing the explicit
         // test configuration or redirecting L1 traffic to a developer endpoint.
+        cmd.arg("node");
+        // Explicit fixture-only opt-in for execution-witness capture. The
+        // service still binds loopback, and shipping node defaults are untouched.
+        match env
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == "EEZ_TEST_L2_DEBUG_RPC")
+        {
+            Some((_, value)) if value == "true" => {
+                cmd.args(["--http.api", "eth,net,web3,debug"]);
+            }
+            Some((_, value)) if value == "false" => {}
+            Some(_) => bail!("EEZ_TEST_L2_DEBUG_RPC must be true or false"),
+            None => {}
+        }
+
         cmd.current_dir(datadir)
-            .args(["node", "--chain"])
+            .arg("--chain")
             .arg(&chain_arg)
             .arg("--datadir")
             .arg(datadir)
@@ -1846,7 +1966,7 @@ impl NodeHandle {
             // May be overridden below when a test uses another L2 upstream.
             .env("EEZ_L2_RPC_URL", format!("http://127.0.0.1:{http_port}"));
         for (k, v) in env {
-            if *k == TEST_L2_GENESIS_ENV {
+            if *k == TEST_L2_GENESIS_ENV || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS" {
                 continue; // test-only marker (consumed as --chain above)
             }
             cmd.env(*k, v);
@@ -3941,6 +4061,25 @@ impl CrossChainConfig {
             ),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "86400000".to_string()),
+            (
+                "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+                "1000000".to_string(),
+            ),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".to_string()),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+                "500000000000".to_string(),
+            ),
+            (
+                "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+                "100000000000".to_string(),
+            ),
             ("EEZ_REGISTRY_ADDRESS", format!("{:#x}", self.eez_address)),
             ("EEZ_REGISTRY_DEPLOY_BLOCK", "0".to_string()),
             (
@@ -4022,7 +4161,7 @@ pub struct CrossChainWorld {
     pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
     beacon: BeaconStub,
-    _witness_dir: tempfile::TempDir,
+    witness_dir: tempfile::TempDir,
     datadir: FailureDatadir,
     env: Vec<(&'static str, String)>,
 }
@@ -4116,6 +4255,12 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 }
 
 impl CrossChainWorld {
+    /// Durable witnesses for this fixture. Readers must use the same database
+    /// path as the writer so MDBX's process locks remain shared.
+    pub fn witness_db_path(&self) -> &std::path::Path {
+        self.witness_dir.path()
+    }
+
     /// Crash the composer and reopen the same chain databases with an empty pool.
     pub async fn restart_composer(&mut self) -> Result<()> {
         self.restart_composer_with_env(&[]).await
@@ -5420,11 +5565,55 @@ async fn setup_cross_chain_inner(
 ) -> Result<CrossChainWorld> {
     let setup_started = std::time::Instant::now();
     let mut cfg = CrossChainConfig::new(profile)?;
+    // A past L2 genesis exercises the real capped catch-up path without
+    // waiting one wall-clock second for each historical L2 block. L1 keeps
+    // its current genesis/slot clock, and the registered root is recomputed.
+    if let Some((_, age)) = extra_env
+        .iter()
+        .rev()
+        .find(|(name, _)| *name == "EEZ_TEST_L2_GENESIS_AGE_SECONDS")
+    {
+        let age = age
+            .parse::<u64>()
+            .context("EEZ_TEST_L2_GENESIS_AGE_SECONDS must be an unsigned integer")?;
+        ensure!(
+            age <= 131_072,
+            "native history fixture age exceeds two seconds per maximum window block"
+        );
+        let mut genesis: alloy_genesis::Genesis =
+            serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
+        genesis.timestamp = genesis
+            .timestamp
+            .checked_sub(age)
+            .context("native history genesis timestamp underflow")?;
+        std::fs::write(&cfg.l2_genesis.0, serde_json::to_vec(&genesis)?)?;
+        cfg.initial_state = genesis_block_hash(&cfg.l2_genesis.0)?;
+    }
     if fixed_fee_fixture {
         let mut genesis: alloy_genesis::Genesis =
             serde_json::from_slice(&std::fs::read(&cfg.l1_genesis.0)?)?;
         genesis.base_fee_per_gas = Some(0);
         std::fs::write(&cfg.l1_genesis.0, serde_json::to_vec(&genesis)?)?;
+    }
+    let fixture_directory = std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").map(PathBuf::from);
+    if let Some(directory) = &fixture_directory {
+        std::fs::create_dir_all(directory)?;
+        let l2: serde_json::Value = serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
+        std::fs::write(
+            directory.join("chain-config.json"),
+            serde_json::to_vec_pretty(&l2["config"])?,
+        )?;
+        std::fs::copy(&cfg.l1_genesis.0, directory.join("l1-genesis.json"))?;
+        std::fs::write(
+            directory.join("identity.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "rollup_id": cfg.rollup_id,
+                "proof_system": cfg.proof_system_address,
+                "vkey": signer_address(cfg.attester_key)?.into_word(),
+                "l2_system_address": signer_address(L2_SYSTEM_KEY)?,
+                "gnosis_l1": profile == NativeL1Profile::GnosisPrague,
+            }))?,
+        )?;
     }
     let signer_attester = signer_address(cfg.attester_key)?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
@@ -5436,10 +5625,16 @@ async fn setup_cross_chain_inner(
         proof_system: cfg.proof_system_address,
     })
     .await?;
+    let mutation = mutation.or_else(|| fixture_directory.as_ref().map(|_| ProverMutation::None));
     let prover_proxy = match mutation {
-        Some(mutation) => {
-            Some(ProverProxyHandle::spawn(proof_signer.endpoint().to_owned(), mutation).await?)
-        }
+        Some(mutation) => Some(
+            ProverProxyHandle::spawn(
+                proof_signer.endpoint().to_owned(),
+                mutation,
+                fixture_directory,
+            )
+            .await?,
+        ),
         None => None,
     };
     let prover_url = prover_proxy
@@ -5610,7 +5805,7 @@ async fn setup_cross_chain_inner(
         l1_reorg_control,
         builder_stub,
         beacon,
-        _witness_dir: witness_dir,
+        witness_dir,
         datadir,
         env,
     })

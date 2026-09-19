@@ -56,26 +56,6 @@ fn da_payload_matches_exact_transactions_in_every_validated_block() {
 }
 
 #[test]
-fn self_contained_da_binds_the_complete_validated_block_rlp() {
-    let block = block_rlp(vec![transaction(CREATE_TX)]);
-    let payload =
-        eez_payload_codec::encode_self_contained(std::slice::from_ref(&block), &[], &[]).unwrap();
-    assert_eq!(
-        verify_anchor_only_da_payload(&payload, [(41, block.as_slice())]),
-        Ok(()),
-    );
-
-    let different = block_rlp(Vec::new());
-    let mismatched =
-        eez_payload_codec::encode_self_contained(std::slice::from_ref(&different), &[], &[])
-            .unwrap();
-    assert_eq!(
-        verify_anchor_only_da_payload(&mismatched, [(41, block.as_slice())]),
-        Err(DaPayloadError::BlockRlpMismatch { block_number: 41 }),
-    );
-}
-
-#[test]
 fn da_payload_rejects_trailing_bytes() {
     let (block_rlp, transactions) = block_and_payload_transactions(Vec::new());
     let mut payload = encode_da_payload(&[transactions], &[]);

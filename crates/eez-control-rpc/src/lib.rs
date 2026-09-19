@@ -7,9 +7,10 @@
 //! recomputed `publicInputsHash`, and returns a [`v1::ProveResponse`]. One
 //! request/response: no feed, no dispatch, no sink.
 //!
-//! Only generated types + tonic stubs live here — no `Prover`-trait coupling.
+//! Generated types, tonic stubs and shared validation identity live here — no `Prover`-trait coupling.
 
 mod generated;
+pub mod identity;
 
 /// Tonic-generated protobuf module for the `prove.v1` package.
 pub use generated::v1;
@@ -19,6 +20,13 @@ use prost::Message;
 /// Max size of a single `Prove` gRPC message, applied to BOTH the client
 /// (encode) and server (decode).
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024 * 1024;
+
+/// Maximum concurrent cache-ownership leases accepted by the signer.
+///
+/// Leases reserve already validated facts and never authorize signing. The
+/// bounded overlap permits rapid composer restarts while crashed clients age
+/// out under the advertised lease lifetime.
+pub const MAX_PREPARATION_LEASES: u64 = 8;
 
 /// Encode one typed [`v1::ProveFailure`] for the gRPC status-details field.
 #[must_use]
@@ -51,6 +59,7 @@ mod tests {
     fn prove_header_round_trips_through_protobuf() {
         let chunk = ProveChunk {
             kind: Some(prove_chunk::Kind::Header(ProveHeader {
+                expected_validation_identity: vec![0; 32],
                 rollup_id: 7,
                 from_block: 10,
                 to_block: 12,

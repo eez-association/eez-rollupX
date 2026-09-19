@@ -42,7 +42,7 @@ def fixture(scenario):
         "blob": {
             "verified": True,
             "payload": {
-                "blocks": [dict(number=100, hash=ROOT)],
+                "blocks": [dict(number=100, representation="terminal", hash=ROOT)],
                 "semantic_transactions": [{"origin_chain": 0, "tx_data": "0xraw", "actions": [{
                     "parent_index": None, "kind": "StaticCall" if static else "Call",
                     "source_chain": 0, "target_chain": 1, "from_address": SOURCE,
@@ -70,7 +70,9 @@ with open(os.environ["LOOKUP_CALLS"], "a") as out:
     out.write(json.dumps([pathlib.Path(sys.argv[0]).name] + args) + "\n")
 if pathlib.Path(sys.argv[0]).name == "forge":
     assert "Verify.s.sol:VerifyL2Absent" in args[1], args
-    assert "--broadcast" not in args and args[-4:] == ["100", "100", "0x" + "d"*40, "[0x" + "1"*64 + "]"], args
+    first = str(f["blob"]["payload"]["blocks"][0]["number"])
+    end = str(f["l2_head"])
+    assert "--broadcast" not in args and args[-4:] == [first, end, "0x" + "d"*40, "[0x" + "1"*64 + "]"], args
     sys.exit(1 if f.get("unexpected_delivery") else 0)
 if pathlib.Path(sys.argv[0]).name == "causal":
     request = json.loads(pathlib.Path(args[0]).read_text())
@@ -209,6 +211,46 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                 self.assertTrue(evidence["claims"]["l2_absence_verified"])
                 self.assertEqual(evidence["system_transactions"], [])
                 self.assertNotIn("--broadcast", self.calls.read_text())
+
+    def test_derivable_window_is_anchored_by_its_canonical_terminal(self):
+        for scenario in ("topLevelStaticCounter", "revertCounter"):
+            with self.subTest(scenario=scenario):
+                data = fixture(scenario)
+                data["blob"]["payload"]["blocks"] = [
+                    dict(number=100, representation="derived", timestamp_step_seconds=2,
+                         transaction_count=0),
+                    dict(number=101, representation="terminal", hash=ROOT),
+                ]
+                data["l2_head"] = 101
+                result = self.run_fixture(scenario, data)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                evidence = json.loads(self.output.read_text())
+                self.assertEqual(evidence["causal_graph"]["l2_absence_range"],
+                                 {"from": 100, "to": 101})
+
+    def test_rejects_malformed_derivable_windows(self):
+        mutations = {
+            "number gap": lambda blocks: blocks[1].update(number=102),
+            "terminal not last": lambda blocks: blocks.reverse(),
+            "missing terminal": lambda blocks: blocks[1].update(representation="derived",
+                                                                  timestamp_step_seconds=2,
+                                                                  transaction_count=0),
+            "unknown representation": lambda blocks: blocks[0].update(representation="future"),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                data = fixture("revertCounter")
+                blocks = [
+                    dict(number=100, representation="derived", timestamp_step_seconds=2,
+                         transaction_count=0),
+                    dict(number=101, representation="terminal", hash=ROOT),
+                ]
+                mutate(blocks)
+                data["blob"]["payload"]["blocks"] = blocks
+                data["l2_head"] = 102
+                result = self.run_fixture("revertCounter", data)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(self.output.exists())
 
     def test_never_overrides_upstream_failure(self):
         for scenario in ("topLevelStaticCounter", "revertCounter"):

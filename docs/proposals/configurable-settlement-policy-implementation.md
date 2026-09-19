@@ -7,6 +7,11 @@ runs. The original 44 requirement rows and 63 acceptance cases have recorded
 evidence below. Later extensions and revision-specific results are identified
 separately; results for an older executable do not validate later source edits.
 
+The 2026-09-17 new-network revision makes settlement policy mandatory and removes
+the disabled-policy compatibility path. Rows and evidence below that describe
+opt-in activation or disabled behavior are historical. Current configuration is
+documented in [the operator guide](../configurable-settlement-policy.md).
+
 Subsequent live investigation found a
 [cross-chain nonce-gap liveness failure](../audits/2026-09-15-chiado-nonce-gap/README.md).
 The [queue-liveness correction](cross-chain-queue-liveness.md) repairs admission
@@ -68,16 +73,13 @@ testnet results do not claim a universal packing maximum or mainnet deployment.
 
 ## Compatibility interpretation
 
-The implementation request explicitly requires existing configurations and
-default behavior to remain compatible. The proposal's mandatory policy settings,
-obsolete-setting rejection, and production fee defaults therefore apply when
-`EEZ_SETTLEMENT_POLICY_ENABLED=true`. The default is `false`, retaining the
-legacy path. Supplying policy-specific settings without enabling the policy is
-an error, preventing configuration that is silently ignored. Enabled profiles
-must select their pure mode and general threshold explicitly; the proposal's
-illustrative 15 minutes / 150 blocks / 10% are not global production defaults.
-This activation boundary is an explicit interpretation of the later user
-instruction, not a change to enabled policy behavior.
+The later implementation scope supersedes compatibility with existing networks:
+this is a new network with one settlement policy from genesis. The
+`EEZ_SETTLEMENT_POLICY_ENABLED` toggle and disabled-policy runtime path are
+removed. Every deployment must select its pure mode, general threshold, and fee
+ceilings explicitly; omitted or conflicting settings fail startup. The
+proposal's illustrative 15 minutes / 150 blocks / 10% remain profile choices,
+not implicit production defaults.
 
 ## Architecture at the starting baseline
 
@@ -136,12 +138,12 @@ Paths below are relative to `crates/` unless stated otherwise.
 | R30 Whole ordered bundle per-tx and block execution/blob/gas/balance/nonce validity (§6.3) | `composer/posting.rs::simulate` / `run_bundle`; native Ethereum/Gnosis block executors | native ordered executor tests; two inbound companion gas-stress cases, rich two-companion settlement and partial receipt accounting | [operator configuration](../configurable-settlement-policy.md) | unit/native verified on Ethereum/Gnosis |
 | R31 Active gas rules and target execution/EIP150; verify effects, not outer success (§6.3) | `composer/posting.rs::EffectInspector` / `run_bundle` | `outer_success_without_complete_effects_is_rejected`; real static lookup inspector; native low-byte expensive targets/new proxies and partial applied roots | [operator configuration](../configurable-settlement-policy.md) | unit/native verified |
 | R32 Group admission reduction before irreparable DA shrink (§6.3) | cross-chain composer | native `settlement_policy_gas.rs`: complete-group target/companion gas deferral and indivisible oversized group | reason metrics | native verified on Ethereum/Gnosis |
-| R33 Network fee estimator by default, validated fixed override/bounds (§6.3.1) | `PostingFeeConfig`; `PostingRuntime::quote`; early `ComposerSettings` | fee/config tests; native `always_skips_idle_syncs_then_settles_included_activity_and_replays` asserts network estimator | [operator configuration](../configurable-settlement-policy.md) | unit + native default verified |
-| R34 Positive separate price ceilings and checked bps priority/execution/blob fee and gas margins (§6.3.1) | `eez-l1/src/posting_fees.rs`; `ComposerSettings` | price bounds, checked ceil/margins/overflow, required ceilings, early invalid override and native priority-margin receipt tests | [operator configuration](../configurable-settlement-policy.md) | unit/config/native verified; priority extension below |
+| R33 Fee-history estimator by default, validated fixed override/bounds (§6.3.1) | `PostingFeeConfig`; `PostingRuntime::quote`; early `ComposerSettings` | fee/config tests; native receipt tests assert bounded dynamic pricing | [operator configuration](../configurable-settlement-policy.md) | unit + native default verified |
+| R34 Separate execution, blob, and priority price ceilings; bounded raw priority estimation; checked execution/blob/gas margins (§6.3.1) | `eez-l1/src/posting_fees.rs`; `ComposerSettings` | independent priority bounds, self-feedback regression, checked ceil/overflow, early invalid override and native bounded-priority receipt tests | [operator configuration](../configurable-settlement-policy.md) | unit/config/native verified; priority correction below |
 | R35 Quotes bind network/canonical sample/target; refresh unsent on changes, no parallel repricing (§6.3.1) | existing observer; `replace_prepared_post_batch`; `send_bundle_quoted` | unsent repricing/ownership tests; `quoted_dispatch_checks_network_head_and_target_before_recording_or_sending`; canonical reorg integration | [operator configuration](../configurable-settlement-policy.md) | component verified |
 | R36 Reprice only poster tx; preserve companions; insufficient caps retain due and never capacity-split (§6.3.1) | codec reprice helper; optimistic ledger; final preflight | repricing preserves authorized content in both wrappers; native underpriced/funded-companion recovery and fee-cap retry | [operator configuration](../configurable-settlement-policy.md) | unit/native verified |
 | R37 Estimated gas plus margin validated for complete effects; changes revalidate/reprove bound inputs (§6.3.1) | `PostingRuntime::finalize`; `L1SlotState` posting context; `SkipTopFrame` | `final_gas_and_fee_changes_require_complete_effect_revalidation`; priced frame context/no-fee test; native gas-stress and declared-gas/receipt checks | [operator configuration](../configurable-settlement-policy.md) | unit/native verified |
-| R38 Estimated vs receipt cost, full physical blob charge, separate reserve/poster/companions (§6.3.1,9) | receipt/cost telemetry | cost ledger canonical/reverted/unincluded tests; native always and partial cost receipts; equal-workload cost matrix | native units + normalized metrics | unit/native verified |
+| R38 Estimated vs receipt cost, full physical blob charge, separate reserve/poster/companions (§6.3.1,9) | receipt/cost telemetry | cost ledger canonical/reverted/unincluded tests; native always, partial, and bounded-priority cost receipts | native units + normalized metrics | unit/native verified |
 | R39 Reorg-aware cost attribution and same-workload cost evidence both profiles (§6.3.1,12) | integration harness/cost records | `reorg_retracts_costs_and_same_height_replacement_is_accounted_once`; native equal-range cost matrix on both profiles | artifacts, no promised savings | component/native verified |
 | R40 Ethereum and actual Gnosis/Chiado adapter/fork/timing support (§7,12) | native node Gnosis EVM retained in `ChainProvider`; per-target EVM environment | native Gnosis always + independent replay; Ethereum/Gnosis cost receipts; pinned chain/executor tests; public Chiado audits | [operator configuration](../configurable-settlement-policy.md) | unit/config/native and Chiado verified |
 | R41 Existing witness retention and replay fallback; missing data preserves work (§8.2) | witness source/composer | native retained/315-block witness history; canonical witness replacement/missing-input tests; native empty-cache replay | no retention redesign | unit/native verified |
@@ -223,11 +225,9 @@ Each case must link to executing coverage before completion.
 
 ## Interpretations and architecture
 
-* **Activation and migration (§3.1):** the later implementation request requires
-  unchanged existing defaults. `EEZ_SETTLEMENT_POLICY_ENABLED=false` is therefore
-  the default; all normative policy behavior applies when explicitly enabled.
-  Enabled settings and fee ceilings are required where the proposal requires
-  profile choices. Disabled-only legacy behavior remains separately tested.
+* **Activation and migration (§3.1):** the later new-network requirement removes
+  activation and migration. The policy is mandatory from genesis; required
+  settings and fee ceilings are explicit, and old configurations fail startup.
 * **Signer trust input (§6.1,7):** the original signer sees an L2 chain document,
   timeless batch and blobs. It cannot independently select an L1 fork. An
   explicit protobuf `L1PostingContext` supplies chain ID/timestamp;
@@ -307,7 +307,7 @@ behavior, the canonical interval timer, empty consolidation, posting more than
 six blobs, ordered cross-chain overrides, Gnosis ordinary data budgets, automatic
 mixed admission on both profiles, same-block partial settlement, restart after
 partial settlement, complete companion-gas budgets, receipt costs with the
-network priority margin, and rejection of a tampered witness. All 17 exact case
+then-current network priority margin, and rejection of a tampered witness. All 17 exact case
 names and commands are recorded in
 `tls-fixed-candidate/native-revalidation-selection.json` and its result file.
 This is targeted revalidation of the dependency update; the complete 93-case
@@ -412,41 +412,35 @@ selection delay remains unexplained in the recovery audit.
 | Workspace/crate manifests and lockfile | Existing native Gnosis executor reuse, optional shared chain-spec loading, REVM synthetic fee flag and test-only dependencies; the final dependency audit also required the Rustls security update described below |
 | Operator guide, this ledger, audit evidence | Configuration defaults/units/validation/migration, complete requirement mapping, actual receipt/root/DA/cost evidence and reproduction |
 
-## Priority fee percentage margin
+## Priority fee estimator feedback correction
 
-The September 13 fee follow-up extends §6.3.1 with
-`EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS`. The existing network estimator remains
-the source; `PostingFeeConfig::quote` adds the percentage and then applies the
-existing priority bounds. No new estimator, polling loop, settlement trigger,
-or protocol encoding is introduced. The default is zero, preserving existing
-enabled-policy quotes. A valid explicit fixed priority override remains exact.
+The September 18 correction removes percentage uplift from priority pricing.
+Reth's `eth_maxPriorityFeePerGas` oracle includes recent poster transactions
+and samples the cheapest transactions, which is not aligned with an exact
+next-block bundle. Dynamic mode now selects the p90 of 20 per-block p90 rewards
+from `eth_feeHistory`, within an explicit independent priority ceiling. The
+optional relay floor and exact fixed override remain available.
 
 | Requirement | Implementation/configuration | Automated coverage |
 | --- | --- | --- |
-| Default zero; explicit zero, fractional percentages in bps, and margins above 100% | `eez-l1/src/posting_fees.rs::PostingFeeConfig::parse` | `priority_margin_defaults_zero_and_accepts_zero_and_over_one_hundred_percent`; composer default assertions |
-| Fresh network estimate plus rounded-up margin, bounded after multiplication | `PostingFeeConfig::quote`, reused `with_margin` | `priority_margin_tracks_network_changes_and_rounds_up_before_bounds` covers rising/falling inputs, determinism, rounding, floors and caps |
-| Invalid input fails startup; unavailable estimate/overflow/insufficient ceiling cannot bypass safeguards | Fee parser/quote and `ComposerSettings::parse` | `priority_margin_cannot_bypass_caps_missing_estimates_or_checked_arithmetic`; invalid configuration cases and disabled-policy rejection |
-| Fixed override is exact and does not require an estimator | Existing override branch | `priority_margin_is_validated_even_with_an_exact_fixed_override` |
-| Parsed value reaches the submitting component and the actual signed poster | `ComposerSettings` → `PostingRuntime`; fee events expose raw estimate, margin and bounds | `network_priority_margin_is_propagated_and_requires_enabled_policy`; Ethereum/Gnosis `*_receipts_use_network_priority_with_percentage_margin` |
+| Reproduce the observed 20% recursion exactly | Existing checked percentage helper, used only in regression setup | `observed_percentage_uplift_reproduces_the_self_feedback_loop` checks all three observed values |
+| Prevent recursive self-uplift across sustained posts | Stateless p90-of-p90 selection followed by a clamp, without multiplying prior selections | `fee_history_selects_recent_p90_of_p90_without_chasing_one_spike`; `sustained_self_posting_does_not_amplify_estimator_samples` |
+| Require a priority ceiling independent from the execution-price ceiling | `PostingFeeConfig::parse` rejects dynamic mode without `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE`; a fixed override safely defaults its maximum to itself | `dynamic_fee_history_requires_an_independent_priority_ceiling` and composer startup tests |
+| Keep sparse blocks, spikes, relay floors and external market changes safe | Empty-block zeros and isolated spikes are absorbed by the outer percentile; the selected market value is clamped between explicit minimum and maximum | `fee_history_selects_recent_p90_of_p90_without_chasing_one_spike`; `sparse_samples_use_the_floor_and_spikes_use_the_priority_ceiling`; `external_fee_history_changes_are_followed_within_independent_bounds` |
+| Remove the unsafe priority multiplier | No priority-margin field is parsed, transported, logged, or applied | Source/configuration inventory and bounded quote tests |
+| Fixed override is exact and does not require an estimator | Existing override branch | `fixed_priority_override_is_exact_and_does_not_query_the_estimator` |
+| Parsed bounds reach the actual signed poster | `ComposerSettings` → `PostingRuntime`; fee events expose the history estimate, bounds and selected tip | Ethereum/Gnosis `*_receipts_use_bounded_fee_history_priority` |
 | Receipt costs and canonical settlement remain correct | Existing bundle preflight and cost accounting | Both new native tests compare two distinct included posters to their canonical-parent quotes, receipt charges, physical blobs, applied roots, canonical L2 hashes and recorded costs |
-| Existing zero-margin behavior remains compatible | No change to defaults, fixed tips, or local fixture minimum | Existing Ethereum/Gnosis equal-workload receipt comparison tests remain unchanged |
-| Deployment transports the option without replacing defaults or precedence | Chiado Compose environment, Kurtosis `settlement_environment`; all three environment examples and operator guide | `scripts/check-settlement-policy-config.py` covers both profiles with policy enabled/disabled; Kurtosis string transport/type validation |
-
-The zero-margin arithmetic path returns its input directly. This preserves
-clamping for even an oversized estimator response under the default, rather
-than introducing a new intermediate multiplication overflow. Nonzero margins
-retain checked arithmetic and fail without dispatch when it overflows.
+| Deployment transports the safe bounds | Chiado Compose environment, Kurtosis `settlement_environment`; all three environment examples and operator guide | `scripts/check-settlement-policy-config.py`, Chiado static config, and Kurtosis profile tests |
 
 The current Kurtosis PBS minimum remains a local builder fixture. A production
-profile may select a zero minimum when its relay permits it; setting a
-percentage alone does not remove a configured minimum. The operator guide
+profile may select a zero minimum when its relay permits it. The operator guide
 distinguishes priority-fee spend from execution/blob price headroom and gas
 reservation. Activation requires an updated composer binary and node restart;
 contracts, signing protocol, and historical data need no migration.
 
-The current validation matrix above includes both unchanged equal-workload cost
-comparisons and both network-priority-margin tests on Ethereum and Gnosis.
-The margin cases verify two distinct posts against canonical-parent quotes,
+The current validation matrix includes bounded fee-history priority tests on
+Ethereum and Gnosis. These cases verify two distinct posts against canonical-parent quotes,
 receipts, physical blob charges, applied roots, and recorded costs. Original
 extension measurements and executable identities remain locally in
 `artifacts/network-fee-margin-20260913/`; they are not substituted for current

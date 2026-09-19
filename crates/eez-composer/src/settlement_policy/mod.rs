@@ -45,6 +45,7 @@ impl std::fmt::Debug for DueReasons {
             (Self::CROSS_CHAIN, "cross_chain"),
             (Self::FULLNESS, "blob_fullness"),
             (Self::DRAIN, "drain"),
+            (Self::WINDOW_LIMIT, "window_limit"),
         ] {
             if self.contains(reason) {
                 reasons.entry(&name);
@@ -61,6 +62,7 @@ impl DueReasons {
     pub const CROSS_CHAIN: Self = Self(8);
     pub const FULLNESS: Self = Self(16);
     pub const DRAIN: Self = Self(32);
+    pub const WINDOW_LIMIT: Self = Self(64);
 
     #[must_use]
     pub const fn contains(self, reason: Self) -> bool {
@@ -105,7 +107,11 @@ pub struct PolicySnapshot {
     /// Latest canonical block containing an included ordinary transaction.
     pub latest_pure_block: Option<L2Endpoint>,
     pub cross_chain: CrossChainWork,
-    pub estimated_stream_bytes: u64,
+    /// None only when the whole candidate exceeds the supported window; a
+    /// bounded historical prefix must then be selected instead.
+    pub estimated_stream_bytes: Option<u64>,
+    /// Another whole Sync interval would exceed the effective window ceiling.
+    pub window_limit_due: bool,
     pub effective_blobs: u64,
     pub usable_bytes_per_blob: u64,
     pub drain_coverage: DrainCoverage,
@@ -164,6 +170,7 @@ impl PolicyState {
             latest_pure_block,
             cross_chain,
             estimated_stream_bytes,
+            window_limit_due,
             effective_blobs,
             usable_bytes_per_blob,
             drain_coverage,
@@ -196,7 +203,15 @@ impl PolicyState {
                 "pure activity lies outside the pending range".into(),
             ));
         }
+        if estimated_stream_bytes.is_none() && !window_limit_due {
+            return Err(PolicyError::Unavailable(
+                "missing candidate size without window limit".into(),
+            ));
+        }
         let mut reasons = DueReasons::default();
+        if window_limit_due && unsettled_blocks > 0 {
+            reasons.insert(DueReasons::WINDOW_LIMIT);
+        }
         if unsettled_blocks >= config.max_unsettled_l2_blocks.get() {
             reasons.insert(DueReasons::GENERAL);
         }
@@ -230,6 +245,7 @@ impl PolicyState {
         }
         if let Some(fullness) = config.blob_fullness_bps
             && unsettled_blocks > 0
+            && let Some(estimated_stream_bytes) = estimated_stream_bytes
         {
             let occupied = u128::from(estimated_stream_bytes) * 10_000;
             let threshold = u128::from(effective_blobs)

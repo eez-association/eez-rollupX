@@ -275,7 +275,7 @@ class NativeArtifactTest(unittest.TestCase):
             native.export_e2e(self.root, self.root / "lean")
 
     def test_test_inventory_and_serialism_are_preserved(self):
-        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "chained_interstate", "resumption", "partial_consumption",
+        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "derivable_operations", "chained_interstate", "partial_consumption",
                                          "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
                                          "queue_liveness", "queue_reorg",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors",
@@ -299,6 +299,7 @@ class NativeArtifactTest(unittest.TestCase):
             self.assertEqual(len(selected), 1, f"{binary}: {selected}")
             self.assertIn(name, native.TARGETS)
         self.assertIn("binary(=settlement_policy_gas)", native.SUITES["cross-chain"])
+        self.assertIn("binary(=derivable_operations)", native.SUITES["cross-chain"])
         self.assertIn("binary(=dynamic_admission)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_liveness)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_reorg)", native.SUITES["cross-chain"])

@@ -1,0 +1,210 @@
+{
+  "scope": "cold signer checkpoint, not final release review",
+  "files": [
+    {
+      "path": "crates/eez-driver/src/derivation/encoding.rs",
+      "bytes": 2903,
+      "sha256": "50b5f12ae7cb827bc3e5eef86bd078e92fe903b7e0bc5b7c2424161ec65002fc"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation/no_state.rs",
+      "bytes": 4422,
+      "sha256": "e39f5d2548cadb8631605bf146d807072771639e9a377aa92bd503ddc1eab0f4"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation/tests.rs",
+      "bytes": 22264,
+      "sha256": "1c898502d94f9d0042e9adefd19e16747d1043d2dae85794e93d1b367f7a5a55"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation.rs",
+      "bytes": 9848,
+      "sha256": "605237a99dc6a0aa74e5f8131219fc907d995ca9bc2d50c0e523c1410714b289"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/derivable/tests.rs",
+      "bytes": 22220,
+      "sha256": "ee3b673a2899cd1bf9b06c48c1a700a028df42c5ef515ee3cbad58b79095bf26"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/derivable.rs",
+      "bytes": 23534,
+      "sha256": "b323e4d4c71571bd7cfb084edd1f930671f37b338af4d2edbd7ace57317014e7"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/lib.rs",
+      "bytes": 23872,
+      "sha256": "81ef053e0fdf29a69ed84dcafcb0c01cca73fa47d24fdbbacb216a4ec2c03c3b"
+    },
+    {
+      "path": "crates/eez-proof-signer/Cargo.toml",
+      "bytes": 2029,
+      "sha256": "4f63dc9eaa241963cd345e9dc6da0d52bd1ffa6a049b386c104cba0ee813dc02"
+    },
+    {
+      "path": "crates/eez-proof-signer/SPEC.md",
+      "bytes": 53712,
+      "sha256": "8d7b25d211b442f960b48d9fe3bcf7f94e9813233ea3a1fa4941f997d7ab9e80"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/attest.rs",
+      "bytes": 7345,
+      "sha256": "48d3331ae0120cdf268fc0365c9bb7f540c44c97d9118f89a5716a4b6719a119"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/cancel.rs",
+      "bytes": 709,
+      "sha256": "4c580b45b1e7776155fe90c715c518dc778b8f65b73f9aecc744f0af85f7f335"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/config.rs",
+      "bytes": 7559,
+      "sha256": "10a85fdf3fc57d4c67e87abacda0030028cb1c0fde11efe58022a023c6efcbae"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/main.rs",
+      "bytes": 5629,
+      "sha256": "551429bd70cff7819aceb03c4b8e9da89f0443df7757389fb84f5963e814bf64"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/rpc.rs",
+      "bytes": 15357,
+      "sha256": "4eec5b0cc79d828d8a7e7c35eb7285375c128daa41413131237a876c890b2363"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/settlement_job.rs",
+      "bytes": 21157,
+      "sha256": "054d0bc1c94863b72f4c8ac07d4369154a094f13ae97434c31c34f60ed055bd3"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/stream.rs",
+      "bytes": 3212,
+      "sha256": "1bd5dc62344aea25f3e8e3d7417b6c97ad4643c71d6a9c14e6e59d15641177da"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/tests/derivation.rs",
+      "bytes": 14205,
+      "sha256": "9235abfb9eb54f0b7888bf48abe4e48d6eb07c98fe74e4dc9a0cc4dd15a0bc1f"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/tests/runtime.rs",
+      "bytes": 16773,
+      "sha256": "add9fca69ea355239402f4b6a6ee7196a071f910ad51de16127ffc2931cc8a05"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service.rs",
+      "bytes": 7796,
+      "sha256": "02dd721e768761e7b42d1aa99f22d2f68db9325d70d43a128b03b5e06d55a5e6"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/blob_da.rs",
+      "bytes": 4263,
+      "sha256": "3c1597a5964c5d752db6d1a25f479241b3d061c9e317b7a3fbd6a8293db0c843"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/blocks.rs",
+      "bytes": 15235,
+      "sha256": "4cea49416e63c0c4843b8a4fa1ddea5f5351ff7a76b4c4c8d2d3db73934e66cd"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/da.rs",
+      "bytes": 34055,
+      "sha256": "cd5d97ec49e079ee91efc29373379b086b570d5c9795d6f017937213984087c7"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/effect_binding.rs",
+      "bytes": 28977,
+      "sha256": "35486704735fcafd1173bfebf5c229ab7f6cb1b3c0e58f27d5dd976972457f37"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/inbound.rs",
+      "bytes": 22382,
+      "sha256": "d6a73736c508b2c78bd8d1e6f61fd4697fbd8f755ac937b9deb6105a68999e1a"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/outbound.rs",
+      "bytes": 28338,
+      "sha256": "5ca160b3e115366b7f8d45e056b15d11ca074c1faef63d4b59b8b098f78ebd22"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/post_batch.rs",
+      "bytes": 11087,
+      "sha256": "0fdd0c5e85214c314b036b170b3074ac27c92e83138585a830cb1c387f60b1f1"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/semantics.rs",
+      "bytes": 26154,
+      "sha256": "79c8dc2ab17e5d35775fdaa0adc56cf9a8a952b7ee3497a710e40ab1abdfc40e"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/state_chain.rs",
+      "bytes": 6489,
+      "sha256": "ce54a04b98d2260ca933ab15e1c3c66fb1a5b534288de971be70fd1ba8faccbc"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/system_transactions.rs",
+      "bytes": 4901,
+      "sha256": "72d0400322f6dbc8f0ed28b9737e07e2b29624846f32178448d89e1dba4daa55"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement.rs",
+      "bytes": 2585,
+      "sha256": "2e89a13bad9c132b082453d43c175373a8a20d883231784ef7fd3687687f21c4"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless/reconstruction.rs",
+      "bytes": 3135,
+      "sha256": "2288b65e546357d7d6aff55f9b6c56d32939db1f7877ab6038706c6fbefb2168"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless/tests.rs",
+      "bytes": 33048,
+      "sha256": "8cf31c2f1ba1d2a8dcef133af28a12db6c4ea54496f0cfe791b06e8f6a068948"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless.rs",
+      "bytes": 36547,
+      "sha256": "adee699199cf551a73ce675909266e5b1eafbf2eed724badf2ca1a26110d202a"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate.rs",
+      "bytes": 29775,
+      "sha256": "3b57eea2fb763b622095accefe806e7d04ebe09ba78e25f47a0a5fa719144087"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/window.rs",
+      "bytes": 20370,
+      "sha256": "1d4fbc07cc8c70def027b905a8732898f4259dec886d8e407f2240b6c2fa57ae"
+    },
+    {
+      "path": "docs/proposals/derivable-chain-operations.md",
+      "bytes": 58081,
+      "sha256": "e128d180f4860715c4bffad040cf22852e4f6c95b11252ab23876f702069c2c1"
+    },
+    {
+      "path": "docs/research/2026-09-16-blob-efficiency/implementation/signer-gates.md",
+      "bytes": 7385,
+      "sha256": "7ddfcf39dca27671e9202a9f5eb278aaca5d15a6c4c1227fd52250b04f1b4657"
+    },
+    {
+      "path": "dependencies/reth-fd59fd2/ethereum-evm-build.rs",
+      "bytes": 4664,
+      "sha256": "04e4e5b811d6622e01f76cea3ce571ee2d3e83d9b7fa487bac3eb517774d2b8c"
+    },
+    {
+      "path": "dependencies/reth-fd59fd2/ethereum-evm-config.rs",
+      "bytes": 130,
+      "sha256": "f873abccebbd56dbdcbb860b8fb00976bf4f264c23ee04a1c0f67433611971a3"
+    },
+    {
+      "path": "dependencies/stateless-4fc3806/validation.rs",
+      "bytes": 26135,
+      "sha256": "c530c320caa07ae916d290139c7b97734fcfe183d44bee8b37744579fdc41b8e"
+    },
+    {
+      "path": "dependencies/stateless-4fc3806/lib.rs",
+      "bytes": 3630,
+      "sha256": "422dbb4e293fc95de3b52ae802893274d4515ab6226985f4a2a9892d7a69efa8"
+    }
+  ]
+}

@@ -68,10 +68,11 @@ flowchart LR
    L2 source table recursively matches the L1 host entry and all recomputed
    L2-origin call hashes match the ordered EEZL2 receipt events. Exact
    `[load, user]` transaction-byte equality remains part of the DA gate in step 8.
-8. `da` exact-binds the self-contained block RLP stream and authorized
-   sidecars. It also supports legacy projected payloads, using
-   `SystemTransactionReconstructor` for omitted system transactions, and
-   requires byte equality with the validated settling block.
+8. `da` exact-binds every sparse derivation record, the complete terminal block
+   and authorized sidecars to independently validated reconstruction facts. The
+   shipping path accepts only tag 3/profile 1. Test-only projected fixtures use
+   an independent oracle to exercise lower settlement gates; they are not a
+   supported request format.
 9. Only after every gate passes does `CheckedPublicInputProfile` construct
    `RecomputedPublicInputsHash`. The complete job then wraps it as
    `AttestablePublicInputsHash`; `AttestationMaterial` carries that stronger

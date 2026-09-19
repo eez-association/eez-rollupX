@@ -66,8 +66,7 @@ every 900 L2 blocks. With its two-second L2 cadence, that is nominally 30
 minutes, subject to L1 inclusion. Empty Sync opportunities do not trigger a
 post. Valid cross-chain work posts at the next eligible opportunity. Aggregate
 blob fullness is disabled in this profile so it cannot shorten the idle period.
-The fee floor is explicit for this local PBS fixture. These settings do not
-change the legacy policy used by configurations that leave the feature disabled.
+The fee floor is explicit for this local PBS fixture.
 
 Measure idle cadence after the first canonical settlement: a fresh local MEV
 relay must receive validator registrations before it can include bundles.
@@ -753,12 +752,10 @@ across both directions, offered to one Sync block. The omitted value remains
 `50`, matching the composer default. Transactions beyond the selected prefix
 remain FIFO-queued; gas and blob capacity can reduce the actual drain.
 
-With `settlement_env.EEZ_SETTLEMENT_POLICY_ENABLED: "true"`, setting
-`max_user_txs_per_bundle: "auto"` selects using measured preparation time and
-available gas/blob capacity, without a fixed transaction-count cap. The runtime
-rejects `auto` when the policy is disabled. Configure admission through this
-existing top-level `eez` option; `settlement_env` carries the policy and posting
-fee options.
+Setting `max_user_txs_per_bundle: "auto"` selects using measured preparation
+time and available gas/blob capacity, without a fixed transaction-count cap.
+Configure admission through this existing top-level `eez` option;
+`settlement_env` carries the required policy and posting fee options.
 
 The dedicated `crosschain-limit-args.yaml` profile deliberately sets the cap to
 `3` to make spillover observable under a small workload. It is a disposable

@@ -95,13 +95,35 @@ fn cli_parses_the_default_listen_addr() {
     assert_eq!(
         config.limits,
         ServiceLimits::new(ServiceLimitsParams {
-            max_window_blocks: NonZeroUsize::new(512).unwrap(),
+            max_window_blocks: NonZeroUsize::new(65_536).unwrap(),
             max_window_bytes: NonZeroUsize::new(512 * 1024 * 1024).unwrap(),
             max_window_witness_items: NonZeroUsize::new(1_000_000).unwrap(),
             stream_idle_timeout: Duration::from_mins(2),
             request_timeout: Duration::from_mins(10),
         })
         .unwrap()
+    );
+}
+
+#[test]
+fn explicit_lower_block_limit_remains_effective() {
+    let args = parse_args([
+        "eez-proof-signer",
+        "--chain-config",
+        "chain-config.json",
+        "--rollup-id",
+        "7",
+        "--max-request-blocks",
+        "128",
+    ])
+    .unwrap();
+    assert_eq!(
+        Config::from_args(args)
+            .unwrap()
+            .limits
+            .window_limits()
+            .blocks,
+        128
     );
 }
 

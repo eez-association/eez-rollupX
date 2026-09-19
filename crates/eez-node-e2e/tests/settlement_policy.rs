@@ -5,6 +5,7 @@ use std::time::Duration;
 use alloy_consensus::Transaction as _;
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rlp::Encodable;
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
     ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeBinary, NodeConfig, NodeHandle, batches_posted,
@@ -13,6 +14,22 @@ use eez_testkit::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(180);
+
+fn conservative_full_history_len(blocks: &[Vec<u8>]) -> usize {
+    fn list_len(payload: usize) -> usize {
+        payload
+            + alloy_rlp::Header {
+                list: true,
+                payload_length: payload,
+            }
+            .length()
+    }
+    let block_items = blocks.iter().map(Encodable::length).sum();
+    // Tag + RLP([blocks, empty entries, empty groups]). This is only the
+    // conservative admission bound exercised by this test, not a supported
+    // ChainOperation format.
+    1 + list_len(list_len(block_items) + 2)
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty() {
@@ -606,9 +623,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
     wait_for_latest_height(&world.node, receipt.block_number.unwrap() + 12, TIMEOUT)
         .await
         .unwrap();
-    world
-        .fail_rpc_methods(&["eth_maxPriorityFeePerGas"])
-        .unwrap();
+    world.fail_rpc_methods(&["eth_feeHistory"]).unwrap();
     let rpc = world.fault_rpc_url().to_owned();
     world
         .restart_composer_with_env(&[
@@ -619,11 +634,7 @@ async fn fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonic
         .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
-        Ok((world
-            .node
-            .log_count_matching(&["network priority estimator"])?
-            >= 2)
-            .then_some(()))
+        Ok((world.node.log_count_matching(&["priority fee history"])? >= 2).then_some(()))
     })
     .await
     .unwrap_or_else(|error| {
@@ -870,6 +881,9 @@ async fn ordinary_data_admission_tracks_operator_capacity_without_losing_valid_w
 async fn fee_ceiling_blocks_posting_without_losing_activity_or_splitting() {
     let mut env = policy_env(Vec::new(), "always");
     env.push(("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1".into()));
+    // Keep startup configuration valid while making base fee plus any
+    // selected priority exceed the execution ceiling at runtime.
+    env.push(("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "1".into()));
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let hash = send_l2_value_transfer_confirmed(
@@ -1237,7 +1251,11 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
     assert!(terminal.header.number >= 315);
-    assert!(post.inner.blob_versioned_hashes().unwrap().len() > 1);
+    assert_eq!(
+        post.inner.blob_versioned_hashes().unwrap().len(),
+        1,
+        "derivable ordinary blocks must not force a second physical blob"
+    );
     assert!(
         !world
             .node
@@ -1291,7 +1309,6 @@ fn policy_env(mut env: Vec<(&'static str, String)>, mode: &str) -> Vec<(&'static
         )
     });
     env.extend([
-        ("EEZ_SETTLEMENT_POLICY_ENABLED", "true".into()),
         ("EEZ_SETTLEMENT_PURE_L2_MODE", mode.into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
@@ -1423,7 +1440,7 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
         signals
             .iter()
             .any(|signal| signal.name == "eez.composer.postbatch.fee_quote"
-                && signal.fields["priority_source"] == "network_estimator"),
+                && signal.fields["priority_source"] == "fee_history_p90_of_p90"),
         "no implicit smoke-test tip"
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -2109,17 +2126,16 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
         );
     }
     let mut times = Vec::new();
-    for (index, post) in posts.iter().enumerate() {
+    let mut maximum_posted_blobs = 0;
+    for post in &posts {
         let tx = l1
             .get_transaction_by_hash(post.transaction_hash.unwrap())
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            tx.inner.blob_versioned_hashes().unwrap().len(),
-            if index < 2 { 2 } else { 1 },
-            "the history uses both allowed blobs before any separately eligible fresh group"
-        );
+        let blobs = tx.inner.blob_versioned_hashes().unwrap().len();
+        assert!((1..=2).contains(&blobs));
+        maximum_posted_blobs = maximum_posted_blobs.max(blobs);
         let receipt = l1
             .get_transaction_receipt(post.transaction_hash.unwrap())
             .await
@@ -2135,6 +2151,10 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
                 .timestamp,
         );
     }
+    assert_eq!(
+        maximum_posted_blobs, 2,
+        "the largest valid prefix must use the available two-blob allowance"
+    );
     if !restart_after_prefix {
         assert!(
             times[1] - times[0] < 45,
@@ -2461,8 +2481,9 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         }
         encoded.push(alloy_rlp::encode(&block));
         if boundaries.contains(&number) {
-            let operations = eez_payload_codec::encode_self_contained(&encoded, &[], &[]).unwrap();
-            let bytes = eez_blob_codec::native_stream_len(operations.len(), 0).unwrap();
+            let bytes =
+                eez_blob_codec::native_stream_len(conservative_full_history_len(&encoded), 0)
+                    .unwrap();
             assert!(
                 bytes <= max_blobs * eez_blob_codec::DATA_BYTES_PER_BLOB,
                 "unpostable interval ending {number}: {bytes}"
@@ -2569,7 +2590,10 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         assert!(count <= max_blobs);
         maximum_posted = maximum_posted.max(count);
     }
-    assert_eq!(maximum_posted, max_blobs);
+    assert!(
+        (2..=max_blobs).contains(&maximum_posted),
+        "the burst must exercise multi-blob posting within the configured cap"
+    );
     assert!(world.node.signals_since(0).unwrap().iter().any(|event| {
         event.name == "eez.submitter.policy.target_selected"
             && event.fields["preparation_ms"]

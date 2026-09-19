@@ -13,13 +13,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_rpc_types_engine::ExecutionData;
-use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT, BlockCommitterHandle, DeriveOutcome};
+use eez_driver::{BlockCommitterHandle, DeriveOutcome};
 use eez_l1::{BatchRecord, L1CanonicalHead, L1Event, L1Reader, ScannedBatch};
+use eez_payload_codec::derivable::{BlockPlan, Payload};
 use eez_protocol::outbound_gate::OutboundCallObservation;
-use reth_chainspec::{ChainSpec, EthereumHardforks};
+use reth_chainspec::ChainSpec;
 use reth_ethereum_engine_primitives::EthEngineTypes;
 use reth_ethereum_primitives::{Block as EthereumBlock, TransactionSigned};
-use reth_evm::{ConfigureEvm, NextBlockEnvAttributes, execute::BlockBuilder};
+use reth_evm::{ConfigureEvm, execute::BlockBuilder};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
@@ -34,6 +35,9 @@ use tracing::{Level, event};
 
 use crate::correlation::{BatchCorrelation, CorrelationStore, L2BlockCorrelation};
 use crate::error::{DeriverError, DeriverResult};
+
+mod inputs;
+use inputs::ExecutionInputs;
 
 /// Watcher seed: the finalized block, kept inside the range this scan read.
 /// Both bounds have wedged boot in the field. Separate fn so they stay
@@ -61,14 +65,6 @@ where
     l2_provider: Arc<L2>,
     l1_reader: L1Reader,
     evm_config: EthEvmConfig,
-    /// Chainspec-aware deriver
-    chain_spec: Arc<ChainSpec>,
-    /// L2 block time in seconds — `execute_block` derives each block's
-    /// timestamp from its parent's. Must match the sequencer's cadence
-    /// (`RollupTiming::l2_block_time_ms`); a mismatch yields different
-    /// block hashes for byte-identical txs/state (composer↔follower
-    /// divergence).
-    l2_block_time_secs: u64,
     deploy_block: u64,
     /// Shared canonical-head state — cursor + per-batch index +
     /// `finalized_l2`. The Deriver is the sole writer; the Composer
@@ -136,22 +132,19 @@ where
         l2_provider: Arc<L2>,
         l1_reader: L1Reader,
         chain_spec: Arc<ChainSpec>,
-        l2_block_time_secs: u64,
         deploy_block: u64,
         l1_head: Arc<L1CanonicalHead>,
         correlations: Arc<CorrelationStore>,
         system_tx_cfg: Option<eez_protocol::system_tx::SystemTxContext>,
         checkpoint_dir: Option<PathBuf>,
     ) -> Self {
-        let evm_config = EthEvmConfig::new(Arc::clone(&chain_spec));
+        let evm_config = EthEvmConfig::new(chain_spec);
         Self {
             inner: Arc::new(Inner {
                 committer,
                 l2_provider,
                 l1_reader,
                 evm_config,
-                chain_spec,
-                l2_block_time_secs,
                 deploy_block,
                 l1_head,
                 correlations,
@@ -832,7 +825,7 @@ where
         l1_block: eez_l1::L1BlockRef,
         transaction: (B256, u64),
         calldata: &Bytes,
-        decoded: &eez_payload_codec::DecodedBatch,
+        payload: &Payload,
         settlement: eez_l1::Settlement,
         endpoint: Option<eez_l1::L2Endpoint>,
     ) -> DeriverResult<eez_l1::ReconciledBatchSettlement> {
@@ -857,11 +850,11 @@ where
                 &posted.batch.entries[1..immediate],
             )
             .map_err(DeriverError::l2_provider)?;
-            let groups = if decoded.outbound_group_sizes.is_empty() {
+            let groups = if payload.outbound_group_sizes().is_empty() {
                 vec![1usize; counts.iter().sum()]
             } else {
-                decoded
-                    .outbound_group_sizes
+                payload
+                    .outbound_group_sizes()
                     .iter()
                     .map(|count| usize::from(*count))
                     .collect()
@@ -901,7 +894,7 @@ where
         let mut published = false;
         let mut total_replayed: u64 = 0;
         for batch in scanned_batches {
-            let decoded = eez_payload_codec::decode(batch.operations_payload.as_ref())?;
+            let payload = Payload::decode(batch.operations_payload.as_ref())?;
 
             // `settled_count == 0` = nothing applied on L1 (the claimed
             // roots are phantoms). Skip the whole reconcile — no
@@ -915,7 +908,7 @@ where
                     },
                     (batch.tx_hash, batch.tx_index),
                     &batch.post_batch_input,
-                    &decoded,
+                    &payload,
                     batch.settlement,
                     None,
                 )?;
@@ -928,12 +921,6 @@ where
                     "catch_up: postBatch's L1 block has no L2ExecutionPerformed for our rollup; skipping (re-attempt expected)",
                 );
                 continue;
-            }
-
-            if decoded.block_count() == 0 {
-                return Err(DeriverError::l2_provider(
-                    "applied batch has no L2 block metadata",
-                ));
             }
 
             // Already indexed — processed by an earlier sync; its L2
@@ -962,7 +949,7 @@ where
                     },
                     (batch.tx_hash, batch.tx_index),
                     &batch.post_batch_input,
-                    &decoded,
+                    &payload,
                     batch.settlement,
                     Some(eez_l1::L2Endpoint {
                         number: endpoint.number,
@@ -981,12 +968,12 @@ where
             // composer's batch can cover a range that begins below it.
             let anchor = match batch.settlement.entry_state {
                 Some(entry_state) => self
-                    .batch_anchor(*cumulative_l2, entry_state, decoded.block_count() as u64)?
+                    .batch_anchor(*cumulative_l2, entry_state, payload.block_count() as u64)?
                     .unwrap_or(*cumulative_l2),
                 None => *cumulative_l2,
             };
             let (batch_first_l2, batch_last_l2) =
-                batch_l2_range(anchor, resumed, decoded.block_count() as u64);
+                batch_l2_range(anchor, resumed, payload.block_count() as u64);
 
             // Cursor guard (as in on_batch_posted): a root this batch cannot leave at
             // the cursor means the scan is off L1, and replaying would fork us alone.
@@ -1013,7 +1000,7 @@ where
             let (replayed_here, scan_sync_hash) = self
                 .reconcile_batch_blocks(
                     batch_first_l2,
-                    &decoded,
+                    &payload,
                     batch.post_batch_input.clone(),
                     batch.l1_block_number,
                     batch.tx_hash,
@@ -1064,7 +1051,7 @@ where
                 },
                 (batch.tx_hash, batch.tx_index),
                 &batch.post_batch_input,
-                &decoded,
+                &payload,
                 batch.settlement,
                 Some(eez_l1::L2Endpoint {
                     number: end,
@@ -1100,29 +1087,15 @@ where
         Ok(total_replayed)
     }
 
-    /// STF-replay `raw_txs` on top of `parent_block_number`. Timestamp
-    /// is `parent.timestamp + 2s` (Rollup-1 spec §1.3).
-    ///
-    /// # Errors
-    ///
-    /// `l2_provider` (parent lookup / state / builder failure),
-    /// `local_diverged` (tx decode / recover / execute failure).
-    pub fn execute_block(
+    /// STF-replay one v3 block on top of `parent_block_number` using only its
+    /// published execution inputs and the authenticated local parent.
+    fn execute_block(
         &self,
         parent_block_number: u64,
-        raw_txs: &[Vec<u8>],
+        raw_txs: &[Bytes],
+        inputs: ExecutionInputs<'_>,
     ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
-        self.execute_block_with_template(parent_block_number, raw_txs, None)
-    }
-
-    /// Execute a block using the complete producer-advertised metadata when
-    /// the self-contained DA profile supplies it.
-    fn execute_block_with_template(
-        &self,
-        parent_block_number: u64,
-        raw_txs: &[Vec<u8>],
-        template: Option<&EthereumBlock>,
-    ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
+        let template = inputs.full_template();
         // Diagnostic: log parent context before touching reth so we can
         // pinpoint failing `state_by_block_hash` lookups.
         let local_best = self
@@ -1168,14 +1141,6 @@ where
             })?;
 
         let parent_hash = parent_header.hash();
-        let timestamp = template.map_or_else(
-            || {
-                parent_header
-                    .timestamp()
-                    .saturating_add(self.inner.l2_block_time_secs)
-            },
-            |block| block.header.timestamp,
-        );
         if let Some(block) = template
             && (block.header.number != parent_block_number.saturating_add(1)
                 || block.header.parent_hash != parent_hash)
@@ -1212,37 +1177,7 @@ where
             .with_bundle_update()
             .build();
 
-        // Chainspec-aware deriver
-        // prevents STF mismatches w.r.t. payload builder
-        let chain_spec = &self.inner.chain_spec;
-        let attributes = NextBlockEnvAttributes {
-            timestamp,
-            suggested_fee_recipient: template
-                .map_or(Address::ZERO, |block| block.header.beneficiary),
-            prev_randao: template.map_or(B256::ZERO, |block| block.header.mix_hash),
-            gas_limit: template.map_or(BUILDER_GAS_LIMIT, |block| block.header.gas_limit),
-            parent_beacon_block_root: template.map_or_else(
-                || {
-                    chain_spec
-                        .is_cancun_active_at_timestamp(timestamp)
-                        .then_some(B256::ZERO)
-                },
-                |block| block.header.parent_beacon_block_root,
-            ),
-            withdrawals: template.map_or_else(
-                || {
-                    chain_spec
-                        .is_shanghai_active_at_timestamp(timestamp)
-                        .then(alloy_eips::eip4895::Withdrawals::default)
-                },
-                |block| block.body.withdrawals.clone(),
-            ),
-            extra_data: template.map_or_else(
-                || Bytes::from_static(BUILDER_EXTRA_DATA),
-                |block| block.header.extra_data.clone(),
-            ),
-            slot_number: None,
-        };
+        let attributes = inputs.attributes(&self.inner.evm_config, &parent_header)?;
 
         let mut builder = self
             .inner
@@ -1257,7 +1192,8 @@ where
             .map_err(|e| DeriverError::l2_provider(format!("pre-execution changes failed: {e}")))?;
 
         for (tx_idx, tx_bytes) in raw_txs.iter().enumerate() {
-            let tx = TransactionSigned::decode_2718(&mut tx_bytes.as_slice()).map_err(|e| {
+            let mut encoded = tx_bytes.as_ref();
+            let tx = TransactionSigned::decode_2718(&mut encoded).map_err(|e| {
                 DeriverError::local_diverged_with_msg(
                     parent_block_number + 1,
                     &format!("decode tx #{tx_idx}: {e}"),
@@ -1288,7 +1224,7 @@ where
                 .body
                 .transactions
                 .iter()
-                .map(Encodable2718::encoded_2718)
+                .map(|transaction| Bytes::from(transaction.encoded_2718()))
                 .collect::<Vec<_>>();
             if !advertised_txs.starts_with(raw_txs) {
                 return Err(DeriverError::local_diverged_with_msg(
@@ -1331,31 +1267,13 @@ where
         Ok((execution_data, sealed_header))
     }
 
-    /// Build + commit one L1-derived L2 block via STF replay.
-    ///
-    /// # Errors
-    ///
-    /// Forwards [`Self::execute_block`] errors plus
-    /// [`DeriverError::is_invalid_forkchoice`] /
-    /// [`DeriverError::is_committer_closed`] from the
-    /// committer-side submission.
-    pub async fn replay_block(
+    async fn replay_block(
         &self,
         parent_block_number: u64,
-        raw_txs: &[Vec<u8>],
+        raw_txs: &[Bytes],
+        inputs: ExecutionInputs<'_>,
     ) -> DeriverResult<DeriveOutcome> {
-        self.replay_block_with_template(parent_block_number, raw_txs, None)
-            .await
-    }
-
-    async fn replay_block_with_template(
-        &self,
-        parent_block_number: u64,
-        raw_txs: &[Vec<u8>],
-        template: Option<&EthereumBlock>,
-    ) -> DeriverResult<DeriveOutcome> {
-        let (payload, header) =
-            self.execute_block_with_template(parent_block_number, raw_txs, template)?;
+        let (payload, header) = self.execute_block(parent_block_number, raw_txs, inputs)?;
         // feed_witness=false: follower / L1-reconcile re-derive — the producer
         // already fed this block to the prover witness capture; don't double-feed.
         Ok(self
@@ -1557,8 +1475,8 @@ where
         claimed_new_root: Option<B256>,
         last_in_l1_block: bool,
     ) -> DeriverResult<()> {
-        let decoded = eez_payload_codec::decode(operations_payload.as_ref())?;
-        let block_count = decoded.block_count() as u64;
+        let payload = Payload::decode(operations_payload.as_ref())?;
+        let block_count = payload.block_count() as u64;
 
         // Dedup by tx_hash — already-indexed = already processed by
         // catch_up; this is a stale live event.
@@ -1588,7 +1506,7 @@ where
                 },
                 (tx_hash, tx_index),
                 &post_batch_input,
-                &decoded,
+                &payload,
                 settlement,
                 None,
             )?);
@@ -1601,12 +1519,6 @@ where
                 "postBatch's L1 block has no L2ExecutionPerformed for our rollup; bundle didn't settle, skipping (re-attempt expected)",
             );
             return self.flush_deferred_safe(last_in_l1_block).await;
-        }
-
-        if block_count == 0 {
-            return Err(DeriverError::l2_provider(
-                "applied batch has no L2 block metadata",
-            ));
         }
 
         event!(
@@ -1688,7 +1600,7 @@ where
         let (replayed, sync_block_hash) = self
             .reconcile_batch_blocks(
                 from_block,
-                &decoded,
+                &payload,
                 post_batch_input.clone(),
                 l1_block_number,
                 tx_hash,
@@ -1752,7 +1664,7 @@ where
             },
             (tx_hash, tx_index),
             &post_batch_input,
-            &decoded,
+            &payload,
             settlement,
             Some(eez_l1::L2Endpoint {
                 number: settled_last_l2,
@@ -1971,12 +1883,13 @@ where
         anchor_with_overlap_log(cursor, entry_state, window, |block| self.l2_hash_at(block))
     }
 
-    /// Per-block reconciliation against a decoded batch beginning at
-    /// `from_block`: for each block, skip if local reth already holds the
-    /// same tx list, otherwise STF-replay it (reth fork-switches via
-    /// `newPayload` + head-FCU). Once any block in the batch is replayed,
-    /// replay every later block too so matching tx lists are rebuilt on the
-    /// new ancestry. Returns the count of blocks replayed.
+    /// Per-block reconciliation against a decoded v3 payload beginning at
+    /// `from_block`: for each block, skip if local reth already holds the same
+    /// parent, execution inputs and transaction list; otherwise STF-replay it
+    /// (reth fork-switches via `newPayload` + head-FCU). Once any block in the
+    /// batch is replayed, replay every later block too so matching inputs and
+    /// transactions are rebuilt on the new ancestry. Returns the count of
+    /// blocks replayed.
     ///
     /// NOTE: not transactional. If a replay fails partway, earlier blocks
     /// are already committed to reth's canonical chain, leaving local L2
@@ -1987,37 +1900,29 @@ where
     async fn reconcile_batch_blocks(
         &self,
         from_block: u64,
-        decoded: &eez_payload_codec::DecodedBatch,
+        payload: &Payload,
         post_batch_input: Bytes,
         l1_block_number: u64,
         tx_hash: B256,
         settlement: eez_l1::Settlement,
     ) -> DeriverResult<(u64, Option<B256>)> {
-        let block_templates = decoded
-            .block_rlps
-            .iter()
-            .enumerate()
-            .map(|(index, encoded)| {
-                alloy_rlp::decode_exact::<EthereumBlock>(encoded).map_err(|error| {
-                    DeriverError::l2_provider(format!(
-                        "self-contained block {index} failed exact decode after payload admission: {error}"
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if !block_templates.is_empty() && block_templates.len() != decoded.block_count() {
-            return Err(DeriverError::l2_provider(format!(
-                "self-contained metadata covers {} blocks, decoded payload covers {}",
-                block_templates.len(),
-                decoded.block_count(),
-            )));
+        let terminal = alloy_rlp::decode_exact::<EthereumBlock>(payload.terminal_block())
+            .map_err(DeriverError::l2_provider)?;
+        let expected_start = if settlement.start > 0 {
+            terminal.header.number
+        } else {
+            payload.first_block_number()
+        };
+        if expected_start != from_block {
+            return Err(DeriverError::local_diverged_with_msg(
+                from_block,
+                "v3 claimed range does not match settlement placement",
+            ));
         }
         // Cross-chain path (skipped when `system_tx_cfg` is `None`):
-        // reconstruct the system txs the composer produced, from either
-        // codec branch:
-        //
-        // - `decoded.l2_entries` non-empty: the L2-shape entries travel
-        //   in the payload directly (value-bearing batches).
+        // reconstruct the system txs the composer produced. When
+        // `payload.l2_entries()` is non-empty, the exact L2-shape entries travel
+        // in the payload directly (value-bearing batches).
         // - empty: fall back to the on-chain `batch.entries[]` (L1
         //   entries) — for value-free calls L1 and L2 shapes coincide.
         event!(
@@ -2026,8 +1931,8 @@ where
             l1_block_number,
             tx_hash = %tx_hash,
             from_block,
-            block_count = decoded.block_count(),
-            l2_entries_len = decoded.l2_entries.len(),
+            block_count = payload.block_count(),
+            l2_entries_len = payload.l2_entries().len(),
             cross_chain = self.inner.system_tx_cfg.is_some(),
             "reconcile_batch_blocks entered",
         );
@@ -2047,7 +1952,7 @@ where
         // This includes outbound roots and callbacks to L1 inside inbound roots.
         let mut gate_expected_hashes = Vec::new();
         let mut gate_should_verify = false;
-        let sync_block_txs: Option<Vec<Vec<u8>>> = match self.inner.system_tx_cfg.as_ref() {
+        let sync_block_txs: Option<Vec<Bytes>> = match self.inner.system_tx_cfg.as_ref() {
             Some(cfg) => {
                 // Decode settlement entries independently from DA. They decide
                 // which effects L1 applied and remain the authorization source
@@ -2085,7 +1990,7 @@ where
                     )
                 });
 
-                let (outbound_effects, mut inbound) = if decoded.l2_entries.is_empty() {
+                let (outbound_effects, mut inbound) = if payload.l2_entries().is_empty() {
                     if !settlement_outbound.is_empty() || !settlement_inbound.is_empty() {
                         return Err(DeriverError::l2_provider(format!(
                             "postBatch({tx_hash}) carries cross-chain effects without L2 derivation sidecars"
@@ -2094,8 +1999,8 @@ where
                     (Vec::new(), Vec::new())
                 } else {
                     use alloy_sol_types::SolValue as _;
-                    let mut out = Vec::with_capacity(decoded.l2_entries.len());
-                    for (i, raw) in decoded.l2_entries.iter().enumerate() {
+                    let mut out = Vec::with_capacity(payload.l2_entries().len());
+                    for (i, raw) in payload.l2_entries().iter().enumerate() {
                         let mutable = eez_protocol::abi::ExecutionEntrySol::abi_decode(raw)
                             .ok()
                             .filter(|entry| entry.abi_encode() == *raw);
@@ -2223,11 +2128,11 @@ where
                     (outbound, inbound)
                 };
                 let original_outbound_effect_count = outbound_effects.len();
-                let outbound_group_sizes = if decoded.outbound_group_sizes.is_empty() {
+                let outbound_group_sizes = if payload.outbound_group_sizes().is_empty() {
                     vec![1usize; original_outbound_effect_count]
                 } else {
-                    decoded
-                        .outbound_group_sizes
+                    payload
+                        .outbound_group_sizes()
                         .iter()
                         .map(|size| usize::from(*size))
                         .collect::<Vec<_>>()
@@ -2243,34 +2148,18 @@ where
                 // terminal transactions contain each signed outbound user tx
                 // exactly once; the grouped payload says how many source roots
                 // its preceding system load stages.
-                let last_count = decoded
-                    .block_tx_counts
-                    .last()
-                    .copied()
-                    .map(usize::from)
-                    .unwrap_or(0);
-                let sync_user_start = decoded.transactions.len().saturating_sub(last_count);
-                let sync_user_txs: Vec<Bytes> = if let Some(terminal) = block_templates.last() {
-                    terminal
-                        .body
-                        .transactions
-                        .iter()
-                        .filter_map(|transaction| {
-                            match transaction.recover_signer() {
-                                Ok(signer) if signer == cfg.system_signer.address() => None,
-                                Ok(_) => Some(Ok(Bytes::from(transaction.encoded_2718()))),
-                                Err(error) => Some(Err(DeriverError::l2_provider(format!(
-                                    "recover terminal transaction signer in postBatch({tx_hash}): {error}"
-                                )))),
-                            }
-                        })
-                        .collect::<Result<Vec<_>, _>>()?
-                } else {
-                    decoded.transactions[sync_user_start..]
-                        .iter()
-                        .map(|t| Bytes::from(t.clone()))
-                        .collect()
-                };
+                let sync_user_txs: Vec<Bytes> = terminal
+                    .body
+                    .transactions
+                    .iter()
+                    .filter_map(|transaction| match transaction.recover_signer() {
+                        Ok(signer) if signer == cfg.system_signer.address() => None,
+                        Ok(_) => Some(Ok(Bytes::from(transaction.encoded_2718()))),
+                        Err(error) => Some(Err(DeriverError::l2_provider(format!(
+                            "recover terminal transaction signer in postBatch({tx_hash}): {error}"
+                        )))),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 if sync_user_txs.len() < outbound_group_sizes.len() {
                     return Err(DeriverError::local_diverged_with_msg(
                         from_block,
@@ -2485,20 +2374,19 @@ where
                 })?;
                 // The interleaved list IS the Sync block's system + outbound-user
                 // txs; append any remaining (non-cross-chain) user txs after it.
-                let mut full: Vec<Vec<u8>> =
+                let mut full: Vec<Bytes> =
                     eez_protocol::system_tx::interleave_sync_block_txs(&pairs)
                         .into_iter()
-                        .map(|b| b.to_vec())
                         .collect();
                 for transaction in &sync_user_txs[outbound_group_sizes.len()..] {
-                    full.push(transaction.to_vec());
+                    full.push(transaction.clone());
                 }
                 event!(
                     name: "eez.deriver.reconcile.sync_block_built",
                     Level::INFO,
                     event_name = "eez.deriver.reconcile.sync_block_built",
                     tx_hash = %tx_hash,
-                    sync_height = from_block + decoded.block_tx_counts.len().saturating_sub(1) as u64,
+                    sync_height = from_block + payload.block_count().saturating_sub(1) as u64,
                     outbound = outbound.len(),
                     inbound = inbound.len(),
                     sync_block_txs = full.len(),
@@ -2516,7 +2404,7 @@ where
         let stale_boundary = !local_batch_boundary_matches(&self.inner.l2_provider, from_block)?;
         let mut suffix_replay = SuffixReplay::new(stale_boundary);
         let mut replayed: u64 = 0;
-        let last_index = decoded.block_tx_counts.len().saturating_sub(1);
+        let last_index = payload.block_count().saturating_sub(1);
         let resumed = settlement.start > 0;
         if resumed {
             // The competing batch already committed this Sync block; only the
@@ -2538,10 +2426,10 @@ where
                 applied_start = settlement.start,
                 applied_len = settlement.len,
                 entry_state = ?settlement.entry_state,
-                claimed_block_count = decoded.block_count(),
+                claimed_block_count = payload.block_count(),
                 "resumed batch placement: appending settled entries to Sync block {from_block}",
             );
-            let mut block_txs: Vec<Vec<u8>> = self
+            let mut block_txs: Vec<Bytes> = self
                 .inner
                 .l2_provider
                 .block_by_number(from_block)
@@ -2552,12 +2440,26 @@ where
                 .body()
                 .transactions()
                 .iter()
-                .map(Encodable2718::encoded_2718)
+                .map(|transaction| Bytes::from(transaction.encoded_2718()))
                 .collect();
             let new_content = sync_block_txs.clone().unwrap_or_default();
             // `ends_with`, not equality: idempotent re-derivation (e.g. after a
             // crash between this replay and recording it) must not re-append.
             let already_applied = !new_content.is_empty() && block_txs.ends_with(&new_content);
+            let parent = self.l2_sealed_header_at(from_block - 1)?;
+            // This uses the actual canonical H-1 parent, never the resumed
+            // entry-state prefix at H or the original ordinary count.
+            ExecutionInputs::Full(&terminal).attributes(&self.inner.evm_config, &parent)?;
+            if !self.local_block_matches(
+                from_block,
+                &block_txs,
+                ExecutionInputs::Full(&terminal),
+            )? {
+                return Err(DeriverError::local_diverged_with_msg(
+                    from_block,
+                    "resumed v3 prefix has different execution inputs",
+                ));
+            }
             // The preceding settlement already authorized the retained prefix.
             // This batch's table authorizes only its appended transactions,
             // including when replay is idempotently skipped after a crash.
@@ -2613,7 +2515,7 @@ where
                 }
                 block_txs.extend(new_content);
                 let outcome = self
-                    .replay_block_with_template(from_block - 1, &block_txs, block_templates.last())
+                    .replay_block(from_block - 1, &block_txs, ExecutionInputs::Full(&terminal))
                     .await?;
                 // No later block follows this one to make it canonical, so
                 // reading by number can still return the old block. Only an
@@ -2622,28 +2524,58 @@ where
                 replayed = 1;
             }
         } else {
-            let mut tx_offset = 0usize;
-            for (i, count) in decoded.block_tx_counts.iter().enumerate() {
-                let l2_block = from_block + i as u64;
-                let count_usize = usize::from(*count);
-                let user_txs = &decoded.transactions[tx_offset..tx_offset + count_usize];
-                tx_offset += count_usize;
+            for plan in payload.blocks() {
+                let position = match &plan {
+                    BlockPlan::Derived { position, .. } | BlockPlan::Full { position, .. } => {
+                        *position
+                    }
+                };
+                let l2_block = from_block + position as u64;
                 // Per Rollup-1 §1.3 + §13.4.23 the composer always sets
                 // `to_block = sync_slot_block`, so the Sync block is the
                 // LAST block of every batch's range. Prepend system txs
                 // there; earlier blocks stay user-tx-only.
-                let is_sync_block = i == last_index;
+                let is_sync_block = position == last_index;
+                let full = match &plan {
+                    BlockPlan::Full {
+                        rlp,
+                        terminal: is_terminal,
+                        ..
+                    } => Some(if *is_terminal {
+                        terminal.clone()
+                    } else {
+                        alloy_rlp::decode_exact::<EthereumBlock>(rlp)
+                            .map_err(DeriverError::l2_provider)?
+                    }),
+                    BlockPlan::Derived { .. } => None,
+                };
                 // The Sync block's full tx list (system + outbound-user, interleaved,
                 // plus trailing non-cc user txs) was pre-built above; every other
-                // block is its user txs verbatim.
-                let block_txs: Vec<Vec<u8>> = match (is_sync_block, sync_block_txs.as_ref()) {
+                // block uses the transactions from its structured plan directly.
+                let block_txs: Vec<Bytes> = match (is_sync_block, sync_block_txs.as_ref()) {
                     (true, Some(full)) => full.clone(),
-                    _ => user_txs.to_vec(),
+                    _ => match &plan {
+                        BlockPlan::Derived { transactions, .. } => transactions.to_vec(),
+                        BlockPlan::Full { .. } => full
+                            .as_ref()
+                            .expect("full plan decoded above")
+                            .body
+                            .transactions
+                            .iter()
+                            .map(|transaction| Bytes::from(transaction.encoded_2718()))
+                            .collect(),
+                    },
+                };
+                let inputs = match &plan {
+                    BlockPlan::Derived { environment, .. } => ExecutionInputs::Derived(environment),
+                    BlockPlan::Full { .. } => {
+                        ExecutionInputs::Full(full.as_ref().expect("decoded full plan"))
+                    }
                 };
                 let matched = if stale_boundary {
                     false
                 } else {
-                    local_block_matches(&self.inner.l2_provider, l2_block, &block_txs)?
+                    self.local_block_matches(l2_block, &block_txs, inputs)?
                 };
                 let should_replay = suffix_replay.required(matched);
                 event!(
@@ -2660,9 +2592,7 @@ where
                 if !should_replay {
                     continue;
                 }
-                let outcome = self
-                    .replay_block_with_template(l2_block - 1, &block_txs, block_templates.get(i))
-                    .await?;
+                let outcome = self.replay_block(l2_block - 1, &block_txs, inputs).await?;
                 if is_sync_block {
                     sync_block_hash = Some(outcome.block_hash);
                 }
@@ -2705,6 +2635,39 @@ where
             })?;
         }
         Ok((replayed, sync_block_hash))
+    }
+
+    fn local_block_matches(
+        &self,
+        number: u64,
+        expected_txs: &[Bytes],
+        inputs: ExecutionInputs<'_>,
+    ) -> DeriverResult<bool> {
+        let Some(local) = self
+            .inner
+            .l2_provider
+            .block_by_number(number)
+            .map_err(DeriverError::l2_provider)?
+        else {
+            return Ok(false);
+        };
+        if local.body().transactions().len() != expected_txs.len()
+            || local
+                .body()
+                .transactions()
+                .iter()
+                .zip(expected_txs)
+                .any(|(actual, expected)| actual.encoded_2718().as_slice() != expected.as_ref())
+        {
+            return Ok(false);
+        }
+        let block = alloy_rlp::decode_exact::<EthereumBlock>(&alloy_rlp::encode(local))
+            .map_err(DeriverError::l2_provider)?;
+        let parent_number = number
+            .checked_sub(1)
+            .ok_or_else(|| DeriverError::l2_provider("cannot derive genesis"))?;
+        let parent = self.l2_sealed_header_at(parent_number)?;
+        inputs.matches_local(&self.inner.evm_config, &parent, &block)
     }
 
     /// Outbound calls emitted by the L2 manager from `first_transaction` onward.
@@ -2945,39 +2908,6 @@ const fn batch_l2_range(cumulative_l2: u64, resumed: bool, claimed_block_count: 
 /// as a re-scan sees). Re-derivation is idempotent; any other root is divergence.
 fn cursor_root_accepted(local_root: B256, entry_state: B256, final_state: Option<B256>) -> bool {
     local_root == entry_state || final_state == Some(local_root)
-}
-
-/// `true` iff local reth has a block at `block_number` whose tx list
-/// matches `expected_txs`. `false` if the block is missing or has
-/// different txs — caller's signal to STF-replay this slot.
-fn local_block_matches<L2>(
-    l2_provider: &Arc<L2>,
-    block_number: u64,
-    expected_txs: &[Vec<u8>],
-) -> DeriverResult<bool>
-where
-    L2: BlockReader,
-    <L2 as TransactionsProvider>::Transaction: Encodable2718,
-{
-    let Some(local_block) = l2_provider
-        .block_by_number(block_number)
-        .map_err(DeriverError::l2_provider)?
-    else {
-        return Ok(false);
-    };
-    let local_txs: Vec<Vec<u8>> = local_block
-        .body()
-        .transactions()
-        .iter()
-        .map(Encodable2718::encoded_2718)
-        .collect();
-    if local_txs.len() != expected_txs.len() {
-        return Ok(false);
-    }
-    Ok(local_txs
-        .iter()
-        .zip(expected_txs.iter())
-        .all(|(l, e)| l == e))
 }
 
 /// `true` iff the first local block in a batch is anchored to the current

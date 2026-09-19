@@ -1,0 +1,10 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling eez-proof-signer v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-proof-signer)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 19s
+     Running unittests src/main.rs (target/debug/deps/eez_proof_signer-a05ebccc49992e38)
+
+running 1 test
+test service::tests::derivation::synthetic::independent_7702_authorization_nonce_and_refund_are_reconstructed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 303 filtered out; finished in 2.12s
+

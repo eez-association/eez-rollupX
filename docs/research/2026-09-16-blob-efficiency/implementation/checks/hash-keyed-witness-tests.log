@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling eez-prover v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-prover)
+   Compiling eez-driver v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-driver)
+   Compiling eez-prover-client v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-prover-client)
+   Compiling eez-deriver v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-deriver)
+   Compiling eez-composer v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-composer)
+   Compiling eez-node-common v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-node-common)
+   Compiling eez-node v0.1.0 (/home/edu/Development/eez-rollup0-fork/target/worktrees/derivable-chain-operations/crates/eez-node)
+    Finished `test` profile [optimized + debuginfo] target(s) in 22.92s
+     Running unittests src/lib.rs (target/debug/deps/eez_node-ca50acc126b924cf)
+
+running 10 tests
+test witness_source::tests::corrupted_primary_record_is_an_error_not_a_missing_witness ... ok
+test witness_source::tests::duplicate_capture_is_idempotent_and_invalid_identity_cannot_replace_evidence ... ok
+test witness_source::tests::capacity_and_capture_health_fail_closed_without_deleting_retained_data ... ok
+test witness_source::tests::stored_witness_roundtrip ... ok
+test witness_source::tests::corrupt_height_index_cannot_delete_unfinalized_evidence_and_purge_is_atomic ... ok
+test witness_source::tests::persist_get_purge_restart ... ok
+test witness_source::tests::old_or_unknown_schema_fails_explicitly_without_rewriting_records ... ok
+test witness_source::tests::finalized_purge_is_bounded_and_repeatable ... ok
+test witness_source::tests::canonical_witness_hit_reorg_and_missing_input_preserve_retained_data ... ok
+test witness_source::tests::queued_captures_reuse_durable_witnesses_and_skip_only_below_finalized ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.10s
+

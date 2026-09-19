@@ -1,0 +1,16 @@
+{
+  "captured_utc": "2026-09-16T23:46:28.869106+00:00",
+  "profile": "EthereumOsaka",
+  "k": 5,
+  "terminal_number": 65535,
+  "terminal_hash": "0x9658390d640a9f1a6bd83d6161c0730bddadabba8ab90b5245b634a40e373ab0",
+  "genesis_hash": "0x3e45c1e324c71f28443be4413435693960c83c97c23f5d12206b5ff0bff0ca25",
+  "rollup_id": 1,
+  "proof_system": "0x71C95911E9a5D330f4D621842EC243EE1343292e",
+  "vkey": "0x0000000000000000000000009965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+  "attester": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+  "system_address": "0xE3601fD07288f142938bBDeFf14e6474Ea256477",
+  "producer_pid": 2562469,
+  "base": "5469c88860408daf776ee812156dd280c1a9e262",
+  "binary_manifest": "/tmp/derivable-native-history-grid-binaries.sha256"
+}

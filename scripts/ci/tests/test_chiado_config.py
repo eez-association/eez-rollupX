@@ -55,15 +55,15 @@ class ChiadoConfigTest(unittest.TestCase):
             "EEZ_BUNDLE_SUBMISSION_LEAD_MS": "7500",
             "EEZ_L1_BEACON_URL": "http://127.0.0.1:6152/",
             "EEZ_L1_BLOB_SIDECAR_ENCODING": "eip7594",
-            "EEZ_SETTLEMENT_POLICY_ENABLED": "true",
-            "EEZ_SETTLEMENT_PURE_L2_MODE": "always",
-            "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "300",
-            "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS": "off",
+            "EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
+            "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "900000",
+            "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
+            "EEZ_MAX_SPECULATIVE_DEPTH": "0",
             "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
-            "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "500000000000",
-            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "10000000000",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000",
             "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE": "1000000000",
-            "EEZ_L1_POSTBATCH_PRIORITY_MARGIN_BPS": "2000",
+            "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
         }.items():
             self.assertEqual(node[key], value, key)
         self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node)
@@ -74,8 +74,9 @@ class ChiadoConfigTest(unittest.TestCase):
                          ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/50061"])
         self.assertIn("--http.api=eth,net,web3,debug,trace", services["eez-node"]["command"])
         self.assertIn("--log.stdout.format=json", services["eez-node"]["command"])
-        for key in ("EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS",
-                    "EEZ_L1_POSTBATCH_PRIORITY_FEE", "EEZ_MAX_BLOBS_PER_BATCH"):
+        for key in ("EEZ_SETTLEMENT_POLICY_ENABLED", "EEZ_MAX_BLOCKS_PER_BATCH",
+                    "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
+                    "EEZ_MAX_BLOBS_PER_BATCH"):
             self.assertIsNone(node.get(key), key)
         self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse:v8.1.3")
         command = services["lighthouse"]["command"]

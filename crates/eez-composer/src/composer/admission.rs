@@ -508,12 +508,14 @@ impl BlobAdmission {
         let block_item = block_byte_items
             .checked_add(2 * (list_len(block_byte_items)? - block_byte_items))
             .ok_or("admission block item size overflow")?;
-        let payload = eez_payload_codec::self_contained_payload_len(
-            block_item,
-            self.overhead.entry_items,
-            self.overhead.group_items,
-        )
-        .map_err(|e| e.to_string())?;
+        let payload = eez_payload_codec::DerivablePayloadSizer::default()
+            .encoded_len_from_items(
+                &eez_payload_codec::derivable::Environment::unused(),
+                block_item,
+                self.overhead.entry_items,
+                self.overhead.group_items,
+            )
+            .map_err(|e| e.to_string())?;
         eez_blob_codec::native_stream_len(payload, self.overhead.semantic_bytes)
             .map_err(|e| e.to_string())
     }
@@ -1232,6 +1234,7 @@ mod tests {
     fn incremental_da_bounds_real_encoding_across_rlp_boundaries_and_multiple_blobs() {
         for withdrawals in [false, true] {
             let mut block = reth_ethereum_primitives::Block::default();
+            block.header.number = 1;
             block.header.gas_limit = 30_000_000;
             block.header.gas_used = block.header.gas_limit;
             if withdrawals {
@@ -1277,11 +1280,16 @@ mod tests {
                 entries.push(entry);
                 groups.push(group);
                 messages.extend(group_messages);
-                let payload = eez_payload_codec::encode_self_contained(
-                    &[alloy_rlp::encode(&block)],
-                    &entries,
-                    &groups,
+                let payload = eez_payload_codec::derivable::Payload::new(
+                    0,
+                    eez_payload_codec::derivable::Environment::unused(),
+                    vec![],
+                    alloy_rlp::encode(&block),
+                    entries.clone(),
+                    groups.clone(),
                 )
+                .unwrap()
+                .encode()
                 .unwrap();
                 let encoded =
                     eez_blob_codec::encode_native_stream(1, payload.into(), messages.clone())
