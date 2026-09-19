@@ -274,7 +274,7 @@
     },
     {
       "id": 4,
-      "title": "Monitoring process memory",
+      "title": "Process memory \u00b7 monitoring and native",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -286,12 +286,12 @@
         "w": 12,
         "h": 7
       },
-      "description": "",
+      "description": "Only processes exporting these metrics appear. Embedded Reth is one process across both chains. An unprefixed family takes precedence over its Reth alias for the same target; values are not summed. Missing process metrics remain unknown.",
       "targets": [
         {
           "refId": "A",
-          "expr": "process_resident_memory_bytes{environment=~\"$environment\",deployment=~\"$deployment\"}",
-          "legendFormat": "{{job}}",
+          "expr": "((process_resident_memory_bytes{environment=~\"$environment\",deployment=~\"$deployment\"}) or on(environment,deployment,job,instance) (reth_process_resident_memory_bytes{environment=~\"$environment\",deployment=~\"$deployment\"})) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\"} == 1)",
+          "legendFormat": "{{service}} / {{instance}}",
           "instant": false,
           "range": true,
           "format": "time_series"
@@ -335,7 +335,7 @@
     },
     {
       "id": 5,
-      "title": "Monitoring process CPU",
+      "title": "Process CPU \u00b7 monitoring and native",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -347,12 +347,12 @@
         "w": 12,
         "h": 7
       },
-      "description": "",
+      "description": "Only processes exporting these metrics appear. Embedded Reth is one process across both chains. An unprefixed family takes precedence over its Reth alias for the same target; values are not summed. Missing process metrics remain unknown.",
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(process_cpu_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\"}[5m])",
-          "legendFormat": "{{job}}",
+          "expr": "((rate(process_cpu_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\"}[5m])) or on(environment,deployment,job,instance) (rate(reth_process_cpu_seconds_total{environment=~\"$environment\",deployment=~\"$deployment\"}[5m]))) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\"} == 1)",
+          "legendFormat": "{{service}} / {{instance}}",
           "instant": false,
           "range": true,
           "format": "time_series"
@@ -412,8 +412,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_memory_MemAvailable_bytes{environment=~\"$environment\",deployment=~\"$deployment\",job=\"node-exporter\"}",
-          "legendFormat": "",
+          "expr": "(node_memory_MemAvailable_bytes{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}}",
           "instant": false,
           "range": true,
           "format": "time_series"
@@ -473,8 +473,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "node_filesystem_avail_bytes{environment=~\"$environment\",deployment=~\"$deployment\",job=\"node-exporter\",fstype!~\"tmpfs|overlay|squashfs\"}",
-          "legendFormat": "{{mountpoint}}",
+          "expr": "(node_filesystem_avail_bytes{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\",fstype!~\"tmpfs|overlay|squashfs\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"${client_instance:regex}\",job=\"node-exporter\"} == 1)",
+          "legendFormat": "{{instance}} {{mountpoint}}",
           "instant": false,
           "range": true,
           "format": "time_series"
@@ -544,7 +544,7 @@
         "sortOrder": "Descending",
         "dedupStrategy": "none"
       },
-      "description": "Files from the explicitly configured JSON log directory. Empty results do not prove that services emitted no errors."
+      "description": "Retained lifecycle streams and optional configured diagnostic JSON files. Lifecycle events are not full application logs. Sanitized node-host diagnostic logs require their own configured collector and readable producer files. Empty results do not prove that services emitted no errors."
     },
     {
       "id": 9,

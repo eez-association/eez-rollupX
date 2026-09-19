@@ -64,6 +64,15 @@ evaluation validity, exporter `up`, maximum 45-second sample age and 5-second fu
 clock tolerance gate the current values. A failed/missing/stale native producer
 never falls back to RPC and never adds RPC counts. Source changes also change the
 series job/instance and add direction; select the Composer instance in dashboards.
+A complete fresh idle population is the sole count-only exception to the
+readiness gate: exactly the eight configured direction/state pairs must each
+appear once with a finite zero, with no extra population series. The current
+transaction gauges then retain those observed zeros even if readiness is stale
+or missing. This does not set evaluation validity to one or publish oldest ages.
+Missing, duplicate, unexpected, nonzero or NaN population series do not qualify;
+nonempty stale readiness remains suppressed. Scrape health, sample validity and
+45-second/five-second freshness bounds are unchanged. This prevents a healthy
+idle queue disappearing while preserving unknown readiness semantics.
 Chain/RPC dependency health continues to describe the observer. The generated
 manifest records the source choice, and returning to `rpc` regenerates the prior
 rules. Before an operator switches, compare the independently scraped native and

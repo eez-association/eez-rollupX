@@ -201,7 +201,13 @@ def main():
             fixture_lines = [
                 'reth_builder_validation_disallow_hash{hash="0x'+'aa'*32+'"} 1',
                 'reth_sync_caching_precompile_cache_hits{address="0x'+'bb'*20+'"} 1',
+                'reth_process_cli_args{args="--fixture --metrics"} 1',
+                'process_cli_args{args="--fixture"} 1',
                 'reth_eez_native_admissions_total{direction="inbound"} 1',
+                'process_resident_memory_bytes 11',
+                'reth_process_resident_memory_bytes 22',
+                'process_cpu_seconds_total 4',
+                'reth_process_cpu_seconds_total 12',
                 'reth_transaction_pool_pending_pool_transactions 2',
             ]
             body = json.dumps({'mode':'healthy','metric_lines':fixture_lines}).encode()
@@ -238,7 +244,32 @@ def main():
             assert not prom_query('{job="eez-composer-native",address!=""}')
             assert not prom_query('reth_builder_validation_disallow_hash')
             assert not prom_query('reth_sync_caching_precompile_cache_hits')
+            assert not prom_query('reth_process_cli_args')
+            assert not prom_query('process_cli_args')
+            report['checks'].append('actual_prometheus_drops_native_cli_flag_series_without_dropping_finite_health')
             report['checks'].append('actual_prometheus_native_scrape_drops_hash_address_samples_keeps_finite_eez_and_client_series')
+            infra = json.loads((runtime/'grafana/dashboards/infrastructure.json').read_text())
+            panels = {p['id']:p for p in infra['panels']}
+            def process_values(panel_id):
+                expression = panels[panel_id]['targets'][0]['expr'].replace('$environment',config['environment']).replace('$deployment',config['deployment'])
+                return [row for row in prom_query(expression) if row['metric'].get('job')=='eez-composer-native']
+            def process_aliases():
+                memory = process_values(4)
+                assert len(memory)==1 and memory[0]['value'][1]=='11'
+                cpu = process_values(5)
+                assert len(cpu)==1 and cpu[0]['value'][1]=='0'
+            eventually(process_aliases)
+            # Real scrape disappearance marks the left alias stale; the existing
+            # prefixed producer must still supply one value for the same target.
+            prefixed_only = [line for line in fixture_lines if not line.startswith(('process_resident_memory_bytes ', 'process_cpu_seconds_total '))]
+            body = json.dumps({'mode':'healthy','metric_lines':prefixed_only}).encode()
+            with urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{fixture_port}/control',data=body,headers={'Content-Type':'application/json'}),timeout=5) as response:
+                assert response.status==200
+            def process_fallback():
+                memory = process_values(4)
+                assert len(memory)==1 and memory[0]['value'][1]=='22'
+            eventually(process_fallback)
+            report['checks'].append('actual_process_panels_prefer_single_unprefixed_target_and_fall_back_to_existing_reth_family')
             assert not prom_query('{job="alloy-node-node-one",path!=""}')
             assert not prom_query('{job="alloy-node-node-one",filename!=""}')
             report['checks'].append('actual_prometheus_generated_scrape_drops_rotating_path_series_preserves_health')

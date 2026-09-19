@@ -23,6 +23,61 @@ class Preparation(unittest.TestCase):
                        'alert_webhook_url': 'http://receiver:9000/alerts?token=$literal',
                        'heartbeat_webhook_url': 'http://independent:9000/heartbeat'}
 
+    def test_infrastructure_capabilities_follow_configuration_without_claiming_health(self):
+        runtime = self.root / 'infrastructure'
+        def render(config):
+            prepare.prepare(config, runtime)
+            data = json.loads((runtime / 'grafana/dashboards/infrastructure.json').read_text())
+            return data, data['panels'][0]['options']['content']
+        baseline, content = render(self.config)
+        self.assertEqual(baseline['panels'][0]['id'], 20)
+        self.assertEqual(baseline['panels'][0]['gridPos']['y'], 0)
+        self.assertIn('| Host metrics | Not configured |', content)
+        self.assertIn('| Lighthouse metrics | 0 configured targets |', content)
+        self.assertIn('| Public RPC probe | Not configured |', content)
+        self.assertIn('| Node-host log collector | Not configured |', content)
+        self.assertIn('unknown data, not healthy zeros', content)
+        config = {**self.config, 'node_exporter_target':'private-host:9100',
+            'public_rpc_url':'https://private-rpc.invalid/rpc',
+            'client_targets':[{'service':'lighthouse','instance':'beacon','metrics_target':'private-beacon:5054'}],
+            'node_agent':{'instance':'node-agent','metrics_target':'private-agent:12346',
+                'loki_url':'http://private-loki:3100/loki/api/v1/push','read_gid':1234,
+                'sources':[{'service':'eez-composer','instance':'node','kind':'reth_json','directory':'/dedicated/logs'}]}}
+        configured, content = render(config)
+        self.assertIn('| Host metrics | Configured |', content)
+        self.assertIn('| Lighthouse metrics | 1 configured targets |', content)
+        self.assertIn('| Public RPC probe | Configured |', content)
+        self.assertIn('| Node-host log collector | 1 diagnostic sources configured |', content)
+        self.assertNotIn('private-', content)
+        self.assertNotIn('/dedicated', content)
+        self.assertEqual({p['id'] for p in configured['panels']}, set(range(1, 21)))
+        repeated, _ = render(self.config)
+        self.assertEqual(baseline, repeated, 'reconfiguration restores metadata without cumulative layout changes')
+        config['node_agent']['sources'][0]['kind'] = 'lifecycle'
+        _, content = render(config)
+        self.assertIn('0 diagnostic sources configured', content)
+
+    def test_infrastructure_process_aliases_host_scope_and_native_cli_filter(self):
+        config = {**self.config, 'native_processes':[{'service':'eez-composer','instance':'native',
+            'metrics_target':'native:19101','metrics_listen':'127.0.0.1:19101'}]}
+        runtime = prepare.prepare(config, self.root / 'infra-aliases')
+        panels = {p['id']:p for p in json.loads((runtime / 'grafana/dashboards/infrastructure.json').read_text())['panels']}
+        for panel_id, family in [(4, 'process_resident_memory_bytes'), (5, 'process_cpu_seconds_total')]:
+            expr = panels[panel_id]['targets'][0]['expr']
+            self.assertIn(family+'{', expr)
+            self.assertIn('reth_'+family+'{', expr)
+            self.assertIn('or on(environment,deployment,job,instance)', expr)
+            self.assertIn('and on(environment,deployment,job,instance) (up{', expr)
+            self.assertNotIn('sum(', expr)
+        for panel_id in (6, 7):
+            expr = panels[panel_id]['targets'][0]['expr']
+            self.assertEqual(expr.count('instance=~"${client_instance:regex}"'), 2)
+            self.assertIn('and on(environment,deployment,job,instance) (up{', expr)
+        self.assertIn('Lifecycle events are not full application logs', panels[8]['description'])
+        jobs = json.loads((runtime / 'prometheus/prometheus.yaml').read_text())['scrape_configs']
+        native = next(j for j in jobs if j['job_name']=='eez-composer-native')
+        self.assertIn({'source_labels':['__name__'],'regex':'(reth_)?process_cli_args','action':'drop'}, native['metric_relabel_configs'])
+
     def test_native_currency_labels_are_explicit_per_chain_and_do_not_change_amounts(self):
         config = {**self.config, 'database_enabled': True}
         runtime = prepare.prepare(config, self.root / 'currencies')

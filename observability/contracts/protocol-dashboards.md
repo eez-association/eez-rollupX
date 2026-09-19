@@ -369,3 +369,20 @@ TVL or a spendability guarantee. Its unit follows configured L1 currency metadat
 Disabled, stale, failed and unregistered observations remain unknown. No alerts
 are enabled by this addition. Database-free preparation omits SQL activity
 panels and retains the existing network dashboard.
+
+## Viewing sparse activity
+
+Cross-chain, settlement, gas and blob dashboards default to the last 24 hours.
+Their evidence can be sparse, especially with a four-hour settlement policy; a
+one-hour default can legitimately contain no posts or completed requests. Network
+and infrastructure retain a one-hour operational view. This changes only the
+initial display range: operators can select another interval, and queries keep
+using that selected range without inventing zero-valued receipts or latency.
+
+Infrastructure preparation adds a configuration summary for host metrics,
+Lighthouse targets, the public-RPC probe and diagnostic-log sources. Configuration
+is distinct from scrape success. Disabled collectors do not imply healthy zero
+resource use. Process CPU/RSS includes the existing Reth-prefixed families, with
+unprefixed metrics preferred per target if both exist; aliases are never summed.
+Host memory/disk panels use the same client selector and scrape-validity gate as
+the other host charts. Lifecycle records can exist without diagnostic log sources.

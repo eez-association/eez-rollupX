@@ -406,8 +406,19 @@ def recording_rules(config):
                  ' and on (' + keys + ') ((time() - reth_eez_native_queue_sample_timestamp_seconds' + select + ') <= 45)'
                  ' and on (' + keys + ') ((time() - reth_eez_native_queue_sample_timestamp_seconds' + select + ') >= -5)')
     evaluation = ' and on (' + keys + ') (reth_eez_native_queue_evaluation_valid' + select + ' == 1)'
+    # An observed empty population needs no readiness decision. Require all eight
+    # distinct direction/state pairs, each exactly once and actually zero; absent,
+    # NaN, duplicate or unexpected series must not synthesize an empty queue.
+    population = 'reth_eez_native_queue_transactions' + select
+    zero_members = ('reth_eez_native_queue_transactions{job="' + job
+                    + '",direction=~"inbound|outbound",state=~"queued_ready|queued_blocked|queued_unknown|in_flight"} == 0')
+    empty = ('(count by (' + keys + ') (count by (' + keys + ', direction, state) ('
+             + zero_members + ') == 1) == 8) and on (' + keys + ') '
+             '(count by (' + keys + ') (' + population + ') == 8)')
+    population_evaluation = (' and on (' + keys + ') ((reth_eez_native_queue_evaluation_valid'
+                             + select + ' == 1) or on (' + keys + ') (' + empty + '))')
     replacements = {
-        'eez:queue_transactions:current': 'reth_eez_native_queue_transactions' + select + freshness + evaluation,
+        'eez:queue_transactions:current': population + freshness + population_evaluation,
         'eez:queue_oldest_age_seconds:current': 'reth_eez_native_queue_oldest_age_seconds' + select + freshness + evaluation,
         'eez:queue_evaluation_valid:current': 'reth_eez_native_queue_evaluation_valid' + select + freshness,
     }
@@ -455,7 +466,10 @@ def prepare(config, runtime, *, fast_test=False):
             # Pinned upstream Reth emits hash/address-labelled families. Exclude
             # those complete samples; removing dimensions would collide series.
             'metric_relabel_configs': [{'source_labels': ['hash', 'address'], 'separator': '',
-                'regex': '.+', 'action': 'drop'}]})
+                'regex': '.+', 'action': 'drop'},
+                # Pinned Reth strips argument values, but CLI flag combinations
+                # are unnecessary configuration-shaped labels for monitoring.
+                {'source_labels': ['__name__'], 'regex': '(reth_)?process_cli_args', 'action': 'drop'}]})
     for name, target, identity in client_targets(config):
         scrape.append({'job_name': name, 'static_configs': [{'targets': [target], 'labels': identity}],
             'metric_relabel_configs': [{'source_labels': ['__name__'], 'action': 'keep',
@@ -637,6 +651,26 @@ def prepare_dashboards(config, runtime):
                 for panel in dashboard['panels']:
                     if panel['gridPos']['y'] >= 70:
                         panel['gridPos']['y'] -= 32
+        if name == 'infrastructure.json':
+            agent = config.get('node_agent')
+            diagnostic_count = sum(source['kind'] in ('reth_json', 'lighthouse_json')
+                                   for source in (agent or {}).get('sources', []))
+            capability_rows = [
+                ('Host metrics', 'Configured' if config.get('node_exporter_target') else 'Not configured'),
+                ('Lighthouse metrics', str(len(config.get('client_targets', []))) + ' configured targets'),
+                ('Public RPC probe', 'Configured' if config.get('public_rpc_url') else 'Not configured'),
+                ('Node-host log collector', str(diagnostic_count) + ' diagnostic sources configured' if agent else 'Not configured'),
+            ]
+            content = '| Capability | Configuration |\n| --- | --- |\n' + '\n'.join(
+                '| ' + label + ' | ' + state + ' |' for label, state in capability_rows)
+            content += ('\n\nConfiguration does not establish collector health or readable files. '
+                        'Unavailable capabilities have unknown data, not healthy zeros. '
+                        'Lifecycle streams are separate and may be available without diagnostic log collection. '
+                        'Use scrape health and the panel descriptions to interpret missing data.')
+            for panel in dashboard['panels']:
+                panel['gridPos']['y'] += 8
+            dashboard['panels'].insert(0, {'id': 20, 'type': 'text', 'title': 'Configured infrastructure capabilities',
+                'gridPos': {'x': 0, 'y': 0, 'w': 24, 'h': 8}, 'options': {'mode': 'markdown', 'content': content}})
         for variable in dashboard['templating']['list']:
             if variable['name'] == 'instance' and variable.get('datasource', {}).get('uid') == 'eez-postgres':
                 # Built-in All expands into quoted SQL values and escaped PromQL

@@ -35,7 +35,8 @@ class SourceSelection(unittest.TestCase):
         for rule in queue:
             self.assertIn('reth_eez_native_queue_', rule['expr'])
             self.assertNotIn('eez_observer_queue_', rule['expr'])
-            self.assertNotIn(' or ', rule['expr'])
+            if rule['record'] != 'eez:queue_transactions:current':
+                self.assertNotIn(' or ', rule['expr'])
             self.assertIn('<= 45', rule['expr'])
             self.assertIn('>= -5', rule['expr'])
         for invalid in ['auto', None, True, [], {}]:
@@ -126,6 +127,34 @@ def promtool():
     case('expired collection is unknown even while exporter responds', at='60s')
     case('future clock outside tolerance is unknown', {name('reth_eez_native_queue_sample_timestamp_seconds'): '6'})
     case('future clock tolerance boundary accepted', {name('reth_eez_native_queue_sample_timestamp_seconds'): '5'}, expected=2)
+    idle = {name('reth_eez_native_queue_transactions', f'direction="{direction}",state="{state}"'): '0'
+            for direction in ('inbound', 'outbound')
+            for state in ('queued_ready', 'queued_blocked', 'queued_unknown', 'in_flight')}
+    idle[name('reth_eez_native_queue_evaluation_valid')] = '0'
+    case('complete idle population is known zero without readiness', idle, expected=0)
+    # Population completeness is enough only for counts, never readiness or ages.
+    tests[-1]['promql_expr_test'].extend([
+        {'expr':'sum(eez:queue_evaluation_valid:current)', 'eval_time':'0s', 'exp_samples':[{'labels':'{}','value':0}]},
+        {'expr':'eez:queue_oldest_age_seconds:current', 'eval_time':'0s', 'exp_samples':[]}])
+    case('complete idle population with missing readiness remains known zero', idle,
+         remove=(name('reth_eez_native_queue_evaluation_valid'),), expected=0)
+    for missing in list(idle)[:-1]:
+        case('missing idle member is unknown: ' + missing, idle, remove=(missing,))
+    member = name('reth_eez_native_queue_transactions', 'direction="outbound",state="queued_unknown"')
+    for value in ('1', '-1', 'NaN', '+Inf', '-Inf'):
+        case('idle exception rejects nonzero or nonfinite member: ' + value, {**idle, member:value})
+    case('extra unknown state is not a complete empty population',
+         {**idle,name('reth_eez_native_queue_transactions','direction="inbound",state="new_state"'):'0'})
+    case('duplicated pair cannot stand in for a missing pair',
+         {**idle,name('reth_eez_native_queue_transactions','direction="inbound",state="queued_ready",extra="duplicate"'):'0'},
+         remove=(member,))
+    for field in ('up','reth_eez_native_queue_sample_valid'):
+        case('idle still requires ' + field,{**idle,name(field):'0'})
+        case('idle missing ' + field,idle,remove=(name(field),))
+    case('idle still expires at normal sample deadline',idle,at='60s')
+    case('idle freshness boundary',idle,at='45s',expected=0)
+    case('idle future sample rejected',{**idle,name('reth_eez_native_queue_sample_timestamp_seconds'):'6'})
+    case('idle future tolerance boundary',{**idle,name('reth_eez_native_queue_sample_timestamp_seconds'):'5'},expected=0)
     images = json.loads((ROOT / 'images.lock.json').read_text())
     image = next(name + '@' + digest for name, digest in images.items() if name.startswith('prom/prometheus:'))
     with tempfile.TemporaryDirectory(prefix='eez-queue-rules-') as directory:

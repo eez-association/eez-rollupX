@@ -118,7 +118,7 @@ class NodeAgent(unittest.TestCase):
         runtime = prepare.prepare({**self.config,'native_processes':[process]},self.root/'runtime')
         prom = json.loads((runtime/'prometheus/prometheus.yaml').read_text())
         job = next(job for job in prom['scrape_configs'] if job['job_name']=='eez-composer-native')
-        self.assertEqual(job['metric_relabel_configs'],[{'source_labels':['hash','address'],'separator':'','regex':'.+','action':'drop'}])
+        self.assertEqual(job['metric_relabel_configs'],[{'source_labels':['hash','address'],'separator':'','regex':'.+','action':'drop'}, {'source_labels':['__name__'],'regex':'(reth_)?process_cli_args','action':'drop'}])
 
     def test_reconfiguration_removes_only_generated_node_files(self):
         runtime = prepare.prepare({**self.config,'node_agent':self.agent},self.root/'runtime')

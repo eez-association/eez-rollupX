@@ -33,9 +33,11 @@ exported as general completion progress.
 
 Target labels own `environment`, `deployment`, `service`, `instance` and `job`.
 Applications emit only the bounded intrinsic labels above. Recording rules are
-the stable dashboard interface. Queue rules gate on both collection success
+the stable dashboard interface. Default RPC queue rules gate on both collection success
 and evaluation validity; if evaluation is unknown, those rule outputs are
-absent even though raw membership counts may be available.
+absent even though raw membership counts may be available. The optional native
+source preserves a complete fresh zero population independently of readiness;
+see the [native queue contract](native-metrics.md) for its strict coverage guards.
 
 The backend recording rules also require `up{job="eez-observer"} == 1`, so
 Prometheus's previous samples cannot keep a failed scrape looking healthy.

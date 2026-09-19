@@ -515,3 +515,125 @@ starts with actual observation; no archive backfill or full-history reconstructi
 was added. Backup/runtime files and screenshots stay private/local; the contracts,
 implementation and deterministic fixtures are committed. The postponed benchmark
 and broader production rollout remain outside this update.
+
+## First complete four-hour observation and operations handoff
+
+On September 19, read-only canonical posting-receipt queries verified the first
+complete four-hour interval after the policy change. The successful L1 posting
+receipts were timestamped **2026-09-18 22:07:15 UTC** and
+**2026-09-19 02:07:15 UTC**, exactly 14,400 seconds apart. These are **L1 block/receipt
+timestamps**, not L2 timestamps or collector observation times. Their independently
+collected, source-valid applied endpoints were:
+
+| Canonical L1 block | Posting transaction | Applied L2 height |
+| --- | --- | --- |
+| 23121429 | `0x49d0216b0a362ef8484d9eca9467c5447fe9466b6073c37fafbd0764a9f99856` | 17240 |
+| 23124022 | `0xdcce2ef400b62bb39874a0e7438d99ff07e9483cb907ae87e193a4b2a08b6abe` | 31640 |
+
+Both L1 anchors were finalized when checked. The L2 endpoint advance was exactly
+14,400 blocks. Private `validation/settlement-four-hours-20260918/overnight-endpoints.json`
+retains the exact endpoint hashes, posting positions, finality and source-health
+checks; the canonical posting-receipt query supplied the timestamps above. This
+updates the earlier startup-only observation without rewriting its historical
+limit. It establishes this observed cycle, not saturated-load proof capacity,
+independent follower replay or a guarantee that urgent cross-chain/safety-triggered
+posts wait four hours.
+
+The [current operations runbook](../../runbooks/chiado-observability.md) now records
+resource selection from the main checkout's private deployment root, the separate
+native/monitoring/relay/explorer projects, local credential-file checks, four-hour
+settings, and schema-23 backup/migrate/start/rollback boundaries. It is linked from
+the runbook index and `AGENTS.md`. Its private helpers are host-local capabilities,
+not shipped fresh-install tooling. The running native source remains `68e5da3` and
+the observer source remains `345f003`; later repository integration does not imply
+a live binary upgrade. No service, credential, network or transaction change was
+performed for this documentation update.
+
+Documentation validation checked all 57 relative link targets in the edited
+runbook/index/AGENTS/audit set, ten Bash snippets, the image-binding Python snippet,
+and the native integration target inventory after removal of `resumption`.
+A non-starting Compose render confirmed that the explicit shell image override
+reaches both observer and migrator, without printing generated configuration.
+The upgrade walkthrough migrates before regenerating SQL dashboards.
+
+The documented private checker also passed at **2026-09-19 06:09:27 UTC**:
+localhost Grafana credential-file authentication and all three datasources were
+healthy; all eight sampled scrape targets were up, recorded chain/index/source-
+receipt/blob/lifecycle collection-success values were one, both indexed chain
+lags were zero, and ten retained lifecycle log lines were returned. Public
+health/login checks were unauthenticated. This bounded operational check neither
+submits transactions nor establishes complete coverage of every dashboard metric.
+The local report is `monitoring-preparation/monitoring-runtime-check.json`; its
+captured output is `/tmp/eez-chiado-runbook-health.log`, not a portable artifact.
+
+## Pre-PR integration and live metric coverage review
+
+On September 19, main included merged PR26 at
+`10eaa9c52c5b0a7d07c274d3f0615a8ff62cf9d8`.
+The observability branch incorporated that merge, including the eight-lease signer
+restart fix. Main intentionally removed legacy Anvil posting tests because their
+execution/submission chains differ under strict preflight. The two added follower
+observability cases were retained on the existing native fixture instead. The
+L1-derived case passed; the first overlay run correctly exposed an absent
+sequencer-RPC fixture setting (the replacement-only helper did not insert it).
+Explicitly setting the missing key preserved the assertion and passed the overlay
+case. Original failure logs/datadirs were retained. This branch integration did
+not replace the running node/signer images.
+
+The user requested a review of unpopulated live metrics before publication.
+Read-only Grafana/Prometheus/reader queries covered all 133 query-bearing panels,
+including infrastructure, with actual SQL All-instance membership. Both the
+one-hour and 24-hour captures had zero query errors/timeouts; empty panels decreased
+from 42 to 19 with the longer window. The first inventory's literal SQL `all`
+substitution was a checker error, retained and excluded from those counts.
+
+Three actual display gaps were corrected and applied:
+
+- Protocol history defaults to 24 hours, so the four-hour posting interval and
+  retained cross-chain activity remain visible between posts.
+- A complete fresh native population with exactly eight distinct zero-valued
+  direction/state pairs remains a known empty queue when readiness is idle.
+  Missing, duplicate, unexpected, nonfinite or nonzero populations do not gain
+  this exception; scrape/sample freshness still gates them. Readiness and oldest
+  ages are not fabricated.
+- Process CPU/RSS includes the already-scraped Reth-prefixed Composer metrics.
+  Unprefixed equivalents take precedence per target; aliases are not summed.
+  Host memory/disk now honor the same instance selector and scrape-health gate.
+
+Infrastructure now identifies explicitly unconfigured host metrics, Lighthouse
+metrics, public-RPC probes and diagnostic-log collectors. No additional service
+was started. Lifecycle logs remain available separately. The unused CLI-flags
+metric family is dropped going forward; pinned Reth emits flag names, not values,
+so this is not a claim of leaked secrets. Older private samples retain the normal
+retention policy.
+
+Remaining empty/unknown values were classified rather than replaced with zeros:
+no independent follower, explorer reference or Tempo configuration; no current
+admissions after the process restart; no qualifying events for some stage/cut/
+disposition metrics; incomplete 24-hour funding history; and advanced settled-tx
+cost denominators with `prior_history_unavailable` under the nonzero L1 bootstrap.
+Actual posting fees remain available. The review observed 118 authenticated blob
+posts with no blob/accounting gaps and retained canonical outcomes in both
+directions. A transient L2 collection-unavailable sample seen during browser
+review recovered on the next read; its indication was not masked or coerced.
+
+Validation after the merge/fixes: 450 passing tests across control RPC, observer,
+signer and prover client (two existing signer utility tests ignored); both native
+follower cases passed after the explicit fixture correction; 249 CI/configuration
+tests passed with five opt-in Docker/Kurtosis tests skipped. Final observability
+Python discovery passed 162 tests with its existing one opt-in skip. Workspace
+all-target strict Clippy, formatting, contract fixture build and diff checks
+passed. Queue rules passed 34 pinned promtool cases; node-agent/Prometheus/Loki
+integration passed 12 groups including alias deduplication and native scrape filters.
+
+The private preparation preserved native identity files, image bindings and
+credentials. Prometheus config/rules passed its own validator before SIGHUP;
+Grafana reloaded through authenticated localhost. Final actual queries succeeded
+for all 133 panels. Browser checks confirmed the 24-hour fee view, known zero/idle
+queue, capability summary and Composer resource graphs; two initial browser
+selector assumptions were corrected with their failures retained. Operator
+runbook links and shell snippets were checked, and its read-only health commands
+were exercised. Private evidence is under deployment
+`validation/metrics-readiness-20260919/`; integration logs begin
+`/tmp/eez-pr-main-` and `/tmp/eez-pr-final-`. Performance tests remain explicitly
+postponed, and remote CI is separate from these local results.

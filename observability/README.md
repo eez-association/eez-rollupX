@@ -108,7 +108,8 @@ Prometheus target configuration owns `environment`, `deployment`, `service` and
 `instance` labels. No URLs, hashes, addresses or free-form error messages appear
 in metric labels. The [metric contract](contracts/metrics.md) describes the
 initial signals; [recording rules](prometheus/recording-rules.yaml) gate raw
-values on collection/evaluation validity. Do not sum exporter and native
+values on collection/evaluation validity, with the native source retaining a
+complete fresh known-empty population even when readiness is idle. Do not sum exporter and native
 producers. Optional host metrics use an existing private node-exporter target.
 Embedded upstream client metrics remain process-wide where chain attribution is
 unavailable. Canonical progress/finality have separate observer evidence and must
