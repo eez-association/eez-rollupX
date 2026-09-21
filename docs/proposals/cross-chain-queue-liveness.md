@@ -231,6 +231,30 @@ Record structured transitions with transaction identity, attempt generation,
 canonical reference, and reason, including resubmission and recovery ordering.
 Do not log every unchanged blocked request on every slot.
 
+### Local terminal observations
+
+The PR139 follow-up extends the existing telemetry with the most recent 1,024
+local evictions/replacements per pool. Retain only hash, sender, direction,
+nonce, reason, observation time, and optional replacement hash; never retain
+the envelope. This is a bounded diagnostic cache, not an ownership journal,
+admission limit, or source of recovery decisions.
+
+Live pool and settlement-ledger records take precedence. Successful explicit
+readmission clears that hash's local terminal observation; rejected admission
+must not clear it. A delayed recovery callback cannot replay or reinstate an
+observation. Existing authoritative generation checks remain unchanged.
+Telemetry retention also clears superseded local observations when authoritative
+ownership appears, so they cannot resurface after the ledger prunes that owner.
+
+`eez_getCrossChainTransaction` may now return `lifecycle: terminal` for an
+unsubmitted eviction, with `ownerGeneration: null` and `ownership.canonical:
+null`. Local observations additionally expose `observedAtMs` and, on replacement,
+`replacementHash` in `ownership`. This does not assert canonical consumption.
+Older nodes return null once such records leave their pool; clients must treat
+null as unknown. Old clients may ignore the additional fields. Oldest local
+observations expire by count, and all are lost on restart. No migration,
+configuration change, contract change, or mixed-node execution change is needed.
+
 The observatory currently computes `healthy` from L1/L2 RPC health and head
 freshness in `eez-rollup-ui/network-observatory/app/server.py`. Add an explicit
 cross-chain processing status so fresh heads cannot produce an unqualified

@@ -210,15 +210,22 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count
         1,
         "an unchanged source condition is reported only once"
     );
-    for event in world
-        .node
-        .signals_since(0)
-        .unwrap()
+    let events = world.node.signals_since(0).unwrap();
+    let dispatches: Vec<_> = events
         .iter()
         .filter(|e| e.name == "eez.composer.bundle.dispatched")
-    {
+        .collect();
+    assert!(
+        !dispatches.is_empty(),
+        "attempt checks require actual dispatch events"
+    );
+    for event in dispatches {
         let attempts: Vec<u32> =
             serde_json::from_str(event.fields["attempt_counts"].as_str().unwrap()).unwrap();
+        assert!(
+            !attempts.is_empty(),
+            "cross-chain dispatch must identify user attempts"
+        );
         assert!(attempts.iter().all(|n| *n == 0));
     }
 }

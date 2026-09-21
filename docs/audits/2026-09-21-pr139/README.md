@@ -1,5 +1,9 @@
 # PR #139 adaptation: funding waits and test diagnostics
 
+This records the initial adaptation at `459a6ba4`. Subsequent pre-PR fixes and
+their separate validation are recorded in [the pre-PR review](pre-pr-review.md).
+The limitations and executable hashes below describe the initial revision only.
+
 ## Baseline and scope
 
 - Fork base: `4f4e73e6e6542eb9ba17097693c240a8cd2ea41d` (live RollupX main
