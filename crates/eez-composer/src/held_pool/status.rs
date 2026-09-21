@@ -2,7 +2,7 @@
 //! authorize execution and are discarded on restart along with the held pool.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +11,9 @@ use eez_l1::L1BlockRef;
 use eez_protocol::SourceCondition;
 use serde_json::{Value, json};
 
-use super::{Direction, HeldPool, HeldTx, OptimisticallyIncluded, TerminalReason, UserLocation};
+use super::{
+    Direction, HeldPool, HeldTx, OptimisticallyIncluded, PoolState, TerminalReason, UserLocation,
+};
 
 /// Exact states used for readiness evaluation, independent of wall-clock age.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +126,17 @@ impl QueueTelemetry {
 }
 
 impl HeldPool {
+    /// Consistent queue observations, shared by Prometheus and the queue RPC.
+    ///
+    /// Readiness refers to the last evaluated source state, not the time of
+    /// this read. The scan only reads existing telemetry under the pool lock.
+    pub fn queue_snapshot(&self) -> QueueSnapshot {
+        self.state
+            .lock()
+            .expect("held_pool mutex poisoned")
+            .queue_snapshot()
+    }
+
     pub(crate) fn begin_evaluation(&self, source: SourceState) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         state.telemetry.current = Some(source);
@@ -191,47 +204,12 @@ impl HeldPool {
     pub fn queue_status(&self) -> Value {
         let state = self.state.lock().expect("held_pool mutex poisoned");
         let telemetry = &state.telemetry;
-        let mut ready = 0usize;
-        let mut blocked = 0usize;
-        let mut oldest = None::<u64>;
-        let mut oldest_service = None::<u64>;
-        let mut reasons = std::collections::BTreeMap::<&str, usize>::new();
-        for tx in &state.txs {
-            if telemetry
-                .ready
-                .get(&tx.hash)
-                .is_some_and(|(source, _)| Some(*source) == telemetry.current)
-            {
-                ready += 1;
-            } else if let Some(condition) = telemetry
-                .blocked
-                .get(&(tx.sender, tx.direction))
-                .filter(|b| Some(b.source) == telemetry.current && tx.nonce >= b.nonce)
-            {
-                blocked += 1;
-                let reason = match condition.condition {
-                    SourceCondition::Nonce { .. } => "nonce",
-                    SourceCondition::Fee => "fee",
-                    SourceCondition::Balance { .. } => "balance",
-                    SourceCondition::Escrow { .. } => "escrow",
-                };
-                *reasons.entry(reason).or_default() += 1;
-            }
-        }
-        for hash in state.by_hash.iter().chain(state.in_flight.keys()) {
-            if let Some(time) = telemetry.admitted_at.get(hash) {
-                oldest = Some(oldest.map_or(*time, |old| old.min(*time)));
-            }
-            if let Some((source, time)) = telemetry.ready.get(hash)
-                && (Some(*source) == telemetry.current || state.in_flight.contains_key(hash))
-            {
-                oldest_service = Some(oldest_service.map_or(*time, |old| old.min(*time)));
-            }
-        }
+        let snapshot = state.queue_snapshot();
         json!({"queued": state.txs.len(), "inFlight": state.in_flight.len(),
-            "ready": ready, "blocked": blocked, "blockedReasons": reasons, "unknown": state.txs.len() - ready - blocked,
-            "oldestPendingAgeMs": oldest.map(|time| now_ms().saturating_sub(time)),
-            "oldestServiceAgeMs": oldest_service.map(|time| now_ms().saturating_sub(time)),
+            "ready": snapshot.ready, "blocked": snapshot.blocked, "blockedReasons": snapshot.blocked_reasons,
+            "unknown": snapshot.unknown,
+            "oldestPendingAgeMs": snapshot.oldest_pending_at_ms.map(|time| now_ms().saturating_sub(time)),
+            "oldestServiceAgeMs": snapshot.oldest_service_at_ms.map(|time| now_ms().saturating_sub(time)),
             "evaluatedAtMs": telemetry.evaluated_at_ms,
             "sourceState": telemetry.current.map(SourceState::json),
             "lastCanonicalCompletion": telemetry.last_completion.map(|(block, time)|
@@ -269,10 +247,276 @@ impl HeldPool {
     }
 }
 
+impl PoolState {
+    fn queue_snapshot(&self) -> QueueSnapshot {
+        let telemetry = &self.telemetry;
+        let mut ready = 0usize;
+        let mut blocked = 0usize;
+        let mut oldest = None::<u64>;
+        let mut oldest_service = None::<u64>;
+        let mut reasons = BTreeMap::<&str, usize>::new();
+        for tx in &self.txs {
+            if telemetry
+                .ready
+                .get(&tx.hash)
+                .is_some_and(|(source, _)| Some(*source) == telemetry.current)
+            {
+                ready += 1;
+            } else if let Some(condition) = telemetry
+                .blocked
+                .get(&(tx.sender, tx.direction))
+                .filter(|b| Some(b.source) == telemetry.current && tx.nonce >= b.nonce)
+            {
+                blocked += 1;
+                let reason = match condition.condition {
+                    SourceCondition::Nonce { .. } => "nonce",
+                    SourceCondition::Fee => "fee",
+                    SourceCondition::Balance { .. } => "balance",
+                    SourceCondition::Escrow { .. } => "escrow",
+                };
+                *reasons.entry(reason).or_default() += 1;
+            }
+        }
+        for hash in self.by_hash.iter().chain(self.in_flight.keys()) {
+            if let Some(time) = telemetry.admitted_at.get(hash) {
+                oldest = Some(oldest.map_or(*time, |old| old.min(*time)));
+            }
+            if let Some((source, time)) = telemetry.ready.get(hash)
+                && (Some(*source) == telemetry.current || self.in_flight.contains_key(hash))
+            {
+                oldest_service = Some(oldest_service.map_or(*time, |old| old.min(*time)));
+            }
+        }
+        let queued_inbound = self
+            .txs
+            .iter()
+            .filter(|tx| tx.direction == Direction::Inbound)
+            .count();
+        let flight_inbound = self
+            .in_flight
+            .values()
+            .filter(|(_, direction, _)| *direction == Direction::Inbound)
+            .count();
+        QueueSnapshot {
+            counts: [
+                (
+                    Direction::Inbound,
+                    QueueCounts {
+                        queued: queued_inbound,
+                        in_flight: flight_inbound,
+                    },
+                ),
+                (
+                    Direction::Outbound,
+                    QueueCounts {
+                        queued: self.txs.len() - queued_inbound,
+                        in_flight: self.in_flight.len() - flight_inbound,
+                    },
+                ),
+            ],
+            ready,
+            blocked,
+            unknown: self.txs.len() - ready - blocked,
+            blocked_reasons: reasons,
+            oldest_pending_at_ms: oldest,
+            oldest_service_at_ms: oldest_service,
+            // Reorg invalidation clears current source state but retains the
+            // old RPC evaluation timestamp. Do not export that as valid.
+            evaluated_at_ms: telemetry.current.and(telemetry.evaluated_at_ms),
+        }
+    }
+}
+
+/// Read-only observations of the held pool. Readiness partitions queued requests;
+/// in-flight reservations are separate and may await settlement evidence.
+#[derive(Clone, Debug)]
+pub struct QueueSnapshot {
+    pub counts: [(Direction, QueueCounts); 2],
+    pub ready: usize,
+    pub blocked: usize,
+    pub unknown: usize,
+    pub blocked_reasons: BTreeMap<&'static str, usize>,
+    /// Earliest retained admission timestamp among queued/in-flight requests.
+    pub oldest_pending_at_ms: Option<u64>,
+    /// Last evaluation start time; absent before evaluation or after invalidation.
+    pub evaluated_at_ms: Option<u64>,
+    oldest_service_at_ms: Option<u64>,
+}
+
+/// Point-in-time counts of held requests for one source direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueCounts {
+    pub queued: usize,
+    pub in_flight: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy_primitives::Bytes;
+
+    fn request(byte: u8, direction: Direction) -> HeldTx {
+        HeldTx {
+            raw_tx: Bytes::new(),
+            hash: B256::repeat_byte(byte),
+            sender: Address::repeat_byte(byte),
+            direction,
+            nonce: 0,
+            attempts: 0,
+            max_fee_per_gas: 1,
+            priority_fee_per_gas: 1,
+        }
+    }
+
+    fn source() -> SourceState {
+        SourceState {
+            l1: L1BlockRef {
+                number: 10,
+                hash: B256::repeat_byte(10),
+            },
+            l2: L1BlockRef {
+                number: 20,
+                hash: B256::repeat_byte(20),
+            },
+        }
+    }
+
+    #[test]
+    fn snapshot_and_rpc_share_readiness_reasons_and_source_invalidation() {
+        let pool = HeldPool::new(Default::default());
+        let users = (1..=6)
+            .map(|id| {
+                request(
+                    id,
+                    if id % 2 == 0 {
+                        Direction::Outbound
+                    } else {
+                        Direction::Inbound
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        for user in &users {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let successor = HeldTx {
+            nonce: 1,
+            hash: B256::repeat_byte(99),
+            ..users[0].clone()
+        };
+        pool.push_contiguous(successor, 0).unwrap();
+        let initial = pool.queue_snapshot();
+        assert_eq!((initial.ready, initial.blocked, initial.unknown), (0, 0, 7));
+        assert_eq!(initial.evaluated_at_ms, None);
+        pool.begin_evaluation(source());
+        let conditions = [
+            SourceCondition::Fee,
+            SourceCondition::Nonce {
+                transaction_nonce: 0,
+                required_nonce: 1,
+            },
+            SourceCondition::Balance {
+                required: alloy_primitives::U256::from(10),
+                available: alloy_primitives::U256::ZERO,
+            },
+            SourceCondition::Escrow {
+                required: alloy_primitives::U256::from(10),
+                available: alloy_primitives::U256::ZERO,
+            },
+        ];
+        for (user, condition) in users.iter().zip(conditions) {
+            pool.record_blocked(user, condition, source());
+        }
+        pool.record_ready(&users[4], source());
+        let snapshot = pool.queue_snapshot();
+        assert_eq!(
+            (snapshot.ready, snapshot.blocked, snapshot.unknown),
+            (1, 5, 1)
+        );
+        assert_eq!(
+            snapshot.blocked_reasons,
+            BTreeMap::from([("fee", 2), ("nonce", 1), ("balance", 1), ("escrow", 1)])
+        );
+        let rpc = pool.queue_status();
+        assert_eq!(rpc["ready"], snapshot.ready);
+        assert_eq!(rpc["blocked"], snapshot.blocked);
+        assert_eq!(rpc["unknown"], snapshot.unknown);
+        assert_eq!(rpc["blockedReasons"], json!(snapshot.blocked_reasons));
+        assert_eq!(rpc["evaluatedAtMs"], snapshot.evaluated_at_ms.unwrap());
+        assert_eq!(
+            snapshot.ready + snapshot.blocked + snapshot.unknown,
+            snapshot.counts.iter().map(|(_, c)| c.queued).sum::<usize>()
+        );
+        // Sampling never refreshes source evaluation time.
+        assert_eq!(
+            pool.queue_snapshot().evaluated_at_ms,
+            snapshot.evaluated_at_ms
+        );
+        pool.record_ready(&users[0], source());
+        let repaired = pool.queue_snapshot();
+        assert_eq!(
+            (repaired.ready, repaired.blocked, repaired.unknown),
+            (2, 3, 2)
+        );
+        assert!(!repaired.blocked_reasons.contains_key("fee"));
+        let changed = SourceState {
+            l2: L1BlockRef {
+                hash: B256::repeat_byte(21),
+                ..source().l2
+            },
+            ..source()
+        };
+        pool.begin_evaluation(changed);
+        let stale = pool.queue_snapshot();
+        assert_eq!((stale.ready, stale.blocked, stale.unknown), (0, 0, 7));
+        assert!(stale.blocked_reasons.is_empty());
+        pool.invalidate_after_l1(9).unwrap();
+        assert_eq!(pool.queue_snapshot().evaluated_at_ms, None);
+        assert!(
+            pool.queue_status()["evaluatedAtMs"].is_number(),
+            "preserve the existing RPC contract"
+        );
+    }
+
+    #[test]
+    fn oldest_pending_tracks_membership_recovery_replacement_and_missing_history() {
+        let pool = HeldPool::new(Default::default());
+        let first = request(1, Direction::Inbound);
+        let second = request(2, Direction::Outbound);
+        for user in [&first, &second] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        {
+            let mut state = pool.state.lock().unwrap();
+            state.telemetry.admitted_at.insert(first.hash, 1_000);
+            state.telemetry.admitted_at.insert(second.hash, 2_000);
+        }
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, Some(1_000));
+        assert!(pool.claim(&first));
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, Some(1_000));
+        pool.push_front_batch(vec![first.clone()]);
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, Some(1_000));
+        let replacement = HeldTx {
+            hash: B256::repeat_byte(3),
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 100,
+            ..first
+        };
+        pool.push_contiguous(replacement, 0).unwrap();
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, Some(2_000));
+        // Missing admission history is unknown, never an epoch-zero age.
+        pool.state.lock().unwrap().telemetry.admitted_at.clear();
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, None);
+        let drained = pool.pop_all();
+        pool.release_in_flight_batch(&drained);
+        assert_eq!(pool.queue_snapshot().oldest_pending_at_ms, None);
+        assert_eq!(
+            HeldPool::new(Default::default())
+                .queue_snapshot()
+                .oldest_pending_at_ms,
+            None
+        );
+    }
 
     #[test]
     fn service_age_excludes_source_waiting_and_survives_claiming() {

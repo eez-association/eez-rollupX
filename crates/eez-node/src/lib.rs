@@ -8,6 +8,7 @@
 mod bundle_rpc;
 mod ingress;
 mod l1_embedded;
+mod queue_metrics;
 mod queue_rpc;
 mod witness_source;
 
@@ -494,6 +495,7 @@ async fn launch_composer(
     _ext: NoRoleArgs,
     chain_document_digest: B256,
 ) -> eyre::Result<()> {
+    let metrics_enabled = builder.config().metrics.prometheus.is_some();
     event!(
         name: "eez.node.launching",
         Level::INFO,
@@ -705,6 +707,13 @@ async fn launch_composer(
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
+    if metrics_enabled {
+        queue_metrics::spawn(
+            Arc::clone(&held_pool),
+            rollup_config.rollup_id,
+            &task_executor,
+        );
+    }
 
     let attributes = EthAttributesBuilder::new(chain_spec.clone());
 

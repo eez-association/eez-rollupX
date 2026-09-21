@@ -49,6 +49,8 @@ services:
       PROMETHEUS_URL: http://127.0.0.1:${PROMETHEUS_PORT:-19090}
     volumes:
       - ./grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana/provisioning/dashboards/eez.yml:/etc/grafana/provisioning/dashboards/eez.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     secrets:
       - grafana_admin_password
