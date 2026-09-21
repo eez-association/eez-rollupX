@@ -10,6 +10,7 @@ mod ingress;
 mod l1_embedded;
 mod queue_metrics;
 mod queue_rpc;
+mod settlement_metrics;
 mod witness_source;
 
 // Offline/native recovery tools use the same validated persistent reader as the producer.
@@ -707,13 +708,6 @@ async fn launch_composer(
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
-    if metrics_enabled {
-        queue_metrics::spawn(
-            Arc::clone(&held_pool),
-            rollup_config.rollup_id,
-            &task_executor,
-        );
-    }
 
     let attributes = EthAttributesBuilder::new(chain_spec.clone());
 
@@ -1106,6 +1100,14 @@ async fn launch_composer(
     };
 
     let l2_source_chain_id = chain_spec.chain().id();
+    if metrics_enabled {
+        queue_metrics::spawn(
+            Arc::clone(&held_pool),
+            composer.clone(),
+            rollup_config.rollup_id,
+            &task_executor,
+        );
+    }
     // Resolve both required fronts now. Their upstream chain-id checks run
     // after the L1 readiness gate so the ports can bind while L1 catches up.
     let mut xchain_fronts = Vec::new();

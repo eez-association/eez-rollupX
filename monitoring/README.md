@@ -1,9 +1,9 @@
-# Composer queue monitoring
+# Composer queue and settlement monitoring
 
 This optional stack runs Grafana and Prometheus on the same Linux machine as the
 packaged Chiado Composer. Prometheus scrapes Reth's existing localhost metrics
-endpoint and retains the six Composer-owned queue metric families below. Grafana
-provisions the **EEZ / EEZ Composer queue** dashboard. There is no additional
+endpoint and retains the Composer-owned metric families below. Grafana
+provisions **EEZ Composer queue** and **EEZ Settlement** in the EEZ folder. There is no additional
 exporter, database observer, tracing pipeline or alerting service.
 
 Grafana, Prometheus, and the Composer metrics endpoint all bind to localhost.
@@ -59,6 +59,7 @@ range to inspect second-scale changes.
 | `reth_eez_composer_queue_blocked_requests` | `rollup_id`, `reason=nonce\|fee\|balance\|escrow` | Blocked queued requests, including affected nonce successors, summed across directions. |
 | `reth_eez_composer_queue_oldest_pending_timestamp_seconds` | `rollup_id` | Earliest retained admission time among queued and in-flight requests; `NaN` if absent. |
 | `reth_eez_composer_queue_evaluation_timestamp_seconds` | `rollup_id` | Start time of the last source-state evaluation; `NaN` before evaluation or after source-state invalidation. |
+| `reth_eez_composer_queue_last_completion_timestamp_seconds` | `rollup_id` | Local observation time of the latest retained canonical cross-chain completion; `NaN` after restart or an invalidating reorg. |
 | `reth_eez_composer_queue_sample_timestamp_seconds` | `rollup_id` | Unix seconds at the last successful queue sample. This is not a readiness evaluation or settlement timestamp. |
 
 Reth's existing recorder adds the `reth_` prefix. The sampler registers after
@@ -115,6 +116,65 @@ benchmark. The sampler skips missed ticks rather than accumulating a backlog.
 Grafana's datasource minimum interval is one second; global rule evaluation stays
 at 30 seconds because this stack has no alert or recording rules.
 
+### Settlement: when and why
+
+Open `http://127.0.0.1:19300/d/eez-settlement`. The queue dashboard also links to it.
+The policy's existing evaluation supplies the due reasons and conditional timing;
+the existing attempt ledger supplies submission observations. No RPC calls,
+re-evaluation of policy, transaction copying, or new lifecycle tracker are used
+to collect this data. Queue, policy and ledger locks are not held together across
+the sampling steps. These are adjacent observations, not a transactional snapshot
+of the entire settlement pipeline. The sample timestamp is captured before these
+reads, so lock delays cannot make an older snapshot appear newly collected.
+
+All settlement metric names below start with `reth_eez_composer_settlement_` and
+carry `rollup_id`. The sampler uses the same one-second loop and queue sample
+timestamp; there is no new service or configuration option.
+
+| Suffix | Meaning |
+| --- | --- |
+| `due` | Last evaluated policy: 1 = due, 0 = waiting for a trigger, `NaN` = unknown. |
+| `trigger{reason=...}` | Seven independent 0/1 reasons: `general`, `pure_always`, `pure_interval`, `cross_chain`, `blob_fullness`, `drain`, `window_limit`. Multiple reasons can be active. |
+| `anchor_timestamp_seconds` | Canonical L1 timestamp used by the policy clock. Before the first commitment advance, this can be initial registration. |
+| `anchor_l2_block` | Validated L2 commitment used by the last policy evaluation. |
+| `unsettled_blocks` | Distance from anchor to evaluated candidate, including the candidate Sync block. |
+| `block_threshold` | Configured general trigger in unsettled L2 blocks; not a time interval or packing limit. |
+| `pure_interval_deadline_timestamp_seconds` | Anchor time plus the configured pure-L2 interval, only when pending ordinary activity exists in interval mode. Otherwise `NaN`. |
+| `target_timestamp_seconds` | Selected L1 target supplied to the evaluation; not a guaranteed dispatch/inclusion time. |
+| `evaluation_timestamp_seconds` | Local time of the successful policy evaluation, distinct from sample time. |
+| `submission{state=...}` | One active state for the lowest unresolved attempt: `none`, `prepared`, `dispatched`, `included`, `excluded`, `uncertain`. |
+
+Policy fields become unknown when a new evaluation starts and remain unknown
+if it fails or is cancelled. An incomplete canonical scan, changed generation,
+or changed validated endpoint also hides the previous evaluation until a new
+successful one is available. This deliberately favors gaps over stale decisions,
+including during forward canonical publication as well as reorgs. Sampling does
+not advance policy evaluation time. Submission observations remain independently
+available when policy evaluation is unknown.
+
+The countdown is **conditional**, not a scheduled guaranteed post: other triggers
+can fire earlier, and proving, pricing, target availability and reconciliation can
+delay dispatch. Negative countdown means the interval threshold has passed. The
+general consolidation rule is measured in blocks, so this dashboard does not
+convert it into an assumed wall-clock deadline. Read
+[settlement policy](../docs/configurable-settlement-policy.md) for the rules.
+
+`dispatched` is recorded immediately before the network request and does not
+prove relay acceptance. `included` is a receipt observation and does not prove
+all cross-chain effects settled. `none` means no unresolved attempt, not success.
+The separate cross-chain completion metric advances only through the held pool's
+existing canonical reconciliation observations, and reorg invalidation clears it.
+It includes any reconciled attempt and is not a count of this Composer's posts.
+Its timestamp is local observation time, whereas the policy anchor uses L1 block
+time and advances only when the canonical commitment changes.
+
+This first settlement view answers which policy triggers are active, the evaluated
+target/deadline, and the observed unresolved submission state. It does not classify
+every preflight/prover/fee-cap failure or reconstruct every attempt's history; those
+details remain in existing structured Composer logs. Short-lived states may occur
+between samples. Neither an old completion time during inactivity nor a due
+decision alone is a failure alert.
+
 ### Checks
 
 Check service health:
@@ -149,7 +209,8 @@ before removing the previous image from the host.
 
 After deploying a Composer build with queue metrics through the normal node
 release procedure, run `docker compose up --detach --force-recreate` here to
-apply monitoring configuration and dashboard mounts. Expect 14 queue series
+apply monitoring configuration and dashboard mounts. Expect 15 queue series and
+21 settlement series
 for the configured rollup within a few scrape intervals; absent observation
 timestamps are represented as `NaN`.
 The dashboard is provisioned from Git; edit its JSON to make durable changes.
@@ -158,7 +219,8 @@ fabricating an empty queue. Monitoring changes do not require a network reset.
 
 ## Scope boundary
 
-This change covers queue membership and existing status observations. Latency
+This change covers queue membership, existing status observations and settlement
+policy/attempt observations. Latency
 distributions, settlement counters, fees, signer or
 follower metrics, OpenTelemetry, log collection, public access and alerts remain
 separate increments. No changes to Reth or embedded-L1 instrumentation are needed.

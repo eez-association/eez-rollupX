@@ -38,15 +38,7 @@ pub struct DueReasons(u8);
 impl std::fmt::Debug for DueReasons {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut reasons = formatter.debug_set();
-        for (reason, name) in [
-            (Self::GENERAL, "general"),
-            (Self::PURE_ALWAYS, "pure_always"),
-            (Self::PURE_INTERVAL, "pure_interval"),
-            (Self::CROSS_CHAIN, "cross_chain"),
-            (Self::FULLNESS, "blob_fullness"),
-            (Self::DRAIN, "drain"),
-            (Self::WINDOW_LIMIT, "window_limit"),
-        ] {
+        for (reason, name) in Self::ALL {
             if self.contains(reason) {
                 reasons.entry(&name);
             }
@@ -56,6 +48,16 @@ impl std::fmt::Debug for DueReasons {
 }
 
 impl DueReasons {
+    /// Bounded reason names shared by diagnostics and monitoring.
+    pub const ALL: [(Self, &'static str); 7] = [
+        (Self::GENERAL, "general"),
+        (Self::PURE_ALWAYS, "pure_always"),
+        (Self::PURE_INTERVAL, "pure_interval"),
+        (Self::CROSS_CHAIN, "cross_chain"),
+        (Self::FULLNESS, "blob_fullness"),
+        (Self::DRAIN, "drain"),
+        (Self::WINDOW_LIMIT, "window_limit"),
+    ];
     pub const GENERAL: Self = Self(1);
     pub const PURE_ALWAYS: Self = Self(2);
     pub const PURE_INTERVAL: Self = Self(4);

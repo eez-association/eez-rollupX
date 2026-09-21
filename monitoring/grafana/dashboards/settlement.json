@@ -1,0 +1,533 @@
+{
+  "uid": "eez-settlement",
+  "title": "EEZ Settlement",
+  "description": "Existing settlement policy and unresolved attempt observations; due, dispatched, included and canonical completion are distinct.",
+  "tags": [
+    "eez",
+    "settlement"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Last evaluated policy",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Due means at least one policy trigger fired; it does not prove preparation, dispatch, inclusion or completion.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(reth_eez_composer_settlement_due{job=\"eez-composer-reth\"} >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Waiting for trigger",
+                  "color": "blue"
+                },
+                "1": {
+                  "text": "Due",
+                  "color": "yellow"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pure-L2 interval countdown",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Conditional deadline only when pending pure-L2 activity exists in interval mode. Negative means the threshold time passed. Cross-chain, fullness and block rules may trigger earlier. This is not a guaranteed inclusion time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((reth_eez_composer_settlement_pure_interval_deadline_timestamp_seconds{job=\"eez-composer-reth\"} > 0) - time()) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Policy evaluation age",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Age of the last successful policy evaluation, distinct from scrape/sample time. Unknown on failed, cancelled or obsolete evaluations.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_settlement_evaluation_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Evaluated L1 target",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Exact target supplied to the evaluated policy. It may already have passed; it is not a prediction of the next successful post.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((reth_eez_composer_settlement_target_timestamp_seconds{job=\"eez-composer-reth\"} > 0) * 1000) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Canonical anchor age",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Age of the canonical L1 commitment used by policy. Before the first commitment advance, this is registration time. Only validated commitment changes reset the policy clock.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_settlement_anchor_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Last cross-chain completion age",
+      "description": "Age since the local observation of the last retained canonical cross-chain completion. Includes completion from any reconciled attempt. Unknown after restart or invalidating reorg; inactivity is not a failure. This is separate from commitment advancement and submission receipts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Pending blocks and general trigger",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Distance from anchor to evaluated candidate, including the candidate Sync block. The general trigger counts blocks, including empty history; it is not a wall-clock timer or packing limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_settlement_unsettled_blocks{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "Candidate distance \u00b7 {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        },
+        {
+          "refId": "B",
+          "expr": "reth_eez_composer_settlement_block_threshold{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "Configured trigger \u00b7 {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Why policy is due",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Each active trigger is 1. Several may apply at once: general block threshold, pure always/interval, executable cross-chain work, blob fullness, retained drain or window limit. A fresh sample does not create a new evaluation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_settlement_trigger{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{reason}} \u00b7 {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "state-timeline",
+      "title": "Unresolved submission observation",
+      "description": "One active state for the lowest unresolved attempt. None means no unresolved attempt, not a successful settlement. Dispatched is recorded immediately before the network request. Included means a canonical receipt was observed; derivation still decides which effects applied. Excluded/uncertain remain unresolved until reconciliation. Short transitions may be missed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_settlement_submission{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{state}} \u00b7 {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Inactive",
+                  "color": "transparent"
+                },
+                "1": {
+                  "text": "Observed",
+                  "color": "blue"
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "never",
+        "alignValue": "left",
+        "rowHeight": 0.8,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Cross-chain queue",
+      "url": "/d/eez-composer-queue"
+    }
+  ]
+}
