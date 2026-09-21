@@ -124,8 +124,10 @@ impl QueueTelemetry {
             .is_some_and(|(block, _)| block.number > ancestor)
         {
             self.last_completion = None;
-            self.completed.retain(|_, block| block.number <= ancestor);
         }
+        // Consecutive reorgs may move below an earlier surviving completion
+        // while last_completion is already unknown.
+        self.completed.retain(|_, block| block.number <= ancestor);
         self.current = None;
         self.ready.clear();
     }
@@ -366,6 +368,28 @@ pub struct QueueCounts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_reorgs_only_forget_invalidated_completion_identities() {
+        let earlier = (B256::repeat_byte(1), 1);
+        let later = (B256::repeat_byte(2), 2);
+        let mut telemetry = QueueTelemetry::default();
+        let block = |number| L1BlockRef {
+            number,
+            hash: B256::ZERO,
+        };
+        telemetry.completed.insert(earlier, block(10));
+        telemetry.completed.insert(later, block(20));
+        telemetry.last_completion = Some((block(20), 1000));
+        telemetry.completion_observations = [1, 1];
+        telemetry.invalidate_after_l1(15);
+        assert!(telemetry.completed.contains_key(&earlier));
+        assert!(!telemetry.completed.contains_key(&later));
+        assert!(telemetry.last_completion.is_none());
+        telemetry.invalidate_after_l1(5);
+        assert!(telemetry.completed.is_empty());
+        assert_eq!(telemetry.completion_observations, [1, 1]);
+    }
     use alloy_primitives::Bytes;
 
     fn request(byte: u8, direction: Direction) -> HeldTx {
