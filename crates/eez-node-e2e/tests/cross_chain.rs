@@ -17,7 +17,7 @@ use eez_testkit::{
     setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
     setup_cross_chain_outbound_return_data, setup_cross_chain_proxied,
     setup_cross_chain_return_data, setup_cross_chain_reverting, sign_and_send, signer_address,
-    state_root, value_no_ret, value_read, wait_for,
+    state_root, value_no_ret, value_read, wait_for, wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -37,11 +37,7 @@ async fn assert_all_transactions_succeeded(
 ) {
     assert!(!hashes.is_empty(), "no {label} transactions were submitted");
     for &hash in hashes {
-        let landed = wait_for(
-            SETTLE_TIMEOUT,
-            || async move { receipt_ok(rpc_url, hash).await },
-        )
-        .await;
+        let landed = wait_for_receipt_or_failure(&w.node, rpc_url, hash, SETTLE_TIMEOUT).await;
         let status = match landed {
             Ok(status) => status,
             Err(err) => {

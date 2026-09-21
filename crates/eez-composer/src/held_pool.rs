@@ -495,6 +495,12 @@ impl HeldPool {
             let replacement_hash = tx.hash;
             let previous_hash = state.txs[queued_idx].hash;
             state.retire_local_owner_for_admission(replacement_hash)?;
+            state.telemetry.removed(
+                previous_hash,
+                (target_sender, target_direction, target_nonce),
+                TerminalReason::PoolDiscarded,
+                Some(replacement_hash),
+            );
             state.telemetry.admitted(replacement_hash);
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
@@ -592,15 +598,43 @@ impl HeldPool {
         for tx in queued {
             if tx.sender == sender && tx.direction == direction && tx.nonce >= nonce {
                 state.by_hash.remove(&tx.hash);
+                state.telemetry.removed(
+                    tx.hash,
+                    (tx.sender, tx.direction, tx.nonce),
+                    if tx.nonce == nonce {
+                        TerminalReason::PoolDiscarded
+                    } else {
+                        TerminalReason::NonceGap
+                    },
+                    None,
+                );
                 evicted.push(tx);
             } else {
                 kept.push_back(tx);
             }
         }
         state.txs = kept;
-        state
-            .in_flight
-            .retain(|_, (s, d, n)| !(*s == sender && *d == direction && *n >= nonce));
+        let PoolState {
+            in_flight,
+            telemetry,
+            ..
+        } = &mut *state;
+        in_flight.retain(|hash, identity| {
+            let remove = identity.0 == sender && identity.1 == direction && identity.2 >= nonce;
+            if remove {
+                telemetry.removed(
+                    *hash,
+                    *identity,
+                    if identity.2 == nonce {
+                        TerminalReason::PoolDiscarded
+                    } else {
+                        TerminalReason::NonceGap
+                    },
+                    None,
+                );
+            }
+            !remove
+        });
         state.update_recovery_ownership();
         evicted
     }
@@ -758,6 +792,138 @@ mod tests {
             sender: Address::repeat_byte(byte),
             nonce: u64::from(byte),
             direction,
+        }
+    }
+
+    #[test]
+    fn pre_pr_unsubmitted_eviction_remains_observable_until_readmission() {
+        let pool = HeldPool::new(Default::default());
+        let mut root = tx_dir(1, Direction::Outbound);
+        root.nonce = 0;
+        let mut suffix = root.clone();
+        suffix.hash = B256::repeat_byte(2);
+        suffix.nonce = 1;
+        insert(&pool, root.clone(), 0);
+        insert(&pool, suffix.clone(), 0);
+        let original_claim = pool.pop_n(1);
+        let evicted = pool.evict_chain_at_or_above(root.sender, root.direction, root.nonce);
+        assert_eq!(evicted, vec![suffix.clone()]);
+        for hash in [root.hash, suffix.hash] {
+            let status = pool
+                .transaction_status(hash)
+                .expect("retain a terminal observation");
+            assert_eq!(status["lifecycle"], "terminal");
+            assert!(status["ownerGeneration"].is_null());
+        }
+        assert_eq!(
+            pool.transaction_status(root.hash).unwrap()["ownership"]["reason"],
+            "PoolDiscarded"
+        );
+        assert_eq!(
+            pool.transaction_status(suffix.hash).unwrap()["ownership"]["reason"],
+            "NonceGap"
+        );
+        assert!(pool.push_contiguous(root.clone(), 1).is_err());
+        assert_eq!(
+            pool.transaction_status(root.hash).unwrap()["lifecycle"],
+            "terminal"
+        );
+        pool.requeue_composing(original_claim.clone());
+        assert!(pool.is_empty(), "observation must not authorize recovery");
+        insert(&pool, root.clone(), 0);
+        assert_eq!(
+            pool.transaction_status(root.hash).unwrap()["lifecycle"],
+            "queued"
+        );
+        pool.requeue_composing(original_claim);
+        assert_eq!(pool.candidates(), vec![root.clone()]);
+        assert!(pool.transaction_status(root.hash).unwrap()["ownership"].is_null());
+    }
+
+    #[test]
+    fn local_removal_history_is_bounded_and_replacements_keep_current_identity() {
+        let pool = HeldPool::new(Default::default());
+        let mut original = tx(1);
+        original.nonce = 0;
+        insert(&pool, original.clone(), 0);
+        let mut replacement = original.clone();
+        replacement.hash = B256::repeat_byte(2);
+        replacement.max_fee_per_gas = 2;
+        replacement.priority_fee_per_gas = 2;
+        insert(&pool, replacement.clone(), 0);
+        let removed = pool.transaction_status(original.hash).unwrap();
+        assert_eq!(removed["lifecycle"], "terminal");
+        assert_eq!(
+            removed["ownership"]["replacementHash"],
+            serde_json::json!(replacement.hash)
+        );
+        assert_eq!(
+            pool.transaction_status(replacement.hash).unwrap()["lifecycle"],
+            "queued"
+        );
+        assert_eq!(pool.candidates(), vec![replacement.clone()]);
+        let _ = pool.evict_chain_at_or_above(replacement.sender, replacement.direction, 0);
+        for index in 0..=status::MAX_RECENT_REMOVALS {
+            let mut held = original.clone();
+            held.hash = B256::from(alloy_primitives::U256::from(index + 1));
+            insert(&pool, held.clone(), 0);
+            let _ = pool.evict_chain_at_or_above(held.sender, held.direction, 0);
+        }
+        assert!(pool.transaction_status(original.hash).is_none());
+        assert!(
+            pool.transaction_status(B256::from(alloy_primitives::U256::from(1)))
+                .is_none()
+        );
+        assert!(
+            pool.transaction_status(B256::from(alloy_primitives::U256::from(
+                status::MAX_RECENT_REMOVALS + 1
+            )))
+            .is_some()
+        );
+        assert_eq!(pool.queue_status()["queued"], 0);
+        assert_eq!(pool.queue_status()["inFlight"], 0);
+    }
+
+    #[test]
+    #[ignore = "manual component profile; records timings without timing assertions"]
+    fn profile_blocked_backlog_discovery() {
+        use std::{hint::black_box, time::Instant};
+        for count in [1_000u64, 4_000, 10_000] {
+            let pool = HeldPool::new(Default::default());
+            let started = Instant::now();
+            for nonce in 0..count {
+                let mut held = tx_dir(1, Direction::Outbound);
+                held.nonce = nonce;
+                held.hash = B256::from(alloy_primitives::U256::from(nonce + 1));
+                held.raw_tx = Bytes::from(vec![1; 1024]);
+                insert(&pool, held, 0);
+            }
+            let mut ready = Vec::new();
+            for byte in 2..=65 {
+                let held = tx(byte);
+                insert(&pool, held.clone(), held.nonce);
+                ready.push(held);
+            }
+            let admission = started.elapsed();
+            assert_eq!(pool.len(), count as usize + ready.len());
+            let started = Instant::now();
+            let snapshot = black_box(pool.candidates());
+            let snapshot_time = started.elapsed();
+            assert_eq!(snapshot.len(), pool.len());
+            let started = Instant::now();
+            for held in &ready {
+                assert!(pool.claim(held));
+            }
+            let claim_time = started.elapsed();
+            assert_eq!(pool.len(), count as usize);
+            eprintln!(
+                "queue_profile count={count} envelope_bytes={} admission_us={} snapshot_us={} claim_64_us={}",
+                count * 1024,
+                admission.as_micros(),
+                snapshot_time.as_micros(),
+                claim_time.as_micros()
+            );
+            pool.release_in_flight_batch(&ready);
         }
     }
 
