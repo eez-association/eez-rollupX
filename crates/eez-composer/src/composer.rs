@@ -796,12 +796,7 @@ struct ObservationMismatchDetails {
     observed_output_hash: B256,
 }
 
-/// Classify a [`compose_crosschain`] failure. `true` = DETERMINISTIC:
-/// the composition is structurally invalid for this tx (no cross-chain
-/// call / revert / bad encoding), so the tx is poison and must be
-/// evicted before it can enter — and perpetually drop — a bundle.
-/// `false` = TRANSIENT (chain unreachable / provider / transport /
-/// missing data), which a retry may clear → re-queue, don't evict.
+/// A state-dependent wait blocks only its source chain, not the entire slot.
 fn source_condition(error: &eez_protocol::ComposerError) -> Option<&eez_protocol::SourceCondition> {
     if let eez_protocol::ComposerErrorKind::Executor(error) = error.kind()
         && let eez_protocol::ExecutorErrorKind::SourceBlocked(condition) = error.kind()
@@ -812,6 +807,8 @@ fn source_condition(error: &eez_protocol::ComposerError) -> Option<&eez_protocol
     }
 }
 
+/// Deterministic invalid compositions are poison. Source conditions defer one
+/// chain; infrastructure failures abort the slot. Neither is an eviction.
 fn sim_error_is_poison(err: &eez_protocol::ComposerError) -> bool {
     use eez_protocol::{ComposerErrorKind, ExecutorErrorKind};
     match err.kind() {
@@ -831,6 +828,22 @@ fn sim_error_is_poison(err: &eez_protocol::ComposerError) -> bool {
         // register) — not the tx's fault → retry, don't evict.
         _ => false,
     }
+}
+
+/// Preserve a claimed source and its retry budget while freeing selection
+/// capacity for independent chains. Its nonce suffix stays in the pool.
+fn defer_source(
+    pool: &HeldPool,
+    selection: &mut selection::Selection,
+    deferred: &mut Vec<(usize, HeldTx)>,
+    source_state: crate::held_pool::SourceState,
+    idx: usize,
+    held: HeldTx,
+    condition: eez_protocol::SourceCondition,
+) {
+    pool.record_blocked(&held, condition, source_state);
+    selection.block(idx);
+    deferred.push((idx, held));
 }
 
 alloy_sol_types::sol! {
@@ -2664,16 +2677,18 @@ where
                         if let Some(avail) = escrow_remaining
                             && need > avail
                         {
-                            pool.record_blocked(
-                                &held,
+                            defer_source(
+                                pool,
+                                &mut selection,
+                                &mut source_deferred,
+                                source_state,
+                                idx,
+                                held,
                                 eez_protocol::SourceCondition::Escrow {
                                     required: need,
                                     available: avail,
                                 },
-                                source_state,
                             );
-                            selection.block(idx);
-                            source_deferred.push((idx, held));
                             continue;
                         }
                     }
@@ -2989,10 +3004,15 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
-                    pool.record_blocked(&held, condition, source_state);
-                    selection.block(idx);
-
-                    source_deferred.push((idx, held));
+                    defer_source(
+                        pool,
+                        &mut selection,
+                        &mut source_deferred,
+                        source_state,
+                        idx,
+                        held,
+                        condition,
+                    );
                 }
                 Err(e) if sim_error_is_poison(&e) => {
                     event!(
@@ -3355,10 +3375,15 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
-                    pool.record_blocked(&held, condition, source_state);
-                    selection.block(idx);
-
-                    source_deferred.push((idx, held));
+                    defer_source(
+                        pool,
+                        &mut selection,
+                        &mut source_deferred,
+                        source_state,
+                        idx,
+                        held,
+                        condition,
+                    );
                 }
                 Err(e) if sim_error_is_poison(&e) => {
                     event!(
@@ -6531,6 +6556,121 @@ mod tests {
 
         assert_eq!(poison.len(), 2);
         assert_eq!(gaps, vec![(sender, Direction::Inbound, 7)]);
+    }
+
+    #[test]
+    fn funding_condition_is_local_deferral_not_poison_or_infrastructure_failure() {
+        let condition = eez_protocol::SourceCondition::Escrow {
+            required: U256::from(10),
+            available: U256::from(3),
+        };
+        let error = eez_protocol::ComposerError::from(
+            eez_protocol::ExecutorErrorKind::SourceBlocked(condition.clone()),
+        );
+        assert_eq!(source_condition(&error), Some(&condition));
+        assert!(!sim_error_is_poison(&error));
+        let unavailable = eez_protocol::ComposerError::from(
+            eez_protocol::ExecutorErrorKind::Missing("pinned state"),
+        );
+        assert_eq!(source_condition(&unavailable), None);
+        assert!(!sim_error_is_poison(&unavailable));
+        let malformed = eez_protocol::ComposerError::from(
+            eez_protocol::ExecutorErrorKind::Encoding("invalid transaction".into()),
+        );
+        assert_eq!(source_condition(&malformed), None);
+        assert!(sim_error_is_poison(&malformed));
+    }
+
+    #[test]
+    fn funding_wait_preserves_retry_budget_and_reaches_work_beyond_a_full_prefix() {
+        for limit in [1, 3, 12, 50] {
+            let pool = HeldPool::new(Default::default());
+            let sender = Address::repeat_byte(0xa);
+            let mut root = held(sender, Direction::Outbound, 0, 1);
+            root.attempts = MAX_BUNDLE_ATTEMPTS - 1;
+            pool.push_contiguous(root.clone(), 0).unwrap();
+            for nonce in 1..limit {
+                pool.push_contiguous(
+                    held(sender, Direction::Outbound, nonce as u64, (nonce + 1) as u8),
+                    0,
+                )
+                .unwrap();
+            }
+            // The funding direction remains independent even for the same
+            // address. A blocked prefix must not hide this candidate.
+            let deposit = held(sender, Direction::Inbound, 0, 100);
+            pool.push_contiguous(deposit.clone(), 0).unwrap();
+            assert_eq!(pool.candidates()[limit].hash, deposit.hash);
+            for opportunity in 1..=MAX_BUNDLE_ATTEMPTS + 1 {
+                let snapshot = pool.candidates();
+                let deposit_idx = snapshot
+                    .iter()
+                    .position(|tx| tx.hash == deposit.hash)
+                    .unwrap();
+                let mut selection = selection::Selection::new(&snapshot, limit, 0, 0);
+                assert!(selection.consider(0));
+                assert!(pool.claim(&snapshot[0]));
+                let source = crate::held_pool::SourceState {
+                    l1: eez_l1::L1BlockRef {
+                        number: u64::from(opportunity),
+                        hash: B256::with_last_byte(opportunity as u8),
+                    },
+                    l2: eez_l1::L1BlockRef {
+                        number: 0,
+                        hash: B256::ZERO,
+                    },
+                };
+                pool.begin_evaluation(source);
+                let mut deferred = Vec::new();
+                defer_source(
+                    &pool,
+                    &mut selection,
+                    &mut deferred,
+                    source,
+                    0,
+                    snapshot[0].clone(),
+                    eez_protocol::SourceCondition::Escrow {
+                        required: U256::from(1),
+                        available: U256::ZERO,
+                    },
+                );
+                for (idx, tx) in snapshot.iter().enumerate() {
+                    if tx.direction == Direction::Outbound && tx.nonce > 0 {
+                        assert!(!selection.consider(idx));
+                    }
+                }
+                assert!(selection.consider(deposit_idx));
+                assert!(pool.claim(&snapshot[deposit_idx]));
+                selection.accept(deposit_idx);
+                // Exercise a subsequent slot abort too: independent work and
+                // deferred users must both retain ownership without charges.
+                deferred.push((deposit_idx, snapshot[deposit_idx].clone()));
+                requeue_unprocessed(&pool, 1, &[], deferred);
+                let queued = pool.candidates();
+                assert_eq!(queued.len(), limit + 1);
+                assert_eq!(queued[0].hash, root.hash);
+                assert_eq!(queued[0].attempts, MAX_BUNDLE_ATTEMPTS - 1);
+                assert!(queued[1..].iter().all(|tx| tx.attempts == 0));
+            }
+            // Once funding is available, the original identity and its nonce
+            // chain can be claimed again without explicit readmission.
+            let queued = pool.candidates();
+            let mut selection = selection::Selection::new(&queued, limit, 0, 0);
+            assert!(selection.consider(0));
+            assert!(pool.claim(&queued[0]));
+            selection.accept(0);
+            assert_eq!(queued[0].hash, root.hash);
+            pool.release_in_flight_batch(&queued[..1]);
+            if limit > 1 {
+                let successor = queued
+                    .iter()
+                    .position(|tx| tx.direction == Direction::Outbound && tx.nonce == 1)
+                    .unwrap();
+                assert!(selection.consider(successor));
+                assert!(pool.claim(&queued[successor]));
+                pool.release_in_flight_batch(&queued[successor..=successor]);
+            }
+        }
     }
 
     #[test]

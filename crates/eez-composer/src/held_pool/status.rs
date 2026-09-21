@@ -2,7 +2,7 @@
 //! authorize execution and are discarded on restart along with the held pool.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -14,6 +14,20 @@ use serde_json::{Value, json};
 use super::{
     Direction, HeldPool, HeldTx, OptimisticallyIncluded, PoolState, TerminalReason, UserLocation,
 };
+
+/// Bound diagnostic history independently of the live pool and settlement ledger.
+pub(super) const MAX_RECENT_REMOVALS: usize = 1024;
+
+#[derive(Debug)]
+struct LocalRemoval {
+    hash: B256,
+    sender: Address,
+    direction: Direction,
+    nonce: u64,
+    reason: TerminalReason,
+    replacement: Option<B256>,
+    observed_at_ms: u64,
+}
 
 /// Exact states used for readiness evaluation, independent of wall-clock age.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +62,8 @@ pub(super) struct QueueTelemetry {
     completed: HashMap<(B256, u64), L1BlockRef>,
     last_completion: Option<(L1BlockRef, u64)>,
     completion_observations: [u64; 2],
+    // Observations only: never consulted for admission, ownership or recovery.
+    recent_removals: VecDeque<LocalRemoval>,
 }
 
 fn now_ms() -> u64 {
@@ -68,8 +84,47 @@ fn direction_name(direction: Direction) -> &'static str {
 
 impl QueueTelemetry {
     pub fn admitted(&mut self, hash: B256) {
+        self.recent_removals.retain(|removed| removed.hash != hash);
         self.admitted_at.insert(hash, now_ms());
         self.ready.remove(&hash);
+    }
+
+    pub fn removed(
+        &mut self,
+        hash: B256,
+        identity: (Address, Direction, u64),
+        reason: TerminalReason,
+        replacement: Option<B256>,
+    ) {
+        self.recent_removals.retain(|removed| removed.hash != hash);
+        if self.recent_removals.len() == MAX_RECENT_REMOVALS {
+            self.recent_removals.pop_front();
+        }
+        self.recent_removals.push_back(LocalRemoval {
+            hash,
+            sender: identity.0,
+            direction: identity.1,
+            nonce: identity.2,
+            reason,
+            replacement,
+            observed_at_ms: now_ms(),
+        });
+    }
+
+    fn removal_status(&self, hash: B256) -> Option<Value> {
+        let removed = self
+            .recent_removals
+            .iter()
+            .rev()
+            .find(|removed| removed.hash == hash)?;
+        Some(json!({
+            "hash": hash, "sender": removed.sender, "direction": direction_name(removed.direction),
+            "nonce": removed.nonce, "lifecycle": "terminal", "ownerGeneration": null,
+            "ownership": {"state": "terminal", "reason": format!("{:?}", removed.reason),
+                "canonical": null, "observedAtMs": removed.observed_at_ms,
+                "replacementHash": removed.replacement},
+            "blocking": null,
+        }))
     }
 
     pub fn retain(
@@ -79,6 +134,13 @@ impl QueueTelemetry {
         ledger: &OptimisticallyIncluded,
     ) {
         ledger.read(|data| {
+            // Once an identity has live or authoritative ownership, its older
+            // local observation must never resurface after finality pruning.
+            self.recent_removals.retain(|removed| {
+                !queued.contains(&removed.hash)
+                    && !in_flight.contains_key(&removed.hash)
+                    && !data.users.contains_key(&removed.hash)
+            });
             self.admitted_at.retain(|hash, _| {
                 queued.contains(hash)
                     || in_flight.contains_key(hash)
@@ -224,14 +286,17 @@ impl HeldPool {
                 json!({"l1Block": {"number": block.number, "hash": block.hash}, "observedAtMs": time}))})
     }
 
-    /// Inspect one identity while its pool or existing ledger record is retained.
+    /// Inspect current ownership, or a bounded local removal observation when
+    /// the identity is absent from both the live pool and settlement ledger.
     pub fn transaction_status(&self, hash: B256) -> Option<Value> {
         let state = self.state.lock().expect("held_pool mutex poisoned");
         state.ledger.read(|data| {
             let owner = data.users.get(&hash);
             let tx = state.txs.iter().find(|tx| tx.hash == hash).or_else(|| owner.map(|u| &u.tx));
-            let (sender, direction, nonce) = tx.map(|tx| (tx.sender, tx.direction, tx.nonce))
-                .or_else(|| state.in_flight.get(&hash).copied())?;
+            let Some((sender, direction, nonce)) = tx.map(|tx| (tx.sender, tx.direction, tx.nonce))
+                .or_else(|| state.in_flight.get(&hash).copied()) else {
+                    return state.telemetry.removal_status(hash);
+                };
             let ownership = owner.map(|user| match &user.location {
                 UserLocation::Queued => json!({"state": "queued"}),
                 UserLocation::Composing => json!({"state": "composing"}),
@@ -556,6 +621,61 @@ mod tests {
                 .oldest_pending_at_ms,
             None
         );
+    }
+
+    #[test]
+    fn authoritative_status_retires_local_removal_even_after_ledger_pruning() {
+        let ledger = std::sync::Arc::new(OptimisticallyIncluded::default());
+        let pool = HeldPool::new(ledger.clone());
+        let tx = HeldTx {
+            raw_tx: Bytes::new(),
+            hash: B256::repeat_byte(1),
+            sender: Address::repeat_byte(2),
+            direction: Direction::Inbound,
+            nonce: 0,
+            attempts: 0,
+            max_fee_per_gas: 1,
+            priority_fee_per_gas: 1,
+        };
+        pool.push_contiguous(tx.clone(), 0).unwrap();
+        let _ = pool.evict_chain_at_or_above(tx.sender, tx.direction, 0);
+        assert_eq!(
+            pool.transaction_status(tx.hash).unwrap()["ownership"]["reason"],
+            "PoolDiscarded"
+        );
+        // Supply an authoritative observation directly: this tests status
+        // precedence and retention, not canonical reconciliation itself.
+        ledger
+            .update(|state| {
+                state.users.insert(
+                    tx.hash,
+                    crate::optimistic::OwnedUser {
+                        tx: tx.clone(),
+                        owner: 7,
+                        fifo_position: 0,
+                        location: UserLocation::Terminal {
+                            reason: TerminalReason::Committed,
+                            canonical: Some(L1BlockRef {
+                                number: 1,
+                                hash: B256::repeat_byte(3),
+                            }),
+                        },
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+        pool.release_in_flight_batch(&[]);
+        let status = pool.transaction_status(tx.hash).unwrap();
+        assert_eq!(status["ownerGeneration"], 7);
+        assert_eq!(status["ownership"]["reason"], "Committed");
+        ledger
+            .update(|state| {
+                state.users.remove(&tx.hash);
+                Ok(())
+            })
+            .unwrap();
+        assert!(pool.transaction_status(tx.hash).is_none());
     }
 
     #[test]
