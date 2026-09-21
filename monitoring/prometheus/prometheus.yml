@@ -2,6 +2,9 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
-# EEZ scrape targets will be added individually when their metric contracts are
-# defined. This initial stack intentionally collects no EEZ data.
-scrape_configs: []
+scrape_configs:
+  - job_name: eez-composer-reth
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 127.0.0.1:19091

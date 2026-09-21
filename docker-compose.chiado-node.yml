@@ -160,6 +160,8 @@ services:
       - --disable-discovery
       - --engine.persistence-threshold=256
       - --engine.memory-block-buffer-target=128
+      # Existing Reth metrics, kept on localhost for the optional monitoring stack.
+      - --metrics=127.0.0.1:19091
       - --log.stdout.format=json
     logging:
       driver: "local"
