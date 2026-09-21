@@ -17,10 +17,11 @@ pub use limits::{BlobLimitError, BlobLimits};
 
 pub use transport::{
     BlobSidecarEncoding, BlobTransactionParams, MAX_BLOBS_PER_TRANSACTION, PreparedBlobSidecar,
-    PreparedBlobTransaction, SignedBlobTransaction, TransportError, blob_kzg_commitments,
-    blob_versioned_hashes, pooled_blob_transaction_hash, prepare_blob_sidecar,
-    prepare_blob_sidecar_with_limit, prepare_blob_transaction,
-    prepare_blob_transaction_with_sidecar, reprice_blob_transaction, sign_blob_transaction,
+    PreparedBlobTransaction, SignedBlobTransaction, TransportError, blob_kzg_commitment_from_bytes,
+    blob_kzg_commitments, blob_versioned_hash_from_bytes, blob_versioned_hashes,
+    pooled_blob_transaction_hash, prepare_blob_sidecar, prepare_blob_sidecar_with_limit,
+    prepare_blob_transaction, prepare_blob_transaction_with_sidecar, reprice_blob_transaction,
+    sign_blob_transaction,
 };
 
 use alloy_primitives::{Address, Bytes, U256};

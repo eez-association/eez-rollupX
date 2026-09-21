@@ -19,7 +19,7 @@ use alloy_eips::{
 use alloy_network::TxSignerSync;
 use alloy_primitives::{Address, B256, Bytes, Signature, TxHash, U256};
 
-use crate::Blob;
+use crate::{BLOB_BYTES, Blob};
 
 /// Legacy posting profile bound. Enabled network-aware paths supply the
 /// selected fork's limit explicitly, independent of the sidecar encoding.
@@ -122,6 +122,8 @@ pub enum TransportError {
         "blob transaction contains {actual} blobs; the supported transaction maximum is {maximum}"
     )]
     TooManyBlobs { actual: usize, maximum: usize },
+    #[error("blob has {actual} bytes; expected {expected}")]
+    InvalidBlobLength { actual: usize, expected: usize },
     #[error("failed to construct or validate the KZG sidecar: {0}")]
     Kzg(#[from] c_kzg::Error),
     #[error("KZG sidecar validation failed: {0}")]
@@ -198,17 +200,38 @@ pub fn blob_versioned_hashes(blobs: &[Blob]) -> Result<Vec<B256>, TransportError
     })
 }
 
+/// Compute the EIP-4844 versioned hash of one consensus blob.
+///
+/// Unlike the strict EEZ helper, this accepts the full EIP-4844 field-element
+/// domain. It does not impose EEZ's narrower 31-byte stream packing, so callers
+/// can authenticate all blobs in a containing block before selecting the blobs
+/// committed by an EEZ transaction.
+pub fn blob_versioned_hash_from_bytes(blob: &[u8]) -> Result<B256, TransportError> {
+    blob_kzg_commitment_from_bytes(blob).map(|commitment| kzg_to_versioned_hash(&commitment))
+}
+
+/// Compute the canonical KZG commitment of one consensus blob without applying
+/// EEZ stream-format validation.
+pub fn blob_kzg_commitment_from_bytes(blob: &[u8]) -> Result<[u8; 48], TransportError> {
+    if blob.len() != BLOB_BYTES {
+        return Err(TransportError::InvalidBlobLength {
+            actual: blob.len(),
+            expected: BLOB_BYTES,
+        });
+    }
+    let alloy_blob = AlloyBlob::from_slice(blob);
+    let commitment = EnvKzgSettings::Default
+        .get()
+        .blob_to_kzg_commitment(alloy_blob.as_ckzg())?;
+    Ok(commitment.to_bytes().into_inner())
+}
+
 /// Compute each physical blob's canonical 48-byte KZG commitment without
 /// constructing propagation proofs.
 pub fn blob_kzg_commitments(blobs: &[Blob]) -> Result<Vec<[u8; 48]>, TransportError> {
-    let settings = EnvKzgSettings::Default.get();
     blobs
         .iter()
-        .map(|blob| {
-            let alloy_blob = AlloyBlob::from_slice(blob.as_ref());
-            let commitment = settings.blob_to_kzg_commitment(alloy_blob.as_ckzg())?;
-            Ok(commitment.to_bytes().into_inner())
-        })
+        .map(|blob| blob_kzg_commitment_from_bytes(blob.as_ref()))
         .collect()
 }
 
