@@ -289,3 +289,22 @@ Local read-only audit evidence is in `indexer/review-20260921/` under the runtim
 directory above. The reviewed change passed six default tests (database recovery
 was not rerun; no persistence logic changed), Clippy, formatting and all five
 Grafana queries, including whole-history, narrow and empty range checks.
+
+The L2-fee extension adds bounded, resumable receipt collection for finalized
+ranges. All nine indexer tests passed (eight default tests plus the disposable
+PostgreSQL recovery test), along with formatting, Clippy, Compose rendering and
+the release image build. The latest posting's range 277291–277305 independently
+matched L2 receipts: 8878205 wei burned and 1268314993420875 wei in tips. Both
+Grafana tables expose the completed totals; older ranges continue backfilling.
+These fees include all L2 transactions in the range, including system transactions.
+
+The accompanying Composer fix sizes posting gas before storage refunds. Its
+historical replay and unit regression cover the previous low-limit failure;
+fee estimates still use post-refund receipt gas. After integrating main
+`3f1c8cba`, 218 Composer and 47 node unit tests passed, with only the existing
+manual timing profile ignored. Composer/node and indexer Clippy passed. The
+indexer/dashboard changes are deployed locally; the Composer gas fix is **not**
+yet deployed. Full native E2E and a post-fix live traffic wave remain release
+validation, not claims made by these unit and historical-replay checks. Deploy
+Composer and proof signer together from the same lockfile as documented in the
+[parent monitoring guide](../README.md).
