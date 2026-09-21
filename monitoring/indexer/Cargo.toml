@@ -1,0 +1,27 @@
+[package]
+name = "eez-indexer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT"
+
+# Monitoring is independently deployable and must not change the node's lockfile.
+[workspace]
+
+[dependencies]
+alloy-primitives = { version = "=1.6.0", features = ["serde"] }
+alloy-sol-types = "=1.6.0"
+anyhow = "1"
+futures-util = { version = "0.3", features = ["sink"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "=0.10.9"
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7.18"
+tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+axum = { version = "0.8.9", features = ["ws"] }

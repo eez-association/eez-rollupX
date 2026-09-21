@@ -328,6 +328,7 @@ impl PoolState {
             blocked_reasons: reasons,
             oldest_pending_at_ms: oldest,
             last_completion_at_ms: telemetry.last_completion.map(|(_, time)| time),
+            last_completion_l1_block: telemetry.last_completion.map(|(block, _)| block.number),
             completion_observations: telemetry.completion_observations,
             oldest_service_at_ms: oldest_service,
             // Reorg invalidation clears current source state but retains the
@@ -350,6 +351,8 @@ pub struct QueueSnapshot {
     pub oldest_pending_at_ms: Option<u64>,
     /// Local observation time of the latest retained canonical cross-chain completion.
     pub last_completion_at_ms: Option<u64>,
+    /// L1 state against which completion was confirmed, not necessarily its inclusion block.
+    pub last_completion_l1_block: Option<u64>,
     /// Inbound/outbound canonical-completion observations since process start.
     /// Reobservation after reorg counts again; these are not unique-user totals.
     pub completion_observations: [u64; 2],

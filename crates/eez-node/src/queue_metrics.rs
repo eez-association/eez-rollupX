@@ -19,6 +19,7 @@ struct QueueMetrics {
     oldest_pending_at: Gauge,
     evaluated_at: Gauge,
     last_completion_at: Gauge,
+    last_completion_l1_block: Gauge,
     completions: [metrics::Counter; 2],
     sampled_at: Gauge,
 }
@@ -56,6 +57,11 @@ impl QueueMetrics {
             "Start time of the last source-state evaluation; NaN before evaluation or after invalidation"
         );
         let rollup = rollup_id.to_string();
+        metrics::describe_gauge!(
+            "eez_composer_queue_last_completion_l1_block",
+            Unit::Count,
+            "L1 state block used to confirm the latest retained completion; not necessarily the transaction inclusion block"
+        );
         metrics::describe_counter!(
             "eez_composer_queue_completion_observations_total",
             Unit::Count,
@@ -78,6 +84,7 @@ impl QueueMetrics {
             oldest_pending_at: metrics::gauge!("eez_composer_queue_oldest_pending_timestamp_seconds", "rollup_id" => rollup.clone()),
             evaluated_at: metrics::gauge!("eez_composer_queue_evaluation_timestamp_seconds", "rollup_id" => rollup.clone()),
             last_completion_at: metrics::gauge!("eez_composer_queue_last_completion_timestamp_seconds", "rollup_id" => rollup.clone()),
+            last_completion_l1_block: metrics::gauge!("eez_composer_queue_last_completion_l1_block", "rollup_id" => rollup.clone()),
             completions: ["inbound", "outbound"].map(|direction|
                 metrics::counter!("eez_composer_queue_completion_observations_total", "rollup_id" => rollup.clone(), "direction" => direction)),
             sampled_at: metrics::gauge!("eez_composer_queue_sample_timestamp_seconds", "rollup_id" => rollup),
@@ -86,6 +93,11 @@ impl QueueMetrics {
 
     #[allow(clippy::cast_precision_loss)] // Counts cannot practically approach f64's integer limit.
     fn record(&self, snapshot: QueueSnapshot, sampled_at: f64) {
+        self.last_completion_l1_block.set(
+            snapshot
+                .last_completion_l1_block
+                .map_or(f64::NAN, |n| n as f64),
+        );
         for (counter, count) in self
             .completions
             .iter()
@@ -206,10 +218,15 @@ mod tests {
         snapshot.oldest_pending_at_ms = Some(1_250);
         snapshot.evaluated_at_ms = Some(2_500);
         snapshot.last_completion_at_ms = Some(1_500);
+        snapshot.last_completion_l1_block = Some(123);
         snapshot.completion_observations = [2, 3];
         metrics.record(snapshot.clone(), 3.0);
         metrics.record(snapshot, 3.0);
         let output = handle.render();
+        assert!(
+            output
+                .contains("reth_eez_composer_queue_last_completion_l1_block{rollup_id=\"7\"} 123")
+        );
         for (direction, count) in [("inbound", 2), ("outbound", 3)] {
             assert!(
                 output.lines().any(|line| {
@@ -241,6 +258,9 @@ mod tests {
         assert_eq!(reason_values(&output).iter().sum::<usize>(), 5);
         metrics.record(pool.queue_snapshot(), 4.0);
         let empty = handle.render();
+        assert!(
+            empty.contains("reth_eez_composer_queue_last_completion_l1_block{rollup_id=\"7\"} NaN")
+        );
         assert_eq!(reason_values(&empty), vec![0; 4]);
         for family in ["evaluation", "oldest_pending", "last_completion"] {
             assert!(empty.contains(&format!(
@@ -255,7 +275,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.starts_with("reth_eez_composer_queue_"))
                 .count(),
-            17
+            18
         );
     }
 

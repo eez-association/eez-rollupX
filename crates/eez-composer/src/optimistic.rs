@@ -780,18 +780,21 @@ mod tests {
                 ledger.pending_attempt().map(|a| a.observation)
             );
             assert_eq!(pool.queue_snapshot().last_completion_at_ms, None);
+            assert_eq!(pool.queue_snapshot().last_completion_l1_block, None);
             let outcomes = vec![SourceOutcome::Terminal(TerminalReason::Committed); txs.len()];
             assert_eq!(ledger.attempt_user_counts(id), Some([3, 0]));
             pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
                 .unwrap();
             assert_eq!(ledger.pending_observation(), None);
             assert!(pool.queue_snapshot().last_completion_at_ms.is_some());
+            assert_eq!(pool.queue_snapshot().last_completion_l1_block, Some(100));
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
             pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
                 .unwrap();
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
             pool.invalidate_after_l1(99).unwrap();
             assert_eq!(pool.queue_snapshot().last_completion_at_ms, None);
+            assert_eq!(pool.queue_snapshot().last_completion_l1_block, None);
             assert!(ledger.pending_observation().is_some());
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
             pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)

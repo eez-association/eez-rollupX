@@ -1,0 +1,15 @@
+{
+  "http_url": "http://127.0.0.1:18645",
+  "ws_url": "ws://127.0.0.1:18646",
+  "chain_id": 10200,
+  "genesis_hash": "REPLACE_WITH_L1_GENESIS_BLOCK_HASH",
+  "registry": "REPLACE_WITH_DEPLOYED_REGISTRY_ADDRESS",
+  "rollup_id": 1,
+  "start_block": 1,
+  "details": {
+    "l2_http_url": "http://127.0.0.1:18688",
+    "l2_chain_id": 6291,
+    "l2_genesis_hash": "REPLACE_WITH_L2_GENESIS_BLOCK_HASH",
+    "beacon_url": "http://127.0.0.1:6152"
+  }
+}
