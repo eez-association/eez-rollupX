@@ -295,6 +295,9 @@ authoritative procedures instead of duplicating them.
 
 ### Records and operations
 
+For the optional Prometheus/Grafana stack and Composer queue metric semantics,
+see [monitoring/README.md](monitoring/README.md).
+
 | Record | Use |
 | --- | --- |
 | [Proposal](docs/proposals/TEMPLATE.md): `docs/proposals/<topic>.md` | Before substantial design/behavior changes, record scope, invariants, alternatives, acceptance checks, and actual draft/accepted status. Extend a relevant existing proposal. |

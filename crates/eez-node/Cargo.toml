@@ -74,6 +74,7 @@ rustix.workspace     = true
 eyre.workspace    = true
 tokio.workspace   = true
 tracing.workspace = true
+metrics.workspace = true
 
 [dev-dependencies]
 reth-provider = { workspace = true, features = ["test-utils"] }
@@ -81,6 +82,8 @@ alloy-genesis = { version = "2", default-features = false }
 alloy-network.workspace = true
 alloy-rpc-types-eth.workspace = true
 tempfile = "3"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+metrics-util = { version = "0.20.4", default-features = false }
 
 [lints]
 workspace = true

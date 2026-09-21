@@ -7,4 +7,6 @@ datasources:
     access: proxy
     url: $PROMETHEUS_URL
     isDefault: true
+    jsonData:
+      timeInterval: 1s
     editable: false
