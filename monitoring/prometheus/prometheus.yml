@@ -4,7 +4,15 @@ global:
 
 scrape_configs:
   - job_name: eez-composer-reth
+    scrape_interval: 1s
+    scrape_timeout: 1s
     metrics_path: /metrics
     static_configs:
       - targets:
           - 127.0.0.1:19091
+    # Native Reth chain metrics mix embedded L1 and L2. Keep only the
+    # explicitly Composer-owned queue families for this first dashboard.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: reth_eez_composer_(queue_(requests|readiness_requests|blocked_requests|sample_timestamp_seconds|oldest_pending_timestamp_seconds|evaluation_timestamp_seconds|last_completion_timestamp_seconds)|settlement_(due|trigger|anchor_timestamp_seconds|anchor_l2_block|unsettled_blocks|block_threshold|pure_interval_deadline_timestamp_seconds|target_timestamp_seconds|evaluation_timestamp_seconds|submission))
+        action: keep

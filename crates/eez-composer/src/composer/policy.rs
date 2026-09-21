@@ -27,6 +27,73 @@ struct RollupPolicy {
     sequencing_target: Option<u64>,
     /// Observed encoding/KZG/witness preparation, before the proof itself.
     preparation_times: VecDeque<Duration>,
+    observation: Option<(u64, SettlementPolicyObservation)>,
+}
+
+/// Last successful policy evaluation. A due decision is not a submission or
+/// evidence that settlement occurred. The anchor can be the initial registration.
+#[derive(Clone, Copy, Debug)]
+pub struct SettlementPolicyObservation {
+    pub decision: PolicyDecision,
+    pub anchor: SettlementAnchor,
+    pub target_l1_timestamp: u64,
+    pub block_threshold: u64,
+    /// Conditional pure-L2 deadline, not a guarantee of inclusion at this time.
+    pub pure_interval_deadline_ms: Option<u64>,
+    pub evaluated_at_ms: u64,
+}
+
+impl RollupPolicy {
+    fn observed_policy(
+        &self,
+        canonical: eez_l1::l1_canonical_head::PolicyAnchorSnapshot,
+    ) -> Option<SettlementPolicyObservation> {
+        let (generation, observation) = self.observation?;
+        (canonical.through.is_some()
+            && canonical.generation == generation
+            && canonical.endpoint == Some(observation.anchor.endpoint))
+        .then_some(observation)
+    }
+}
+
+/// Bounded read-only policy/ledger observations; no provider or RPC calls.
+#[derive(Clone, Debug)]
+pub struct SettlementStatus {
+    pub policy: Option<SettlementPolicyObservation>,
+    /// Lowest unresolved attempt's observation. Inclusion alone is not completion.
+    pub pending_submission: Option<crate::optimistic::SubmissionObservation>,
+}
+
+fn interval_deadline(
+    anchor_seconds: u64,
+    mode: crate::settlement_policy::PureL2Mode,
+    has_pure: bool,
+) -> Option<u64> {
+    match mode {
+        crate::settlement_policy::PureL2Mode::Interval { milliseconds } if has_pure => {
+            anchor_seconds
+                .checked_mul(1000)?
+                .checked_add(milliseconds.get())
+        }
+        _ => None,
+    }
+}
+
+impl<L2: BlockReader> Composer<L2> {
+    /// Read existing policy and submission state without cloning transaction
+    /// payloads. A new canonical generation hides an obsolete policy evaluation.
+    pub fn settlement_status(&self, rollup_id: u64) -> Option<SettlementStatus> {
+        let rollup = self.inner.rollups.get(&rollup_id)?;
+        let runtime = self.inner.policy.rollups.get(&rollup_id)?;
+        let policy = runtime
+            .lock()
+            .unwrap()
+            .observed_policy(rollup.l1_head.policy_anchor_snapshot());
+        Some(SettlementStatus {
+            policy,
+            pending_submission: rollup.optimistic.pending_observation(),
+        })
+    }
 }
 
 /// Urgency belongs to the held groups, not to each newly scheduled empty Sync.
@@ -605,6 +672,11 @@ where
         cross_chain: CrossChainWork,
         overhead: DaOverhead,
     ) -> Result<PolicyDecision, PolicyError> {
+        // Errors or cancelled evaluations must not leave a previous successful
+        // decision looking like the outcome of this opportunity.
+        if let Some(runtime) = self.inner.policy.rollups.get(&rollup_id) {
+            runtime.lock().unwrap().observation = None;
+        }
         let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
         let endpoint = anchor.endpoint;
         let policy = &self.inner.policy;
@@ -821,6 +893,21 @@ where
                 drain_coverage,
             },
         )?;
+        runtime.observation = Some((
+            snapshot.generation,
+            SettlementPolicyObservation {
+                decision,
+                anchor,
+                target_l1_timestamp,
+                block_threshold: policy.config.max_unsettled_l2_blocks.get(),
+                pure_interval_deadline_ms: interval_deadline(
+                    anchor.l1_timestamp,
+                    policy.config.pure_l2,
+                    latest_pure_block.is_some(),
+                ),
+                evaluated_at_ms: crate::prover_retry::unix_time_millis(),
+            },
+        ));
         event!(name: "eez.composer.settlement.decision", Level::INFO, rollup_id,
             event_name = "eez.composer.settlement.decision",
             reasons = ?decision.reasons, due = decision.is_due(), required_endpoint = ?decision.required_endpoint,
@@ -919,6 +1006,90 @@ fn validate_retained_byte_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_deadline_is_conditional_and_uses_the_canonical_anchor() {
+        use crate::settlement_policy::PureL2Mode;
+        let interval = PureL2Mode::Interval {
+            milliseconds: 15_000.try_into().unwrap(),
+        };
+        assert_eq!(interval_deadline(100, interval, true), Some(115_000));
+        assert_eq!(interval_deadline(110, interval, true), Some(125_000));
+        assert_eq!(interval_deadline(100, interval, false), None);
+        assert_eq!(interval_deadline(100, PureL2Mode::Always, true), None);
+        assert_eq!(interval_deadline(u64::MAX, interval, true), None);
+    }
+
+    #[test]
+    fn telemetry_rejects_incomplete_or_changed_canonical_evidence() {
+        use eez_l1::{L1BlockRef, L2Endpoint, l1_canonical_head::PolicyAnchorSnapshot};
+        let endpoint = L2Endpoint {
+            number: 10,
+            hash: B256::repeat_byte(10),
+        };
+        let l1 = L1BlockRef {
+            number: 100,
+            hash: B256::repeat_byte(100),
+        };
+        let canonical = PolicyAnchorSnapshot {
+            generation: 1,
+            through: Some(l1),
+            endpoint: Some(endpoint),
+            commitment: None,
+        };
+        let mut runtime = RollupPolicy::default();
+        assert!(runtime.observed_policy(canonical).is_none());
+        runtime.observation = Some((
+            1,
+            SettlementPolicyObservation {
+                decision: PolicyDecision {
+                    reasons: crate::settlement_policy::DueReasons::GENERAL,
+                    required_endpoint: Some(endpoint),
+                    unsettled_blocks: 150,
+                    settlement_age_ms: 1000,
+                },
+                anchor: SettlementAnchor {
+                    l1,
+                    endpoint,
+                    l1_timestamp: 1000,
+                    tx_hash: B256::ZERO,
+                    tx_index: 0,
+                },
+                target_l1_timestamp: 1005,
+                block_threshold: 150,
+                pure_interval_deadline_ms: None,
+                evaluated_at_ms: 1000,
+            },
+        ));
+        assert!(
+            runtime
+                .observed_policy(canonical)
+                .unwrap()
+                .decision
+                .is_due()
+        );
+        for changed in [
+            PolicyAnchorSnapshot {
+                generation: 2,
+                ..canonical
+            },
+            PolicyAnchorSnapshot {
+                through: None,
+                ..canonical
+            },
+            PolicyAnchorSnapshot {
+                endpoint: Some(L2Endpoint {
+                    hash: B256::repeat_byte(11),
+                    ..endpoint
+                }),
+                ..canonical
+            },
+        ] {
+            assert!(runtime.observed_policy(changed).is_none());
+        }
+        runtime.observation = None; // A new evaluation clears its previous outcome before awaiting.
+        assert!(runtime.observed_policy(canonical).is_none());
+    }
 
     #[test]
     fn historical_recovery_relearns_after_a_slow_preparation() {

@@ -1,0 +1,598 @@
+{
+  "uid": "eez-composer-queue",
+  "title": "EEZ Composer queue",
+  "description": "Composer-owned cross-chain queue membership. Native Reth chain metrics are not used because embedded L1 and L2 share a recorder.",
+  "tags": [
+    "eez",
+    "composer"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Composer scrape",
+      "description": "Prometheus can scrape the process. This does not establish queue collection or settlement health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"eez-composer-reth\"}",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Up",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Queue sample age",
+      "description": "Age of the last successful membership/telemetry sample. Sampling and scraping run every second. Queue charts hide samples at least 10 seconds old. This timestamp is independent of source-state evaluation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) and (reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"} > 0)",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Queued cross-chain requests",
+      "description": "Held requests awaiting composition, including requests that may be blocked or not yet evaluated. Inbound originates on L1; outbound originates on L2. Values are sampled; brief transitions may not be visible. Missing or stale telemetry is a gap, never an empty queue. Queue state is in memory and may reset on restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"queued\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}} \u00b7 rollup {{rollup_id}} \u00b7 {{instance}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "In-flight cross-chain requests",
+      "description": "Outstanding held-pool reservations, including composition and waiting for settlement evidence. This is not the number of concurrently executing requests or a count of all unsettled historical transactions. Values are sampled; brief transitions may not be visible. Missing or stale telemetry is a gap, never an empty queue. Queue state is in memory and may reset on restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"in_flight\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}} \u00b7 rollup {{rollup_id}} \u00b7 {{instance}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Last evaluation age",
+      "description": "Age of the last source-state evaluation start, not sample age or completion time. It may increase when idle. Unknown before evaluation or after reorg invalidation. Read alongside the last-evaluated readiness charts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_queue_evaluation_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Last-evaluated queue readiness",
+      "description": "Cached ready / blocked / unknown classifications of queued requests across both directions. They sum to queued membership in each pool snapshot. Consult Last evaluation age: a fresh sample does not establish fresh readiness. In-flight work is excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{status}} \u00b7 rollup {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Last-evaluated blocking reasons",
+      "description": "Queued requests blocked by nonce, fee, balance or escrow, including affected successors. Across both directions. These are cached observations from the last evaluated source state; consult Last evaluation age.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_queue_blocked_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{reason}} \u00b7 rollup {{rollup_id}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Oldest tracked pending request",
+      "description": "Age since the earliest retained in-memory admission among queued and in-flight requests. Replacement starts a new admission. Recovery preserves retained timestamps. Empty queue or missing history is unknown. This is not end-to-end latency.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Metrics endpoint scrape duration",
+      "description": "Prometheus still fetches and parses the full Reth endpoint before retaining the allowlisted queue metrics. Scrape interval and timeout are one second. This measures scrape elapsed time, not CPU overhead.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_duration_seconds{job=\"eez-composer-reth\"}",
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "interval": "1s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "noValue": "Unknown",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Last cross-chain completion age",
+      "description": "Local observation time of the latest retained canonical cross-chain completion. Unknown on restart or invalidating reorg. A quiet period is not automatically a stall; use the Settlement dashboard for policy triggers and submission observations.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Settlement",
+      "url": "/d/eez-settlement"
+    }
+  ]
+}

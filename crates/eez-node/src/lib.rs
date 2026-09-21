@@ -8,7 +8,9 @@
 mod bundle_rpc;
 mod ingress;
 mod l1_embedded;
+mod queue_metrics;
 mod queue_rpc;
+mod settlement_metrics;
 mod witness_source;
 
 // Offline/native recovery tools use the same validated persistent reader as the producer.
@@ -494,6 +496,7 @@ async fn launch_composer(
     _ext: NoRoleArgs,
     chain_document_digest: B256,
 ) -> eyre::Result<()> {
+    let metrics_enabled = builder.config().metrics.prometheus.is_some();
     event!(
         name: "eez.node.launching",
         Level::INFO,
@@ -1097,6 +1100,14 @@ async fn launch_composer(
     };
 
     let l2_source_chain_id = chain_spec.chain().id();
+    if metrics_enabled {
+        queue_metrics::spawn(
+            Arc::clone(&held_pool),
+            composer.clone(),
+            rollup_config.rollup_id,
+            &task_executor,
+        );
+    }
     // Resolve both required fronts now. Their upstream chain-id checks run
     // after the L1 readiness gate so the ports can bind while L1 catches up.
     let mut xchain_fronts = Vec::new();

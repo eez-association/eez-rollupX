@@ -63,6 +63,7 @@ mod config;
 mod costs;
 mod gas;
 mod policy;
+pub use policy::{SettlementPolicyObservation, SettlementStatus};
 mod posting;
 mod selection;
 mod sequencing;

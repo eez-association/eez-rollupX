@@ -29,7 +29,7 @@ use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
 mod status;
-pub use status::SourceState;
+pub use status::{QueueCounts, QueueSnapshot, SourceState};
 
 /// A cross-chain transaction held between submission and Sync-slot
 /// composition.
@@ -925,6 +925,101 @@ mod tests {
             );
             pool.release_in_flight_batch(&ready);
         }
+    }
+
+    #[test]
+    fn queue_counts_track_both_directions_replacement_recovery_and_release() {
+        let pool = HeldPool::new(Default::default());
+        let check = |iq, ifl, oq, ofl| {
+            assert_eq!(
+                pool.queue_snapshot().counts,
+                [
+                    (
+                        Direction::Inbound,
+                        QueueCounts {
+                            queued: iq,
+                            in_flight: ifl
+                        }
+                    ),
+                    (
+                        Direction::Outbound,
+                        QueueCounts {
+                            queued: oq,
+                            in_flight: ofl
+                        }
+                    ),
+                ]
+            );
+            let rpc = pool.queue_status();
+            assert_eq!(rpc["queued"], iq + oq);
+            assert_eq!(rpc["inFlight"], ifl + ofl);
+        };
+        check(0, 0, 0, 0);
+        let inbound = tx_dir(1, Direction::Inbound);
+        let outbound = tx_dir(2, Direction::Outbound);
+        insert(&pool, inbound.clone(), inbound.nonce);
+        insert(&pool, inbound.clone(), inbound.nonce); // Exact duplicates add no membership.
+        insert(&pool, outbound.clone(), outbound.nonce);
+        check(1, 0, 1, 0);
+        let replacement = HeldTx {
+            hash: B256::repeat_byte(99),
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 100,
+            ..inbound.clone()
+        };
+        insert(&pool, replacement.clone(), replacement.nonce);
+        check(1, 0, 1, 0);
+        let drained = pool.pop_all();
+        check(0, 1, 0, 1);
+        pool.push_front_batch(drained.clone());
+        pool.push_front_batch(drained);
+        check(1, 0, 1, 0);
+        assert!(pool.claim(&replacement));
+        check(0, 1, 1, 0);
+        pool.release_in_flight_batch(&[replacement]);
+        check(0, 0, 1, 0);
+        assert_eq!(
+            pool.evict_chain_at_or_above(outbound.sender, outbound.direction, outbound.nonce),
+            vec![outbound],
+        );
+        check(0, 0, 0, 0);
+        assert_eq!(
+            pool.queue_snapshot().counts,
+            HeldPool::new(Default::default()).queue_snapshot().counts
+        );
+    }
+
+    #[test]
+    fn queue_counts_do_not_lose_membership_during_concurrent_drain_and_recovery() {
+        let pool = HeldPool::new(Default::default());
+        for tx in [
+            tx_dir(1, Direction::Inbound),
+            tx_dir(2, Direction::Outbound),
+        ] {
+            let nonce = tx.nonce;
+            insert(&pool, tx, nonce);
+        }
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let barrier = &barrier;
+            let pool = &pool;
+            let writer = scope.spawn(move || {
+                for _ in 0..100 {
+                    barrier.wait();
+                    let drained = pool.pop_all();
+                    pool.push_front_batch(drained);
+                    barrier.wait();
+                }
+            });
+            for _ in 0..100 {
+                barrier.wait();
+                for (_, counts) in pool.queue_snapshot().counts {
+                    assert_eq!(counts.queued + counts.in_flight, 1);
+                }
+                barrier.wait();
+            }
+            writer.join().unwrap();
+        });
     }
 
     #[test]

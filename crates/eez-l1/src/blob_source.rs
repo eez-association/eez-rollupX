@@ -12,7 +12,8 @@ use alloy_primitives::{B256, Bytes, U256, hex};
 use alloy_provider::Provider;
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
-    Blob, BlobLimits, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
+    Blob, BlobLimits, MAX_BLOBS_PER_TRANSACTION, blob_kzg_commitment_from_bytes,
+    blob_versioned_hash_from_bytes, decode_native_payload,
 };
 use eez_protocol::abi::postAndVerifyBatchCall;
 use serde_json::Value;
@@ -33,7 +34,7 @@ struct BeaconTiming {
 #[derive(Debug, Clone)]
 struct AvailableBlob {
     versioned_hash: B256,
-    blob: Blob,
+    bytes: Bytes,
 }
 
 /// Consensus-layer source shared by repeated scans. Chain timing is immutable
@@ -176,7 +177,14 @@ impl BeaconBlobSource {
                         ),
                     });
                 };
-                transaction_blobs.push(found.blob.clone());
+                let blob_index = transaction_blobs.len();
+                let blob = Blob::try_from_slice(blob_index, &found.bytes).map_err(|error| {
+                    L1Error::Decode(format!(
+                        "decode authenticated native blob payload for {}: {error}",
+                        scanned.tx_hash
+                    ))
+                })?;
+                transaction_blobs.push(blob);
             }
 
             let native = decode_native_payload(&transaction_blobs, rollup_id).map_err(|error| {
@@ -424,13 +432,9 @@ fn parse_sidecars(value: &Value) -> Result<Vec<AvailableBlob>, String> {
                 commitment.len()
             ));
         }
-        let blob = Blob::try_from_slice(position, &blob_bytes)
-            .map_err(|error| format!("data[{position}].blob: {error}"))?;
-        let computed_hash = blob_versioned_hashes(std::slice::from_ref(&blob))
-            .map_err(|error| format!("data[{position}].blob KZG commitment: {error}"))?
-            .into_iter()
-            .next()
-            .expect("one input blob produces one hash");
+        let computed_commitment = blob_kzg_commitment_from_bytes(&blob_bytes)
+            .map_err(|error| format!("data[{position}].blob KZG commitment: {error}"))?;
+        let computed_hash = kzg_to_versioned_hash(&computed_commitment);
         let advertised_hash = kzg_to_versioned_hash(&commitment);
         if computed_hash != advertised_hash {
             return Err(format!(
@@ -439,7 +443,7 @@ fn parse_sidecars(value: &Value) -> Result<Vec<AvailableBlob>, String> {
         }
         available.push(AvailableBlob {
             versioned_hash: computed_hash,
-            blob,
+            bytes: blob_bytes.into(),
         });
     }
     Ok(available)
@@ -459,16 +463,11 @@ fn parse_blobs(value: &Value) -> Result<Vec<AvailableBlob>, String> {
             .as_str()
             .ok_or_else(|| format!("data[{position}] is not a blob string"))?;
         let blob_bytes = decode_hex(blob_hex, &format!("data[{position}]"))?;
-        let blob = Blob::try_from_slice(position, &blob_bytes)
-            .map_err(|error| format!("data[{position}]: {error}"))?;
-        let versioned_hash = blob_versioned_hashes(std::slice::from_ref(&blob))
-            .map_err(|error| format!("data[{position}] KZG commitment: {error}"))?
-            .into_iter()
-            .next()
-            .expect("one input blob produces one hash");
+        let versioned_hash = blob_versioned_hash_from_bytes(&blob_bytes)
+            .map_err(|error| format!("data[{position}] KZG commitment: {error}"))?;
         available.push(AvailableBlob {
             versioned_hash,
-            blob,
+            bytes: blob_bytes.into(),
         });
     }
     Ok(available)
@@ -508,8 +507,18 @@ mod tests {
     use super::*;
     use alloy_provider::ProviderBuilder;
     use alloy_transport::mock::Asserter;
+    use eez_blob_codec::blob_versioned_hashes;
     use eez_protocol::abi::ProofSystemBatchPerVerificationEntriesSol;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    fn non_eez_consensus_blob() -> Vec<u8> {
+        let mut blob = vec![0; eez_blob_codec::BLOB_BYTES];
+        // This is a valid, small BLS scalar in the first field element, but
+        // EEZ reserves the element's most-significant byte as zero.
+        blob[0] = 1;
+        assert!(Blob::try_from_slice(0, &blob).is_err());
+        blob
+    }
 
     #[test]
     fn profile_requires_empty_calldata_and_all_indices_in_order() {
@@ -574,15 +583,20 @@ mod tests {
         let commitment = eez_blob_codec::blob_kzg_commitments(&blobs)
             .unwrap()
             .remove(0);
+        let unrelated_blob = non_eez_consensus_blob();
+        let unrelated_commitment = blob_kzg_commitment_from_bytes(&unrelated_blob).unwrap();
         let response = serde_json::json!({
             "data": [{
                 "blob": format!("0x{}", hex::encode(blobs[0].as_bytes())),
                 "kzg_commitment": format!("0x{}", hex::encode(commitment)),
+            }, {
+                "blob": format!("0x{}", hex::encode(&unrelated_blob)),
+                "kzg_commitment": format!("0x{}", hex::encode(unrelated_commitment)),
             }]
         });
 
         let parsed = parse_sidecars(&response).unwrap();
-        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed.len(), 2);
         assert_eq!(
             parsed[0].versioned_hash,
             blob_versioned_hashes(&blobs).unwrap()[0]
@@ -621,15 +635,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hydration_recovers_payload_from_authenticated_beacon_sidecar() {
+    async fn hydration_ignores_unrelated_non_eez_blob_in_same_slot() {
         let rollup_id = 7;
         let expected_payload = Bytes::from_static(b"real derivation payload");
         let blobs =
             eez_blob_codec::encode_native_payload(rollup_id, expected_payload.clone(), Vec::new())
                 .unwrap();
         let versioned_hashes = blob_versioned_hashes(&blobs).unwrap();
+        // Beacon endpoints return every blob in the slot. Authentication must
+        // not apply EEZ stream rules to another transaction's blob.
+        let unrelated_blob = non_eez_consensus_blob();
         let beacon_blobs = serde_json::json!({
-            "data": [format!("0x{}", hex::encode(blobs[0].as_bytes()))]
+            "data": [
+                format!("0x{}", hex::encode(blobs[0].as_bytes())),
+                format!("0x{}", hex::encode(&unrelated_blob)),
+            ]
         })
         .to_string();
         let beacon_url = serve_json_responses(vec![
