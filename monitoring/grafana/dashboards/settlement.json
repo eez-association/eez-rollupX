@@ -139,7 +139,7 @@
       "id": 3,
       "type": "stat",
       "title": "Policy evaluation age",
-      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Age of the last successful policy evaluation, distinct from scrape/sample time. Unknown on failed, cancelled or obsolete evaluations.",
+      "description": "Samples are observations, not a settlement audit trail. Policy observations are hidden after canonical-generation changes until another successful evaluation. Age of the last successful policy evaluation. Unknown on failed, cancelled or obsolete evaluations.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -455,8 +455,8 @@
     {
       "id": 9,
       "type": "state-timeline",
-      "title": "Unresolved submission observation",
-      "description": "One active state for the lowest unresolved attempt. None means no unresolved attempt, not a successful settlement. Dispatched is recorded immediately before the network request. Included means a canonical receipt was observed; derivation still decides which effects applied. Excluded/uncertain remain unresolved until reconciliation. Short transitions may be missed.",
+      "title": "Current unresolved submission (sampled)",
+      "description": "One active state for the lowest unresolved attempt. None means no unresolved attempt, not a successful settlement. Dispatched is recorded immediately before the network request. Included means a canonical receipt was observed; derivation still decides which effects applied. Excluded/uncertain remain unresolved until reconciliation. Short transitions may be missed. This is sampled pending state, not a history of all transitions. Use Submission events for outcomes that occur between samples.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -513,6 +513,372 @@
         },
         "tooltip": {
           "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Submission events since restart",
+      "description": "Recorded at the submission task, even if an outcome arrives after canonical reconciliation. Included is an L1 receipt, not confirmation of every cross-chain user. Retries are separate attempts. Counters reset on process restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_submission_events_total{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{event}}",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "noValue": "No observations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Latest submission event times",
+      "description": "Local wall-clock observation times. Prepared starts after batch proving; dispatched is immediately before the network request. Included is receipt-observation time, not the L1 block timestamp. Missing event types have not been observed since restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(reth_eez_composer_submission_event_timestamp_seconds{job=\"eez-composer-reth\"} > 0) * 1000 and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{event}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "noValue": "No observations",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Submission timings",
+      "description": "Latest monotonic elapsed duration for each stage. Prepared-to-dispatch includes waiting and final pricing, but excludes prior proving. Dispatch-to-included/excluded/uncertain ends when the submitter returns, not canonical user completion. Pre-dispatch failures have no dispatch duration.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_submission_last_duration_seconds{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{stage}}",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "noValue": "No observations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Submission exclusions since restart",
+      "description": "Excluded includes builder discard, auction loss or relay-side rejection; those causes cannot be distinguished here. Slot-skipped, target-changed and submission-window-missed are separate reasons. A failed attempt can later be retried successfully.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_submission_exclusions_total{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{reason}}",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "noValue": "No observations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Cross-chain requests in latest submitted Sync attempt",
+      "description": "Original signed inbound/outbound user requests selected for the latest prepared submission attempt. Excludes generated system/effect transactions. Anchor-only attempts record zero. A retry is a new attempt, not a new unique completed user. Idle Sync blocks without a submission do not update this panel. Exact block/count pairs are also recorded in the eez.composer.submission.sync_requests structured log; brief attempts can be missed by this last-value chart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_submission_sync_requests{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}}",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "noValue": "No observations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Latest submitted Sync L2 block",
+      "description": "L2 endpoint of the latest prepared submission attempt; may be a historical empty boundary. Correlate with the request-count graph and structured logs. It is not evidence of successful settlement.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_submission_sync_l2_block{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "rollup {{rollup_id}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "No observations",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Canonical cross-chain completion observations",
+      "description": "Confirmed user effects, recorded separately from submission receipt outcomes. Repeated sampling/reconciliation does not increase counts. Reobservations after an invalidating reorg count again; this is operational history, not a unique-user accounting ledger. Resets on restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_queue_completion_observations_total{job=\"eez-composer-reth\"} and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}}",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "noValue": "No observations"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     }

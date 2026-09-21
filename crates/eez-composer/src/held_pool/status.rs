@@ -45,8 +45,9 @@ pub(super) struct QueueTelemetry {
     ready: HashMap<B256, (SourceState, u64)>,
     current: Option<SourceState>,
     evaluated_at_ms: Option<u64>,
-    completed: HashSet<(B256, u64)>,
+    completed: HashMap<(B256, u64), L1BlockRef>,
     last_completion: Option<(L1BlockRef, u64)>,
+    completion_observations: [u64; 2],
 }
 
 fn now_ms() -> u64 {
@@ -88,7 +89,7 @@ impl QueueTelemetry {
             self.blocked.retain(|_, blocked| {
                 queued.contains(&blocked.hash) || in_flight.contains_key(&blocked.hash)
             });
-            self.completed.retain(|(hash, generation)| {
+            self.completed.retain(|(hash, generation), _| {
                 data.users.get(hash).is_some_and(|u| u.owner == *generation)
             });
         });
@@ -101,12 +102,17 @@ impl QueueTelemetry {
                     reason: TerminalReason::Committed,
                     canonical: Some(block),
                 } = user.location
-                    && self.completed.insert((*hash, user.owner))
-                    && self
+                    && self.completed.insert((*hash, user.owner), block).is_none()
+                {
+                    let index = usize::from(user.tx.direction == Direction::Outbound);
+                    self.completion_observations[index] =
+                        self.completion_observations[index].saturating_add(1);
+                    if self
                         .last_completion
                         .is_none_or(|(previous, _)| block.number >= previous.number)
-                {
-                    self.last_completion = Some((block, now_ms()));
+                    {
+                        self.last_completion = Some((block, now_ms()));
+                    }
                 }
             }
         });
@@ -118,7 +124,7 @@ impl QueueTelemetry {
             .is_some_and(|(block, _)| block.number > ancestor)
         {
             self.last_completion = None;
-            self.completed.clear();
+            self.completed.retain(|_, block| block.number <= ancestor);
         }
         self.current = None;
         self.ready.clear();
@@ -320,6 +326,7 @@ impl PoolState {
             blocked_reasons: reasons,
             oldest_pending_at_ms: oldest,
             last_completion_at_ms: telemetry.last_completion.map(|(_, time)| time),
+            completion_observations: telemetry.completion_observations,
             oldest_service_at_ms: oldest_service,
             // Reorg invalidation clears current source state but retains the
             // old RPC evaluation timestamp. Do not export that as valid.
@@ -341,6 +348,9 @@ pub struct QueueSnapshot {
     pub oldest_pending_at_ms: Option<u64>,
     /// Local observation time of the latest retained canonical cross-chain completion.
     pub last_completion_at_ms: Option<u64>,
+    /// Inbound/outbound canonical-completion observations since process start.
+    /// Reobservation after reorg counts again; these are not unique-user totals.
+    pub completion_observations: [u64; 2],
     /// Last evaluation start time; absent before evaluation or after invalidation.
     pub evaluated_at_ms: Option<u64>,
     oldest_service_at_ms: Option<u64>,

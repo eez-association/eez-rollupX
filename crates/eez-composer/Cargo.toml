@@ -51,9 +51,11 @@ async-trait.workspace = true
 thiserror.workspace   = true
 tokio.workspace       = true
 tracing.workspace     = true
+metrics.workspace     = true
 serde_json.workspace  = true
 
 [dev-dependencies]
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state
 # equivalence test (no datadir, no engine API).
 alloy-network.workspace = true

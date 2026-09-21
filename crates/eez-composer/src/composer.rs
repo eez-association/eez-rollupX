@@ -1111,6 +1111,8 @@ where
                 rollup.held_pool.uses_ledger(&rollup.optimistic),
                 "held pool must use the rollup's optimistic ledger"
             );
+            // Register event-counter baselines before the first submission.
+            let _ = crate::submission_metrics::SubmissionMetrics::new(rollup.config.rollup_id);
         }
 
         let ComposerSettings {
@@ -4701,6 +4703,9 @@ where
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) {
         let submitter = ctx.submitter.clone();
+        if let Some(counts) = optimistic.attempt_user_counts(attempt_id) {
+            crate::submission_metrics::sync_requests(rollup_id, sync_height, counts);
+        }
         tokio::spawn(observe_bundle_outcome(
             rollup_id,
             sync_height,
@@ -6106,6 +6111,8 @@ async fn observe_bundle_outcome(
     semantics: Vec<eez_protocol::blob_semantics::SemanticTransaction>,
 ) {
     use crate::optimistic::SubmissionObservation;
+    let measurements = Arc::new(crate::submission_metrics::SubmissionMetrics::new(rollup_id));
+    measurements.prepared();
     let preparation = async {
         if !submitter
             .wait_for_policy_submission(target)
@@ -6142,6 +6149,7 @@ async fn observe_bundle_outcome(
             quote
         }
         Err(error) => {
+            measurements.preflight_failed();
             event!(name: "eez.composer.postbatch.preflight_failed", Level::WARN,
                 event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
                 "unsent bundle deferred; due work retained without a user attempt penalty");
@@ -6158,11 +6166,15 @@ async fn observe_bundle_outcome(
         }
     };
     let recorder = Arc::clone(&optimistic);
+    let dispatch_measurements = Arc::clone(&measurements);
     let record_dispatch = move |block, timestamp| match recorder.observe(
         attempt_id,
         SubmissionObservation::Dispatched { block, timestamp },
     ) {
-        Ok(true) => Ok(()),
+        Ok(true) => {
+            dispatch_measurements.dispatch(block, timestamp);
+            Ok(())
+        }
         Ok(false) => Err(eez_l1::L1Error::Submission(
             "attempt was superseded before dispatch".into(),
         )),
@@ -6173,6 +6185,7 @@ async fn observe_bundle_outcome(
     let outcome = submitter
         .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
         .await;
+    measurements.outcome(outcome.as_ref().ok());
     let observation = match &outcome {
         Ok(SendOutcome::Included {
             l1_block,

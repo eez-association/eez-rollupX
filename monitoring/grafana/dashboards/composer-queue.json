@@ -17,10 +17,10 @@
   },
   "panels": [
     {
-      "id": 1,
+      "id": 5,
       "type": "stat",
-      "title": "Composer scrape",
-      "description": "Prometheus can scrape the process. This does not establish queue collection or settlement health.",
+      "title": "Last evaluation age",
+      "description": "Age of the last source-state evaluation start. It is separate from completion time. It may increase when idle. Unknown before evaluation or after reorg invalidation. Read alongside the last-evaluated readiness charts.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
@@ -28,49 +28,31 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 8,
+        "w": 12,
         "h": 4
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"eez-composer-reth\"}",
+          "expr": "((time() - reth_eez_composer_queue_evaluation_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
           "instant": true,
-          "legendFormat": "{{instance}}"
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "s",
           "noValue": "Unknown",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 2
               }
             ]
           },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "Down",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "Up",
-                  "color": "green"
-                }
-              }
-            }
-          ]
+          "mappings": []
         },
         "overrides": []
       },
@@ -88,46 +70,41 @@
       }
     },
     {
-      "id": 2,
+      "id": 10,
       "type": "stat",
-      "title": "Queue sample age",
-      "description": "Age of the last successful membership/telemetry sample. Sampling and scraping run every second. Queue charts hide samples at least 10 seconds old. This timestamp is independent of source-state evaluation.",
+      "title": "Last cross-chain completion age",
+      "description": "Local observation time of the latest retained canonical cross-chain completion. Unknown on restart or invalidating reorg. A quiet period is not automatically a stall; use the Settlement dashboard for policy triggers and submission observations.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
-        "x": 8,
+        "x": 12,
         "y": 0,
-        "w": 8,
+        "w": 12,
         "h": 4
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) and (reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"} > 0)",
+          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
           "instant": true,
-          "legendFormat": "{{instance}}"
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "Unknown",
+          "noValue": "Unknown / not applicable",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 10
               }
             ]
-          },
-          "mappings": []
+          }
         },
         "overrides": []
       },
@@ -257,59 +234,6 @@
       }
     },
     {
-      "id": 5,
-      "type": "stat",
-      "title": "Last evaluation age",
-      "description": "Age of the last source-state evaluation start, not sample age or completion time. It may increase when idle. Unknown before evaluation or after reorg invalidation. Read alongside the last-evaluated readiness charts.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 8,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "((time() - reth_eez_composer_queue_evaluation_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "instant": true,
-          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
-      }
-    },
-    {
       "id": 6,
       "type": "timeseries",
       "title": "Last-evaluated queue readiness",
@@ -431,7 +355,7 @@
       "gridPos": {
         "x": 0,
         "y": 31,
-        "w": 12,
+        "w": 24,
         "h": 9
       },
       "targets": [
@@ -472,113 +396,6 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Metrics endpoint scrape duration",
-      "description": "Prometheus still fetches and parses the full Reth endpoint before retaining the allowlisted queue metrics. Scrape interval and timeout are one second. This measures scrape elapsed time, not CPU overhead.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 31,
-        "w": 12,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "scrape_duration_seconds{job=\"eez-composer-reth\"}",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "interval": "1s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0,
-          "noValue": "Unknown",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "Last cross-chain completion age",
-      "description": "Local observation time of the latest retained canonical cross-chain completion. Unknown on restart or invalidating reorg. A quiet period is not automatically a stall; use the Settlement dashboard for policy triggers and submission observations.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 40,
-        "w": 24,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "instant": true,
-          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown / not applicable",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
       }
     }
   ],

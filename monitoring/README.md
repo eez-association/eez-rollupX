@@ -46,8 +46,8 @@ prevents other host users from traversing to it.
 Open the queue dashboard at `http://127.0.0.1:19300/d/eez-composer-queue`.
 It shows queued and in-flight requests over time, with separate lines for inbound
 (L1 source) and outbound (L2 source), plus last-evaluated readiness, blocking
-reasons, oldest tracked pending age, separate sample/evaluation ages, and endpoint
-scrape duration. Grafana refreshes every five seconds; zoom into a short time
+reasons, oldest tracked pending age, last evaluation age, and last canonical
+cross-chain completion age. Grafana refreshes every five seconds; zoom into a short time
 range to inspect second-scale changes.
 
 ### Metric contract
@@ -110,9 +110,9 @@ The scrape allowlist intentionally excludes native Reth metrics: embedded L1
 and L2 share that recorder and their chain metrics cannot be reliably attributed.
 Prometheus's own `up` and scrape diagnostics remain available. Filtering happens
 after fetching the full Reth response, so it does not remove endpoint-rendering
-cost. The **Metrics endpoint scrape duration** panel exposes elapsed scrape time;
-it should stay comfortably below the one-second timeout. This is not a CPU
-benchmark. The sampler skips missed ticks rather than accumulating a backlog.
+cost. Scrape diagnostics remain available in Prometheus; the operational dashboards
+omit scrape status, sample age, and scrape duration panels. The sampler skips
+missed ticks rather than accumulating a backlog.
 Grafana's datasource minimum interval is one second; global rule evaluation stays
 at 30 seconds because this stack has no alert or recording rules.
 
@@ -201,6 +201,51 @@ volume; they are diagnostic data, not a source for queue recovery or accounting.
 Deleting that volume loses history. Production backup/restore automation remains
 outside this small monitoring setup.
 
+## Submission events, timing, and Sync counts
+
+The settlement dashboard combines sampled current state with event counters. An
+unresolved attempt can go directly from dispatched to none between samples; the
+submission-event counters still record its included/excluded/uncertain outcome.
+They are recorded when the submitter returns, even when canonical reconciliation
+has already retired the attempt. They reset on process restart and are not a
+persistent event audit trail. Reorgs do not erase historical submission observations.
+
+| Metric suffix (prefix `reth_eez_composer_`) | Meaning |
+| --- | --- |
+| `submission_events_total{event}` | Prepared tasks, dispatch callbacks, included receipts, exclusions, uncertain results, or preflight failures. These count attempts, not users. |
+| `submission_event_timestamp_seconds{event}` | Latest local observation time; zero before that event has been observed. |
+| `submission_exclusions_total{reason}` | Bounded reasons: excluded, slot_skipped, submission_window_missed, target_changed. Excluded cannot distinguish auction loss from builder/relay rejection. |
+| `submission_last_duration_seconds{stage}` | Last monotonic prepared-to-dispatch, dispatch-to-included/excluded/uncertain, or prepared-to-preflight-failure duration. |
+| `submission_duration_seconds` | Distribution and cumulative sum/count for those same durations, exported using Reth's recorder. |
+| `submission_target_l1_block`, `submission_target_timestamp_seconds`, `submission_included_l1_block` | Latest actual dispatch target and latest observed receipt block. These may refer to different attempts; they are not paired records. |
+| `submission_sync_l2_block`, `submission_sync_requests{direction}` | Endpoint height and inbound/outbound user counts of the latest prepared Sync submission attempt. |
+| `submission_sync_requests_per_attempt` | Per-direction distribution and cumulative sum/count of user requests selected per prepared submission attempt, including zero-user anchor-only attempts. |
+| `queue_completion_observations_total{direction}` | Canonical user-effect completion observations, deduplicated within retained attempt history. Invalidated completions observed again after a reorg count again; repeated sampling does not. |
+
+All series have `rollup_id`. Block heights and transaction hashes are never metric
+labels. The existing metrics flag/recorder controls export; no new service, timer,
+configuration option, or Reth patch is required. The Composer uses the already
+locked metrics crate for event emission; sampling still runs once per second.
+
+Prepared means the background submission task has started **after** proving. Its
+wait and final pricing are included in prepared-to-dispatch; earlier composition
+and proving are not. Included timestamps measure when a canonical receipt was
+observed, not the containing L1 block's timestamp. Undispatched failures have no
+invented dispatch duration. Preflight failure is an unsent local failure and is
+shown separately from submitter exclusions. Receipt inclusion does not guarantee
+that all selected users completed; use the separate canonical-completion counts.
+
+Sync counts refer to original signed user requests selected for an attempt, not
+internal calls, generated system transactions, or guaranteed canonical successes.
+Retries can count the same request in another attempt. Idle Sync blocks without
+submission do not update the last-attempt chart; a historical anchor-only attempt
+can refer to an earlier empty block. The structured event
+`eez.composer.submission.sync_requests` records each exact `sync_height`, `inbound`,
+and `outbound` count for block-by-block inspection. The last-value chart can miss
+multiple attempts within a sample interval; the aggregate distribution retains
+those observations. This avoids unbounded per-block Prometheus series or a new
+block-indexing service.
+
 ## Upgrade
 
 Image tags and digests are pinned in `compose.yaml`. Change one image at a time,
@@ -209,8 +254,8 @@ before removing the previous image from the host.
 
 After deploying a Composer build with queue metrics through the normal node
 release procedure, run `docker compose up --detach --force-recreate` here to
-apply monitoring configuration and dashboard mounts. Expect 15 queue series and
-21 settlement series
+apply monitoring configuration and dashboard mounts. Expect 17 queue series and
+21 settlement-policy series plus the submission-event families
 for the configured rollup within a few scrape intervals; absent observation
 timestamps are represented as `NaN`.
 The dashboard is provisioned from Git; edit its JSON to make durable changes.
@@ -219,8 +264,8 @@ fabricating an empty queue. Monitoring changes do not require a network reset.
 
 ## Scope boundary
 
-This change covers queue membership, existing status observations and settlement
-policy/attempt observations. Latency
-distributions, settlement counters, fees, signer or
+This stack covers queue membership, policy observations, recorded submission
+outcomes/timings, per-attempt Sync counts and canonical user-completion observations.
+End-to-end user latency distributions, fees, signer or
 follower metrics, OpenTelemetry, log collection, public access and alerts remain
 separate increments. No changes to Reth or embedded-L1 instrumentation are needed.
