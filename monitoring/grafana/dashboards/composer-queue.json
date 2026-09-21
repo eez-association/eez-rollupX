@@ -528,6 +528,58 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Last cross-chain completion age",
+      "description": "Local observation time of the latest retained canonical cross-chain completion. Unknown on restart or invalidating reorg. A quiet period is not automatically a stall; use the Settlement dashboard for policy triggers and submission observations.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "instant": true,
+          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown / not applicable",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
     }
   ],
   "templating": {
@@ -535,5 +587,12 @@
   },
   "annotations": {
     "list": []
-  }
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Settlement",
+      "url": "/d/eez-settlement"
+    }
+  ]
 }

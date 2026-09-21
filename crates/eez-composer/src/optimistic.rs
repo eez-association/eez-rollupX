@@ -244,6 +244,17 @@ impl OptimisticallyIncluded {
         })
     }
 
+    /// Same pending-attempt selection as recovery, without copying its payloads.
+    pub(crate) fn pending_observation(&self) -> Option<SubmissionObservation> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .find(|attempt| needs_resolution(state, attempt))
+                .map(|attempt| attempt.observation.clone())
+        })
+    }
+
     pub(crate) fn pending_cost(&self) -> Option<AttemptRecord> {
         self.read(|state| {
             state
@@ -727,6 +738,44 @@ mod tests {
             SourceOutcome::Terminal(TerminalReason::Committed),
             SourceOutcome::Retryable { source_nonce: 0 },
         ]
+    }
+
+    #[test]
+    fn monitoring_distinguishes_submission_observations_from_canonical_completion() {
+        assert_eq!(
+            OptimisticallyIncluded::default().pending_observation(),
+            None
+        );
+        for observation in [
+            SubmissionObservation::Prepared,
+            SubmissionObservation::Dispatched {
+                block: 100,
+                timestamp: 1000,
+            },
+            SubmissionObservation::Included { block: block(100) },
+            SubmissionObservation::Excluded {
+                block: 100,
+                charge_attempt: false,
+            },
+            SubmissionObservation::Uncertain,
+        ] {
+            let (ledger, pool, txs, id) = setup();
+            ledger.observe(id, observation.clone()).unwrap();
+            assert_eq!(ledger.pending_observation(), Some(observation));
+            assert_eq!(
+                ledger.pending_observation(),
+                ledger.pending_attempt().map(|a| a.observation)
+            );
+            assert_eq!(pool.queue_snapshot().last_completion_at_ms, None);
+            let outcomes = vec![SourceOutcome::Terminal(TerminalReason::Committed); txs.len()];
+            pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
+                .unwrap();
+            assert_eq!(ledger.pending_observation(), None);
+            assert!(pool.queue_snapshot().last_completion_at_ms.is_some());
+            pool.invalidate_after_l1(99).unwrap();
+            assert_eq!(pool.queue_snapshot().last_completion_at_ms, None);
+            assert!(ledger.pending_observation().is_some());
+        }
     }
 
     #[test]

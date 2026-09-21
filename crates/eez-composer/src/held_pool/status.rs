@@ -319,6 +319,7 @@ impl PoolState {
             unknown: self.txs.len() - ready - blocked,
             blocked_reasons: reasons,
             oldest_pending_at_ms: oldest,
+            last_completion_at_ms: telemetry.last_completion.map(|(_, time)| time),
             oldest_service_at_ms: oldest_service,
             // Reorg invalidation clears current source state but retains the
             // old RPC evaluation timestamp. Do not export that as valid.
@@ -338,6 +339,8 @@ pub struct QueueSnapshot {
     pub blocked_reasons: BTreeMap<&'static str, usize>,
     /// Earliest retained admission timestamp among queued/in-flight requests.
     pub oldest_pending_at_ms: Option<u64>,
+    /// Local observation time of the latest retained canonical cross-chain completion.
+    pub last_completion_at_ms: Option<u64>,
     /// Last evaluation start time; absent before evaluation or after invalidation.
     pub evaluated_at_ms: Option<u64>,
     oldest_service_at_ms: Option<u64>,
