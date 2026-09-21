@@ -36,8 +36,30 @@ pub(crate) use eez_protocol::EEZL2_ADDRESS;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    init_tracing()?;
     let config = config::Config::load()?;
+    let telemetry_config = eez_telemetry::native::Config::from_env("eez-proof-signer")
+        .map_err(|error| eyre::eyre!(error))?;
+    let _metrics = telemetry_config
+        .as_ref()
+        .and_then(|config| config.metrics.as_ref())
+        .map(eez_telemetry::native::start_metrics)
+        .transpose()
+        .map_err(|error| eyre::eyre!(error))?;
+    let (traces, trace_layer) = match telemetry_config.as_ref() {
+        Some(config) => {
+            eez_telemetry::traces::Guard::start(&config.identity, config.traces.as_ref())
+                .map_err(|error| eyre::eyre!(error))?
+        }
+        None => (eez_telemetry::traces::Guard::default(), None),
+    };
+    init_tracing(trace_layer)?;
+    let lifecycle = telemetry_config
+        .as_ref()
+        .map(eez_telemetry::native::LifecycleGuard::start)
+        .unwrap_or_default();
+    if telemetry_config.is_some() {
+        eez_telemetry::native::describe_process();
+    }
 
     let listen_addr = config.listen_addr;
     let limits = config.limits;
@@ -95,6 +117,10 @@ async fn main() -> eyre::Result<()> {
     // A timed-out RPC may leave non-interruptible blocking work running after
     // tonic has drained its request future. Do not terminate that work midway.
     shutdown_service.wait_until_idle().await;
+    // This service has no overall shutdown deadline. Preserve its complete
+    // protocol drain, then allow the bounded two-second diagnostic trace flush.
+    lifecycle.shutdown(std::time::Duration::ZERO);
+    traces.shutdown_without_application_deadline();
     serve_result.wrap_err_with(|| format!("serve {listen_addr}"))
 }
 
@@ -136,8 +162,9 @@ async fn wait_for_ctrl_c() {
 
 /// Configure tracing from `RUST_LOG`. An absent variable selects `info`;
 /// invalid filter syntax or a non-Unicode value fails startup.
-fn init_tracing() -> eyre::Result<()> {
+fn init_tracing(trace_layer: Option<eez_telemetry::traces::TraceLayer>) -> eyre::Result<()> {
     use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
     let filter = match std::env::var(EnvFilter::DEFAULT_ENV) {
         Ok(spec) => {
             EnvFilter::try_new(&spec).map_err(|e| eyre::eyre!("invalid RUST_LOG `{spec}`: {e}"))?
@@ -145,9 +172,9 @@ fn init_tracing() -> eyre::Result<()> {
         Err(std::env::VarError::NotPresent) => EnvFilter::new("info"),
         Err(e) => return Err(eyre::eyre!("RUST_LOG: {e}")),
     };
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .json()
+    tracing_subscriber::registry()
+        .with(trace_layer)
+        .with(tracing_subscriber::fmt::layer().json().with_filter(filter))
         .try_init()
         .map_err(|error| eyre::eyre!(error))
         .wrap_err("install tracing subscriber")

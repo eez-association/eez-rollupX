@@ -1,0 +1,2074 @@
+{
+  "uid": "eez-network",
+  "title": "EEZ \u00b7 Network overview",
+  "tags": [
+    "eez",
+    "observability"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 3,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "editable": false,
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "eez"
+      ],
+      "title": "EEZ dashboards",
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "eez-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"eez-observer\"}, environment)",
+          "refId": "environment"
+        },
+        "definition": "label_values(up{job=\"eez-observer\"}, environment)",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "deployment",
+        "label": "Deployment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "eez-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"eez-observer\",environment=~\"$environment\"}, deployment)",
+          "refId": "deployment"
+        },
+        "definition": "label_values(up{job=\"eez-observer\",environment=~\"$environment\"}, deployment)",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "eez-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=~\"eez-observer|eez-composer-.+\",environment=~\"$environment\",deployment=~\"$deployment\"}, instance)",
+          "refId": "instance"
+        },
+        "definition": "label_values(up{job=~\"eez-observer|eez-composer-.+\",environment=~\"$environment\",deployment=~\"$deployment\"}, instance)",
+        "refresh": 1,
+        "multi": false,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Observer and Composer instances in this deployment. All includes both RPC/indexer and native queue sources without combining their recording-rule populations."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Observer reachable",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",job=\"eez-observer\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Unavailable",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Current",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "title": "L1 collection",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:collection_success:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l1\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Unavailable",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Current",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "L2 collection",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:collection_success:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l2\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Unavailable",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Current",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Queue evaluation",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Current means the runtime evaluated queue readiness recently. It does not prove cross-chain completion.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:queue_evaluation_valid:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Unavailable",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Current",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Latest L1 block",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:chain_head_number:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l1\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Latest L2 block",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:chain_head_number:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l2\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "title": "L1 head age",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - eez:chain_head_timestamp_seconds:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l1\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "title": "L1 reference lag",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Unknown until an independent L1 reference is configured. Negative values mean the reference is behind.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:chain_head_number:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"reference_l1\"} - ignoring(source) eez:chain_head_number:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l1\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "title": "Active cross-chain requests",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Disjoint queue states plus in-flight requests. Unknown when readiness evaluation or collection is unavailable. An empty queue is idle, not evidence of a healthy cross-chain execution path. Consult retained canonical successes in the protocol dashboard when enabled.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(eez:queue_transactions:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\"})",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Idle / unexercised",
+                  "color": "text"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 10,
+      "title": "Queued requests",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 10,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(eez:queue_transactions:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",state=~\"queued_.*\"})",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Oldest pending request",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 6,
+        "h": 5
+      },
+      "description": "Sampled wall-clock maximum; an empty or unknown age is not zero.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:queue_oldest_age_seconds:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",kind=\"pending\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Oldest serviceable request",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 10,
+        "w": 6,
+        "h": 5
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:queue_oldest_age_seconds:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",kind=\"serviceable\"}",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 13,
+      "title": "Cross-chain queue over time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:queue_transactions:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\"}",
+          "legendFormat": "{{state}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Chain progress",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "description": "",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:chain_head_number:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\"}",
+          "legendFormat": "{{source}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "L2 head, safe and finalized settlement over time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Latest L2 RPC head, optional verified node-reported safe tag, and exact applied L2 hash with finalized L1 evidence. These are different assurances. Missing/stale capabilities remain gaps.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez:chain_head_number:current{source=\"l2\",environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\"}",
+          "legendFormat": "L2 head",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "eez_observer_network_height{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "L2 node safe",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "expr": "eez_observer_settled_finalized_l2_number{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "L2 finalized settlement",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "L1 head and finalized block age over time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Age of actual block timestamps, not time since polling. Optional finalized indexing remains unknown until covered. Shared tooltip compares fresh head age with exact finalized-block age.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - eez:chain_head_timestamp_seconds:current{environment=~\"$environment\",deployment=~\"$deployment\",instance=~\"$instance\",source=\"l1\"}",
+          "legendFormat": "L1 head age",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "(time() - eez_observer_index_finalized_timestamp_seconds{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",chain=\"l1\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "L1 finalized block age",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Safe-head and explorer lag over time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Latest canonical head minus a separately verified safe/explorer reference. Ahead, conflicting, disabled or stale observations remain unknown. Explorer height is not proof of a complete historical index.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{chain}} \u00b7 node safe",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{chain}} \u00b7 {{profile}}",
+          "instant": false,
+          "range": true,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: blocks",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "title": "L2 block interval \u00b7 mean and p95 / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Time between exact parent-linked consecutive canonical L2 blocks. Missing parents and backwards timestamps remain unknown; equal timestamps are zero. Bucketed by child block time. This is production cadence, not transaction latency.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.interval_seconds)::double precision AS mean_seconds,percentile_cont(0.95) WITHIN GROUP(ORDER BY r.interval_seconds)::double precision AS p95_seconds FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "title": "L2 transactions per block \u00b7 mean and maximum / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "description": "All transactions reported by complete block bodies, including protocol/system transactions where present; not just cross-chain sources or successful user transactions. Mean and maximum over covered canonical blocks. See transaction coverage beside empty-block fraction. Old uncollected bodies remain unknown.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.transaction_count)::double precision AS mean_transactions,max(r.transaction_count)::double precision AS maximum_transactions FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: tx/block",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "title": "L2 empty blocks and transaction-count coverage / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Empty means a complete block body with zero transactions. Empty percentage uses only covered blocks; coverage is the proportion of indexed canonical blocks with a known transaction count. Neither index gaps nor unavailable bodies are fabricated as empty blocks.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*count(*) FILTER(WHERE r.transaction_count=0)/NULLIF(count(r.transaction_count),0) AS empty_percent,100.0*count(r.transaction_count)/count(*) AS covered_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l2' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Whole-chain execution gas utilization / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Sum of gas used divided by sum of gas limits for covered canonical blocks, separately per chain. Includes every transaction, unlike selected cross-chain receipt gas. Missing/zero limits remain unknown. Header coverage is shown below; utilization is not a throughput benchmark.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*sum(r.gas_used) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL)/NULLIF(sum(r.gas_limit) FILTER(WHERE r.gas_limit>0 AND r.gas_used IS NOT NULL),0) AS utilized_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 31,
+      "title": "L1 blobs per block \u00b7 mean and maximum / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Global L1 blob gas used divided by 131072 blob gas per blob. Includes all L1 applications, not just EEZ. Known zero is retained; missing pre-fork/unavailable header fields remain unknown. No percentage of a guessed fork-dependent blob limit.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.blob_gas_used)/131072.0 AS mean_blobs,max(r.blob_gas_used)/131072.0 AS maximum_blobs FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: blobs/block",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 32,
+      "title": "L1 excess blob gas \u00b7 mean and maximum / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 54,
+        "w": 12,
+        "h": 8
+      },
+      "description": "Global L1 excess blob gas from canonical headers: accumulated blob fee-market pressure. This is gas, not a monetary fee, current block usage or an EEZ queue. Missing fields stay unknown.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,avg(r.excess_blob_gas)::double precision AS mean_excess_blob_gas,max(r.excess_blob_gas)::double precision AS maximum_excess_blob_gas FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid AND c.role='l1' GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: blob gas",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 33,
+      "title": "Canonical block metadata coverage / 5m",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Coverage within indexed canonical blocks, separately per chain. Historical rows collected before schema23 lack activity metadata unless revisited by bounded repair; they are not zero activity. This ratio does not assert gap-free chain indexing. Stale/failed/frozen collection suppresses all activity queries.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "eez-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin(interval '5 minutes',to_timestamp(r.timestamp_seconds::double precision),to_timestamp(0)) AS \"time\",c.role||' chain '||c.chain_id::text||' \u00b7 context '||c.chain_instance_id::text AS metric,100.0*count(*) FILTER(WHERE r.gas_used IS NOT NULL AND r.gas_limit>0)/count(*) AS execution_header_percent,CASE WHEN min(c.role)='l1' THEN 100.0*count(*) FILTER(WHERE r.blob_gas_used IS NOT NULL AND r.excess_blob_gas IS NOT NULL)/count(*) END AS blob_header_percent,100.0*count(r.interval_seconds)/count(*) AS parent_interval_percent FROM eez.canonical_block_activity r JOIN eez.dashboard_chain_context c USING(chain_instance_id) WHERE c.environment=${environment:sqlstring} AND c.deployment=${deployment:sqlstring} AND to_timestamp(r.timestamp_seconds::double precision) BETWEEN $__timeFrom() AND $__timeTo() AND r.source_valid GROUP BY 1,2 ORDER BY 1,2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "Unknown",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 4,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "max": 100
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "text",
+      "title": "Coverage",
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "This overview uses passive chain-head and aggregate queue observations. **Idle / unexercised means no current queued or in-flight work, not verified cross-chain health. Unknown means unavailable or unconfigured.** When enabled, the protocol dashboards show separately retained canonical outcomes, costs, finality and request history. No continuous active canary is configured by this view."
+      }
+    },
+    {
+      "id": 16,
+      "title": "L1 finalized indexed height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Exact finalized L1 block retained by the canonical indexer. Unknown when indexing is disabled, stale, failed or frozen.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_index_finalized_number{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",chain=\"l1\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 17,
+      "title": "L1 finalized block age",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 73,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Age of the exact finalized block timestamp, not time since the last successful poll. Unknown for missing or future timestamps.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - eez_observer_index_finalized_timestamp_seconds{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",chain=\"l1\"}) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 18,
+      "title": "L2 node-reported safe height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 73,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Optional identity-checked observations revalidated against exact canonical block hashes. Safe is the node RPC tag, not independently established finality. Explorer height does not prove a gap-free history.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_height{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "title": "L2 node-reported safe lag",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 78,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Latest canonical RPC height minus this verified observation; an ahead, conflicting, unavailable or stale source remains unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"node_safe\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "title": "Explorer highest verified indexed height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 78,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Optional identity-checked observations revalidated against exact canonical block hashes. Safe is the node RPC tag, not independently established finality. Explorer height does not prove a gap-free history.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_height{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "title": "Explorer highest verified indexed lag",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 78,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Latest canonical RPC height minus this verified observation; an ahead, conflicting, unavailable or stale source remains unknown.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_lag_blocks{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} and on(environment,deployment,job,instance,chain,profile) (eez_observer_network_evaluation_valid{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\",profile=\"blockscout_v2\"} == 1) and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "title": "L2 finalized settled height",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 83,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Exact applied L2 hash with verified finalized L1 anchor. A node-reported safe tag or matching height alone does not establish this.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_settled_finalized_l2_number{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{instance}} {{chain}} {{profile}} {{kind}} {{direction}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 23,
+      "title": "Safe-head and explorer capability / collection state",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 83,
+        "w": 16,
+        "h": 5
+      },
+      "description": "Disabled, pending, stale and rejected sources remain explicit. Blobscan slot-cursor availability is not a verified indexed block height.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "eez_observer_network_state{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} and on(environment,deployment,job,instance) (up{environment=~\"$environment\",deployment=~\"$deployment\",job=\"eez-observer\",instance=~\"$instance\"} == 1)",
+          "legendFormat": "{{chain}} {{profile}} {{reason}}",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unknown",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "name"
+      }
+    }
+  ]
+}

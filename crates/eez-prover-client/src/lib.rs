@@ -31,6 +31,15 @@ use prost::Message as _;
 use tonic::{Code, Status};
 use tracing::{Level, event};
 
+/// Carry only the reviewed W3C fields on every RPC in the preparation/proof
+/// lifecycle. Payloads, capability identities and cache leases stay unchanged.
+fn traced_request<T>(body: T) -> tonic::Request<T> {
+    eez_telemetry::traces::record_trace_id(&tracing::Span::current());
+    let mut request = tonic::Request::new(body);
+    eez_telemetry::traces::inject(request.metadata_mut());
+    request
+}
+
 /// A [`Prover`] that proves a window on a remote `eez-proof-signer` over the
 /// `prove.v1.Prover` gRPC service. Cheap to clone (`Arc<Inner>`).
 #[derive(Debug, Clone)]
@@ -85,6 +94,7 @@ impl RemoteProver {
     /// Validate and retain one contiguous ordinary range without requesting a
     /// settlement signature. Final proving still performs all request-specific
     /// gates and always sends the terminal as a fresh full witness.
+    #[tracing::instrument(name = "prover_prepare_ordinary", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", rollup_id, blocks = blocks.len()))]
     pub async fn prepare_ordinary(
         &self,
         rollup_id: u64,
@@ -145,7 +155,10 @@ impl RemoteProver {
             kind: Some(prepare_chunk::Kind::Block(wire_block(block))),
         }));
         let mut client = connection.client.clone();
-        match client.prepare_ordinary(tokio_stream::iter(chunks)).await {
+        match client
+            .prepare_ordinary(traced_request(tokio_stream::iter(chunks)))
+            .await
+        {
             Ok(response) => {
                 let response = response.into_inner();
                 if response.validation_identity.as_slice()
@@ -224,6 +237,7 @@ impl RemoteProver {
     /// Release the current pending-window reservation only after the caller's
     /// canonical reconciliation has advanced. Cached facts may remain eligible
     /// for reuse, but this client conservatively forgets all reference hints.
+    #[tracing::instrument(name = "prover_retain_ordinary", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", operation = "release"))]
     pub async fn release_preparation_lease(&self) -> ProverResult<()> {
         let _preparation_guard = self.inner.preparation_lock.lock().await;
         let Some(lease_id) = *self.inner.lease_id.lock().await else {
@@ -232,12 +246,12 @@ impl RemoteProver {
         let connection = self.connection().await?;
         let mut client = connection.client.clone();
         let response = match client
-            .retain_ordinary_ranges(RetainOrdinaryRangesRequest {
+            .retain_ordinary_ranges(traced_request(RetainOrdinaryRangesRequest {
                 validation_identity: self.inner.expected_identity.to_vec(),
                 lease_id: lease_id.to_vec(),
                 ranges: Vec::new(),
                 release: true,
-            })
+            }))
             .await
         {
             Ok(response) => response.into_inner(),
@@ -272,6 +286,7 @@ impl RemoteProver {
     /// local hints are cleared in the latter case so durable preparation can
     /// rebuild them. A lease is resource ownership only and carries no proof
     /// authority.
+    #[tracing::instrument(name = "prover_retain_ordinary", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", operation = "renew"))]
     pub async fn renew_preparation_lease(&self) -> ProverResult<bool> {
         let _preparation_guard = self.inner.preparation_lock.lock().await;
         let Some(lease_id) = *self.inner.lease_id.lock().await else {
@@ -287,12 +302,12 @@ impl RemoteProver {
         let connection = self.connection().await?;
         let mut client = connection.client.clone();
         let response = match client
-            .retain_ordinary_ranges(RetainOrdinaryRangesRequest {
+            .retain_ordinary_ranges(traced_request(RetainOrdinaryRangesRequest {
                 validation_identity: self.inner.expected_identity.to_vec(),
                 lease_id: lease_id.to_vec(),
                 ranges,
                 release: false,
-            })
+            }))
             .await
         {
             Ok(response) => response.into_inner(),
@@ -315,6 +330,7 @@ impl RemoteProver {
         Ok(true)
     }
 
+    #[tracing::instrument(name = "prover_retain_ordinary", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", operation = "final_window"))]
     async fn retain_final_window(
         &self,
         connection: &connection::Connection,
@@ -347,7 +363,7 @@ impl RemoteProver {
                 }],
                 release: false,
             };
-            match client.retain_ordinary_ranges(request).await {
+            match client.retain_ordinary_ranges(traced_request(request)).await {
                 Ok(response) => {
                     let response = response.into_inner();
                     if response.validation_identity.as_slice()
@@ -599,147 +615,180 @@ fn chunks_for(
 
 #[async_trait]
 impl Prover for RemoteProver {
+    #[tracing::instrument(name = "prover_client", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client", from_block = ctx.from_block, to_block = ctx.to_block, rollup_id = ctx.rollup_id))]
     async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
-        let n_blocks = ctx.blocks.len();
-        let connection = self.connection().await?;
-        let span = ctx
-            .to_block
-            .checked_sub(ctx.from_block)
-            .and_then(|distance| distance.checked_add(1))
-            .ok_or_else(|| ProverError::Backend("invalid proof window".into()))?;
-        if span > connection.capabilities.max_window_blocks {
-            return Err(ProverError::Backend(
-                "proof window exceeds negotiated block limit".into(),
-            ));
-        }
-        let preparation_limit = usize::try_from(connection.capabilities.preparation_max_blocks)
-            .map_err(|_| {
-                ProverError::Backend("preparation limit exceeds platform capacity".into())
-            })?;
-        if preparation_limit > 0 && ctx.blocks.len() > 1 {
-            // This is the bounded catch-up path. The producer-side durable
-            // preparation worker may have populated some or all hashes first;
-            // remaining ordinary blocks are repaired in at most 64-block RPCs
-            // before final proof dispatch.
-            let ordinary = &ctx.blocks[..ctx.blocks.len() - 1];
-            let mut start = 0usize;
-            while start < ordinary.len() {
-                while start < ordinary.len()
-                    && self
-                        .inner
-                        .prepared_blocks
-                        .read()
-                        .await
-                        .contains(&ordinary[start].hash)
-                {
-                    start += 1;
-                }
-                if start == ordinary.len() {
-                    break;
-                }
-                let prepared = self.inner.prepared_blocks.read().await;
-                let mut end = start + 1;
-                while end < ordinary.len() && !prepared.contains(&ordinary[end].hash) {
-                    end += 1;
-                }
-                drop(prepared);
-                self.prepare_ordinary_range(ctx.rollup_id, &ordinary[start..end])
-                    .await?;
-                start = end;
-            }
-            self.retain_final_window(
-                &connection,
-                ctx.rollup_id,
-                ordinary,
-                ctx.from_block,
-                ctx.to_block,
-            )
-            .await?;
-        }
-        let mut cache_repairs = 0usize;
-        let resp = loop {
-            let prepared = Arc::new(self.inner.prepared_blocks.read().await.clone());
-            let expected_prepared = Arc::clone(&prepared);
-            let chunks = chunks_for(&ctx, self.inner.expected_identity, prepared);
-            let mut client = connection.client.clone();
-            match client.prove(tokio_stream::iter(chunks)).await {
-                Ok(response) => break response.into_inner(),
-                Err(status) => {
-                    if matches!(status.code(), Code::Unavailable | Code::ResourceExhausted)
-                        || status.metadata().contains_key("eez-capabilities-changed")
-                    {
-                        self.invalidate_connection(&connection).await;
-                    }
-                    let error = map_request_status(
-                        ctx.from_block,
-                        ctx.to_block,
-                        self.inner.expected_identity,
-                        &expected_prepared,
-                        &ctx.blocks,
-                        status,
-                    );
-                    if let ProverError::CacheMiss { block_hash, .. } = error {
-                        if cache_repairs >= 1 {
-                            return Err(ProverError::Backend(
-                                "prepared cache miss persisted after bounded repair".into(),
-                            ));
-                        }
-                        ctx.blocks
-                            .iter()
-                            .find(|block| block.hash == block_hash)
-                            .ok_or_else(|| {
-                                ProverError::Backend(
-                                    "cache-miss detail does not name a request block".into(),
-                                )
-                            })?;
-                        let ordinary = &ctx.blocks[..ctx.blocks.len() - 1];
-                        {
-                            let mut prepared = self.inner.prepared_blocks.write().await;
-                            for block in ordinary {
-                                prepared.remove(&block.hash);
-                            }
-                        }
-                        self.prepare_ordinary_range(ctx.rollup_id, ordinary).await?;
-                        cache_repairs += 1;
-                        continue;
-                    }
-                    return Err(error);
-                }
-            }
-        };
-
-        // Bind both the signing authority and the signed payload. A signature
-        // from the registered attester over another batch is not our proof.
-        let hash = verify_attestation(
-            &resp.signature,
-            &resp.public_inputs_hash,
-            self.inner.attester,
-        )?;
-        let from_block = ctx.from_block;
-        let to_block = ctx.to_block;
-        let vkey = self.vkey();
-        // KZG commitment calculation is CPU work; keep it off the async worker.
-        let expected_hash = tokio::task::spawn_blocking(move || request_hash(&ctx, vkey))
-            .await
-            .map_err(|error| {
-                ProverError::Backend(format!("public-input preflight worker: {error}"))
-            })??;
-        if hash != expected_hash {
-            return Err(ProverError::Backend(format!(
-                "attestation publicInputsHash {hash} != request hash {expected_hash}"
-            )));
-        }
-        event!(
-            name: "eez.prover_client.attested",
-            Level::INFO,
-            event_name = "eez.prover_client.attested",
-            from = from_block,
-            to = to_block,
-            blocks = n_blocks,
-            %hash,
-            "remote prover attested the window",
+        let mut timer = eez_telemetry::operational::StageTimer::start(
+            eez_telemetry::operational::Stage::ProverClient,
         );
-        Ok(Bytes::copy_from_slice(&resp.signature))
+        let result = async {
+            eez_telemetry::traces::record_trace_id(&tracing::Span::current());
+
+            let n_blocks = ctx.blocks.len();
+            let connection = self.connection().await?;
+            let span = ctx
+                .to_block
+                .checked_sub(ctx.from_block)
+                .and_then(|distance| distance.checked_add(1))
+                .ok_or_else(|| ProverError::Backend("invalid proof window".into()))?;
+            if span > connection.capabilities.max_window_blocks {
+                return Err(ProverError::Backend(
+                    "proof window exceeds negotiated block limit".into(),
+                ));
+            }
+            let preparation_limit = usize::try_from(connection.capabilities.preparation_max_blocks)
+                .map_err(|_| {
+                    ProverError::Backend("preparation limit exceeds platform capacity".into())
+                })?;
+            if preparation_limit > 0 && ctx.blocks.len() > 1 {
+                // This is the bounded catch-up path. The producer-side durable
+                // preparation worker may have populated some or all hashes first;
+                // remaining ordinary blocks are repaired in at most 64-block RPCs
+                // before final proof dispatch.
+                let ordinary = &ctx.blocks[..ctx.blocks.len() - 1];
+                let mut start = 0usize;
+                while start < ordinary.len() {
+                    while start < ordinary.len()
+                        && self
+                            .inner
+                            .prepared_blocks
+                            .read()
+                            .await
+                            .contains(&ordinary[start].hash)
+                    {
+                        start += 1;
+                    }
+                    if start == ordinary.len() {
+                        break;
+                    }
+                    let prepared = self.inner.prepared_blocks.read().await;
+                    let mut end = start + 1;
+                    while end < ordinary.len() && !prepared.contains(&ordinary[end].hash) {
+                        end += 1;
+                    }
+                    drop(prepared);
+                    self.prepare_ordinary_range(ctx.rollup_id, &ordinary[start..end])
+                        .await?;
+                    start = end;
+                }
+                self.retain_final_window(
+                    &connection,
+                    ctx.rollup_id,
+                    ordinary,
+                    ctx.from_block,
+                    ctx.to_block,
+                )
+                .await?;
+            }
+            let mut cache_repairs = 0usize;
+            let resp = loop {
+                let prepared = Arc::new(self.inner.prepared_blocks.read().await.clone());
+                let expected_prepared = Arc::clone(&prepared);
+                let chunks = chunks_for(&ctx, self.inner.expected_identity, prepared);
+                let mut client = connection.client.clone();
+                let request = traced_request(tokio_stream::iter(chunks));
+                match client.prove(request).await {
+                    Ok(response) => break response.into_inner(),
+                    Err(status) => {
+                        if matches!(status.code(), Code::Unavailable | Code::ResourceExhausted)
+                            || status.metadata().contains_key("eez-capabilities-changed")
+                        {
+                            self.invalidate_connection(&connection).await;
+                        }
+                        let error = map_request_status(
+                            ctx.from_block,
+                            ctx.to_block,
+                            self.inner.expected_identity,
+                            &expected_prepared,
+                            &ctx.blocks,
+                            status,
+                        );
+                        if let ProverError::CacheMiss { block_hash, .. } = error {
+                            if cache_repairs >= 1 {
+                                return Err(ProverError::Backend(
+                                    "prepared cache miss persisted after bounded repair".into(),
+                                ));
+                            }
+                            ctx.blocks
+                                .iter()
+                                .find(|block| block.hash == block_hash)
+                                .ok_or_else(|| {
+                                    ProverError::Backend(
+                                        "cache-miss detail does not name a request block".into(),
+                                    )
+                                })?;
+                            let ordinary = &ctx.blocks[..ctx.blocks.len() - 1];
+                            {
+                                let mut prepared = self.inner.prepared_blocks.write().await;
+                                for block in ordinary {
+                                    prepared.remove(&block.hash);
+                                }
+                            }
+                            self.prepare_ordinary_range(ctx.rollup_id, ordinary).await?;
+                            cache_repairs += 1;
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                }
+            };
+
+            // Bind both the signing authority and the signed payload. A signature
+            // from the registered attester over another batch is not our proof.
+            let hash = verify_attestation(
+                &resp.signature,
+                &resp.public_inputs_hash,
+                self.inner.attester,
+            )?;
+            let from_block = ctx.from_block;
+            let to_block = ctx.to_block;
+            let vkey = self.vkey();
+            // KZG commitment calculation is CPU work; keep it off the async worker.
+            let expected_hash = tokio::task::spawn_blocking(move || request_hash(&ctx, vkey))
+                .await
+                .map_err(|error| {
+                    ProverError::Backend(format!("public-input preflight worker: {error}"))
+                })??;
+            if hash != expected_hash {
+                return Err(ProverError::Backend(format!(
+                    "attestation publicInputsHash {hash} != request hash {expected_hash}"
+                )));
+            }
+            // The existing JSON collector keeps this reviewed optional trace ID.
+            let trace_id = eez_telemetry::traces::current()
+                .map(|context| alloy_primitives::hex::encode(context.trace_id.0));
+            event!(
+                name: "eez.prover_client.attested",
+                Level::INFO,
+                event_name = "eez.prover_client.attested",
+                trace_id = trace_id.as_deref(),
+                from = from_block,
+                to = to_block,
+                blocks = n_blocks,
+                %hash,
+                "remote prover attested the window",
+            );
+            Ok(Bytes::copy_from_slice(&resp.signature))
+        }
+        .await;
+        use eez_telemetry::operational::StageOutcome;
+        timer.finish(match &result {
+            Ok(_) => StageOutcome::Success,
+            Err(ProverError::Actionable { .. }) => StageOutcome::Rejected,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::Unavailable,
+                ..
+            }) => StageOutcome::Unavailable,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::DeadlineExceeded,
+                ..
+            }) => StageOutcome::Deadline,
+            Err(ProverError::Retryable {
+                kind: RetryableProverError::Aborted,
+                ..
+            }) => StageOutcome::Aborted,
+            Err(ProverError::Backend(_) | ProverError::CacheMiss { .. }) => StageOutcome::Failed,
+        });
+        result
     }
 
     fn vkey(&self) -> B256 {
@@ -926,6 +975,18 @@ mod tests {
         >,
         capabilities: eez_control_rpc::v1::CapabilitiesResponse,
         capability_calls: Arc<std::sync::atomic::AtomicUsize>,
+        trace_requests:
+            Option<tokio::sync::mpsc::Sender<(&'static str, tonic::metadata::MetadataMap)>>,
+    }
+
+    impl StubProver {
+        fn capture_trace<T>(&self, method: &'static str, request: &Request<T>) {
+            if let Some(capture) = &self.trace_requests {
+                capture
+                    .try_send((method, request.metadata().clone()))
+                    .unwrap();
+            }
+        }
     }
 
     #[tonic::async_trait]
@@ -934,6 +995,7 @@ mod tests {
             &self,
             request: Request<eez_control_rpc::v1::RetainOrdinaryRangesRequest>,
         ) -> Result<Response<eez_control_rpc::v1::RetainOrdinaryRangesResponse>, Status> {
+            self.capture_trace("retain", &request);
             if let Some(retentions) = &self.retentions {
                 let request = request.into_inner();
                 let retained_count = request
@@ -955,15 +1017,37 @@ mod tests {
 
         async fn prepare_ordinary(
             &self,
-            _request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
+            request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
         ) -> Result<Response<eez_control_rpc::v1::PrepareResponse>, Status> {
-            Err(Status::unimplemented("proof-only test double"))
+            if self.trace_requests.is_none() {
+                return Err(Status::unimplemented("proof-only test double"));
+            }
+            self.capture_trace("prepare", &request);
+            let mut stream = request.into_inner();
+            let mut blocks = Vec::new();
+            while let Some(chunk) = stream.message().await? {
+                if let Some(prepare_chunk::Kind::Block(block)) = chunk.kind {
+                    blocks.push(block);
+                }
+            }
+            let first = blocks.first().expect("preparation has a block");
+            let last = blocks.last().unwrap();
+            Ok(Response::new(PrepareResponse {
+                validation_identity: TEST_IDENTITY.to_vec(),
+                first_number: first.number,
+                first_hash: first.hash.clone(),
+                last_number: last.number,
+                last_hash: last.hash.clone(),
+                prepared_count: blocks.len() as u64,
+                lease_id: B256::repeat_byte(77).to_vec(),
+            }))
         }
 
         async fn capabilities(
             &self,
-            _request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
+            request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
         ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
+            self.capture_trace("capabilities", &request);
             self.capability_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(Response::new(self.capabilities.clone()))
@@ -973,11 +1057,26 @@ mod tests {
             &self,
             request: Request<Streaming<ProveChunk>>,
         ) -> Result<Response<ProveResponse>, Status> {
+            self.capture_trace("prove", &request);
             let mut stream = request.into_inner();
+            let mut cached = 0;
+            let mut witnessed = 0;
             while let Some(chunk) = stream.message().await? {
-                if let Some(prove_chunk::Kind::Header(header)) = chunk.kind {
-                    let _ = self.headers.send(header);
+                match chunk.kind {
+                    Some(prove_chunk::Kind::Header(header)) => {
+                        let _ = self.headers.send(header);
+                    }
+                    Some(prove_chunk::Kind::CachedRange(_)) => cached += 1,
+                    Some(prove_chunk::Kind::Block(_)) => witnessed += 1,
+                    None => {}
                 }
+            }
+            if self.trace_requests.is_some() {
+                assert_eq!(
+                    (cached, witnessed),
+                    (1, 1),
+                    "cached ordinary plus fresh terminal"
+                );
             }
             let sig = self.signer.sign_hash_sync(&self.hash).unwrap();
             let mut out = [0u8; 65];
@@ -1060,6 +1159,7 @@ mod tests {
                     retentions: None,
                     capabilities,
                     capability_calls: calls,
+                    trace_requests: None,
                 }))
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
                 .await
@@ -1099,12 +1199,101 @@ mod tests {
                     retentions: Some(retentions),
                     capabilities: test_capabilities(),
                     capability_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                    trace_requests: None,
                 }))
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
                 .await
                 .unwrap();
         });
         (format!("http://{addr}"), received)
+    }
+
+    #[tokio::test]
+    async fn cached_proof_and_preparation_control_rpcs_preserve_trace_context() {
+        use opentelemetry::trace::TracerProvider as _;
+        use tracing::Instrument as _;
+        use tracing_subscriber::prelude::*;
+
+        for enabled in [false, true] {
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_sampler(opentelemetry_sdk::trace::Sampler::AlwaysOn)
+                .build();
+            let subscriber = tracing_subscriber::registry().with(enabled.then(|| {
+                tracing_opentelemetry::layer().with_tracer(provider.tracer("client-test"))
+            }));
+            let _subscriber = tracing::subscriber::set_default(subscriber);
+            let parent = tracing::info_span!(target: "eez_trace", "test_request");
+            let trace_id = parent
+                .in_scope(|| eez_telemetry::traces::current().map(|context| context.trace_id));
+            assert_eq!(trace_id.is_some(), enabled);
+            let signer = test_key();
+            let attester = signer.address();
+            let ctx = context_with_witnesses();
+            let hash = request_hash(&ctx, attester.into_word()).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let (headers, mut received_headers) = tokio::sync::mpsc::unbounded_channel();
+            let (retentions, mut received_retentions) = tokio::sync::mpsc::unbounded_channel();
+            let (trace_requests, mut received_traces) = tokio::sync::mpsc::channel(8);
+            let server = tokio::spawn(async move {
+                Server::builder()
+                    .add_service(ProverServer::new(StubProver {
+                        signer,
+                        hash,
+                        headers,
+                        retentions: Some(retentions),
+                        capabilities: test_capabilities(),
+                        capability_calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                        trace_requests: Some(trace_requests),
+                    }))
+                    .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+                    .await
+                    .unwrap();
+            });
+            let prover = RemoteProver::new(format!("http://{address}"), attester, TEST_IDENTITY);
+            async {
+                assert_eq!(prover.prove(ctx).await.unwrap().len(), 65);
+                assert!(prover.renew_preparation_lease().await.unwrap());
+                prover.release_preparation_lease().await.unwrap();
+            }
+            .instrument(parent)
+            .await;
+            for method in [
+                "capabilities",
+                "prepare",
+                "retain",
+                "prove",
+                "retain",
+                "retain",
+            ] {
+                let (observed, metadata) = received_traces.try_recv().unwrap();
+                assert_eq!(observed, method);
+                let context = eez_telemetry::traces::extract(&metadata);
+                use opentelemetry::trace::TraceContextExt as _;
+                if let Some(trace_id) = trace_id {
+                    assert_eq!(
+                        context.span().span_context().trace_id().to_bytes(),
+                        trace_id.0
+                    );
+                    assert!(context.span().span_context().is_remote());
+                } else {
+                    assert!(!metadata.contains_key("traceparent"));
+                    assert!(!context.span().span_context().is_valid());
+                }
+                assert!(!metadata.contains_key("baggage"));
+            }
+            assert!(received_traces.try_recv().is_err());
+            let header = received_headers.try_recv().unwrap();
+            assert_eq!((header.from_block, header.to_block), (1, 2));
+            assert_eq!(header.expected_validation_identity, TEST_IDENTITY.to_vec());
+            for release in [false, false, true] {
+                assert_eq!(received_retentions.try_recv().unwrap().release, release);
+            }
+            assert!(prover.inner.lease_id.lock().await.is_none());
+            server.abort();
+            let _ = server.await;
+            provider.shutdown().unwrap();
+        }
     }
 
     #[tokio::test]

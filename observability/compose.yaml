@@ -1,0 +1,191 @@
+# Isolated monitoring backend. Start with a prepared runtime and explicit project name.
+services:
+  prometheus:
+    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=2GB
+    ports: ["127.0.0.1:${PROMETHEUS_PORT:-19090}:9090"]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: &logging
+      driver: local
+      options: {max-size: "10m", max-file: "3"}
+
+  grafana:
+    networks: [default, ledger]
+    image: grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+    restart: unless-stopped
+    environment:
+      # Leave room for assets, SQLite and non-Go memory within the 512 MiB cap.
+      GOMEMLIMIT: 384MiB
+      # Empty only for unresolved dynamic-port fixtures; operators set a public URL.
+      GF_SERVER_ROOT_URL: ${GRAFANA_PUBLIC_URL:-http://localhost:3000/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: ${GRAFANA_SERVE_FROM_SUB_PATH:-false}
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-false}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_METRICS_ENABLED: "true"
+      GF_LOG_MODE: console
+    ports: ["127.0.0.1:${GRAFANA_PORT:-19300}:3000"]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${OBS_RUNTIME:?run prepare.py}/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    secrets: [grafana_admin_password]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      prometheus: {condition: service_healthy}
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000${GRAFANA_SUB_PATH:-}/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  loki:
+    image: grafana/loki:3.7.7@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500
+    restart: unless-stopped
+    command: [-config.file=/etc/loki/config.yaml]
+    ports: ["127.0.0.1:${LOKI_PORT:-19310}:3100"]
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    mem_limit: 768m
+    cpus: 1.0
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  alloy:
+    user: alloy
+    image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+    restart: unless-stopped
+    command: [run, --disable-reporting, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy, /etc/alloy/config.alloy]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${OBS_LOG_DIR:?set OBS_LOG_DIR to dedicated JSON log directory}:/var/log/eez:ro
+      - alloy-data:/var/lib/alloy
+    mem_limit: 256m
+    cpus: 0.5
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
+    restart: unless-stopped
+    command: [--config.file=/etc/blackbox/config.yaml]
+    volumes: ["./blackbox/config.yaml:/etc/blackbox/config.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    mem_limit: 128m
+    cpus: 0.5
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  tempo:
+    profiles: [traces]
+    image: grafana/tempo:3.0.3@sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5
+    restart: unless-stopped
+    command: [-target=all, -config.file=/etc/tempo/config.yaml]
+    ports: ["127.0.0.1:${TEMPO_PORT:-19320}:3200"]
+    volumes:
+      - ./tempo/config.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    mem_limit: 1024m
+    cpus: 1.0
+    stop_grace_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  alloy-traces:
+    profiles: [traces]
+    user: alloy
+    image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+    restart: unless-stopped
+    command: [run, --disable-reporting, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy, /etc/alloy/traces.alloy]
+    ports: ["127.0.0.1:${OTLP_HTTP_PORT:-14318}:4318"]
+    volumes:
+      - ${OBS_RUNTIME:?run prepare.py}/alloy/traces.alloy:/etc/alloy/traces.alloy:ro
+      - alloy-traces-data:/var/lib/alloy
+    depends_on: [tempo]
+    mem_limit: 256m
+    cpus: 0.5
+    stop_grace_period: 15s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  postgres:
+    networks: [ledger]
+    profiles: [database]
+    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    user: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: eez_observer
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+    command: [postgres, -c, shared_buffers=128MB, -c, max_connections=30]
+    ports: ["127.0.0.1:${POSTGRES_PORT:-19432}:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-eez-roles.sh:ro
+    secrets: [postgres_admin_password, postgres_writer_password, postgres_reader_password]
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, eez_observer]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+secrets:
+  postgres_admin_password:
+    file: ${OBS_RUNTIME:?run prepare.py}/secrets/postgres-admin-password
+  postgres_writer_password:
+    file: ${OBS_RUNTIME:?run prepare.py}/secrets/postgres-writer-password
+  postgres_reader_password:
+    file: ${OBS_RUNTIME:?run prepare.py}/secrets/postgres-reader-password
+  grafana_admin_password:
+    file: ${OBS_RUNTIME:?run prepare.py}/secrets/grafana-admin-password
+volumes:
+  tempo-data:
+  alloy-traces-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:
+
+networks:
+  ledger:
+    internal: true

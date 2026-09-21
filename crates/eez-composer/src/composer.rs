@@ -42,14 +42,13 @@ use reth_storage_api::{
 use tokio::sync::broadcast;
 use tracing::{Level, event};
 
-use crate::held_pool::{HeldPool, HeldTx};
+use crate::held_pool::{HeldPool, HeldTx, PreparationFacts};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
     build_sync_block, sync_block_hashes_at_positions,
 };
 use crate::optimistic::AttemptId;
-use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
     actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
     validate_actionable_prover_failure,
@@ -219,94 +218,99 @@ fn compose_crosschain(
     use eez_protocol::ChainClient as _;
     use eez_protocol::composition::Rollup;
 
-    // Overlay snapshots are transaction-local. Clear every participating
-    // client so an unbalanced stack cannot affect this composition.
-    entry_client.reset_composition_state();
-    for (client, _) in cc.rollups.values() {
-        client.reset_composition_state();
-    }
+    eez_telemetry::operational::StageTimer::measure(
+        eez_telemetry::operational::Stage::Simulation,
+        || {
+            // Overlay snapshots are transaction-local. Clear every participating
+            // client so an unbalanced stack cannot affect this composition.
+            entry_client.reset_composition_state();
+            for (client, _) in cc.rollups.values() {
+                client.reset_composition_state();
+            }
 
-    tracing::info!(
-        name: "composer.simulate.start",
-        %entry_rollup_id,
-        tx_len = raw_tx.len(),
-        rollup_count = cc.rollups.len(),
-        "starting composition pipeline"
-    );
+            tracing::info!(
+                name: "composer.simulate.start",
+                %entry_rollup_id,
+                tx_len = raw_tx.len(),
+                rollup_count = cc.rollups.len(),
+                "starting composition pipeline"
+            );
 
-    let seeded: Vec<eez_protocol::RollupId> = sessions.keys().copied().collect();
+            let seeded: Vec<eez_protocol::RollupId> = sessions.keys().copied().collect();
 
-    // Assemble registered clients and configs; the seeded sessions replace the
-    // lazy ones for the rollups this direction dispatches to.
-    let mut rollups: HashMap<eez_protocol::RollupId, Rollup> =
-        HashMap::with_capacity(cc.rollups.len());
-    for (rollup_id, (client, config)) in &cc.rollups {
-        rollups.insert(
-            *rollup_id,
-            Rollup {
-                client: Arc::clone(client),
-                session: None,
-                config: config.clone(),
-            },
-        );
-    }
+            // Assemble registered clients and configs; the seeded sessions replace the
+            // lazy ones for the rollups this direction dispatches to.
+            let mut rollups: HashMap<eez_protocol::RollupId, Rollup> =
+                HashMap::with_capacity(cc.rollups.len());
+            for (rollup_id, (client, config)) in &cc.rollups {
+                rollups.insert(
+                    *rollup_id,
+                    Rollup {
+                        client: Arc::clone(client),
+                        session: None,
+                        config: config.clone(),
+                    },
+                );
+            }
 
-    let mut builder =
-        eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    let source = entry_client
-        .simulate_source_tx_on_with_retries(
-            raw_tx.to_vec(),
-            &mut builder,
-            source_state,
-            source_env,
-            true,
-        )
-        .map_err(eez_protocol::CompositionError::from)?;
-    if !source.success {
-        return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
-    }
-    let recorded_count = builder.recorded_count();
-    // Reclaimed before `finalize` consumes the builder — the accepted effects
-    // live in the sessions, not in the composition.
-    let sessions = builder.take_sessions();
+            let mut builder = eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups)
+                .with_sessions(sessions);
+            let source = entry_client
+                .simulate_source_tx_on_with_retries(
+                    raw_tx.to_vec(),
+                    &mut builder,
+                    source_state,
+                    source_env,
+                    true,
+                )
+                .map_err(eez_protocol::CompositionError::from)?;
+            if !source.success {
+                return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
+            }
+            let recorded_count = builder.recorded_count();
+            // Reclaimed before `finalize` consumes the builder — the accepted effects
+            // live in the sessions, not in the composition.
+            let sessions = builder.take_sessions();
 
-    // A session on a rollup nobody seeded means the dispatch opened a lazy one
-    // and ran UNCHAINED — off this slot's states (invariant 6/8). Entry-chain
-    // sessions are legitimate: overlay re-entry opens them there.
-    if let Some(unseeded) = sessions
-        .keys()
-        .find(|id| **id != entry_rollup_id && !seeded.contains(id))
-    {
-        // Unavailable ⇒ classified TRANSIENT: a wiring gap is not the tx's
-        // fault, so the slot aborts and re-queues rather than evicting.
-        return Err(eez_protocol::ExecutorError::from(
-            eez_protocol::ExecutorErrorKind::Unavailable(format!(
-                "composition dispatched to rollup {unseeded}, which has no slot session; \
+            // A session on a rollup nobody seeded means the dispatch opened a lazy one
+            // and ran UNCHAINED — off this slot's states (invariant 6/8). Entry-chain
+            // sessions are legitimate: overlay re-entry opens them there.
+            if let Some(unseeded) = sessions
+                .keys()
+                .find(|id| **id != entry_rollup_id && !seeded.contains(id))
+            {
+                // Unavailable ⇒ classified TRANSIENT: a wiring gap is not the tx's
+                // fault, so the slot aborts and re-queues rather than evicting.
+                return Err(eez_protocol::ExecutorError::from(
+                    eez_protocol::ExecutorErrorKind::Unavailable(format!(
+                        "composition dispatched to rollup {unseeded}, which has no slot session; \
                  it would execute unchained against chain state instead of this slot's state"
-            )),
-        )
-        .into());
-    }
+                    )),
+                )
+                .into());
+            }
 
-    let composition = builder.finalize()?;
-    let target_gas = l1_target_gas(&composition.actions);
+            let composition = builder.finalize()?;
+            let target_gas = l1_target_gas(&composition.actions);
 
-    tracing::info!(
-        name: "composer.simulate.complete",
-        target_count = composition.targets.len(),
-        recorded = recorded_count,
-        l1_target_gas = target_gas,
-        "composition complete"
-    );
+            tracing::info!(
+                name: "composer.simulate.complete",
+                target_count = composition.targets.len(),
+                recorded = recorded_count,
+                l1_target_gas = target_gas,
+                "composition complete"
+            );
 
-    Ok((
-        composition,
-        sessions,
-        CompositionGas {
-            source: source.gas_used,
-            l1_target: target_gas,
+            Ok((
+                composition,
+                sessions,
+                CompositionGas {
+                    source: source.gas_used,
+                    l1_target: target_gas,
+                },
+            ))
         },
-    ))
+    )
 }
 
 impl std::fmt::Debug for CrossChainWiring {
@@ -652,6 +656,22 @@ enum PreparePostBatchError {
     },
 }
 
+impl PreparePostBatchError {
+    fn telemetry_outcome(&self) -> eez_telemetry::schema::PreparationOutcome {
+        use eez_telemetry::schema::PreparationOutcome;
+        match self {
+            Self::Build(_) => PreparationOutcome::ConstructionFailed,
+            Self::OverBudget { .. } | Self::CompositionBlobLimit { .. } => {
+                PreparationOutcome::CapacityLimited
+            }
+            Self::Prover(_) => PreparationOutcome::ProverFailed,
+            Self::Actionable(_) | Self::ObservationMismatch { .. } => {
+                PreparationOutcome::ValidationRejected
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SettlementFailureOutcome {
     requeued: usize,
@@ -717,7 +737,7 @@ fn recover_settlement_failure(
             }
             !cascade
         });
-        for tx in pool.evict_chain_at_or_above(sender, direction, nonce) {
+        for tx in pool.evict_exhausted_chain_at_or_above(sender, direction, nonce) {
             event!(
                 name: "eez.composer.recovery.nonce_chain_evicted",
                 Level::ERROR,
@@ -937,7 +957,7 @@ fn requeue_unprocessed(
         cascade_evicted.push(tx.clone());
         false
     });
-    pool.release_in_flight_batch(&cascade_evicted);
+    pool.release_nonce_gap_batch(&cascade_evicted);
     pool.requeue_composing(requeue);
 }
 
@@ -1121,7 +1141,30 @@ where
             emission,
             ..
         } = settings;
+        eez_telemetry::operational::PolicySettings {
+            enabled: true,
+            pure_interval: match policy_config.pure_l2 {
+                crate::settlement_policy::PureL2Mode::Always => None,
+                crate::settlement_policy::PureL2Mode::Interval { milliseconds } => {
+                    Some(std::time::Duration::from_millis(milliseconds.get()))
+                }
+            },
+            max_unsettled_blocks: Some(policy_config.max_unsettled_l2_blocks.get()),
+            fullness_bps: policy_config
+                .blob_fullness_bps
+                .map(std::num::NonZeroU16::get),
+            blob_cap,
+            count_cap: max_user_txs_per_bundle,
+            gas_cap: (emission.max_gas != u64::MAX).then_some(emission.max_gas),
+            proof_time: timing.proof_time(),
+            submission_slack: timing.submission_slack(),
+            slot_time: timing.l1_block_time(),
+        }
+        .publish();
         event!(name: "eez.composer.settlement.policy", Level::INFO,
+            event_name = "eez.composer.settlement.policy",
+            pure_l2_mode = match policy_config.pure_l2 { crate::settlement_policy::PureL2Mode::Always => "always", crate::settlement_policy::PureL2Mode::Interval { .. } => "interval" },
+            max_unsettled_l2_blocks = policy_config.max_unsettled_l2_blocks.get(),
             ?policy_config, "settlement policy settings apply until restart");
         let policy = policy::EnabledPolicy::new(policy_config, rollups.keys().copied(), blob_cap);
         let posting = Arc::new(posting::PostingRuntime {
@@ -1134,6 +1177,7 @@ where
             costs: std::sync::Mutex::default(),
         });
         event!(name: "eez.composer.emission.limits", Level::INFO,
+            event_name = "eez.composer.emission.limits",
             max_blocks = emission.max_blocks, configured_gas_cap = emission.max_gas,
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
             automatic_admission = max_user_txs_per_bundle.is_none(),
@@ -1253,14 +1297,24 @@ where
             }
             Ok(L1Event::Reorg {
                 common_ancestor_number,
-                ..
+                common_ancestor_hash,
+                old_head_hash,
+                new_head_number,
+                new_head_hash,
             }) => {
                 for rollup in self.rollups.values() {
                     rollup.l1_head.invalidate_scan();
-                    if let Err(error) = rollup
-                        .held_pool
-                        .invalidate_after_l1(*common_ancestor_number)
-                    {
+                    if let Err(error) = rollup.held_pool.observe_l1_reorg(
+                        eez_l1::L1BlockRef {
+                            number: *common_ancestor_number,
+                            hash: *common_ancestor_hash,
+                        },
+                        *old_head_hash,
+                        eez_l1::L1BlockRef {
+                            number: *new_head_number,
+                            hash: *new_head_hash,
+                        },
+                    ) {
                         event!(Level::ERROR, %error, "cannot apply L1 reorg; retaining transaction ownership");
                     }
                 }
@@ -1506,6 +1560,9 @@ where
         // cannot invalidate it. Checking first would starve a chronically late
         // node (slow prover, relay latency) of settlement entirely.
         if matches!(mode, SyncSlotMode::Empty) {
+            eez_telemetry::operational::slot_miss(
+                eez_telemetry::operational::SlotMiss::ScheduledLate,
+            );
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
         }
 
@@ -1818,14 +1875,35 @@ where
             .state_by_block_hash(endpoint.hash)
             .map_err(|error| format!("canonical L2 source state: {error}"))?;
         let mut outcomes = Vec::with_capacity(attempt.txs.len());
-        for ((tx, user), source) in attempt.txs.iter().zip(&attempt.manifest.users).zip(inbound) {
+        let mut source_observations = rollup
+            .held_pool
+            .capture_source_observations(attempt.txs.len());
+        let block_ref = |number, hash: B256| eez_telemetry::schema::BlockRef {
+            number,
+            hash: eez_telemetry::schema::Hash32(hash.0),
+        };
+        use eez_telemetry::schema::SourceBasis;
+        for ((tx, user), source) in attempt
+            .txs
+            .iter()
+            .zip(&attempt.manifest.users)
+            .zip(&inbound)
+        {
+            let mut observation = crate::held_pool::SourceObservation {
+                nonce: 0,
+                block: None,
+                basis: SourceBasis::Nonce,
+            };
             let own_effects_applied = evidence.is_some_and(|settled| {
                 !user.effects.is_empty()
                     && settled.applied_effects.start <= user.effects.start
                     && user.effects.end <= settled.applied_effects.end
             });
             let outcome = if let Some(source) = source {
-                if let Some(receipt) = source.receipt {
+                observation.nonce = source.nonce;
+                if let Some(receipt) = source.receipt.as_ref() {
+                    observation.block = Some(block_ref(receipt.block.number, receipt.block.hash));
+                    observation.basis = SourceBasis::Receipt;
                     if source.nonce <= tx.nonce {
                         return Err("source receipt and pinned source nonce disagree".into());
                     }
@@ -1838,7 +1916,7 @@ where
                         TerminalReason::SourceCompleted
                     } else if own_effects_applied
                         && evidence
-                            .is_some_and(|settled| source_uses_batch(&receipt, settled, &snapshot))
+                            .is_some_and(|settled| source_uses_batch(receipt, settled, &snapshot))
                         && user.source_actions.iter().all(|action| {
                             receipt
                                 .consumed
@@ -1862,6 +1940,7 @@ where
                     .account_nonce(&tx.sender)
                     .map_err(|error| format!("canonical L2 nonce: {error}"))?
                     .unwrap_or(0);
+                observation.nonce = nonce;
                 if nonce <= tx.nonce {
                     if own_effects_applied {
                         return Err(
@@ -1876,6 +1955,12 @@ where
                     // same-height extension. A competing batch can include
                     // the same signed user; check its canonical metadata too.
                     let mut included = own_effects_applied;
+                    if included {
+                        observation.basis = SourceBasis::AppliedOutboundGroup;
+                        observation.block = evidence
+                            .and_then(|settled| settled.endpoint)
+                            .map(|endpoint| block_ref(endpoint.number, endpoint.hash));
+                    }
                     if !included {
                         if let Some((_, metadata)) = rollup
                             .l2_provider
@@ -1888,6 +1973,11 @@ where
                                     .sealed_header(metadata.block_number)
                                     .map_err(|error| error.to_string())?
                                     .is_some_and(|header| header.hash() == metadata.block_hash);
+                            if included {
+                                observation.basis = SourceBasis::CanonicalInclusion;
+                                observation.block =
+                                    Some(block_ref(metadata.block_number, metadata.block_hash));
+                            }
                         }
                         if !included {
                             included = rollup
@@ -1900,6 +1990,10 @@ where
                                             == tx.hash
                                     })
                                 });
+                            if included {
+                                observation.basis = SourceBasis::CanonicalInclusion;
+                                observation.block = Some(block_ref(endpoint.number, endpoint.hash));
+                            }
                         }
                     }
                     SourceOutcome::Terminal(if included {
@@ -1910,6 +2004,9 @@ where
                 }
             };
             outcomes.push(outcome);
+            if let Some(observations) = source_observations.as_mut() {
+                observations.push(observation);
+            }
         }
         drop(l2_state);
 
@@ -1971,12 +2068,19 @@ where
                     ..
                 }
             );
-        rollup.held_pool.resolve_attempt(
+        rollup.held_pool.resolve_attempt_with_evidence(
             attempt.id,
             at,
             &outcomes,
             charge,
             MAX_BUNDLE_ATTEMPTS,
+            Some(crate::held_pool::ReconciliationFacts {
+                endpoint,
+                post: post.receipt.as_ref(),
+                applied: evidence,
+                inbound: &inbound,
+                sources: source_observations.as_deref(),
+            }),
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
         if self.inner.max_user_txs_per_bundle.is_none()
@@ -3435,6 +3539,11 @@ where
             !deferred.is_empty(),
             selection.fifo_bypassed(),
         );
+        if self.inner.max_user_txs_per_bundle.is_some() && selection.count_limited() {
+            eez_telemetry::operational::admission_cut(
+                eez_telemetry::operational::AdmissionCut::Count,
+            );
+        }
         if !deferred.is_empty() {
             let deferred_count = deferred.len();
             let accepted_count = survivors.len();
@@ -3444,6 +3553,16 @@ where
                 accepted_count > 0 || block_gas_cut.is_none(),
                 "a block-gas cut cannot happen with nothing accepted"
             );
+            eez_telemetry::operational::admission_cut(match admission_cut {
+                Some("preparation_time") => {
+                    eez_telemetry::operational::AdmissionCut::PreparationDeadline
+                }
+                Some("composition_blob_limit") => eez_telemetry::operational::AdmissionCut::Da,
+                Some("prior_queue_cleanup") => {
+                    eez_telemetry::operational::AdmissionCut::QueueCleanup
+                }
+                _ => eez_telemetry::operational::AdmissionCut::Gas,
+            });
             if let Some(constraint) = admission_cut {
                 event!(name: "eez.composer.admission.cut", Level::INFO,
                     event_name = "eez.composer.admission.cut", rollup_id,
@@ -3820,24 +3939,33 @@ where
             pool.push_front_batch(survivors);
             return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
         }
-        let preparation = self
-            .prepare_post_batch_raw(
-                ctx,
-                rollup_id,
-                &comp_refs,
-                parent_header,
-                built.header.hash(),
-                Some(&built.block),
-                &pair_hashes,
-                &effect_end_positions,
-                &outbound_entries,
-                &outbound_entry_traces,
-                &pending_out,
-                &semantic_transactions,
-                outbound_target_gas,
-                gas_projection.as_ref(),
-                bundle_target,
-                Some(admission),
+        let preparation = rollup
+            .held_pool
+            .observe_preparation(
+                eez_l1::L2Endpoint {
+                    number: built.header.number(),
+                    hash: built.header.hash(),
+                },
+                &survivors,
+                self.prepare_post_batch_raw(
+                    ctx,
+                    rollup_id,
+                    &comp_refs,
+                    parent_header,
+                    built.header.hash(),
+                    Some(&built.block),
+                    &pair_hashes,
+                    &effect_end_positions,
+                    &outbound_entries,
+                    &outbound_entry_traces,
+                    &pending_out,
+                    &semantic_transactions,
+                    outbound_target_gas,
+                    gas_projection.as_ref(),
+                    bundle_target,
+                    Some(admission),
+                ),
+                PreparePostBatchError::telemetry_outcome,
             )
             .await;
         if let Err(
@@ -3924,7 +4052,7 @@ where
                 )
                 .await;
         }
-        let prepared_postbatch = match preparation {
+        let (prepared_postbatch, preparation_facts) = match preparation {
             Ok(r) => r,
             Err(
                 error @ (PreparePostBatchError::Actionable(_)
@@ -4223,13 +4351,14 @@ where
                 .filter(|held| held.direction == Direction::Inbound)
                 .map(|held| held.raw_tx.clone()),
         );
-        let attempt_id = match rollup.optimistic.begin(
+        let attempt_id = match rollup.held_pool.begin_attempt(
             sync_height,
             post_batch_hash,
             parent_header.clone(),
             survivors.clone(),
             manifest,
             prepared_postbatch,
+            preparation_facts,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -4262,7 +4391,8 @@ where
             sync_height,
             attempt_id,
             bundle,
-            Arc::clone(&rollup.optimistic),
+            Arc::clone(&rollup.held_pool),
+            preparation_facts.nonce,
             bundle_target,
             &semantic_transactions,
         );
@@ -4355,24 +4485,33 @@ where
             }
         }
 
-        let preparation = self
-            .prepare_post_batch_raw(
-                ctx,
-                rollup_id,
-                &[], // no compositions → leading immediate only
-                parent_header,
-                empty_built.header.hash(),
-                Some(&empty_built.block),
-                &[], // no cross-chain effects → no per-effect roots
-                &[], // no cross-chain effects → no effect positions
-                &[], // no outbound entries
-                &[], // no outbound entry traces
-                &[], // no outbound L2 sidecars
-                &[], // no cross-chain semantic transactions
-                0,   // no inline outbound target calls
-                None,
-                bundle_target,
-                None,
+        let preparation = rollup
+            .held_pool
+            .observe_preparation(
+                eez_l1::L2Endpoint {
+                    number: empty_built.header.number(),
+                    hash: empty_built.header.hash(),
+                },
+                &[],
+                self.prepare_post_batch_raw(
+                    ctx,
+                    rollup_id,
+                    &[], // no compositions → leading immediate only
+                    parent_header,
+                    empty_built.header.hash(),
+                    Some(&empty_built.block),
+                    &[], // no cross-chain effects → no per-effect roots
+                    &[], // no cross-chain effects → no effect positions
+                    &[], // no outbound entries
+                    &[], // no outbound entry traces
+                    &[], // no outbound L2 sidecars
+                    &[], // no cross-chain semantic transactions
+                    0,   // no inline outbound target calls
+                    None,
+                    bundle_target,
+                    None,
+                ),
+                PreparePostBatchError::telemetry_outcome,
             )
             .await;
         if let Err(error) = &preparation
@@ -4385,7 +4524,7 @@ where
                 header: empty_built.header,
             }));
         }
-        let minimal_postbatch_raw = match preparation {
+        let (minimal_postbatch_raw, preparation_facts) = match preparation {
             Ok(raw) => raw,
             Err(err) => {
                 // The whole range will not fit; settle a bounded prefix of it so
@@ -4425,13 +4564,14 @@ where
         };
         let sync_height = empty_built.header.number();
         let post_batch_hash = post_batch_blob_transaction_hash(&minimal_postbatch_raw)?;
-        let attempt_id = match rollup.optimistic.begin(
+        let attempt_id = match rollup.held_pool.begin_attempt(
             sync_height,
             post_batch_hash,
             parent_header.clone(),
             Vec::new(),
             SettlementManifest::empty(sync_height, empty_built.header.hash()),
             minimal_postbatch_raw.clone(),
+            preparation_facts,
         ) {
             Ok(id) => id,
             Err(error) => {
@@ -4457,7 +4597,8 @@ where
             sync_height,
             attempt_id,
             vec![minimal_postbatch_raw],
-            Arc::clone(&rollup.optimistic),
+            Arc::clone(&rollup.held_pool),
+            preparation_facts.nonce,
             bundle_target,
             &[],
         );
@@ -4562,27 +4703,36 @@ where
                 .map_err(|e| format!("sealed_header({}): {e}", boundary - 1))?
                 .ok_or_else(|| format!("local L2 header at {} missing", boundary - 1))?;
 
-            let preparation = self
-                .prepare_post_batch_raw(
-                    ctx,
-                    rollup_id,
-                    &[], // no compositions → leading immediate only
-                    &boundary_parent,
-                    boundary_header.hash(),
-                    None, // terminal is committed → witnesses come from the store
+            let preparation = rollup
+                .held_pool
+                .observe_preparation(
+                    eez_l1::L2Endpoint {
+                        number: boundary_header.number(),
+                        hash: boundary_header.hash(),
+                    },
                     &[],
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                    0, // no inline outbound target calls
-                    None,
-                    bundle_target,
-                    None,
+                    self.prepare_post_batch_raw(
+                        ctx,
+                        rollup_id,
+                        &[], // no compositions → leading immediate only
+                        &boundary_parent,
+                        boundary_header.hash(),
+                        None, // terminal is committed → witnesses come from the store
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        &[],
+                        0, // no inline outbound target calls
+                        None,
+                        bundle_target,
+                        None,
+                    ),
+                    PreparePostBatchError::telemetry_outcome,
                 )
                 .await;
-            let raw = match preparation {
+            let (raw, preparation_facts) = match preparation {
                 Ok(raw) => raw,
                 Err(PreparePostBatchError::OverBudget { constraint, .. }) => {
                     split_reasons.insert(constraint);
@@ -4608,13 +4758,14 @@ where
             );
 
             let post_batch_hash = post_batch_blob_transaction_hash(&raw)?;
-            let attempt_id = rollup.optimistic.begin(
+            let attempt_id = rollup.held_pool.begin_attempt(
                 boundary,
                 post_batch_hash,
                 boundary_parent,
                 Vec::new(),
                 SettlementManifest::empty(boundary, boundary_header.hash()),
                 raw.clone(),
+                preparation_facts,
             )?;
             // A past terminal uses the future target already pinned for its
             // proof. Dispatch must not change the timestamp or its fork rules.
@@ -4624,7 +4775,8 @@ where
                 boundary,
                 attempt_id,
                 vec![raw],
-                Arc::clone(&rollup.optimistic),
+                Arc::clone(&rollup.held_pool),
+                preparation_facts.nonce,
                 bundle_target,
                 &[],
             );
@@ -4695,7 +4847,8 @@ where
         sync_height: u64,
         attempt_id: AttemptId,
         bundle: Vec<Bytes>,
-        optimistic: Arc<OptimisticallyIncluded>,
+        pool: Arc<HeldPool>,
+        nonce: u64,
         target: BundleTarget,
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) {
@@ -4705,7 +4858,8 @@ where
             sync_height,
             attempt_id,
             bundle,
-            optimistic,
+            pool,
+            nonce,
             submitter,
             target,
             self.inner.posting.clone(),
@@ -4716,8 +4870,8 @@ where
     /// Build + sign the L1 `postBatch` raw tx for a Sync slot's
     /// compositions, covering blocks `posted+1..=parent+1` (intermediate
     /// blocks + the new Sync block at `parent+1`, always the range's last
-    /// block). Returns only the signed EIP-2718 `postBatch` bytes; the caller
-    /// appends surviving inbound user transactions to the L1 bundle.
+    /// block). Returns the signed EIP-2718 `postBatch` bytes and exact candidate
+    /// sizing/nonce facts; the caller appends surviving inbound users to the bundle.
     ///
     /// A later `postAndVerifyBatch` for the same rollup and L1 block replaces the
     /// earlier deferred queue. The composer therefore merges one Sync slot into
@@ -4766,7 +4920,7 @@ where
         gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
-    ) -> Result<Bytes, PreparePostBatchError> {
+    ) -> Result<(Bytes, PreparationFacts), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
         use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
 
@@ -5510,6 +5664,9 @@ where
                         .map_err(|error| error.to_string())?;
                 let required = minimum_bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB);
                 if required > maximum_blobs {
+                    eez_telemetry::operational::admission_cut(
+                        eez_telemetry::operational::AdmissionCut::Da,
+                    );
                     return Err(PreparePostBatchError::CompositionBlobLimit {
                         required,
                         maximum: maximum_blobs,
@@ -5526,6 +5683,7 @@ where
                 maximum = maximum_blobs,
                 "candidate range exceeds the per-transaction blob limit",
             );
+            eez_telemetry::operational::admission_cut(eez_telemetry::operational::AdmissionCut::Da);
             return Err(PreparePostBatchError::OverBudget {
                 constraint: "blob_limit",
                 required: blob_count as u64,
@@ -5610,6 +5768,9 @@ where
                         .map_err(|error| error.to_string())?,
                 )
                 .map_err(|_| "declared gas overflow")?;
+                eez_telemetry::operational::admission_cut(
+                    eez_telemetry::operational::AdmissionCut::Gas,
+                );
                 return Err(PreparePostBatchError::OverBudget {
                     constraint: "l1_tx_gas_budget",
                     required,
@@ -5629,6 +5790,9 @@ where
                 ceiling,
                 calldata_bytes = projected.len(),
                 "candidate range exceeds the postBatch gas budget",
+            );
+            eez_telemetry::operational::admission_cut(
+                eez_telemetry::operational::AdmissionCut::Gas,
             );
             return Err(PreparePostBatchError::OverBudget {
                 constraint: "l1_tx_gas_budget",
@@ -5683,6 +5847,7 @@ where
                 let terminal_block = sync_block.cloned();
                 tokio::task::spawn_blocking(
                     move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
+                        eez_telemetry::operational::StageTimer::measure(eez_telemetry::operational::Stage::Witness, || {
                         let mut ws = witness_ids.into_iter()
                             .map(|(number, hash)| src.block_witness(number, hash))
                             .collect::<Result<Vec<_>, String>>()
@@ -5722,6 +5887,7 @@ where
                             }
                         }
                         Ok((ws, Vec::new()))
+                        })
                     },
                 )
                 .await
@@ -5899,7 +6065,16 @@ where
         let raw = eez_blob_codec::sign_blob_transaction(transaction, &ctx.l1_poster_signer)
             .map_err(|error| error.to_string())?
             .pooled_transaction;
-        Ok(raw)
+        Ok((
+            raw,
+            PreparationFacts {
+                preparation: None,
+                encoded_bytes: encoded_stream_bytes,
+                blob_count,
+                blob_allowance: maximum_blobs,
+                nonce: poster_nonce,
+            },
+        ))
     }
 }
 
@@ -6067,30 +6242,22 @@ fn validate_attempt_evidence(
     {
         return Err("reconciliation evidence does not match the signed postBatch".into());
     }
-    let effects = &attempt.manifest.effects;
-    let applied = &evidence.applied_effects;
-    if applied.start > applied.end || applied.end > effects.len() {
-        return Err("reconciliation slice exceeds the user manifest".into());
-    }
-    if !applied.is_empty() {
-        let endpoint = evidence
+    eez_protocol::settlement_manifest::validate_replay_coordinates(
+        attempt.sync_height,
+        &attempt.manifest.effects,
+        &evidence.applied_effects,
+        evidence
             .endpoint
-            .ok_or("producing settlement has no endpoint")?;
-        if endpoint.number != attempt.sync_height || endpoint.hash != effects[applied.end - 1] {
-            return Err("reconciliation endpoint differs from the manifest checkpoint".into());
-        }
-    }
-    for user in &attempt.manifest.users {
-        if let Some(group) = user.outbound_group {
-            let selected = applied.start <= user.effects.start && user.effects.end <= applied.end;
-            if selected != evidence.selection.outbound_groups.contains(&group) {
-                return Err(
-                    "reconciliation splits or misidentifies a signed outbound group".into(),
-                );
-            }
-        }
-    }
-    Ok(())
+            .as_ref()
+            .map(|endpoint| (endpoint.number, &endpoint.hash)),
+        &evidence.selection.outbound_groups,
+        attempt
+            .manifest
+            .users
+            .iter()
+            .map(|user| (user.outbound_group, user.effects.clone())),
+    )
+    .map_err(str::to_owned)
 }
 
 async fn observe_bundle_outcome(
@@ -6098,7 +6265,8 @@ async fn observe_bundle_outcome(
     sync_height: u64,
     mut attempt_id: AttemptId,
     mut bundle: Vec<Bytes>,
-    optimistic: Arc<OptimisticallyIncluded>,
+    pool: Arc<HeldPool>,
+    nonce: u64,
     submitter: Submitter,
     target: BundleTarget,
     posting: Arc<posting::PostingRuntime>,
@@ -6115,7 +6283,7 @@ async fn observe_bundle_outcome(
                 "target parent or submission window changed before final pricing".to_owned(),
             );
         }
-        let attempt = optimistic
+        let attempt = pool
             .pending_attempt()
             .filter(|attempt| attempt.id == attempt_id)
             .ok_or("prepared attempt no longer owns this submission")?;
@@ -6130,7 +6298,7 @@ async fn observe_bundle_outcome(
             .await
             .map_err(|error| error.to_string())?;
         let hash = post_batch_blob_transaction_hash(&prepared[0])?;
-        let id = optimistic.replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())?;
+        let id = pool.replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())?;
         Ok::<_, String>((prepared, quote, id))
     }
     .await;
@@ -6145,21 +6313,23 @@ async fn observe_bundle_outcome(
                 event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
                 "unsent bundle deferred; due work retained without a user attempt penalty");
             if let BundleTarget::Exact { block, .. } = target {
-                let _ = optimistic.observe(
+                let _ = pool.observe_attempt(
                     attempt_id,
                     SubmissionObservation::Excluded {
                         block,
                         charge_attempt: false,
                     },
+                    nonce,
                 );
             }
             return;
         }
     };
-    let recorder = Arc::clone(&optimistic);
-    let record_dispatch = move |block, timestamp| match recorder.observe(
+    let recorder = Arc::clone(&pool);
+    let record_dispatch = move |block, timestamp| match recorder.observe_attempt(
         attempt_id,
         SubmissionObservation::Dispatched { block, timestamp },
+        nonce,
     ) {
         Ok(true) => Ok(()),
         Ok(false) => Err(eez_l1::L1Error::Submission(
@@ -6169,9 +6339,28 @@ async fn observe_bundle_outcome(
             "cannot record dispatch: {error}"
         ))),
     };
+    let mut stage_timer = eez_telemetry::operational::StageTimer::start(
+        eez_telemetry::operational::Stage::Submission,
+    );
     let outcome = submitter
         .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
         .await;
+    stage_timer.finish(match &outcome {
+        Ok(SendOutcome::Included { .. }) => eez_telemetry::operational::StageOutcome::Included,
+        Ok(SendOutcome::Dropped { .. }) => eez_telemetry::operational::StageOutcome::Excluded,
+        Err(_) => eez_telemetry::operational::StageOutcome::Failed,
+    });
+    if let Ok(SendOutcome::Dropped { reason, .. }) = &outcome {
+        use eez_telemetry::operational::{SlotMiss, slot_miss};
+        slot_miss(match reason {
+            eez_l1::submitter::BundleDropReason::Excluded => SlotMiss::Excluded,
+            eez_l1::submitter::BundleDropReason::SlotSkipped => SlotMiss::Skipped,
+            eez_l1::submitter::BundleDropReason::SubmissionWindowMissed => {
+                SlotMiss::SubmissionDeadline
+            }
+            eez_l1::submitter::BundleDropReason::TargetChanged => SlotMiss::TargetChanged,
+        });
+    }
     let observation = match &outcome {
         Ok(SendOutcome::Included {
             l1_block,
@@ -6197,7 +6386,7 @@ async fn observe_bundle_outcome(
         event_name = "eez.composer.bundle.observed",
         rollup_id, sync_height, attempt = ?attempt_id, outcome = ?outcome,
         "bundle observed; canonical derivation and source receipts retain ownership authority");
-    if let Err(error) = optimistic.observe(attempt_id, observation) {
+    if let Err(error) = pool.observe_attempt(attempt_id, observation, nonce) {
         event!(Level::ERROR, rollup_id, %error, "cannot record observation; retaining attempt");
     }
 }
@@ -6214,6 +6403,59 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    #[test]
+    fn preparation_failure_telemetry_uses_typed_categories_without_parsing_messages() {
+        use eez_telemetry::schema::PreparationOutcome::*;
+        let cases = [
+            (
+                PreparePostBatchError::Build("capacity exceeded or anything else".into()),
+                ConstructionFailed,
+            ),
+            (
+                PreparePostBatchError::OverBudget {
+                    constraint: "opaque",
+                    required: 2,
+                    maximum: 1,
+                },
+                CapacityLimited,
+            ),
+            (
+                PreparePostBatchError::CompositionBlobLimit {
+                    required: 2,
+                    maximum: 1,
+                },
+                CapacityLimited,
+            ),
+            (
+                PreparePostBatchError::Prover(ProverError::Backend(
+                    "capacity exceeded or anything else".into(),
+                )),
+                ProverFailed,
+            ),
+            (
+                PreparePostBatchError::Actionable(ActionableProverFailure::Outbound {
+                    transaction_index: 1,
+                    transaction_hash: B256::ZERO,
+                }),
+                ValidationRejected,
+            ),
+            (
+                PreparePostBatchError::ObservationMismatch {
+                    composition_index: 0,
+                    observation_index: 0,
+                    expected_success: true,
+                    observed_success: false,
+                    expected_output_hash: B256::ZERO,
+                    observed_output_hash: B256::ZERO,
+                },
+                ValidationRejected,
+            ),
+        ];
+        for (error, outcome) in cases {
+            assert_eq!(error.telemetry_outcome(), outcome);
+        }
+    }
 
     fn gas_action(
         source: u64,

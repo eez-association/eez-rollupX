@@ -43,6 +43,17 @@ stateDiagram-v2
    `AttestablePublicInputsHash`, builds `ProveResponse`, and then releases the
    request permit.
 
+## Authorized response observations
+
+Optional metrics distinguish ordinary RPC outcomes from the response stage after
+`AttestationMaterial` has returned from every validation and settlement gate. The
+authorized-response guard covers the pre-sign deadline, signing, post-sign
+deadline and response construction, recording one finite success/error/deadline/
+cancellation/panic outcome. Invalid or merely admitted input cannot enter this
+metric. Success means a locally constructed response, not client delivery or
+canonical settlement. Instrumentation does not acquire the request permit,
+change cancellation or extend a deadline.
+
 ## Three independent bounds
 
 | Bound | What it limits |
@@ -117,5 +128,12 @@ request futures without cancelling them. An admitted RPC may therefore run to
 completion or its request deadline. The process then waits for
 `active_request_slot` to become idle; detached validation is not terminated
 halfway through a block or settlement gate.
+
+There is no overall application shutdown deadline. After this protocol drain,
+optional trace export gets a separate allowance of at most two seconds; collector
+failure cannot extend that allowance or change validation/permit ownership.
+When tracing is disabled this adds no wait. A future application-wide deadline
+must pass its actual remaining budget to the exporter instead of using the
+explicit deadline-free path.
 
 For operator-facing implications, see [Operations](operations.md).

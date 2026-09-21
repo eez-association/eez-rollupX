@@ -83,7 +83,7 @@ import tarfile
 
 allowed = {"rustc-version.txt", "cargo-version.txt"} | {
     "bin/" + name for name in (
-        "eez-composer", "eez-follower", "eez-proof-signer",
+        "eez-composer", "eez-follower", "eez-proof-signer", "eez-observer",
         "eez-genesis-state-root", "eez-genesis-block-hash",
         "e2e-causal-verify", "verify_blob_evidence",
     )
@@ -100,7 +100,7 @@ with tarfile.open(sys.argv[1], "r:gz") as archive:
         raise SystemExit("Runtime archive is incomplete")
     archive.extractall(sys.argv[2], filter="data")
 PY
-for binary in eez-composer eez-follower eez-proof-signer eez-genesis-state-root \
+for binary in eez-composer eez-follower eez-proof-signer eez-observer eez-genesis-state-root \
     eez-genesis-block-hash e2e-causal-verify verify_blob_evidence; do
     [[ -x "$binary_dir/bin/$binary" ]] || { echo "Runtime archive is missing executable $binary" >&2; exit 1; }
 done

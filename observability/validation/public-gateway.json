@@ -1,0 +1,62 @@
+{
+  "scope": "User-requested HTTPS route to the retained simulated Grafana test stack; existing EEZ runtime untouched",
+  "public": {
+    "url": "https://eez.asuscomm.com/grafana/",
+    "checks": [
+      "bare_path_redirects_to_grafana_prefix",
+      "login_base_path_and_relative_static_assets_load_over_public_tls",
+      "public_proxy_reaches_healthy_grafana",
+      "anonymous_dashboard_api_refused",
+      "existing_route_statuses_unchanged"
+    ],
+    "existing_routes_after": {
+      "/": 200,
+      "/monitor/": 200,
+      "/rpc/l1": 502,
+      "/rpc/l2": 502
+    },
+    "status": "passed",
+    "public_credential_login": "not attempted: automatic approval review rejected sending admin credentials to the public endpoint"
+  },
+  "private": {
+    "scrapes": [
+      {
+        "job": "eez-observer",
+        "health": "up",
+        "url": "http://observer:19100/metrics"
+      },
+      {
+        "job": "grafana",
+        "health": "up",
+        "url": "http://grafana:3000/grafana/metrics"
+      }
+    ],
+    "grafana_public_url": "https://eez.asuscomm.com/grafana",
+    "serve_from_sub_path": true,
+    "secure_cookie_configured": true,
+    "anonymous_access_enabled": false,
+    "gateway_network": "eez-chiado-public_default",
+    "status": "passed"
+  },
+  "python_tests": {
+    "selected": 149,
+    "passed": 148,
+    "opt_in_skipped": 1
+  },
+  "changes": [
+    "Only Grafana joined the existing public-gateway Docker network.",
+    "Only Grafana was recreated; its credentials and data volume were retained.",
+    "Caddy configuration reloaded with the additional /grafana/ route; other routes/ports/certificate volumes retained.",
+    "Demo Prometheus configuration reloaded for the prefixed Grafana metrics endpoint."
+  ],
+  "local_evidence_root": "target/observability-public-gateway",
+  "evidence_sha256": {
+    "inputs.json": "f47c424e0ae57ad4661dd27e009fa83495e253efe080de539838153eda792211",
+    "Caddyfile.before": "5ac9dd3507097b019b1e60299c0f7effd8d303dc6d73a3f92608b3e4b1fb8aa7",
+    "Caddyfile.candidate": "2f3c1e4a6400478b4590c60b77f2ea41f8e3b66ded8580bf400ca5be609edde4",
+    "reload.log": "0df3cfed76af6dc00f33e5979624d5096a3e16db438aa944871f833d8626fdc0",
+    "public-checks.json": "e0e350606e3487cdfbaadcf2d475e5b6da483ae54773a485554040325ce13474",
+    "private-checks.json": "1e2849769ce09a3b50b6f178e108837a579f0702dbab58e4713bf1f128b5b851",
+    "python-tests.log": "ea7ce65492dfb0939dfb097165f3a09e7d28d71f460f61c704352b88d5dd5588"
+  }
+}

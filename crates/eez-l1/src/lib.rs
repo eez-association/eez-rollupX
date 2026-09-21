@@ -15,6 +15,7 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod blob_diagnostics;
 mod blob_source;
 pub use blob_source::BlobRuleSource;
 pub mod chain_config;

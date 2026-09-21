@@ -19,8 +19,12 @@
 //! dedupe, and in-flight nonce reservations atomic. Held-pool operations
 //! are infrequent (per sync slot, per L1 event) and never hot-path.
 
+#[cfg(feature = "benchmark-lock-timing")]
+use crate::benchmark_lock::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(not(feature = "benchmark-lock-timing"))]
+use std::sync::Mutex;
 
 use alloy_primitives::{Address, Bytes, TxHash};
 use tracing::{Level, event};
@@ -28,7 +32,11 @@ use tracing::{Level, event};
 use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
+mod lifecycle;
 mod status;
+pub(crate) use lifecycle::PreparationFacts;
+pub use lifecycle::{ChainIdentity, LifecycleContext};
+pub(crate) use lifecycle::{ReconciliationFacts, SourceObservation};
 pub use status::SourceState;
 
 /// A cross-chain transaction held between submission and Sync-slot
@@ -118,6 +126,7 @@ struct PoolState {
     /// Resume discovery at a source chain, never at one of its higher nonces.
     scan_from: Option<(Address, Direction)>,
     telemetry: status::QueueTelemetry,
+    lifecycle: Option<lifecycle::Lifecycle>,
 }
 
 impl PoolState {
@@ -223,6 +232,9 @@ impl PoolState {
             .expect("cannot preserve recovered transaction ownership; held pool stopped");
         self.telemetry
             .retain(&self.by_hash, &self.in_flight, &self.ledger);
+        if let Some(lifecycle) = &mut self.lifecycle {
+            lifecycle.retain(&self.telemetry);
+        }
     }
     fn recover_batch(&mut self, recovered: Vec<HeldTx>) {
         let mut replacement_roots: HashMap<(Address, Direction), (u64, TxHash)> = HashMap::new();
@@ -312,6 +324,10 @@ impl PoolState {
         if !self.by_hash.insert(tx.hash) {
             return;
         }
+        if front_priority {
+            self.telemetry
+                .recover_native_clock(tx.hash, (tx.sender, tx.direction, tx.nonce));
+        }
         let same_chain =
             |queued: &HeldTx| queued.sender == tx.sender && queued.direction == tx.direction;
         let position = if front_priority {
@@ -370,7 +386,8 @@ impl HeldPool {
             by_hash: HashSet::new(),
             in_flight: HashMap::new(),
             scan_from: None,
-            telemetry: Default::default(),
+            telemetry: status::QueueTelemetry::new(),
+            lifecycle: None,
         };
         Self {
             state: Mutex::new(state),
@@ -392,27 +409,21 @@ impl HeldPool {
         attempt_limit: u32,
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        if !is_canonical() {
-            return Err("canonical settlement changed before ownership transfer".into());
-        }
-        let gaps = state
-            .ledger
-            .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
-        state.apply_resolution(&gaps);
-        let ledger = Arc::clone(&state.ledger);
-        state.telemetry.observe_completion(&ledger);
-        Ok(())
+        self.resolve_attempt_with_evidence(
+            id,
+            as_of,
+            outcomes,
+            charge_attempt,
+            attempt_limit,
+            None,
+            is_canonical,
+        )
     }
 
     /// Reopen canonical outcomes and restore their reservations atomically
     /// with respect to ingress and a concurrent reconciliation decision.
     pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {
-        let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        state.ledger.invalidate_after_l1(ancestor)?;
-        state.telemetry.invalidate_after_l1(ancestor);
-        state.apply_resolution(&[]);
-        Ok(())
+        self.invalidate_after_l1_capture(ancestor, |_| None)
     }
 
     /// A recomposition-time nonce check is not finalized settlement evidence.
@@ -495,7 +506,17 @@ impl HeldPool {
             let replacement_hash = tx.hash;
             let previous_hash = state.txs[queued_idx].hash;
             state.retire_local_owner_for_admission(replacement_hash)?;
-            state.telemetry.admitted(replacement_hash);
+            let terminal_metric = state.telemetry.native_terminal(
+                previous_hash,
+                target_direction,
+                eez_telemetry::schema::Outcome::Replaced,
+            );
+            state.telemetry.admitted(
+                replacement_hash,
+                target_sender,
+                target_direction,
+                target_nonce,
+            );
             state.txs[queued_idx] = tx;
             state.by_hash.remove(&previous_hash);
             state.by_hash.insert(replacement_hash);
@@ -504,7 +525,21 @@ impl HeldPool {
                 previous_hash = %previous_hash, replacement_hash = %replacement_hash,
                 sender = %target_sender, nonce = target_nonce, direction = ?target_direction,
                 "accepted queued transaction replacement");
+            let pending = state.lifecycle.as_mut().map(|lifecycle| {
+                lifecycle.admitted(replacement_hash, target_direction, Some(previous_hash))
+            });
             state.update_recovery_ownership();
+            let native_metrics = state.telemetry.native_enabled();
+            drop(state);
+            if native_metrics {
+                status::publish_native_admission(target_direction);
+            }
+            if let Some(observation) = terminal_metric {
+                observation.publish();
+            }
+            if let Some(pending) = pending {
+                pending.publish();
+            }
             return Ok(());
         }
 
@@ -530,9 +565,24 @@ impl HeldPool {
             return Err(AdmissionError::Nonce { expected, on_chain });
         }
         state.retire_local_owner_for_admission(tx.hash)?;
-        state.telemetry.admitted(tx.hash);
+        state
+            .telemetry
+            .admitted(tx.hash, tx.sender, tx.direction, tx.nonce);
+        let hash = tx.hash;
         state.insert_queued(tx, false);
+        let pending = state
+            .lifecycle
+            .as_mut()
+            .map(|lifecycle| lifecycle.admitted(hash, target_direction, None));
         state.update_recovery_ownership();
+        let native_metrics = state.telemetry.native_enabled();
+        drop(state);
+        if native_metrics {
+            status::publish_native_admission(target_direction);
+        }
+        if let Some(pending) = pending {
+            pending.publish();
+        }
         Ok(())
     }
 
@@ -540,8 +590,23 @@ impl HeldPool {
     /// owns that nonce; then discard the recovered root and suffix.
     pub fn push_front_batch(&self, recovered: Vec<HeldTx>) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let capture = lifecycle::LocalCapture::before(
+            &state,
+            recovered.iter().map(|tx| {
+                (
+                    tx.hash,
+                    eez_telemetry::schema::Outcome::PoolDiscarded,
+                    tx.direction,
+                )
+            }),
+        );
         state.recover_batch(recovered);
         state.update_recovery_ownership();
+        let pending = capture.map(|capture| capture.after(&state));
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
     }
 
     /// Restore a failed composition's original candidates only while this
@@ -549,7 +614,7 @@ impl HeldPool {
     /// release, replacement, or transfer back to canonical reconciliation.
     pub(crate) fn requeue_composing(&self, candidates: Vec<HeldTx>) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
-        let retained = state.ledger.read(|data| {
+        let retained: Vec<HeldTx> = state.ledger.read(|data| {
             candidates
                 .into_iter()
                 .filter(|tx| {
@@ -561,18 +626,52 @@ impl HeldPool {
                 })
                 .collect()
         });
+        let capture = lifecycle::LocalCapture::before(
+            &state,
+            retained.iter().map(|tx: &HeldTx| {
+                (
+                    tx.hash,
+                    eez_telemetry::schema::Outcome::PoolDiscarded,
+                    tx.direction,
+                )
+            }),
+        );
         state.recover_batch(retained);
         state.update_recovery_ownership();
+        let pending = capture.map(|capture| capture.after(&state));
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
     }
 
     /// Release txs that were drained into an optimistic bundle and are now
     /// known not to need nonce reservation anymore.
     pub fn release_in_flight_batch(&self, txs: &[HeldTx]) {
+        self.release_local_batch(txs, eez_telemetry::schema::Outcome::PoolDiscarded);
+    }
+
+    pub(crate) fn release_nonce_gap_batch(&self, txs: &[HeldTx]) {
+        self.release_local_batch(txs, eez_telemetry::schema::Outcome::NonceGap);
+    }
+
+    fn release_local_batch(&self, txs: &[HeldTx], outcome: eez_telemetry::schema::Outcome) {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let capture = lifecycle::LocalCapture::before(
+            &state,
+            txs.iter()
+                .filter(|tx| state.in_flight.contains_key(&tx.hash))
+                .map(|tx| (tx.hash, outcome, tx.direction)),
+        );
         for tx in txs {
             state.release_in_flight(tx);
         }
         state.update_recovery_ownership();
+        let pending = capture.map(|capture| capture.after(&state));
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
     }
 
     /// Atomically evict every queued and in-flight reservation at or above
@@ -585,7 +684,63 @@ impl HeldPool {
         direction: Direction,
         nonce: u64,
     ) -> Vec<HeldTx> {
+        self.evict_local_chain(
+            sender,
+            direction,
+            nonce,
+            eez_telemetry::schema::Outcome::PoolDiscarded,
+        )
+    }
+
+    pub(crate) fn evict_exhausted_chain_at_or_above(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+    ) -> Vec<HeldTx> {
+        self.evict_local_chain(
+            sender,
+            direction,
+            nonce,
+            eez_telemetry::schema::Outcome::AttemptsExhausted,
+        )
+    }
+
+    fn evict_local_chain(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+        root_outcome: eez_telemetry::schema::Outcome,
+    ) -> Vec<HeldTx> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let capture = lifecycle::LocalCapture::before(
+            &state,
+            state
+                .txs
+                .iter()
+                .map(|tx| (tx.hash, tx.sender, tx.direction, tx.nonce))
+                .chain(
+                    state
+                        .in_flight
+                        .iter()
+                        .map(|(hash, (sender, direction, nonce))| {
+                            (*hash, *sender, *direction, *nonce)
+                        }),
+                )
+                .filter(|(_, s, d, n)| *s == sender && *d == direction && *n >= nonce)
+                .map(|(hash, _, direction, n)| {
+                    (
+                        hash,
+                        if n == nonce {
+                            root_outcome
+                        } else {
+                            eez_telemetry::schema::Outcome::NonceGap
+                        },
+                        direction,
+                    )
+                }),
+        );
         let mut evicted = Vec::new();
         let queued = std::mem::take(&mut state.txs);
         let mut kept = VecDeque::with_capacity(queued.len());
@@ -602,6 +757,11 @@ impl HeldPool {
             .in_flight
             .retain(|_, (s, d, n)| !(*s == sender && *d == direction && *n >= nonce));
         state.update_recovery_ownership();
+        let pending = capture.map(|capture| capture.after(&state));
+        drop(state);
+        if let Some(pending) = pending {
+            pending.publish();
+        }
         evicted
     }
 

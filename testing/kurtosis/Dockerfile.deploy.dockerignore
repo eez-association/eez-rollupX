@@ -11,3 +11,4 @@ explanations/
 .env
 .env.*
 contracts/broadcast/
+contracts/cache/

@@ -1,0 +1,99 @@
+{
+  "scope": "local observer capacity diagnosis and regression; production capacity and end-to-end overhead acceptance remain open",
+  "base_revision": "81005ef19d7faeb7067755ab89ad9743f2a80bfb",
+  "shipping_pilot_revision": "03a3caa1",
+  "schema": 21,
+  "postgres_memory_bytes": 536870912,
+  "postgres_cpu": 1,
+  "native_pilot": {
+    "plan_sha256": "2638a01d393550a0cd56bfe1bb72cd4a42bcb6bdb49900ecedbb9922231a5f1b",
+    "result": "failed; first A swap-contaminated, first B PostgreSQL OOM and canonical coverage deadline; no overhead acceptance",
+    "repeat": "one diagnostic B repeat reproduced three OOM kills and retained a logical dump",
+    "dump_sha256": "6e7f1f68d8c0a7c87ee0429e3aad24bb9c567196c05532f34341ee7e708cbcb2"
+  },
+  "synthetic_capacity": {
+    "population": {
+      "primary_admissions": 3000,
+      "other_context_admissions": 137,
+      "transactions": "repeated per context; not unique transaction/importer throughput"
+    },
+    "baseline_statement_deadline_seconds": 10,
+    "baseline_result": "timeout; also exceeded separate 60-second diagnostic deadline",
+    "candidate_result": "passed all duplicate/conflict/reorg/context/cursor/progress assertions",
+    "snapshot_execution_ms": 302.733,
+    "other_context_snapshot_execution_ms": 272.939,
+    "reader_admission_lookup_execution_ms": 1287.383,
+    "fixture_total_seconds": 9.803988540981663,
+    "postgres_max_connections": 30,
+    "shared_buffers_bytes": 134217728,
+    "reader_exact_population_assertion": "passed in final fixture follow-up, canonical-capacity-schema21-v5",
+    "final_fixture_total_seconds": 11.02286617399659
+  },
+  "local_artifact_root": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation",
+  "retained_attempts": [
+    "canonical-capacity-schema21",
+    "canonical-capacity-schema21-v2",
+    "canonical-capacity-schema21-v3",
+    "canonical-capacity-schema21-plans",
+    "canonical-capacity-schema21-small-plans",
+    "canonical-capacity-schema21-v4",
+    "postgres-oom-diagnostic",
+    "postgres-disk-diagnostic-v4",
+    "postgres-index-diagnostic",
+    "postgres-query-boundary-diagnostic",
+    "canonical-capacity-schema21-v5"
+  ],
+  "test_corrections": [
+    "First fixture used reader permissions for writer-owned runtime snapshot; corrected roles without changing production grants.",
+    "Bulk rows were uncommitted, invisible to autovacuum; explicit ANALYZE did not resolve the old/new query timeout.",
+    "Small-population EXPLAIN isolated source-wide chunk scans in the native digest existence check; keyed lookup boundary resolves that plan."
+  ],
+  "source_sha256": {
+    "observability/migrations/0021-outcome-query-boundaries.sql": "ceb351f47a38769af720ccd45e4768f021d5cef3c9b7744b83adb3bf93f47244",
+    "observability/tests/canonical_query_boundaries.py": "5e03c8329b0f4845c718aecd5d37e0496a34e33645f4d386bc0a357eaca862a2",
+    "crates/eez-observer/src/indexer/outcomes.rs": "1f02ce4953cadf3905a0680071bfc25be6bf0fbbb23f0e29d986deef50f4a06d"
+  },
+  "checks": {
+    "observer_unit": "78 passed; nine socket fixtures initially blocked in sandbox, all passed with loopback access",
+    "observer_clippy": "passed before final SQL-only migration addition",
+    "database_suite": {
+      "groups": 58,
+      "result": "passed",
+      "report": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/schema21-database/report.json",
+      "sha256": "b742a9752bbabae322f33ec93dae7862648ebe4b237860dd636e0ada6e36224f",
+      "previous_binary_versions": [
+        20
+      ]
+    },
+    "native_fixture": {
+      "result": "passed",
+      "test": "observer_returned_error_captures_evidence_before_cleanup",
+      "seconds": 76.16617470700294,
+      "scope": "optimized-development observer/test with unchanged verified release node/signer; not a resealed release artifact"
+    },
+    "release_capacity_and_overhead": "pending",
+    "native_clippy": "passed, affected cross_chain target",
+    "overhead_adapters": {
+      "input_tests": 21,
+      "runner_tests": 9,
+      "result": "passed"
+    },
+    "native_canary": {
+      "result": "passed",
+      "test": "lifecycle_bidirectional_cross_chain_smoke",
+      "seconds": 122.59984503602027,
+      "scope": "bidirectional semantic/signature/lifecycle/canonical observer canary, current optimized-development observer/test with unchanged verified release node/signer"
+    },
+    "restore": {
+      "result": "passed",
+      "groups": 6,
+      "backup_seconds": 32.765691084001446,
+      "restore_seconds": 68.90819167700829,
+      "scope": "new isolated project and empty volumes on the same Docker host; no operator services",
+      "owned_cleanup": "verified",
+      "report": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/schema21-restore/report.json",
+      "sha256": "da8a552d6437abdbafe0834c583ae3b371fb4411b1112783af72892c81fea68f",
+      "migration_count": 21
+    }
+  }
+}

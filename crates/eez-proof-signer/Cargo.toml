@@ -10,6 +10,7 @@ description            = "EEZ attestation daemon: re-executes composer-streamed 
 eez-l1 = { workspace = true, features = ["chain-spec"] }
 # The `prove.v1` wire this daemon serves.
 eez-control-rpc.workspace = true
+eez-telemetry = { workspace = true, features = ["native"] }
 eez-blob-codec.workspace = true
 eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
@@ -47,6 +48,10 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+metrics = "0.24.6"
+eez-prover.workspace = true
+eez-prover-client.workspace = true
+opentelemetry-proto.workspace = true
 alloy-eips.workspace = true
 # Recorded calldata fixture decoding.
 hex.workspace = true

@@ -1302,12 +1302,7 @@ async fn latest_post(world: &eez_testkit::CrossChainWorld) -> alloy_rpc_types_et
 }
 
 fn policy_env(mut env: Vec<(&'static str, String)>, mode: &str) -> Vec<(&'static str, String)> {
-    env.retain(|(name, _)| {
-        !matches!(
-            *name,
-            "EEZ_MAX_BLOCKS_PER_BATCH" | "EEZ_MAX_SPECULATIVE_DEPTH" | "RUST_LOG"
-        )
-    });
+    env.retain(|(name, _)| !matches!(*name, "EEZ_MAX_SPECULATIVE_DEPTH" | "RUST_LOG"));
     env.extend([
         ("EEZ_SETTLEMENT_PURE_L2_MODE", mode.into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
@@ -2262,10 +2257,22 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        tx.inner.blob_versioned_hashes().unwrap().len(),
-        2,
-        "a soft threshold must not cut a fitting two-blob range into one-blob posts"
+    // Empty history grows while an exact-target proof retries. Two large
+    // transactions require multiple blobs, but a later successful target can
+    // legitimately require a third. Check the whole canonical range and both
+    // replayed transactions rather than a wall-clock-dependent blob count.
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    assert!(
+        tx.inner.blob_versioned_hashes().unwrap().len() >= 2,
+        "a soft threshold must not split a fitting multi-blob range"
+    );
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input()).unwrap();
+    let update = &call.batch.entries[0].rootUpdates[0];
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    assert!(
+        terminal.header.number >= covered,
+        "the single post must cover both large transactions"
     );
     let follower = NodeHandle::start(
         "fullness-follower",
@@ -2277,9 +2284,28 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     )
     .await
     .unwrap();
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], terminal.header.number, TIMEOUT)
         .await
         .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for hash in hashes {
+        let original = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+        let derived = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
+        assert!(original.status() && derived.status());
+        assert_eq!(original.block_hash, derived.block_hash);
+        assert!(original.block_number.unwrap() <= terminal.header.number);
+    }
+    let head = l2.get_block_number().await.unwrap();
+    wait_for_latest_height(&world.node, head + 10, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        1,
+        "the fitting history must settle in one batch without follow-up chunks"
+    );
     let signals = world.node.signals_since(0).unwrap();
     assert!(signals.iter().any(|event| {
         event.name == "eez.composer.settlement.decision"
@@ -2325,6 +2351,14 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l1_before = l1.get_block_number().await.unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    // Query the unfaulted embedded L1 directly. A latest header keeps the
+    // outage boundary's number and timestamp in one canonical observation.
+    let outage_start = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The combined workload exceeds
     // even Ethereum's six-blob transaction bound. Queue nonce descendants too.
@@ -2346,21 +2380,17 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     }
     // Missing scheduler ticks must preserve intermediate empty boundaries.
     tokio::time::sleep(Duration::from_secs(12)).await;
-    assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
-    let stalled_l2_timestamp = l2
+    let outage_end = l1
         .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
         .await
         .unwrap()
         .unwrap()
-        .header
-        .timestamp;
-    let recovery_l1_timestamp = l1
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
+        .header;
+    assert!(outage_end.number >= l1_before + 2);
+    assert!(
+        outage_end.number >= outage_start.number + 2,
+        "the RPC outage must miss an intermediate L1 anchor"
+    );
     let recovery_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
@@ -2404,6 +2434,7 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         .unwrap()
         .header
         .timestamp;
+    let mut missed_sync_timestamps = std::collections::BTreeSet::new();
     for height in (l1_before + 1)..=l1.get_block_number().await.unwrap() {
         let timestamp = l1
             .get_block_by_number(height.into())
@@ -2417,6 +2448,12 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             0,
             "the native L1 fixture must preserve its configured slot alignment"
         );
+        // PendingSyncSlot::new maps an anchor to its next L1 slot. Strict
+        // interior anchors were mined while reads were disabled and precede
+        // the recovery head; the current eligible terminal is excluded.
+        if height > outage_start.number && height < outage_end.number {
+            missed_sync_timestamps.insert(timestamp + k * l2_seconds);
+        }
         previous_l1_timestamp = timestamp;
     }
     wait_for_latest_height(&world.node, covered + 2 * k, TIMEOUT)
@@ -2432,25 +2469,40 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
     // actual empty Sync construction, never assume height % K == 0.
     let signals = world.node.signals_since(0).unwrap();
-    // Recovery may finish in Steady mode once it reaches a usable future slot.
-    // Prove that a missing historical boundary was rebuilt after the outage,
-    // rather than requiring a structural-only Catchup terminal.
-    assert!(
-        world
-            .node
-            .signals_since(recovery_cursor)
+    let recovered_empty_boundaries = world
+        .node
+        .signals_since(recovery_cursor)
+        .unwrap()
+        .into_iter()
+        .filter(|event| {
+            event.name == "eez.composer.sync_slot.invoked"
+                && matches!(event.fields["mode"].as_str(), Some("Empty" | "Catchup"))
+        })
+        .map(|event| event.fields["timestamp"].as_u64().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(!missed_sync_timestamps.is_empty());
+    for timestamp in missed_sync_timestamps {
+        // Catch-up can finish at the current target in Steady mode. Verify
+        // the actual missed intermediate boundaries instead of requiring a
+        // late terminal; a separately fired past terminal is Catchup/empty.
+        assert!(
+            recovered_empty_boundaries.contains(&timestamp),
+            "missed Sync boundary {timestamp} was not recovered structurally"
+        );
+        let offset = timestamp.checked_sub(genesis).unwrap();
+        assert_eq!(offset % l2_seconds, 0);
+        let number = offset / l2_seconds;
+        let recovered = l2
+            .get_block_by_number(number.into())
+            .await
             .unwrap()
-            .iter()
-            .any(|event| {
-                event.name == "eez.composer.sync_slot.invoked"
-                    && event.fields["mode"] == "Empty"
-                    && event.fields["timestamp"].as_u64().is_some_and(|timestamp| {
-                        timestamp > stalled_l2_timestamp && timestamp <= recovery_l1_timestamp
-                    })
-            }),
-        "RPC recovery did not rebuild a missing historical Sync boundary{}",
-        world.settlement_diagnostics(),
-    );
+            .unwrap();
+        assert_eq!(recovered.header.timestamp, timestamp);
+        assert!(
+            recovered.transactions.is_empty(),
+            "ordinary data occupied missed Sync boundary {number}"
+        );
+    }
     let boundaries = signals
         .into_iter()
         .filter(|event| event.name == "eez.composer.sync_slot.invoked")

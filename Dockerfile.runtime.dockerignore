@@ -12,6 +12,10 @@
 !scripts/ci/with-compiler-cache.sh
 !scripts/ci/install-nextest.sh
 !scripts/ci/native-tests.py
+!observability/migrations/*.sql
+!observability/tests/fixtures/chiado-accounting-v1.json
+!observability/tests/fixtures/empty-post-calldata.hex
+!observability/tests/fixtures/multi-rollup-post-calldata.hex
 !.config/
 !.config/nextest.toml
 **/target/

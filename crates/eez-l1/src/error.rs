@@ -28,6 +28,16 @@ pub enum L1Error {
         tx_hash: B256,
         detail: String,
     },
+    /// An applied batch's actual native retrieval cannot obtain its blobs.
+    /// The retry class and displayed message match SourceIncomplete.
+    #[error("L1 source incomplete at block {block}: tx {tx_hash} unavailable ({detail})")]
+    RequiredBlobUnavailable {
+        block: u64,
+        tx_hash: B256,
+        detail: String,
+        reference: Box<crate::blob_diagnostics::RequiredBlob>,
+        reason: crate::blob_diagnostics::BlobUnavailableReason,
+    },
     /// postBatch tx didn't land or reverted on-chain.
     #[error("postBatch submission failed: {0}")]
     Submission(String),
@@ -46,11 +56,47 @@ pub enum L1Error {
 }
 
 impl L1Error {
+    pub(crate) fn with_required_blob(
+        self,
+        reference: crate::blob_diagnostics::RequiredBlob,
+        reason: crate::blob_diagnostics::BlobUnavailableReason,
+    ) -> Self {
+        match self {
+            Self::SourceIncomplete {
+                block,
+                tx_hash,
+                detail,
+            } => Self::RequiredBlobUnavailable {
+                block,
+                tx_hash,
+                detail,
+                reference: Box::new(reference),
+                reason,
+            },
+            other => other,
+        }
+    }
+    pub fn required_blob(
+        &self,
+    ) -> Option<(
+        crate::blob_diagnostics::RequiredBlob,
+        crate::blob_diagnostics::BlobUnavailableReason,
+    )> {
+        match self {
+            Self::RequiredBlobUnavailable {
+                reference, reason, ..
+            } => Some((**reference, *reason)),
+            _ => None,
+        }
+    }
     /// Returns true when the L1 source may simply need more time to
     /// expose already-observed canonical data.
     #[must_use]
     pub const fn is_source_incomplete(&self) -> bool {
-        matches!(self, Self::SourceIncomplete { .. })
+        matches!(
+            self,
+            Self::SourceIncomplete { .. } | Self::RequiredBlobUnavailable { .. }
+        )
     }
 
     /// True for a transport failure (DNS, TCP, HTTP) — the peer never answered,

@@ -275,5 +275,69 @@ elif args[0] != "logout":
         self.assertTrue(all(not s.get("continue-on-error", False) for s in steps if "run" in s))
 
 
+@unittest.skipIf(yaml is None, "PyYAML not installed; validate workflows with actionlint")
+class ObservabilityWorkflowContractTest(unittest.TestCase):
+    def setUp(self):
+        self.workflow = yaml.safe_load((REPO / ".github/workflows/observability.yml").read_text())
+        self.job = self.workflow["jobs"]["fixtures"]
+        self.steps = self.job["steps"]
+        self.commands = "\n".join(step.get("run", "") for step in self.steps)
+
+    def test_private_backend_and_protocol_query_checks_are_required(self):
+        for command in ("smoke-database.py", "smoke-stack.py", "smoke-traces.py", "smoke-trace-retention.py", "smoke-client-capabilities.py", "smoke-node-agent.py", "smoke-protocol-dashboards.py", "smoke-restore.py", "test_protocol_rules.py", "smoke-alerts.py", "smoke-alert-links.py"):
+            matching = [step for step in self.steps if command in step.get("run", "")]
+            self.assertEqual(len(matching), 1, command)
+            self.assertFalse(matching[0].get("continue-on-error", False), command)
+            self.assertNotIn("if", matching[0], command)
+            self.assertIn("--report artifacts/observability-", matching[0]["run"])
+        restore = next(step for step in self.steps if "smoke-restore.py" in step.get("run", ""))
+        self.assertEqual(restore["timeout-minutes"], 15)
+        self.assertIn("--binary target/debug/eez-observer", restore["run"])
+        build = next(step for step in self.steps if "cargo build --locked -p eez-observer" in step.get("run", ""))
+        self.assertLess(self.steps.index(build), self.steps.index(restore))
+        self.assertIn("test_observer_compile_inputs_survive_runtime_allowlist", self.commands)
+        self.assertIn("cargo test --locked -p eez-observer -p eez-telemetry -p eez-blob-codec", self.commands)
+        self.assertIn("cargo build --locked -p eez-observer", self.commands)
+        self.assertNotIn("--ignored", self.commands)
+        self.assertNotIn("EEZ_TEST_PREBUILT", self.commands)
+        upload = next(step for step in self.steps if "upload-artifact@" in step.get("uses", ""))
+        self.assertEqual(upload["if"], "failure()")
+        self.assertIn("observability-*-validation.json", upload["with"]["path"])
+        self.assertIn("observability-*-validation.logs.txt", upload["with"]["path"])
+        self.assertIn("observability-*-validation-*.logs.txt", upload["with"]["path"])
+        self.assertIn("observability-*-validation-*.log", upload["with"]["path"])
+
+    def test_browser_navigation_is_required_and_uses_an_isolated_install(self):
+        install = next(step for step in self.steps if "playwright@1.63.0" in step.get("run", ""))
+        self.assertIn("$RUNNER_TEMP/", install["run"])
+        self.assertIn("install --with-deps chromium", install["run"])
+        for command in ("smoke-protocol-dashboards.py", "smoke-trace-retention.py", "smoke-alert-links.py"):
+            browser = next(step for step in self.steps if command in step.get("run", ""))
+            if command != "smoke-alert-links.py":
+                self.assertIn("--browser", browser["run"])
+            self.assertLess(self.steps.index(install), self.steps.index(browser))
+            self.assertIn("NODE_PATH", browser["env"])
+            self.assertIn("PLAYWRIGHT_BROWSERS_PATH", browser["env"])
+
+    def test_affected_paths_and_clean_runner_dependencies_are_present(self):
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        required = {"observability/**", "crates/eez-observer/**", "crates/eez-telemetry/**",
+                    "crates/eez-blob-codec/**", "crates/eez-protocol/**", "crates/eez-composer/**",
+                    "crates/eez-node-common/**", "crates/eez-proof-signer/**",
+                    "crates/eez-follower/**", "crates/eez-deriver/**", "crates/eez-l1/**", "eez-core-protocol",
+                    "crates/eez-prover-client/**", "crates/eez-control-rpc/**",
+                    "Dockerfile.runtime", "Dockerfile.runtime.dockerignore", "scripts/ci/**",
+                    "Cargo.toml", "Cargo.lock"}
+        for trigger in ("pull_request", "push"):
+            self.assertTrue(required.issubset(triggers[trigger]["paths"]))
+        install = next(step["run"] for step in self.steps if "apt-get install" in step.get("run", ""))
+        for package in ("libclang-dev", "pkg-config", "libssl-dev", "cmake", "protobuf-compiler", "python3-yaml"):
+            self.assertIn(package, install)
+        checkout = next(step for step in self.steps if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        self.assertEqual(checkout["with"]["submodules"], "recursive")
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+
+
 if __name__ == "__main__":
     unittest.main()

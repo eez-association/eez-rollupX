@@ -6,6 +6,10 @@ license.workspace      = true
 rust-version.workspace = true
 description            = "Composer umbrella — owns per-rollup Sequencer/Scheduler/HeldPool maps and the shared Aggregator/Submitter/Prover."
 
+[features]
+# Measurement-only variant; absent from shipping defaults.
+benchmark-lock-timing = []
+
 [dependencies]
 # Internal — protocol, EVM port + inspector, and the existing umbrella siblings
 eez-driver = { workspace = true, features = ["witness", "derivation"] }
@@ -15,6 +19,7 @@ eez-l1.workspace             = true
 eez-payload-codec.workspace  = true
 eez-protocol.workspace       = true
 eez-prover.workspace         = true
+eez-telemetry = { workspace = true, features = ["traces"] }
 
 # gnosis — chiado L1 header type for GnosisL1Adapter
 gnosis-primitives.workspace = true
@@ -54,6 +59,7 @@ tracing.workspace     = true
 serde_json.workspace  = true
 
 [dev-dependencies]
+tempfile = "3"
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state
 # equivalence test (no datadir, no engine API).
 alloy-network.workspace = true

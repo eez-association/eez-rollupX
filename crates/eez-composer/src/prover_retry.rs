@@ -194,12 +194,14 @@ fn retry_budget(
 /// Run one complete proving operation with the Composer profile's closed
 /// retryable-error allowlist. Every attempt is independently bounded by the
 /// configured proof-time budget.
+#[tracing::instrument(name = "composer_proving", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, from_block = ctx.from_block, to_block = ctx.to_block, rollup_id = ctx.rollup_id))]
 pub(crate) async fn prove_with_retry(
     prover: &dyn Prover,
     ctx: ProvingContext,
     timing: RollupTiming,
     target: BundleTarget,
 ) -> Result<Bytes, ProverError> {
+    eez_telemetry::traces::record_trace_id(&tracing::Span::current());
     prove_with_retry_at(prover, ctx, timing, target, unix_time_millis()).await
 }
 
@@ -219,7 +221,14 @@ async fn prove_with_retry_at(
             BundleTarget::NextBlock => retry_deadline.saturating_duration_since(Instant::now()),
             BundleTarget::Exact { .. } => timing.proof_time(),
         };
-        let result = match timeout(attempt_timeout, prover.prove(ctx.clone())).await {
+        let attempt_span = tracing::info_span!(target: "eez_trace", "prover_attempt", trace_id = tracing::field::Empty, retry_attempt = attempt);
+        eez_telemetry::traces::record_trace_id(&attempt_span);
+        let result = match timeout(
+            attempt_timeout,
+            tracing::Instrument::instrument(prover.prove(ctx.clone()), attempt_span),
+        )
+        .await
+        {
             Ok(result) => result,
             Err(_) => Err(ProverError::Retryable {
                 kind: RetryableProverError::DeadlineExceeded,

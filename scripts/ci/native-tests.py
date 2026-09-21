@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[2]
 NEXTEST_VERSION = "0.9.143"
 RUST_VERSION = "1.94.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
-RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
+RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer", "eez-observer")
 E2E_TARGETS = (
     "e2e", "cross_chain", "derivable_operations", "chained_interstate", "partial_consumption",
     "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
@@ -250,6 +250,23 @@ def seal(directory, runtime_archive):
     path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
+def run_native_quota(extracted, frozen, env):
+    """Use the already verified cross-chain executable and shipping runtime."""
+    metadata = json.loads((extracted / "nextest/binaries-metadata.json").read_text())
+    original_target = Path(metadata["rust-build-meta"]["target-directory"])
+    original_binary = Path(metadata["rust-binaries"]["eez-node-e2e::cross_chain"]["binary-path"])
+    binary = extracted / original_binary.relative_to(original_target)
+    if not binary.is_file():
+        raise ValueError("required archived cross-chain executable for quota fixture is missing")
+    image = env.get("EEZ_TEST_QUOTA_IMAGE")
+    if not image:
+        raise ValueError("native quota fixture image must be prepared by run-native-suite.sh")
+    report = Path(env["EEZ_TEST_LOG_DIR"]).parent / "native-quota.json"
+    subprocess.run([sys.executable, str(REPO / "observability/tests/smoke-spool-quota.py"),
+                    "--native-test", str(binary), "--runtime-bin", str(frozen),
+                    "--image", image, "--report", str(report)], cwd=REPO, env=env, check=True)
+
+
 def run(directory, suite, partition=None):
     if partition is not None and suite == "unit":
         raise ValueError("unit validation must run in full before exporting E2E inputs")
@@ -309,6 +326,10 @@ def run(directory, suite, partition=None):
         print(f"==> {suite}: {name}", flush=True)
         try:
             subprocess.run(command, cwd=REPO, env=env, check=True)
+            # One mandatory shard owns the physical quota drill; the serial
+            # fallback still runs it after the complete cross-chain suite.
+            if suite == "cross-chain" and (partition is None or int(partition.partition(":")[2].partition("/")[0]) == 1):
+                run_native_quota(extracted, frozen, env)
         except subprocess.CalledProcessError as error:
             # Preserve --no-fail-fast across both unit archives as well.
             failure = failure or error

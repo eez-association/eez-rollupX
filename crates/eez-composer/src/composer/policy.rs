@@ -175,6 +175,7 @@ where
     pub async fn validate_settlement_policy_startup(&self) -> Result<(), PolicyError> {
         let policy = &self.inner.policy;
         for (&rollup_id, rollup) in &self.inner.rollups {
+            eez_telemetry::operational::policy_evaluation(rollup_id, None);
             let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
             if policy.max_blobs_per_batch.is_none() {
                 continue;
@@ -821,6 +822,17 @@ where
                 drain_coverage,
             },
         )?;
+        drop(runtime);
+        eez_telemetry::operational::policy_evaluation(
+            rollup_id,
+            Some((
+                decision.unsettled_blocks,
+                decision.settlement_age_ms,
+                pending_pure_l2_transactions,
+                decision.is_due(),
+                effective_blobs,
+            )),
+        );
         event!(name: "eez.composer.settlement.decision", Level::INFO, rollup_id,
             event_name = "eez.composer.settlement.decision",
             reasons = ?decision.reasons, due = decision.is_due(), required_endpoint = ?decision.required_endpoint,

@@ -7,7 +7,7 @@ use reth_ethereum_primitives::Block;
 mod captured;
 mod synthetic;
 
-fn chain_config() -> alloy_genesis::ChainConfig {
+pub(super) fn chain_config() -> alloy_genesis::ChainConfig {
     serde_json::from_str(include_str!(
         "../../../tests/fixtures/stateless-block-13/chain-config.json"
     ))
@@ -31,7 +31,7 @@ fn state() -> Arc<ServiceState> {
 /// independently specified empty transition and the same authenticated absence
 /// proofs. No new helper or Reth assembler generates these expected headers;
 /// the real backend still validates every proposed block and witness.
-fn blocks(count: usize) -> Vec<BlockWitness> {
+pub(super) fn blocks(count: usize) -> Vec<BlockWitness> {
     let mut block: Block = alloy_rlp::decode_exact(include_bytes!(
         "../../../tests/fixtures/stateless-block-13/block-13.rlp"
     ))
@@ -67,7 +67,7 @@ fn blocks(count: usize) -> Vec<BlockWitness> {
     result
 }
 
-fn environment(blocks: &[BlockWitness]) -> Environment {
+pub(super) fn environment(blocks: &[BlockWitness]) -> Environment {
     let block: Block = alloy_rlp::decode_exact(&blocks[0].rlp).unwrap();
     Environment {
         timestamp_step_seconds: 1,
@@ -79,7 +79,7 @@ fn environment(blocks: &[BlockWitness]) -> Environment {
     }
 }
 
-fn payload(blocks: &[BlockWitness], env: Environment, records: Vec<Record>) -> Payload {
+pub(super) fn payload(blocks: &[BlockWitness], env: Environment, records: Vec<Record>) -> Payload {
     Payload::new(
         blocks.len() as u64 - 1,
         env,
@@ -113,8 +113,13 @@ fn preparation(
     .collect()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn ordinary_preparation_replays_exact_blocks_caches_facts_and_never_signs() {
+    let recorder = eez_telemetry::native::prometheus_builder().build_recorder();
+    let handle = recorder.handle();
+    let _local = metrics::set_default_local_recorder(&recorder);
+    eez_telemetry::operational::enable();
+    eez_telemetry::operational::initialize_signer_metrics();
     let state = state();
     let identity = state.validation_identity;
     let server = TestServer::new(Arc::clone(&state)).await;
@@ -195,6 +200,23 @@ async fn ordinary_preparation_replays_exact_blocks_caches_facts_and_never_signs(
         .into_inner();
     assert_eq!(released.retained_count, 0);
     assert_eq!(state.attester.signing_calls(), 0);
+    let rendered = handle.render();
+    assert!(rendered.lines().any(|line| line ==
+        "eez_stage_duration_seconds_count{stage=\"signer_preparation\",outcome=\"success\"} 2"),
+        "{rendered}");
+    for outcome in ["success", "internal", "deadline", "panicked", "cancelled"] {
+        assert!(
+            rendered.lines().any(|line| line
+                == format!("eez_signer_authorized_requests_total{{outcome=\"{outcome}\"}} 0")),
+            "{rendered}"
+        );
+    }
+    assert!(
+        rendered
+            .lines()
+            .any(|line| line == "eez_signer_requests_total{outcome=\"success\"} 0"),
+        "{rendered}"
+    );
 }
 
 #[tokio::test]
@@ -218,7 +240,7 @@ async fn preparation_identity_and_witness_failures_never_publish_or_sign() {
     }
 }
 
-fn request(blocks: Vec<BlockWitness>, operations: Vec<u8>) -> Vec<ProveChunk> {
+pub(super) fn request(blocks: Vec<BlockWitness>, operations: Vec<u8>) -> Vec<ProveChunk> {
     let mut batch = anchor_batch();
     batch.entries[0].rootUpdates[0].currentRoot = B256::from_slice(&blocks[0].parent_hash);
     batch.entries[0].rootUpdates[0].newRoot = B256::from_slice(&blocks.last().unwrap().hash);

@@ -1,0 +1,153 @@
+{
+  "scope": "Local Docker scratch-only context export and Python CI contract tests; no Cargo or full runtime image build; no live services",
+  "validated_at": "2026-09-17T15:03:47.373757+00:00",
+  "base_commit": "5183f56acd0903a10ad085e97d03aef4070e82a3",
+  "worktree": "dirty",
+  "status": "passed_with_explicit_scope",
+  "checks": [
+    "old_missing_observability_context_reproduced_by_real_docker_matcher",
+    "current_docker_copy_exports_all_observer_external_compile_inputs_byte_identically",
+    "private_and_unrelated_observability_sentinels_excluded",
+    "runtime_and_native_artifact_and_workflow_contract_regressions_69_passed_1_opt_in_relocation_skip",
+    "final_observability_workflow_contract_assertions_including_bounded_restore_and_diagnostics_2_passed"
+  ],
+  "compiler_inputs": {
+    "observability/migrations/0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
+    "observability/migrations/0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
+    "observability/migrations/0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257",
+    "observability/migrations/0004-lifecycle.sql": "dc8944466e3d022e0cf8566a431b2f257f47045171b8743d9a83a83fa594db25",
+    "observability/migrations/0005-source-receipts.sql": "8d06f7753cc809d27ac6364085a07f9ece020ed3689f7d8c4bc0f30c2631e37a",
+    "observability/migrations/0006-protocol-logs.sql": "75fd50542eeed645c6f5fca01b2f7f1d3ab49f035c7ec986977eb4c506b8a7a6",
+    "observability/migrations/0007-posting-rollups.sql": "14762b494e5a7aaa86302de6acf1edea711945f3034510747e266f7006c9ab86",
+    "observability/migrations/0008-admission-status.sql": "15f56a12adf5d1fe5c20bee067e236496255681fc5e69e534e12884b99e3f9df",
+    "observability/migrations/0009-source-references.sql": "a7c9780e8c5e26fd436fd8ed6955a0375500648242471c8e405894d459d47ca1",
+    "observability/migrations/0010-native-outcomes.sql": "d61906ce6b94829e541faa6a83795093d057283bf0ac4b2106293e6f9a0a3ad9",
+    "observability/migrations/0011-canonical-outcomes.sql": "341a9171e1bf78f8269e5a833922f3560cbb1ecf18c41c2476a737bfe839a052",
+    "observability/migrations/0012-blobs.sql": "7aac21922eefdacacb015321f66776acd0b2a1550f3bbf2dd89d262cba968183",
+    "observability/migrations/0013-dashboard-context.sql": "45cd1d96a2443a0984e5c2752b2856707cec34e8a6e9f2a5ce22a843b1cab2c3",
+    "observability/tests/fixtures/chiado-accounting-v1.json": "6672ab582f1b10d5d0cd8a223a11d7b569d70b0111b5501d6adaadd285216a4d",
+    "observability/tests/fixtures/empty-post-calldata.hex": "04f70f4043f4564d286b97f4cc0d1a7171f5e2070359b4d9cc8b3952e650aafe",
+    "observability/tests/fixtures/multi-rollup-post-calldata.hex": "6c5c15c4036eb69aac3766efe51073fb4b24e5c55dca7a631b17f9f3a81db884"
+  },
+  "source_sha256": {
+    "Dockerfile.runtime": "8a2fcd1a62f569cf5a0da4d9338ce1dfc356fe89eec1d6d2bed6d1746fa2fe7b",
+    "Dockerfile.runtime.dockerignore": "289137c3bd49b865d1f370836e3f369e2174c1ecf7f111a8e9b32653ee766e33",
+    ".github/workflows/observability.yml": "cbc75636d650b90d1b47e93d52b137f7e5d2addcf0e1d03bd0c876108cf7eaaf",
+    "scripts/ci/tests/test_runtime_docker.py": "7f8136e646faab02db7ea5111f2a6e2ba7c2940de432d11e2e7a2a3c95ac396d",
+    "scripts/ci/tests/test_workflow_contract.py": "3abc4110e10d20d5bcae85ff6a3e64bfd0fb0352a99046abb622f1de7941eb6c"
+  },
+  "not_run": [
+    "full_runtime_docker_build",
+    "opt_in_real_tiny_workspace_archive_relocation",
+    "remote_github_actions_workflow"
+  ],
+  "observer_shipping_extension": {
+    "base_commit": "c36bbd6",
+    "checks": [
+      "observer_required_in_frozen_runtime_inventory_and_consumer_archive",
+      "real_tiny_workspace_docker_producer_consumer_image_archive_identity_2_passed",
+      "existing_tooling_69_passed_1_explicit_skip"
+    ],
+    "docker_seconds": 60.939,
+    "full_application_release_build": "not_run",
+    "compiler_input_count": 17,
+    "source_sha256": {
+      "Dockerfile.runtime": "0cbc5733d19621b38fe33865cf924c4b9c335a05052a0e9705f8fa661237b862",
+      "scripts/ci/native-tests.py": "a69f365f06ecce1dd51e8a72ad5a079f2668ab2ca414f12b54ac4d42d859a365",
+      "scripts/ci/prepare-runtime-artifacts.sh": "0f30ee72b39bad3f1f8b6f9011084405ea2419593702d07d60ff5aa1a4d989fb",
+      "scripts/ci/tests/test_runtime_docker.py": "2eedbcab147e5870e984130bdbf3e78118e157bf59289579626b1985e377f6a3",
+      "scripts/ci/tests/test_runtime_artifacts.py": "3b6f2f17fab22c58934798e270ba37698d37858c975c6d99213bb79d724a70b5"
+    }
+  },
+  "combined_tooling_snapshot": {
+    "selected": 236,
+    "passed": 231,
+    "skipped": 5,
+    "log": "/tmp/eez-observability-final-ci-tooling.log",
+    "scope": "Full scripts/ci/tests suite before subsequent live-observer CI preflight edits. Five explicit opt-ins not enabled: data-only Docker payload, real Kurtosis resources, native archive relocation, two runtime Docker fixtures. Runtime Docker tests separately passed earlier, not rerun by this command."
+  },
+  "schema20_context_followup": {
+    "status": "passed",
+    "test": "RuntimeDockerTest.test_observer_compile_inputs_survive_runtime_allowlist",
+    "local_log": "/tmp/eez-observability-schema20-runtime-context.log",
+    "compiler_input_count": 23,
+    "compiler_inputs": {
+      "observability/migrations/0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
+      "observability/migrations/0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
+      "observability/migrations/0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257",
+      "observability/migrations/0004-lifecycle.sql": "dc8944466e3d022e0cf8566a431b2f257f47045171b8743d9a83a83fa594db25",
+      "observability/migrations/0005-source-receipts.sql": "8d06f7753cc809d27ac6364085a07f9ece020ed3689f7d8c4bc0f30c2631e37a",
+      "observability/migrations/0006-protocol-logs.sql": "75fd50542eeed645c6f5fca01b2f7f1d3ab49f035c7ec986977eb4c506b8a7a6",
+      "observability/migrations/0007-posting-rollups.sql": "14762b494e5a7aaa86302de6acf1edea711945f3034510747e266f7006c9ab86",
+      "observability/migrations/0008-admission-status.sql": "15f56a12adf5d1fe5c20bee067e236496255681fc5e69e534e12884b99e3f9df",
+      "observability/migrations/0009-source-references.sql": "a7c9780e8c5e26fd436fd8ed6955a0375500648242471c8e405894d459d47ca1",
+      "observability/migrations/0010-native-outcomes.sql": "d61906ce6b94829e541faa6a83795093d057283bf0ac4b2106293e6f9a0a3ad9",
+      "observability/migrations/0011-canonical-outcomes.sql": "341a9171e1bf78f8269e5a833922f3560cbb1ecf18c41c2476a737bfe839a052",
+      "observability/migrations/0012-blobs.sql": "7aac21922eefdacacb015321f66776acd0b2a1550f3bbf2dd89d262cba968183",
+      "observability/migrations/0013-dashboard-context.sql": "45cd1d96a2443a0984e5c2752b2856707cec34e8a6e9f2a5ce22a843b1cab2c3",
+      "observability/migrations/0014-cost-allocation.sql": "de76ebfb6f0801437a4c30655fa4cfe882d9b00933f2ba74f17cb4911ea3bc97",
+      "observability/migrations/0015-canonical-revision.sql": "615ddaec5b757a42b6ff032cf65e60d871ebbaf36a0581275a280e0023906453",
+      "observability/migrations/0016-cost-claim-invalidation.sql": "b6dd8de4577fa19db36b8d477dde6af653a4205dafde4e1138ed9242876cf596",
+      "observability/migrations/0017-finality-timing.sql": "5bfbe1bbdfe6fd0e004874552c80de9397712e31d26bf1aad3d59d8437758047",
+      "observability/migrations/0018-settled-transaction-costs.sql": "aeed5587a2d3f3530910dd327eecdef0ff18491262b09d0859ae5f421da6d338",
+      "observability/migrations/0019-finality-query-boundaries.sql": "095c01e562a141254c2bd7f06363456335d7ed981b0cd36cee8ca53d5b1e3843",
+      "observability/migrations/0020-cost-query-boundaries.sql": "b3186d6738c69996abc0f273dd397e65f93aefaa06cacd6f2a5cfb7544b33e45",
+      "observability/tests/fixtures/chiado-accounting-v1.json": "6672ab582f1b10d5d0cd8a223a11d7b569d70b0111b5501d6adaadd285216a4d",
+      "observability/tests/fixtures/empty-post-calldata.hex": "04f70f4043f4564d286b97f4cc0d1a7171f5e2070359b4d9cc8b3952e650aafe",
+      "observability/tests/fixtures/multi-rollup-post-calldata.hex": "6c5c15c4036eb69aac3766efe51073fb4b24e5c55dca7a631b17f9f3a81db884"
+    },
+    "source_sha256": {
+      "Dockerfile.runtime": "0cbc5733d19621b38fe33865cf924c4b9c335a05052a0e9705f8fa661237b862",
+      "Dockerfile.runtime.dockerignore": "289137c3bd49b865d1f370836e3f369e2174c1ecf7f111a8e9b32653ee766e33",
+      "scripts/ci/tests/test_runtime_docker.py": "2eedbcab147e5870e984130bdbf3e78118e157bf59289579626b1985e377f6a3"
+    },
+    "scope": "Actual Docker matcher and scratch export only; no application build or native runtime execution"
+  },
+  "native_quota_relocation_followup": {
+    "status": "passed",
+    "selected": 27,
+    "passed": 27,
+    "seconds": 21.184,
+    "local_log": "/tmp/eez-native-quota-real-relocation-reviewed.log",
+    "log_sha256": "e53e1535307cb680d9708e44f5fad2da294ddd2f9c9fda2da58eb1e1f4484d9e",
+    "toolchain": "1.94.0",
+    "scope": "Real tiny producer archive relocation, compilerless verified consumer and explicit ignored quota-test handoff; not physical ENOSPC or full application release build",
+    "source_record": "Dirty worktree after native-quota handoff additions; source digests were not captured at execution, so current-file hashes are intentionally not represented as historical provenance"
+  },
+  "final_integrated_tooling": {
+    "ci": {
+      "selected": 239,
+      "passed": 234,
+      "skipped": 5,
+      "seconds": 97.73,
+      "local_log": "/tmp/eez-observability-final-ci-reviewed.log",
+      "first_failed_log": "/tmp/eez-observability-final-ci-integrated.log",
+      "focused_fixture_tests": 6
+    },
+    "observability": {
+      "selected": 83,
+      "passed": 83,
+      "skipped": 0,
+      "seconds": 4.461,
+      "real_postgres_opt_in": true,
+      "local_log": "/tmp/eez-observability-final-python-integrated.log",
+      "scope": "Before subsequent overhead-runner-only finalization changes; separate focused runner evidence applies"
+    },
+    "static": {
+      "python_syntax_files": 70,
+      "shell_files": [
+        "scripts/ci/prepare-runtime-artifacts.sh",
+        "scripts/ci/run-native-suite.sh"
+      ],
+      "javascript_files": [
+        "observability/tests/verify-alert-links.cjs",
+        "observability/tests/verify-browser.cjs",
+        "observability/tests/verify-trace-browser.cjs"
+      ],
+      "markdown_bash_examples": 22,
+      "documentation_issues": []
+    },
+    "scope": "Local configuration/tooling tests; five explicit CI fixture opt-ins not repeated; no full application release build or remote Actions claim",
+    "ci_resource_fixture_sha256": "c2251fd16a6a398c33265f48932221d8a3163fd851cf01107f6edbd327de8861"
+  }
+}

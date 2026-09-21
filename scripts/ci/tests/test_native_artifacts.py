@@ -50,6 +50,14 @@ class NativeArtifactTest(unittest.TestCase):
                 extraction = Path(command[command.index("--extract-to") + 1])
                 self.assertTrue(extraction.is_dir(), "nextest requires an existing extraction directory")
                 shutil.copytree(self.frozen, extraction / "target/release/eez-runtime")
+                if suite == "cross-chain":
+                    metadata = extraction / "target/nextest/binaries-metadata.json"
+                    metadata.parent.mkdir(parents=True)
+                    binary = extraction / "target/release/deps/cross-chain-fixture"
+                    binary.parent.mkdir(parents=True)
+                    binary.write_text("fixture archived executable")
+                    metadata.write_text(json.dumps({"rust-build-meta":{"target-directory":"/producer/target"},
+                        "rust-binaries":{"eez-node-e2e::cross_chain":{"binary-path":"/producer/target/release/deps/cross-chain-fixture"}}}))
             elif command[:3] == ["cargo-nextest", "nextest", "run"]:
                 if any(name in " ".join(command) for name in failures):
                     raise subprocess.CalledProcessError(100, command)
@@ -57,7 +65,7 @@ class NativeArtifactTest(unittest.TestCase):
                 patch.object(native, "check_nextest"), \
                 patch.object(native, "output", return_value="glibc 2.39"), \
                 patch.object(native.subprocess, "run", side_effect=extract) as run, \
-                patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target)):
+                patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target), EEZ_TEST_LOG_DIR=str(self.root / "logs"), EEZ_TEST_QUOTA_IMAGE="fixture-quota:exact"):
             try:
                 native.run(self.root, suite, partition)
             finally:
@@ -87,13 +95,26 @@ class NativeArtifactTest(unittest.TestCase):
                     if self.target.exists():
                         shutil.rmtree(self.target)
                     partition = f"slice:{shard}/4"
-                    args = self.run_archive(suite, partition=partition)
+                    self.run_archive(suite, partition=partition)
+                    args = next(call for call in self.calls
+                                if call.args[0][:3] == ["cargo-nextest", "nextest", "run"])
+                    quota = [call for call in self.calls if call.args[0][0] == sys.executable]
+                    self.assertEqual(len(quota), int(suite == "cross-chain" and shard == 1))
                     command = args.args[0]
                     self.assertEqual(command[command.index("--partition") + 1], partition)
                     self.assertEqual(command[command.index("-E") + 1], native.SUITES[suite])
                     self.assertIn("--test-threads=1", command)
                     self.assertIn("--no-tests=fail", command)
                     self.assertEqual(args.kwargs["env"]["EEZ_TEST_PREBUILT"], "1")
+
+    def test_first_partition_quota_ownership_uses_numeric_index(self):
+        for partition in ("hash:1/4", "hash:01/4", "slice:01/4"):
+            with self.subTest(partition=partition):
+                if self.target.exists():
+                    shutil.rmtree(self.target)
+                self.run_archive("cross-chain", partition=partition)
+                quota = [call for call in self.calls if call.args[0][0] == sys.executable]
+                self.assertEqual(len(quota), 1)
 
     def test_partition_cannot_certify_partial_unit_validation(self):
         with self.assertRaisesRegex(ValueError, "unit validation must run in full"):
@@ -104,6 +125,17 @@ class NativeArtifactTest(unittest.TestCase):
     def test_partition_failure_is_propagated(self):
         with self.assertRaises(subprocess.CalledProcessError):
             self.run_archive("embedded", failures=("native-tests",), partition="slice:1/4")
+
+    def test_failed_cross_chain_partition_does_not_run_quota(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_archive("cross-chain", failures=("native-tests",), partition="slice:1/4")
+        self.assertFalse(any(call.args[0][0] == sys.executable for call in self.calls))
+
+    def test_quota_failure_fails_its_cross_chain_partition(self):
+        with patch.object(native, "run_native_quota", side_effect=subprocess.CalledProcessError(1, ["quota"])) as quota:
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.run_archive("cross-chain", partition="slice:1/4")
+            quota.assert_called_once()
 
     def test_wrong_revision_profile_lock_or_toolchain_fails_closed(self):
         for key in self.identity:
@@ -158,8 +190,29 @@ class NativeArtifactTest(unittest.TestCase):
                 if self.target.exists():
                     shutil.rmtree(self.target)
                 self.run_archive(suite)
-                self.assertEqual(len(self.calls), 2)
+                self.assertEqual(len(self.calls), 3 if suite == "cross-chain" else 2)
                 self.assertTrue(all("composer-unit-tests" not in " ".join(call.args[0]) for call in self.calls))
+
+    def test_cross_chain_requires_physical_quota_using_verified_archived_inputs(self):
+        self.run_archive("cross-chain")
+        command = self.calls[-1].args[0]
+        self.assertEqual(command[0], sys.executable)
+        self.assertTrue(command[1].endswith("observability/tests/smoke-spool-quota.py"))
+        self.assertEqual(Path(command[command.index("--native-test")+1]),
+                         self.target / "native-tests/target/release/deps/cross-chain-fixture")
+        self.assertEqual(Path(command[command.index("--runtime-bin")+1]),
+                         self.target / "native-tests/target/release/eez-runtime")
+        self.assertEqual(command[command.index("--image")+1], "fixture-quota:exact")
+        self.assertTrue(self.calls[-1].kwargs["check"])
+        self.assertNotIn("cargo", command)
+        extracted = self.target / "native-tests/target"
+        with patch.object(native.subprocess, "run") as invoked:
+            with self.assertRaisesRegex(ValueError, "must be prepared"):
+                native.run_native_quota(extracted, self.frozen, {})
+            (extracted / "release/deps/cross-chain-fixture").unlink()
+            with self.assertRaisesRegex(ValueError, "executable.*missing"):
+                native.run_native_quota(extracted, self.frozen, {"EEZ_TEST_QUOTA_IMAGE":"fixture"})
+            invoked.assert_not_called()
 
     def test_incompatible_glibc_or_native_cpu_flags_are_rejected(self):
         self.manifest["glibc"] = "glibc 99.1"
@@ -457,7 +510,7 @@ class NativeRelocationTest(unittest.TestCase):
                 shutil.copy2(REPO / path, dest)
             (repo / "Cargo.toml").write_text('[workspace]\nresolver="2"\nmembers=["crates/*"]\n'
                                            '[profile.release]\nlto="thin"\nstrip="symbols"\n')
-            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec")
+            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec", "eez-observer")
             for name in packages:
                 package = repo / "crates" / name
                 (package / "src").mkdir(parents=True)
@@ -493,6 +546,7 @@ class NativeRelocationTest(unittest.TestCase):
                 (package / "tests/fixtures/fixture.txt").write_text("relocated fixture")
             signer = repo / "crates/eez-proof-signer/src/main.rs"
             signer.write_text('fn main() { println!("signer"); }\n#[test] fn signer_is_tested() { assert_eq!(2+2,4); }\n')
+            (repo / "crates/eez-observer/src/main.rs").write_text('fn main() { println!("release"); }\n')
             node = repo / "crates/eez-node-e2e"
             for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower"),
                                     ("eez-node-e2e", "eez-composer"), ("eez-node-e2e", "eez-follower")):
@@ -535,7 +589,8 @@ fn check_node(bin: NodeBinary) {
             node_targets = [target for target in native.TARGETS
                             if f"eez-node-e2e::{target}" in native.E2E_BINARIES]
             for target in node_targets:
-                (node / f"tests/{target}.rs").write_text(test_source)
+                extra = "" if target != "cross_chain" else "\n#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { fixture_is_relocated(); composer_is_relocated(); follower_is_relocated(); signer_is_relocated(); }\n"
+                (node / f"tests/{target}.rs").write_text(test_source + extra)
             for target in (target for target in native.TARGETS if target not in node_targets):
                 package = "eez-blob-codec" if target == "ethereum_kzg_compatibility" else "eez-protocol"
                 (repo / f"crates/{package}/tests/{target}.rs").write_text('''
@@ -545,6 +600,12 @@ fn check_node(bin: NodeBinary) {
     std::fs::write(format!("{root}/compatibility.executed"), "passed").unwrap();
 }
 ''')
+            # This tiny test exercises required artifact handoff and ignored
+            # executable selection, not physical ENOSPC. The real quota runner
+            # separately verifies that behavior with actual native processes.
+            quota = repo / "observability/tests/smoke-spool-quota.py"
+            quota.parent.mkdir(parents=True)
+            shutil.copy2(REPO / "scripts/ci/tests/fixtures/native-quota-handoff.py", quota)
             protocol = repo / "eez-core-protocol"
             protocol.mkdir()
             (protocol / "fixture").touch()
@@ -557,9 +618,10 @@ fn check_node(bin: NodeBinary) {
             sha = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
             env = dict(os.environ, GITHUB_SHA=sha, RUSTUP_TOOLCHAIN=native.RUST_VERSION, CARGO_INCREMENTAL="0",
                        RUSTFLAGS=native.RUSTFLAGS, CARGO_TARGET_DIR=str(root / "producer-target"),
-                       EEZ_COMPILER_CACHE="none", EEZ_BUILD_METRICS_DIR=str(root / "metrics"))
+                       EEZ_COMPILER_CACHE="none", EEZ_BUILD_METRICS_DIR=str(root / "metrics"),
+                       EEZ_TEST_LOG_DIR=str(root / "logs"), EEZ_TEST_QUOTA_IMAGE="fixture-quota:not-run")
             artifact = root / "artifact"
-            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eez-node", "-p", "eez-follower", "-p", "eez-proof-signer", "--bins"],
+            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "eez-node", "-p", "eez-follower", "-p", "eez-proof-signer", "-p", "eez-observer", "--bins"],
                            cwd=repo, env=env, check=True)
             frozen = root / "shipping"
             frozen.mkdir()
@@ -642,6 +704,8 @@ fn check_node(bin: NodeBinary) {
                         expected = sum(f"binary(={target})" in native.SUITES[suite] for target in node_targets)
                         self.assertEqual(len(attempts), expected, "CI must not rerun a failed test")
                         self.assertEqual(len(set(attempts)), expected, "all selected binaries must run")
+                if suite == "cross-chain":
+                    self.assertEqual((consumer / "quota-relocation.executed").read_text(), "passed")
                 if suite == "unit":
                     self.assertEqual((consumer / "crates/eez-blob-codec/compatibility.executed").read_text(), "passed")
                     subprocess.run([sys.executable, "scripts/ci/native-tests.py", "export-e2e", str(artifact),

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,9 +18,66 @@ native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 
 
+def observer_compile_inputs():
+    """Literal external include inputs used by the actual workspace unit archive."""
+    inputs = set()
+    for source in (REPO / "crates/eez-observer/src").rglob("*.rs"):
+        for relative in re.findall(r'include_(?:str|bytes)!\(\s*"([^"]*observability/[^"]+)"', source.read_text()):
+            inputs.add((source.parent / relative).resolve().relative_to(REPO).as_posix())
+    if not inputs:
+        raise AssertionError("observer archive must exercise real external include inputs")
+    return sorted(inputs)
+
+
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
+    def test_observer_compile_inputs_survive_runtime_allowlist(self):
+        with tempfile.TemporaryDirectory(prefix="eez-runtime-context.") as temporary:
+            root = Path(temporary)
+            context = root / "context"
+            context.mkdir()
+            inputs = observer_compile_inputs()
+            for name in inputs:
+                target = context / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(REPO / name, target)
+            # Public dummy sentinels prove we did not broaden the Docker context
+            # to arbitrary monitoring configuration or unrelated fixture files.
+            for name in ("observability/operator-config.json", "observability/tests/fixtures/unrelated-private.json"):
+                (context / name).write_text("fixture-only excluded sentinel")
+            instructions = (REPO / "Dockerfile.runtime").read_text().replace("\\\n", " ").splitlines()
+            copies = [line for line in instructions if line.startswith("COPY observability/")]
+            self.assertTrue(copies)
+            (context / "Dockerfile.runtime").write_text(
+                "FROM scratch AS compile-inputs\n" + "\n".join(copies)
+                + "\nFROM scratch AS allowed-context\nCOPY . /\n")
+            ignore = context / "Dockerfile.runtime.dockerignore"
+            rules = (REPO / "Dockerfile.runtime.dockerignore").read_text()
+            command = ["docker", "buildx", "build", "--network=none", "--progress=plain",
+                       "--file", str(context / "Dockerfile.runtime")]
+            # Reproduce the prior omission using Docker's actual matcher,
+            # rather than a Python approximation of dockerignore semantics.
+            ignore.write_text("\n".join(line for line in rules.splitlines()
+                                       if not line.startswith("!observability")) + "\n")
+            missing = subprocess.run(command + ["--target", "compile-inputs", "--output",
+                f"type=local,dest={root / 'missing'}", str(context)],
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+            self.assertNotEqual(missing.returncode, 0, missing.stdout)
+            self.assertIn("not found", missing.stdout)
+            self.assertIn("observability/", missing.stdout)
+            ignore.write_text(rules)
+            for target in ("compile-inputs", "allowed-context"):
+                destination = root / target
+                built = subprocess.run(command + ["--target", target, "--output",
+                    f"type=local,dest={destination}", str(context)],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+                self.assertEqual(built.returncode, 0, built.stdout)
+                for name in inputs:
+                    self.assertEqual((destination / name).read_bytes(), (REPO / name).read_bytes())
+                self.assertFalse((destination / "observability/operator-config.json").exists())
+                self.assertFalse((destination / "observability/tests/fixtures/unrelated-private.json").exists())
+
     def test_real_build_and_same_job_execution(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.") as temporary:
             root = Path(temporary)
@@ -31,7 +89,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
-                "contracts/test/PostBatchGasPins.t.sol",
+                "contracts/test/PostBatchGasPins.t.sol", *observer_compile_inputs(),
             ):
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +108,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
                 "eez-composer": {},
                 "eez-blob-codec": {},
+                "eez-observer": {"src/main.rs": "eez-observer"},
             }
             (repo / "Cargo.toml").write_text(
                 '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
@@ -76,6 +135,14 @@ class RuntimeDockerTest(unittest.TestCase):
                         '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
                         '}\n'
                     )
+                if name == "eez-observer":
+                    inputs = observer_compile_inputs()
+                    (package / "src/lib.rs").write_text(
+                        "const INPUTS: &[&str] = &[\n" + "".join(
+                            f'    include_str!("../../../{path}"),\n' for path in inputs
+                        ) + "];\n#[test] fn observer_external_inputs_are_packaged() {\n"
+                        "    assert!(INPUTS.iter().all(|input| !input.is_empty()));\n}\n"
+                    )
                 for test in ({"eez-node-e2e": native.E2E_TARGETS,
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
@@ -86,6 +153,18 @@ class RuntimeDockerTest(unittest.TestCase):
                     target = package / path
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(f'fn main() {{ println!("{output}"); }}\n')
+
+            # The tiny workspace verifies the mandatory archived quota handoff;
+            # real native ENOSPC semantics are owned by the physical fixture.
+            quota = repo / "observability/tests/smoke-spool-quota.py"
+            quota.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / "scripts/ci/tests/fixtures/native-quota-handoff.py", quota)
+            cross_chain = repo / "crates/eez-node-e2e/tests/cross_chain.rs"
+            with cross_chain.open("a") as source:
+                source.write(
+                    '#[test] #[ignore] fn dynamic_enospc_bidirectional_cross_chain_smoke() { '
+                    'assert!(!cfg!(debug_assertions)); }\n'
+                )
 
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
@@ -109,6 +188,8 @@ class RuntimeDockerTest(unittest.TestCase):
                 "EEZ_EXPECT_PUBLISHED": "false", "GITHUB_ENV": str(root / "github-env"),
                 "GITHUB_PATH": str(root / "github-path"), "GITHUB_STEP_SUMMARY": str(root / "summary"),
                 "DOCKER_CONFIG": str(root / "docker-config"),
+                "EEZ_TEST_LOG_DIR": str(root / "logs"),
+                "EEZ_TEST_QUOTA_IMAGE": "fixture-quota:not-run",
             })
             Path(env["DOCKER_CONFIG"]).mkdir()
             # Exercise a specific Buildx release without replacing the host's
@@ -149,9 +230,12 @@ class RuntimeDockerTest(unittest.TestCase):
                         subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "export-e2e",
                                         str(payload), "--output-dir", str(root / "e2e-only")],
                                        env=consumer_env, check=True)
+                self.assertEqual((repo / "quota-relocation.executed").read_text(), "passed")
+                quota_report = json.loads((root / "native-quota.json").read_text())
+                self.assertEqual(quota_report, {"scope": "archived handoff only", "passed": True})
                 self.assertFalse(manifest["published"])
                 for role, binaries in {
-                    "node": ("eez-composer", "eez-follower", "eez-genesis-state-root", "eez-genesis-block-hash"),
+                    "node": ("eez-composer", "eez-follower", "eez-observer", "eez-genesis-state-root", "eez-genesis-block-hash"),
                     "signer": ("eez-proof-signer",),
                     "deploy": ("eez-genesis-state-root", "eez-genesis-block-hash"),
                 }.items():

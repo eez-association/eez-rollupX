@@ -16,6 +16,7 @@
 pub mod checkpoint;
 pub mod correlation;
 pub mod deriver;
+pub mod diagnostics;
 pub mod error;
 mod l1_catch_up;
 

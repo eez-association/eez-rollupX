@@ -1,0 +1,37 @@
+# Single-process pilot: local persistent storage; no Kafka or derived span metrics.
+stream_over_http_enabled: true
+server:
+  http_listen_port: 3200
+  graceful_shutdown_timeout: 20s
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+backend_scheduler:
+  local_work_path: /var/tempo/scheduler
+  provider:
+    compaction:
+      compaction:
+        block_retention: 168h
+backend_worker:
+  compaction:
+    block_retention: 168h
+overrides:
+  defaults:
+    ingestion:
+      rate_limit_bytes: 1048576
+      burst_size_bytes: 4194304
+      max_traces_per_user: 10000
+    global:
+      max_bytes_per_trace: 2097152
+usage_report:
+  reporting_enabled: false

@@ -166,7 +166,9 @@ fund_pool(){ # <funder_key> <rpc> <amount> <key...>
 
 fdep(){ local rpc="$1" key="$2" sc="$3" sig="$4"; shift 4; local addr n0
   addr=$(cast wallet address --private-key "$key"); n0=$(cast nonce "$addr" --rpc-url "$rpc" 2>/dev/null); n0=${n0:-0}
-  (cd "$REPO/contracts" && forge script "script/$sc" --sig "$sig" "$@" --rpc-url "$rpc" --broadcast --private-key "$key" --skip-simulation --gas-price 2000000000 --priority-gas-price 1500000000 2>&1)
+  # Forge's --gas-price changes the simulated EVM; --with-gas-price sets the
+  # broadcast max fee, which must cover the explicit priority fee on Chiado.
+  (cd "$REPO/contracts" && forge script "script/$sc" --sig "$sig" "$@" --rpc-url "$rpc" --broadcast --private-key "$key" --skip-simulation --with-gas-price 2000000000 --priority-gas-price 1500000000 2>&1)
   for _ in $(seq 1 40); do [[ "$(cast nonce "$addr" --rpc-url "$rpc" 2>/dev/null||echo "$n0")" -gt "$n0" ]] && break; sleep 1; done; }
 dep_l1(){ local a; a=$(fdep "$L1" "$OP" "$1" "$2" "$3" | grab "$4"); local c=0x
   for _ in $(seq 1 90); do c=$(cast code "$a" --rpc-url "$L1" 2>/dev/null||echo 0x); [[ "$c" != "0x" && -n "$c" ]] && break; sleep 1; done; echo "$a"; }

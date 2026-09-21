@@ -12,12 +12,14 @@ members = [
     "crates/eez-node",
     "crates/eez-node-common",
     "crates/eez-node-e2e",
+    "crates/eez-observer",
     "crates/eez-payload-codec",
     "crates/eez-proof-signer",
     "crates/eez-protocol",
     "crates/eez-prover",
     "crates/eez-prover-client",
     "crates/eez-testkit",
+    "crates/eez-telemetry",
 ]
 
 [workspace.package]
@@ -34,10 +36,16 @@ dotenvy            = "0.15"
 futures-util       = "0.3"
 tracing            = "0.1"
 tracing-subscriber = "0.3"
+# Compatible versions already selected by the pinned Reth tracing stack.
+opentelemetry = { version = "=0.31.0", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "=0.31.0", default-features = false, features = ["trace"] }
+opentelemetry-proto = { version = "=0.31.0", default-features = false, features = ["gen-tonic-messages", "trace"] }
+tracing-opentelemetry = { version = "=0.32.1", default-features = false }
 thiserror          = "2"
 eyre               = "0.6"
 serde              = { version = "1", features = ["derive"] }
 sha3               = "0.10"
+sha2               = "0.10.9"
 hex                = "0.4"
 
 # grpc — eez-control-rpc `Prove` wire (composer client ↔ proof-signer server).
@@ -68,6 +76,8 @@ reth-cli                        = { git = "https://github.com/paradigmxyz/reth",
 reth-db                         = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-engine-primitives          = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-cli               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
+reth-cli-commands               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
+reth-cli-runner                 = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-basic-payload-builder     = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
@@ -78,6 +88,7 @@ reth-network-peers              = { git = "https://github.com/paradigmxyz/reth",
 reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-core                  = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
+reth-node-metrics               = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-node-ethereum              = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-payload-builder            = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 reth-payload-primitives         = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
@@ -155,10 +166,12 @@ eez-follower       = { path = "crates/eez-follower" }
 eez-l1             = { path = "crates/eez-l1" }
 eez-node           = { path = "crates/eez-node" }
 eez-node-common    = { path = "crates/eez-node-common" }
+eez-observer       = { path = "crates/eez-observer" }
 eez-payload-codec  = { path = "crates/eez-payload-codec" }
 eez-protocol       = { path = "crates/eez-protocol" }
 eez-prover         = { path = "crates/eez-prover" }
 eez-testkit        = { path = "crates/eez-testkit" }
+eez-telemetry      = { path = "crates/eez-telemetry" }
 
 # Profiles copied from reth (paradigmxyz/reth Cargo.toml), minus its
 # hivetests/reproducible CI profiles. `release` is the fast-to-build

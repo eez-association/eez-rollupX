@@ -1,0 +1,1336 @@
+{
+  "status": "sizing_pilot_completed_not_acceptance",
+  "phase": "pilot",
+  "order": [
+    "A",
+    "B",
+    "B",
+    "A"
+  ],
+  "waves_per_stage": 1,
+  "elapsed_seconds": 460.2572248949873,
+  "candidate": {
+    "head": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+    "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "profile": "dev optimized + debuginfo",
+    "benchmark_lock_feature": false,
+    "source_map_sha256": "124a948e84fa728d7564555dcf1ffcfec951a1dedc8cc4fdaf26fd6928dfb07e",
+    "runtime_source_map_sha256": "93cd4587c031bcda02a95447e131a7905375289c8f24a3daa392bb6990346aec",
+    "runtime_reused_from": "eez-overhead-default-candidate; only test/helper changes since role build",
+    "sha256": {
+      "bin/eez-composer": "23771da295a699850ad9cc9b29977f7d0db6cc73b27775c9e92b6be15e65ba5e",
+      "bin/eez-follower": "edf4b9ba1f2de4047c9f535fa137cfc3f9fb561ba423964bdf0157cd4b9efac6",
+      "bin/eez-observer": "fabbd0f534806cd17aac325c39a55301c86e303e2d278623e2a10e430933fc70",
+      "bin/eez-proof-signer": "3ee0f1675ecdba5734369401c25f39ccc8d6765a242a068cebea48ab03badda8",
+      "dynamic_admission": "7add44b97026f8b2384631a03b72a6d5505f7fbaef07077f79c6029157a1abc4",
+      "rustc.txt": "b75985398e5509a90a7d5d68f8ec6690675f703c5cfa11893b04fc9c3fceca69",
+      "source-map.json": "124a948e84fa728d7564555dcf1ffcfec951a1dedc8cc4fdaf26fd6928dfb07e",
+      "harness/overhead_analysis.py": "ef884e1af96a1319f5f8f340038f88f5666497f3d3217b1c1d3d1dcdd5f479ee",
+      "harness/overhead_lock_analysis.py": "eb4c7a8494c52b14f9fe90f6295a52554061da4fbd8b4a909d1c2011ad7cb85d",
+      "harness/overhead_resources.py": "e53563e177b4af62f3f9bafa2857cfd70cdc06aef46d379f21f709f907ecc2ea",
+      "harness/run-overhead.py": "ec104c49490b275cf34013cc5c46ac532d1e49c7ff8a74d8f98dc11f6ba856c2"
+    }
+  },
+  "runs": [
+    {
+      "pair": 1,
+      "arm": "A",
+      "native_seconds": 98.77757053400273,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 0,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "stages": [
+        {
+          "name": "small_queue",
+          "elapsed_seconds": 6.102685395,
+          "successful_sources": 8,
+          "preparation_ms": [
+            77
+          ],
+          "preparation_group_counts": [
+            8
+          ]
+        },
+        {
+          "name": "busy_waves",
+          "elapsed_seconds": 15.81292072,
+          "successful_sources": 128,
+          "preparation_ms": [
+            562,
+            462,
+            69
+          ],
+          "preparation_group_counts": [
+            62,
+            62,
+            4
+          ]
+        }
+      ],
+      "resources_overall": {
+        "name": "overall",
+        "status": "passed",
+        "scope": "conservative resource bracket, not exact phase boundaries",
+        "bracket_seconds": 22.626972668,
+        "before_sequence": 11,
+        "after_sequence": 34,
+        "leading_slack_ns": 554402917,
+        "trailing_slack_ns": 66932889,
+        "processes": {
+          "composer": {
+            "cpu_ticks": 395,
+            "minor_faults": 14351,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 3.95,
+            "pid": 1251331,
+            "start_ticks": 10168508,
+            "sampled_peak_rss_bytes": 4390838272,
+            "observed_lifetime_hwm_bytes": 4390838272
+          },
+          "follower": {
+            "cpu_ticks": 95,
+            "minor_faults": 4293,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.95,
+            "pid": 1256491,
+            "start_ticks": 10174830,
+            "sampled_peak_rss_bytes": 1916993536,
+            "observed_lifetime_hwm_bytes": 1916993536
+          },
+          "signer": {
+            "cpu_ticks": 68,
+            "minor_faults": 4932,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.68,
+            "pid": 1251290,
+            "start_ticks": 10168488,
+            "sampled_peak_rss_bytes": 155021312,
+            "observed_lifetime_hwm_bytes": 155021312
+          },
+          "sampler_collector": {
+            "cpu_ticks": 7,
+            "minor_faults": 123,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.07,
+            "pid": 1250960,
+            "start_ticks": 10168338,
+            "sampled_peak_rss_bytes": 29200384,
+            "observed_lifetime_hwm_bytes": 29687808
+          }
+        },
+        "postgres": {
+          "cpu": {
+            "usage_usec": 30672,
+            "user_usec": 21431,
+            "system_usec": 9242,
+            "nice_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nr_periods": 10,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "cpu_seconds": 0.030672,
+          "sampled_peak_memory_bytes": 83341312,
+          "observed_lifetime_peak_bytes": 95256576,
+          "memory_events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          },
+          "io_devices": {
+            "deltas": {
+              "252:0": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              },
+              "259:4": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "added": [],
+            "removed": []
+          }
+        },
+        "host": {
+          "cpu_ticks": {
+            "user": 7737,
+            "nice": 0,
+            "system": 566,
+            "idle": 40910,
+            "iowait": 191,
+            "irq": 0,
+            "softirq": 107,
+            "steal": 0
+          },
+          "busy_fraction": 0.16986124295611077,
+          "steal_fraction": 0.0,
+          "iowait_fraction": 0.0038577285855668437,
+          "signed_other_cpu_seconds": 78.419328,
+          "cpu_accounting_slack_seconds": 0.635172858,
+          "other_cpu_cores": 3.493816959871178,
+          "other_cpu_cores_scope": "conservative upper bound including tick/read uncertainty",
+          "minimum_available_bytes": 19873468416,
+          "disk_devices": {
+            "deltas": {
+              "dm-0": {
+                "reads": 370,
+                "read_sectors": 13640,
+                "writes": 7131,
+                "write_sectors": 117872,
+                "io_ms": 1887
+              },
+              "loop0": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop3": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop4": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop5": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop6": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop7": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1": {
+                "reads": 97,
+                "read_sectors": 7440,
+                "writes": 1795,
+                "write_sectors": 34664,
+                "io_ms": 888
+              },
+              "nvme0n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p3": {
+                "reads": 97,
+                "read_sectors": 7440,
+                "writes": 1795,
+                "write_sectors": 34664,
+                "io_ms": 942
+              },
+              "nvme1n1": {
+                "reads": 272,
+                "read_sectors": 6200,
+                "writes": 2958,
+                "write_sectors": 83208,
+                "io_ms": 953
+              },
+              "nvme1n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p3": {
+                "reads": 272,
+                "read_sectors": 6200,
+                "writes": 2958,
+                "write_sectors": 83208,
+                "io_ms": 1011
+              }
+            },
+            "added": [],
+            "removed": []
+          },
+          "vm": {
+            "pgfault": 399293,
+            "pgmajfault": 171,
+            "pswpin": 5,
+            "pswpout": 0,
+            "pgpgin": 6820,
+            "pgpgout": 58936
+          }
+        }
+      },
+      "sink": {
+        "before": {
+          "requests": 0,
+          "bytes": 0,
+          "errors": [],
+          "healthy": true
+        },
+        "after": {
+          "requests": 0,
+          "bytes": 0,
+          "errors": [],
+          "healthy": true
+        }
+      },
+      "raw_report_sha256": "e7d6bc4763a109803e7bef9dbd07128d5ffb11f02d0311ae43fdfb1525390ec0",
+      "resource_report_sha256": "88318e488768a3cbcd52de80d2c51dcf7431da9b7fb98145d519ea93f8ba3a3a"
+    },
+    {
+      "pair": 1,
+      "arm": "B",
+      "native_seconds": 129.1493970599986,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 138,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "stages": [
+        {
+          "name": "small_queue",
+          "elapsed_seconds": 9.644858968,
+          "successful_sources": 8,
+          "preparation_ms": [
+            141
+          ],
+          "preparation_group_counts": [
+            8
+          ]
+        },
+        {
+          "name": "busy_waves",
+          "elapsed_seconds": 13.986149506,
+          "successful_sources": 128,
+          "preparation_ms": [
+            147,
+            715,
+            154
+          ],
+          "preparation_group_counts": [
+            23,
+            79,
+            26
+          ]
+        }
+      ],
+      "resources_overall": {
+        "name": "overall",
+        "status": "passed",
+        "scope": "conservative resource bracket, not exact phase boundaries",
+        "bracket_seconds": 50.671790232,
+        "before_sequence": 13,
+        "after_sequence": 64,
+        "leading_slack_ns": 69880689,
+        "trailing_slack_ns": 53003452,
+        "processes": {
+          "composer": {
+            "cpu_ticks": 613,
+            "minor_faults": 15846,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 6.13,
+            "pid": 1260253,
+            "start_ticks": 10178551,
+            "sampled_peak_rss_bytes": 4103208960,
+            "observed_lifetime_hwm_bytes": 4103208960
+          },
+          "follower": {
+            "cpu_ticks": 131,
+            "minor_faults": 4422,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 1.31,
+            "pid": 1266245,
+            "start_ticks": 10184822,
+            "sampled_peak_rss_bytes": 2009931776,
+            "observed_lifetime_hwm_bytes": 2009931776
+          },
+          "observer": {
+            "cpu_ticks": 110,
+            "minor_faults": 1503,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 1.1,
+            "pid": 1266898,
+            "start_ticks": 10185008,
+            "sampled_peak_rss_bytes": 18231296,
+            "observed_lifetime_hwm_bytes": 18231296
+          },
+          "signer": {
+            "cpu_ticks": 69,
+            "minor_faults": 6364,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.69,
+            "pid": 1260226,
+            "start_ticks": 10178531,
+            "sampled_peak_rss_bytes": 160165888,
+            "observed_lifetime_hwm_bytes": 160165888
+          },
+          "sampler_collector": {
+            "cpu_ticks": 19,
+            "minor_faults": 1824,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.19,
+            "pid": 1250960,
+            "start_ticks": 10168338,
+            "sampled_peak_rss_bytes": 36532224,
+            "observed_lifetime_hwm_bytes": 36532224
+          }
+        },
+        "postgres": {
+          "cpu": {
+            "usage_usec": 21760859,
+            "user_usec": 19433817,
+            "system_usec": 2327041,
+            "nice_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nr_periods": 293,
+            "nr_throttled": 111,
+            "throttled_usec": 9719775,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "cpu_seconds": 21.760859,
+          "sampled_peak_memory_bytes": 316989440,
+          "observed_lifetime_peak_bytes": 419155968,
+          "memory_events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          },
+          "io_devices": {
+            "deltas": {
+              "252:0": {
+                "rbytes": 1773568,
+                "wbytes": 0,
+                "rios": 95,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              },
+              "259:4": {
+                "rbytes": 1245184,
+                "wbytes": 0,
+                "rios": 70,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "added": [
+              "259:0"
+            ],
+            "removed": []
+          }
+        },
+        "host": {
+          "cpu_ticks": {
+            "user": 21613,
+            "nice": 0,
+            "system": 2864,
+            "idle": 85300,
+            "iowait": 365,
+            "irq": 0,
+            "softirq": 381,
+            "steal": 0
+          },
+          "busy_fraction": 0.22491246165956408,
+          "steal_fraction": 0.0,
+          "iowait_fraction": 0.0033024800267817556,
+          "signed_other_cpu_seconds": 217.39914100000001,
+          "cpu_accounting_slack_seconds": 0.637527582,
+          "other_cpu_cores": 4.302920176763491,
+          "other_cpu_cores_scope": "conservative upper bound including tick/read uncertainty",
+          "minimum_available_bytes": 19222540288,
+          "disk_devices": {
+            "deltas": {
+              "dm-0": {
+                "reads": 1492,
+                "read_sectors": 51200,
+                "writes": 25086,
+                "write_sectors": 365952,
+                "io_ms": 5010
+              },
+              "loop0": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop3": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop4": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop5": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop6": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop7": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1": {
+                "reads": 668,
+                "read_sectors": 39080,
+                "writes": 7584,
+                "write_sectors": 136280,
+                "io_ms": 2159
+              },
+              "nvme0n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p3": {
+                "reads": 668,
+                "read_sectors": 39080,
+                "writes": 7584,
+                "write_sectors": 136280,
+                "io_ms": 2350
+              },
+              "nvme1n1": {
+                "reads": 578,
+                "read_sectors": 12120,
+                "writes": 8464,
+                "write_sectors": 229672,
+                "io_ms": 2170
+              },
+              "nvme1n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p3": {
+                "reads": 578,
+                "read_sectors": 12120,
+                "writes": 8464,
+                "write_sectors": 229672,
+                "io_ms": 2622
+              }
+            },
+            "added": [],
+            "removed": []
+          },
+          "vm": {
+            "pgfault": 3584845,
+            "pgmajfault": 513,
+            "pswpin": 28,
+            "pswpout": 976,
+            "pgpgin": 25600,
+            "pgpgout": 182816
+          }
+        }
+      },
+      "sink": {
+        "before": {
+          "requests": 0,
+          "bytes": 0,
+          "errors": [],
+          "healthy": true
+        },
+        "after": {
+          "requests": 58,
+          "bytes": 92786,
+          "errors": [],
+          "healthy": true
+        }
+      },
+      "raw_report_sha256": "21c598206016111e79b48e5474ade5834602c655defb3728b28dc4f79a1deee7",
+      "resource_report_sha256": "318f34b818df79a634214be7065963de5987c784cacfe6984d8a1a71e7c07a01"
+    },
+    {
+      "pair": 2,
+      "arm": "B",
+      "native_seconds": 126.08954660499876,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 138,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "stages": [
+        {
+          "name": "small_queue",
+          "elapsed_seconds": 3.605181554,
+          "successful_sources": 8,
+          "preparation_ms": [
+            82
+          ],
+          "preparation_group_counts": [
+            8
+          ]
+        },
+        {
+          "name": "busy_waves",
+          "elapsed_seconds": 10.30624024,
+          "successful_sources": 128,
+          "preparation_ms": [
+            571,
+            358
+          ],
+          "preparation_group_counts": [
+            74,
+            54
+          ]
+        }
+      ],
+      "resources_overall": {
+        "name": "overall",
+        "status": "passed",
+        "scope": "conservative resource bracket, not exact phase boundaries",
+        "bracket_seconds": 52.676134381,
+        "before_sequence": 13,
+        "after_sequence": 66,
+        "leading_slack_ns": 92349343,
+        "trailing_slack_ns": 101095511,
+        "processes": {
+          "composer": {
+            "cpu_ticks": 621,
+            "minor_faults": 16992,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 6.21,
+            "pid": 1276980,
+            "start_ticks": 10191629,
+            "sampled_peak_rss_bytes": 4505419776,
+            "observed_lifetime_hwm_bytes": 4505419776
+          },
+          "follower": {
+            "cpu_ticks": 87,
+            "minor_faults": 4355,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.87,
+            "pid": 1282466,
+            "start_ticks": 10197401,
+            "sampled_peak_rss_bytes": 1963102208,
+            "observed_lifetime_hwm_bytes": 1963102208
+          },
+          "observer": {
+            "cpu_ticks": 110,
+            "minor_faults": 1970,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 1.1,
+            "pid": 1283131,
+            "start_ticks": 10197593,
+            "sampled_peak_rss_bytes": 20152320,
+            "observed_lifetime_hwm_bytes": 20152320
+          },
+          "signer": {
+            "cpu_ticks": 66,
+            "minor_faults": 6310,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.66,
+            "pid": 1276953,
+            "start_ticks": 10191609,
+            "sampled_peak_rss_bytes": 159461376,
+            "observed_lifetime_hwm_bytes": 159461376
+          },
+          "sampler_collector": {
+            "cpu_ticks": 22,
+            "minor_faults": 478,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.22,
+            "pid": 1250960,
+            "start_ticks": 10168338,
+            "sampled_peak_rss_bytes": 36995072,
+            "observed_lifetime_hwm_bytes": 37146624
+          }
+        },
+        "postgres": {
+          "cpu": {
+            "usage_usec": 28176042,
+            "user_usec": 24919023,
+            "system_usec": 3257020,
+            "nice_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nr_periods": 360,
+            "nr_throttled": 139,
+            "throttled_usec": 11442890,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "cpu_seconds": 28.176042,
+          "sampled_peak_memory_bytes": 403197952,
+          "observed_lifetime_peak_bytes": 430706688,
+          "memory_events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          },
+          "io_devices": {
+            "deltas": {
+              "252:0": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              },
+              "259:0": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              },
+              "259:4": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "added": [],
+            "removed": []
+          }
+        },
+        "host": {
+          "cpu_ticks": {
+            "user": 19334,
+            "nice": 0,
+            "system": 1569,
+            "idle": 93899,
+            "iowait": 305,
+            "irq": 0,
+            "softirq": 209,
+            "steal": 0
+          },
+          "busy_fraction": 0.18307953796524334,
+          "steal_fraction": 0.0,
+          "iowait_fraction": 0.0026449061708696104,
+          "signed_other_cpu_seconds": 173.883958,
+          "cpu_accounting_slack_seconds": 0.6476553920000001,
+          "other_cpu_cores": 3.31329577317945,
+          "other_cpu_cores_scope": "conservative upper bound including tick/read uncertainty",
+          "minimum_available_bytes": 28276068352,
+          "disk_devices": {
+            "deltas": {
+              "dm-0": {
+                "reads": 602,
+                "read_sectors": 13296,
+                "writes": 9659,
+                "write_sectors": 223792,
+                "io_ms": 3977
+              },
+              "loop0": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop3": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop4": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop5": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop6": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop7": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1": {
+                "reads": 40,
+                "read_sectors": 1176,
+                "writes": 2116,
+                "write_sectors": 24232,
+                "io_ms": 1754
+              },
+              "nvme0n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p3": {
+                "reads": 40,
+                "read_sectors": 1176,
+                "writes": 2116,
+                "write_sectors": 24232,
+                "io_ms": 1797
+              },
+              "nvme1n1": {
+                "reads": 537,
+                "read_sectors": 12120,
+                "writes": 7012,
+                "write_sectors": 199560,
+                "io_ms": 1902
+              },
+              "nvme1n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p3": {
+                "reads": 537,
+                "read_sectors": 12120,
+                "writes": 7012,
+                "write_sectors": 199560,
+                "io_ms": 2103
+              }
+            },
+            "added": [],
+            "removed": []
+          },
+          "vm": {
+            "pgfault": 2944152,
+            "pgmajfault": 73,
+            "pswpin": 45,
+            "pswpout": 0,
+            "pgpgin": 6604,
+            "pgpgout": 111864
+          }
+        }
+      },
+      "sink": {
+        "before": {
+          "requests": 58,
+          "bytes": 92786,
+          "errors": [],
+          "healthy": true
+        },
+        "after": {
+          "requests": 112,
+          "bytes": 184836,
+          "errors": [],
+          "healthy": true
+        }
+      },
+      "raw_report_sha256": "c715ec1a58fb555ff814521009bb19648254c15c2f25ee47c8fbb9a169471144",
+      "resource_report_sha256": "91ed21b7522d62ac4cbe7729f1b3714a15298202d99cecf6bf9237b88282e2e3"
+    },
+    {
+      "pair": 2,
+      "arm": "A",
+      "native_seconds": 99.53724085600697,
+      "semantic_ok": true,
+      "telemetry_healthy": true,
+      "verified_observer_source_count": 0,
+      "resource_status": "passed",
+      "cleanup_verified": true,
+      "stages": [
+        {
+          "name": "small_queue",
+          "elapsed_seconds": 7.6235166119999995,
+          "successful_sources": 8,
+          "preparation_ms": [
+            69
+          ],
+          "preparation_group_counts": [
+            8
+          ]
+        },
+        {
+          "name": "busy_waves",
+          "elapsed_seconds": 12.342899444,
+          "successful_sources": 128,
+          "preparation_ms": [
+            583,
+            382
+          ],
+          "preparation_group_counts": [
+            74,
+            54
+          ]
+        }
+      ],
+      "resources_overall": {
+        "name": "overall",
+        "status": "passed",
+        "scope": "conservative resource bracket, not exact phase boundaries",
+        "bracket_seconds": 20.220375795,
+        "before_sequence": 14,
+        "after_sequence": 35,
+        "leading_slack_ns": 98056159,
+        "trailing_slack_ns": 55691769,
+        "processes": {
+          "composer": {
+            "cpu_ticks": 339,
+            "minor_faults": 13677,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 3.39,
+            "pid": 1289794,
+            "start_ticks": 10204409,
+            "sampled_peak_rss_bytes": 4247502848,
+            "observed_lifetime_hwm_bytes": 4247502848
+          },
+          "follower": {
+            "cpu_ticks": 95,
+            "minor_faults": 3337,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.95,
+            "pid": 1296894,
+            "start_ticks": 10210735,
+            "sampled_peak_rss_bytes": 1935818752,
+            "observed_lifetime_hwm_bytes": 1935818752
+          },
+          "signer": {
+            "cpu_ticks": 67,
+            "minor_faults": 5064,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.67,
+            "pid": 1289727,
+            "start_ticks": 10204389,
+            "sampled_peak_rss_bytes": 153538560,
+            "observed_lifetime_hwm_bytes": 153538560
+          },
+          "sampler_collector": {
+            "cpu_ticks": 6,
+            "minor_faults": 0,
+            "major_faults": 0,
+            "read_bytes": 0,
+            "write_bytes": 0,
+            "cpu_seconds": 0.06,
+            "pid": 1250960,
+            "start_ticks": 10168338,
+            "sampled_peak_rss_bytes": 36995072,
+            "observed_lifetime_hwm_bytes": 37146624
+          }
+        },
+        "postgres": {
+          "cpu": {
+            "usage_usec": 31406,
+            "user_usec": 26712,
+            "system_usec": 4694,
+            "nice_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nr_periods": 9,
+            "nr_throttled": 0,
+            "throttled_usec": 0,
+            "nr_bursts": 0,
+            "burst_usec": 0
+          },
+          "cpu_seconds": 0.031406,
+          "sampled_peak_memory_bytes": 84598784,
+          "observed_lifetime_peak_bytes": 93974528,
+          "memory_events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          },
+          "io_devices": {
+            "deltas": {
+              "252:0": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              },
+              "259:4": {
+                "rbytes": 0,
+                "wbytes": 0,
+                "rios": 0,
+                "wios": 0,
+                "dbytes": 0,
+                "dios": 0
+              }
+            },
+            "added": [],
+            "removed": []
+          }
+        },
+        "host": {
+          "cpu_ticks": {
+            "user": 6694,
+            "nice": 0,
+            "system": 712,
+            "idle": 36563,
+            "iowait": 121,
+            "irq": 0,
+            "softirq": 105,
+            "steal": 0
+          },
+          "busy_fraction": 0.16995135196289174,
+          "steal_fraction": 0.0,
+          "iowait_fraction": 0.002737866274465437,
+          "signed_other_cpu_seconds": 70.008594,
+          "cpu_accounting_slack_seconds": 0.627405604,
+          "other_cpu_cores": 3.493307954319353,
+          "other_cpu_cores_scope": "conservative upper bound including tick/read uncertainty",
+          "minimum_available_bytes": 29062324224,
+          "disk_devices": {
+            "deltas": {
+              "dm-0": {
+                "reads": 172,
+                "read_sectors": 4400,
+                "writes": 3017,
+                "write_sectors": 79608,
+                "io_ms": 1321
+              },
+              "loop0": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop3": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop4": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop5": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop6": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "loop7": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1": {
+                "reads": 6,
+                "read_sectors": 152,
+                "writes": 608,
+                "write_sectors": 8264,
+                "io_ms": 656
+              },
+              "nvme0n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme0n1p3": {
+                "reads": 6,
+                "read_sectors": 152,
+                "writes": 608,
+                "write_sectors": 8264,
+                "io_ms": 676
+              },
+              "nvme1n1": {
+                "reads": 166,
+                "read_sectors": 4248,
+                "writes": 2124,
+                "write_sectors": 71344,
+                "io_ms": 722
+              },
+              "nvme1n1p1": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p2": {
+                "reads": 0,
+                "read_sectors": 0,
+                "writes": 0,
+                "write_sectors": 0,
+                "io_ms": 0
+              },
+              "nvme1n1p3": {
+                "reads": 166,
+                "read_sectors": 4248,
+                "writes": 2124,
+                "write_sectors": 71344,
+                "io_ms": 758
+              }
+            },
+            "added": [],
+            "removed": []
+          },
+          "vm": {
+            "pgfault": 517446,
+            "pgmajfault": 25,
+            "pswpin": 3,
+            "pswpout": 0,
+            "pgpgin": 2200,
+            "pgpgout": 39804
+          }
+        }
+      },
+      "sink": {
+        "before": {
+          "requests": 112,
+          "bytes": 184836,
+          "errors": [],
+          "healthy": true
+        },
+        "after": {
+          "requests": 112,
+          "bytes": 184836,
+          "errors": [],
+          "healthy": true
+        }
+      },
+      "raw_report_sha256": "005ebdd3c5d8695b8292e40b1fb0ae7ca71f263d89625b8e271c40b48a2cb91b",
+      "resource_report_sha256": "244bec8b2492fd37ec725afb2c82667b20c45ee962dbeb412dad1633a1d85314"
+    }
+  ],
+  "limitations": [
+    "optimized development profile, not release artifact",
+    "one small-stage preparation and two or three busy-stage preparations per run; insufficient tail samples",
+    "common preparation clock floors milliseconds",
+    "explicit future effective-configuration and completeness attestations not yet emitted",
+    "initial observer warmup not drained before measured stages",
+    "exact-source SQL health predicate polled every500ms; backend catchup resource cost includes validation reads",
+    "shared host has unrelated active services; no predeclared confirmatory contamination limits applied",
+    "no live HeldPool probe calibration/comparison yet"
+  ]
+}

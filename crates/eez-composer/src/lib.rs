@@ -36,6 +36,9 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+#[cfg(feature = "benchmark-lock-timing")]
+pub mod benchmark_lock;
+
 pub mod composer;
 pub mod held_pool;
 pub mod ingress;

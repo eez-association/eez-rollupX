@@ -1,0 +1,21 @@
+{
+  "environment": "chiado",
+  "deployment": "eez-chiado",
+  "queue_source": "rpc",
+  "observer_instance": "node-1",
+  "observer_target": "REPLACE_WITH_PRIVATE_HOST:19100",
+  "log_directory": "/REPLACE_WITH_DEDICATED_LOG_DIRECTORY",
+  "alert_webhook_url": "https://REPLACE_WITH_OPERATOR_WEBHOOK",
+  "heartbeat_webhook_url": "https://REPLACE_WITH_INDEPENDENT_HEARTBEAT_RECEIVER",
+  "node_exporter_target": null,
+  "public_rpc_url": null,
+  "signer_tcp_target": null,
+  "probe_exporter_target": "blackbox:9115",
+  "grafana_port": 19300,
+  "grafana_public_url": "http://localhost:19300",
+  "prometheus_port": 19090,
+  "loki_port": 19310,
+  "traces_enabled": false,
+  "client_targets": [],
+  "node_agent": null
+}

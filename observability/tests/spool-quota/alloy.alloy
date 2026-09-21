@@ -1,0 +1,13 @@
+// Dedicated lifecycle files only; diagnostic *.jsonl collection is separate.
+local.file_match "lifecycle" {
+  path_targets = [
+    {"__path__" = "/quota/spool/*.active", "job" = "eez-lifecycle-fixture"},
+    {"__path__" = "/quota/spool/*.closed", "job" = "eez-lifecycle-fixture"},
+  ]
+  sync_period = "5s"
+}
+loki.source.file "lifecycle" {
+  targets = local.file_match.lifecycle.targets
+  forward_to = []
+  tail_from_end = false
+}

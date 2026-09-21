@@ -30,7 +30,7 @@ pub async fn setup_cross_chain_with_l1_reorg(
     super::setup_cross_chain_inner(
         None,
         None,
-        extra_env,
+        super::CrossChainEnvironment::node(extra_env),
         NativeL1Profile::EthereumOsaka,
         false,
         false,

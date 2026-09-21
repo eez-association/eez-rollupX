@@ -201,15 +201,32 @@ pub fn blob_versioned_hashes(blobs: &[Blob]) -> Result<Vec<B256>, TransportError
 /// Compute each physical blob's canonical 48-byte KZG commitment without
 /// constructing propagation proofs.
 pub fn blob_kzg_commitments(blobs: &[Blob]) -> Result<Vec<[u8; 48]>, TransportError> {
-    let settings = EnvKzgSettings::Default.get();
     blobs
         .iter()
-        .map(|blob| {
-            let alloy_blob = AlloyBlob::from_slice(blob.as_ref());
-            let commitment = settings.blob_to_kzg_commitment(alloy_blob.as_ckzg())?;
-            Ok(commitment.to_bytes().into_inner())
-        })
+        .map(|blob| physical_blob_commitment(blob.as_ref()))
         .collect()
+}
+
+/// Authenticate a full physical EIP-4844 blob without assuming EEZ packing.
+///
+/// A shared Beacon block may contain other applications' valid field elements.
+/// Callers select the expected content hashes before applying EEZ stream rules.
+/// Wrong lengths and invalid BLS scalars are errors, never truncated or masked.
+pub fn physical_blob_versioned_hash(bytes: &[u8]) -> Result<B256, TransportError> {
+    physical_blob_commitment(bytes).map(|commitment| kzg_to_versioned_hash(&commitment))
+}
+
+fn physical_blob_commitment(bytes: &[u8]) -> Result<[u8; 48], TransportError> {
+    if bytes.len() != crate::BLOB_BYTES {
+        return Err(TransportError::InvalidEncoding(
+            "invalid physical blob byte length".into(),
+        ));
+    }
+    let blob = AlloyBlob::from_slice(bytes);
+    let commitment = EnvKzgSettings::Default
+        .get()
+        .blob_to_kzg_commitment(blob.as_ckzg())?;
+    Ok(commitment.to_bytes().into_inner())
 }
 
 /// Bind a previously prepared sidecar to fully resolved transaction fields and

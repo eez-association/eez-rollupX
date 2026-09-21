@@ -129,13 +129,31 @@ pub(super) async fn prepare(
         .map_err(|_| Status::internal("validation worker closed"))?;
         let state = Arc::clone(&service.state);
         let cancellation = cancellation.clone();
+        let span = tracing::Span::current();
         let work = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            state.validator.prepare_ordinary(
-                AdmittedBlocks::from_preparation(block),
-                identity,
-                &cancellation,
-            )
+            let _entered = span.enter();
+            // The timer belongs to the real worker, including when its RPC
+            // await expires. Preparation cannot enter authorized-response metrics.
+            let mut timer = eez_telemetry::operational::StageTimer::start(
+                eez_telemetry::operational::Stage::SignerValidation,
+            );
+            let result = state
+                .validator
+                .prepare_ordinary(
+                    AdmittedBlocks::from_preparation(block),
+                    identity,
+                    &cancellation,
+                )
+                .map_err(super::settlement_job::PipelineError::from);
+            timer.finish(super::rpc::stage_outcome(
+                result
+                    .as_ref()
+                    .err()
+                    .map(super::settlement_job::PipelineError::status)
+                    .as_ref(),
+            ));
+            result
         });
         let facts = timeout_at(deadline, work)
             .await

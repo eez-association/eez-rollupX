@@ -96,6 +96,45 @@ pub struct SettlementManifest {
     pub effects: Vec<B256>,
 }
 
+/// Check replay coordinates against the exact producing checkpoints and whole
+/// outbound user groups of a proposal. Receipt/canonicality and signed-calldata
+/// binding and legal replay boundaries are the caller's responsibility. This
+/// compares the declared selection without reconstructing its boundaries.
+/// Hash types may differ between native
+/// protocol data and fixed-width telemetry without changing these shared rules.
+///
+/// # Errors
+/// Rejects an out-of-bounds effect slice, a missing or mismatched producing
+/// endpoint, or declared selection inconsistent with an outbound user's whole span.
+pub fn validate_replay_coordinates<H: PartialEq>(
+    sync_number: u64,
+    effects: &[H],
+    applied: &Range<usize>,
+    endpoint: Option<(u64, &H)>,
+    outbound_groups: &Range<usize>,
+    users: impl IntoIterator<Item = (Option<usize>, Range<usize>)>,
+) -> Result<(), &'static str> {
+    if applied.start > applied.end || applied.end > effects.len() {
+        return Err("reconciliation slice exceeds the user manifest");
+    }
+    if !applied.is_empty() {
+        let (number, hash) = endpoint.ok_or("producing settlement has no endpoint")?;
+        // The nonempty, bounded slice above establishes the last index.
+        if number != sync_number || hash != &effects[applied.end - 1] {
+            return Err("reconciliation endpoint differs from the manifest checkpoint");
+        }
+    }
+    for (group, effects) in users {
+        if let Some(group) = group {
+            let selected = applied.start <= effects.start && effects.end <= applied.end;
+            if selected != outbound_groups.contains(&group) {
+                return Err("reconciliation splits or misidentifies a signed outbound group");
+            }
+        }
+    }
+    Ok(())
+}
+
 impl SettlementManifest {
     /// Manifest for an anchor-only batch, with no held users or effects.
     #[must_use]
@@ -609,5 +648,61 @@ mod tests {
                 .unwrap_err()
                 .contains("endpoint")
         );
+    }
+}
+
+#[cfg(test)]
+mod replay_coordinate_tests {
+    use super::*;
+    #[test]
+    fn prefix_endpoint_and_selected_groups_are_exact() {
+        let effects = [1u8, 2];
+        let users = [(Some(0), 0..1), (Some(1), 1..2)];
+        assert_eq!(
+            validate_replay_coordinates(
+                10,
+                &effects,
+                &(0..1),
+                Some((10, &1)),
+                &(0..1),
+                users.clone()
+            ),
+            Ok(())
+        );
+        for endpoint in [(10, &2), (9, &1)] {
+            assert_eq!(
+                validate_replay_coordinates(
+                    10,
+                    &effects,
+                    &(0..1),
+                    Some(endpoint),
+                    &(0..1),
+                    users.clone()
+                ),
+                Err("reconciliation endpoint differs from the manifest checkpoint")
+            );
+        }
+        assert_eq!(
+            validate_replay_coordinates(10, &effects, &(0..1), Some((10, &1)), &(1..2), users),
+            Err("reconciliation splits or misidentifies a signed outbound group")
+        );
+    }
+    #[test]
+    fn empty_application_and_invalid_bounds_keep_existing_native_semantics() {
+        let effects = [1u8, 2];
+        assert_eq!(
+            validate_replay_coordinates(10, &effects, &(0..0), None, &(0..0), [(Some(0), 0..2)]),
+            Ok(())
+        );
+        assert_eq!(
+            validate_replay_coordinates(10, &effects, &(0..1), None, &(0..1), [(Some(0), 0..1)]),
+            Err("producing settlement has no endpoint")
+        );
+        for range in [Range { start: 2, end: 1 }, 0..3] {
+            assert_eq!(
+                validate_replay_coordinates(10, &effects, &range, None, &(0..0), []),
+                Err("reconciliation slice exceeds the user manifest")
+            );
+        }
     }
 }

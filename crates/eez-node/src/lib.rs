@@ -95,10 +95,24 @@ enum EmbeddedL1<Ethereum, Chiado> {
     Chiado(Chiado),
 }
 
+/// Preserve the concrete chain spec's canonical header rules. In particular,
+/// Gnosis's inner Ethereum header omits the AuRa fields and hashes differently.
+fn lifecycle_chain_identity<S: reth_chainspec::EthChainSpec>(
+    chain_spec: &S,
+) -> eez_composer::held_pool::ChainIdentity {
+    eez_composer::held_pool::ChainIdentity {
+        chain_id: chain_spec.chain().id(),
+        genesis_hash: chain_spec.genesis_hash(),
+    }
+}
+
 /// Launch a production composer node.
 pub fn run_composer() -> eyre::Result<()> {
-    let (cli, document_digest) = node_cli_with_chain_document::<NoRoleArgs>()?;
-    cli.run(move |builder, ext| async move {
+    let (mut cli, document_digest) = node_cli_with_chain_document::<NoRoleArgs>()?;
+    #[cfg(feature = "benchmark-lock-timing")]
+    eez_composer::benchmark_lock::configure_from_env().map_err(eyre::Report::msg)?;
+    let telemetry = eez_node_common::telemetry::prepare(&mut cli, "eez-composer")?;
+    telemetry.run(cli, async move |builder, ext| {
         let document_digest = document_digest.ok_or_else(|| {
             eyre::eyre!("composer startup is missing its loaded chain document identity")
         })?;
@@ -656,6 +670,15 @@ async fn launch_composer(
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
     // yield identical headers.
+    let l1_watcher_config = L1WatcherConfig::from_env()?;
+    let diagnostic_scope = correlation_rpc::DiagnosticScope::Composer {
+        l1_chain_id: match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => handle.node.chain_spec().chain().id(),
+            EmbeddedL1::Chiado(handle) => handle.node.chain_spec().inner.chain().id(),
+        },
+        eez: l1_watcher_config.eez,
+        rollup_id: l1_watcher_config.rollup_id,
+    };
     let l2_data_dir = read_checkpoint_dir();
     let correlations = correlation_store(l2_data_dir.as_deref())?;
     // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
@@ -694,17 +717,53 @@ async fn launch_composer(
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
+            correlation_rpc::install_identified(
+                ctx,
+                Arc::clone(&rpc_correlations),
+                Arc::clone(&rpc_l1_head),
+                diagnostic_scope.clone(),
+            )
         })
         .launch_with_debug_capabilities()
         .await?;
 
     let chain_spec: Arc<_> = handle.node.chain_spec();
+    if let Some(publisher) = eez_telemetry::native::publisher() {
+        let l1 = match &embedded_l1 {
+            EmbeddedL1::Ethereum(handle) => {
+                lifecycle_chain_identity(handle.node.chain_spec().as_ref())
+            }
+            EmbeddedL1::Chiado(handle) => {
+                lifecycle_chain_identity(handle.node.chain_spec().as_ref())
+            }
+        };
+        let context = eez_composer::held_pool::LifecycleContext {
+            l1,
+            l2: lifecycle_chain_identity(chain_spec.as_ref()),
+            rollup_id: rollup_config.rollup_id,
+        };
+        if let Err(reason) = held_pool.enable_lifecycle(publisher.clone(), context) {
+            event!(Level::WARN, reason, "held-pool lifecycle capture disabled");
+        }
+    }
     let l2_genesis_timestamp = chain_spec.genesis().timestamp;
     let provider = handle.node.provider.clone();
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
+    if eez_telemetry::operational::enabled() {
+        let metrics_pool = Arc::clone(&held_pool);
+        // Owned by the node executor and cancelled with it. Sampling records only
+        // bounded snapshots; the held-pool owner releases its lock before export.
+        task_executor.spawn_task(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                metrics_pool.publish_native_queue_metrics();
+            }
+        });
+    }
 
     let attributes = EthAttributesBuilder::new(chain_spec.clone());
 
@@ -726,7 +785,6 @@ async fn launch_composer(
     }
     let submitter_config = SubmitterConfig::from_env()?;
     let deploy_block = submitter_config.reader.deploy_block;
-    let l1_watcher_config = L1WatcherConfig::from_env()?;
 
     let posting_l1_spec = match &embedded_l1 {
         EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
@@ -742,7 +800,8 @@ async fn launch_composer(
     )?;
     // Handle only — polling starts after boot catch-up fixes the
     // seed and every consumer has subscribed.
-    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules);
+    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules)
+        .with_required_blob_state(Arc::clone(&correlations.required_blobs));
     // Policy catch-up needs canonical settlement evidence before the next
     // proof cutoff. Wake the existing scanner as soon as the embedded L1
     // changes, retaining periodic HTTP scans for retries and recovery.
@@ -1454,6 +1513,33 @@ fn build_embedded_l1_config() -> eyre::Result<l1_embedded::EmbeddedL1Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_chiado_identity_uses_canonical_genesis_header() {
+        use reth_gnosis::spec::{chains::CHIADO_GENESIS, gnosis_spec::GnosisChainSpec};
+        let chiado = GnosisChainSpec::from(CHIADO_GENESIS.clone());
+        // Independently verified against the Chiado execution RPC's block zero.
+        let expected = alloy_primitives::b256!(
+            "ada44fd8d2ecab8b08f256af07ad3e777f17fb434f8f8e678b312f576212ba9a"
+        );
+        let actual = lifecycle_chain_identity(&chiado);
+        assert_ne!(chiado.inner.genesis_hash(), expected);
+        assert_eq!(actual.chain_id, 10200);
+        assert_eq!(actual.genesis_hash, expected);
+    }
+
+    #[test]
+    fn lifecycle_ethereum_identity_is_unchanged() {
+        let ethereum = reth_chainspec::MAINNET.as_ref();
+        let actual = lifecycle_chain_identity(ethereum);
+        assert_eq!(actual.chain_id, 1);
+        assert_eq!(
+            actual.genesis_hash,
+            alloy_primitives::b256!(
+                "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+            )
+        );
+    }
 
     #[test]
     fn preparation_catch_up_walks_exact_durable_ancestry_and_respects_floor() {

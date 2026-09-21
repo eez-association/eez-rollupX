@@ -1,5 +1,17 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+#[path = "common/observer.rs"]
+mod observer;
+
+#[path = "common/traces.rs"]
+mod traces;
+
+#[path = "common/quota.rs"]
+mod quota;
+
+#[path = "common/loss_alerts.rs"]
+mod loss_alerts;
+
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
 
@@ -26,6 +38,14 @@ const WAVE_DEPOSITS: &[u128] = &[
     2_000_000_000_000_000,
     3_000_000_000_000_000,
 ];
+
+#[tokio::test]
+async fn observer_returned_error_captures_evidence_before_cleanup() {
+    let world = setup_cross_chain().await.unwrap();
+    observer::assert_result_error_capture_and_cleanup(&world)
+        .await
+        .expect("returned-error capture and owned-resource cleanup");
+}
 
 // The embedded bundle path preserves ordering but not all-or-nothing inclusion,
 // so a wave must check every source receipt independently.
@@ -150,11 +170,23 @@ async fn assert_value_set_attribution(
 /// verification of the posted proof's recomputed public-input hash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn minimal_bidirectional_cross_chain_smoke() {
-    let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = setup_cross_chain().await.unwrap();
+    let _ = bidirectional_cross_chain_smoke(&[]).await;
+}
+
+async fn bidirectional_cross_chain_smoke(
+    extra_env: &[(&'static str, String)],
+) -> (eez_testkit::CrossChainWorld, [TxHash; 2]) {
+    let w = eez_testkit::setup_cross_chain_with_env(extra_env)
+        .await
+        .unwrap();
+    let hashes = submit_bidirectional_smoke(&w).await;
+    assert_bidirectional_smoke(&w, hashes).await;
+    (w, hashes)
+}
+
+async fn submit_bidirectional_smoke(w: &eez_testkit::CrossChainWorld) -> [TxHash; 2] {
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
-
     let inbound = sign_and_send(
         &w.l1_xchain(),
         INBOUND_USER,
@@ -186,11 +218,21 @@ async fn minimal_bidirectional_cross_chain_smoke() {
     .await
     .expect("outbound smoke transaction must be admitted");
 
+    [inbound, outbound]
+}
+
+async fn assert_bidirectional_smoke(
+    w: &eez_testkit::CrossChainWorld,
+    [inbound, outbound]: [TxHash; 2],
+) {
+    let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
+    let l1_rpc = w.l1_rpc();
+    let l2_rpc = w.l2_rpc();
     let inbound_hashes = [inbound];
     let outbound_hashes = [outbound];
     tokio::join!(
-        assert_all_transactions_succeeded(&w, &l1_rpc, &inbound_hashes, "inbound smoke"),
-        assert_all_transactions_succeeded(&w, &l2_rpc, &outbound_hashes, "outbound smoke"),
+        assert_all_transactions_succeeded(w, &l1_rpc, &inbound_hashes, "inbound smoke"),
+        assert_all_transactions_succeeded(w, &l2_rpc, &outbound_hashes, "outbound smoke"),
     );
 
     let (eez, rollup_id) = (w.cfg.eez_address, w.cfg.rollup_id);
@@ -234,6 +276,1209 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lifecycle_bidirectional_cross_chain_smoke() {
+    lifecycle_bidirectional_smoke(&[]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lifecycle_policy_bidirectional_cross_chain_smoke() {
+    lifecycle_bidirectional_smoke(&[
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+        ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+        ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "100000000000".into()),
+        (
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+            "100000000000".into(),
+        ),
+    ])
+    .await;
+}
+
+/// Reachable OTLP export from real Composer/client/signer processes, including
+/// a multi-source batch and a retryable transport failure before valid signing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn traced_bidirectional_cross_chain_smoke() {
+    let directory = match std::env::var_os("EEZ_TEST_LOG_DIR") {
+        Some(root) => {
+            std::fs::create_dir_all(&root).unwrap();
+            tempfile::Builder::new()
+                .prefix("native-trace-lifecycle-")
+                .tempdir_in(root)
+                .unwrap()
+        }
+        None => tempfile::tempdir().unwrap(),
+    };
+    let spool = directory.path().join("lifecycle");
+    let collector = traces::Collector::start().await.unwrap();
+    let composer_config = directory.path().join("composer-telemetry.json");
+    let signer_config = directory.path().join("signer-telemetry.json");
+    for (service, path) in [
+        ("eez-composer", &composer_config),
+        ("eez-proof-signer", &signer_config),
+    ] {
+        let mut config = serde_json::json!({
+            "identity": {"environment": "devnet", "deployment": "native-trace-pilot", "service": service, "instance": "fixture"},
+            "traces": {"receiver": collector.address, "sample_ratio": 1.0, "queue_capacity": 2048, "export_timeout_ms": 1000}
+        });
+        if service == "eez-composer" {
+            config["lifecycle"] = serde_json::json!({"directory": spool});
+        }
+        std::fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+    }
+    let world = eez_testkit::setup_cross_chain_with_telemetry(
+        &[(
+            "EEZ_TELEMETRY_CONFIG",
+            composer_config.to_string_lossy().into_owned(),
+        )],
+        &signer_config,
+    )
+    .await
+    .unwrap();
+    let proxy = world.prover_proxy.as_ref().unwrap();
+    proxy.set_mutation(ProverMutation::Unavailable);
+    let hashes = submit_bidirectional_smoke(&world).await;
+    // Recover only after actual exported retries and the closed preparation
+    // contain both admitted sources. This deliberately exhausts that window's
+    // cutoff and tests requeue into a new signed preparation. A sleep or proxy
+    // attempt count could match unrelated historical/pure-L2 work instead.
+    let retried = wait_for(SETTLE_TIMEOUT, || async {
+        Ok(collector.retried_batch(&spool, &hashes)?.then_some(()))
+    })
+    .await;
+    if let Err(error) = retried {
+        collector.report().unwrap();
+        let retained = directory.keep();
+        panic!(
+            "missing multi-source native retry: {error:#}; retained lifecycle fixture at {}{}",
+            retained.display(),
+            world.settlement_diagnostics()
+        );
+    }
+    proxy.set_mutation(ProverMutation::None);
+    assert_bidirectional_smoke(&world, hashes).await;
+    let connected = wait_for(SETTLE_TIMEOUT, || async {
+        collector.connected_sources(&spool, &hashes)
+    })
+    .await;
+    let trace_ids = match connected {
+        Ok(ids) => ids,
+        Err(error) => {
+            collector.report().unwrap();
+            let retained = directory.keep();
+            panic!(
+                "missing native trace ancestry/source identities: {error:#}; retained lifecycle fixture at {}{}",
+                retained.display(),
+                world.settlement_diagnostics()
+            );
+        }
+    };
+    let composer_logs = std::fs::read_to_string(&world.node.log_path).unwrap();
+    let signer_logs = world.proof_signer.log_tail(10_000);
+    let correlated_event = |logs: &str, event: &str, trace_id: &str| {
+        logs.lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .any(|record| {
+                record["fields"]["event_name"] == event
+                    && (record["fields"]["trace_id"] == trace_id
+                        || record["span"]["trace_id"] == trace_id)
+            })
+    };
+    for trace_id in trace_ids {
+        let composer_correlated =
+            correlated_event(&composer_logs, "eez.prover_client.attested", &trace_id);
+        let signer_correlated =
+            correlated_event(&signer_logs, "eez.proof_signer.window_signed", &trace_id);
+        if !composer_correlated || !signer_correlated {
+            collector.report().unwrap();
+            let retained = directory.keep();
+            panic!(
+                "JSON log correlation missing for trace {trace_id}: Composer={composer_correlated}, signer={signer_correlated}; retained lifecycle fixture at {}{}",
+                retained.display(),
+                world.settlement_diagnostics()
+            );
+        }
+    }
+    collector.report().unwrap();
+    world.node.assert_no_process_death();
+    world.proof_signer.assert_alive();
+}
+
+/// The required quota runner supplies a private 3GiB ext4/FUSE mount and a
+/// stopped Alloy reader. Missing controls fail; ordinary native suites leave
+/// this test ignored because they do not own that physical filesystem.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the isolated physical ENOSPC runner"]
+async fn dynamic_enospc_bidirectional_cross_chain_smoke() {
+    let control = quota::Control::required().unwrap();
+    let metrics_lease = eez_testkit::PortLease::tcp();
+    let metrics_address = format!("127.0.0.1:{}", metrics_lease.port());
+    let configuration = control.directory.join("telemetry.json");
+    std::fs::write(&configuration, serde_json::to_vec(&serde_json::json!({
+        "identity":{"environment":"devnet","deployment":"native-quota","service":"eez-composer","instance":"fixture"},
+        "lifecycle":{"directory":control.spool,"segment_bytes":65536,"retained_bytes":131072,"retention_seconds":3600},
+        "metrics":{"listen":metrics_address}
+    })).unwrap()).unwrap();
+    drop(metrics_lease);
+    let world = eez_testkit::setup_cross_chain_with_env(&[(
+        "EEZ_TELEMETRY_CONFIG",
+        configuration.to_string_lossy().into_owned(),
+    )])
+    .await
+    .unwrap();
+    let healthy = wait_for(SETTLE_TIMEOUT, || async {
+        Ok(control.stats()?.filter(|stats| {
+            stats.written_records > 0 && stats.io_errors == 0 && stats.dropped_records == 0
+        }))
+    })
+    .await
+    .expect("writer must be healthy before the physical fault");
+    control
+        .signal("healthy", &serde_json::to_value(healthy).unwrap())
+        .unwrap();
+    let full = control.wait("full").await.unwrap();
+    assert_eq!(full["enospc"], true);
+    assert_eq!(full["held_unlinked"], true);
+    wait_for(SETTLE_TIMEOUT, || async {
+        let metrics = scrape_native_metrics(&metrics_address).await?;
+        Ok(metric_sample(
+            &metrics,
+            "reth_eez_telemetry_writer_errors_total{reason=\"io\"}",
+        )
+        .filter(|count| *count > 0.))
+    })
+    .await
+    .expect("the actual native writer must fail before submitting protocol work");
+    let hashes = submit_bidirectional_smoke(&world).await;
+    assert_bidirectional_smoke(&world, hashes).await;
+    let metrics = scrape_native_metrics(&metrics_address).await.unwrap();
+    let errors = metric_sample(
+        &metrics,
+        "reth_eez_telemetry_writer_errors_total{reason=\"io\"}",
+    )
+    .unwrap();
+    let drops = metric_sample(
+        &metrics,
+        "reth_eez_telemetry_dropped_events_total{signal=\"lifecycle\",reason=\"io\"}",
+    )
+    .unwrap();
+    assert!(errors > 0. && drops > 0.);
+    assert!(
+        !control.directory.join("released.json").exists(),
+        "disk was released before semantic acceptance"
+    );
+    control.signal("completed_full", &serde_json::json!({"writer_errors":errors,"dropped_io":drops,"source_count":hashes.len()})).unwrap();
+    let released = control.wait("released").await.unwrap();
+    let released_at = released["observed_at_unix_ms"].as_u64().unwrap();
+    wait_for(SETTLE_TIMEOUT, || async {
+        control.stats_after(released_at)
+    })
+    .await
+    .expect("a new control record must be written after physical capacity release");
+    let fresh_hashes = submit_bidirectional_smoke(&world).await;
+    assert!(
+        fresh_hashes.iter().all(|hash| !hashes.contains(hash)),
+        "post-release admissions must use fresh signed source identities"
+    );
+    assert_bidirectional_smoke(&world, fresh_hashes).await;
+    wait_for(SETTLE_TIMEOUT, || async {
+        Ok(control.persisted_commits(&fresh_hashes)?.then_some(()))
+    })
+    .await
+    .expect("fresh post-release source admission and committed events must be persisted");
+    let recovered = wait_for(SETTLE_TIMEOUT, || async {
+        Ok(control.stats()?.filter(|stats| {
+            stats.written_records > healthy.written_records
+                && stats.io_errors > 0
+                && stats.dropped_records > 0
+                && stats.dropped_sequence_min.is_some()
+                && stats.dropped_sequence_max.is_some()
+        }))
+    })
+    .await
+    .expect("writer must resume with cumulative explicit loss without a node restart");
+    world.node.assert_no_process_death();
+    world.node.assert_no_divergence_failure_logs();
+    control
+        .signal("recovered", &{
+            let mut report = serde_json::to_value(recovered).unwrap();
+            report["fresh_post_release_persisted_commits"] = serde_json::json!(fresh_hashes.len());
+            report
+        })
+        .unwrap();
+}
+
+/// Storage and collector availability must not gate admitted protocol work.
+/// This tests startup spool unavailability and a live but non-serving collector;
+/// dynamic ENOSPC recovery and comparative overhead have separate acceptance gates.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unavailable_telemetry_bidirectional_cross_chain_smoke() {
+    let directory = tempfile::tempdir().unwrap();
+    let spool = directory.path().join("private-spool-sentinel");
+    let private_body = "PRIVATE_SPOOL_BODY_MUST_NOT_APPEAR_IN_LOGS";
+    // A regular file cannot become a directory, even when tests run as root.
+    // This deterministic fixture fault is storage unavailability, not ENOSPC.
+    std::fs::write(&spool, private_body).unwrap();
+    let configuration = directory.path().join("telemetry.json");
+    let metrics_lease = eez_testkit::PortLease::tcp();
+    let metrics_address = format!("127.0.0.1:{}", metrics_lease.port());
+    // Retain the listening socket but never accept/respond. This exercises the
+    // configured exporter timeout without racing another process for a free port.
+    let stalled_collector = eez_testkit::PortLease::tcp();
+    let config = serde_json::json!({
+        "identity": {
+            "environment": "devnet", "deployment": "telemetry-failure",
+            "service": "eez-composer", "instance": "fixture"
+        },
+        "lifecycle": {"directory": spool},
+        "metrics": {"listen": metrics_address},
+        "traces": {
+            "receiver": format!("127.0.0.1:{}", stalled_collector.port()),
+            "sample_ratio": 1.0, "queue_capacity": 16, "export_timeout_ms": 20
+        }
+    });
+    std::fs::write(&configuration, serde_json::to_vec(&config).unwrap()).unwrap();
+    drop(metrics_lease);
+    let (world, hashes) = bidirectional_cross_chain_smoke(&[(
+        "EEZ_TELEMETRY_CONFIG",
+        configuration.to_string_lossy().into_owned(),
+    )])
+    .await;
+    // The shared helper verifies source receipts, both destination effects,
+    // canonical L1-root/L2-safe convergence and the independently recomputed
+    // posted proof signature, plus absence of poison eviction/divergence.
+    let metrics = wait_for(SETTLE_TIMEOUT, || {
+        let address = metrics_address.clone();
+        async move {
+            let metrics = scrape_native_metrics(&address).await?;
+            let completed = ["inbound", "outbound"].into_iter().all(|direction| {
+                metric_sample(&metrics, &format!("reth_eez_native_admissions_total{{direction=\"{direction}\"}}")) == Some(1.)
+                    && metric_sample(&metrics, &format!("reth_eez_native_terminal_observations_total{{direction=\"{direction}\",outcome=\"committed\"}}")) == Some(1.)
+                    && metric_sample(&metrics, &format!("reth_eez_request_duration_seconds_count{{direction=\"{direction}\",outcome=\"committed\"}}")) == Some(1.)
+                    && ["queued_ready", "queued_blocked", "queued_unknown", "in_flight"].into_iter().all(|state| {
+                        metric_sample(&metrics, &format!("reth_eez_native_queue_transactions{{direction=\"{direction}\",state=\"{state}\"}}")) == Some(0.)
+                    })
+            });
+            let loss_visible = metric_sample(&metrics, "reth_eez_lifecycle_writer_enabled") == Some(0.)
+                && metric_sample(&metrics, "reth_eez_trace_export_enabled") == Some(1.)
+                && metric_sample(&metrics, "reth_eez_telemetry_dropped_events_total{signal=\"trace\",reason=\"export_failure\"}").is_some_and(|count| count > 0.)
+                && metric_sample(&metrics, "reth_eez_trace_exported_spans_total") == Some(0.);
+            Ok((completed && loss_visible).then_some(metrics))
+        }
+    }).await.expect("protocol work must complete while storage/collector loss stays explicit");
+    assert!(spool.is_file());
+    assert_eq!(std::fs::read_to_string(&spool).unwrap(), private_body);
+    // This notification precedes subscriber initialization and is plain stderr,
+    // so the testkit's JSON-event matcher deliberately does not include it.
+    let logs = std::fs::read_to_string(&world.node.log_path).unwrap();
+    assert_eq!(
+        logs.lines()
+            .filter(|line| *line
+                == "EEZ lifecycle exporter disabled: storage or writer lock unavailable")
+            .count(),
+        1,
+        "configured exporter failure must be explicit once at startup"
+    );
+    assert!(!logs.contains(private_body));
+    assert!(!logs.contains("private-spool-sentinel"));
+    for hash in hashes {
+        assert!(
+            !metrics.contains(&format!("{hash:x}")),
+            "transaction identity leaked into metric labels"
+        );
+    }
+    world.node.assert_no_process_death();
+    world.node.assert_no_divergence_failure_logs();
+    // Keep both the fault and its owned port alive until all semantic checks end.
+    drop(world);
+    drop(stalled_collector);
+}
+
+/// Actual native drops must reach the operator and recover without restarting
+/// the process or interrupting successful execution in either direction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_trace_loss_alert_delivery_and_recovery() {
+    let metrics_lease = eez_testkit::PortLease::tcp();
+    let metrics_address = format!("127.0.0.1:{}", metrics_lease.port());
+    let mut controller = loss_alerts::Controller::start(&metrics_address)
+        .await
+        .expect("start owned native alert backends");
+    drop(metrics_lease);
+    let (world, hashes) = bidirectional_cross_chain_smoke(&[(
+        "EEZ_TELEMETRY_CONFIG",
+        controller.config.to_string_lossy().into_owned(),
+    )])
+    .await;
+    let firing = controller
+        .wait("firing")
+        .await
+        .expect("native loss notification");
+    let drops = firing["drops"]
+        .as_f64()
+        .expect("actual native drop counter");
+    assert!(drops > 0.);
+    world.node.assert_no_process_death();
+
+    // A new nonce alone does not prove a new destination effect when both waves
+    // set the same value. Require an additional event from each destination too.
+    let destinations = [
+        (world.l2_rpc(), world.value_l2),
+        (world.l1_rpc(), world.outbound_value),
+    ];
+    let mut before = [0; 2];
+    for (index, (rpc, target)) in destinations.iter().enumerate() {
+        before[index] = count_events(rpc, *target, IValue::ValueSet::SIGNATURE_HASH, 0)
+            .await
+            .unwrap();
+    }
+    controller
+        .signal("recover")
+        .expect("restore owned collector");
+    let fresh = submit_bidirectional_smoke(&world).await;
+    assert!(
+        fresh
+            .iter()
+            .zip(hashes)
+            .all(|(next, previous)| *next != previous)
+    );
+    assert_bidirectional_smoke(&world, fresh).await;
+    for (index, (rpc, target)) in destinations.iter().enumerate() {
+        assert_eq!(
+            count_events(rpc, *target, IValue::ValueSet::SIGNATURE_HASH, 0)
+                .await
+                .unwrap(),
+            before[index] + 1,
+            "recovered wave must execute one new destination effect"
+        );
+    }
+    let recovered = controller
+        .wait("resolved")
+        .await
+        .expect("native recovery notification");
+    assert!(recovered["drops"].as_f64().unwrap() >= drops);
+    let metrics = scrape_native_metrics(&metrics_address).await.unwrap();
+    assert!(
+        metric_sample(&metrics, "reth_eez_trace_exported_spans_total")
+            .is_some_and(|count| count > 0.)
+    );
+    world.node.assert_no_process_death();
+    world.node.assert_no_divergence_failure_logs();
+    controller
+        .finish()
+        .await
+        .expect("verify and clean up owned alert fixture");
+    drop(world);
+}
+
+async fn lifecycle_bidirectional_smoke(extra_env: &[(&'static str, String)]) {
+    use alloy_consensus::Transaction as _;
+    use alloy_provider::{Provider as _, ProviderBuilder};
+    use eez_telemetry::{
+        reader,
+        schema::{Direction, Event, Record},
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let spool = directory.path().join("lifecycle");
+    let configuration = directory.path().join("telemetry.json");
+    let metrics_lease = eez_testkit::PortLease::tcp();
+    let metrics_address = format!("127.0.0.1:{}", metrics_lease.port());
+    let config = serde_json::json!({
+        "identity": {
+            "environment": "devnet",
+            "deployment": "native-capture",
+            "service": "eez-composer",
+            "instance": "fixture"
+        },
+        "lifecycle": {"directory": spool},
+        "metrics": {"listen": metrics_address}
+    });
+    std::fs::write(&configuration, serde_json::to_vec(&config).unwrap()).unwrap();
+    let mut env = extra_env.to_vec();
+    env.push((
+        "EEZ_TELEMETRY_CONFIG",
+        configuration.to_string_lossy().into_owned(),
+    ));
+    // Keep testkit's process-wide port identity reserved; release its socket
+    // before the helper starts the node child that binds the configured endpoint.
+    drop(metrics_lease);
+    let (world, hashes) = bidirectional_cross_chain_smoke(&env).await;
+    let observer = observer::Observer::start(&world, &spool, "native-capture")
+        .await
+        .unwrap();
+    let genesis = alloy_rpc_types_eth::BlockNumberOrTag::Number(0);
+    let expected_genesis = [
+        eez_testkit::block_number_and_hash_at(&world.l1_rpc(), genesis)
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+        eez_testkit::block_number_and_hash_at(&world.l2_rpc(), genesis)
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+    ];
+    let observed = wait_for(SETTLE_TIMEOUT, || {
+        let spool = spool.clone();
+        async move {
+            let mut chunks = std::collections::BTreeMap::new();
+            for id in reader::inventory(&spool)? {
+                let mut offset = 0;
+                // Controlled fixture budget, including idle preparation history.
+                for _ in 0..64 {
+                    let batch = reader::read_segment(&spool, id, offset)?;
+                    let Record::Header {
+                        identity,
+                        epoch,
+                        segment_id,
+                        ..
+                    } = serde_json::from_slice(&batch.header)?
+                    else {
+                        panic!("native lifecycle header required")
+                    };
+                    assert_eq!(identity.deployment, "native-capture");
+                    assert_eq!(identity.service, "eez-composer");
+                    assert_eq!(epoch, id.epoch);
+                    assert_eq!(segment_id, id.segment);
+                    for line in batch.lines {
+                        if let Record::Data(record) = serde_json::from_slice(&line.bytes)? {
+                            chunks
+                                .entry((record.epoch, record.sequence))
+                                .or_insert_with(Vec::new)
+                                .push(record);
+                        }
+                    }
+                    offset = batch.next_offset;
+                    if batch.snapshot_complete {
+                        break;
+                    }
+                }
+            }
+            let mut events = Vec::new();
+            for (id, chunks) in chunks {
+                let present = chunks
+                    .iter()
+                    .map(|chunk| chunk.chunk_index)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len();
+                if present < chunks[0].chunk_count as usize {
+                    continue;
+                }
+                let payload = eez_telemetry::assemble(&chunks).map_err(anyhow::Error::msg)?;
+                events.push((id, payload.event));
+            }
+            let admitted = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Admitted { source, .. }
+                        if source.transaction_hash.0 == hash.0)
+                })
+            });
+            let ready = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Readiness { member, blocked: None, .. }
+                        if member.source.transaction_hash.0 == hash.0)
+                })
+            });
+            let dispatched = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    let Event::AttemptPrepared {
+                        attempt,
+                        members,
+                        details: Some(_),
+                        ..
+                    } = event
+                    else {
+                        return false;
+                    };
+                    if !members
+                        .iter()
+                        .any(|member| member.source.transaction_hash.0 == hash.0)
+                    {
+                        return false;
+                    }
+                    events.iter().any(|(_, event)| {
+                        let Event::Dispatched { attempt: sent, .. } = event else {
+                            return false;
+                        };
+                        sent == attempt
+                            || events.iter().any(|(_, event)| {
+                                matches!(event, Event::AttemptRepriced { previous, replacement }
+                                if previous == attempt && replacement == sent)
+                            })
+                    })
+                })
+            });
+            let terminal = hashes.iter().all(|hash| {
+                events.iter().any(|(_, event)| {
+                    matches!(event, Event::Terminal { member, outcome: eez_telemetry::schema::Outcome::Committed, assurance: eez_telemetry::schema::Assurance::NodeReconciled, reconciliation: Some(_), .. }
+                        if member.source.transaction_hash.0 == hash.0)
+                })
+            });
+            Ok((admitted && ready && dispatched && terminal).then_some(events))
+        }
+    })
+    .await;
+    let events = match observed {
+        Ok(events) => events,
+        Err(error) => {
+            let retained = directory.keep();
+            panic!(
+                "both native admission/readiness/attempt/terminal paths must emit complete lifecycle events: {error:#}; retained lifecycle fixture at {}",
+                retained.display()
+            );
+        }
+    };
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    for (index, hash) in hashes.into_iter().enumerate() {
+        let matches = events
+            .iter()
+            .filter(|(_, event)| {
+                matches!(event, Event::Admitted { source, .. }
+                    if source.transaction_hash.0 == hash.0)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "one admitted identity per accepted source"
+        );
+        let (id, Event::Admitted { source, .. }) = matches[0] else {
+            unreachable!()
+        };
+        assert_eq!(source.genesis_hash.0, expected_genesis[index].0);
+        assert_eq!(
+            source.chain_id,
+            if index == 0 {
+                DEV_CHAIN_ID
+            } else {
+                world.l2_chain_id
+            }
+        );
+        assert_eq!(
+            source.rollup_id,
+            if index == 0 { 0 } else { world.cfg.rollup_id }
+        );
+        assert_eq!(
+            source.direction,
+            if index == 0 {
+                Direction::Inbound
+            } else {
+                Direction::Outbound
+            }
+        );
+        for (_, event) in &events {
+            if let Event::Readiness { member, .. } = event
+                && member.source.transaction_hash.0 == hash.0
+            {
+                assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+            }
+            if let Event::AttemptPrepared {
+                members,
+                details: Some(details),
+                sync_height,
+                encoded_bytes,
+                blob_count,
+                blob_allowance,
+                ..
+            } = event
+            {
+                assert_eq!(members.len(), details.plans.len());
+                assert_eq!(details.l2_chain_id, world.l2_chain_id);
+                assert_eq!(details.l2_genesis_hash.0, expected_genesis[1].0);
+                assert_eq!(details.rollup_id, world.cfg.rollup_id);
+                let preparation = details.preparation.expect("native pre-signing identity");
+                let starts = events
+                    .iter()
+                    .filter(|((epoch, sequence), event)| {
+                        *epoch == preparation.epoch
+                            && *sequence == preparation.sequence
+                            && matches!(event, Event::PreparationStarted {sync, members: proposed, l2_chain_id, l2_genesis_hash, rollup_id}
+                            if sync.number == *sync_height && sync.hash == details.sync_hash
+                            && proposed == members && *l2_chain_id == details.l2_chain_id
+                            && *l2_genesis_hash == details.l2_genesis_hash && *rollup_id == details.rollup_id)
+                    })
+                    .count();
+                assert_eq!(
+                    starts, 1,
+                    "attempt must link to its exact pre-signing operation"
+                );
+                let finishes = events
+                    .iter()
+                    .filter(|(_, event)| {
+                        matches!(event,
+                    Event::PreparationFinished {preparation: finished, ..}
+                    if *finished == preparation)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    finishes.len(),
+                    1,
+                    "successful preparation finishes once before attempt registration"
+                );
+                assert!(matches!(
+                    finishes[0].1,
+                    Event::PreparationFinished {
+                        outcome: eez_telemetry::schema::PreparationOutcome::Prepared,
+                        ..
+                    }
+                ));
+                assert!(*encoded_bytes > 0);
+                assert_eq!(
+                    encoded_bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB as u64),
+                    u64::from(*blob_count)
+                );
+                assert!(blob_count <= blob_allowance);
+                for member in members
+                    .iter()
+                    .filter(|member| member.source.transaction_hash.0 == hash.0)
+                {
+                    assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+                }
+            }
+        }
+        let terminals = events
+            .iter()
+            .filter_map(|(_, event)| match event {
+                Event::Terminal {
+                    member,
+                    attempt: Some(attempt),
+                    outcome,
+                    assurance,
+                    reconciliation: Some(reconciliation),
+                    anchor,
+                    elapsed_ns,
+                } if member.source.transaction_hash.0 == hash.0 => Some((
+                    member,
+                    attempt,
+                    outcome,
+                    assurance,
+                    reconciliation,
+                    anchor,
+                    elapsed_ns,
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "one native terminal decision per admitted canary source"
+        );
+        let (member, attempt, outcome, assurance, reconciliation, anchor, elapsed_ns) =
+            terminals[0];
+        assert_eq!((member.admission.epoch, member.admission.sequence), *id);
+        assert_eq!(*outcome, eez_telemetry::schema::Outcome::Committed);
+        assert_eq!(*assurance, eez_telemetry::schema::Assurance::NodeReconciled);
+        assert!(
+            anchor.is_none(),
+            "receipt references belong to the reconciliation, not the scan watermark"
+        );
+        let parent = events
+            .iter()
+            .find(|((epoch, sequence), _)| {
+                *epoch == reconciliation.epoch && *sequence == reconciliation.sequence
+            })
+            .expect("linked reconciliation event");
+        let Event::Reconciled {
+            attempt: reconciled_attempt,
+            anchor: scan,
+            details: Some(details),
+        } = &parent.1
+        else {
+            panic!("complete reconciliation evidence")
+        };
+        assert_eq!(attempt, reconciled_attempt);
+        assert_eq!(details.l1.genesis_hash.0, expected_genesis[0].0);
+        assert_eq!(details.l2.genesis_hash.0, expected_genesis[1].0);
+        assert_eq!(details.l2.rollup_id, world.cfg.rollup_id);
+        let resolution = details
+            .resolutions
+            .iter()
+            .find(|resolution| resolution.member == *member)
+            .expect("exact admission resolution");
+        assert_eq!(resolution.owner, *attempt);
+        assert_eq!(resolution.elapsed_ns, *elapsed_ns);
+        assert_eq!(
+            resolution.disposition,
+            eez_telemetry::schema::ResolutionDisposition::Terminal {
+                outcome: *outcome,
+                assurance: *assurance
+            }
+        );
+        // Feed actual native records through the observer's evidence boundary,
+        // while retaining the independent receipt/hash checks below.
+        fn observer_record(
+            ((epoch, sequence), event): &((eez_telemetry::schema::Epoch, u64), Event),
+        ) -> eez_observer::outcomes::Record<'_> {
+            eez_observer::outcomes::Record {
+                source_id: 1,
+                epoch: *epoch,
+                sequence: *sequence,
+                event,
+            }
+        }
+        let terminal_record=events.iter().find(|(_, event)| matches!(event,Event::Terminal {member: candidate,..} if candidate==member)).expect("terminal transport identity");
+        let mut lineage = events
+            .iter()
+            .filter(|((epoch, sequence), event)| {
+                *epoch == attempt.epoch
+                    && *sequence < parent.0.1
+                    && match event {
+                        Event::AttemptPrepared {
+                            attempt: candidate, ..
+                        } => candidate.generation == attempt.generation,
+                        Event::AttemptRepriced { replacement, .. } => {
+                            replacement.generation == attempt.generation
+                        }
+                        _ => false,
+                    }
+            })
+            .map(observer_record)
+            .collect::<Vec<_>>();
+        lineage.sort_by_key(|record| record.sequence);
+        let scopes = [
+            eez_telemetry::schema::ChainScope {
+                chain_id: l1.get_chain_id().await.unwrap(),
+                genesis_hash: eez_telemetry::schema::Hash32(expected_genesis[0].0),
+                rollup_id: 0,
+            },
+            eez_telemetry::schema::ChainScope {
+                chain_id: l2.get_chain_id().await.unwrap(),
+                genesis_hash: eez_telemetry::schema::Hash32(expected_genesis[1].0),
+                rollup_id: world.cfg.rollup_id,
+            },
+        ];
+        let decision = eez_observer::outcomes::native_decision(
+            &scopes,
+            observer_record(terminal_record),
+            observer_record(parent),
+            &lineage,
+        )
+        .expect("native decision passes observer coherence checks");
+        assert_eq!(decision.member, *member);
+        assert_eq!(decision.outcome, *outcome);
+        assert_eq!(decision.l1_snapshot, *scan);
+        let paid = eez_observer::costs::paid_attempt(&scopes, observer_record(parent), &lineage)
+            .expect("captured paid native attempt passes shared allocation membership checks");
+        assert_eq!(paid.owner, *attempt);
+        assert_eq!(paid.snapshot, *scan);
+        assert!(paid.membership.members.contains(member));
+        observer
+            .paid_post(
+                alloy_primitives::B256::from(paid.owner.post_batch_hash.0),
+                paid.membership.members.len(),
+            )
+            .await
+            .unwrap();
+        let canonical_scan = eez_testkit::block_number_and_hash_at(
+            &world.l1_rpc(),
+            alloy_rpc_types_eth::BlockNumberOrTag::Number(scan.number),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(canonical_scan.1.0, scan.hash.0);
+        let post = l1
+            .get_transaction_receipt(TxHash::from(attempt.post_batch_hash.0))
+            .await
+            .unwrap()
+            .expect("canonical post receipt");
+        let captured_post = details.post.expect("native post receipt reference");
+        assert_eq!(paid.post, captured_post);
+        assert_eq!(post.block_hash.unwrap().0, captured_post.block.hash.0);
+        assert_eq!(post.block_number.unwrap(), captured_post.block.number);
+        assert_eq!(
+            post.transaction_index.unwrap(),
+            captured_post.transaction_index
+        );
+        assert_eq!(post.status(), captured_post.success);
+        let applied = details.applied.as_ref().expect("applied settlement");
+        assert_eq!(applied.transaction_hash, attempt.post_batch_hash);
+        assert_eq!(applied.block, captured_post.block);
+        assert_eq!(applied.transaction_index, captured_post.transaction_index);
+        let applied_endpoint = applied.endpoint.expect("applied L2 endpoint");
+        let canonical_endpoint = eez_testkit::block_number_and_hash_at(
+            &world.l2_rpc(),
+            alloy_rpc_types_eth::BlockNumberOrTag::Number(applied_endpoint.number),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(canonical_endpoint.1.0, applied_endpoint.hash.0);
+        let observation = details
+            .sources
+            .iter()
+            .find(|source| source.transaction_hash.0 == hash.0)
+            .expect("exact source observation");
+        assert_eq!(observation.direction, source.direction);
+        let source_rpc = if index == 0 {
+            world.l1_rpc()
+        } else {
+            world.l2_rpc()
+        };
+        let source_provider = ProviderBuilder::new().connect_http(source_rpc.parse().unwrap());
+        let source_receipt = source_provider
+            .get_transaction_receipt(hash)
+            .await
+            .unwrap()
+            .expect("canonical source receipt");
+        let source_block = observation
+            .source_block
+            .expect("source inclusion or applied group anchor");
+        assert_eq!(source_receipt.block_hash.unwrap().0, source_block.hash.0);
+        assert_eq!(source_receipt.block_number.unwrap(), source_block.number);
+        if index == 0 {
+            let captured_source = observation.receipt.expect("inbound source receipt");
+            assert_eq!(captured_source.block, source_block);
+            assert_eq!(
+                captured_source.transaction_index,
+                source_receipt.transaction_index.unwrap()
+            );
+            assert_eq!(captured_source.success, source_receipt.status());
+            assert!(captured_source.transaction_index > captured_post.transaction_index);
+            assert!(!observation.consumed.is_empty());
+        }
+        let mut included_dispatches = 0;
+        for (_, event) in &events {
+            let Event::AttemptPrepared {
+                attempt,
+                members,
+                blob_count,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if !members
+                .iter()
+                .any(|member| member.source.transaction_hash.0 == hash.0)
+            {
+                continue;
+            }
+            for (_, event) in &events {
+                let Event::Dispatched {
+                    attempt: sent,
+                    transaction_hash,
+                    nonce,
+                    ..
+                } = event
+                else {
+                    continue;
+                };
+                let linked = sent == attempt
+                    || events.iter().any(|(_, event)| {
+                        matches!(event, Event::AttemptRepriced { previous, replacement }
+                        if previous == attempt && replacement == sent)
+                    });
+                if !linked {
+                    continue;
+                }
+                if let Some(transaction) = l1
+                    .get_transaction_by_hash(TxHash::from(transaction_hash.0))
+                    .await
+                    .unwrap()
+                    && transaction.block_hash.is_some()
+                {
+                    assert_eq!(transaction.inner.nonce(), *nonce);
+                    assert_eq!(
+                        transaction.inner.blob_versioned_hashes().unwrap().len(),
+                        *blob_count as usize
+                    );
+                    included_dispatches += 1;
+                }
+            }
+        }
+        assert!(
+            included_dispatches > 0,
+            "source membership must reach a mined dispatch with the captured nonce/blob count"
+        );
+    }
+    let metrics = wait_for(std::time::Duration::from_secs(45), || {
+        let metrics_address = metrics_address.clone();
+        async move {
+            let metrics = scrape_native_metrics(&metrics_address).await?;
+            let terminal_and_empty = ["inbound", "outbound"].into_iter().all(|direction| {
+                let admissions = format!("reth_eez_native_admissions_total{{direction=\"{direction}\"}}");
+                let terminal = format!("reth_eez_native_terminal_observations_total{{direction=\"{direction}\",outcome=\"committed\"}}");
+                let completed = format!("reth_eez_request_duration_seconds_count{{direction=\"{direction}\",outcome=\"committed\"}}");
+                let pending = format!("reth_eez_native_queue_age_count{{direction=\"{direction}\",kind=\"pending\"}}");
+                metric_sample(&metrics, &admissions) == Some(1.)
+                    && metric_sample(&metrics, &terminal) == Some(1.)
+                    && metric_sample(&metrics, &completed) == Some(1.)
+                    && metric_sample(&metrics, &pending) == Some(0.)
+                    && ["queued_ready", "queued_blocked", "queued_unknown", "in_flight"].into_iter().all(|state| {
+                        metric_sample(&metrics, &format!("reth_eez_native_queue_transactions{{direction=\"{direction}\",state=\"{state}\"}}")) == Some(0.)
+                    })
+            });
+            Ok((terminal_and_empty && metric_sample(&metrics, "reth_eez_native_queue_sample_valid") == Some(1.)).then_some(metrics))
+        }
+    }).await.expect("real native metrics must retain both completed durations while current pending populations empty");
+    assert!(metrics.contains("# TYPE reth_eez_stage_duration_seconds histogram"));
+    assert!(metrics.contains("# TYPE reth_eez_request_duration_seconds histogram"));
+    assert!(metrics.contains("# TYPE reth_eez_request_readiness_duration_seconds histogram"));
+    for direction in ["inbound", "outbound"] {
+        let total = metric_sample(&metrics, &format!("reth_eez_request_duration_seconds_sum{{direction=\"{direction}\",outcome=\"committed\"}}"))
+            .expect("completed admission clock");
+        let mut partition_sum = 0.;
+        for kind in ["blocked", "serviceable", "unknown"] {
+            assert_eq!(
+                metric_sample(
+                    &metrics,
+                    &format!(
+                        "reth_eez_request_readiness_duration_seconds_count{{direction=\"{direction}\",outcome=\"committed\",kind=\"{kind}\"}}"
+                    )
+                ),
+                Some(1.),
+                "one retained partition per native terminal observation"
+            );
+            let part = metric_sample(&metrics, &format!("reth_eez_request_readiness_duration_seconds_sum{{direction=\"{direction}\",outcome=\"committed\",kind=\"{kind}\"}}"))
+                .expect("observed readiness portion");
+            assert!(part.is_finite() && part >= 0.);
+            partition_sum += part;
+        }
+        assert!(
+            (partition_sum - total).abs() < 0.000_001,
+            "readiness parts conserve the same native admission interval"
+        );
+    }
+    assert!(
+        metric_sample(
+            &metrics,
+            "reth_eez_stage_duration_seconds_count{stage=\"preparation\",outcome=\"prepared\"}"
+        )
+        .is_some_and(|count| count >= 1.)
+    );
+    for (stage, outcome) in [
+        ("simulation", "success"),
+        ("witness", "success"),
+        ("prover_client", "success"),
+        ("submission", "included"),
+    ] {
+        assert!(metric_sample(&metrics, &format!("reth_eez_stage_duration_seconds_count{{stage=\"{stage}\",outcome=\"{outcome}\"}}"))
+            .is_some_and(|count| count >= 1.), "missing completed native stage {stage}: {metrics}");
+    }
+    assert_eq!(
+        metric_sample(&metrics, "reth_eez_settlement_policy_enabled"),
+        Some(1.)
+    );
+    assert!(
+        metric_sample(
+            &metrics,
+            "reth_eez_settlement_policy_setting{setting=\"user_count_cap\"}"
+        )
+        .is_some_and(|cap| cap > 0.)
+    );
+    let inventory = metric_family_inventory(&metrics);
+    assert!(
+        inventory
+            .keys()
+            .any(|name| name.starts_with("reth_transaction_pool_")),
+        "native fixture must exercise upstream client metrics"
+    );
+    if let Some(root) = std::env::var_os("EEZ_TEST_LOG_DIR") {
+        let root = std::path::PathBuf::from(root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(format!(
+            "eez-client-metrics-{}-{}.json",
+            std::process::id(),
+            if extra_env.is_empty() {
+                "default-policy"
+            } else {
+                "custom-policy"
+            }
+        ));
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "scope": "actual combined embedded L1/L2 process; no per-chain inference",
+                "format": "metric sample names and label keys only; no values",
+                "families": inventory,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    for hash in hashes {
+        assert!(
+            !metrics.contains(&format!("{hash:x}")),
+            "transaction hash leaked into metrics"
+        );
+    }
+    for (index, hash) in hashes.iter().enumerate() {
+        let source_rpc = if index == 0 {
+            world.l1_rpc()
+        } else {
+            world.l2_rpc()
+        };
+        observer.outcome(*hash, "committed").await.unwrap();
+        observer
+            .receipt(&source_rpc, if index == 0 { "l1" } else { "l2" }, *hash)
+            .await
+            .unwrap();
+        observer.allocation(*hash).await.unwrap();
+    }
+    for (_, event) in &events {
+        if let Event::Reconciled {
+            attempt,
+            details: Some(details),
+            ..
+        } = event
+            && details.post.is_some()
+        {
+            observer
+                .receipt(
+                    &world.l1_rpc(),
+                    "l1",
+                    alloy_primitives::B256::from(attempt.post_batch_hash.0),
+                )
+                .await
+                .unwrap();
+        }
+    }
+    let before = [
+        observer.admissions(hashes[0]).await.unwrap(),
+        observer.admissions(hashes[1]).await.unwrap(),
+    ];
+    observer
+        .canonical_commits(&["inbound", "outbound"], "before-restart")
+        .await
+        .unwrap();
+    observer.restart().await.unwrap();
+    for (index, hash) in hashes.iter().enumerate() {
+        let source_rpc = if index == 0 {
+            world.l1_rpc()
+        } else {
+            world.l2_rpc()
+        };
+        observer.outcome(*hash, "committed").await.unwrap();
+        assert_eq!(
+            observer.admissions(*hash).await.unwrap(),
+            before[index],
+            "observer restart duplicated admission history"
+        );
+        observer
+            .receipt(&source_rpc, if index == 0 { "l1" } else { "l2" }, *hash)
+            .await
+            .unwrap();
+        observer.allocation(*hash).await.unwrap();
+    }
+    observer
+        .canonical_commits(&["inbound", "outbound"], "after-restart")
+        .await
+        .unwrap();
+    world.node.assert_no_divergence_failure_logs();
+}
+
+/// Inventory only syntax-owned names/keys. Never copy label values, URLs,
+/// account identifiers, hashes, chain metadata or command-line flags.
+fn metric_family_inventory(
+    metrics: &str,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut result = std::collections::BTreeMap::new();
+    for line in metrics
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        let end = line
+            .find(['{', ' '])
+            .expect("Prometheus sample name boundary");
+        let name = &line[..end];
+        assert!(
+            name.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':'))
+        );
+        let keys = result
+            .entry(name.to_owned())
+            .or_insert_with(std::collections::BTreeSet::new);
+        if line.as_bytes()[end] != b'{' {
+            continue;
+        }
+        let mut rest = &line[end + 1..];
+        while !rest.starts_with('}') {
+            let equals = rest.find('=').expect("Prometheus label key");
+            let key = rest[..equals].trim();
+            assert!(
+                !key.is_empty()
+                    && key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            );
+            keys.insert(key.to_owned());
+            rest = &rest[equals + 1..];
+            assert!(rest.starts_with('"'));
+            let mut escaped = false;
+            let mut consumed = None;
+            for (index, character) in rest[1..].char_indices() {
+                if escaped {
+                    escaped = false;
+                } else if character == '\\' {
+                    escaped = true;
+                } else if character == '"' {
+                    consumed = Some(index + 2);
+                    break;
+                }
+            }
+            rest = rest[consumed.expect("terminated Prometheus label value")..].trim_start();
+            if let Some(next) = rest.strip_prefix(',') {
+                rest = next.trim_start();
+            } else {
+                assert!(rest.starts_with('}'));
+            }
+        }
+    }
+    result
+}
+
+#[test]
+fn metric_inventory_excludes_values_even_when_they_contain_prometheus_syntax() {
+    let value = metric_family_inventory(
+        r#"# TYPE demo gauge
+demo{role="composer",opaque="secret,pretend_key=\"account\",}tail"} 7
+plain_counter 1
+"#,
+    );
+    assert_eq!(
+        value["demo"],
+        ["opaque".to_owned(), "role".to_owned()]
+            .into_iter()
+            .collect()
+    );
+    assert!(value["plain_counter"].is_empty());
+    let encoded = serde_json::to_string(&value).unwrap();
+    for private in ["secret", "pretend_key", "account", "composer"] {
+        assert!(!encoded.contains(private));
+    }
+}
+
+fn metric_sample(metrics: &str, identity: &str) -> Option<f64> {
+    metrics.lines().find_map(|line| {
+        let (name, value) = line.split_once(' ')?;
+        (name == identity).then(|| value.parse().ok()).flatten()
+    })
+}
+
+async fn scrape_native_metrics(address: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let mut response = client
+        .get(format!("http://{address}/metrics"))
+        .send()
+        .await?
+        .error_for_status()?;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        anyhow::ensure!(
+            body.len().saturating_add(chunk.len()) <= 8 * 1024 * 1024,
+            "native scrape exceeds fixture budget"
+        );
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8(body)?)
 }
 
 async fn assert_real_signer_rejects(mutation: ProverMutation, tampered_input: &str) {

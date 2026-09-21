@@ -1,0 +1,639 @@
+# Fresh Chiado observability deployment
+
+| Field | Value |
+| --- | --- |
+| Date and status | 2026-09-18; completed functional single-host deployment; current runtime and canonical monitoring verified |
+| Scope | User-authorized backup and fresh, testable single-host Compose network |
+| Initial deployment source | `3eeff740c5cd4d075a474ef676e92bb51fe1ade2` |
+| Current native core shipping source | `68e5da389b0df815a0b013dea7915735f544aa93` |
+| Protocol | `3c0cdf4955941a5c23639346932b55b33babebbd` |
+| Networks | Chiado L1 10200; fresh L2 6291, replacing 6290 at the public endpoints |
+| Related change | [Beacon blob selection fix](../2026-09-18-chiado-blob-selection/README.md) |
+
+## Preservation and deployment
+
+The stopped old rollup and explorers were preserved before deployment. Host-local
+backup `.runtime/chiado-backups/before-observability-20260918T164046Z` contains
+4,802 verified filesystem entries (76,540,837,808 logical regular-file bytes), both
+PostgreSQL logical dumps, three stopped explorer volume archives, fourteen original
+images, and one stopped-container filesystem fallback. The original Blobscan API
+image was already unavailable; its filesystem/configuration is not represented as
+an equivalent original image. This is a local backup, not an independent-host
+restore test. The old composer was already unhealthy. Live gateway TLS volumes
+were outside this rollup-state snapshot.
+
+The fresh deployment uses separate writable L1/Beacon copies, an empty L2 database,
+fresh proof/system keys, a separately funded functional-test wallet, and distinct
+Compose/container names. The funded L1 poster/deployer is reused only while the old writer is stopped; old
+L2 state and witnesses were not reused. Original rollup/explorer containers and
+volumes remain retained.
+
+All six deployment receipts were checked against canonical Chiado blocks. The
+registry, manager, signer, threshold, verification key and bridge getters match the
+generated bindings. Verified genesis block hash and state root agree with the
+shipping helpers, rendered genesis and registered commitment.
+
+| Binding | Value |
+| --- | --- |
+| Registry | `0x0ca34c68324dd5ef4bd6813af661d7817e4793b8` |
+| Rollup ID / deployment block | `1` / `23118328` |
+| L2 genesis block hash | `0x3f29c4f78394260473f543ae4602c3d5edc759a49303fa23c3b3497e903f61d0` |
+| Initial node image | `sha256:e4155b7c16cd802f573140b0771071d02fb636a684fbbb2ee5a1ed9bfb24d5bd` |
+| Initial signer image | `sha256:273f4d14f4b932ed231168d4e4c3b38fcb9883aae01cfba6ee81bd111f1b037e` |
+| Initial deploy image | `sha256:412807cf0da3775561fcf3b5e205c11cc2ac45f0997082d6c54bc1738ad049eb` |
+
+The supported no-publication producer and artifact consumer verified exact runtime
+identity. All **1,311 archived unit tests passed**; two intentional utility tests
+were excluded. Workspace all-target strict Clippy and formatting passed. Images
+were built locally and were not published or promoted.
+
+## Recovery and first failures
+
+First boot exposed an inherited L1 storage inconsistency: receipt static files
+ended at 23117823 while execution changesets ended at 23117821. The new failed copy
+was preserved before recovery. The matching Gnosis CLI (commit `7e588a7b951a`, binary
+SHA256 `5edb6fcda7d63335270f8bcd39fbfeb68d8c9a846d7cb9a7150122d77d168bd8`)
+performed its supported all-stage unwind to 23117790 on only the new working copy.
+No raw database edits or incompatible stock-image repair were used. Seven subsequent
+read-only checks passed, including consistency and matching static segment ends.
+
+After replay, local/public block hashes, state roots, receipt roots and all 37
+receipts agreed across the old failure heights, deployment block and a common
+finalized block. Registry commitment advancement matched canonical L2 blocks.
+No persistence errors were found after recovery. This does not establish arbitrary
+crash recovery for the old deployment.
+
+The first functional-test setup exposed a separate harness defect: Forge's
+`--gas-price` configures the simulated EVM, while `--with-gas-price` sets the
+broadcast maximum fee. With a 7-wei L1 base fee, the old command estimated a maximum
+fee below its explicit 1.5-gwei priority fee and submitted no L1 transaction.
+The exact failure was retained; replacing only that Forge option produced a
+successful setup receipt. Existing Cast fee options and semantic assertions remain
+unchanged. An earlier diagnostic invocation used the wrong working directory;
+that file-not-found error is not evidence of the fee defect.
+
+## Monitoring and public services
+
+The new monitoring project has fresh PostgreSQL/Prometheus/Loki/Grafana volumes and
+only the real `chiado` / `eez-chiado-6291-20260918` namespace. Simulated demo volumes
+remain retained. Composer/signer metrics and lifecycle spools are enabled; the
+observer imports canonical receipts, settlement/source correlations and authenticated
+blob measurements. Its supported batch size is 64 to catch up to the one-second L2.
+
+A private Compose relay uses a shared Unix socket between host-network and bridged
+Nginx services. It gives observers/explorers access to local RPC, Beacon and native
+metrics without new published ports or firewall changes. Producer spool ownership
+and read-only consumer mounts are explicit. Administrative database credentials are
+not mounted into the continuous observer.
+
+The existing domain, gateway and Grafana password are retained. UI/monitor bindings
+now select chain 6291. Settlement interval is 30 seconds, maximum unsettled L2 blocks
+150, and L2 block time remains one second. Fresh explorers use their own volumes and
+the verified deployment block/hash/Beacon slot as their history boundary.
+
+HTTP/browser checks verified the UI, monitor and both explorers; Blockscout's genesis
+matches canonical RPC. A bounded Blobscan verification covered 210 finalized L1
+blocks and three blob transactions, comparing exact receipt fees and blob bytes/
+commitments. This check did not independently recompute KZG commitments. Grafana's
+seven dashboards and three data sources passed local authenticated checks, and
+native/observer Prometheus scrapes plus lifecycle ingestion succeeded. Public checks
+were unauthenticated; the administrator password was not sent through the public URL.
+
+## Functional validation and native identity correction
+
+The corrected one-wave functional matrix passed: inbound and outbound wrapper
+effects both reached 141; deposit and withdrawal deltas were exactly
+11,000,000,000,000,000 and 1,000,000,000,000,000 wei. Canonical L1/L2 reconciliation
+passed with no observed divergence. A graceful node restart retained the previously
+safe L2 block and both heads resumed advancing. The first restart log check included
+an expected shutdown message; startup-only checking uses the actual new process
+start time. These are functional checks, not capacity measurements.
+
+The subsequent live observer check exposed a native producer identity defect:
+converting GnosisChainSpec to its inner Ethereum spec loses the AuRa genesis-header
+override. Native L1 identities therefore reported `f438827f...` while canonical
+Chiado block zero is `ada44fd8...`. The observer correctly rejected those identities.
+The code correction extracts identity while the concrete chain-spec type is still
+available; Ethereum/L2 behavior and posting blob rules are unchanged. Canonical
+Chiado and Ethereum hash regressions cover the helper: all 46 node library tests
+passed, and the selected baseline regression reproduced the wrong hash. The initial
+unqualified exact-filter run selected zero tests and is not counted as evidence.
+Historical bad metadata is
+not rewritten, and observer identity checks remain strict.
+
+## Evidence and remaining checks
+
+Detailed artifacts are private, host-local, under
+`.runtime/chiado-observability-20260918/validation`, `public-preparation`, and
+`monitoring-preparation`; build/unit artifacts are under the worktree's
+`target/chiado-runtime-3eeff74-qMd50kzT`. They are not portable published artifacts.
+The first boot, first canary attempt, diagnostic failures and successful recovery
+records are retained separately.
+
+The corrected producer was built with the standard shipping feature selection,
+Rust 1.94.0, locked dependencies and release flags, then verified by the standard
+runtime artifact consumer. This focused local build omitted regeneration of the
+full release test archives; the initial 1,311-test archive result is not presented
+as a rerun on the later image. All 46 affected node tests, workspace all-target
+strict Clippy, formatting and shell syntax passed for the correction. Two opt-in
+Docker fixture tests were selected but skipped; the actual shipping build and
+container inspection instead verified private Foundry cache/broadcast exclusion.
+The one-line deployment Dockerignore correction prevents private live test cache
+from entering future deployment images.
+
+Current immutable images:
+
+- node: `sha256:6bd87541c872b03f4d92ecdd89e984f51fae73597c1213b02238b699193d261e`
+- signer: `sha256:f8d81deb3d8be778bb7faba38393cb6b09381f32c585d671033d670d716d730d`
+- deploy: `sha256:2ed4179deada4996c421813c75c1637275b18bfe56f419c00f358d672ea3d1b7`
+
+Runtime archive SHA256: `9acb917dc56ad5dc53d67aafb27f7b767434b09b6711d3509bdb0b74dc8ceaea`. Local shipping method and
+source hashes are retained in private `validation/shipping-build/method.json`.
+
+The fresh inbound/outbound canary passed canonical receipts, distinct destination
+events and registry-backed values 242/343. SQL independently reports both exact
+source hashes as canonical/committed with `node_reconciled` evidence and the correct
+chain/genesis identities. All 62 receipt facts captured before the image upgrade
+remain unique and unchanged, including their exact fees. The seven historical bad
+admission payloads remain unchanged and unknown; no identity guard or historical
+record was relaxed. At verification, all 23 posting blobs had authenticated
+measurements and source-receipt coverage had no missing, lookup, accounting or
+index-coverage gaps. These are bounded observations, not perpetual guarantees.
+
+| Direction | Verified source transaction |
+| --- | --- |
+| Inbound | `0x945b191fdde04f71a76cd6dccb30dcf8db4aefb104d9f519283f3fd88ef00ad2` |
+| Outbound | `0x22873cc65c9550c90e60eaee95edf55ba4633ffe25170bb0a8d8aec08696c817` |
+
+Final public checks returned 200 for UI, monitor and unauthenticated Grafana
+login/health, with RPC chain IDs 10200/6291. Original core containers remained
+stopped; corrected node, signer and Beacon remained running.
+
+Performance comparisons remain explicitly postponed by the user. Alerts
+remain paused, distributed tracing and independent follower replay are not enabled,
+and no off-host disaster-recovery or production-readiness claim is made.
+
+## Requirement coverage
+
+| Requirement | Implementation / operation | Verification |
+| --- | --- | --- |
+| Preserve existing rollup | Cold filesystem/SQL/volume/image backup plus retained originals | Inventory/content/metadata hashes and archive checks; original writers remain stopped |
+| Fresh compatible network | New registry/profile, genesis6291, separate data/keys/Compose names | Six canonical deployment receipts, getter/genesis checks and both-direction functional effects |
+| Mixed Beacon applications | `crates/eez-l1/src/blob_source.rs` selects physical hashes before EEZ decoding | Baseline regression,145 L1 tests, initial archived units, live blob handling |
+| Correct native chain identity | `crates/eez-node/src/lib.rs` retains concrete Gnosis spec | Canonical-hash regressions,46 node tests, two live canonical SQL outcomes |
+| Usable functional driver | `scripts/xchain-test.sh` broadcast fee option | Reproduced estimate failure, successful corrected receipt and unchanged matrix assertions |
+| Private image build inputs | `testing/kurtosis/Dockerfile.deploy.dockerignore` excludes Foundry cache | Actual deploy image contains neither cache nor broadcasts |
+| Real self-hosted observability | Native overlays, schema22 observer/PG, Prometheus/Loki/Grafana | Scrapes, SQL fees/blobs, lifecycle streams,7 dashboards/3 data sources, snapshot uniqueness |
+| Existing public access | Preserved gateway, updated UI/monitor, isolated fresh explorers | HTTP/browser checks, actual chain/genesis/receipt/blob comparisons |
+| Recovery and persistence | Supported L1 unwind, graceful restart and image rollout | Canonical replay, retained safe block, advancing heads, unchanged62-row receipt snapshot |
+
+
+## Chart and canonical-progress update
+
+The observer alone now runs source `4e60e3fd74a5aaf95a497b1afe8451b0751b9987`,
+image `sha256:7d3746280f4e26306fbd90819547c0a46aa0f73a821550dfd0c84b88b43737c1`.
+The local shipping-only producer and standard artifact consumer verified its exact
+revision. Native composer/signer image IDs and start times remained unchanged.
+Schema 22, credentials and data volumes were retained; no migration was needed.
+
+[Seventeen new trend panels](../../../observability/contracts/protocol-dashboards.md#trend-first-layout)
+cover arrivals, outcomes, queue state, latency, gas/spend, blob utilization/bytes/
+fees and chain assurance. Existing exact detail tables remain below the charts.
+The network instance catalog includes both observer and native Composer, so its
+built-in All selection no longer silently hides native queue metrics.
+
+The observer now captures heights and persisted reorg revisions alongside hashes,
+counts and health in one SQL snapshot. Normal published appends retain fresh
+canonical gauges; reorgs (including restored hashes), missing/backwards fences,
+errors and stale evidence still suppress them. This remains bounded snapshot
+telemetry: a snapshot ahead of scanner publication can briefly be unavailable.
+
+| Requirement | Implementation | Verification |
+| --- | --- | --- |
+| More useful graphs | Five dashboard JSON files; chart-first layout with original tables | 17 new panels; 25 total chart queries and browser renders against live data; no datasource errors |
+| Stable normal-append confirmation metrics | `indexer/outcomes.rs`; existing persisted revision, no schema/config change | 84 observer unit tests; actual PostgreSQL production-query fixtures for both chains, reorg/restored hashes, missing cursors, health and contradictions |
+| Native queue visible in network overview | Observer/Composer instance catalog, built-in All default | Generated RPC/native profile regression; live browser Current status and queue canvas |
+| Real inbound/outbound visibility | Guarded two-transaction canary on existing proxies | Canonical receipts, unique destination events, registered settled root, destination values 684/785; SQL and Prometheus committed counts 3 per direction |
+
+The new inbound hash is
+`0x93660444222192f6f9d551ebb714c1f58253999cd752f46438daa1aa58ac5521`;
+the outbound hash is
+`0x319262a2bea411bd4c78aa9c275523dade0bb06c2af540f969a684a96559af66`.
+Both SQL outcomes are canonical/committed with `node_reconciled` evidence.
+The before diagnostic had 9 invalid evaluations among 16 samples. After rollout,
+30 of 30 samples retained evaluation validity over roughly one minute while both
+chains advanced through five distinct scanner cursors. This bounded observation
+does not promise continuous availability or independent execution replay.
+
+Validation also passed workspace all-target strict Clippy, formatting, dashboard/
+selector/annotation/preparation checks and the existing 3,137-admission SQL query
+fixture. First failures were retained: sandbox denied local test sockets; the
+unrestricted observer suite passed 84/84. The standalone database harness initially
+used a host binary incompatible with the PostgreSQL container's libc; its final
+SQL-only run applied the 22 migrations directly and tested the production queries.
+This is not a new full migration-CLI or release-archive test run. Browser/HTTP test
+helpers were corrected to accept empty frames and the configured Unknown display;
+those were validator failures, not hidden dashboard query failures.
+
+Private evidence is retained under the deployment's
+`validation/metrics-charts-20260918T191808Z/`, including image manifests, queries,
+screenshots, canary receipts and before/after samples. Performance comparison
+remains postponed; no network reset, main merge or image publication occurred.
+
+
+## Fee breakdown and gwei display
+
+The Gas overview now shows configured L1 wallet execution, blob and combined fees
+for the selected range. Posting, selected-receipt and blob-posting charts show all
+three components over time. The total is execution plus blob fees; overlapping
+wallet/posting/receipt populations remain separate and must not be added together.
+
+All monetary dashboard values, including poster balance history/current balances,
+now use gwei. On Chiado this is 10^-9 xDAI, not an ETH or fiat price conversion.
+Gas quantities, bytes, percentages and durations retain their dimensional units.
+Twelve monetary detail tables multiply the original numeric wei expression by
+exact 0.000000001 and return decimal text. Existing integer-wei allocation floors
+remain before display conversion. No storage, RPC, metrics producer, runtime image,
+configuration or network state changed.
+
+Validation: 7 dashboard/selector tests and 25 preparation tests passed. An isolated
+real Grafana/PostgreSQL/Prometheus fixture passed 114 generated queries and 17
+semantic groups, including one wei, zero, U256 maximum plus one, NULL, exact
+component sums, allocation and denominator floors, stale sources and balance
+scaling. Live checks passed 45 panels, 62 complete receipt arithmetic comparisons
+and 75 fee-bucket sums. Browser verification rendered eight charts and the new
+selected-range totals with no datasource errors in the visible panels.
+
+Two existing Gas attribution tables (IDs 6 and 9) exceed the unchanged 10-second
+SQL limit on the live population. Both the original wei queries and converted
+queries reproduce this timeout; isolated fixture cases pass. This was retained as
+a query-optimization follow-up, subsequently resolved below; limits were not
+increased and that original check remains recorded as a failure. The requested fee charts, exact receipt table and totals
+passed. Private evidence: `validation/fees-gwei-20260918/` under the deployment.
+
+
+## Attribution-table query optimization
+
+The previously timed-out Gas tables 6 and 9 now materialize their existing allocation
+projection once for the exact selected L1/L2 contexts, before outer presentation
+filters. This is confined to their dashboard SQL. Source membership, unprojected
+claims, conflicts, positive orphaning, allocation denominators, exact gwei values,
+filters and row limits remain defined by the existing views. No schema migration,
+new configuration, longer timeout or runtime restart was required.
+
+On the live dataset, EXPLAIN ANALYZE completed in 289.7 ms and 246.8 ms, with separate
+planning times around 61 ms. The grouped membership and checked evidence each ran
+once (50 grouped posts, 88 checked claims in that snapshot). Grafana reader API
+requests took 318 ms and 337 ms and returned three coverage states and six source
+allocations; both tables also rendered in the browser. The original queries
+exceeded the unchanged 10-second deadline. These are bounded measurements on the
+shared host, not a network-performance benchmark or an unlimited-history claim.
+
+An initial API check immediately after writing provisioned files still retrieved
+the previous query text and timed out. The failure is preserved. After Grafana's
+dashboard reload, the validator required the actual served materialized SQL before
+executing or reporting timing; neither old-query failures nor empty fast results
+were counted as candidate success.
+
+Validation includes the isolated Grafana/PostgreSQL/Prometheus datasource suite,
+seven dashboard/selector tests, the existing 101-claim deadline regression, and
+60 full-row baseline/candidate comparisons across 30 context/time/source and
+attribution uncertainty/retraction cases. Initial comparisons require nonempty
+results; explicit NULL accounting retains gaps and missing estimates.
+Private plans, served-query results and table screenshots are retained under
+`validation/allocation-queries-20260918/` in the deployment directory.
+
+
+## Useful cross-chain operations overview
+
+The Cross-chain dashboard now starts with readable current activity and retained
+canonical evidence, followed by separate inbound/outbound queue charts. Ready,
+blocked, unknown readiness and in-flight states are disjoint stacked populations.
+Oldest active/serviceable age sits beside arrival rate; completed-request latency,
+readiness partitions, observed finality and sample coverage remain distinct.
+
+Three categorical block charts show unique observed source transactions per
+canonical source block, their receipt gas, and verified full source populations
+per paid posting transaction. Later references/readmissions do not multiply source
+transactions. Multiple sources or paid posts in one block remain distinct; a
+source-hash filter never shrinks the paid post's verified population. These are
+observed source transactions and attempted posting populations, not internal-call
+counts or a claim that every member completed. Known empty posts are zero;
+unavailable membership or gas stays unknown. The latest 50 rows retain deterministic
+ordering and explicit block/context labels, with shorter readable axis text.
+
+No producer, database schema, collection cadence or runtime container changed.
+Monetary dashboards stay in gwei; this gas chart measures gas units. Fifteen-second
+queue samples can miss short-lived spikes; block history is the observed subset,
+not fabricated zeroes for unindexed blocks. Native latency includes waiting and
+needs its observation-count coverage, especially on this low-traffic deployment.
+
+Validation passed 125 generated queries in the isolated Grafana/PostgreSQL/
+Prometheus fixture, eight dashboard checks, 15 focused actual-reader SQL assertions,
+and 32 live panel queries. The browser rendered 13 charts without datasource errors.
+Known inbound/outbound receipts independently matched the new source-block charts:
+one transaction each, 86,212 and 82,074 gas respectively, and two verified source
+members for their shared paid post even when filtering to one source. No new
+transactions were submitted for this presentation update. The final display
+review also removed hidden activity columns and prevented intentionally skipped
+axis labels from displaying a misleading Unknown; missing numeric observations
+retain Unknown. Evidence: deployment `validation/crosschain-operations-20260918/`.
+
+
+## Additional pressure diagnostics
+
+Cross-chain request flow now compares admitted, terminal and committed-subset
+native observations. Two additional panels show active pending-age bands
+(<=30s,30–120s,>120s,unknown clock) and other typed terminal dispositions. These
+supplement actual queue size/oldest age rather than treating counter differences
+as a queue-size equation or a drain-time prediction. Replacements and already
+completed sources are not indiscriminately classified as failures.
+
+Age bands use direct snapshot gauges, matching buckets per instance before
+subtracting and aggregating. Missing data and negative bucket differences remain
+unavailable; unknown clocks stay separate from known ages. Pending clocks retain
+sample freshness independently of readiness evaluation. The bands are diagnostic
+boundaries, not a new SLO or enabled alert. Runtime behavior, collection cadence,
+monetary units and paused alerting remain unchanged.
+
+All three affected panels passed actual localhost Grafana queries and browser
+rendering. The live noncommitted series was absent in the selected history and
+remained Unknown, not a fabricated zero-error rate. Nine dashboard/selector tests
+passed. The final isolated datasource suite passed 132 queries and 21 semantic
+check groups, including 5:4:2 admission/terminal/committed
+rates, each noncommitted direction/disposition, 30/120/121-second boundaries,
+unknown clocks, idle zeroes and stale/incomplete suppression. Its first run exposed
+a validator assumption that Grafana returns Prometheus labels as table columns;
+that KeyError was preserved and corrected using explicit PromQL label matching.
+This was a test-harness correction, not a change to the deployed metric queries.
+Evidence is retained under deployment `validation/crosschain-diagnostics-20260918/`.
+
+
+## Readable currency amounts and dashboard review
+
+Balances and aggregate fee panels now display whole native units instead of
+large gwei values. The private deployment config explicitly labels L1 as xDAI
+and L2 as ETH (the deployed explorer config identifies Test Ether). Exact detail
+tables and per-gas prices retain gwei. Storage, accounting, fee populations,
+missing-data behavior and runtime services are unchanged. Mixed-chain panels
+query each role separately and attach its unit to the returned query frame;
+no exchange-rate conversion or addition across currencies occurs.
+
+Source baseline: `4e0cdab3cfe2a7d66723f129b2fe52956c3b1bb6`, protocol pin
+`3c0cdf4955941a5c23639346932b55b33babebbd`. Preparation validation and regenerated
+dashboard files are the implementation; no native binary or schema changed.
+Optional `native_currencies` is validated, propagated and recorded in the
+manifest; omitted roles retain a neutral label. Reconfiguration removes old
+labels and query splits.
+
+Validation: 26 preparation tests and nine dashboard tests passed. The isolated
+Grafana/PostgreSQL/Prometheus fixture passed 132 generated queries and 22 semantic
+check groups, including chart-to-exact-table arithmetic, chain separation and
+unknown/zero/stale funding. This fixture used the default currency configuration;
+explicit labels and role-split queries were checked by preparation tests and live
+Grafana. All 48 live panels queried successfully; eight browser charts rendered
+without datasource errors (23 requests). Independent reader checks reconciled
+47 complete receipts and 72 fee buckets. Visual inspection confirmed xDAI on the
+balance, fee totals and mixed-wallet fee axis. Evidence and screenshots are
+local-only under deployment `validation/readable-currency-20260918/`.
+
+The first preparation run exposed an outdated test assumption that receipt
+panels had no source overrides; the assertion now preserves the existing exact
+string/gwei overrides and checks generated additions. Its failure log is retained.
+An initial display-name matcher did not label SQL frames reliably; query-frame
+matching replaced it before completion. No performance workload was run; the
+requested benchmark remains postponed.
+
+A read-only review of the original monitor and Grafana identified these useful
+follow-ups, not implemented in this display update:
+
+- L2 block cadence, empty-block fraction and all transactions per block. The
+  monitor's sampled 12 blocks were empty with one-second gaps; this short sample
+  is not a throughput or capacity measurement.
+- Registry rollup escrow balance (`RollupConfig.etherBalance`), distinct from the
+  poster's wallet and not a measure of freely spendable funds or TVL.
+- Global L1 blob pressure (`blobGasUsed`, `excessBlobGas`) and whole-block execution
+  gas utilization, complementing EEZ-specific costs and source receipt gas.
+
+Prefer existing canonical observer data where available and explicit producer
+coverage otherwise. Do not import browser-derived queue predictions or legacy
+BatchPosted decoding assumptions from the old visualizer. Queue size, latency,
+source gas, finality lag and peers already have dedicated Grafana coverage.
+
+## Four-hour settlement policy and block/escrow observations
+
+The operator requested the proposed activity/escrow/global-L1 charts and a
+four-hour global settlement interval. The existing architecture has independent
+ordinary-L2 interval and general block-count triggers, plus urgent cross-chain
+and safety/capacity triggers. The smallest compatible interpretation keeps those
+urgent/safety rules and adjusts both periodic settings on this one-second L2:
+
+| Live setting | Before | After |
+| --- | --- | --- |
+| `EEZ_SETTLEMENT_PURE_L2_MODE` | interval | interval |
+| `EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS` |30000|14400000|
+| `EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS` |150|14400|
+| `EEZ_SETTLEMENT_BLOB_FULLNESS_BPS` | unset | off |
+| `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` |2048|16384|
+| `EEZ_MAX_SPECULATIVE_DEPTH` |0|0|
+
+The signer limit was raised because the negotiated window ceiling is itself a
+posting trigger; leaving 2048 would publish before four hours. This remains below
+the 65536-block payload format ceiling. Existing gas/blob/fee/proof limits remain
+enforced and may cause earlier publication or deferred work. General consolidation
+is measured in blocks, so four hours assumes the configured one-second cadence;
+ordinary activity uses the existing L1-anchor timestamp timer. Cross-chain work
+continues at the next eligible L1 opportunity. No new timer or consensus behavior
+was introduced, and repository deployment defaults were not changed.
+
+Before the authorized restart, actual native queue samples were valid and empty.
+The private `.env` was copied before editing and the exact running node/signer
+image digests were retained. Only these two services were recreated. Live
+Prometheus subsequently reported 14400 seconds and 14400 blocks, the signer container
+received 16384, both original chain IDs remained 10200/6291, and L2 continued
+advancing. The full four-hour period had not elapsed at this startup verification;
+it is not evidence of a completed four-hour backlog/proof cycle. Local evidence:
+`validation/settlement-four-hours-20260918/` in the deployment directory.
+
+Observer source `345f003` adds schema23 whole-block metadata and an optional
+hash-pinned registry escrow collector. The observer-only local release build uses
+Rust 1.94.0 and the existing pinned Bookworm bases/release flags; it rebuilds no
+network role and publishes no images. Its binary checksum, build metadata and
+exact revision are retained in deployment `validation/activity-escrow-20260918/`.
+The implementation contract and requirement coverage are:
+
+| Requirement | Implementation | Checks |
+| --- | --- | --- |
+| L2 cadence/activity/empty blocks | Atomic header/body metadata; canonical parent-linked view; network27–29 | Observer parsing; actual scanner; SQL unknown/zero/parent-gap/backwards/reorg fixtures |
+| Global execution/blob pressure | Header gas used/limit/blob gas/excess; network30–33 | Exact weighted ratios, whole-body selection independence, per-context isolation and coverage |
+| Registry escrow distinct from wallet | Optional explicit registry/rollup; bounded hash-pinned getter; gas23 | Config/default/identity/ABI/U256/zero/stale/reorg/recovery tests; live anchored RPC comparison |
+| Existing deployments/configurations | Default-disabled escrow; nullable additive schema; database-free SQL panels omitted | Preparation enable/disable, migration/reader/indexer checks; retained exact charges |
+| Readable currency | Existing native-currency metadata applied to escrow | Exact wei-to-native conversion boundaries; xDAI live rendering |
+
+Before release validation, review caught and fixed two issues: the escrow's
+native-unit gauge initially rendered raw wei, and the new coverage SQL used an
+ungrouped role expression. Regression tests now cover exact denomination and
+actual PostgreSQL grouping. A later review separated SQL contexts with the same
+chain ID but different genesis rather than combining their activity. No live
+incorrect metric was deployed. First failures are retained privately. Initial
+restricted-sandbox Rust/Python runs could not open mock listeners; unrestricted
+reruns passed and are distinguished from application failures.
+
+Final validation and rollout evidence for this addition:
+
+- `cargo +1.94.0 test --locked -p eez-observer -p eez-protocol --lib`: 91 observer
+  and 169 protocol tests passed. Targeted build/Clippy and workspace
+  `cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings` passed;
+  `cargo +1.94.0 fmt --all --check` and diff checks passed.
+- Python discovery under `observability/tests` passed 160 tests, with the existing
+  opt-in real-Docker resource test skipped. Final preparation 27 and dashboard 10
+  checks passed after the context-isolation/layout follow-up. No workload
+  benchmark or native E2E matrix was rerun for this observer-only addition.
+- The shipping-compatible release binary passed 63 disposable database/scanner
+  checks. Grafana datasource smoke passed 133 queries/23 check groups; final
+  activity-query regression additionally checked equal chain IDs across distinct
+  genesis contexts. Disposable fixtures were cleaned up.
+- Image `sha256:a4ed9a12809b9b803e427f9a124a60c316df52c0584636879b0d8cf3238a5fc8`
+  contains the same tested binary, SHA256
+  `8bc9e9e095361480bb6b5d0b905ce8e20f055a099bcd20dfda5a452934f667e3`.
+- Stopped only the observer for the database upgrade, saved a private custom-format
+  dump and configuration copies, migrated 22→23 explicitly, then restarted it.
+  All 170 existing canonical receipts retained identical exact execution/blob
+  charges immediately across migration. The node/signer were not restarted by
+  this observer rollout.
+- Actual localhost Grafana queried 115 panels without errors. All eight new
+  charts rendered in a browser (34 datasource requests); screenshots were
+  inspected. Fifteen newly indexed L1/L2 block observations matched independent
+  block RPC reads; registry escrow matched a hash-pinned getter at 0.01 xDAI.
+- Final runtime inspection found node, signer and observer running with no OOM.
+  The four-hour policy remained active and unsettled height progressed beyond
+  the former 150-block trigger without periodic publication. Its first complete
+  four-hour cycle remains a later operational observation, not a completed test.
+
+This is a single-host functional rollout with paused alerts. New metadata history
+starts with actual observation; no archive backfill or full-history reconstruction
+was added. Backup/runtime files and screenshots stay private/local; the contracts,
+implementation and deterministic fixtures are committed. The postponed benchmark
+and broader production rollout remain outside this update.
+
+## First complete four-hour observation and operations handoff
+
+On September 19, read-only canonical posting-receipt queries verified the first
+complete four-hour interval after the policy change. The successful L1 posting
+receipts were timestamped **2026-09-18 22:07:15 UTC** and
+**2026-09-19 02:07:15 UTC**, exactly 14,400 seconds apart. These are **L1 block/receipt
+timestamps**, not L2 timestamps or collector observation times. Their independently
+collected, source-valid applied endpoints were:
+
+| Canonical L1 block | Posting transaction | Applied L2 height |
+| --- | --- | --- |
+| 23121429 | `0x49d0216b0a362ef8484d9eca9467c5447fe9466b6073c37fafbd0764a9f99856` | 17240 |
+| 23124022 | `0xdcce2ef400b62bb39874a0e7438d99ff07e9483cb907ae87e193a4b2a08b6abe` | 31640 |
+
+Both L1 anchors were finalized when checked. The L2 endpoint advance was exactly
+14,400 blocks. Private `validation/settlement-four-hours-20260918/overnight-endpoints.json`
+retains the exact endpoint hashes, posting positions, finality and source-health
+checks; the canonical posting-receipt query supplied the timestamps above. This
+updates the earlier startup-only observation without rewriting its historical
+limit. It establishes this observed cycle, not saturated-load proof capacity,
+independent follower replay or a guarantee that urgent cross-chain/safety-triggered
+posts wait four hours.
+
+The [current operations runbook](../../runbooks/chiado-observability.md) now records
+resource selection from the main checkout's private deployment root, the separate
+native/monitoring/relay/explorer projects, local credential-file checks, four-hour
+settings, and schema-23 backup/migrate/start/rollback boundaries. It is linked from
+the runbook index and `AGENTS.md`. Its private helpers are host-local capabilities,
+not shipped fresh-install tooling. The running native source remains `68e5da3` and
+the observer source remains `345f003`; later repository integration does not imply
+a live binary upgrade. No service, credential, network or transaction change was
+performed for this documentation update.
+
+Documentation validation checked all 57 relative link targets in the edited
+runbook/index/AGENTS/audit set, ten Bash snippets, the image-binding Python snippet,
+and the native integration target inventory after removal of `resumption`.
+A non-starting Compose render confirmed that the explicit shell image override
+reaches both observer and migrator, without printing generated configuration.
+The upgrade walkthrough migrates before regenerating SQL dashboards.
+
+The documented private checker also passed at **2026-09-19 06:09:27 UTC**:
+localhost Grafana credential-file authentication and all three datasources were
+healthy; all eight sampled scrape targets were up, recorded chain/index/source-
+receipt/blob/lifecycle collection-success values were one, both indexed chain
+lags were zero, and ten retained lifecycle log lines were returned. Public
+health/login checks were unauthenticated. This bounded operational check neither
+submits transactions nor establishes complete coverage of every dashboard metric.
+The local report is `monitoring-preparation/monitoring-runtime-check.json`; its
+captured output is `/tmp/eez-chiado-runbook-health.log`, not a portable artifact.
+
+## Pre-PR integration and live metric coverage review
+
+On September 19, main included merged PR26 at
+`10eaa9c52c5b0a7d07c274d3f0615a8ff62cf9d8`.
+The observability branch incorporated that merge, including the eight-lease signer
+restart fix. Main intentionally removed legacy Anvil posting tests because their
+execution/submission chains differ under strict preflight. The two added follower
+observability cases were retained on the existing native fixture instead. The
+L1-derived case passed; the first overlay run correctly exposed an absent
+sequencer-RPC fixture setting (the replacement-only helper did not insert it).
+Explicitly setting the missing key preserved the assertion and passed the overlay
+case. Original failure logs/datadirs were retained. This branch integration did
+not replace the running node/signer images.
+
+The user requested a review of unpopulated live metrics before publication.
+Read-only Grafana/Prometheus/reader queries covered all 133 query-bearing panels,
+including infrastructure, with actual SQL All-instance membership. Both the
+one-hour and 24-hour captures had zero query errors/timeouts; empty panels decreased
+from 42 to 19 with the longer window. The first inventory's literal SQL `all`
+substitution was a checker error, retained and excluded from those counts.
+
+Three actual display gaps were corrected and applied:
+
+- Protocol history defaults to 24 hours, so the four-hour posting interval and
+  retained cross-chain activity remain visible between posts.
+- A complete fresh native population with exactly eight distinct zero-valued
+  direction/state pairs remains a known empty queue when readiness is idle.
+  Missing, duplicate, unexpected, nonfinite or nonzero populations do not gain
+  this exception; scrape/sample freshness still gates them. Readiness and oldest
+  ages are not fabricated.
+- Process CPU/RSS includes the already-scraped Reth-prefixed Composer metrics.
+  Unprefixed equivalents take precedence per target; aliases are not summed.
+  Host memory/disk now honor the same instance selector and scrape-health gate.
+
+Infrastructure now identifies explicitly unconfigured host metrics, Lighthouse
+metrics, public-RPC probes and diagnostic-log collectors. No additional service
+was started. Lifecycle logs remain available separately. The unused CLI-flags
+metric family is dropped going forward; pinned Reth emits flag names, not values,
+so this is not a claim of leaked secrets. Older private samples retain the normal
+retention policy.
+
+Remaining empty/unknown values were classified rather than replaced with zeros:
+no independent follower, explorer reference or Tempo configuration; no current
+admissions after the process restart; no qualifying events for some stage/cut/
+disposition metrics; incomplete 24-hour funding history; and advanced settled-tx
+cost denominators with `prior_history_unavailable` under the nonzero L1 bootstrap.
+Actual posting fees remain available. The review observed 118 authenticated blob
+posts with no blob/accounting gaps and retained canonical outcomes in both
+directions. A transient L2 collection-unavailable sample seen during browser
+review recovered on the next read; its indication was not masked or coerced.
+
+Validation after the merge/fixes: 450 passing tests across control RPC, observer,
+signer and prover client (two existing signer utility tests ignored); both native
+follower cases passed after the explicit fixture correction; 249 CI/configuration
+tests passed with five opt-in Docker/Kurtosis tests skipped. Final observability
+Python discovery passed 162 tests with its existing one opt-in skip. Workspace
+all-target strict Clippy, formatting, contract fixture build and diff checks
+passed. Queue rules passed 34 pinned promtool cases; node-agent/Prometheus/Loki
+integration passed 12 groups including alias deduplication and native scrape filters.
+
+The private preparation preserved native identity files, image bindings and
+credentials. Prometheus config/rules passed its own validator before SIGHUP;
+Grafana reloaded through authenticated localhost. Final actual queries succeeded
+for all 133 panels. Browser checks confirmed the 24-hour fee view, known zero/idle
+queue, capability summary and Composer resource graphs; two initial browser
+selector assumptions were corrected with their failures retained. Operator
+runbook links and shell snippets were checked, and its read-only health commands
+were exercised. Private evidence is under deployment
+`validation/metrics-readiness-20260919/`; integration logs begin
+`/tmp/eez-pr-main-` and `/tmp/eez-pr-final-`. Performance tests remain explicitly
+postponed, and remote CI is separate from these local results.

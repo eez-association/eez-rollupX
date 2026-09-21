@@ -49,8 +49,9 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, Streaming};
 
+use crate::artifacts::FailureDatadir;
+pub use crate::ports::PortLease;
 pub use crate::signals::NodeSignal;
-use crate::{artifacts::FailureDatadir, ports::PortLease};
 
 /// Anvil's first default account (mnemonic `test test test test test test test test test test test junk`).
 pub const ANVIL_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -662,6 +663,7 @@ fn proof_signer_binary() -> Result<PathBuf> {
 /// Launch configuration for real-signer native and retained-history tests.
 pub struct ProofSignerConfig<'a> {
     pub chain_config: &'a std::path::Path,
+    pub telemetry_config: Option<&'a std::path::Path>,
     pub l1_chain_config: Option<String>,
     pub rollup_id: u64,
     pub signer_key: &'a str,
@@ -743,6 +745,9 @@ impl ProofSignerHandle {
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log));
+        if let Some(path) = cfg.telemetry_config {
+            command.env("EEZ_TELEMETRY_CONFIG", path);
+        }
         drop(port_lease);
         let mut child = command.spawn().context("spawn eez-proof-signer")?;
 
@@ -774,6 +779,14 @@ impl ProofSignerHandle {
 
     pub fn endpoint(&self) -> &str {
         &self.endpoint
+    }
+
+    /// PID of this owned fixture process, for external resource sampling.
+    pub fn process_id(&self) -> u32 {
+        self.child
+            .lock()
+            .expect("proof signer child mutex poisoned")
+            .id()
     }
 
     pub fn log_tail(&self, max: usize) -> String {
@@ -972,6 +985,14 @@ impl Prover for ProverProxyService {
         &self,
         request: Request<Streaming<eez_control_rpc::v1::PrepareChunk>>,
     ) -> Result<Response<eez_control_rpc::v1::PrepareResponse>, Status> {
+        let mut context = tonic::metadata::MetadataMap::new();
+        for key in ["traceparent", "tracestate"] {
+            for value in request.metadata().get_all(key).iter().take(2) {
+                if value.as_encoded_bytes().len() <= 512 {
+                    context.append(key, value.clone());
+                }
+            }
+        }
         let mut input = request.into_inner();
         let mut chunks = Vec::new();
         while let Some(chunk) = input.message().await? {
@@ -980,10 +1001,12 @@ impl Prover for ProverProxyService {
             }
             chunks.push(chunk);
         }
+        let mut forwarded = Request::new(tokio_stream::iter(chunks));
+        *forwarded.metadata_mut() = context;
         ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(error.to_string()))?
-            .prepare_ordinary(tokio_stream::iter(chunks))
+            .prepare_ordinary(forwarded)
             .await
     }
 
@@ -1003,6 +1026,14 @@ impl Prover for ProverProxyService {
         request: Request<Streaming<ProveChunk>>,
     ) -> Result<Response<ProveResponse>, Status> {
         self.counters.attempts.fetch_add(1, Ordering::Relaxed);
+        let mut context = tonic::metadata::MetadataMap::new();
+        for key in ["traceparent", "tracestate"] {
+            for value in request.metadata().get_all(key).iter().take(2) {
+                if value.as_encoded_bytes().len() <= 512 {
+                    context.append(key, value.clone());
+                }
+            }
+        }
         let mut input = request.into_inner();
         let mut chunks = Vec::new();
         while let Some(chunk) = input.message().await? {
@@ -1046,7 +1077,9 @@ impl Prover for ProverProxyService {
             .map_err(|error| Status::unavailable(format!("connect upstream signer: {error}")))?
             .max_encoding_message_size(MAX_MESSAGE_BYTES)
             .max_decoding_message_size(MAX_MESSAGE_BYTES);
-        match client.prove(tokio_stream::iter(chunks)).await {
+        let mut forwarded = Request::new(tokio_stream::iter(chunks));
+        *forwarded.metadata_mut() = context;
+        match client.prove(forwarded).await {
             Ok(response) => {
                 if let (Some(directory), Some(encoded)) = (&self.fixture_directory, fixture) {
                     let hash = alloy_primitives::keccak256(&encoded);
@@ -1075,11 +1108,16 @@ impl Prover for ProverProxyService {
                 ) {
                     self.counters.rejections.fetch_add(1, Ordering::Relaxed);
                 }
-                Err(Status::new(status.code(), status.message().to_string()))
+                // Cache-miss details and capability-change metadata are part
+                // of the response contract, including through this fixture.
+                Err(status)
             }
         }
     }
 }
+
+#[cfg(test)]
+mod prover_proxy_tests;
 
 /// Optional mutation proxy in front of a real proof signer.
 #[derive(Debug)]
@@ -1412,6 +1450,7 @@ impl Harness {
             let signer = ProofSignerHandle::spawn(&ProofSignerConfig {
                 l1_chain_config: None,
                 chain_config: genesis,
+                telemetry_config: None,
                 rollup_id: opts.rollup_id,
                 signer_key,
                 // Match the composer's locally derived vkey. In the
@@ -1806,6 +1845,11 @@ pub struct NodeConfig<'a> {
 }
 
 impl NodeHandle {
+    /// PID of this owned fixture process, for external resource sampling.
+    pub fn process_id(&self) -> u32 {
+        self.child.lock().expect("node child mutex poisoned").id()
+    }
+
     /// Stall this fixture's process across a scheduler deadline while leaving
     /// its separate signer alive. Dropping the handle still kills the child.
     pub async fn pause_for(&self, duration: Duration) -> Result<()> {
@@ -4255,6 +4299,47 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 }
 
 impl CrossChainWorld {
+    /// Finite reviewed, non-secret effective settings for owned measurement
+    /// provenance. Preserve Command's last-wins precedence; null means the
+    /// pinned runtime default, not an invented resolved value.
+    pub fn measurement_protocol_settings(&self) -> serde_json::Value {
+        let mut values = serde_json::Map::new();
+        for key in [
+            "EEZ_L1_CHAIN",
+            "EEZ_L1_CHAIN_ID",
+            "EEZ_L1_BLOB_SIDECAR_ENCODING",
+            "EEZL2_ADDRESS",
+            "EEZ_L1_BLOCK_TIME_MS",
+            "EEZ_L2_BLOCK_TIME_MS",
+            "EEZ_PROOF_TIME_MS",
+            "EEZ_PREPARATION_TIME_MS",
+            "EEZ_SUBMISSION_SLACK_MS",
+            "EEZ_REGISTRY_ADDRESS",
+            "EEZ_REGISTRY_DEPLOY_BLOCK",
+            "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS",
+            "EEZ_ROLLUP_MANAGER_ADDRESS",
+            "EEZ_ROLLUP_ID",
+            "EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES",
+            "EEZ_SETTLEMENT_PURE_L2_MODE",
+            "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+            "EEZ_MAX_SPECULATIVE_DEPTH",
+            "EEZ_MAX_USER_TXS_PER_BUNDLE",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
+            "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
+            "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE",
+            "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+        ] {
+            let value = self
+                .env
+                .iter()
+                .rev()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| value.as_str());
+            values.insert(key.to_owned(), serde_json::json!(value));
+        }
+        serde_json::Value::Object(values)
+    }
+
     /// Durable witnesses for this fixture. Readers must use the same database
     /// path as the writer so MDBX's process locks remain shared.
     pub fn witness_db_path(&self) -> &std::path::Path {
@@ -4299,6 +4384,38 @@ impl CrossChainWorld {
         std::fs::write(&temporary, b"{}")?;
         std::fs::rename(temporary, directory.join("hold-next.json"))?;
         Ok(())
+    }
+
+    /// Retain retries containing one exact signed source while observer checks
+    /// precede a planned restart. Other bundles proceed; each relay request has
+    /// its existing 60s timeout, and this control expires after five minutes.
+    pub fn hold_source_bundles(&self, signed_source: &str) -> Result<()> {
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs()
+            + 300;
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("hold-next.new");
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec(
+                &serde_json::json!({"transaction":signed_source,"repeat":true,"expiresAt":expires}),
+            )?,
+        )?;
+        std::fs::rename(temporary, directory.join("hold-next.json"))?;
+        Ok(())
+    }
+
+    pub fn clear_source_bundle_hold(&self) -> Result<()> {
+        match std::fs::remove_file(
+            self.builder_stub
+                .capture_dir()
+                .join("control/hold-next.json"),
+        ) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// The existing relay also forwards read RPC unchanged; tests may point
@@ -5330,7 +5447,7 @@ pub async fn setup_cross_chain() -> Result<CrossChainWorld> {
     setup_cross_chain_inner(
         None,
         None,
-        &[],
+        CrossChainEnvironment::default(),
         NativeL1Profile::default(),
         false,
         false,
@@ -5346,7 +5463,7 @@ pub async fn setup_cross_chain_with_env(
     setup_cross_chain_inner(
         None,
         None,
-        extra_env,
+        CrossChainEnvironment::node(extra_env),
         NativeL1Profile::default(),
         false,
         false,
@@ -5359,7 +5476,16 @@ pub async fn setup_cross_chain_with_profile(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, false, false, false).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        CrossChainEnvironment::node(extra_env),
+        profile,
+        false,
+        false,
+        false,
+    )
+    .await
 }
 
 /// Route the canonical reader through the existing fault-capable relay from
@@ -5368,7 +5494,16 @@ pub async fn setup_cross_chain_with_profile_and_rpc_faults(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, false, true, false).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        CrossChainEnvironment::node(extra_env),
+        profile,
+        false,
+        true,
+        false,
+    )
+    .await
 }
 
 /// The existing streaming proxy with runtime fault/recovery control.
@@ -5378,7 +5513,7 @@ pub async fn setup_cross_chain_with_prover_faults(
     setup_cross_chain_inner(
         Some(ProverMutation::None),
         None,
-        extra_env,
+        CrossChainEnvironment::node(extra_env),
         NativeL1Profile::default(),
         false,
         false,
@@ -5395,7 +5530,7 @@ pub async fn setup_cross_chain_proxied(
     setup_cross_chain_inner(
         Some(mutation),
         Some(attester),
-        &[],
+        CrossChainEnvironment::default(),
         NativeL1Profile::default(),
         false,
         false,
@@ -5411,7 +5546,74 @@ pub async fn setup_cross_chain_with_fixed_fee_fixture(
     profile: NativeL1Profile,
     extra_env: &[(&'static str, String)],
 ) -> Result<CrossChainWorld> {
-    setup_cross_chain_inner(None, None, extra_env, profile, true, false, false).await
+    setup_cross_chain_inner(
+        None,
+        None,
+        CrossChainEnvironment::node(extra_env),
+        profile,
+        true,
+        false,
+        false,
+    )
+    .await
+}
+
+/// Start both real processes with separate role-specific telemetry files and
+/// the existing recoverable prover proxy. Node environment remains node-only.
+pub async fn setup_cross_chain_with_telemetry(
+    node_env: &[(&'static str, String)],
+    signer_telemetry: &std::path::Path,
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(
+        Some(ProverMutation::None),
+        None,
+        CrossChainEnvironment {
+            node: node_env,
+            signer_telemetry: Some(signer_telemetry),
+        },
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    )
+    .await
+}
+
+/// Use the ordinary direct prover path with optional role-specific signer
+/// telemetry; benchmark arms keep profile and protocol wiring identical.
+pub async fn setup_cross_chain_with_profile_and_signer_telemetry(
+    profile: NativeL1Profile,
+    node_env: &[(&'static str, String)],
+    signer_telemetry: Option<&std::path::Path>,
+) -> Result<CrossChainWorld> {
+    setup_cross_chain_inner(
+        None,
+        None,
+        CrossChainEnvironment {
+            node: node_env,
+            signer_telemetry,
+        },
+        profile,
+        false,
+        false,
+        false,
+    )
+    .await
+}
+
+#[derive(Default)]
+struct CrossChainEnvironment<'a> {
+    node: &'a [(&'static str, String)],
+    signer_telemetry: Option<&'a std::path::Path>,
+}
+
+impl<'a> CrossChainEnvironment<'a> {
+    fn node(node: &'a [(&'static str, String)]) -> Self {
+        Self {
+            node,
+            signer_telemetry: None,
+        }
+    }
 }
 
 pub async fn setup_cross_chain_empty_call() -> Result<CrossChainEmptyCallWorld> {
@@ -5557,7 +5759,7 @@ pub async fn setup_cross_chain_codeless() -> Result<CrossChainCodelessWorld> {
 async fn setup_cross_chain_inner(
     mutation: Option<ProverMutation>,
     attester_override: Option<Address>,
-    extra_env: &[(&'static str, String)],
+    process_env: CrossChainEnvironment<'_>,
     profile: NativeL1Profile,
     fixed_fee_fixture: bool,
     reader_faults: bool,
@@ -5568,7 +5770,8 @@ async fn setup_cross_chain_inner(
     // A past L2 genesis exercises the real capped catch-up path without
     // waiting one wall-clock second for each historical L2 block. L1 keeps
     // its current genesis/slot clock, and the registered root is recomputed.
-    if let Some((_, age)) = extra_env
+    if let Some((_, age)) = process_env
+        .node
         .iter()
         .rev()
         .find(|(name, _)| *name == "EEZ_TEST_L2_GENESIS_AGE_SECONDS")
@@ -5618,6 +5821,7 @@ async fn setup_cross_chain_inner(
     let signer_attester = signer_address(cfg.attester_key)?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
         chain_config: &cfg.l2_genesis.0,
+        telemetry_config: process_env.signer_telemetry,
         l1_chain_config: Some(cfg.l1_chain_config()),
         rollup_id: cfg.rollup_id,
         signer_key: cfg.attester_key,
@@ -5666,7 +5870,7 @@ async fn setup_cross_chain_inner(
         ),
     ]);
     // Before the assertion below, so caller-supplied vars are checked too.
-    env.extend_from_slice(extra_env);
+    env.extend_from_slice(process_env.node);
     if let Some(control) = &l1_reorg_control {
         env.extend(control.env());
     }

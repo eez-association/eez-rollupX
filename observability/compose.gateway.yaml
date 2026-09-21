@@ -1,0 +1,13 @@
+# Optional: attach only Grafana to an existing HTTPS gateway's Docker network.
+services:
+  grafana:
+    networks:
+      default: {}
+      ledger: {}
+      public-gateway:
+        aliases: [eez-observability-grafana]
+
+networks:
+  public-gateway:
+    external: true
+    name: ${GRAFANA_GATEWAY_NETWORK:?set GRAFANA_GATEWAY_NETWORK to the existing gateway Docker network}

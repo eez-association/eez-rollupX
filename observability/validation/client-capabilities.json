@@ -1,0 +1,927 @@
+{
+  "status": "passed",
+  "scope": "pinned binary endpoint/file capabilities only; isolated bundled mainnet genesis, no live chain or execution endpoint, no sync/finality acceptance",
+  "clients": [
+    {
+      "image": "sigp/lighthouse:v8.1.3@sha256:44aa773dcf274122c32cc41c4dae7124ed3cab5c267ee82174c6dfd9c688da96",
+      "checks": [
+        "pinned_cli_metrics_and_structured_file_capabilities",
+        "actual_private_metrics_family_type_and_label_key_sample",
+        "actual_json_beacon_log_nonroot_owner_only_no_public_read"
+      ],
+      "inventory": {
+        "format": "metric sample names/types and label keys only; no label/sample values",
+        "types": {
+          "async_tasks_count": "gauge",
+          "async_tasks_time_histogram": "histogram",
+          "beacon_aggregate_and_proof_mesh_peers_per_client": "gauge",
+          "beacon_attestation_processing_agg_pool_prune": "histogram",
+          "beacon_block_processing_snapshot_cache_size": "gauge",
+          "beacon_current_active_validators": "gauge",
+          "beacon_current_justified_epoch": "gauge",
+          "beacon_finalized_epoch": "gauge",
+          "beacon_fork_choice_compress_seconds": "histogram",
+          "beacon_fork_choice_encode_seconds": "histogram",
+          "beacon_fork_choice_read_lock_aquire_seconds": "histogram",
+          "beacon_head_slot": "gauge",
+          "beacon_head_state_active_validators_total": "gauge",
+          "beacon_head_state_current_justified_epoch": "gauge",
+          "beacon_head_state_current_justified_root": "gauge",
+          "beacon_head_state_eth1_deposit_index": "gauge",
+          "beacon_head_state_finalized_epoch": "gauge",
+          "beacon_head_state_finalized_root": "gauge",
+          "beacon_head_state_latest_block_slot": "gauge",
+          "beacon_head_state_previous_justified_epoch": "gauge",
+          "beacon_head_state_previous_justified_root": "gauge",
+          "beacon_head_state_root": "gauge",
+          "beacon_head_state_slashed_validators_total": "gauge",
+          "beacon_head_state_slot": "gauge",
+          "beacon_head_state_total_validators_total": "gauge",
+          "beacon_head_state_validator_balances_total": "gauge",
+          "beacon_head_state_withdrawn_validators_total": "gauge",
+          "beacon_op_pool_attestation_data_total": "gauge",
+          "beacon_op_pool_attestations_total": "gauge",
+          "beacon_op_pool_attester_slashings_total": "gauge",
+          "beacon_op_pool_max_aggregates_per_data": "gauge",
+          "beacon_op_pool_proposer_slashings_total": "gauge",
+          "beacon_op_pool_sync_contributions_total": "gauge",
+          "beacon_op_pool_voluntary_exits_total": "gauge",
+          "beacon_pre_finalization_block_cache_size": "gauge",
+          "beacon_pre_finalization_block_lookup_count": "gauge",
+          "beacon_previous_justified_epoch": "gauge",
+          "beacon_processed_deposits_total": "gauge",
+          "beacon_sync_comm_observation_slot_aggregators": "gauge",
+          "beacon_sync_comm_observation_slot_signers": "gauge",
+          "block_mesh_peers_per_client": "gauge",
+          "blocking_tasks_count": "gauge",
+          "blocking_tasks_histogram": "histogram",
+          "cpu_cores": "gauge",
+          "cpu_idle_seconds_total": "gauge",
+          "cpu_iowait_seconds_total": "gauge",
+          "cpu_system_seconds_total": "gauge",
+          "cpu_threads": "gauge",
+          "cpu_user_seconds_total": "gauge",
+          "data_availability_overflow_memory_block_cache_size": "gauge",
+          "data_availability_overflow_memory_state_cache_size": "gauge",
+          "dep_error_total": "counter",
+          "dep_info_total": "counter",
+          "dep_warn_total": "counter",
+          "discovery_bytes": "gauge",
+          "discovery_queue_size": "gauge",
+          "discovery_requests": "gauge",
+          "discovery_sessions": "gauge",
+          "disk_node_bytes_free": "gauge",
+          "disk_node_bytes_total": "gauge",
+          "disk_node_reads_total": "gauge",
+          "disk_node_writes_total": "gauge",
+          "fork_choice_dequeued_attestations_total": "counter",
+          "fork_choice_indices": "gauge",
+          "fork_choice_nodes": "gauge",
+          "fork_choice_queued_attestations": "gauge",
+          "gossipsub_accepted_messages_per_topic": "counter",
+          "gossipsub_failed_messages": "histogram",
+          "gossipsub_heartbeat_duration": "histogram",
+          "gossipsub_idontwant_msgs": "counter",
+          "gossipsub_idontwant_msgs_ids": "counter",
+          "gossipsub_ignored_messages_per_topic": "counter",
+          "gossipsub_invalid_messages_per_topic": "counter",
+          "gossipsub_memcache_misses": "counter",
+          "gossipsub_mesh_peer_churn_events": "counter",
+          "gossipsub_mesh_peer_counts": "gauge",
+          "gossipsub_mesh_peer_inclusion_events": "counter",
+          "gossipsub_peers_per_protocol": "gauge",
+          "gossipsub_queue_size": "histogram",
+          "gossipsub_rejected_messages_per_topic": "counter",
+          "gossipsub_removed_queued_messages": "counter",
+          "gossipsub_score_per_mesh": "histogram",
+          "gossipsub_scoring_penalties": "counter",
+          "gossipsub_topic_iwant_msgs": "counter",
+          "gossipsub_topic_msg_last_recv_bytes": "gauge",
+          "gossipsub_topic_msg_last_recv_bytes_unfiltered": "gauge",
+          "gossipsub_topic_msg_last_sent_bytes": "gauge",
+          "gossipsub_topic_msg_published": "counter",
+          "gossipsub_topic_msg_recv_bytes": "counter",
+          "gossipsub_topic_msg_recv_bytes_unfiltered": "counter",
+          "gossipsub_topic_msg_recv_counts": "counter",
+          "gossipsub_topic_msg_recv_counts_unfiltered": "counter",
+          "gossipsub_topic_msg_sent_bytes": "counter",
+          "gossipsub_topic_msg_sent_counts": "counter",
+          "gossipsub_topic_peers_counts": "gauge",
+          "gossipsub_topic_subscription_status": "gauge",
+          "jemalloc_arenas_large_ndalloc": "gauge",
+          "jemalloc_arenas_large_nmalloc": "gauge",
+          "jemalloc_arenas_small_ndalloc": "gauge",
+          "jemalloc_arenas_small_nmalloc": "gauge",
+          "jemalloc_bytes_active": "gauge",
+          "jemalloc_bytes_allocated": "gauge",
+          "jemalloc_bytes_mapped": "gauge",
+          "jemalloc_bytes_metadata": "gauge",
+          "jemalloc_bytes_resident": "gauge",
+          "jemalloc_bytes_retained": "gauge",
+          "jemalloc_num_arenas": "gauge",
+          "libp2p_bandwidth_bytes": "counter",
+          "lighthouse_info": "gauge",
+          "nat_open": "gauge",
+          "network_node_bytes_total_received": "gauge",
+          "network_node_bytes_total_transmit": "gauge",
+          "notifier_head_slot": "gauge",
+          "process_cpu_seconds_total": "gauge",
+          "process_num_threads": "gauge",
+          "process_resident_memory_bytes": "gauge",
+          "process_shared_memory_bytes": "gauge",
+          "process_start_time_seconds": "gauge",
+          "process_virtual_memory_bytes": "gauge",
+          "slotclock_present_epoch": "gauge",
+          "slotclock_present_slot": "gauge",
+          "slotclock_slot_time_seconds": "gauge",
+          "slotclock_slots_per_epoch": "gauge",
+          "store_beacon_anchor_slot": "gauge",
+          "store_beacon_block_get_total": "counter",
+          "store_beacon_hdiff_buffer_cache_byte_size": "gauge",
+          "store_beacon_hdiff_buffer_cache_size": "gauge",
+          "store_beacon_historic_state_cache_size": "gauge",
+          "store_beacon_oldest_block_slot": "gauge",
+          "store_beacon_state_cache_size": "gauge",
+          "store_beacon_state_compress_seconds": "histogram",
+          "store_beacon_state_lower_limit": "gauge",
+          "store_disk_db_read_bytes_total": "counter",
+          "store_disk_db_read_count_total": "counter",
+          "store_disk_db_read_seconds": "histogram",
+          "store_disk_db_size": "gauge",
+          "store_disk_db_type": "counter",
+          "store_disk_db_write_bytes_total": "counter",
+          "store_disk_db_write_count_total": "counter",
+          "store_disk_db_write_seconds": "histogram",
+          "store_freezer_db_size": "gauge",
+          "sync_active_network_requests": "gauge",
+          "sync_batches": "gauge",
+          "sync_eth2_synced": "gauge",
+          "sync_peers_per_column_subnet": "gauge",
+          "sync_peers_per_custody_column_subnet": "gauge",
+          "sync_slots_per_second": "gauge",
+          "system_loadavg_1": "gauge",
+          "system_loadavg_15": "gauge",
+          "system_loadavg_5": "gauge",
+          "system_virt_mem_available_bytes": "gauge",
+          "system_virt_mem_free_bytes": "gauge",
+          "system_virt_mem_percentage": "gauge",
+          "system_virt_mem_total_bytes": "gauge",
+          "system_virt_mem_used_bytes": "gauge",
+          "validator_monitor_validators_total": "gauge"
+        },
+        "samples": {
+          "async_tasks_count": [
+            "async_task_count"
+          ],
+          "async_tasks_time_histogram_bucket": [
+            "async_task_hist",
+            "le"
+          ],
+          "async_tasks_time_histogram_count": [
+            "async_task_hist"
+          ],
+          "async_tasks_time_histogram_sum": [
+            "async_task_hist"
+          ],
+          "beacon_aggregate_and_proof_mesh_peers_per_client": [
+            "Client"
+          ],
+          "beacon_attestation_processing_agg_pool_prune_bucket": [
+            "le"
+          ],
+          "beacon_attestation_processing_agg_pool_prune_count": [],
+          "beacon_attestation_processing_agg_pool_prune_sum": [],
+          "beacon_block_processing_snapshot_cache_size": [],
+          "beacon_current_active_validators": [],
+          "beacon_current_justified_epoch": [],
+          "beacon_finalized_epoch": [],
+          "beacon_fork_choice_compress_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_compress_seconds_count": [],
+          "beacon_fork_choice_compress_seconds_sum": [],
+          "beacon_fork_choice_encode_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_encode_seconds_count": [],
+          "beacon_fork_choice_encode_seconds_sum": [],
+          "beacon_fork_choice_read_lock_aquire_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_read_lock_aquire_seconds_count": [],
+          "beacon_fork_choice_read_lock_aquire_seconds_sum": [],
+          "beacon_head_slot": [],
+          "beacon_head_state_active_validators_total": [],
+          "beacon_head_state_current_justified_epoch": [],
+          "beacon_head_state_current_justified_root": [],
+          "beacon_head_state_eth1_deposit_index": [],
+          "beacon_head_state_finalized_epoch": [],
+          "beacon_head_state_finalized_root": [],
+          "beacon_head_state_latest_block_slot": [],
+          "beacon_head_state_previous_justified_epoch": [],
+          "beacon_head_state_previous_justified_root": [],
+          "beacon_head_state_root": [],
+          "beacon_head_state_slashed_validators_total": [],
+          "beacon_head_state_slot": [],
+          "beacon_head_state_total_validators_total": [],
+          "beacon_head_state_validator_balances_total": [],
+          "beacon_head_state_withdrawn_validators_total": [],
+          "beacon_op_pool_attestation_data_total": [],
+          "beacon_op_pool_attestations_total": [],
+          "beacon_op_pool_attester_slashings_total": [],
+          "beacon_op_pool_max_aggregates_per_data": [],
+          "beacon_op_pool_proposer_slashings_total": [],
+          "beacon_op_pool_sync_contributions_total": [],
+          "beacon_op_pool_voluntary_exits_total": [],
+          "beacon_pre_finalization_block_cache_size": [],
+          "beacon_pre_finalization_block_lookup_count": [],
+          "beacon_previous_justified_epoch": [],
+          "beacon_processed_deposits_total": [],
+          "beacon_sync_comm_observation_slot_aggregators": [],
+          "beacon_sync_comm_observation_slot_signers": [],
+          "block_mesh_peers_per_client": [
+            "Client"
+          ],
+          "blocking_tasks_count": [
+            "blocking_task_count"
+          ],
+          "blocking_tasks_histogram_bucket": [
+            "blocking_task_hist",
+            "le"
+          ],
+          "blocking_tasks_histogram_count": [
+            "blocking_task_hist"
+          ],
+          "blocking_tasks_histogram_sum": [
+            "blocking_task_hist"
+          ],
+          "cpu_cores": [],
+          "cpu_idle_seconds_total": [],
+          "cpu_iowait_seconds_total": [],
+          "cpu_system_seconds_total": [],
+          "cpu_threads": [],
+          "cpu_user_seconds_total": [],
+          "data_availability_overflow_memory_block_cache_size": [],
+          "data_availability_overflow_memory_state_cache_size": [],
+          "dep_error_total": [
+            "target"
+          ],
+          "dep_info_total": [
+            "target"
+          ],
+          "dep_warn_total": [
+            "target"
+          ],
+          "discovery_bytes": [
+            "direction"
+          ],
+          "discovery_queue_size": [],
+          "discovery_requests": [],
+          "discovery_sessions": [],
+          "disk_node_bytes_free": [],
+          "disk_node_bytes_total": [],
+          "disk_node_reads_total": [],
+          "disk_node_writes_total": [],
+          "fork_choice_dequeued_attestations_total": [],
+          "fork_choice_indices": [],
+          "fork_choice_nodes": [],
+          "fork_choice_queued_attestations": [],
+          "gossipsub_heartbeat_duration_bucket": [
+            "le"
+          ],
+          "gossipsub_heartbeat_duration_count": [],
+          "gossipsub_heartbeat_duration_sum": [],
+          "gossipsub_idontwant_msgs_ids_total": [],
+          "gossipsub_idontwant_msgs_total": [],
+          "gossipsub_memcache_misses_total": [],
+          "gossipsub_mesh_peer_churn_events_total": [
+            "hash",
+            "reason"
+          ],
+          "gossipsub_mesh_peer_counts": [
+            "hash"
+          ],
+          "gossipsub_mesh_peer_inclusion_events_total": [
+            "hash",
+            "reason"
+          ],
+          "gossipsub_removed_queued_messages_total": [],
+          "gossipsub_topic_subscription_status": [
+            "hash"
+          ],
+          "jemalloc_arenas_large_ndalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_large_nmalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_small_ndalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_small_nmalloc": [
+            "arena"
+          ],
+          "jemalloc_bytes_active": [],
+          "jemalloc_bytes_allocated": [],
+          "jemalloc_bytes_mapped": [],
+          "jemalloc_bytes_metadata": [],
+          "jemalloc_bytes_resident": [],
+          "jemalloc_bytes_retained": [],
+          "jemalloc_num_arenas": [],
+          "libp2p_bandwidth_bytes_total": [
+            "direction",
+            "protocols"
+          ],
+          "lighthouse_info": [
+            "version"
+          ],
+          "nat_open": [
+            "protocol"
+          ],
+          "network_node_bytes_total_received": [],
+          "network_node_bytes_total_transmit": [],
+          "notifier_head_slot": [],
+          "process_cpu_seconds_total": [],
+          "process_num_threads": [],
+          "process_resident_memory_bytes": [],
+          "process_shared_memory_bytes": [],
+          "process_start_time_seconds": [],
+          "process_virtual_memory_bytes": [],
+          "slotclock_present_epoch": [],
+          "slotclock_present_slot": [],
+          "slotclock_slot_time_seconds": [],
+          "slotclock_slots_per_epoch": [],
+          "store_beacon_anchor_slot": [],
+          "store_beacon_block_get_total": [],
+          "store_beacon_hdiff_buffer_cache_byte_size": [
+            "db"
+          ],
+          "store_beacon_hdiff_buffer_cache_size": [
+            "db"
+          ],
+          "store_beacon_historic_state_cache_size": [],
+          "store_beacon_oldest_block_slot": [],
+          "store_beacon_state_cache_size": [],
+          "store_beacon_state_compress_seconds_bucket": [
+            "le"
+          ],
+          "store_beacon_state_compress_seconds_count": [],
+          "store_beacon_state_compress_seconds_sum": [],
+          "store_beacon_state_lower_limit": [],
+          "store_disk_db_read_bytes_total": [
+            "col"
+          ],
+          "store_disk_db_read_count_total": [
+            "col"
+          ],
+          "store_disk_db_read_seconds_bucket": [
+            "le"
+          ],
+          "store_disk_db_read_seconds_count": [],
+          "store_disk_db_read_seconds_sum": [],
+          "store_disk_db_size": [],
+          "store_disk_db_type": [
+            "db_type"
+          ],
+          "store_disk_db_write_bytes_total": [
+            "col"
+          ],
+          "store_disk_db_write_count_total": [
+            "col"
+          ],
+          "store_disk_db_write_seconds_bucket": [
+            "le"
+          ],
+          "store_disk_db_write_seconds_count": [],
+          "store_disk_db_write_seconds_sum": [],
+          "store_freezer_db_size": [],
+          "sync_active_network_requests": [
+            "type"
+          ],
+          "sync_batches": [
+            "state",
+            "sync_type"
+          ],
+          "sync_eth2_synced": [],
+          "sync_peers_per_column_subnet": [
+            "subnet_id"
+          ],
+          "sync_peers_per_custody_column_subnet": [
+            "subnet_id"
+          ],
+          "sync_slots_per_second": [],
+          "system_loadavg_1": [],
+          "system_loadavg_15": [],
+          "system_loadavg_5": [],
+          "system_virt_mem_available_bytes": [],
+          "system_virt_mem_free_bytes": [],
+          "system_virt_mem_percentage": [],
+          "system_virt_mem_total_bytes": [],
+          "system_virt_mem_used_bytes": [],
+          "validator_monitor_validators_total": []
+        }
+      },
+      "beacon_log": {
+        "mode": "600",
+        "lines": 23,
+        "field_keys": [
+          "address",
+          "bandwidth_config",
+          "current_slot",
+          "datadir",
+          "deploy_block",
+          "enr",
+          "error",
+          "finalized_epoch",
+          "finalized_root",
+          "head_block",
+          "head_slot",
+          "head_state",
+          "id",
+          "info",
+          "ip4",
+          "level",
+          "listen_address",
+          "module",
+          "msg",
+          "network_name",
+          "oldest_blob_slot",
+          "oldest_data_column_slot",
+          "path",
+          "peer_count",
+          "peer_id",
+          "peers",
+          "quic4",
+          "quic6",
+          "seq",
+          "tcp4",
+          "tcp6",
+          "ts",
+          "udp4",
+          "udp6",
+          "version"
+        ]
+      }
+    },
+    {
+      "image": "sigp/lighthouse:v8.1.2@sha256:9e71f6db59d358acb43719fcc5240952811821cc2fc4c3cfa90e57f2e4b38288",
+      "checks": [
+        "pinned_cli_metrics_and_structured_file_capabilities",
+        "actual_private_metrics_family_type_and_label_key_sample",
+        "actual_json_beacon_log_nonroot_owner_only_no_public_read"
+      ],
+      "inventory": {
+        "format": "metric sample names/types and label keys only; no label/sample values",
+        "types": {
+          "async_tasks_count": "gauge",
+          "async_tasks_time_histogram": "histogram",
+          "beacon_aggregate_and_proof_mesh_peers_per_client": "gauge",
+          "beacon_attestation_processing_agg_pool_prune": "histogram",
+          "beacon_block_processing_snapshot_cache_size": "gauge",
+          "beacon_current_active_validators": "gauge",
+          "beacon_current_justified_epoch": "gauge",
+          "beacon_finalized_epoch": "gauge",
+          "beacon_fork_choice_compress_seconds": "histogram",
+          "beacon_fork_choice_encode_seconds": "histogram",
+          "beacon_fork_choice_read_lock_aquire_seconds": "histogram",
+          "beacon_head_slot": "gauge",
+          "beacon_head_state_active_validators_total": "gauge",
+          "beacon_head_state_current_justified_epoch": "gauge",
+          "beacon_head_state_current_justified_root": "gauge",
+          "beacon_head_state_eth1_deposit_index": "gauge",
+          "beacon_head_state_finalized_epoch": "gauge",
+          "beacon_head_state_finalized_root": "gauge",
+          "beacon_head_state_latest_block_slot": "gauge",
+          "beacon_head_state_previous_justified_epoch": "gauge",
+          "beacon_head_state_previous_justified_root": "gauge",
+          "beacon_head_state_root": "gauge",
+          "beacon_head_state_slashed_validators_total": "gauge",
+          "beacon_head_state_slot": "gauge",
+          "beacon_head_state_total_validators_total": "gauge",
+          "beacon_head_state_validator_balances_total": "gauge",
+          "beacon_head_state_withdrawn_validators_total": "gauge",
+          "beacon_op_pool_attestation_data_total": "gauge",
+          "beacon_op_pool_attestations_total": "gauge",
+          "beacon_op_pool_attester_slashings_total": "gauge",
+          "beacon_op_pool_max_aggregates_per_data": "gauge",
+          "beacon_op_pool_proposer_slashings_total": "gauge",
+          "beacon_op_pool_sync_contributions_total": "gauge",
+          "beacon_op_pool_voluntary_exits_total": "gauge",
+          "beacon_pre_finalization_block_cache_size": "gauge",
+          "beacon_pre_finalization_block_lookup_count": "gauge",
+          "beacon_previous_justified_epoch": "gauge",
+          "beacon_processed_deposits_total": "gauge",
+          "beacon_sync_comm_observation_slot_aggregators": "gauge",
+          "beacon_sync_comm_observation_slot_signers": "gauge",
+          "block_mesh_peers_per_client": "gauge",
+          "blocking_tasks_count": "gauge",
+          "blocking_tasks_histogram": "histogram",
+          "cpu_cores": "gauge",
+          "cpu_idle_seconds_total": "gauge",
+          "cpu_iowait_seconds_total": "gauge",
+          "cpu_system_seconds_total": "gauge",
+          "cpu_threads": "gauge",
+          "cpu_user_seconds_total": "gauge",
+          "data_availability_overflow_memory_block_cache_size": "gauge",
+          "data_availability_overflow_memory_state_cache_size": "gauge",
+          "dep_error_total": "counter",
+          "dep_info_total": "counter",
+          "dep_warn_total": "counter",
+          "discovery_bytes": "gauge",
+          "discovery_queue_size": "gauge",
+          "discovery_requests": "gauge",
+          "discovery_sessions": "gauge",
+          "disk_node_bytes_free": "gauge",
+          "disk_node_bytes_total": "gauge",
+          "disk_node_reads_total": "gauge",
+          "disk_node_writes_total": "gauge",
+          "fork_choice_dequeued_attestations_total": "counter",
+          "fork_choice_indices": "gauge",
+          "fork_choice_nodes": "gauge",
+          "fork_choice_queued_attestations": "gauge",
+          "gossipsub_accepted_messages_per_topic": "counter",
+          "gossipsub_failed_messages": "histogram",
+          "gossipsub_heartbeat_duration": "histogram",
+          "gossipsub_idontwant_msgs": "counter",
+          "gossipsub_idontwant_msgs_ids": "counter",
+          "gossipsub_ignored_messages_per_topic": "counter",
+          "gossipsub_invalid_messages_per_topic": "counter",
+          "gossipsub_memcache_misses": "counter",
+          "gossipsub_mesh_peer_churn_events": "counter",
+          "gossipsub_mesh_peer_counts": "gauge",
+          "gossipsub_mesh_peer_inclusion_events": "counter",
+          "gossipsub_peers_per_protocol": "gauge",
+          "gossipsub_queue_size": "histogram",
+          "gossipsub_rejected_messages_per_topic": "counter",
+          "gossipsub_removed_queued_messages": "counter",
+          "gossipsub_score_per_mesh": "histogram",
+          "gossipsub_scoring_penalties": "counter",
+          "gossipsub_topic_iwant_msgs": "counter",
+          "gossipsub_topic_msg_last_recv_bytes": "gauge",
+          "gossipsub_topic_msg_last_recv_bytes_unfiltered": "gauge",
+          "gossipsub_topic_msg_published": "counter",
+          "gossipsub_topic_msg_recv_bytes": "counter",
+          "gossipsub_topic_msg_recv_bytes_unfiltered": "counter",
+          "gossipsub_topic_msg_recv_counts": "counter",
+          "gossipsub_topic_msg_recv_counts_unfiltered": "counter",
+          "gossipsub_topic_msg_sent_bytes": "gauge",
+          "gossipsub_topic_msg_sent_counts": "counter",
+          "gossipsub_topic_peers_counts": "gauge",
+          "gossipsub_topic_subscription_status": "gauge",
+          "jemalloc_arenas_large_ndalloc": "gauge",
+          "jemalloc_arenas_large_nmalloc": "gauge",
+          "jemalloc_arenas_small_ndalloc": "gauge",
+          "jemalloc_arenas_small_nmalloc": "gauge",
+          "jemalloc_bytes_active": "gauge",
+          "jemalloc_bytes_allocated": "gauge",
+          "jemalloc_bytes_mapped": "gauge",
+          "jemalloc_bytes_metadata": "gauge",
+          "jemalloc_bytes_resident": "gauge",
+          "jemalloc_bytes_retained": "gauge",
+          "jemalloc_num_arenas": "gauge",
+          "libp2p_bandwidth_bytes": "counter",
+          "lighthouse_info": "gauge",
+          "nat_open": "gauge",
+          "network_node_bytes_total_received": "gauge",
+          "network_node_bytes_total_transmit": "gauge",
+          "notifier_head_slot": "gauge",
+          "process_cpu_seconds_total": "gauge",
+          "process_num_threads": "gauge",
+          "process_resident_memory_bytes": "gauge",
+          "process_shared_memory_bytes": "gauge",
+          "process_start_time_seconds": "gauge",
+          "process_virtual_memory_bytes": "gauge",
+          "slotclock_present_epoch": "gauge",
+          "slotclock_present_slot": "gauge",
+          "slotclock_slot_time_seconds": "gauge",
+          "slotclock_slots_per_epoch": "gauge",
+          "store_beacon_anchor_slot": "gauge",
+          "store_beacon_block_get_total": "counter",
+          "store_beacon_hdiff_buffer_cache_byte_size": "gauge",
+          "store_beacon_hdiff_buffer_cache_size": "gauge",
+          "store_beacon_historic_state_cache_size": "gauge",
+          "store_beacon_oldest_block_slot": "gauge",
+          "store_beacon_state_cache_size": "gauge",
+          "store_beacon_state_compress_seconds": "histogram",
+          "store_beacon_state_lower_limit": "gauge",
+          "store_disk_db_read_bytes_total": "counter",
+          "store_disk_db_read_count_total": "counter",
+          "store_disk_db_read_seconds": "histogram",
+          "store_disk_db_size": "gauge",
+          "store_disk_db_type": "counter",
+          "store_disk_db_write_bytes_total": "counter",
+          "store_disk_db_write_count_total": "counter",
+          "store_disk_db_write_seconds": "histogram",
+          "store_freezer_db_size": "gauge",
+          "sync_active_network_requests": "gauge",
+          "sync_batches": "gauge",
+          "sync_eth2_synced": "gauge",
+          "sync_peers_per_column_subnet": "gauge",
+          "sync_peers_per_custody_column_subnet": "gauge",
+          "sync_slots_per_second": "gauge",
+          "system_loadavg_1": "gauge",
+          "system_loadavg_15": "gauge",
+          "system_loadavg_5": "gauge",
+          "system_virt_mem_available_bytes": "gauge",
+          "system_virt_mem_free_bytes": "gauge",
+          "system_virt_mem_percentage": "gauge",
+          "system_virt_mem_total_bytes": "gauge",
+          "system_virt_mem_used_bytes": "gauge",
+          "validator_monitor_validators_total": "gauge"
+        },
+        "samples": {
+          "async_tasks_count": [
+            "async_task_count"
+          ],
+          "async_tasks_time_histogram_bucket": [
+            "async_task_hist",
+            "le"
+          ],
+          "async_tasks_time_histogram_count": [
+            "async_task_hist"
+          ],
+          "async_tasks_time_histogram_sum": [
+            "async_task_hist"
+          ],
+          "beacon_aggregate_and_proof_mesh_peers_per_client": [
+            "Client"
+          ],
+          "beacon_attestation_processing_agg_pool_prune_bucket": [
+            "le"
+          ],
+          "beacon_attestation_processing_agg_pool_prune_count": [],
+          "beacon_attestation_processing_agg_pool_prune_sum": [],
+          "beacon_block_processing_snapshot_cache_size": [],
+          "beacon_current_active_validators": [],
+          "beacon_current_justified_epoch": [],
+          "beacon_finalized_epoch": [],
+          "beacon_fork_choice_compress_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_compress_seconds_count": [],
+          "beacon_fork_choice_compress_seconds_sum": [],
+          "beacon_fork_choice_encode_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_encode_seconds_count": [],
+          "beacon_fork_choice_encode_seconds_sum": [],
+          "beacon_fork_choice_read_lock_aquire_seconds_bucket": [
+            "le"
+          ],
+          "beacon_fork_choice_read_lock_aquire_seconds_count": [],
+          "beacon_fork_choice_read_lock_aquire_seconds_sum": [],
+          "beacon_head_slot": [],
+          "beacon_head_state_active_validators_total": [],
+          "beacon_head_state_current_justified_epoch": [],
+          "beacon_head_state_current_justified_root": [],
+          "beacon_head_state_eth1_deposit_index": [],
+          "beacon_head_state_finalized_epoch": [],
+          "beacon_head_state_finalized_root": [],
+          "beacon_head_state_latest_block_slot": [],
+          "beacon_head_state_previous_justified_epoch": [],
+          "beacon_head_state_previous_justified_root": [],
+          "beacon_head_state_root": [],
+          "beacon_head_state_slashed_validators_total": [],
+          "beacon_head_state_slot": [],
+          "beacon_head_state_total_validators_total": [],
+          "beacon_head_state_validator_balances_total": [],
+          "beacon_head_state_withdrawn_validators_total": [],
+          "beacon_op_pool_attestation_data_total": [],
+          "beacon_op_pool_attestations_total": [],
+          "beacon_op_pool_attester_slashings_total": [],
+          "beacon_op_pool_max_aggregates_per_data": [],
+          "beacon_op_pool_proposer_slashings_total": [],
+          "beacon_op_pool_sync_contributions_total": [],
+          "beacon_op_pool_voluntary_exits_total": [],
+          "beacon_pre_finalization_block_cache_size": [],
+          "beacon_pre_finalization_block_lookup_count": [],
+          "beacon_previous_justified_epoch": [],
+          "beacon_processed_deposits_total": [],
+          "beacon_sync_comm_observation_slot_aggregators": [],
+          "beacon_sync_comm_observation_slot_signers": [],
+          "block_mesh_peers_per_client": [
+            "Client"
+          ],
+          "blocking_tasks_count": [
+            "blocking_task_count"
+          ],
+          "blocking_tasks_histogram_bucket": [
+            "blocking_task_hist",
+            "le"
+          ],
+          "blocking_tasks_histogram_count": [
+            "blocking_task_hist"
+          ],
+          "blocking_tasks_histogram_sum": [
+            "blocking_task_hist"
+          ],
+          "cpu_cores": [],
+          "cpu_idle_seconds_total": [],
+          "cpu_iowait_seconds_total": [],
+          "cpu_system_seconds_total": [],
+          "cpu_threads": [],
+          "cpu_user_seconds_total": [],
+          "data_availability_overflow_memory_block_cache_size": [],
+          "data_availability_overflow_memory_state_cache_size": [],
+          "dep_error_total": [
+            "target"
+          ],
+          "dep_info_total": [
+            "target"
+          ],
+          "dep_warn_total": [
+            "target"
+          ],
+          "discovery_bytes": [
+            "direction"
+          ],
+          "discovery_queue_size": [],
+          "discovery_requests": [],
+          "discovery_sessions": [],
+          "disk_node_bytes_free": [],
+          "disk_node_bytes_total": [],
+          "disk_node_reads_total": [],
+          "disk_node_writes_total": [],
+          "fork_choice_dequeued_attestations_total": [],
+          "fork_choice_indices": [],
+          "fork_choice_nodes": [],
+          "fork_choice_queued_attestations": [],
+          "gossipsub_heartbeat_duration_bucket": [
+            "le"
+          ],
+          "gossipsub_heartbeat_duration_count": [],
+          "gossipsub_heartbeat_duration_sum": [],
+          "gossipsub_idontwant_msgs_ids_total": [],
+          "gossipsub_idontwant_msgs_total": [],
+          "gossipsub_memcache_misses_total": [],
+          "gossipsub_mesh_peer_churn_events_total": [
+            "hash",
+            "reason"
+          ],
+          "gossipsub_mesh_peer_counts": [
+            "hash"
+          ],
+          "gossipsub_mesh_peer_inclusion_events_total": [
+            "hash",
+            "reason"
+          ],
+          "gossipsub_removed_queued_messages_total": [],
+          "gossipsub_topic_subscription_status": [
+            "hash"
+          ],
+          "jemalloc_arenas_large_ndalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_large_nmalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_small_ndalloc": [
+            "arena"
+          ],
+          "jemalloc_arenas_small_nmalloc": [
+            "arena"
+          ],
+          "jemalloc_bytes_active": [],
+          "jemalloc_bytes_allocated": [],
+          "jemalloc_bytes_mapped": [],
+          "jemalloc_bytes_metadata": [],
+          "jemalloc_bytes_resident": [],
+          "jemalloc_bytes_retained": [],
+          "jemalloc_num_arenas": [],
+          "libp2p_bandwidth_bytes_total": [
+            "direction",
+            "protocols"
+          ],
+          "lighthouse_info": [
+            "version"
+          ],
+          "nat_open": [
+            "protocol"
+          ],
+          "network_node_bytes_total_received": [],
+          "network_node_bytes_total_transmit": [],
+          "notifier_head_slot": [],
+          "process_cpu_seconds_total": [],
+          "process_num_threads": [],
+          "process_resident_memory_bytes": [],
+          "process_shared_memory_bytes": [],
+          "process_start_time_seconds": [],
+          "process_virtual_memory_bytes": [],
+          "slotclock_present_epoch": [],
+          "slotclock_present_slot": [],
+          "slotclock_slot_time_seconds": [],
+          "slotclock_slots_per_epoch": [],
+          "store_beacon_anchor_slot": [],
+          "store_beacon_block_get_total": [],
+          "store_beacon_hdiff_buffer_cache_byte_size": [
+            "db"
+          ],
+          "store_beacon_hdiff_buffer_cache_size": [
+            "db"
+          ],
+          "store_beacon_historic_state_cache_size": [],
+          "store_beacon_oldest_block_slot": [],
+          "store_beacon_state_cache_size": [],
+          "store_beacon_state_compress_seconds_bucket": [
+            "le"
+          ],
+          "store_beacon_state_compress_seconds_count": [],
+          "store_beacon_state_compress_seconds_sum": [],
+          "store_beacon_state_lower_limit": [],
+          "store_disk_db_read_bytes_total": [
+            "col"
+          ],
+          "store_disk_db_read_count_total": [
+            "col"
+          ],
+          "store_disk_db_read_seconds_bucket": [
+            "le"
+          ],
+          "store_disk_db_read_seconds_count": [],
+          "store_disk_db_read_seconds_sum": [],
+          "store_disk_db_size": [],
+          "store_disk_db_type": [
+            "db_type"
+          ],
+          "store_disk_db_write_bytes_total": [
+            "col"
+          ],
+          "store_disk_db_write_count_total": [
+            "col"
+          ],
+          "store_disk_db_write_seconds_bucket": [
+            "le"
+          ],
+          "store_disk_db_write_seconds_count": [],
+          "store_disk_db_write_seconds_sum": [],
+          "store_freezer_db_size": [],
+          "sync_active_network_requests": [
+            "type"
+          ],
+          "sync_batches": [
+            "state",
+            "sync_type"
+          ],
+          "sync_eth2_synced": [],
+          "sync_peers_per_column_subnet": [
+            "subnet_id"
+          ],
+          "sync_peers_per_custody_column_subnet": [
+            "subnet_id"
+          ],
+          "sync_slots_per_second": [],
+          "system_loadavg_1": [],
+          "system_loadavg_15": [],
+          "system_loadavg_5": [],
+          "system_virt_mem_available_bytes": [],
+          "system_virt_mem_free_bytes": [],
+          "system_virt_mem_percentage": [],
+          "system_virt_mem_total_bytes": [],
+          "system_virt_mem_used_bytes": [],
+          "validator_monitor_validators_total": []
+        }
+      },
+      "beacon_log": {
+        "mode": "600",
+        "lines": 24,
+        "field_keys": [
+          "address",
+          "bandwidth_config",
+          "current_slot",
+          "datadir",
+          "deploy_block",
+          "enr",
+          "error",
+          "finalized_epoch",
+          "finalized_root",
+          "head_block",
+          "head_slot",
+          "head_state",
+          "id",
+          "info",
+          "ip4",
+          "level",
+          "listen_address",
+          "module",
+          "msg",
+          "network_name",
+          "oldest_blob_slot",
+          "oldest_data_column_slot",
+          "path",
+          "peer_count",
+          "peer_id",
+          "peers",
+          "quic4",
+          "quic6",
+          "seq",
+          "tcp4",
+          "tcp6",
+          "ts",
+          "udp4",
+          "udp6",
+          "version"
+        ]
+      }
+    }
+  ]
+}

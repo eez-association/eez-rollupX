@@ -869,6 +869,7 @@ async fn retained_native_history_cold_checkpoint() {
         other => panic!("unsupported native fixture profile: {other}"),
     };
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
+        telemetry_config: None,
         chain_config: &directory.join("l2-genesis.json"),
         l1_chain_config: Some(if profile == NativeL1Profile::GnosisPrague {
             format!("gnosis:{}", directory.join("l1-genesis.json").display())

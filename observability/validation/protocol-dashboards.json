@@ -1,0 +1,111 @@
+{
+  "project": "eez-dash-test-0b8ef96742",
+  "scope": "synthetic data, actual Grafana SQL/Prometheus datasource queries; not native protocol/replay coverage",
+  "checks": [
+    "six_dashboards_loaded_by_grafana",
+    "scoped_endpoint_query_plan_within_reader_budget",
+    "release_annotation_tag_filters_match_environment_and_deployment_without_cross_scope_leaks",
+    "actual_browser_dashboards_and_source_links_preserve_context_and_time",
+    "all_generated_panel_variable_annotation_queries_executed",
+    "historical_prefix_and_current_endpoint_preserved_and_textbox_escaped",
+    "request_discovery_and_source_linked_attempt_preparation_timeline",
+    "idle_activity_recent_history_unknown_and_stale_are_distinct_without_synthetic_health",
+    "receipt_deduplicated_companions_exact_shared_estimates_and_unallocated_coverage",
+    "canonical_outcome_weighted_blob_coverage_exact_costs_and_explorer_links",
+    "native_stage_cut_slot_queries_and_exact_policy_anchor_population",
+    "follower_agreement_actual_mismatch_lag_disabled_and_stale_values_never_coerced",
+    "funding_real_zero_unknown_burn_stale_candidate_and_distinct_account_populations",
+    "settled_transaction_costs_exact_weighted_ratio_overlap_dedup_revert_spend_and_missing_denominator",
+    "observed_finality_actual_grafana_percentiles_counts_clock_gap_and_finality_freeze",
+    "stale_sql_sources_and_failed_native_scrape_are_unknown_not_zero"
+  ],
+  "dashboard_sha256": {
+    "blobs.json": "a76a032eacab8b386c291136daa43ba3feb994791a380cc072bfc1a52fe1a37f",
+    "cross-chain.json": "cf99249a12d83a819baec023fb69eb9b2b214c94135c2e67aa1b209685f00090",
+    "gas.json": "126a79381ffdbdda8510f68f45b94a68a00e9d5756c7465ed79108a142963052",
+    "infrastructure.json": "0577150f2c25f975dc3365d17a35d56ac4c599e9ee92f468d6124ba7f4dba58b",
+    "network.json": "5996c423b7a292395a58508c35aabb37eb25013338fb73cc43e88f5447b1b74b",
+    "settlement.json": "1437a1cbeb01320c12a294fd2738cb9a81f01f79a219149edb0256bac39cfe85"
+  },
+  "migration_sha256": {
+    "0001-canonical.sql": "993952446f78a3ab57da0d9a7a185621cb15ee0535f2596598a8acab32a2490f",
+    "0002-posting.sql": "a13da742e76724622c95621d02ec10e6aff89ab1cf8c309f5a75587c677ee909",
+    "0003-settlements.sql": "f54e4879392081922f6b74bd397bcc7b61c36ebfddcc0c9f28db734f6e6d8257",
+    "0004-lifecycle.sql": "dc8944466e3d022e0cf8566a431b2f257f47045171b8743d9a83a83fa594db25",
+    "0005-source-receipts.sql": "8d06f7753cc809d27ac6364085a07f9ece020ed3689f7d8c4bc0f30c2631e37a",
+    "0006-protocol-logs.sql": "75fd50542eeed645c6f5fca01b2f7f1d3ab49f035c7ec986977eb4c506b8a7a6",
+    "0007-posting-rollups.sql": "14762b494e5a7aaa86302de6acf1edea711945f3034510747e266f7006c9ab86",
+    "0008-admission-status.sql": "15f56a12adf5d1fe5c20bee067e236496255681fc5e69e534e12884b99e3f9df",
+    "0009-source-references.sql": "a7c9780e8c5e26fd436fd8ed6955a0375500648242471c8e405894d459d47ca1",
+    "0010-native-outcomes.sql": "d61906ce6b94829e541faa6a83795093d057283bf0ac4b2106293e6f9a0a3ad9",
+    "0011-canonical-outcomes.sql": "341a9171e1bf78f8269e5a833922f3560cbb1ecf18c41c2476a737bfe839a052",
+    "0012-blobs.sql": "7aac21922eefdacacb015321f66776acd0b2a1550f3bbf2dd89d262cba968183",
+    "0013-dashboard-context.sql": "45cd1d96a2443a0984e5c2752b2856707cec34e8a6e9f2a5ce22a843b1cab2c3",
+    "0014-cost-allocation.sql": "de76ebfb6f0801437a4c30655fa4cfe882d9b00933f2ba74f17cb4911ea3bc97",
+    "0015-canonical-revision.sql": "615ddaec5b757a42b6ff032cf65e60d871ebbaf36a0581275a280e0023906453",
+    "0016-cost-claim-invalidation.sql": "b6dd8de4577fa19db36b8d477dde6af653a4205dafde4e1138ed9242876cf596",
+    "0017-finality-timing.sql": "5bfbe1bbdfe6fd0e004874552c80de9397712e31d26bf1aad3d59d8437758047",
+    "0018-settled-transaction-costs.sql": "aeed5587a2d3f3530910dd327eecdef0ff18491262b09d0859ae5f421da6d338",
+    "0019-finality-query-boundaries.sql": "095c01e562a141254c2bd7f06363456335d7ed981b0cd36cee8ca53d5b1e3843",
+    "0020-cost-query-boundaries.sql": "b3186d6738c69996abc0f273dd397e65f93aefaa06cacd6f2a5cfb7544b33e45"
+  },
+  "endpoint_grafana_query_seconds": 0.27330830600112677,
+  "queries_executed": 88,
+  "browser_verifier_sha256": "664b9d9885ae8cac6cfce3f5f5f58ae3b0072ad2632c8eee096fdef65fe7c9dd",
+  "browser": {
+    "scope": "actual browser with synthetic SQL/metric producers",
+    "checks": [
+      "private_fixture_login",
+      "quiet_direction_is_idle_and_retained_success_is_separate",
+      "eez-cross-chain_renders",
+      "eez-settlement_renders",
+      "eez-blobs_renders",
+      "eez-gas_renders",
+      "request_link_eez-cross-chain_Request_timeline_preserves_scope_and_time",
+      "request_link_eez-settlement_Related_attempts_preserves_scope_and_time",
+      "request_link_eez-gas_Source_receipt_and_explorer_preserves_scope_and_time"
+    ],
+    "page_errors": [],
+    "status": "passed",
+    "query_failures": [],
+    "pending_requests": [
+      {
+        "path": "/public/build/img/icons/unicons/check.svg",
+        "method": "GET"
+      },
+      {
+        "path": "/public/build/img/icons/unicons/times.svg",
+        "method": "GET"
+      }
+    ],
+    "query_capture_count": 132,
+    "local_full_report": "/tmp/eez-observability-browser-quiet-range-browser/browser.json",
+    "local_full_report_sha256": "e9d6b83e7f2ba618090cc2a1f3abfdd5a4f91115bd98a91c72fb297bb14d2a75"
+  },
+  "postgres_memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0,
+    "sock_throttled": 0
+  },
+  "postgres_memory_peak_bytes": 433602560,
+  "postgres_state": {
+    "Running": true,
+    "OOMKilled": false,
+    "ExitCode": 0
+  },
+  "postgres_memory_evidence": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0\n433602560\n",
+  "grafana_state": {
+    "Running": true,
+    "OOMKilled": false,
+    "ExitCode": 0
+  },
+  "grafana_memory_evidence": "low 0\nhigh 0\nmax 3076\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 70\n536875008\n",
+  "status": "passed",
+  "local_report": "/tmp/eez-observability-browser-quiet-range.json",
+  "local_report_sha256": "3f1910eea35243854d4cea4d0e2fcf46bf2602b9a1ed40cce7f89cd165c64106",
+  "evidence_scope": "Synthetic chain/native producers; actual pinned PostgreSQL/Grafana/Prometheus and Chromium. Not native ingestion or production capacity."
+}

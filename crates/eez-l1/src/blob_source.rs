@@ -12,7 +12,8 @@ use alloy_primitives::{B256, Bytes, U256, hex};
 use alloy_provider::Provider;
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
-    Blob, BlobLimits, MAX_BLOBS_PER_TRANSACTION, blob_versioned_hashes, decode_native_payload,
+    Blob, BlobLimits, MAX_BLOBS_PER_TRANSACTION, decode_native_payload,
+    physical_blob_versioned_hash,
 };
 use eez_protocol::abi::postAndVerifyBatchCall;
 use serde_json::Value;
@@ -33,7 +34,9 @@ struct BeaconTiming {
 #[derive(Debug, Clone)]
 struct AvailableBlob {
     versioned_hash: B256,
-    blob: Blob,
+    // Authenticated EIP-4844 bytes may belong to another application. EEZ's
+    // narrower packing rules apply only after execution-hash selection.
+    bytes: Bytes,
 }
 
 /// Consensus-layer source shared by repeated scans. Chain timing is immutable
@@ -91,6 +94,20 @@ impl BeaconBlobSource {
         let mut sidecars_by_block: HashMap<B256, (usize, Vec<AvailableBlob>)> = HashMap::new();
 
         for scanned in batches {
+            let required = crate::blob_diagnostics::RequiredBlob {
+                block_number: scanned.l1_block_number,
+                block_hash: scanned.l1_block_hash,
+                transaction_hash: scanned.tx_hash,
+                transaction_index: scanned.tx_index,
+                rollup_id,
+            };
+            let classify = |error: L1Error, reason| {
+                if scanned.settlement.is_empty() {
+                    error
+                } else {
+                    error.with_required_blob(required, reason)
+                }
+            };
             let posted =
                 postAndVerifyBatchCall::abi_decode(&scanned.post_batch_input).map_err(|error| {
                     L1Error::Decode(format!(
@@ -147,7 +164,13 @@ impl BeaconBlobSource {
                         scanned.l1_block_number,
                         scanned.tx_hash,
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| {
+                        classify(
+                            error,
+                            crate::blob_diagnostics::BlobUnavailableReason::BeaconResponse,
+                        )
+                    })?;
                 entry.insert((maximum, available));
             }
 
@@ -168,15 +191,26 @@ impl BeaconBlobSource {
                     .iter()
                     .find(|candidate| candidate.versioned_hash == *expected_hash)
                 else {
-                    return Err(L1Error::SourceIncomplete {
-                        block: scanned.l1_block_number,
-                        tx_hash: scanned.tx_hash,
-                        detail: format!(
-                            "beacon blob response does not contain transaction blob {expected_hash}"
-                        ),
-                    });
+                    return Err(classify(
+                        L1Error::SourceIncomplete {
+                            block: scanned.l1_block_number,
+                            tx_hash: scanned.tx_hash,
+                            detail: format!(
+                                "beacon blob response does not contain transaction blob {expected_hash}"
+                            ),
+                        },
+                        crate::blob_diagnostics::BlobUnavailableReason::ExpectedHashMissing,
+                    ));
                 };
-                transaction_blobs.push(found.blob.clone());
+                let blob = Blob::try_from_slice(transaction_blobs.len(), &found.bytes).map_err(
+                    |error| {
+                        L1Error::Decode(format!(
+                            "invalid authenticated EEZ blob for {}: {error}",
+                            scanned.tx_hash
+                        ))
+                    },
+                )?;
+                transaction_blobs.push(blob);
             }
 
             let native = decode_native_payload(&transaction_blobs, rollup_id).map_err(|error| {
@@ -424,13 +458,8 @@ fn parse_sidecars(value: &Value) -> Result<Vec<AvailableBlob>, String> {
                 commitment.len()
             ));
         }
-        let blob = Blob::try_from_slice(position, &blob_bytes)
-            .map_err(|error| format!("data[{position}].blob: {error}"))?;
-        let computed_hash = blob_versioned_hashes(std::slice::from_ref(&blob))
-            .map_err(|error| format!("data[{position}].blob KZG commitment: {error}"))?
-            .into_iter()
-            .next()
-            .expect("one input blob produces one hash");
+        let computed_hash = physical_blob_versioned_hash(&blob_bytes)
+            .map_err(|error| format!("data[{position}].blob KZG commitment: {error}"))?;
         let advertised_hash = kzg_to_versioned_hash(&commitment);
         if computed_hash != advertised_hash {
             return Err(format!(
@@ -439,7 +468,7 @@ fn parse_sidecars(value: &Value) -> Result<Vec<AvailableBlob>, String> {
         }
         available.push(AvailableBlob {
             versioned_hash: computed_hash,
-            blob,
+            bytes: blob_bytes.into(),
         });
     }
     Ok(available)
@@ -459,16 +488,11 @@ fn parse_blobs(value: &Value) -> Result<Vec<AvailableBlob>, String> {
             .as_str()
             .ok_or_else(|| format!("data[{position}] is not a blob string"))?;
         let blob_bytes = decode_hex(blob_hex, &format!("data[{position}]"))?;
-        let blob = Blob::try_from_slice(position, &blob_bytes)
-            .map_err(|error| format!("data[{position}]: {error}"))?;
-        let versioned_hash = blob_versioned_hashes(std::slice::from_ref(&blob))
-            .map_err(|error| format!("data[{position}] KZG commitment: {error}"))?
-            .into_iter()
-            .next()
-            .expect("one input blob produces one hash");
+        let versioned_hash = physical_blob_versioned_hash(&blob_bytes)
+            .map_err(|error| format!("data[{position}] KZG commitment: {error}"))?;
         available.push(AvailableBlob {
             versioned_hash,
-            blob,
+            bytes: blob_bytes.into(),
         });
     }
     Ok(available)
@@ -506,8 +530,10 @@ fn normalize_base_url(mut url: Url) -> Url {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_eips::eip4844::{AsCkzg as _, Blob as PhysicalBlob, env_settings::EnvKzgSettings};
     use alloy_provider::ProviderBuilder;
     use alloy_transport::mock::Asserter;
+    use eez_blob_codec::blob_versioned_hashes;
     use eez_protocol::abi::ProofSystemBatchPerVerificationEntriesSol;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -675,6 +701,176 @@ mod tests {
         assert_eq!(scanned[0].operations_payload, expected_payload);
     }
 
+    fn physical_commitment(bytes: &[u8]) -> [u8; 48] {
+        EnvKzgSettings::Default
+            .get()
+            .blob_to_kzg_commitment(PhysicalBlob::from_slice(bytes).as_ckzg())
+            .unwrap()
+            .to_bytes()
+            .into_inner()
+    }
+
+    fn mixed_response(blobs: &[Vec<u8>], legacy: bool) -> Value {
+        serde_json::json!({"data": blobs.iter().map(|blob| {
+            let body = format!("0x{}", hex::encode(blob));
+            if legacy {
+                serde_json::json!({"blob": body, "kzg_commitment": format!("0x{}", hex::encode(physical_commitment(blob)))})
+            } else {
+                serde_json::json!(body)
+            }
+        }).collect::<Vec<_>>()})
+    }
+
+    async fn hydrate_response(response: Value, legacy: bool, hashes: Vec<B256>) -> L1Result<Bytes> {
+        let mut responses = vec![
+            (200, r#"{"data":{"genesis_time":"1000"}}"#.to_owned()),
+            (200, r#"{"data":{"SECONDS_PER_SLOT":"12"}}"#.to_owned()),
+        ];
+        if legacy {
+            responses.push((404, r#"{"message":"not supported"}"#.to_owned()));
+        }
+        responses.push((200, response.to_string()));
+        let beacon = serve_http_responses(responses).await;
+        let mut block: alloy_rpc_types_eth::Block = Default::default();
+        block.header.hash = B256::repeat_byte(0x44);
+        block.header.inner.number = 42;
+        block.header.inner.timestamp = 1060;
+        let asserter = Asserter::new();
+        asserter.push_success(&block);
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+        let mut batches = [ScannedBatch {
+            l1_block_number: 42,
+            l1_block_hash: block.header.hash,
+            tx_hash: B256::repeat_byte(0x55),
+            tx_index: 1,
+            submitter: alloy_primitives::Address::ZERO,
+            operations_payload: Bytes::new(),
+            post_batch_input: postAndVerifyBatchCall {
+                batch: ProofSystemBatchPerVerificationEntriesSol {
+                    blobIndices: (0..hashes.len()).map(U256::from).collect(),
+                    ..Default::default()
+                },
+            }
+            .abi_encode()
+            .into(),
+            transaction_blob_hashes: hashes,
+            state_applied: true,
+            settlement: crate::scan::Settlement::NONE,
+            claimed_current_root: None,
+            claimed_new_root: None,
+        }];
+        BeaconBlobSource::new(Some(beacon))
+            .hydrate_scanned_batches(&provider, 7, &mut batches)
+            .await?;
+        Ok(batches[0].operations_payload.clone())
+    }
+
+    #[tokio::test]
+    async fn unrelated_physical_blobs_do_not_poison_selected_eez_payloads() {
+        let payload = Bytes::from_static(b"selected EEZ payload");
+        let selected =
+            eez_blob_codec::encode_native_payload(7, payload.clone(), Vec::new()).unwrap();
+        let expected = blob_versioned_hashes(&selected).unwrap();
+        let mut unrelated = vec![0; eez_blob_codec::BLOB_BYTES];
+        // 2^248 is a valid BLS scalar but is outside EEZ's 31-byte packing.
+        // Position 53 mirrors the failure shape, not evidence about the old slot.
+        unrelated[53 * 32] = 1;
+        assert!(Blob::try_from_slice(0, &unrelated).is_err());
+        physical_commitment(&unrelated);
+        for legacy in [false, true] {
+            for first in [false, true] {
+                let mut bodies = vec![selected[0].as_bytes().to_vec()];
+                bodies.insert(usize::from(!first), unrelated.clone());
+                assert_eq!(
+                    hydrate_response(mixed_response(&bodies, legacy), legacy, expected.clone())
+                        .await
+                        .unwrap(),
+                    payload
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn selected_physical_blob_still_requires_eez_packing_and_native_stream() {
+        for legacy in [false, true] {
+            for invalid_packing in [false, true] {
+                let mut body = vec![0; eez_blob_codec::BLOB_BYTES];
+                if invalid_packing {
+                    body[53 * 32] = 1;
+                }
+                let expected = kzg_to_versioned_hash(&physical_commitment(&body));
+                let error =
+                    hydrate_response(mixed_response(&[body], legacy), legacy, vec![expected])
+                        .await
+                        .unwrap_err();
+                assert!(matches!(error, L1Error::Decode(_)), "{error}");
+                let gate = if invalid_packing {
+                    "non-zero most-significant byte"
+                } else {
+                    "decode authenticated native blob payload"
+                };
+                assert!(error.to_string().contains(gate), "{error}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn physical_authentication_and_exact_expected_hash_remain_mandatory() {
+        let selected =
+            eez_blob_codec::encode_native_payload(7, Bytes::from_static(b"payload"), Vec::new())
+                .unwrap();
+        let body = selected[0].as_bytes().to_vec();
+        for legacy in [false, true] {
+            let response = mixed_response(std::slice::from_ref(&body), legacy);
+            let error = hydrate_response(response, legacy, vec![B256::repeat_byte(0x99)])
+                .await
+                .unwrap_err();
+            assert!(matches!(error, L1Error::SourceIncomplete { .. }), "{error}");
+            assert!(
+                error
+                    .to_string()
+                    .contains("does not contain transaction blob"),
+                "{error}"
+            );
+            for invalid_length in [false, true] {
+                let mut malformed = body.clone();
+                if invalid_length {
+                    malformed.pop();
+                } else {
+                    malformed[..32].fill(0xff); // Not a BLS scalar, unlike the unrelated valid blob.
+                }
+                let encoded = format!("0x{}", hex::encode(malformed));
+                let response = if legacy {
+                    serde_json::json!({"data":[{"blob":encoded,"kzg_commitment":format!("0x{}",hex::encode(physical_commitment(&body)))}]})
+                } else {
+                    serde_json::json!({"data":[encoded]})
+                };
+                assert!(
+                    hydrate_response(response, legacy, blob_versioned_hashes(&selected).unwrap())
+                        .await
+                        .is_err()
+                );
+            }
+        }
+        let mut wrong_commitment = mixed_response(std::slice::from_ref(&body), true);
+        wrong_commitment["data"][0]["kzg_commitment"] =
+            serde_json::json!(format!("0x{}", hex::encode([0; 48])));
+        let error = hydrate_response(
+            wrong_commitment,
+            true,
+            blob_versioned_hashes(&selected).unwrap(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not match its advertised KZG commitment"),
+            "{error}"
+        );
+    }
+
     #[tokio::test]
     async fn historical_nine_blob_batch_uses_containing_fork_and_checks_each_transaction() {
         use alloy_eips::eip7840::BlobParams;
@@ -767,16 +963,93 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn only_applied_native_retrieval_failures_have_typed_required_blob_evidence() {
+        for applied in [false, true] {
+            for (status, body, reason) in [
+                (
+                    200,
+                    r#"{"data":[]}"#,
+                    crate::blob_diagnostics::BlobUnavailableReason::ExpectedHashMissing,
+                ),
+                (
+                    410,
+                    r#"{"message":"pruned"}"#,
+                    crate::blob_diagnostics::BlobUnavailableReason::BeaconResponse,
+                ),
+            ] {
+                let beacon = serve_http_responses(vec![
+                    (200, r#"{"data":{"genesis_time":"1000"}}"#.into()),
+                    (200, r#"{"data":{"SECONDS_PER_SLOT":"12"}}"#.into()),
+                    (status, body.into()),
+                ])
+                .await;
+                let mut block: alloy_rpc_types_eth::Block = alloy_rpc_types_eth::Block::default();
+                block.header.hash = B256::repeat_byte(0x44);
+                block.header.inner.number = 42;
+                block.header.inner.timestamp = 1060;
+                let asserter = Asserter::new();
+                asserter.push_success(&block);
+                let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+                let mut batches = vec![ScannedBatch {
+                    l1_block_number: 42,
+                    l1_block_hash: block.header.hash,
+                    tx_hash: B256::repeat_byte(0x55),
+                    tx_index: 7,
+                    submitter: alloy_primitives::Address::ZERO,
+                    operations_payload: Bytes::new(),
+                    transaction_blob_hashes: vec![B256::repeat_byte(1)],
+                    post_batch_input: postAndVerifyBatchCall {
+                        batch: ProofSystemBatchPerVerificationEntriesSol {
+                            blobIndices: vec![U256::ZERO],
+                            ..Default::default()
+                        },
+                    }
+                    .abi_encode()
+                    .into(),
+                    state_applied: applied,
+                    settlement: crate::scan::Settlement {
+                        len: usize::from(applied),
+                        ..crate::scan::Settlement::NONE
+                    },
+                    claimed_current_root: None,
+                    claimed_new_root: None,
+                }];
+                let error = BeaconBlobSource::new(Some(beacon))
+                    .hydrate_scanned_batches(&provider, 9, &mut batches)
+                    .await
+                    .unwrap_err();
+                assert!(error.is_source_incomplete());
+                if applied {
+                    let (reference, observed) =
+                        error.required_blob().expect("actual applied dependency");
+                    assert_eq!(observed, reason);
+                    assert_eq!(reference.transaction_index, 7);
+                    assert_eq!(reference.block_hash, block.header.hash);
+                    assert_eq!(reference.rollup_id, 9);
+                } else {
+                    assert!(
+                        error.required_blob().is_none(),
+                        "unapplied historical posts must not page"
+                    );
+                }
+            }
+        }
+    }
+
     async fn serve_json_responses(responses: Vec<String>) -> Url {
+        serve_http_responses(responses.into_iter().map(|body| (200, body)).collect()).await
+    }
+    async fn serve_http_responses(responses: Vec<(u16, String)>) -> Url {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            for body in responses {
+            for (status, body) in responses {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut request = vec![0_u8; 4_096];
                 let _ = stream.read(&mut request).await.unwrap();
                 let header = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} Fixture\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     body.len()
                 );
                 stream.write_all(header.as_bytes()).await.unwrap();

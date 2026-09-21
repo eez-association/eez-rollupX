@@ -1,0 +1,51 @@
+{
+  "scope": "Single-machine Compose smoke with simulated RPC data; no live deployment",
+  "checks": [
+    "explicit_compose_migration_before_writer_start",
+    "verified_image_readonly_observer_without_admin_credentials",
+    "real_observer_indexes_simulated_receipts_and_settlement_exactly",
+    "prometheus_grafana_sql_dashboards_and_paused_alerts_without_webhooks",
+    "observer_restart_and_repeated_ingestion_do_not_duplicate_fees",
+    "full_compose_restart_preserves_fixture_history_and_dashboard_data"
+  ],
+  "status": "passed",
+  "node_image_id": "sha256:1281a09f1ced0ac9988b34f4e50fed84f3bfca4333cbe9658f2fea9a957a55b2",
+  "canonical_cost_totals_wei": {
+    "l1": "738216",
+    "l2": "738216"
+  },
+  "retained": true,
+  "runtime_source_revision": "d633d87319497c44744512328271ad84e94b5a4e",
+  "milestone": "User-requested good-enough single-machine Docker Compose testing; production hardening deferred.",
+  "python_tests": {
+    "selected": 145,
+    "passed": 144,
+    "opt_in_resource_skipped": 1
+  },
+  "local_only": {
+    "demo_directory": ".runtime/observability-compose-demo",
+    "access_instructions": ".runtime/observability-compose-demo/DEMO.md",
+    "grafana_url": "http://127.0.0.1:33003",
+    "prometheus_url": "http://127.0.0.1:33001"
+  },
+  "source_sha256": {
+    "observability/prepare.py": "1bacfae145cdf7fac6e28e232b330f693ea50f8d67b594442979e3afe4a82cff",
+    "observability/compose.observer.yaml": "320b5a2be7739493aae9fdb902f602101e62d90257a774587e6dcc18ea8d97cf",
+    "observability/compose.node-network.yaml": "cbd473c36a2f8f093d74f0609545f58df8ad1f86637d25d19e9ed3c98967c348",
+    "observability/tests/smoke-single-host.py": "a5f5a23e065d23448aa1efd3b99c109b3519d6bac65dda5fe7bdb29f458bd087",
+    "observability/tests/indexer-rpc-start.py": "bf987dbe0e0245d1eeba1b3a2858dd0dfe8196bb57a0d1f1f2793a1ad44d35ef"
+  },
+  "evidence_sha256": {
+    ".runtime/observability-compose-demo/report.json": "2b29228fded65fe3e6bbffee5540f7ab132edd13108cd84bcfcb7d7a0dbf4551",
+    "target/observability-pr26-integration/single-host-compose-demo.log": "4eee2e74d1ebf8adc7bec83ac0ead2a19baf199fbf883bc37e0bb478c3b46f0b",
+    "target/observability-pr26-integration/single-host-final-python.log": "db212f870325dd8ed9a44ea677644bbf168686c68cf01fa7801f3b1deb4f882f",
+    "target/observability-pr26-integration/single-host-demo.log": "d2f4260419f0e600a77fb0b70f1357a4ba20949e197a94641d940bb2875f6478",
+    "target/observability-pr26-integration/single-host-demo-corrected.log": "a5eb835e020dc2050550a55343873aa3d3f9d82934771b2331e60edd0999b13e"
+  },
+  "limitations": [
+    "Deterministic simulated RPC data; not connected to the existing live deployment.",
+    "Optional native lifecycle, authenticated blob retrieval and tracing are not fabricated in the demo; absent evidence remains unknown.",
+    "EEZ alert rules are paused with no configured webhook receivers.",
+    "Host-loss recovery, independent alerting, full production matrix and operational calibration are future work; performance comparisons remain deferred."
+  ]
+}

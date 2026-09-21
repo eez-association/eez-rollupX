@@ -1,0 +1,16 @@
+{
+  "listen": "127.0.0.1:19100",
+  "allow_non_loopback": false,
+  "l1": {
+    "url": "http://127.0.0.1:18645",
+    "chain_id": 10200,
+    "genesis_hash": "REPLACE_WITH_VERIFIED_L1_GENESIS_HASH"
+  },
+  "l2": {
+    "url": "http://127.0.0.1:18688",
+    "chain_id": 6290,
+    "genesis_hash": "REPLACE_WITH_VERIFIED_L2_GENESIS_HASH"
+  },
+  "reference_l1_url": null,
+  "registry_escrow": null
+}

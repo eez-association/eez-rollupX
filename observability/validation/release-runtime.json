@@ -1,0 +1,554 @@
+{
+  "schema_version": 1,
+  "current_checkpoint": "Historical pre-PR26 release checkpoints only; current integration is recorded in pr26-integration.md",
+  "status": "local_release_evidence_with_test_corrections_performance_and_deployment_open",
+  "runtime_revision": "03a3caa1b92ca39e0119f7417e347c78c8f530c9",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_revision": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "evidence_scope": "local only; ignored files unavailable to another checkout",
+  "evidence_root": "target/observability-release-03a3caa1-20260917T234016Z",
+  "evidence_sha256": {
+    "status.json": "284bccca9a80d6394f99359a3968ef561a82e874725d588604aea36a28d7b3c6",
+    "runtime/manifest.json": "5a7ec8e0bd2464d8778ee8cefa7634d39bff2b76e532c98fb9dda670ac6ba566",
+    "tests/manifest.json": "98e1e5eca5e8f15d0091761af4f87caa1e0281f1de0660ac39838e7a33c0cc9a",
+    "validation/status.json": "ba603591d958fe702ce8dbe2b08fc090093a82931768d4b3f8e30bb69d7cce57",
+    "validation/native-status.json": "78d5ea1c7fcc65871025e42014f1508d5f0ee1a32db367e56294eb2b0bf61f78",
+    "validation/kurtosis/status.json": "a9678dad7fcb95c382bdd92aa8f46d93a5815f664c9485042c0e84cf7be81675",
+    "validation/remaining-native/status.json": "c7b6f3287ba1b26d37d35b40faec2d08d94c8f8ed74107488f68aa8480d0f559",
+    "validation/remaining-native/native-quota.json": "6cf451f959a31a164e11d1f591a7090b2484f3aec1c139352151bf106dfd399a",
+    "validation/trace-first-failure.json": "ec68dd16ac104bef6602179630f80198a1869802fa78394969018ae746786132",
+    "validation/assertion-fixes/status.json": "951e3362200c5867ce98365b41cc49757b65c82aa5562f03770b5ec08a32e635",
+    "validation/fullness-fix-v2/status.json": "d1777acbf4ddfa9ea7dfaf52bf02cf84d2e6ebdf0952cd7b49dcbdb588343311"
+  },
+  "release_units": {
+    "main": 948,
+    "composer_separate_archive": 246,
+    "total": 1194
+  },
+  "release_postgresql": {
+    "grouped_checks": 64,
+    "status": "passed"
+  },
+  "original_embedded": {
+    "clean_passes": 50,
+    "retry_only_failure": 1,
+    "standard_skipped": 1,
+    "status": "failed"
+  },
+  "original_cross_chain": {
+    "clean_passes": 60,
+    "retry_only_failure": 1,
+    "unfinished": 7,
+    "deadline_seconds": 5400,
+    "exit_code": 124,
+    "status": "failed"
+  },
+  "supplemental_cross_chain": {
+    "clean_passes": 7,
+    "physical_quota": "passed",
+    "original_failure_preserved": true
+  },
+  "kurtosis": {
+    "status": "passed",
+    "all_upstream_scenarios": 28,
+    "max_parallel": 4,
+    "seconds": 1728.742441259994,
+    "signed_windows": 133,
+    "root_divergence": 0,
+    "owned_enclave_absent": true
+  },
+  "first_blob_failure": {
+    "reproduced_on_frozen_main": true,
+    "observed_blobs": 3,
+    "expected_blobs": 2
+  },
+  "first_trace_failure": {
+    "spans": 169,
+    "complete_signer_parent_chains": 31,
+    "retry_window": 65,
+    "signing_window": 70,
+    "same_admissions": true
+  },
+  "corrected_harness_profile": "optimized development; unchanged release runtime binaries; release test archives not rebuilt",
+  "corrected_fullness": [
+    {
+      "name": "baseline-fullness",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "runtime_sha256": {
+        "eez-composer": "32afc9395abcf3ff94edfb283a57f96a78dc31ac779cdb6bb9d28027977c53e8",
+        "eez-follower": "0296d4c7cc01b4366079572320e87894b157de8d3f122dc6e6872701c313744e",
+        "eez-proof-signer": "837399f6e39f7b48ea0f525a4eaee7b222f886f3608bef0d9370bb0cb8a46e6d"
+      },
+      "timeout_seconds": 600,
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/fullness-fix-v2/settlement_policy",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 110.8886559560051,
+      "selected_exactly_one": true,
+      "log_sha256": "17602ad0677ab2547cc023c2bcacdc5c3bd06bd720d5a940eeff38345b40c5f3"
+    },
+    {
+      "name": "candidate-fullness",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "runtime_sha256": {
+        "eez-composer": "83f0d2c04d0dcc2c3e91299ecb570b1a81c7a4c7200f437fbd3d2dbdac53a492",
+        "eez-follower": "6bd5b1e27e06d51018cbdd792fdb17fb18375111ab4b48238f4da3af19aa19c1",
+        "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+        "eez-observer": "45c60a156675b3d0a254c0db9bfd4fa8d15c29092095eb2877c0715b8b27f8d2"
+      },
+      "timeout_seconds": 600,
+      "command": [
+        "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/fullness-fix-v2/settlement_policy",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 109.30280292998941,
+      "selected_exactly_one": true,
+      "log_sha256": "1da24480144ccd442ce580557680ab542117d9ee1be3ddc0253d2b2061ad41b4"
+    }
+  ],
+  "corrected_trace": {
+    "name": "candidate-trace-rollover",
+    "test": "traced_bidirectional_cross_chain_smoke",
+    "runtime_sha256": {
+      "eez-composer": "83f0d2c04d0dcc2c3e91299ecb570b1a81c7a4c7200f437fbd3d2dbdac53a492",
+      "eez-follower": "6bd5b1e27e06d51018cbdd792fdb17fb18375111ab4b48238f4da3af19aa19c1",
+      "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+      "eez-observer": "45c60a156675b3d0a254c0db9bfd4fa8d15c29092095eb2877c0715b8b27f8d2"
+    },
+    "timeout_seconds": 600,
+    "command": [
+      "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-03a3caa1-20260917T234016Z/validation/assertion-fixes/cross_chain",
+      "traced_bidirectional_cross_chain_smoke",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "status": "passed",
+    "exit_code": 0,
+    "elapsed_seconds": 86.87482463099877,
+    "selected_exactly_one": true,
+    "log_sha256": "6cafd229953a4ef8531f2c72872f34483e970580ebaf92a77506fc79f654ebbe"
+  },
+  "focused_validation": {
+    "trace_regressions": 5,
+    "workflow_contracts": 17,
+    "native_artifact_checks": 26,
+    "optional_native_relocation_not_rerun": 1,
+    "strict_affected_target_clippy": "passed",
+    "workspace_formatting": "passed",
+    "diff_check": "passed"
+  },
+  "ci_budgets_minutes": {
+    "cross_chain": 120,
+    "no_publication_producer_and_all_lanes": 360
+  },
+  "remaining": [
+    "uninterrupted final CI including corrected release test archives",
+    "shipping overhead and live lock-probe calibration",
+    "publication approval",
+    "private rollout inputs and independent heartbeat",
+    "off-host recovery and seven-day baseline"
+  ],
+  "schema21_release_checkpoint": {
+    "recorded_utc": "2026-09-18T07:53:06.697648+00:00",
+    "status": "partial_release_validation_with_retained_native_failure",
+    "runtime_revision": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+    "scope": "sealed local schema21 application runtime; committed test/controller corrections passed separate functional checks; release harness build and configuration verification are recorded separately",
+    "evidence_root_local_only": "/home/edu/Development/eez-rollup0-fork/target/worktrees/network-observability/target/observability-release-45e5c015-20260918T050517Z",
+    "availability": "Raw artifacts are retained locally, not bundled with this repository or published.",
+    "evidence_sha256": {
+      "runtime/manifest.json": "d2679949cabb359cdd718d5102b67b3cbe65a0f5c0f49aa958102d4fd0c126a9",
+      "tests/manifest.json": "7a36a8a330af29af3800e7fc6abbf02dcba5cc50b2a9fd73fd36a92199b36998",
+      "validation/status.json": "0e99a16430b8ec124b14fd260333d25076b44aba40ed99e297ca98d5971dda75",
+      "validation/backend-checks/database.json": "7bb51496912c5ef018028766d2b14be8c6387e7bedfb73eca37f329da720aa5c",
+      "validation/backend-checks/dashboards.json": "411523a59202e8ec5ef95cd3af3147ca02ce3866eda0f887de73d78f6ab4f9ae",
+      "validation/network-summary.json": "5f5c2fc09eeeb1d017ac59cae5806515e97fbbcd86dc384029f31854447f00bb",
+      "validation/capacity-summary.json": "cc283041bbfc3597b468a080512fb5a9628e66bd0333f0e466fed094e90689a7",
+      "validation/schema21-static-compatibility.json": "f0d4e193916285f8365d6ebafdcc0b5e6aaecc32ea3f251650f029cc8e139b9c",
+      "validation/embedded-release.log": "d28aa599e3bd9d3c45e11e70113e0cbd64b3caca7366ae2b416adb88a4e518a5"
+    },
+    "release_units": {
+      "passed": 1194,
+      "skipped": 0
+    },
+    "postgresql_groups": 58,
+    "grafana_queries": 96,
+    "network": {
+      "protocol_scenarios": {
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "suite_complete": true,
+        "accounting_valid": true,
+        "evidence_complete": true,
+        "causal_coverage_complete": true,
+        "semantic_blob_coverage_complete": true
+      },
+      "modes": [
+        "inbound",
+        "outbound",
+        "mixed",
+        "mixed-pure"
+      ],
+      "proof_flow": {
+        "signed_windows": 130,
+        "remote_attestations": 130
+      },
+      "cross_chain_convergence": "pass",
+      "state_chaining": "pass",
+      "safe_head_convergence": "pass",
+      "l1_l2_root_divergence": 0,
+      "owned_enclave_removed": "eez-obs-45e5c015-115923f7"
+    },
+    "embedded": {
+      "status": "failed",
+      "exit_code": 100,
+      "elapsed_seconds": 5257.271474487003,
+      "passed": 50,
+      "failed": 1,
+      "skipped": 1,
+      "failure": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals passed only on third attempt; strict CI treats it as failure"
+    },
+    "cross_chain": {
+      "status": "failed",
+      "exit_code": 100,
+      "elapsed_seconds": 6126.246613594994,
+      "nextest_seconds": 6122.43,
+      "selected": 74,
+      "passed": 73,
+      "failed": 1,
+      "skipped": 2,
+      "failure": "Ethereum fitting40 case passed only on second attempt; strict CI treats it as failure"
+    },
+    "original_burst_baseline": {
+      "status": "not_reproduced_in_this_run",
+      "root_commit": "5469c88860408daf776ee812156dd280c1a9e262",
+      "selected": 1,
+      "passed": 1,
+      "retries": 0,
+      "test_seconds": 172.137,
+      "wrapper_seconds": 174.1560046779923,
+      "log_sha256": "4c3c272a0e91f7e709d1b02d4680a51398c302b7ac3951743d8099ce31b3729f",
+      "scope": "unchanged archived release test; one functional run, no performance or baseline-failure reproduction claim"
+    },
+    "forty_wave_failure": {
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "observed": "fully queued first wave split39+1 by preparation-time admission, two canonical L1 receipt blocks instead of one",
+      "failed_admission_ms": 163,
+      "retry_admission_ms": [
+        93,
+        107
+      ],
+      "baseline_comparison": "admission decision code and test helper unchanged; measured-path instrumentation differs; runtime comparison pending",
+      "disposition": "preserve original assertion and budgets; no established cause or runtime fix",
+      "comparison_preflight": {
+        "status": "stopped_before_workload",
+        "elapsed_seconds": 60.045881382975494,
+        "swap_in_pages": 57,
+        "swap_out_pages": 0,
+        "major_faults": 59,
+        "reason": "declared zero-swap quiet-host prerequisite not met; no runtime comparison result"
+      },
+      "triage_manifest_sha256": "14a18081e59a6934910f72e92a48063cc3ab14b672148022815c152e06c0f665",
+      "quota_handoff": "automatic handoff skipped on suite failure; separate exact-artifact physical-quota check subsequently passed (see physical_quota); original CI failure retained",
+      "second_comparison_preflight": {
+        "status": "stopped_before_workload",
+        "busy_cores": 14.495465470733198,
+        "swap_in_pages": 20,
+        "swap_out_pages": 0,
+        "reason": "declared CPU/zero-swap prerequisites not met; no runtime comparison result",
+        "status_sha256": "70a505b286a03e6406b04909fd17ba327a7a77dd673b305a7f03efcda62a93e6"
+      }
+    },
+    "capacity": {
+      "canonical_sources": 2722,
+      "oom_kills": 0,
+      "memory_peak_bytes": 536870912,
+      "memory_limit_bytes": 536870912,
+      "memory_limit_events": 107,
+      "scope": "single enabled-arm diagnostic, not comparative overhead or production headroom"
+    },
+    "remaining": [
+      "user-deferred: fitting40 frozen-main/candidate timing comparison, shipping overhead/confidence runs, and lock-probe calibration; resume only on explicit user instruction with a suitable window or host",
+      "strict native CI acceptance remains open; supplemental functional passes do not reclassify original failures",
+      "publication/remote CI, actual private rollout inputs/owner/independent heartbeat, off-host recovery and seven-day deployment baseline remain open"
+    ],
+    "corrected_burst": {
+      "status": "passed",
+      "test_sha256": "cfb2cf02d0726d23c85c8137bb25e1fc73d6e78a1311025251787da8def9e684",
+      "scope": "corrected source-built functional test against verified baseline/candidate shipping runtimes; no performance or resealed archive claim",
+      "original_baseline_status": "not_reproduced_in_this_run",
+      "cases": [
+        {
+          "name": "ethereum-baseline",
+          "test": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 172.68276014301227,
+          "owned_processes_stopped": true,
+          "log_sha256": "6f158da3c9cec413210fded13fa83f4744cc01a9a5ceddd4e25c5cb324464bb7",
+          "selected_one": true
+        },
+        {
+          "name": "ethereum-candidate",
+          "test": "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 171.74172607899527,
+          "owned_processes_stopped": true,
+          "log_sha256": "a2f734e5f88d7a339da56ddfd8660f52a1603fe24b5e5b4bf901745531200f9e",
+          "selected_one": true
+        },
+        {
+          "name": "gnosis-baseline",
+          "test": "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 191.0294522450131,
+          "owned_processes_stopped": true,
+          "log_sha256": "1475d0f40584c8c5543f0452c8ab29cbe52d69db5867791598868e496cbba954",
+          "selected_one": true
+        },
+        {
+          "name": "gnosis-candidate",
+          "test": "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+          "status": "passed",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "elapsed_seconds": 186.26233314198907,
+          "owned_processes_stopped": true,
+          "log_sha256": "ad252dab4282cb6f3d1332b5d24443f09383f35ad707f8e344e316c81d73c950",
+          "selected_one": true
+        }
+      ],
+      "candidate_ethereum_without_catchup": {
+        "empty_events": 7,
+        "steady_events": 27,
+        "catchup_events": 0,
+        "interpretation": "Permitted path passes strict missed-boundary emptiness plus retained protocol assertions."
+      }
+    },
+    "cleanup_generation_guard": {
+      "status": "unit_and_native_cleanup_verified",
+      "runner_tests_passed": 31,
+      "new_mocked_generation_cases": 4,
+      "prior_source_failed_cases": 2,
+      "scope": "Detect visible session-leader PID reuse before scanning/signalling; keeps absent-leader sibling cleanup. Does not establish atomic session ancestry across unobserved replacement lifetimes.",
+      "runner_tests_log_sha256": "694e86d0c9d8a14c55500cab06bfec1ead7c3372847b77594b3a294e61352404"
+    },
+    "physical_quota": {
+      "status": "passed",
+      "elapsed_seconds": 129.47478640600457,
+      "owned_container_absent": true,
+      "report_sha256": "d3f8a8e6196b7afaade781a45d8f163de72ce8e110128331082b8762f5f6cfa0",
+      "checks": [
+        "native_writer_started_and_persisted_real_records_before_failure",
+        "real_writer_io_loss_and_bidirectional_effects_canonical_state_and_signature_while_full",
+        "stopped_alloy_and_held_unlinked_ballast_remain_present_during_protocol_progress",
+        "native_semantics_test_passes_and_writer_recovers_without_restart"
+      ],
+      "image_capacity_bytes": 3221225472,
+      "held_unlinked_bytes": 2804600832,
+      "full_native_result": {
+        "dropped_io": 18.0,
+        "source_count": 2,
+        "writer_errors": 3.0
+      },
+      "fresh_post_release_persisted_commits": 2,
+      "memory_peak_bytes": 4295032832,
+      "memory_limit_events": 8589,
+      "oom_kills": 0,
+      "scope": "actual native bidirectional protocol and writer under physical ENOSPC; no overhead claim",
+      "limit": "Memory-limit reclaim pressure occurred; no memory-headroom claim. Independent follow-up does not make the original CI suite pass."
+    },
+    "controller_cleanup": {
+      "status": "passed",
+      "scope": "actual owned native/controller cleanup integration; no comparative performance claim",
+      "candidate_manifest_sha256": "d6be79c2cae55063dd2fafdf3346a1071b6a20520d0d7c54eb4c99ceea8fb238",
+      "status_sha256": "c286fa5f52ba35bc3273236bf9cec3a1b3c3c972c35a7f7ac7be7551553c1c94",
+      "elapsed_seconds": 348.21011466300115,
+      "cases": [
+        {
+          "name": "healthy-A",
+          "status": "passed",
+          "actual_arm_status": "captured",
+          "result_sha256": "1740fa16e1fdbaab7b12db2174d773a3525183dd94812326f72dc7bd9df280e0",
+          "retained_failure_datadir_count": 0,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 93.13898309602519
+        },
+        {
+          "name": "healthy-B",
+          "status": "passed",
+          "actual_arm_status": "captured",
+          "result_sha256": "f60a59ec397c9c3354822cfb6c791f267fef279836034ce9cfcd7696339ec45c",
+          "retained_failure_datadir_count": 0,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 120.67208618400036
+        },
+        {
+          "name": "forced-after-ready",
+          "status": "passed",
+          "actual_arm_status": "failed",
+          "result_sha256": "66f9da56d1ce5c69bbe6173295364b6d39bb687d61113582aba071a18b0b4ac9",
+          "dump_validation": {
+            "dump_sha256": "e97afefd83a51b1d28032a7f6ad509bbabef589b859df9ec45f43139c92318fd",
+            "bytes": 311430,
+            "pg_restore_list_sha256": "a90f473155245d7092540e950eb4dbd5e932c650fe8f009c51e90b64ee04407b"
+          },
+          "retained_failure_datadir_count": 2,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 61.882017965981504
+        },
+        {
+          "name": "early-deadline",
+          "status": "passed",
+          "actual_arm_status": "budget_exhausted",
+          "result_sha256": "b83452ce39c28e08e5f865f3708b8d111d2d40da29f04101efae79cef8d1639c",
+          "retained_failure_datadir_count": 1,
+          "owned_processes_stopped": true,
+          "owned_container_absent": true,
+          "owned_parents_removed": true,
+          "owned_cleanup_verified": true,
+          "elapsed_seconds": 1.092490044014994
+        },
+        {
+          "name": "ordinary-default-fixture",
+          "status": "passed",
+          "test_sha256": "28344563aed94a7374ac16248de4eab95477a828e9bb7a84f152e0c4a6f5147a",
+          "timeout_seconds": 600,
+          "exit_code": 0,
+          "owned_processes_stopped": true,
+          "log_sha256": "4e4a3b376eb378964309c96ba4817d533177b4b2887473edea788ce4bf9bc69b",
+          "retained_failure_datadir_count": 0
+        }
+      ],
+      "retention": "Intentional native failure datadirs/dumps remain as evidence, separate from PostgreSQL owned-parent teardown; no performance acceptance claim."
+    },
+    "performance_deferral": {
+      "status": "deferred_by_user",
+      "instruction": "User cannot provide a quiet window or dedicated host now and requested postponing this test until one is available.",
+      "scope": [
+        "fitting40 quiet-host baseline/candidate timing comparison",
+        "shipping overhead pilot and confirmatory performance runs",
+        "quiet-host probe calibration and lock-performance comparison"
+      ],
+      "resume_condition": "User explicitly provides a suitable window or host; do not periodically retry preflights or relax thresholds.",
+      "still_authorized": "Finish release-harness build, functional verification, evidence review and preparation of deferred procedures.",
+      "acceptance": "No timing or performance acceptance claim; preserve both rejected preflights and all earlier evidence."
+    },
+    "release_harness_verification": {
+      "source_revision": "f55e0a8e04f796d893e64c554053156b07515058",
+      "status": "passed_after_probe_cache_correction",
+      "scope": "release test artifacts with unchanged sealed45 runtime bytes; all six pure configuration units passed; no native chain or performance test run in this checkpoint",
+      "first_build": {
+        "shipping_elapsed_seconds": 3074.629978992016,
+        "probe_elapsed_seconds": 9.812266566004837
+      },
+      "first_verification": {
+        "status": "failed",
+        "shipping_configuration_tests_passed": 3,
+        "probe_missing_test": "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields",
+        "status_sha256": "d8666f870d28a109c2c4701205b8f06afc8990284fbc5a407abb01c8b2d83971"
+      },
+      "cause": "Probe executable hash exactly matched the old sealed45 probe test despite the new source map; inherited Cargo fingerprints reused a stale executable. Shipping feature selection rebuilt the changed package and passed all three configuration checks.",
+      "correction": "Invalidate only the overlaid eez-node-e2e release package with cargo clean --locked --release -p eez-node-e2e, then require all three configuration tests before exporting the probe archive.",
+      "invalid_candidate": "harness-rebuild-f55e0a8e/probe/candidate; retained for diagnosis, not usable for future measurement",
+      "cache_reproduction_manifest_sha256": "b41833cd6696cf2c9a97f1d207134cef41637d723bab070cd01776732c8f64eb",
+      "future_plan_status": "Existing unbound v3 performance draft predates the rejected probe artifact; it must be rebound to the corrected, configuration-verified artifact set before use after explicit user resumption.",
+      "verified_variants": {
+        "shipping": {
+          "status": "built_and_configuration_verified",
+          "candidate_local_only": "harness-rebuild-f55e0a8e/shipping/candidate",
+          "elapsed_seconds": 3074.629978992016,
+          "build_status_sha256": "74b7efde78d7e29038a73f2925ead73fb4c9067598c458146214f589e7d34980",
+          "manifest_sha256": "fa38cbf9846c22b869cbf1a80dec4dc1c4daa75617f822c1f1dd3b7687c78eb6",
+          "test_binary_sha256": "1caaf529b783dbf1bf7c8516685678c3d06d220938cf51bb90afd481c68b7f1f",
+          "source_map_sha256": "5af0bd1a35167e5b9465947ac4bdbfebd8a327b432dc54ff4937c09fadfaf5e0",
+          "runtime_reused_from": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+          "runtime_sha256": {
+            "eez-composer": "82f28080641b078fc30cd66d22b98883c1df56ed213d831db7a24e30f9fc1edc",
+            "eez-follower": "e516ccd70af42c88a4972a51eb5e9b90aa448a03c04cf19c7ee676baf045a04a",
+            "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+            "eez-observer": "669c37c4f8f2fa1e85a94f4b999830d3d64a0e12371fd5a154d9ce58a0dd0868"
+          },
+          "configuration_tests_passed": 3
+        },
+        "probe": {
+          "status": "built_and_configuration_verified",
+          "candidate_local_only": "harness-rebuild-probe-f55e0a8e-v2/probe/candidate",
+          "elapsed_seconds": 982.394266955991,
+          "build_status_sha256": "ee704cf77b0b39c146891275859382c0562276858a3b8529906c93cdbe6ac3bb",
+          "manifest_sha256": "8340babf0168d6a48f3e306ac678e7d111b7d851be58dd10d8dd27f436a74587",
+          "test_binary_sha256": "0f31e4d4da25ffc519556e928a252b65afa7b53c22bb461a9d50e63a537d06a4",
+          "source_map_sha256": "5af0bd1a35167e5b9465947ac4bdbfebd8a327b432dc54ff4937c09fadfaf5e0",
+          "runtime_reused_from": "45e5c015b3df9872455e541fa5d42c7ba6af983a",
+          "runtime_sha256": {
+            "eez-composer": "0bf28212812b0d26fb9f16bea1e39e2633b09c0809f30ef7c191752e61f478cf",
+            "eez-follower": "093c598b6fc06dde5b4b1739fb77298456707b396885f5080a5f3218dadc42aa",
+            "eez-proof-signer": "86cc981a75914463901fce16f14bb45d3504259bcb5424a038d0593970ad80e0",
+            "eez-observer": "669c37c4f8f2fa1e85a94f4b999830d3d64a0e12371fd5a154d9ce58a0dd0868"
+          },
+          "configuration_tests_passed": 3
+        }
+      },
+      "configuration_verification": {
+        "status": "passed",
+        "passed": 6,
+        "ignored": 0,
+        "status_sha256": "d843a6b473943c7c7efd11460a78ed57f2167c19072fbd7d6360b7466b98be2a",
+        "checks": [
+          {
+            "variant": "shipping",
+            "status": "passed",
+            "selected": [
+              "overhead::tests::absent_budgets_preserve_defaults_and_explicit_maxima_validate",
+              "overhead::tests::invalid_limits_and_combinations_fail_before_runtime",
+              "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields"
+            ],
+            "passed": 3,
+            "ignored": 0,
+            "manifest_sha256": "fa38cbf9846c22b869cbf1a80dec4dc1c4daa75617f822c1f1dd3b7687c78eb6",
+            "log_sha256": "5363db8d3c4b6b3529dc8f21da70f09a81179ec25258a319445c04af7411d081"
+          },
+          {
+            "variant": "probe",
+            "status": "passed",
+            "selected": [
+              "overhead::tests::absent_budgets_preserve_defaults_and_explicit_maxima_validate",
+              "overhead::tests::invalid_limits_and_combinations_fail_before_runtime",
+              "overhead::tests::optional_owned_fixture_keeps_legacy_default_and_rejects_unknown_fields"
+            ],
+            "passed": 3,
+            "ignored": 0,
+            "manifest_sha256": "8340babf0168d6a48f3e306ac678e7d111b7d851be58dd10d8dd27f436a74587",
+            "log_sha256": "5363db8d3c4b6b3529dc8f21da70f09a81179ec25258a319445c04af7411d081"
+          }
+        ]
+      }
+    }
+  }
+}

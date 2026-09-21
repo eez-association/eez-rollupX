@@ -12,6 +12,7 @@ pub type DeriverResult<T> = Result<T, DeriverError>;
 /// Error returned by [`Deriver`](crate::Deriver) operations.
 pub struct DeriverError {
     kind: ErrorKind,
+    computed_header: Option<Box<(alloy_consensus::Header, alloy_primitives::B256)>>,
 }
 
 #[derive(Debug)]
@@ -76,8 +77,40 @@ impl DeriverError {
         })
     }
 
+    /// Preserve the native rejection while retaining the actual STF candidate
+    /// that failed the authenticated, complete-template comparison.
+    pub(crate) fn computed_header_mismatch(
+        header: alloy_consensus::Header,
+        advertised: alloy_primitives::B256,
+    ) -> Self {
+        let mut error = Self::local_diverged_with_msg(
+            header.number,
+            &format!(
+                "replayed self-contained block hash {} differs from advertised hash {advertised}",
+                header.hash_slow()
+            ),
+        );
+        error.computed_header = Some(Box::new((header, advertised)));
+        error
+    }
+    pub(crate) fn computed_header(
+        &self,
+    ) -> Option<&(alloy_consensus::Header, alloy_primitives::B256)> {
+        self.computed_header.as_deref()
+    }
+
     fn new(kind: ErrorKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            computed_header: None,
+        }
+    }
+
+    pub(crate) fn l1_error(&self) -> Option<&eez_l1::L1Error> {
+        match &self.kind {
+            ErrorKind::L1Scan(error) => Some(error),
+            _ => None,
+        }
     }
 
     /// Returns true if L1 is missing data for an otherwise-observed
@@ -92,6 +125,10 @@ impl DeriverError {
     #[must_use]
     pub fn is_l1_transport(&self) -> bool {
         matches!(&self.kind, ErrorKind::L1Scan(err) if err.is_transport())
+    }
+
+    pub(crate) fn is_local_diverged(&self) -> bool {
+        matches!(self.kind, ErrorKind::LocalDiverged { .. })
     }
 
     /// Returns true if the `BlockCommitter` actor task has exited.
@@ -161,3 +198,28 @@ impl fmt::Display for DeriverError {
 }
 
 impl std::error::Error for DeriverError {}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn computed_template_mismatch_preserves_native_error_and_only_actual_candidate() {
+        let computed = alloy_consensus::Header {
+            number: 7,
+            state_root: alloy_primitives::B256::repeat_byte(1),
+            ..Default::default()
+        };
+        let advertised = alloy_primitives::B256::repeat_byte(2);
+        let error = DeriverError::computed_header_mismatch(computed.clone(), advertised);
+        assert!(error.is_local_diverged());
+        assert_eq!(error.computed_header(), Some(&(computed, advertised)));
+        assert!(error.to_string().contains("local L2 block 7 diverged"));
+        assert!(error.to_string().contains("differs from advertised hash"));
+        assert!(DeriverError::local_diverged(7).computed_header().is_none());
+        assert!(
+            DeriverError::l2_provider("missing block")
+                .computed_header()
+                .is_none()
+        );
+    }
+}

@@ -65,7 +65,10 @@ signal does not cancel an already admitted RPC: tonic first lets it run until
 completion or its request deadline. The process then waits for any detached
 worker to reach a cancellation boundary or complete and release the slot.
 Supervisors should therefore allow the remaining request deadline plus the
-worst-case non-interruptible cancellation tail. A forced kill trades bounded
+worst-case non-interruptible cancellation tail, plus at most two seconds for
+optional trace flushing after the slot becomes idle. Tracing disabled adds no
+flush wait. The signer has no overall application shutdown deadline; the trace
+allowance does not bound or interrupt protocol draining. A forced kill trades bounded
 shutdown time for abandoning validation mid-computation.
 
 ## Tracing

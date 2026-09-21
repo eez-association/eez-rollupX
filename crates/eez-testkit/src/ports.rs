@@ -11,7 +11,8 @@ static ASSIGNED: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new(Has
 /// The lease must be released immediately before spawning the child. This
 /// cannot make a subprocess bind atomic, but it reduces the race from the
 /// entire fixture-setup interval to the `drop`/`spawn` boundary.
-pub(crate) struct PortLease {
+#[derive(Debug)]
+pub struct PortLease {
     port: u16,
     _tcp: Option<TcpListener>,
     _tcp_secondary: Option<TcpListener>,
@@ -19,7 +20,7 @@ pub(crate) struct PortLease {
 }
 
 impl PortLease {
-    pub(crate) fn tcp() -> Self {
+    pub fn tcp() -> Self {
         let mut used = ASSIGNED.lock().expect("assigned ports lock");
         loop {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP reservation");
@@ -98,7 +99,7 @@ impl PortLease {
         }
     }
 
-    pub(crate) const fn port(&self) -> u16 {
+    pub const fn port(&self) -> u16 {
         self.port
     }
 }

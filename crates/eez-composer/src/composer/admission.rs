@@ -18,6 +18,13 @@ use crate::{
     settlement_policy::index::DaOverhead,
 };
 
+/// Preserve sub-millisecond measurement precision without wrapping long durations.
+/// An unrepresentable value is omitted, making measurement coverage explicitly
+/// unavailable while the existing millisecond event remains compatible.
+fn preparation_nanoseconds(elapsed: Duration) -> Option<u64> {
+    u64::try_from(elapsed.as_nanos()).ok()
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Sample {
     groups: usize,
@@ -365,6 +372,7 @@ impl Attempt {
             event_name = "eez.composer.admission.prepared", rollup_id,
             selected = self.selected, accepted = groups,
             preparation_ms = elapsed.as_millis() as u64,
+            preparation_ns = preparation_nanoseconds(elapsed),
             admission_ms = progress.phase.as_millis() as u64,
             finishing_ms = sample.tail.as_millis() as u64,
             non_blob_finishing_ms = sample.tail.saturating_sub(sample.blob_preparation).as_millis() as u64,
@@ -537,6 +545,20 @@ mod tests {
     use alloy_consensus::{SignableTransaction, TxEip1559, TxEip4844, TxEnvelope, TxLegacy};
     use alloy_eips::Encodable2718;
     use alloy_primitives::{B256, Signature, U256};
+
+    #[test]
+    fn preparation_nanoseconds_preserve_millisecond_clock_and_reject_overflow() {
+        for nanos in [0, 1, 999_999, 1_000_000, 71_123_456, u64::MAX] {
+            let duration = Duration::from_nanos(nanos);
+            assert_eq!(preparation_nanoseconds(duration), Some(nanos));
+            assert_eq!(duration.as_millis(), u128::from(nanos / 1_000_000));
+        }
+        assert_eq!(
+            preparation_nanoseconds(Duration::from_nanos(u64::MAX) + Duration::from_nanos(1)),
+            None
+        );
+        assert_eq!(preparation_nanoseconds(Duration::MAX), None);
+    }
 
     fn sample(groups: usize, preparation_ms: u64) -> Sample {
         Sample {

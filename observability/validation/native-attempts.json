@@ -1,0 +1,74 @@
+{
+  "recorded_at": "2026-09-17T01:37:38.549224+00:00",
+  "source_commit": "bd0e03b6f875b26dc82aa722175959f3fd668684",
+  "capture_commit": "85a178f32690a5e7ba2aa84d5da3b36014cc88cd",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rust": "1.94.0",
+  "foundry": "1.7.1",
+  "profile": "local Cargo test/dev, optimized with debug information",
+  "artifact_sha256": {
+    "target/debug/eez-composer": "cf5adf47a2366d70f8a264fe65d9890f6ae189c9f52261c63d9d0281328d4a83",
+    "target/debug/eez-proof-signer": "650daafc6ac65d561df8e56b7e2b9b525de3b6a2a76ef6d179038b4c11f78ae6",
+    "target/debug/deps/cross_chain-90652da83e702fbe": "5a1ae27d36dc911ec5c91bd3ae73c9e16c8ac240b90dfc3611a2bd4ac3e8b9d5"
+  },
+  "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test cross_chain bidirectional_cross_chain_smoke -- --test-threads=1",
+  "cleared_overrides": [
+    "EEZ_TEST_PREBUILT",
+    "EEZ_TEST_RUNTIME_BIN_DIR",
+    "EEZ_TEST_PROOF_SIGNER_BIN"
+  ],
+  "result": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 21,
+    "duration_seconds": 346.09
+  },
+  "duration_note": "Includes the test harness source build of the signer; not a performance measurement.",
+  "tests": [
+    "lifecycle_bidirectional_cross_chain_smoke",
+    "lifecycle_policy_bidirectional_cross_chain_smoke",
+    "minimal_bidirectional_cross_chain_smoke"
+  ],
+  "checks": [
+    "both source receipts succeed",
+    "destination values 41 and 43",
+    "safe-state convergence",
+    "independently recomputed proof signature",
+    "both enabled modes: one admission per source, readiness and exact chain/genesis/rollup/direction",
+    "complete attempt membership and parallel manifest plans",
+    "candidate stream/blob-capacity arithmetic",
+    "membership reaches a dispatch directly or by explicit repricing link",
+    "captured dispatch nonce/blob count match a mined transaction",
+    "no poison/nonce-eviction/divergence logs"
+  ],
+  "local_log": "/tmp/eez-observability-attempt-e2e-fixed.log",
+  "local_log_sha256": "2c1dff878c3a2795523a8caca2ab8391a1676e643ef05473da15749cb3fb6fb3",
+  "local_process_logs": "artifacts/native-observability/2026-09-17-attempts-fixed/logs",
+  "first_failure": {
+    "source_commit": "85a178f32690a5e7ba2aa84d5da3b36014cc88cd",
+    "result": {
+      "passed": 2,
+      "failed": 1,
+      "filtered": 21
+    },
+    "cause": "new policy fixture omitted required EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS and exited before RPC startup",
+    "correction": "use the existing policy fixture values: general trigger 10000, speculative depth 0",
+    "runtime_validation_changed": false,
+    "artifact_sha256": {
+      "target/debug/eez-composer": "cf5adf47a2366d70f8a264fe65d9890f6ae189c9f52261c63d9d0281328d4a83",
+      "target/debug/eez-proof-signer": "650daafc6ac65d561df8e56b7e2b9b525de3b6a2a76ef6d179038b4c11f78ae6",
+      "target/debug/deps/cross_chain-90652da83e702fbe": "331642d2f26a4d4d53eed9e19766d7e2ee97c81a08c379d5fc9cb8aafe445f03"
+    },
+    "local_log": "/tmp/eez-observability-attempt-e2e-first-failure.log",
+    "local_log_sha256": "1e1c0ee0260a228989ab56aeab0398ec475cd2cf26ca377878cd507c64a7a983"
+  },
+  "limits": [
+    "not full E2E selection",
+    "no independent follower replay",
+    "no release-artifact or overhead claim",
+    "pre-signing preparation and canonical outcome capture still incomplete",
+    "no production deployment or seven-day baseline"
+  ]
+}

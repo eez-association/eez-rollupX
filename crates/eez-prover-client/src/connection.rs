@@ -22,6 +22,7 @@ impl RemoteProver {
         Ok(self.connection().await?.capabilities.clone())
     }
 
+    #[tracing::instrument(name = "prover_capabilities", target = "eez_trace", skip_all, fields(trace_id = tracing::field::Empty, otel.kind = "client"))]
     pub(super) async fn connection(&self) -> ProverResult<Arc<Connection>> {
         let mut slot = self.inner.connection.lock().await;
         if let Some(connection) = slot.as_ref() {
@@ -39,7 +40,7 @@ impl RemoteProver {
             .max_decoding_message_size(1024);
         let capabilities = tokio::time::timeout(
             Duration::from_secs(10),
-            client.capabilities(CapabilitiesRequest {}),
+            client.capabilities(super::traced_request(CapabilitiesRequest {})),
         )
         .await
         .map_err(|_| unavailable("capability discovery timed out".into()))?

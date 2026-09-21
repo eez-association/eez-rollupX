@@ -176,7 +176,7 @@ task authorization.
 | ABI, commitments, blob codecs | `cargo +1.94.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
 | Signer or prover RPC | `cargo +1.94.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
 | Settlement/admission | Composer unit tests; relevant `eez-node-e2e` targets: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
-| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `resumption`; `cross_chain` / `chained_interstate` when group semantics change |
+| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `derivable_operations` (restart coverage); `cross_chain` / `chained_interstate` when group semantics change |
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
 | Protocol pin or core-contract integration | Core tests below; `forge build --root eez-core-protocol`; `bash scripts/ci/run-protocol-anvil.sh`; affected fork/E2E checks |
 | EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`; affected contract tests; deployment verification in the [Kurtosis guide](testing/kurtosis/README.md#run-the-pinned-protocol-e2e-suite) |
@@ -312,7 +312,11 @@ For Chiado operation or deployment changes, read the
 [quick start](docs/runbooks/chiado-quickstart.md) and
 [deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Before adding or
 replacing a Composer on an existing Chiado L2, read the
-[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). Preserve these boundaries:
+[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). For the current
+Chiado 6291 monitoring deployment, also read the
+[observability operations runbook](docs/runbooks/chiado-observability.md): its private
+root is under the main checkout, its helpers select separate native/monitoring
+projects, and branch changes do not update running images. Preserve these boundaries:
 
 - Normal deployment uses the published deploy image's bundled contracts/tools;
   host builds and `:local` images are for development. Match node/signer/deploy

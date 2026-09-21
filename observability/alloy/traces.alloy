@@ -1,0 +1,42 @@
+// Optional private trace-only collector. No tail sampling or log/metric conversion.
+logging { level = "info" }
+
+otelcol.receiver.otlp "eez" {
+  http {
+    endpoint = "0.0.0.0:4318"
+    max_request_body_size = "4MiB"
+  }
+  output {
+    traces = [otelcol.processor.memory_limiter.eez.input]
+  }
+}
+
+otelcol.processor.memory_limiter "eez" {
+  check_interval = "1s"
+  limit = "128MiB"
+  spike_limit = "32MiB"
+  output {
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
+    timeout = "1s"
+  }
+  retry_on_failure {
+    enabled = true
+    initial_interval = "1s"
+    max_interval = "2s"
+    max_elapsed_time = "10s"
+  }
+  sending_queue {
+    enabled = true
+    num_consumers = 1
+    queue_size = 2048
+    sizer = "items"
+    block_on_overflow = false
+    wait_for_result = false
+  }
+}

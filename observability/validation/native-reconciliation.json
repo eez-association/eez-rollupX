@@ -1,0 +1,58 @@
+{
+  "recorded_at": "2026-09-17T09:04:34.680239+00:00",
+  "source_commit": "4b3acb89df209245d466af63f95091b8a33c76f5",
+  "frozen_main": "5469c88860408daf776ee812156dd280c1a9e262",
+  "protocol_commit": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "rust": "1.94.0",
+  "foundry": "1.7.1",
+  "artifact_sha256": {
+    "target/debug/eez-composer": "20df57b77e3d817ca4ac53209ececc5af4a4c4abddc674d6b08946b3cbad37ff",
+    "target/debug/eez-proof-signer": "42749e0f1f482387504d59b3e4cb783b913f01239110688d471e5daadb2f05fc",
+    "target/debug/deps/cross_chain-90652da83e702fbe": "0dfe79aaef32063f7c8f44b5b6d366815b9df51786ed169d1bb346b17b92036e"
+  },
+  "command": "cargo +1.94.0 test --locked --offline -p eez-node-e2e --test cross_chain bidirectional_cross_chain_smoke -- --test-threads=1",
+  "cleared_overrides": [
+    "EEZ_TEST_PREBUILT",
+    "EEZ_TEST_RUNTIME_BIN_DIR",
+    "EEZ_TEST_PROOF_SIGNER_BIN"
+  ],
+  "result": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 21,
+    "duration_seconds": 346.9
+  },
+  "build_duration": "8m 26s before test execution; test duration includes the harness signer source build",
+  "tests": [
+    "lifecycle_bidirectional_cross_chain_smoke",
+    "lifecycle_policy_bidirectional_cross_chain_smoke",
+    "minimal_bidirectional_cross_chain_smoke"
+  ],
+  "checks": [
+    "existing source receipts, destination values, safe-state convergence and recomputed proof signature",
+    "enabled modes: complete parent/terminal link and agreement in admission, owner, outcome, assurance and monotonic duration",
+    "enabled modes: exact source/post receipt block hashes, numbers and transaction positions compared with RPC",
+    "enabled modes: applied L2 endpoint hash compared with RPC; scan watermark checked independently",
+    "existing admission/readiness/preparation/attempt/repricing/dispatch assertions retained"
+  ],
+  "component_results": {
+    "composer": 226,
+    "telemetry_all_features": 22
+  },
+  "workspace_clippy": "passed --all-targets -- -D warnings",
+  "local_log": "/tmp/eez-observability-reconciliation-e2e.log",
+  "local_log_sha256": "4a6887cbcb5ca6f70ee46ac81e8e42e91474594f80efcee9e7966d453c0cdcbb",
+  "local_process_logs": "artifacts/native-observability/2026-09-17-reconciliation/logs",
+  "first_failures": [
+    "workspace lint: large event variant and two reorg fixtures missing optional details; boxed reconciliation details and updated fixtures",
+    "restricted sandbox: existing listener/FIFO regressions denied; all 22 passed with required permissions"
+  ],
+  "limits": [
+    "native node claims; observer outcome/anchor validation remains open",
+    "reorg/partial snapshot/callback/failure evidence at component level; canaries are successful bidirectional workloads",
+    "no independent follower replay",
+    "no performance, release-artifact or production claim",
+    "subsequent local-disposition source edits are not covered by these binaries"
+  ]
+}

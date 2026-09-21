@@ -1,0 +1,208 @@
+{
+  "status": "passed",
+  "project": "eez-native-loss-a4e2a8307a",
+  "checks": [
+    "actual_generated_native_loss_rule_and_private_backends_ready",
+    "real_native_loss_counter_scraped_and_notification_delivered",
+    "healthy_export_and_resolved_notification_without_counter_reset",
+    "delivered_operator_links_match_actual_origin_and_provisioned_runbook"
+  ],
+  "scope": "actual native metrics and OTLP, real Prometheus/Grafana/local notification; test alert timings",
+  "images": {
+    "prom/prometheus:v3.14.0": "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+    "grafana/grafana:13.2.2": "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+    "grafana/loki:3.7.7": "sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500",
+    "grafana/alloy:v1.19.2": "sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839",
+    "prom/blackbox-exporter:v0.28.0": "sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc",
+    "postgres:18.6-bookworm": "sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af",
+    "grafana/tempo:3.0.3": "sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5"
+  },
+  "source_sha256": {
+    "prepare.py": "f431c6eb23a6b2a77edcd74e6a7f4f997e945f84f3a0b1a7aa079c7d8d7bd6a5",
+    "tests/native-loss-alerts.py": "ec901dad3f19bce87b76dd312d04b52f608ec015be94c2299de989359fe76bf6",
+    "images.lock.json": "f664c75a6136a385939474c86c4f4ec816f73a94572341e788bed5db74a24fb6",
+    "grafana/dashboards/infrastructure.json": "db5a6ce887127eea12e4e9402fade4199d2ce5eb90f1a198ec9c3666ffcec07e",
+    "runbooks/annotations.md": "70e604a4a6b1cd93b745a14b47ce174cc1546d2195e452a458f5e25b9bab198c",
+    "runbooks/database.md": "bc7c93837e119b99cb87bddeb1b0cae9675ddb2ed37b209be2f7956051cf40fe",
+    "runbooks/deployment.md": "775593fa9290023781e0339bba9b26fd2498c9acfc0a3cd6f9a5a8ed3a197afe",
+    "runbooks/lifecycle-storage.md": "4ed946f208f168a0272ebd0d5955378a3c958cacccce33f16137590b2ab3ed69",
+    "runbooks/node-agent.md": "1298faab9c8d115dda2bea7e02696d81023e39d28a251142f62675f68c926864",
+    "runbooks/observer-host.md": "ab070e9ada1c6042a22ff87eeba25e9c0a11143d690041e784f8a20a2bd0e9ec",
+    "runbooks/operations.md": "eed766d9ee8ffe6433465cabe0ef09cea39898f1fbf3cc81627521fcfeeb0de2",
+    "runbooks/protocol-alerts.md": "0a6ddcd2e142e066b7c32fedd6d8d4f559bfcc40a5335e76482f835e808b309f",
+    "runbooks/restore.md": "5f5d167ba582224e1d8ebd78818aa229464e9aaa5431c139976ffec6eee0045f",
+    "runbooks/traces.md": "013d970da00b207e1f7bd333b127fb73f08e66a0a203322f19ef93556c978569"
+  },
+  "rule": {
+    "uid": "eez-trace-native-edc28c6e26b05646",
+    "title": "EEZNativeTraceLoss_eez-composer-fixture",
+    "condition": "B",
+    "for": "10s",
+    "noDataState": "OK",
+    "execErrState": "Alerting",
+    "isPaused": false,
+    "labels": {
+      "environment": "devnet",
+      "deployment": "eez-native-loss-a4e2a8307a",
+      "severity": "warning"
+    },
+    "annotations": {
+      "summary": "Native trace exporter lost spans. Check the configured receiver, queue pressure and export timeout; lifecycle delivery is independent.",
+      "runbook": "observability/runbooks/operations.md",
+      "runbook_url": "http://127.0.0.1:36561/d/eez-runbooks?viewPanel=1",
+      "__dashboardUid__": "eez-infrastructure",
+      "__panelId__": "1"
+    },
+    "data": [
+      {
+        "refId": "A",
+        "relativeTimeRange": {
+          "from": 600,
+          "to": 0
+        },
+        "datasourceUid": "eez-prometheus",
+        "model": {
+          "refId": "A",
+          "expr": "(sum by(environment,deployment,job,instance) (increase(reth_eez_telemetry_dropped_events_total{environment=\"devnet\",deployment=\"eez-native-loss-a4e2a8307a\",job=\"eez-composer-fixture\",signal=\"trace\",reason=~\"queue_full|contention|shutdown|export_failure|collector_rejected\"}[30s]))) and on(environment,deployment,job,instance) (up{environment=\"devnet\",deployment=\"eez-native-loss-a4e2a8307a\",job=\"eez-composer-fixture\",instance=\"fixture\"} == 1)",
+          "instant": true,
+          "range": false,
+          "intervalMs": 1000,
+          "maxDataPoints": 43200
+        }
+      },
+      {
+        "refId": "B",
+        "relativeTimeRange": {
+          "from": 0,
+          "to": 0
+        },
+        "datasourceUid": "__expr__",
+        "model": {
+          "refId": "B",
+          "type": "math",
+          "expression": "$A > 0",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__"
+          }
+        }
+      }
+    ]
+  },
+  "drops_at_firing": 44.0,
+  "collector": {
+    "rejected": 41,
+    "accepted": 17,
+    "bytes": 30804
+  },
+  "native_config_sha256": "3217e1c0159c5bf62ec54eb450d91b98e1669dcaabef985131091354161da288",
+  "owned_resource_cleanup": "verified_absent",
+  "execution": {
+    "test": "native_trace_loss_alert_delivery_and_recovery",
+    "passed": 1,
+    "failed": 0,
+    "seconds": 114.26,
+    "compiler": "Rust1.94.0; locked dependencies",
+    "identity": {
+      "source_head": "c36bbd6b4bc3c74716d4e78199bc2536db44a821",
+      "runtime_mode": "source E2E wrappers; no release artifact claim",
+      "sha256": {
+        "target/debug/deps/cross_chain-7f117aa924f0a582": "13fe16dcfa1fe4cc60e3d8e0ac605d933f3591f0d603bca2f553039e296c9aa4",
+        "target/debug/eez-composer": "4e20ea9cf26d0e5502c19ab29e661d620a48a48aa3d21e0de06a662a7dfb03b5",
+        "target/debug/eez-proof-signer": "a8ab85402acd461ef8d37fbb5cdab6a5f7961cabbbff4b064ec8942609ba0c6e",
+        "crates/eez-node-e2e/tests/cross_chain.rs": "65d269be2b9a2cc8ebc34fc9b17694356b8546474b133526bf7b9c2049c9589b",
+        "crates/eez-node-e2e/tests/common/loss_alerts.rs": "d780aeeacc300edf0ee23e46a27277a76efd864b09736c33c78e1e6638b8d073",
+        "observability/tests/native-loss-alerts.py": "ec901dad3f19bce87b76dd312d04b52f608ec015be94c2299de989359fe76bf6",
+        "observability/prepare.py": "f431c6eb23a6b2a77edcd74e6a7f4f997e945f84f3a0b1a7aa079c7d8d7bd6a5",
+        "observability/images.lock.json": "f664c75a6136a385939474c86c4f4ec816f73a94572341e788bed5db74a24fb6",
+        "crates/eez-testkit/src/lib.rs": "b3d41ea248983bfd72b8d0814c0d18534a6aa87768a405b63e8c9dbb5818ac41"
+      }
+    },
+    "checks": [
+      "two successful source receipts and destination effects while exporter returns503",
+      "L1 committed root and L2 safe hash converge",
+      "posted proof signature independently recomputed",
+      "second wave uses fresh nonces and produces one new event on each destination",
+      "no process death, divergence or poison eviction",
+      "native exported span counter advances, cumulative loss counter does not reset"
+    ],
+    "local_report": "/tmp/eez-native-loss-alert-final-logs/eez-native-loss-fixture-PuhswW/report.json",
+    "local_report_sha256": "bac9ae92e326d595f4c781b0ccb3175ff3f8290699a3b91642c4a86ce25bcfb6",
+    "local_log": "/tmp/eez-native-loss-alert-final-run.log",
+    "scope": "source E2E test; real pinned Prometheus/Grafana; owned Linux loopback; production expression with30s window/10s hold; no production delivery-SLA claim"
+  },
+  "notification_summary": [
+    {
+      "status": "firing",
+      "alerts": [
+        {
+          "status": "firing",
+          "alertname": "EEZNativeTraceLoss_eez-composer-fixture",
+          "startsAt": "2026-09-17T20:00:10Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "runbook_url": "http://127.0.0.1:36561/d/eez-runbooks?viewPanel=1",
+          "dashboardURL": "http://127.0.0.1:36561/d/eez-infrastructure?from=1789671610000&orgId=1&to=1789675245499",
+          "generatorURL": "http://127.0.0.1:36561/alerting/grafana/eez-trace-native-edc28c6e26b05646/view?orgId=1"
+        }
+      ]
+    },
+    {
+      "status": "firing",
+      "alerts": [
+        {
+          "status": "firing",
+          "alertname": "EEZNativeTraceLoss_eez-composer-fixture",
+          "startsAt": "2026-09-17T20:00:10Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "runbook_url": "http://127.0.0.1:36561/d/eez-runbooks?viewPanel=1",
+          "dashboardURL": "http://127.0.0.1:36561/d/eez-infrastructure?from=1789671610000&orgId=1&to=1789675265501",
+          "generatorURL": "http://127.0.0.1:36561/alerting/grafana/eez-trace-native-edc28c6e26b05646/view?orgId=1"
+        }
+      ]
+    },
+    {
+      "status": "firing",
+      "alerts": [
+        {
+          "status": "firing",
+          "alertname": "EEZNativeTraceLoss_eez-composer-fixture",
+          "startsAt": "2026-09-17T20:00:10Z",
+          "endsAt": "0001-01-01T00:00:00Z",
+          "runbook_url": "http://127.0.0.1:36561/d/eez-runbooks?viewPanel=1",
+          "dashboardURL": "http://127.0.0.1:36561/d/eez-infrastructure?from=1789671610000&orgId=1&to=1789675285502",
+          "generatorURL": "http://127.0.0.1:36561/alerting/grafana/eez-trace-native-edc28c6e26b05646/view?orgId=1"
+        }
+      ]
+    },
+    {
+      "status": "resolved",
+      "alerts": [
+        {
+          "status": "resolved",
+          "alertname": "EEZNativeTraceLoss_eez-composer-fixture",
+          "startsAt": "2026-09-17T20:00:10Z",
+          "endsAt": "2026-09-17T20:01:30Z",
+          "runbook_url": "http://127.0.0.1:36561/d/eez-runbooks?viewPanel=1",
+          "dashboardURL": "http://127.0.0.1:36561/d/eez-infrastructure?from=1789671610000&orgId=1&to=1789675290000",
+          "generatorURL": "http://127.0.0.1:36561/alerting/grafana/eez-trace-native-edc28c6e26b05646/view?orgId=1"
+        }
+      ]
+    }
+  ],
+  "previous_pass": {
+    "seconds": 113.85,
+    "local_report": "/tmp/eez-native-loss-alert-logs/eez-native-loss-fixture-iGYCXX/report.json",
+    "local_report_sha256": "5437b63ac2c4578156cd3cc6c946890f7a58470509f9c2096e1e82538894cddc",
+    "scope": "native loss/recovery and semantics before corrected operator links; superseded by final combined pass"
+  },
+  "validation": {
+    "strict_clippy": "passed: cargo +1.94.0 clippy --locked -p eez-node-e2e --test cross_chain -- -D warnings",
+    "clippy_log": "/tmp/eez-native-loss-alert-clippy-final.log",
+    "format_python_shell_diff_checks": "passed for changed native alert files and native-suite preflight",
+    "final_build_log": "/tmp/eez-native-loss-alert-final-build.log"
+  },
+  "remaining": [
+    "comparative performance and shipping artifact gates",
+    "deployment recipients, independent receiver, rollout and baseline"
+  ]
+}
