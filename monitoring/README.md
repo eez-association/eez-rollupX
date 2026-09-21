@@ -248,7 +248,15 @@ block-indexing service.
 
 ## Upgrade
 
-Image tags and digests are pinned in `compose.yaml`. Change one image at a time,
+Deploy Composer and proof signer from the same dependency lockfile for this
+increment. The proof RPC validation identity includes the entire `Cargo.lock`;
+adding the Composer metrics dependency therefore changes the identity even though
+signer execution logic is unchanged. A new Composer with the previous signer
+fails startup with `prover validation identity differs from local execution rules`.
+Upgrade both images together; do not bypass the compatibility check. No genesis,
+contract, or chain database reset is required.
+
+Monitoring image tags and digests are pinned in `compose.yaml`. Change one monitoring image at a time,
 review its release notes, render the Compose configuration, and verify health
 before removing the previous image from the host.
 
