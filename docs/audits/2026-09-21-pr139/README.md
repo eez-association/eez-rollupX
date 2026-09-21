@@ -2,6 +2,9 @@
 
 This records the initial adaptation at `459a6ba4`. Subsequent pre-PR fixes and
 their separate validation are recorded in [the pre-PR review](pre-pr-review.md).
+The subsequent release-profile local CI run is recorded separately in
+[full local CI validation](full-local-ci.md), including failures and build-cost
+findings; it must not be interpreted as an all-green CI result.
 The limitations and executable hashes below describe the initial revision only.
 
 ## Baseline and scope

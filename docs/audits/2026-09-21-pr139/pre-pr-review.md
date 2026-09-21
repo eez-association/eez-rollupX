@@ -158,3 +158,9 @@ uploading repository code/history to GitHub requires explicit user authorization
 Nothing was pushed and no CI workflow or PR was created. Full CI remains unverified
 pending approval to push this branch to `eduadiez/rollupX` and dispatch `ci.yml`.
 Local native checks above do not substitute for the release/Kurtosis matrix.
+
+After this historical checkpoint, the user requested full local validation.
+[The separate release-profile CI audit](full-local-ci.md) records that run against
+`4da1efd0e01c8226fdcad8faba6b14238cddec72`, with local-only artifacts, dependency
+gate failures, and first native-suite failures preserved. No GitHub workflow or
+PR was created; the later run does not retroactively change the evidence above.
