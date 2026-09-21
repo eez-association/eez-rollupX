@@ -268,3 +268,7 @@ workspace filesystem and bound auxiliary diagnostics as well as compilation.
 The audit and its links are the only tracked changes made while running this
 validation. Their later documentation-only commit is not the executable candidate:
 all release evidence above belongs to `4da1efd0e01c8226fdcad8faba6b14238cddec72`.
+
+Subsequent work is recorded in [main synchronization and lint repair](main-sync-lint.md).
+That later revision resolves the dependency gate with a targeted security update;
+it does not retroactively change this run's failures or validate new release binaries.

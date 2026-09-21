@@ -5,6 +5,8 @@ their separate validation are recorded in [the pre-PR review](pre-pr-review.md).
 The subsequent release-profile local CI run is recorded separately in
 [full local CI validation](full-local-ci.md), including failures and build-cost
 findings; it must not be interpreted as an all-green CI result.
+The later [main synchronization and lint repair](main-sync-lint.md) records
+the merge of `37f6f5a5`, the targeted dependency security update, and its checks.
 The limitations and executable hashes below describe the initial revision only.
 
 ## Baseline and scope
