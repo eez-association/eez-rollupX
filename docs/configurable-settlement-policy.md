@@ -42,7 +42,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
-| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
+| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
 Execution, blob, and gas margins use checked
@@ -262,7 +262,11 @@ bundles without using blob base fee as a tip signal.
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;
 they do not multiply the base fees actually charged. The gas-limit margin
-provides execution headroom; actual charges still use receipt gas consumption.
+is applied to pre-refund execution gas, respecting the calldata floor. Storage
+refunds reduce the receipt charge but cannot supply gas during execution. Actual
+fee estimates and charges still use receipt gas consumption after refunds.
+The complete bundle is revalidated at its final signed limit; the validated
+larger-limit fallback remains available for additional gas-forwarding requirements.
 Fee-quote events include the fee-history estimate, bounds, selected tip, and
 the independent execution/blob fee caps.
 
