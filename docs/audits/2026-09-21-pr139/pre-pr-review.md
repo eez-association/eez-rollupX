@@ -16,7 +16,7 @@ settlement attempts and allow independent eligible work to progress.
 | Process failure during a hanging poll | Reproduced with an owned real child process exiting after the first failure check and a permanently pending poll. Baseline exceeded the independent two-second test deadline. Check failure every 500 ms while retaining the same poll future; regression now passes. |
 | Terminal status hidden by hanging receipt RPC | Reproduced against an owned local HTTP server while the child remained alive. Baseline exceeded the independent three-second deadline. Bound each receipt/status RPC to one second so terminal status can still be queried; retry ordinary errors. Regression now passes. |
 | Pre-submission eviction becomes unknown | Baseline unit regression returned no status for an evicted composing root and queued suffix. Add metadata-only history for the latest 1,024 local removals/replacements. Current ownership wins; valid readmission clears the observation; rejected admission and delayed callbacks cannot reinstate work. Authoritative ownership retires stale observations before ledger pruning. |
-| Vacuous zero-attempt assertion | Require at least one dispatch and nonempty per-dispatch attempt counts before asserting all counts are zero. Native execution at this revision remains a CI gate; previous revision's successful runs are not substituted for it. |
+| Vacuous zero-attempt assertion | Require at least one dispatch and nonempty per-dispatch attempt counts before asserting all counts are zero. All three updated native funding-recovery cases pass; previous revision's successful runs are not substituted for them. |
 | Unbounded retained work | Confirmed aggregate live-pool capacity is not bounded. HTTP body collection already has a 10 MiB bound, plus existing transaction validation; neither bounds cumulative retained work. No arbitrary capacity or expiry default introduced here. |
 | Backlog scan overhead | Measured the held-pool component at 1,000, 4,000 and 10,000 queued envelopes, with 64 independent tail identities. At this scale cumulative admission dominates snapshot and claim time; no speculative scan rewrite. See limitations below. |
 | Full CI | Must run the existing manually dispatched CI on the task branch before claiming release/native/Kurtosis validation. Local lint/unit checks alone do not satisfy this gate. No PR is required to dispatch it. |
@@ -51,6 +51,60 @@ process exit failed at two seconds; missing eviction status failed on `None`;
 hanging receipt RPC failed at three seconds after the process-monitor fix.
 All pass with the targeted fixes. Previous native executables recorded in the
 initial audit predate this follow-up and must not validate its runtime changes.
+
+### Updated native artifacts
+
+Built the shipping runtime from `4fbd6b5c40a7eb2272440c06744225f65166c6bc` using
+the initial audit's locked build command and explicit role optimization overrides,
+then froze it in `artifacts/pr139-review/bin` before compiling native test targets.
+`forge build --root contracts` passed (cached, existing dependency/lint warnings).
+No protocol or Solidity changes. These are local dev-profile checks, not release CI.
+
+| Executable | SHA-256 |
+| --- | --- |
+| Composer | `494ea2a8f49066ec9b3ef94723e0de07a3b70752706463f2aeb3399c046c72d5` |
+| Follower | `7676f64c26c7393fc6fca0aa82697442e9b390731f30bb3db257a61a0d06cfed` |
+| Proof signer | `c0ac682a08a43962b477c94ec0861c5187e3a41a01bc2fafd3f28ace58d41c62` |
+| `queue_liveness-60a3a82223dfc94f` | `1e5c1939e694aad3cfc2e455395f0d341e216862229502c0b0ae1bd87fb81911` |
+| `cross_chain-425a8c5f53b10d35` | `fa1358a8faf42d45568803b4a37443000ecd841d4f0b08d33b3853c938951ea6` |
+| `partial_consumption-12664f2a64006788` | `d18fefd13f0a8c18a678c46aef47fdb6fe6019c047183d8cd3f587c58fe0b5b0` |
+| `queue_reorg-c8a92f321947d57a` | `9330fcce1e4dc7a9ae0a9615cb4e08e1386548bc0207743e60c6075e5f8cc53d` |
+
+Native build: `cargo +1.94.0 test --offline --locked -p eez-node-e2e
+--test queue_liveness --test cross_chain --test partial_consumption --test queue_reorg
+--no-run --target-dir /home/edu/Development/eez-rollup0-fork/target/backport-rust-1.94
+--config profile.dev.package.eez-node.opt-level=0
+--config profile.dev.package.eez-follower.opt-level=0
+--config profile.dev.package.eez-node-e2e.opt-level=0 -j1`.
+
+Direct test executables run serially with `--test-threads=1 --nocapture`,
+`EEZ_TEST_PREBUILT=1`, `EEZ_TEST_RUNTIME_BIN_DIR` pointing to the frozen directory,
+and `EEZ_TEST_PROOF_SIGNER_BIN` to its signer. Logs and failure datadirs are retained
+under `artifacts/pr139-review/{logs,datadirs}` (local-only, not in another checkout).
+
+| Native check | Result |
+| --- | --- |
+| Complete `queue_liveness` target | **3 passed**, no failures, ignores or retries; 225.70 seconds. Both Ethereum profiles and Gnosis automatic admission verify four pinned funding evaluations, independent progress, later recovery, exact balance/nonce, nonempty zero-attempt dispatch evidence and follower convergence. |
+| `cross_chain`: `both_directions_return_value_and_wrapper_success_repeated_waves --exact` | **1 passed**, 21 filtered out, no retries; 71.21 seconds. |
+| Complete `partial_consumption` target, first run | **4 passed, 1 failed**, no ignores; 261.13 seconds. `partial_prefix_keeps_unconsumed_users_and_receipt_costs` failed during fixture startup, before settlement assertions. First/last source omission, restart after partial consumption, and same-block middle-group resume passed. |
+| Complete `queue_reorg` target | **1 passed**, no failures, ignores or retries; 56.91 seconds. Real native L1 reorg recovers confirmed and unresolved generations in nonce order. |
+| Diagnostic retry: `partial_prefix_keeps_unconsumed_users_and_receipt_costs --exact` | **1 passed**, 4 filtered out; 60.96 seconds. Same source/runtime/test binaries, no changes between attempts. This is a flaky result, not a clean full-suite pass. |
+
+The partial-prefix fixture failed because embedded L1 HTTP port 35557 implied
+WebSocket port 35558, which was already in use. Read-only `ss -tanp` inspection
+found `127.0.0.1:35558` in `TIME_WAIT` with a loopback peer. The unchanged
+`ports::PortLease::http_pair` reserves both ports but must release them before
+child spawn; its documentation explicitly acknowledges the non-atomic handoff.
+This is evidence of a fixture bind race, not a settlement assertion failure;
+the connection's originating process was not established. No process was killed,
+no host port settings changed, and no fixture retry loop added to mask failures.
+
+Retained first failure: `artifacts/pr139-review/logs/eez-node-node-755737-10.log`
+and `artifacts/pr139-review/datadirs/eez-cross-chain-755737-GHZdgA`. A diagnostic
+retry is separate evidence and cannot turn the first full-suite failure green.
+Both the port allocator and embedded L1 port derivation are unchanged from the
+fork base. Robust subprocess socket handoff remains test-infrastructure follow-up;
+this branch neither solves that race nor claims an entirely green native suite.
 
 ## Component profile
 
@@ -98,3 +152,9 @@ required full validation. Branch runs publish run-specific candidate artifacts;
 production image promotion is guarded by `refs/heads/main`. No workflow changes
 or bypasses are part of this review. Record the exact run URL and source commit
 when reporting the result; do not treat a queued or partial run as a pass.
+
+The attempted branch push was blocked by the tool safety reviewer before execution:
+uploading repository code/history to GitHub requires explicit user authorization.
+Nothing was pushed and no CI workflow or PR was created. Full CI remains unverified
+pending approval to push this branch to `eduadiez/rollupX` and dispatch `ci.yml`.
+Local native checks above do not substitute for the release/Kurtosis matrix.
