@@ -434,7 +434,10 @@ same-direction nonce suffixes, including queued and in-flight reservations.
 Independent senders and the opposite direction remain eligible. Invalid actionable
 hints receive the same bounded opaque-rejection handling. A potentially valid
 candidate may be evicted to restore progress and then requires resubmission.
-Construction failures and skipped slots do not charge this counter.
+Construction failures, skipped slots, and source-condition waits (including
+insufficient escrow) do not charge this counter. Repeated funding checks cannot
+exhaust a user's settlement-attempt budget; the queue retains the request while
+independent eligible source chains continue.
 
 ### 6.2 Actionable failed preconditions
 

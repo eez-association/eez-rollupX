@@ -2398,7 +2398,22 @@ async fn wait_for_tag_prefix_convergence(
     Err(err.context(format!("nodes did not converge:{diagnostics}")))
 }
 
-pub async fn wait_for<F, Fut, T>(timeout: Duration, mut f: F) -> Result<T>
+pub async fn wait_for<F, Fut, T>(timeout: Duration, f: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<T>>>,
+{
+    wait_for_with_failure(timeout, || Ok(None), f).await
+}
+
+/// Poll through transient errors, but stop before the next poll when the
+/// watched process or transaction has a terminal failure. Returning an error
+/// from the poll alone is retryable, just as it is in [`wait_for`].
+pub async fn wait_for_with_failure<F, Fut, T>(
+    timeout: Duration,
+    mut failure: impl FnMut() -> Result<Option<String>>,
+    mut f: F,
+) -> Result<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<Option<T>>>,
@@ -2409,6 +2424,9 @@ where
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
+        }
+        if let Some(reason) = failure()? {
+            bail!(reason);
         }
         match tokio::time::timeout(remaining, f()).await {
             Ok(Ok(Some(value))) => return Ok(value),
@@ -2636,15 +2654,21 @@ impl<'a> Chain<'a> {
         nodes: &[&NodeHandle],
         timeout: Duration,
     ) -> Result<usize> {
-        wait_for(timeout, || async {
-            for node in nodes {
-                if let Some(failure) = node.progress_failure()? {
-                    bail!(failure);
+        wait_for_with_failure(
+            timeout,
+            || {
+                for node in nodes {
+                    if let Some(failure) = node.progress_failure()? {
+                        return Ok(Some(failure));
+                    }
                 }
-            }
-            let count = self.batches_posted().await?;
-            Ok((count >= n).then_some(count))
-        })
+                Ok(None)
+            },
+            || async {
+                let count = self.batches_posted().await?;
+                Ok((count >= n).then_some(count))
+            },
+        )
         .await
     }
 
@@ -3890,6 +3914,52 @@ pub async fn receipt_ok(rpc_url: &str, hash: alloy_primitives::TxHash) -> Result
         .get_transaction_receipt(hash)
         .await?
         .map(|r| r.status()))
+}
+
+/// Wait for a source receipt, surfacing composer death and retained terminal
+/// queue dispositions immediately. RPC failures remain retryable. A receipt
+/// does not establish canonical cross-chain completion; callers must check
+/// settlement and follower convergence separately.
+pub async fn wait_for_receipt_or_failure(
+    node: &NodeHandle,
+    rpc_url: &str,
+    hash: B256,
+    timeout: Duration,
+) -> Result<bool> {
+    let source = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+    let composer = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse()?);
+    wait_for_with_failure(
+        timeout,
+        || node.progress_failure(),
+        || async {
+            if let Some(receipt) = source.get_transaction_receipt(hash).await? {
+                return Ok(Some(Ok(receipt.status())));
+            }
+            let status: serde_json::Value = composer
+                .client()
+                .request("eez_getCrossChainTransaction", (hash,))
+                .await?;
+            Ok(terminal_queue_failure(&status).map(|reason| {
+                // A terminal error is a completed outcome, not a retryable poll
+                // error. Flatten it only after leaving the wait loop.
+                Err(anyhow!(
+                    "transaction {hash} ended before its receipt: {reason}"
+                ))
+            }))
+        },
+    )
+    .await?
+}
+
+fn terminal_queue_failure(status: &serde_json::Value) -> Option<&str> {
+    if status["lifecycle"] != "terminal" {
+        return None;
+    }
+    match status["ownership"]["reason"].as_str()? {
+        // Canonical success can precede the source RPC's receipt visibility.
+        "Committed" | "SourceCompleted" => None,
+        reason => Some(reason),
+    }
 }
 
 /// Ports, addresses, keys, and genesis files for the cross-chain fixture.
@@ -5849,6 +5919,91 @@ mod mined_revert_tests {
 #[cfg(test)]
 mod framework_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn terminal_failure_stops_wait_before_polling() {
+        let polls = std::cell::Cell::new(0);
+        let error = wait_for_with_failure(
+            Duration::from_secs(30),
+            || Ok(Some("composer exited".into())),
+            || {
+                polls.set(polls.get() + 1);
+                std::future::ready(Ok(Some(())))
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(polls.get(), 0);
+        assert_eq!(error.to_string(), "composer exited");
+    }
+
+    #[tokio::test]
+    async fn transient_poll_error_does_not_hide_a_later_terminal_failure() {
+        let polls = std::cell::Cell::new(0);
+        let error = wait_for_with_failure(
+            Duration::from_secs(30),
+            || Ok((polls.get() > 0).then(|| "composer exited".into())),
+            || {
+                polls.set(polls.get() + 1);
+                async { Err::<Option<()>, _>(anyhow!("temporary RPC failure")) }
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(polls.get(), 1);
+        assert_eq!(error.to_string(), "composer exited");
+    }
+
+    #[tokio::test]
+    async fn receipt_wait_retries_transport_errors_and_preserves_reverted_receipts() {
+        let mut polls = 0;
+        let status = wait_for_with_failure(
+            Duration::from_secs(30),
+            || Ok(None),
+            || {
+                polls += 1;
+                std::future::ready(if polls == 1 {
+                    Err(anyhow!("temporary RPC failure"))
+                } else {
+                    Ok(Some(false))
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!status);
+        assert_eq!(polls, 2);
+    }
+
+    #[tokio::test]
+    async fn terminal_queue_outcome_leaves_polling_without_retry() {
+        let status = serde_json::json!({
+            "lifecycle": "terminal", "ownership": {"reason": "AttemptsExhausted"}
+        });
+        let mut polls = 0;
+        let result: Result<()> = wait_for(Duration::from_secs(30), || {
+            polls += 1;
+            let reason = terminal_queue_failure(&status).unwrap();
+            async move { Ok(Some(Err(anyhow!(reason.to_owned())))) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(polls, 1);
+        assert_eq!(result.unwrap_err().to_string(), "AttemptsExhausted");
+        for lifecycle in ["queued", "in_flight", "unknown"] {
+            let current = serde_json::json!({
+                "lifecycle": lifecycle, "ownership": {"reason": "AttemptsExhausted"}
+            });
+            assert_eq!(terminal_queue_failure(&current), None);
+        }
+        for reason in ["Committed", "SourceCompleted"] {
+            let current = serde_json::json!({
+                "lifecycle": "terminal", "ownership": {"reason": reason}
+            });
+            assert_eq!(terminal_queue_failure(&current), None);
+        }
+        assert_eq!(terminal_queue_failure(&serde_json::Value::Null), None);
+    }
 
     #[test]
     fn settlement_oracle_requires_ordered_events_for_successful_carriers() {

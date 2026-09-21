@@ -1,19 +1,19 @@
 //! Queue liveness with actual execution, native blobs, ECDSA, and follower replay.
 
-use std::time::Duration;
+use std::{collections::HashSet, sync::Mutex, time::Duration};
 
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::SolCall;
 use eez_testkit::{
     ANVIL_KEY_2, ANVIL_KEY_3, ANVIL_KEY_4, IValue, NativeL1Profile, NodeBinary, NodeConfig,
-    NodeHandle, l2_balance, onchain_nonce, receipt_ok, setup_cross_chain_with_profile,
-    sign_and_send, wait_for, wait_for_safe_prefix_convergence,
+    NodeHandle, l2_balance, onchain_nonce, setup_cross_chain_with_profile, sign_and_send, wait_for,
+    wait_for_receipt_or_failure, wait_for_safe_prefix_convergence, wait_for_with_failure,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(180);
 
-async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
+async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count: u64) {
     let env = [
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
@@ -46,18 +46,24 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
         .await
         .unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
-    let withdrawal = sign_and_send(
-        &world.l2_xchain(),
-        ANVIL_KEY_4,
-        world.l2_chain_id,
-        nonce,
-        Some(world.withdrawal_proxy),
-        amount,
-        Vec::new(),
-        600_000,
-    )
-    .await
-    .unwrap();
+    let mut withdrawals = Vec::new();
+    for offset in 0..withdrawal_count {
+        withdrawals.push(
+            sign_and_send(
+                &world.l2_xchain(),
+                ANVIL_KEY_4,
+                world.l2_chain_id,
+                nonce + offset,
+                Some(world.withdrawal_proxy),
+                amount,
+                Vec::new(),
+                600_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let withdrawal = withdrawals[0];
     wait_for(TIMEOUT, || async {
         let queue: serde_json::Value = l2
             .client()
@@ -87,11 +93,9 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
     .await
     .unwrap();
     assert!(
-        wait_for(TIMEOUT, || async {
-            receipt_ok(&world.l2_rpc(), independent).await
-        })
-        .await
-        .unwrap()
+        wait_for_receipt_or_failure(&world.node, &world.l2_rpc(), independent, TIMEOUT)
+            .await
+            .unwrap()
     );
     assert!(
         l2.get_transaction_receipt(withdrawal)
@@ -100,6 +104,38 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
             .is_none()
     );
 
+    // Observe actual repeated escrow evaluations, not merely elapsed blocks
+    // or repeated reads of one cached status. Funding must remain recoverable
+    // beyond upstream #139's three-attempt eviction threshold.
+    let evaluated = Mutex::new(HashSet::new());
+    wait_for_with_failure(
+        TIMEOUT,
+        || world.node.progress_failure(),
+        || async {
+            let status: serde_json::Value = l2
+                .client()
+                .request("eez_getCrossChainTransaction", (withdrawal,))
+                .await?;
+            let blocking = &status["blocking"];
+            if blocking["current"] == true
+                && blocking["condition"]["reason"] == "escrow"
+                && let Some(hash) = blocking["sourceState"]["l1"]["hash"].as_str()
+            {
+                let mut evaluated = evaluated.lock().unwrap();
+                evaluated.insert(hash.to_owned());
+                return Ok((evaluated.len() >= 4).then_some(()));
+            }
+            Ok(None)
+        },
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "withdrawal did not survive four funding evaluations: {e:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+
     let deposit_nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
     let deposit = sign_and_send(
         &world.l1_xchain(),
@@ -107,21 +143,30 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
         l1.get_chain_id().await.unwrap(),
         deposit_nonce,
         Some(world.deposit_proxy),
-        amount,
+        amount * U256::from(withdrawal_count),
         Vec::new(),
         600_000,
     )
     .await
     .unwrap();
     assert!(
-        wait_for(TIMEOUT, || async {
-            receipt_ok(&world.l1_rpc(), deposit).await
-        })
-        .await
-        .unwrap()
+        wait_for_receipt_or_failure(&world.node, &world.l1_rpc(), deposit, TIMEOUT)
+            .await
+            .unwrap()
     );
+    for &hash in &withdrawals {
+        assert!(
+            wait_for_receipt_or_failure(&world.node, &world.l2_rpc(), hash, TIMEOUT)
+                .await
+                .unwrap_or_else(|e| panic!(
+                    "funded withdrawal {hash} did not resume: {e:#}{}",
+                    world.settlement_diagnostics()
+                ))
+        );
+    }
+    let last_withdrawal = *withdrawals.last().unwrap();
     let receipt = wait_for(TIMEOUT, || async {
-        Ok(l2.get_transaction_receipt(withdrawal).await?)
+        Ok(l2.get_transaction_receipt(last_withdrawal).await?)
     })
     .await
     .unwrap_or_else(|e| {
@@ -142,11 +187,11 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
         l2_balance(&world.l1_rpc(), world.withdrawal_recipient)
             .await
             .unwrap(),
-        recipient_before + amount
+        recipient_before + amount * U256::from(withdrawal_count)
     );
     assert_eq!(
         onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
-        nonce + 1
+        nonce + withdrawal_count
     );
     assert_eq!(
         world.node.log_count_matching(&["source blocked"]).unwrap(),
@@ -179,11 +224,16 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_delayed_escrow_funding_with_normal_bundle_limit() {
+    escrow_recovery(NativeL1Profile::EthereumOsaka, "12", 12).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding() {
-    escrow_recovery(NativeL1Profile::EthereumOsaka, "1").await;
+    escrow_recovery(NativeL1Profile::EthereumOsaka, "1", 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding() {
-    escrow_recovery(NativeL1Profile::GnosisPrague, "auto").await;
+    escrow_recovery(NativeL1Profile::GnosisPrague, "auto", 1).await;
 }
