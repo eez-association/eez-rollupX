@@ -360,15 +360,45 @@ async fn wait_for_block<P: Provider, C: Clock>(
     }
 }
 
-/// A policy proof may be prepared before its target's parent exists. This is
-/// especially common when Chiado's builder lead exceeds one five-second slot.
-/// Wait within the existing deadline, then use the normal final gate.
+/// Conclusive local reason the fixed policy target cannot be submitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicySubmissionFailure {
+    ParentUnavailable,
+    ParentTimestampMismatch,
+    WindowExpired,
+    TargetChanged,
+}
+
+impl PolicySubmissionFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ParentUnavailable => "target_parent_unavailable",
+            Self::ParentTimestampMismatch => "target_parent_timestamp_mismatch",
+            Self::WindowExpired => "submission_window_expired",
+            Self::TargetChanged => "target_changed",
+        }
+    }
+}
+
 async fn prepare_policy_submission<P: Provider, C: Clock>(
     provider: &P,
     target: BundleTarget,
     timing: SubmissionTiming,
     clock: &C,
 ) -> L1Result<bool> {
+    Ok(policy_submission_failure(provider, target, timing, clock)
+        .await?
+        .is_none())
+}
+
+// A policy proof may be prepared before its target's parent exists. Wait within
+// the existing deadline, then use the normal final gate without sliding the target.
+async fn policy_submission_failure<P: Provider, C: Clock>(
+    provider: &P,
+    target: BundleTarget,
+    timing: SubmissionTiming,
+    clock: &C,
+) -> L1Result<Option<PolicySubmissionFailure>> {
     let BundleTarget::Exact { block, timestamp } = target else {
         return Err(L1Error::Submission(
             "policy target must be resolved before preparation".into(),
@@ -377,12 +407,17 @@ async fn prepare_policy_submission<P: Provider, C: Clock>(
     let parent_number = block
         .checked_sub(1)
         .ok_or_else(|| L1Error::Submission("target cannot be genesis".into()))?;
+    let mut parent_missing = false;
     loop {
         if matches!(
             submission_window_state(clock.now_unix_ms()?, timestamp, timing),
             SubmissionWindowState::Expired
         ) {
-            return Ok(false);
+            return Ok(Some(if parent_missing {
+                PolicySubmissionFailure::ParentUnavailable
+            } else {
+                PolicySubmissionFailure::WindowExpired
+            }));
         }
         if let Some(parent) = rpc_block(provider, BlockNumberOrTag::Number(parent_number)).await? {
             if parent
@@ -391,16 +426,23 @@ async fn prepare_policy_submission<P: Provider, C: Clock>(
                 .checked_add(timing.l1_block_time_secs())
                 != Some(timestamp)
             {
-                return Ok(false);
+                return Ok(Some(PolicySubmissionFailure::ParentTimestampMismatch));
             }
             break;
         }
+        parent_missing = true;
         clock.sleep(TARGET_POLL_INTERVAL).await;
     }
-    Ok(matches!(
-        prepare_submission_target(provider, target, timing, clock, B256::ZERO).await?,
-        TargetPreparation::Ready(_)
-    ))
+    Ok(
+        match prepare_submission_target(provider, target, timing, clock, B256::ZERO).await? {
+            TargetPreparation::Ready(_) => None,
+            TargetPreparation::Missed {
+                reason: BundleDropReason::SubmissionWindowMissed,
+                ..
+            } => Some(PolicySubmissionFailure::WindowExpired),
+            TargetPreparation::Missed { .. } => Some(PolicySubmissionFailure::TargetChanged),
+        },
+    )
 }
 
 async fn prepare_submission_target<P: Provider, C: Clock>(
@@ -646,6 +688,21 @@ impl Submitter {
     /// so waiting for a future L1 parent does not stall L2 block production.
     pub async fn wait_for_policy_submission(&self, target: BundleTarget) -> L1Result<bool> {
         prepare_policy_submission(
+            &self.inner.target_provider,
+            target,
+            self.inner.submission_timing,
+            &SystemClock,
+        )
+        .await
+    }
+
+    /// Same eligibility gate as `wait_for_policy_submission`, with a bounded
+    /// diagnostic reason. This never relaxes a deadline or target check.
+    pub async fn policy_submission_failure(
+        &self,
+        target: BundleTarget,
+    ) -> L1Result<Option<PolicySubmissionFailure>> {
+        policy_submission_failure(
             &self.inner.target_provider,
             target,
             self.inner.submission_timing,
@@ -2755,6 +2812,48 @@ mod tests {
             .unwrap()
         );
         assert_eq!(clock.sleeps(), vec![Duration::from_millis(500); 2]);
+    }
+
+    #[tokio::test]
+    async fn policy_gate_reports_specific_reason_without_changing_waits() {
+        use super::PolicySubmissionFailure as Failure;
+        let target = BundleTarget::Exact {
+            block: 42,
+            timestamp: PIN,
+        };
+        for (now, parent, expected) in [
+            (PIN * 1000, None, Failure::WindowExpired),
+            (PIN * 1000 - 1000, None, Failure::ParentUnavailable),
+            (
+                PIN * 1000 - 4000,
+                Some(PIN - 4),
+                Failure::ParentTimestampMismatch,
+            ),
+        ] {
+            let replies = Asserter::new();
+            if now < PIN * 1000 {
+                replies.push_success(
+                    &parent
+                        .map(|time| {
+                            serde_json::to_value(mock_block(41, time, B256::with_last_byte(1)))
+                                .unwrap()
+                        })
+                        .unwrap_or(serde_json::Value::Null),
+                );
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            let clock = FakeClock::new(now);
+            assert_eq!(
+                super::policy_submission_failure(&provider, target, timing(5000), &clock)
+                    .await
+                    .unwrap(),
+                Some(expected)
+            );
+            assert_eq!(
+                clock.sleeps().len(),
+                usize::from(expected == Failure::ParentUnavailable)
+            );
+        }
     }
 
     #[tokio::test]

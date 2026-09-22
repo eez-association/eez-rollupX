@@ -51,7 +51,7 @@ use crate::local::{
 use crate::optimistic::AttemptId;
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
-    actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry,
+    actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry_at,
     validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
@@ -1124,6 +1124,8 @@ where
                 rollup.held_pool.uses_ledger(&rollup.optimistic),
                 "held pool must use the rollup's optimistic ledger"
             );
+            // Register event-counter baselines before the first submission.
+            let _ = crate::submission_metrics::SubmissionMetrics::new(rollup.config.rollup_id);
         }
 
         let ComposerSettings {
@@ -4726,6 +4728,39 @@ where
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) {
         let submitter = ctx.submitter.clone();
+        if let Some(counts) = optimistic.attempt_user_counts(attempt_id) {
+            crate::submission_metrics::sync_requests(rollup_id, sync_height, counts);
+        }
+        let policy = self
+            .settlement_status(rollup_id)
+            .and_then(|status| status.policy);
+        let reasons = policy.filter(|observation| {
+            observation.decision.is_due() && matches!(target,
+                BundleTarget::Exact { timestamp, .. } if timestamp == observation.target_l1_timestamp)
+        }).map(|observation| crate::settlement_policy::DueReasons::ALL.into_iter()
+            .filter_map(|(reason, name)| observation.decision.reasons.contains(reason).then_some(name))
+            .collect());
+        let posting_hash = optimistic.read(|state| {
+            state
+                .attempts
+                .get(&attempt_id.generation)
+                .filter(|attempt| attempt.id == attempt_id)
+                .map(|attempt| attempt.manifest.sync_hash)
+        });
+        let events = posting_hash.map(|hash| {
+            Arc::new(
+                crate::posting_events::PostingEvents::new(
+                    ctx.l1_chain_id,
+                    self.inner.posting.registry,
+                    rollup_id,
+                    attempt_id.generation,
+                    hash,
+                    sync_height,
+                    reasons,
+                )
+                .with_target(target),
+            )
+        });
         tokio::spawn(observe_bundle_outcome(
             rollup_id,
             sync_height,
@@ -4736,6 +4771,7 @@ where
             target,
             self.inner.posting.clone(),
             semantics.to_vec(),
+            events,
         ));
     }
 
@@ -5829,16 +5865,41 @@ where
                 preparation_ms = elapsed.as_millis() as u64, blob_count,
                 "measured anchor-only encoding, KZG and witness preparation before proving");
         }
-        let proof = match prove_with_retry(
+        let preparation_elapsed_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
+        let proof_gate_ms = crate::prover_retry::unix_time_millis();
+        let proof_cutoff_ms =
+            crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target);
+        let proof = match prove_with_retry_at(
             self.inner.prover.as_ref(),
             proving_ctx,
             self.inner.emission.timing,
             bundle_target,
+            proof_gate_ms,
         )
         .await
         {
             Ok(proof) => proof,
             Err(error) => {
+                let reason = if proof_cutoff_ms.is_some_and(|cutoff| proof_gate_ms > cutoff) {
+                    "preparation_deadline"
+                } else {
+                    match &error {
+                        eez_prover::ProverError::Retryable { kind, .. } => match kind {
+                            eez_prover::RetryableProverError::DeadlineExceeded => "prover_deadline",
+                            eez_prover::RetryableProverError::Unavailable => "prover_unavailable",
+                            eez_prover::RetryableProverError::Aborted => "prover_aborted",
+                        },
+                        eez_prover::ProverError::Actionable { .. } => "prover_rejected_candidate",
+                        eez_prover::ProverError::CacheMiss { .. } => "prover_cache_miss",
+                        eez_prover::ProverError::Backend(_) => "prover_backend",
+                    }
+                };
+                crate::posting_events::PostingEvents::new(ctx.l1_chain_id,
+                    self.inner.posting.registry, rollup_id, 0, sync_block_hash,
+                    sync_block_number, None).with_target(bundle_target).preparation_failed(
+                        serde_json::json!({"reason":reason,
+                            "preparation_ms":preparation_elapsed_ms,
+                            "proof_gate_ms":proof_gate_ms,"proof_start_cutoff_ms":proof_cutoff_ms}));
                 let Some(failure) = error.actionable_failure() else {
                     return Err(PreparePostBatchError::Prover(error));
                 };
@@ -6129,22 +6190,38 @@ async fn observe_bundle_outcome(
     target: BundleTarget,
     posting: Arc<posting::PostingRuntime>,
     semantics: Vec<eez_protocol::blob_semantics::SemanticTransaction>,
+    events: Option<Arc<crate::posting_events::PostingEvents>>,
 ) {
     use crate::optimistic::SubmissionObservation;
+    let measurements = Arc::new(crate::submission_metrics::SubmissionMetrics::new(rollup_id));
+    measurements.prepared();
+    if let Some(events) = &events {
+        events.emit(
+            "prepared",
+            attempt_id.post_batch_hash,
+            serde_json::json!({}),
+        );
+    }
     let preparation = async {
-        if !submitter
-            .wait_for_policy_submission(target)
+        if let Some(reason) = submitter
+            .policy_submission_failure(target)
             .await
-            .map_err(|error| error.to_string())?
+            .map_err(|error| ("target_unavailable", error.to_string()))?
         {
-            return Err(
-                "target parent or submission window changed before final pricing".to_owned(),
-            );
+            return Err((
+                reason.as_str(),
+                "target parent or submission window prevents final pricing".to_owned(),
+            ));
         }
         let attempt = optimistic
             .pending_attempt()
             .filter(|attempt| attempt.id == attempt_id)
-            .ok_or("prepared attempt no longer owns this submission")?;
+            .ok_or_else(|| {
+                (
+                    "ownership_changed",
+                    "prepared attempt no longer owns this submission".to_owned(),
+                )
+            })?;
         let (prepared, quote, _) = posting
             .finalize(
                 bundle.clone(),
@@ -6154,19 +6231,33 @@ async fn observe_bundle_outcome(
                 &semantics,
             )
             .await
-            .map_err(|error| error.to_string())?;
-        let hash = post_batch_blob_transaction_hash(&prepared[0])?;
-        let id = optimistic.replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())?;
-        Ok::<_, String>((prepared, quote, id))
+            .map_err(|error| ("final_pricing_failed", error.to_string()))?;
+        let hash = post_batch_blob_transaction_hash(&prepared[0])
+            .map_err(|error| ("invalid_envelope", error))?;
+        let id = optimistic
+            .replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())
+            .map_err(|error| ("ledger_update_failed", error))?;
+        Ok::<_, (&str, String)>((prepared, quote, id))
     }
     .await;
     let fee_quote = match preparation {
         Ok((prepared, quote, id)) => {
             bundle = prepared;
             attempt_id = id;
+            if let Some(events) = &events {
+                events.emit("repriced", id.post_batch_hash, serde_json::json!({}));
+            }
             quote
         }
-        Err(error) => {
+        Err((reason, error)) => {
+            measurements.preflight_failed();
+            if let Some(events) = &events {
+                events.emit(
+                    "preflight_failed",
+                    attempt_id.post_batch_hash,
+                    serde_json::json!({"reason":reason}),
+                );
+            }
             event!(name: "eez.composer.postbatch.preflight_failed", Level::WARN,
                 event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
                 "unsent bundle deferred; due work retained without a user attempt penalty");
@@ -6183,11 +6274,19 @@ async fn observe_bundle_outcome(
         }
     };
     let recorder = Arc::clone(&optimistic);
+    let dispatch_measurements = Arc::clone(&measurements);
+    let dispatch_events = events.clone();
     let record_dispatch = move |block, timestamp| match recorder.observe(
         attempt_id,
         SubmissionObservation::Dispatched { block, timestamp },
     ) {
-        Ok(true) => Ok(()),
+        Ok(true) => {
+            dispatch_measurements.dispatch(block, timestamp);
+            if let Some(events) = &dispatch_events {
+                events.dispatch(attempt_id.post_batch_hash, block, timestamp);
+            }
+            Ok(())
+        }
         Ok(false) => Err(eez_l1::L1Error::Submission(
             "attempt was superseded before dispatch".into(),
         )),
@@ -6198,6 +6297,38 @@ async fn observe_bundle_outcome(
     let outcome = submitter
         .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
         .await;
+    measurements.outcome(outcome.as_ref().ok());
+    if let Some(events) = &events {
+        let (stage, detail) = match &outcome {
+            Ok(SendOutcome::Included {
+                l1_block,
+                l1_block_hash,
+                ..
+            }) => (
+                "included",
+                serde_json::json!({"l1_block":l1_block,"l1_block_hash":l1_block_hash}),
+            ),
+            Ok(SendOutcome::Dropped {
+                target_block,
+                reason,
+                ..
+            }) => {
+                let reason = match reason {
+                    eez_l1::BundleDropReason::Excluded => "excluded",
+                    eez_l1::BundleDropReason::SlotSkipped => "slot_skipped",
+                    eez_l1::BundleDropReason::SubmissionWindowMissed => "submission_window_missed",
+                    eez_l1::BundleDropReason::TargetChanged => "target_changed",
+                };
+                (
+                    "excluded",
+                    serde_json::json!({"target_block":target_block,"reason":reason}),
+                )
+            }
+            Err(_) => ("uncertain", serde_json::json!({"reason":"observer_error"})),
+        };
+        events.emit(stage, attempt_id.post_batch_hash, detail);
+    }
+
     let observation = match &outcome {
         Ok(SendOutcome::Included {
             l1_block,

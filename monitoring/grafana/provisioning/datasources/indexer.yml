@@ -1,0 +1,18 @@
+apiVersion: 1
+datasources:
+  - name: EEZ settlement history
+    uid: eez-indexer-postgres
+    type: postgres
+    access: proxy
+    url: $INDEXER_DATABASE_HOST
+    user: eez_grafana
+    jsonData:
+      database: eez_indexer
+      sslmode: disable
+      postgresVersion: 1800
+      maxOpenConns: 3
+      maxIdleConns: 1
+      timescaledb: false
+    secureJsonData:
+      password: $INDEXER_GRAFANA_PASSWORD
+    editable: false

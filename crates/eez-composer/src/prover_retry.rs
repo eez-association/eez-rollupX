@@ -194,16 +194,7 @@ fn retry_budget(
 /// Run one complete proving operation with the Composer profile's closed
 /// retryable-error allowlist. Every attempt is independently bounded by the
 /// configured proof-time budget.
-pub(crate) async fn prove_with_retry(
-    prover: &dyn Prover,
-    ctx: ProvingContext,
-    timing: RollupTiming,
-    target: BundleTarget,
-) -> Result<Bytes, ProverError> {
-    prove_with_retry_at(prover, ctx, timing, target, unix_time_millis()).await
-}
-
-async fn prove_with_retry_at(
+pub(crate) async fn prove_with_retry_at(
     prover: &dyn Prover,
     ctx: ProvingContext,
     timing: RollupTiming,

@@ -1,0 +1,1965 @@
+{
+  "uid": "eez-settlement-history",
+  "title": "EEZ Settlement history",
+  "description": "Canonical L1 commitment events and the exact receipts that paid for their transactions.",
+  "tags": [
+    "eez",
+    "settlement"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "l1_explorer",
+        "label": "L1 explorer URL",
+        "type": "textbox",
+        "query": "https://gnosis-chiado.blockscout.com",
+        "current": {
+          "text": "https://gnosis-chiado.blockscout.com",
+          "value": "https://gnosis-chiado.blockscout.com"
+        }
+      },
+      {
+        "name": "l2_explorer",
+        "label": "L2 explorer URL",
+        "type": "textbox",
+        "query": "https://eez.asuscomm.com:4445",
+        "current": {
+          "text": "https://eez.asuscomm.com:4445",
+          "value": "https://eez.asuscomm.com:4445"
+        }
+      },
+      {
+        "name": "blob_explorer",
+        "label": "Blob explorer URL",
+        "type": "textbox",
+        "query": "https://eez.asuscomm.com:4443",
+        "current": {
+          "text": "https://eez.asuscomm.com:4443",
+          "value": "https://eez.asuscomm.com:4443"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Latest settled commitment",
+      "description": "Latest blob-posting transaction with commitment updates. Each transaction appears once, with its number of commitment updates. Last L2 block is the endpoint of the correlated batch range, including completion by companion transactions; it stays blank until range data is available. Additional rows only list extra blob hashes or batch ranges. Non-blob execution updates are excluded from this table. Batch L2 range belongs to the posting and can include blocks completed by companion transactions; it is not the span of one emitted commitment. Gas limit used is receipt gas / signed transaction gas limit, not block capacity or the fee charged. Blob usage is occupied stream bytes / usable capacity (126976 bytes per blob). L2 burned fees and L2 tip fees total execution charges across each verified canonical batch range (L2 status shows whether finalized), including system and reverted transactions; they stay blank until all receipts are collected. These are separate from L1 posting costs. Cross-chain tx, Inbound tx and Outbound tx count unique successful source transactions for the displayed L1 block: inbound sources included in that block and outbound sources in L2 ranges settled by all its postings. Counts cover this rollup only, exclude nested callbacks, and appear once per posting row, not on continuation rows. Multiple postings in the same L1 block share these block totals; do not sum them as separate block totals. On the first row, a blank count means the block has incomplete collection.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH updates AS (SELECT *, row_number() OVER (PARTITION BY l1_block_hash,transaction_hash ORDER BY log_index DESC) AS update_rank, count(*) OVER (PARTITION BY l1_block_hash,transaction_hash) AS update_count FROM eez_indexer.settlement_history), latest AS (SELECT * FROM updates WHERE update_rank=1 AND EXISTS (SELECT 1 FROM eez_indexer.transactions posting WHERE posting.block_hash=updates.l1_block_hash AND posting.transaction_hash=updates.transaction_hash AND posting.blob_gas_used > 0) ORDER BY l1_block DESC,log_index DESC LIMIT 1) SELECT CASE WHEN coalesce(parts.n,1)=1 THEN h.time END AS \"L1 time\", CASE WHEN coalesce(parts.n,1)=1 THEN extract(epoch FROM now()-h.time)::float8 END AS \"Elapsed\", CASE WHEN coalesce(parts.n,1)=1 THEN h.l1_block END AS \"L1 block\", CASE WHEN parts.r IS NOT NULL THEN (parts.r->>'first')||' \u2192 '||(parts.r->>'last') WHEN coalesce(parts.n,1)=1 AND t.blob_gas_used > 0 AND d.data#>'{ranges,items}' IS NULL THEN 'Pending' END AS \"Batch L2 range\", (parts.r->>'count')::bigint AS \"L2 blocks\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.total END AS \"Cross-chain tx\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.inbound END AS \"Inbound tx\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.outbound END AS \"Outbound tx\", CASE WHEN coalesce(parts.n,1)=1 THEN t.gas_used::float8 END AS \"Gas used\", CASE WHEN coalesce(parts.n,1)=1 THEN 100*t.gas_used::float8/nullif((d.data#>>'{transaction,gasLimit}')::float8,0) END AS \"Gas limit used\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.execution_fee_wei/1e18)::float8 END AS \"Execution fee\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.blob_fee_wei/1e18)::float8 END AS \"Blob fee\", CASE WHEN coalesce(parts.n,1)=1 THEN ((t.execution_fee_wei+t.blob_fee_wei)/1e18)::float8 END AS \"Total fee\", CASE WHEN parts.f->>'status'='available' AND parts.f->'range'=parts.r THEN ((parts.f->>'burnWei')::numeric/1e18)::float8 END AS \"L2 burned fees\", CASE WHEN parts.f->>'status'='available' AND parts.f->'range'=parts.r THEN ((parts.f->>'tipWei')::numeric/1e18)::float8 END AS \"L2 tip fees\", CASE WHEN coalesce(parts.n,1)=1 THEN (d.data#>>'{beacon,usedBytes}')::bigint END AS \"Blob bytes used\", CASE WHEN coalesce(parts.n,1)=1 THEN 100*(d.data#>>'{beacon,usedBytes}')::float8/nullif(t.blob_gas_used/131072*126976,0) END AS \"Blob usage\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.blob_gas_used/131072)::bigint END AS \"Blobs\", CASE WHEN coalesce(parts.n,1)=1 THEN CASE WHEN d.data#>>'{beacon,source}' <> 'no blobs' THEN (d.data#>>'{beacon,blobCount}')::bigint END END AS \"Beacon blobs\", CASE WHEN coalesce(parts.n,1)=1 THEN h.update_count END AS \"State updates\", CASE WHEN coalesce(parts.n,1)=1 THEN 'Succeeded' END AS \"Result\", parts.r->>'state' AS \"L2 status\", CASE WHEN coalesce(parts.n,1)=1 THEN h.l1_block_hash END AS \"l1_hash\", parts.r->>'firstHash' AS first_hash, parts.r->>'lastHash' AS last_hash, CASE WHEN coalesce(parts.n,1)=1 THEN h.transaction_hash END AS transaction_hash FROM latest h JOIN eez_indexer.transactions t ON t.block_hash=h.l1_block_hash AND t.transaction_hash=h.transaction_hash LEFT JOIN eez_indexer.details d ON d.block_hash=h.l1_block_hash AND d.transaction_hash=h.transaction_hash LEFT JOIN LATERAL (WITH selected AS (\n SELECT t.transaction_hash,t.blob_gas_used,d.data\n FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash\n LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash)\n WHERE t.block_hash=h.l1_block_hash\n), inbound AS (\n SELECT CASE WHEN count(*)=0 OR bool_and(coalesce(data#>>'{inboundTransactions,status}'='available' AND data#>>'{inboundTransactions,count}' IN ('0','1'),false))\n THEN count(DISTINCT transaction_hash) FILTER (WHERE data#>>'{inboundTransactions,count}'='1') END AS n FROM selected\n), postings AS (\n SELECT data FROM selected WHERE blob_gas_used>0\n), ready AS (\n SELECT count(*)=0 OR bool_and(coalesce(\n data#>>'{outboundTransactions,status}'='available'\n AND jsonb_array_length(data#>'{ranges,items}')>0\n AND jsonb_array_length(data#>'{outboundTransactions,items}')=jsonb_array_length(data#>'{ranges,items}')\n AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(data#>'{outboundTransactions,items}') WITH ORDINALITY AS a(item,n)\n WHERE NOT coalesce(item->>'status'='available' AND item->'range'=data#>'{ranges,items}'->(n::int-1) AND item#>>'{range,state}' IN ('canonical','finalized') AND jsonb_typeof(item->'transactions')='array',false)),false)) AS complete\n FROM postings\n), outbound AS (\n SELECT CASE WHEN (SELECT complete FROM ready) THEN count(DISTINCT tx) END AS n\n FROM postings CROSS JOIN LATERAL jsonb_array_elements(data#>'{outboundTransactions,items}') AS a(item)\n CROSS JOIN LATERAL jsonb_array_elements_text(item->'transactions') AS hashes(tx)\n)\nSELECT i.n AS inbound,o.n AS outbound,i.n+o.n AS total FROM inbound i CROSS JOIN outbound o) cc ON true LEFT JOIN LATERAL ROWS FROM (jsonb_array_elements(d.data#>'{ranges,items}'),jsonb_array_elements_text(d.data#>'{transaction,blobHashes}'),jsonb_array_elements(d.data#>'{l2Fees,items}')) WITH ORDINALITY AS parts(r,blob,f,n) ON true ORDER BY parts.n"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 block"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open L1 block",
+                    "url": "${l1_explorer:raw}/block/${__value.raw}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "Open exact L1 block hash",
+                    "url": "${l1_explorer:raw}/block/${__data.fields.l1_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Execution fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blobs"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 65
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View all blobs in posting",
+                    "url": "${blob_explorer:raw}/tx/${__data.fields.transaction_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 block"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "l1_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Batch L2 range"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open first L2 block",
+                    "url": "${l2_explorer:raw}/block/${__data.fields.first_hash}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "Open last L2 block",
+                    "url": "${l2_explorer:raw}/block/${__data.fields.last_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 185
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Beacon blobs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gas used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gas limit used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob usage"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob bytes used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:B"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "State updates"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 burned fees"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "decimals",
+                "value": 12
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 tip fees"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "decimals",
+                "value": 12
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Result"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "transaction_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 blocks"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cross-chain tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inbound tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Settlement transaction fees",
+      "description": "Actual L1 base fees, tips and blob fees are stacked in ETH. Green dots estimate total cost using the same gas used, base fees and blob fees, but replacing each transaction\u2019s actual tip with its recent inclusion reference. Reference tips are the median of nonempty blocks\u2019 gas-weighted median tips in the preceding 20 L1 blocks, excluding the posting block. Costs are summed per chart bucket. A bar above its reference dot means the actual tip cost exceeded this reference estimate; it does not prove the lower bid would have achieved the same inclusion. Missing references stay blank.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 18,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(c.time, '$__interval'), CASE WHEN bool_and(coalesce(d.data#>>'{l1Fees,status}'='available',false)) THEN sum((d.data#>>'{l1Fees,baseCostWei}')::numeric)/1e18 END::float8 AS \"Base fees\", CASE WHEN bool_and(coalesce(d.data#>>'{l1Fees,status}'='available',false)) THEN sum((d.data#>>'{l1Fees,tipCostWei}')::numeric)/1e18 END::float8 AS \"Tips\", (sum(t.blob_fee_wei)/1e18)::float8 AS \"Blobs\" FROM eez_indexer.transaction_costs c JOIN eez_indexer.transactions t USING(transaction_hash) LEFT JOIN eez_indexer.details d ON d.block_hash=t.block_hash AND d.transaction_hash=t.transaction_hash WHERE $__timeFilter(c.time) GROUP BY 1 ORDER BY 1"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(c.time, '$__interval'), CASE WHEN bool_and(coalesce(d.data#>>'{l1Fees,status}'='available' AND d.data#>>'{tipReference,status}'='available' AND d.data#>>'{tipReference,medianTipWei}' IS NOT NULL,false)) THEN sum((d.data#>>'{l1Fees,baseCostWei}')::numeric + t.gas_used*(d.data#>>'{tipReference,medianTipWei}')::numeric + t.blob_fee_wei)/1e18 END::float8 AS \"Estimated total at recent tip\" FROM eez_indexer.transaction_costs c JOIN eez_indexer.transactions t USING(transaction_hash) LEFT JOIN eez_indexer.details d ON d.block_hash=t.block_hash AND d.transaction_hash=t.transaction_hash WHERE $__timeFilter(c.time) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:ETH",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 0,
+            "fillOpacity": 90,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "fees"
+            },
+            "axisLabel": "L1 cost (ETH)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Base fees"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tips"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blobs"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Estimated total at recent tip"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none",
+                  "group": "reference"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 7
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Fees",
+      "description": "Fees for postings and execution updates included in the selected L1 time range. L1 receipt costs count each transaction once. L2 burn fees and tips cover the L2 ranges carried by those blob postings. L2 tips \u2212 L1 total subtracts L1 execution plus blob fees from L2 tips; positive means tips cover these L1 costs. This is fee coverage, not proof of optimal L1 pricing or full profit. L2 fees and the difference show Pending until all selected posting ranges have complete verified canonical fee data; provisional values may change on reorg.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH postings AS (SELECT d.data FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash LEFT JOIN eez_indexer.details d ON d.block_hash=t.block_hash AND d.transaction_hash=t.transaction_hash WHERE t.blob_gas_used > 0 AND $__unixEpochFilter(b.timestamp)), totals AS (SELECT p.data#>>'{l2Fees,status}'='available' AND jsonb_array_length(p.data#>'{ranges,items}') > 0 AND jsonb_array_length(p.data#>'{l2Fees,items}')=jsonb_array_length(p.data#>'{ranges,items}') AND f.complete AS complete, f.burn, f.tip FROM postings p LEFT JOIN LATERAL (SELECT bool_and(coalesce(item->>'status'='available' AND item->'range'=p.data#>'{ranges,items}'->(n::int-1) AND item->>'burnWei' IS NOT NULL AND item->>'tipWei' IS NOT NULL,false)) AS complete, sum((item->>'burnWei')::numeric) AS burn, sum((item->>'tipWei')::numeric) AS tip FROM jsonb_array_elements(p.data#>'{l2Fees,items}') WITH ORDINALITY AS fees(item,n)) f ON true), l2 AS (SELECT CASE WHEN count(*)=0 OR bool_and(coalesce(complete,false)) THEN coalesce(sum(burn),0)/1e18 END AS burn, CASE WHEN count(*)=0 OR bool_and(coalesce(complete,false)) THEN coalesce(sum(tip),0)/1e18 END AS tip FROM totals), l1 AS (SELECT coalesce(sum(execution_fee),0) AS execution, coalesce(sum(blob_fee),0) AS blobs, coalesce(sum(total_fee),0) AS total FROM eez_indexer.transaction_costs WHERE $__timeFilter(time)) SELECT fee.label AS \"Fee\", fee.amount::float8 AS \"Amount\", CASE WHEN fee.position=3 THEN jsonb_build_object('color','#FFB357','fontWeight',600) WHEN fee.position=5 THEN jsonb_build_object('color','#5794F2','fontWeight',600) WHEN fee.position=6 AND fee.amount<>0 THEN jsonb_build_object('color',CASE WHEN fee.amount>0 THEN '#73BF69' ELSE '#F2495C' END,'fontWeight',600) ELSE '{}'::jsonb END::text AS \"Style\" FROM l1 CROSS JOIN l2 CROSS JOIN LATERAL (VALUES (1,'L1 execution',l1.execution),(2,'L1 blobs',l1.blobs),(3,'L1 total',l1.total),(4,'L2 burn fees',l2.burn),(5,'L2 tips',l2.tip),(6,'L2 tips \u2212 L1 total',l2.tip-l1.total)) AS fee(position,label,amount) ORDER BY fee.position"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:ETH",
+          "noValue": "Pending",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 total"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 tips"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 tips \u2212 L1 total"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "text",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1e-18
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 18
+        }
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Fee",
+                "Amount"
+              ]
+            }
+          }
+        },
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "Fee",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "Amount",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Settlement events",
+      "description": "Latest 100 blob-posting transactions with commitment updates in the selected time range. Each transaction appears once, with its number of commitment updates. Last L2 block is the endpoint of the correlated batch range, including completion by companion transactions; it stays blank until range data is available. Additional rows only list extra blob hashes or batch ranges. Non-blob execution updates are excluded from this table. Batch L2 range belongs to the posting and can include blocks completed by companion transactions; it is not the span of one emitted commitment. Gas limit used is receipt gas / signed transaction gas limit, not block capacity or the fee charged. Blob usage is occupied stream bytes / usable capacity (126976 bytes per blob). L2 burned fees and L2 tip fees total execution charges across each verified canonical batch range (L2 status shows whether finalized), including system and reverted transactions; they stay blank until all receipts are collected. These are separate from L1 posting costs. Cross-chain tx, Inbound tx and Outbound tx count unique successful source transactions for the displayed L1 block: inbound sources included in that block and outbound sources in L2 ranges settled by all its postings. Counts cover this rollup only, exclude nested callbacks, and appear once per posting row, not on continuation rows. Multiple postings in the same L1 block share these block totals; do not sum them as separate block totals. On the first row, a blank count means the block has incomplete collection.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH updates AS (SELECT *, row_number() OVER (PARTITION BY l1_block_hash,transaction_hash ORDER BY log_index DESC) AS update_rank, count(*) OVER (PARTITION BY l1_block_hash,transaction_hash) AS update_count FROM eez_indexer.settlement_history WHERE $__timeFilter(time)), latest AS (SELECT * FROM updates WHERE update_rank=1 AND EXISTS (SELECT 1 FROM eez_indexer.transactions posting WHERE posting.block_hash=updates.l1_block_hash AND posting.transaction_hash=updates.transaction_hash AND posting.blob_gas_used > 0) ORDER BY l1_block DESC,log_index DESC LIMIT 100) SELECT CASE WHEN coalesce(parts.n,1)=1 THEN h.time END AS \"L1 time\", CASE WHEN coalesce(parts.n,1)=1 THEN extract(epoch FROM now()-h.time)::float8 END AS \"Elapsed\", CASE WHEN coalesce(parts.n,1)=1 THEN h.l1_block END AS \"L1 block\", CASE WHEN parts.r IS NOT NULL THEN (parts.r->>'first')||' \u2192 '||(parts.r->>'last') WHEN coalesce(parts.n,1)=1 AND t.blob_gas_used > 0 AND d.data#>'{ranges,items}' IS NULL THEN 'Pending' END AS \"Batch L2 range\", (parts.r->>'count')::bigint AS \"L2 blocks\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.total END AS \"Cross-chain tx\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.inbound END AS \"Inbound tx\", CASE WHEN coalesce(parts.n,1)=1 THEN cc.outbound END AS \"Outbound tx\", CASE WHEN coalesce(parts.n,1)=1 THEN t.gas_used::float8 END AS \"Gas used\", CASE WHEN coalesce(parts.n,1)=1 THEN 100*t.gas_used::float8/nullif((d.data#>>'{transaction,gasLimit}')::float8,0) END AS \"Gas limit used\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.execution_fee_wei/1e18)::float8 END AS \"Execution fee\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.blob_fee_wei/1e18)::float8 END AS \"Blob fee\", CASE WHEN coalesce(parts.n,1)=1 THEN ((t.execution_fee_wei+t.blob_fee_wei)/1e18)::float8 END AS \"Total fee\", CASE WHEN parts.f->>'status'='available' AND parts.f->'range'=parts.r THEN ((parts.f->>'burnWei')::numeric/1e18)::float8 END AS \"L2 burned fees\", CASE WHEN parts.f->>'status'='available' AND parts.f->'range'=parts.r THEN ((parts.f->>'tipWei')::numeric/1e18)::float8 END AS \"L2 tip fees\", CASE WHEN coalesce(parts.n,1)=1 THEN (d.data#>>'{beacon,usedBytes}')::bigint END AS \"Blob bytes used\", CASE WHEN coalesce(parts.n,1)=1 THEN 100*(d.data#>>'{beacon,usedBytes}')::float8/nullif(t.blob_gas_used/131072*126976,0) END AS \"Blob usage\", CASE WHEN coalesce(parts.n,1)=1 THEN (t.blob_gas_used/131072)::bigint END AS \"Blobs\", CASE WHEN coalesce(parts.n,1)=1 THEN CASE WHEN d.data#>>'{beacon,source}' <> 'no blobs' THEN (d.data#>>'{beacon,blobCount}')::bigint END END AS \"Beacon blobs\", CASE WHEN coalesce(parts.n,1)=1 THEN h.update_count END AS \"State updates\", CASE WHEN coalesce(parts.n,1)=1 THEN 'Succeeded' END AS \"Result\", parts.r->>'state' AS \"L2 status\", CASE WHEN coalesce(parts.n,1)=1 THEN h.l1_block_hash END AS \"l1_hash\", parts.r->>'firstHash' AS first_hash, parts.r->>'lastHash' AS last_hash, CASE WHEN coalesce(parts.n,1)=1 THEN h.transaction_hash END AS transaction_hash FROM latest h JOIN eez_indexer.transactions t ON t.block_hash=h.l1_block_hash AND t.transaction_hash=h.transaction_hash LEFT JOIN eez_indexer.details d ON d.block_hash=h.l1_block_hash AND d.transaction_hash=h.transaction_hash LEFT JOIN LATERAL (WITH selected AS (\n SELECT t.transaction_hash,t.blob_gas_used,d.data\n FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash\n LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash)\n WHERE t.block_hash=h.l1_block_hash\n), inbound AS (\n SELECT CASE WHEN count(*)=0 OR bool_and(coalesce(data#>>'{inboundTransactions,status}'='available' AND data#>>'{inboundTransactions,count}' IN ('0','1'),false))\n THEN count(DISTINCT transaction_hash) FILTER (WHERE data#>>'{inboundTransactions,count}'='1') END AS n FROM selected\n), postings AS (\n SELECT data FROM selected WHERE blob_gas_used>0\n), ready AS (\n SELECT count(*)=0 OR bool_and(coalesce(\n data#>>'{outboundTransactions,status}'='available'\n AND jsonb_array_length(data#>'{ranges,items}')>0\n AND jsonb_array_length(data#>'{outboundTransactions,items}')=jsonb_array_length(data#>'{ranges,items}')\n AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(data#>'{outboundTransactions,items}') WITH ORDINALITY AS a(item,n)\n WHERE NOT coalesce(item->>'status'='available' AND item->'range'=data#>'{ranges,items}'->(n::int-1) AND item#>>'{range,state}' IN ('canonical','finalized') AND jsonb_typeof(item->'transactions')='array',false)),false)) AS complete\n FROM postings\n), outbound AS (\n SELECT CASE WHEN (SELECT complete FROM ready) THEN count(DISTINCT tx) END AS n\n FROM postings CROSS JOIN LATERAL jsonb_array_elements(data#>'{outboundTransactions,items}') AS a(item)\n CROSS JOIN LATERAL jsonb_array_elements_text(item->'transactions') AS hashes(tx)\n)\nSELECT i.n AS inbound,o.n AS outbound,i.n+o.n AS total FROM inbound i CROSS JOIN outbound o) cc ON true LEFT JOIN LATERAL ROWS FROM (jsonb_array_elements(d.data#>'{ranges,items}'),jsonb_array_elements_text(d.data#>'{transaction,blobHashes}'),jsonb_array_elements(d.data#>'{l2Fees,items}')) WITH ORDINALITY AS parts(r,blob,f,n) ON true ORDER BY h.l1_block DESC,h.log_index DESC,parts.n"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 block"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open L1 block",
+                    "url": "${l1_explorer:raw}/block/${__value.raw}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "Open exact L1 block hash",
+                    "url": "${l1_explorer:raw}/block/${__data.fields.l1_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Execution fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total fee"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "custom.width",
+                "value": 145
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blobs"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 65
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View all blobs in posting",
+                    "url": "${blob_explorer:raw}/tx/${__data.fields.transaction_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 block"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "l1_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Batch L2 range"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open first L2 block",
+                    "url": "${l2_explorer:raw}/block/${__data.fields.first_hash}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "Open last L2 block",
+                    "url": "${l2_explorer:raw}/block/${__data.fields.last_hash}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 185
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Beacon blobs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 125
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gas used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gas limit used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob usage"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blob bytes used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:B"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "State updates"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 burned fees"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "decimals",
+                "value": 12
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 tip fees"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:ETH"
+              },
+              {
+                "id": "decimals",
+                "value": 12
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Result"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "transaction_hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 blocks"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 95
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cross-chain tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inbound tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound tx"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Cross-chain transactions",
+      "description": "Unique successful source transactions for EEZ in the selected L1 settlement period. Inbound counts L1 source transactions at their inclusion time; outbound counts L2 source transactions in ranges settled by postings in this period. Several calls from one transaction count once. Nested callbacks, inbound delivery transactions, static reads and reverted calls are excluded. Pending means collection is incomplete; historical coverage is bounded by the indexer start block.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 13,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH selected AS (\n SELECT t.transaction_hash,t.blob_gas_used,d.data\n FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash\n LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash)\n WHERE $__unixEpochFilter(b.timestamp)\n), inbound AS (\n SELECT CASE WHEN count(*)=0 OR bool_and(coalesce(data#>>'{inboundTransactions,status}'='available' AND data#>>'{inboundTransactions,count}' IN ('0','1'),false))\n THEN count(DISTINCT transaction_hash) FILTER (WHERE data#>>'{inboundTransactions,count}'='1') END AS n FROM selected\n), postings AS (\n SELECT data FROM selected WHERE blob_gas_used>0\n), ready AS (\n SELECT count(*)=0 OR bool_and(coalesce(\n data#>>'{outboundTransactions,status}'='available'\n AND jsonb_array_length(data#>'{ranges,items}')>0\n AND jsonb_array_length(data#>'{outboundTransactions,items}')=jsonb_array_length(data#>'{ranges,items}')\n AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(data#>'{outboundTransactions,items}') WITH ORDINALITY AS a(item,n)\n WHERE NOT coalesce(item->>'status'='available' AND item->'range'=data#>'{ranges,items}'->(n::int-1) AND item#>>'{range,state}' IN ('canonical','finalized') AND jsonb_typeof(item->'transactions')='array',false)),false)) AS complete\n FROM postings\n), outbound AS (\n SELECT CASE WHEN (SELECT complete FROM ready) THEN count(DISTINCT tx) END AS n\n FROM postings CROSS JOIN LATERAL jsonb_array_elements(data#>'{outboundTransactions,items}') AS a(item)\n CROSS JOIN LATERAL jsonb_array_elements_text(item->'transactions') AS hashes(tx)\n)\nSELECT v.label AS \"Direction\",v.n AS \"Transactions\" FROM inbound i CROSS JOIN outbound o\nCROSS JOIN LATERAL (VALUES (1,'Total',i.n+o.n),(2,'Inbound',i.n),(3,'Outbound',o.n)) AS v(position,label,n) ORDER BY v.position"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "noValue": "Pending",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inbound"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 24
+        }
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Direction",
+                "Transactions"
+              ]
+            }
+          }
+        },
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "Direction",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "Transactions",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "L1",
+      "description": "Current L1 heads: latest produced block, safe head and finalized head, as reported by RPC. Click a height to open its block explorer. Updates every five seconds; failed or more than 30-second-old samples show Unavailable. Independent of the selected historical time range.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (h.data->>'latest')::bigint AS \"Latest\",(h.data->>'safe')::bigint AS \"Safe\",(h.data->>'finalized')::bigint AS \"Finalized\" FROM (SELECT (SELECT data FROM eez_indexer.network_heads WHERE chain='l1' AND observed_at BETWEEN now()-interval '30 seconds' AND now()) AS data) h"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "Unavailable",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "links": [
+            {
+              "title": "Open L1 block",
+              "url": "${l1_explorer:raw}/block/${__value.raw}",
+              "targetBlank": true
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latest"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Safe"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Finalized"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "L2 \u00b7 EEZ",
+      "description": "Current L2 heads: latest produced block, safe head and finalized head, as reported by RPC. Click a height to open its block explorer. Updates every five seconds; failed or more than 30-second-old samples show Unavailable. Independent of the selected historical time range.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 10,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (h.data->>'latest')::bigint AS \"Latest\",(h.data->>'safe')::bigint AS \"Safe\",(h.data->>'finalized')::bigint AS \"Finalized\" FROM (SELECT (SELECT data FROM eez_indexer.network_heads WHERE chain='l2' AND observed_at BETWEEN now()-interval '30 seconds' AND now()) AS data) h"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "Unavailable",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "links": [
+            {
+              "title": "Open L2 block",
+              "url": "${l2_explorer:raw}/block/${__value.raw}",
+              "targetBlank": true
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latest"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Safe"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Finalized"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 28
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Unsettled L2 blocks",
+      "description": "Unsettled L2 blocks (latest minus safe) divided by the active Composer block-policy threshold, with percentage. This compares the current backlog with the configured block trigger; it is not a settlement countdown or Composer's exact candidate-to-anchor evaluation. Cross-chain activity and other policy triggers can settle earlier. The numerator uses fresh indexer heads; the threshold uses fresh Composer metrics and is never hard-coded. Unavailable data is not zero. Values can exceed 100% while inclusion is pending. Historical policy samples are never combined with current heads; an absolute historical selection may show no policy ratio.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (SELECT (data->>'unsettled')::bigint FROM eez_indexer.network_heads WHERE chain='l2' AND observed_at BETWEEN now()-interval '30 seconds' AND now()) AS \"Unsettled\", extract(epoch from now())::float8*1000 AS \"Current time\"",
+          "datasource": {
+            "type": "postgres",
+            "uid": "eez-indexer-postgres"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          },
+          "expr": "scalar((reth_eez_composer_settlement_block_threshold{job=\"eez-composer-reth\"} > 0) and on(job,instance,rollup_id) ((time()-reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"} >= 0) and (time()-reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"} < 30)) and on(job,instance) (up{job=\"eez-composer-reth\"} == 1))",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "legendFormat": "Threshold"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "Unavailable",
+          "displayName": "${__field.name} / ${__field.labels.Threshold} blocks",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 32
+        }
+      },
+      "transformations": [
+        {
+          "id": "concatenate",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Threshold": "Threshold",
+              "Value": "Threshold"
+            }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "targetField": "Time",
+                "destinationType": "number"
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Current time",
+              "operator": "-",
+              "right": "Time"
+            },
+            "alias": "Policy age"
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "type": "include",
+            "match": "all",
+            "filters": [
+              {
+                "fieldName": "Threshold",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                }
+              },
+              {
+                "fieldName": "Unsettled",
+                "config": {
+                  "id": "isNotNull",
+                  "options": {}
+                }
+              },
+              {
+                "fieldName": "Policy age",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": -30000
+                  }
+                }
+              },
+              {
+                "fieldName": "Policy age",
+                "config": {
+                  "id": "lower",
+                  "options": {
+                    "value": 30000
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Unsettled",
+              "operator": "/",
+              "right": "Threshold"
+            },
+            "alias": "Ratio"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Ratio",
+              "operator": "*",
+              "right": "100"
+            },
+            "alias": "Progress"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Unsettled",
+                "Threshold",
+                "Progress"
+              ]
+            }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              {
+                "targetField": "Unsettled",
+                "destinationType": "string"
+              }
+            ],
+            "fields": {}
+          }
+        },
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "Unsettled",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "Progress",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
+      "timeFrom": "1m",
+      "hideTimeOverride": true
+    }
+  ]
+}

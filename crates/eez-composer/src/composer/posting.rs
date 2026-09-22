@@ -70,7 +70,10 @@ pub(super) struct PostingQuote {
 
 #[derive(Debug)]
 pub(super) struct BundleExecution {
+    /// Receipt gas, after refunds and the calldata floor, for fee accounting.
     pub gas_used: Vec<u64>,
+    /// Gas needed before refunds, respecting the calldata floor, for limit sizing.
+    gas_required: Vec<u64>,
 }
 
 impl PostingRuntime {
@@ -419,7 +422,7 @@ impl PostingRuntime {
         };
         raw[0] = reprice(&raw[0], probe_gas)?;
         let probe = self.simulate(&raw, &quote, rollup_id, endpoint, semantics)?;
-        let selected_gas = self.fees.declared_gas(probe.gas_used[0], probe_gas)?;
+        let selected_gas = self.fees.declared_gas(probe.gas_required[0], probe_gas)?;
         raw[0] = reprice(&raw[0], selected_gas)?;
         let execution = match self.simulate(&raw, &quote, rollup_id, endpoint, semantics) {
             Ok(execution) => execution,
@@ -514,6 +517,7 @@ where
         .apply_pre_execution_changes()
         .map_err(|e| PostingError::Unavailable(e.to_string()))?;
     let mut gas_used = Vec::with_capacity(transactions.len());
+    let mut gas_required = Vec::with_capacity(transactions.len());
     let mut final_root = None;
     for (index, transaction) in transactions.into_iter().enumerate() {
         let result = executor
@@ -547,7 +551,11 @@ where
                 }
             }
         }
-        gas_used.push(result.result.result.tx_gas_used());
+        let gas = result.result.result.gas();
+        gas_used.push(gas.tx_gas_used());
+        // Refunds reduce the receipt charge, but cannot fund execution. The
+        // calldata floor can also exceed execution consumption.
+        gas_required.push(gas.total_gas_spent().max(gas.floor_gas()));
         executor.commit_transaction(result);
     }
     if final_root != Some(endpoint) {
@@ -555,7 +563,10 @@ where
             "final applied root {final_root:?} differs from {endpoint}"
         )));
     }
-    Ok(BundleExecution { gas_used })
+    Ok(BundleExecution {
+        gas_used,
+        gas_required,
+    })
 }
 
 alloy_sol_types::sol! {
@@ -861,6 +872,7 @@ mod tests {
         // Declared limits total 180k, but the second transaction fits the
         // remaining 120k block gas after the first one's actual execution.
         assert_eq!(valid.gas_used.len(), 2);
+        assert_eq!(valid.gas_required, valid.gas_used);
         assert!(valid.gas_used.iter().sum::<u64>() < 90_000);
         assert!(matches!(run(100_000), Err(PostingError::Transaction(_))));
         // A missing nonce cannot be repaired by the first transaction passing.
@@ -875,6 +887,68 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn posting_limit_covers_execution_before_storage_refunds() {
+        // Set then clear four slots, earning enough refund to hit the 20% cap.
+        // A 20% margin on the resulting receipt charge is less than the gas
+        // execution needs before those refunds become available.
+        let mut code = Vec::new();
+        for slot in 0..4u8 {
+            code.extend([0x60, 1, 0x60, slot, 0x55]); // SSTORE(slot, 1)
+            code.extend([0x5f, 0x60, slot, 0x55]); // SSTORE(slot, 0)
+        }
+        code.extend(emit_root(false));
+        let run = |gas| {
+            execute(
+                code.clone(),
+                vec![tx(0, REGISTRY, gas, Bytes::new())],
+                1_000_000,
+            )
+        };
+        let fees = PostingFeeConfig::parse(|name| {
+            Ok(match name {
+                "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS" | "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS" => {
+                    Some("100".into())
+                }
+                "EEZ_L1_POSTBATCH_PRIORITY_FEE" => Some("2".into()),
+                _ => None,
+            })
+        })
+        .unwrap();
+        let probe = run(900_000).unwrap();
+        let old_limit = fees.declared_gas(probe.gas_used[0], 900_000).unwrap();
+        assert!(old_limit < probe.gas_required[0]);
+        assert!(matches!(run(old_limit), Err(PostingError::Effects(_))));
+        let limit = fees.declared_gas(probe.gas_required[0], 900_000).unwrap();
+        assert!(limit < 900_000);
+        let final_execution = run(limit).unwrap();
+        assert_eq!(final_execution.gas_used, probe.gas_used);
+        assert_eq!(final_execution.gas_required, probe.gas_required);
+        assert!(fees.declared_gas(probe.gas_required[0], limit - 1).is_err());
+    }
+
+    #[test]
+    fn posting_limit_respects_calldata_floor() {
+        let data = Bytes::from(vec![1; 1024]);
+        let run = |gas| {
+            execute(
+                emit_root(false),
+                vec![tx(0, REGISTRY, gas, data.clone())],
+                120_000,
+            )
+        };
+        let probe = run(90_000).unwrap();
+        // Prague calldata floor: 21k + 10 gas per token (4 per nonzero byte).
+        assert_eq!(probe.gas_required, vec![21_000 + 40 * 1024]);
+        assert_eq!(probe.gas_required, probe.gas_used);
+        let final_execution = run(probe.gas_required[0]).unwrap();
+        assert_eq!(final_execution.gas_used, probe.gas_used);
+        assert!(matches!(
+            run(probe.gas_required[0] - 1),
+            Err(PostingError::Transaction(_))
+        ));
     }
 
     #[test]

@@ -1,0 +1,6 @@
+# Optional overlay, after compose.yaml and compose.indexer.yaml.
+# Share only the dedicated posting log directory, never the node's datadir.
+services:
+  indexer:
+    volumes:
+      - ${POSTING_LOGS_DIR:?Set POSTING_LOGS_DIR to the persistent Composer posting log root}:/var/log/eez-posting:ro
