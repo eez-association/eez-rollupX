@@ -56,6 +56,8 @@ fn exact_fees_include_reverts_and_reject_incomplete_or_wrong_receipts() {
 #[derive(Default)]
 struct Mock {
     missing: AtomicBool,
+    reorg: AtomicBool,
+    receipts: AtomicUsize,
     requests: AtomicUsize,
 }
 async fn handler(State(s): State<Arc<Mock>>, Json(request): Json<Value>) -> Json<Value> {
@@ -69,9 +71,18 @@ async fn handler(State(s): State<Arc<Mock>>, Json(request): Json<Value>) -> Json
     )
     .unwrap();
     let result = match request["method"].as_str().unwrap() {
-        "eth_getBlockByNumber" => header(n),
+        "eth_getBlockByNumber" => {
+            let mut h = header(n);
+            if s.reorg.load(Ordering::SeqCst) {
+                h["hash"] = json!(B256::ZERO);
+            }
+            h
+        }
         "eth_getBlockReceipts" if s.missing.load(Ordering::SeqCst) => json!([]),
-        "eth_getBlockReceipts" => receipts(n),
+        "eth_getBlockReceipts" => {
+            s.receipts.fetch_add(1, Ordering::SeqCst);
+            receipts(n)
+        }
         other => panic!("unexpected {other}"),
     };
     Json(json!({"jsonrpc":"2.0","id":1,"result":result}))
@@ -110,10 +121,30 @@ async fn range_collection_resumes_without_double_counting_and_caches_complete_re
     let reset = collect(&rpc, &ranges, &stale, 1).await;
     assert_eq!(reset["status"], "pending");
     assert_eq!(reset["items"][0]["processed"], 0);
-    let mut nonfinal = ranges;
-    nonfinal["items"][0]["state"] = json!("canonical");
+    let mut canonical = ranges.clone();
+    canonical["items"][0]["state"] = json!("canonical");
+    // Upgrade legacy pending rows and expose only a complete exact sum.
+    let legacy = json!({"items":[{"range":canonical["items"][0],"status":"pending","error":"L2 range not finalized"}]});
+    let partial = collect(&rpc, &canonical, &legacy, 1).await;
+    assert_eq!(partial["status"], "pending");
+    let ready = collect(&rpc, &canonical, &partial, 1).await;
+    assert_eq!(ready["status"], "available");
+    assert_eq!(ready["items"][0]["tipWei"], "38");
+    let receipt_calls = state.receipts.load(Ordering::SeqCst);
+    assert_eq!(collect(&rpc, &canonical, &ready, 0).await, ready);
+    let finalized = collect(&rpc, &ranges, &ready, 0).await;
+    assert_eq!(finalized["status"], "available");
+    assert_eq!(finalized["items"][0]["range"]["state"], "finalized");
+    assert_eq!(state.receipts.load(Ordering::SeqCst), receipt_calls);
+    state.reorg.store(true, Ordering::SeqCst);
     assert_eq!(
-        collect(&rpc, &nonfinal, &complete, 1).await["status"],
+        collect(&rpc, &canonical, &ready, 0).await["status"],
+        "pending"
+    );
+    assert_eq!(collect(&rpc, &ranges, &ready, 0).await["status"], "pending");
+    canonical["items"][0]["state"] = json!("non-canonical");
+    assert_eq!(
+        collect(&rpc, &canonical, &ready, 1).await["status"],
         "pending"
     );
     task.abort();

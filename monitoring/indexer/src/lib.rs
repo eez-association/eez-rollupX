@@ -1,8 +1,12 @@
 pub mod config;
+pub mod cross_chain;
 pub mod database;
 pub mod details;
+pub mod heads;
+pub mod l1_fees;
 pub mod l2_fees;
 pub mod model;
+pub mod postings;
 pub mod rpc;
 
 use alloy_primitives::{B256, U256};

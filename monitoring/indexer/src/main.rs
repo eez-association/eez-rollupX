@@ -22,6 +22,16 @@ async fn main() -> Result<()> {
     let rpc = Rpc::new(&config.http_url)?;
     rpc.identity(&config).await?;
     let mut db = Database::connect(&database_url, &config).await?;
+    let postings = config.posting_logs_dir.as_ref().map(|_| {
+        tokio::spawn(eez_indexer::postings::run(
+            config.clone(),
+            database_url.clone(),
+        ))
+    });
+    let heads = tokio::spawn(eez_indexer::heads::run(
+        config.clone(),
+        database_url.clone(),
+    ));
     let details = config.details.as_ref().map(|_| {
         tokio::spawn(eez_indexer::details::run(
             config.clone(),
@@ -63,6 +73,10 @@ async fn main() -> Result<()> {
     };
     let result = tokio::select! { result = work => result, _ = stop => Ok(()) };
     listener.abort();
+    if let Some(postings) = postings {
+        postings.abort();
+    }
+    heads.abort();
     if let Some(details) = details {
         details.abort();
     }

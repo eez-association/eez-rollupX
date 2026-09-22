@@ -4,8 +4,8 @@ global:
 
 scrape_configs:
   - job_name: eez-composer-reth
-    scrape_interval: 2s
-    scrape_timeout: 2s
+    scrape_interval: 3s
+    scrape_timeout: 3s
     metrics_path: /metrics
     static_configs:
       - targets:

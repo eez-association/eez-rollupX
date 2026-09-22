@@ -299,6 +299,9 @@ For the optional Prometheus/Grafana stack and Composer queue metric semantics,
 see [monitoring/README.md](monitoring/README.md).
 The optional standalone [settlement indexer](monitoring/indexer/README.md) has its
 own Cargo workspace and focused tests; it does not change the node lockfile or CI matrix.
+Its optional [posting lifecycle collector](monitoring/indexer/README.md#posting-lifecycle-history-optional)
+replays retained JSON logs; preserve that volume and its PostgreSQL checkpoints
+when restarting. It is operational history, not durable queue ownership.
 
 | Record | Use |
 | --- | --- |

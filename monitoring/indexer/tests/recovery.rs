@@ -57,6 +57,7 @@ fn config(url: &str) -> Config {
         rollup_id: 1,
         start_block: 1,
         details: None,
+        posting_logs_dir: None,
     }
 }
 
@@ -270,7 +271,7 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     assert_eq!(row.get::<_, i64>(0), 2);
     assert_eq!(row.get::<_, String>(1), "40");
     assert_eq!(row.get::<_, String>(2), "24");
-    admin.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) SELECT block_hash,transaction_hash,CASE WHEN transaction_index=0 THEN '{\"version\":2}'::jsonb ELSE '{\"version\":3}'::jsonb END,'infinity'::timestamptz FROM eez_indexer.transactions", &[]).await.unwrap();
+    admin.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) SELECT block_hash,transaction_hash,CASE WHEN transaction_index=0 THEN '{\"version\":2}'::jsonb ELSE '{\"version\":5}'::jsonb END,'infinity'::timestamptz FROM eez_indexer.transactions", &[]).await.unwrap();
     // Exercise database rollback after insertion has begun (missing receipt FK).
     let mut bad = eez_indexer::model::Event::parse(&log(0, 0), &cfg).unwrap();
     let b = eez_indexer::model::Block::parse(&block(3, 0)).unwrap();
@@ -291,7 +292,7 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     .await
     .unwrap();
     assert_eq!(db.cursor().await.unwrap().unwrap().0, 2);
-    let upgrade = admin.query_one("SELECT count(*) FILTER(WHERE retry_at < 'infinity'), count(*) FILTER(WHERE data->>'version'='3' AND retry_at='infinity') FROM eez_indexer.details", &[]).await.unwrap();
+    let upgrade = admin.query_one("SELECT count(*) FILTER(WHERE retry_at < 'infinity'), count(*) FILTER(WHERE data->>'version'='5' AND retry_at='infinity') FROM eez_indexer.details", &[]).await.unwrap();
     assert_eq!(
         upgrade.get::<_, i64>(0),
         1,
@@ -349,6 +350,384 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     );
     assert_eq!(db.cursor().await.unwrap().unwrap().0, 1);
     sync(&cfg, &rpc, &mut db).await.unwrap();
+    // Off-chain history is idempotent and commits its cursor atomically.
+    {
+        use eez_indexer::postings::{Batch, import};
+        let event = json!({"version":1,"attempt_id":"123-456:1:0","posting_id":B256::repeat_byte(3),
+            "chain_id":cfg.chain_id,"registry":cfg.registry,"rollup_id":cfg.rollup_id,"sync_height":10,
+            "trigger_reasons":["cross_chain"],"sequence":0,"stage":"prepared",
+            "transaction_hash":transaction(0,1),"timestamp_ms":1000,"elapsed_ms":0.0,
+            "dispatch_elapsed_ms":null,"detail":{}});
+        let line = |e: &Value| {
+            format!("{}\n",json!({"fields":{"event_name":"eez.composer.posting.v1","posting_event":e.to_string()}})).into_bytes()
+        };
+        let mut batch = Batch {
+            file_id: "fixture".into(),
+            offset: 100,
+            anchor: "fixture".into(),
+            lines: vec![line(&event)],
+        };
+        import(&mut db.client, &cfg, &batch).await.unwrap();
+        import(&mut db.client, &cfg, &batch).await.unwrap();
+        assert_eq!(
+            db.client
+                .query_one("SELECT count(*) FROM eez_indexer.posting_events", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            1
+        );
+        let mut conflicting = event.clone();
+        conflicting["timestamp_ms"] = json!(2000);
+        batch.lines = vec![line(&conflicting)];
+        batch.offset = 200;
+        assert!(import(&mut db.client, &cfg, &batch).await.is_err());
+        assert_eq!(
+            db.client
+                .query_one(
+                    "SELECT byte_offset FROM eez_indexer.posting_files WHERE file_id='fixture'",
+                    &[]
+                )
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            100
+        );
+        let mut next = event.clone();
+        next["sequence"] = json!(1);
+        next["stage"] = json!("repriced");
+        batch.lines = vec![line(&next), b"invalid JSON\n".to_vec()];
+        assert!(import(&mut db.client, &cfg, &batch).await.is_err());
+        assert_eq!(
+            db.client
+                .query_one("SELECT count(*) FROM eez_indexer.posting_events", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            1
+        );
+        next["posting_id"] = json!(B256::repeat_byte(99));
+        batch.lines = vec![line(&next)];
+        assert!(import(&mut db.client, &cfg, &batch).await.is_err());
+        let mut priced = event.clone();
+        priced["sequence"] = json!(1);
+        priced["stage"] = json!("repriced");
+        let mut dispatched = event.clone();
+        dispatched["sequence"] = json!(2);
+        dispatched["stage"] = json!("dispatched");
+        dispatched["elapsed_ms"] = json!(25.0);
+        dispatched["timestamp_ms"] = json!(100500);
+        dispatched["dispatch_elapsed_ms"] = json!(0.0);
+        dispatched["detail"] = json!({"target_block":2,"target_timestamp":102});
+        let mut included = event.clone();
+        included["sequence"] = json!(3);
+        included["stage"] = json!("included");
+        included["elapsed_ms"] = json!(4025.0);
+        included["timestamp_ms"] = json!(104500);
+        included["dispatch_elapsed_ms"] = json!(4000.0);
+        included["detail"] = json!({"l1_block":2,"l1_block_hash":block_hash(2,1)});
+        // Rotated files can arrive out of order. Preserve the gap until replay fills it.
+        batch.lines = vec![line(&included)];
+        import(&mut db.client, &cfg, &batch).await.unwrap();
+        assert_eq!(
+            db.client
+                .query_one("SELECT history FROM eez_indexer.posting_attempts", &[])
+                .await
+                .unwrap()
+                .get::<_, String>(0),
+            "Missing events"
+        );
+        batch.lines = vec![line(&priced), line(&dispatched)];
+        import(&mut db.client, &cfg, &batch).await.unwrap();
+        let row=db.client.query_one("SELECT history,chain_status,preparation_ms,observation_ms FROM eez_indexer.posting_attempts", &[]).await.unwrap();
+        assert_eq!(row.get::<_, String>(0), "Observed sequence intact");
+        assert_eq!(row.get::<_, String>(1), "Canonical commitment");
+        assert_eq!(row.get::<_, f64>(2), 25.0);
+        assert_eq!(row.get::<_, f64>(3), 4000.0);
+        let timing = db.client.query_one("SELECT target_l1_block,inclusion_block_delta,dispatch_vs_target_seconds::float8,inclusion_vs_target_seconds,receipt_vs_target_seconds::float8,receipt_observation_seconds::float8,target_result FROM eez_indexer.posting_timing", &[]).await.unwrap();
+        assert_eq!(timing.get::<_, i64>(0), 2);
+        assert_eq!(timing.get::<_, i64>(1), 0);
+        assert_eq!(timing.get::<_, f64>(2), -1.5);
+        assert_eq!(timing.get::<_, f64>(3), 0.0);
+        assert_eq!(timing.get::<_, f64>(4), 2.5);
+        assert_eq!(timing.get::<_, f64>(5), 2.5);
+        assert_eq!(timing.get::<_, String>(6), "Expected block");
+        // Exact canonical headers distinguish a produced slot from a proven
+        // skipped timestamp; missing history is not evidence of a network skip.
+        for (mode, expected) in [
+            (0, "Block produced without inclusion"),
+            (1, "Network slot skipped"),
+            (2, "Awaiting canonical evidence"),
+        ] {
+            let tx = db.client.transaction().await.unwrap();
+            tx.execute("UPDATE eez_indexer.posting_events SET data=jsonb_set(data,'{transaction_hash}',to_jsonb($1::text))", &[&B256::repeat_byte(88).to_string()]).await.unwrap();
+            tx.execute("UPDATE eez_indexer.posting_events SET data=jsonb_set(data,'{stage}','\"excluded\"'::jsonb) WHERE data->>'stage'='included'", &[]).await.unwrap();
+            if mode > 0 {
+                tx.execute(
+                    "UPDATE eez_indexer.blocks SET timestamp=104 WHERE height=2",
+                    &[],
+                )
+                .await
+                .unwrap();
+            }
+            if mode == 2 {
+                tx.execute("DELETE FROM eez_indexer.blocks WHERE height=1", &[])
+                    .await
+                    .unwrap();
+            }
+            let row = tx
+                .query_one(
+                    "SELECT outcome,explanation FROM eez_indexer.posting_diagnostics",
+                    &[],
+                )
+                .await
+                .unwrap();
+            assert_eq!(row.get::<_, String>(0), expected);
+            if mode == 0 {
+                assert!(row.get::<_, String>(1).contains("reason unknown"));
+            }
+            tx.rollback().await.unwrap();
+        }
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute(
+            "DELETE FROM eez_indexer.posting_events WHERE sequence>0",
+            &[],
+        )
+        .await
+        .unwrap();
+        tx.execute("UPDATE eez_indexer.posting_events SET data=data || jsonb_build_object('stage','preparation_failed','transaction_hash',null,'target_block',2,'target_timestamp',102,'detail',jsonb_build_object('reason','preparation_deadline','preparation_ms',501))", &[]).await.unwrap();
+        let row = tx.query_one("SELECT outcome,history,transaction_hash,target_l1_block,dispatch_vs_target_seconds::float8 FROM eez_indexer.posting_diagnostics", &[]).await.unwrap();
+        assert_eq!(row.get::<_, String>(0), "Preparation failed");
+        assert_eq!(row.get::<_, String>(1), "Observed sequence intact");
+        assert!(row.get::<_, Option<String>>(2).is_none());
+        assert_eq!(row.get::<_, i64>(3), 2);
+        assert!(row.get::<_, Option<f64>>(4).is_none());
+        tx.rollback().await.unwrap();
+        // Different target heights must not be confused with receipt-observation delay.
+        for (target, timestamp, result, delta, seconds) in [
+            (1_i64, 97_i64, "Later block", 1_i64, 5.0_f64),
+            (3, 107, "Earlier block", -1, -5.0),
+        ] {
+            let tx = db.client.transaction().await.unwrap();
+            tx.execute("UPDATE eez_indexer.posting_events SET data=jsonb_set(data,'{detail}',jsonb_build_object('target_block',$1::bigint,'target_timestamp',$2::bigint)) WHERE data->>'stage'='dispatched'", &[&target,&timestamp]).await.unwrap();
+            let row = tx.query_one("SELECT target_result,inclusion_block_delta,inclusion_vs_target_seconds FROM eez_indexer.posting_timing", &[]).await.unwrap();
+            assert_eq!(row.get::<_, String>(0), result);
+            assert_eq!(row.get::<_, i64>(1), delta);
+            assert_eq!(row.get::<_, f64>(2), seconds);
+            tx.rollback().await.unwrap();
+        }
+        // A stale receipt must not measure observation of a different canonical block.
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute("UPDATE eez_indexer.posting_events SET data=jsonb_set(data,'{detail,l1_block_hash}',to_jsonb($1::text)) WHERE data->>'stage'='included'", &[&block_hash(2, 99).to_string()]).await.unwrap();
+        let row = tx.query_one("SELECT inclusion_vs_target_seconds,receipt_vs_target_seconds::float8,receipt_observation_seconds::float8 FROM eez_indexer.posting_timing", &[]).await.unwrap();
+        assert_eq!(row.get::<_, f64>(0), 0.0);
+        assert!(row.get::<_, Option<f64>>(1).is_none());
+        assert!(row.get::<_, Option<f64>>(2).is_none());
+        tx.rollback().await.unwrap();
+        // Older logs without a target timestamp still support a block-height comparison.
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute("UPDATE eez_indexer.posting_events SET data=data #- '{detail,target_timestamp}' WHERE data->>'stage'='dispatched'", &[]).await.unwrap();
+        let row = tx
+            .query_one(
+                "SELECT target_result,inclusion_vs_target_seconds FROM eez_indexer.posting_timing",
+                &[],
+            )
+            .await
+            .unwrap();
+        assert_eq!(row.get::<_, String>(0), "Expected block");
+        assert!(row.get::<_, Option<f64>>(1).is_none());
+        tx.rollback().await.unwrap();
+        // Missing dispatch history has no guessed target or timing, even with a receipt.
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute(
+            "DELETE FROM eez_indexer.posting_events WHERE data->>'stage'='dispatched'",
+            &[],
+        )
+        .await
+        .unwrap();
+        let row = tx.query_one("SELECT target_result,inclusion_block_delta,dispatch_vs_target_seconds::float8 FROM eez_indexer.posting_timing", &[]).await.unwrap();
+        assert_eq!(row.get::<_, String>(0), "Target unavailable");
+        assert!(row.get::<_, Option<i64>>(1).is_none());
+        assert!(row.get::<_, Option<f64>>(2).is_none());
+        tx.rollback().await.unwrap();
+        let dashboard: Value =
+            serde_json::from_str(include_str!("../../grafana/dashboards/composer-queue.json"))
+                .unwrap();
+        let panel = dashboard["panels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == 17)
+            .unwrap();
+        let sql = panel["targets"][0]["rawSql"]
+            .as_str()
+            .unwrap()
+            .replace("$__timeFilter(p.time)", "true");
+        let rows = db.client.query(&sql, &[]).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].get::<_, String>("Trigger reasons"),
+            "Cross-chain work"
+        );
+        assert_eq!(
+            rows[0].get::<_, String>("Latest stage"),
+            "Included at target"
+        );
+        assert_eq!(rows[0].get::<_, i64>("L1 block"), 2);
+        let panel = dashboard["panels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == 16)
+            .unwrap();
+        let sql = panel["targets"][0]["rawSql"]
+            .as_str()
+            .unwrap()
+            .replace("$__timeFilter(p.time)", "true")
+            .replace(
+                "$__timeGroupAlias(p.time, '$__interval')",
+                "to_timestamp(floor(extract(epoch FROM p.time)/60)*60) AS time",
+            );
+        let rows = db.client.query(&sql, &[]).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, String>("metric"), "Cross-chain work");
+        assert_eq!(rows[0].get::<_, f64>("value"), 1.0);
+
+        let panel = dashboard["panels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == 18)
+            .unwrap();
+        let sql = panel["targets"][0]["rawSql"]
+            .as_str()
+            .unwrap()
+            .replace("$__timeFilter(p.expected_l1_time)", "true");
+        let rows = db.client.query(&sql, &[]).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get::<_, f64>("Prepared"), -101.0);
+        assert_eq!(rows[0].get::<_, f64>("Dispatch"), -1.5);
+        assert_eq!(rows[0].get::<_, f64>("Canonical inclusion"), 0.0);
+        assert_eq!(rows[0].get::<_, f64>("Receipt observed"), 2.5);
+
+        // Outcome markers and details share the captured target time, without
+        // aggregating different attempts that happen to target the same slot.
+        let outcome_sql = panel["targets"][1]["rawSql"]
+            .as_str()
+            .unwrap()
+            .replace("$__timeFilter(p.expected_l1_time)", "true");
+        let detail_sql = dashboard["annotations"]["list"][0]["target"]["rawSql"]
+            .as_str()
+            .unwrap()
+            .replace("$__timeFilter(p.expected_l1_time)", "true");
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute("INSERT INTO eez_indexer.posting_events(attempt_id,sequence,data) SELECT '2:1:99',sequence,jsonb_set(data,'{attempt_id}',to_jsonb('2:1:99'::text)) FROM eez_indexer.posting_events", &[]).await.unwrap();
+        let outcomes = tx.query(&outcome_sql, &[]).await.unwrap();
+        assert_eq!(outcomes.len(), 2);
+        for row in &outcomes {
+            assert_eq!(row.get::<_, String>("metric"), "Included at target");
+            assert_eq!(row.get::<_, f64>("value"), 1.0);
+        }
+        let details = tx.query(&detail_sql, &[]).await.unwrap();
+        assert_eq!(details.len(), 2);
+        assert_ne!(
+            details[0].get::<_, String>("text"),
+            details[1].get::<_, String>("text")
+        );
+        for row in &details {
+            assert!(
+                row.get::<_, String>("text")
+                    .contains("Expected L1 block: 2")
+            );
+        }
+        tx.rollback().await.unwrap();
+
+        // First seen can be a later stage when logs are incomplete; never call it Prepared.
+        let tx = db.client.transaction().await.unwrap();
+        tx.execute(
+            "DELETE FROM eez_indexer.posting_events WHERE data->>'stage'='prepared'",
+            &[],
+        )
+        .await
+        .unwrap();
+        let rows = tx.query(&sql, &[]).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].get::<_, Option<f64>>("Prepared").is_none());
+        assert_eq!(rows[0].get::<_, f64>("Dispatch"), -1.5);
+        tx.rollback().await.unwrap();
+
+        // Exercise the actual optional worker, not only the import helper.
+        let logs = std::env::temp_dir().join(format!("eez-posting-worker-{}", std::process::id()));
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(logs.join("posting.log"), line(&event)).unwrap();
+        let mut worker_cfg = cfg.clone();
+        worker_cfg.posting_logs_dir = Some(logs.clone());
+        worker_cfg.validate().unwrap();
+        let worker = tokio::spawn(eez_indexer::postings::run(worker_cfg, url.clone()));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let row = db
+                    .client
+                    .query_one(
+                        "SELECT count(*) FROM eez_indexer.posting_files WHERE file_id <> 'fixture'",
+                        &[],
+                    )
+                    .await
+                    .unwrap();
+                if row.get::<_, i64>(0) == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        worker.abort();
+        let _ = worker.await;
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if db
+                    .client
+                    .query_one("SELECT pg_try_advisory_lock(519763212)", &[])
+                    .await
+                    .unwrap()
+                    .get::<_, bool>(0)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        db.client
+            .query_one("SELECT pg_advisory_unlock(519763212)", &[])
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(logs).unwrap();
+        db.rewind(1).await.unwrap();
+        assert_eq!(
+            db.client
+                .query_one("SELECT count(*) FROM eez_indexer.posting_events", &[])
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            4
+        );
+    }
+    assert_eq!(
+        db.client
+            .query_one("SELECT chain_status FROM eez_indexer.posting_attempts", &[])
+            .await
+            .unwrap()
+            .get::<_, String>(0),
+        "Not in indexed canonical history"
+    );
+    let row = db.client.query_one("SELECT inclusion_block_delta,inclusion_vs_target_seconds,receipt_vs_target_seconds::float8,receipt_observation_seconds::float8 FROM eez_indexer.posting_timing", &[]).await.unwrap();
+    assert!(row.get::<_, Option<i64>>(0).is_none());
+    for column in 1..4 {
+        assert!(row.get::<_, Option<f64>>(column).is_none());
+    }
     state.lock().unwrap().wrong_chain = true;
     assert!(sync(&cfg, &rpc, &mut db).await.is_err());
     drop(db);

@@ -16,6 +16,7 @@ fn config() -> Config {
         rollup_id: 1,
         start_block: 1,
         details: None,
+        posting_logs_dir: None,
     }
 }
 

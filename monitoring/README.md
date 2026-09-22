@@ -3,7 +3,8 @@
 This optional stack runs Grafana and Prometheus on the same Linux machine as the
 packaged Chiado Composer. Prometheus scrapes Reth's existing localhost metrics
 endpoint and retains the Composer-owned metric families below. Grafana
-provisions **EEZ Composer queue** and **EEZ Settlement** in the EEZ folder.
+provisions **EEZ Composer queue** in the EEZ folder. The optional indexer adds
+**EEZ Settlement history**; the older **EEZ Settlement** dashboard is retired.
 For persistent settlement history, exact transaction links and receipt fees, add
 the optional [EEZ indexer](indexer/README.md). It reads L1 directly and adds
 PostgreSQL plus an **EEZ Settlement history** dashboard without changing Composer.
@@ -81,8 +82,8 @@ Within each snapshot, `ready + blocked + unknown = queued`, and the blocking
 reason counts sum to `blocked`. In-flight work is not classified as queued.
 The dashboard explicitly labels readiness and blocking reasons as **last-evaluated**:
 the sampler does not reevaluate source state, and a new sample does not advance
-evaluation time. Consult **Last evaluation age** before treating those cached
-classifications as recent. The last evaluation may be old during idle periods;
+evaluation time. The age cards are omitted from the queue dashboard; these cached
+classifications must not be treated as freshly evaluated. The last evaluation may be old during idle periods;
 its age alone is not a stall alert. Same-height source-hash changes expire old
 classifications according to the existing queue rules.
 
@@ -99,17 +100,49 @@ counter, or a count of all historical unsettled requests. The two categories
 are disjoint in the pool snapshot. This is Composer's cross-chain held pool,
 not Reth's ordinary L2 transaction pool.
 
-The Composer job is scraped every two seconds with a two-second timeout. The
-former one-second timeout caused intermittent missing samples on the shared host.
+The Cross-chain queue chart combines four separate series: inbound/outbound
+queued and inbound/outbound in-flight. Direction determines color; in-flight
+uses dashed lines. Readiness remains separate because ready + blocked + unknown
+is a breakdown of queued membership, not additional requests, and its current
+metrics aggregate both directions. The dashboard does not infer a directional
+readiness breakdown that the metrics do not provide.
+
+The top summary shows outstanding Total/Inbound/Outbound requests, Queued/In-flight
+states, and the queued Ready/Blocked/Awaiting evaluation breakdown. These are
+instant snapshots at the selected end time (now for live ranges), not totals
+across the time range. The same scrape-health and freshness guards apply; missing
+samples remain unavailable. The views overlap intentionally: readiness divides
+queued membership, and direction divides all outstanding membership.
+
+The top row also includes Oldest age metrics with minimum, maximum and average
+for the selected period. The full-width Oldest tracked pending request chart
+labels its series Oldest request age and keeps the legend on the right. Prometheus evaluates the guarded age expression at
+two-second intervals before calculating these statistics, independently of chart
+resolution. Empty-queue, stale and unavailable observations do not count as zero.
+The average is the mean of sampled oldest ages while requests are present, not
+mean transaction latency. Peaks between samples can still be missed; a range
+with no valid observations shows `-`; null and NaN display values across the
+queue dashboard also use `-`, never zero. The age graph's Last value
+includes a missing final sample instead of carrying forward an old age.
+
+The Composer job is scraped every three seconds with a three-second timeout.
+The former two-second deadline caused occasional timeouts on the shared host,
+despite normally fast responses. The longer interval provides timeout headroom
+without overlapping scrapes; it trades some collection resolution for resilience.
 The in-process sampler still updates once per second. Short-lived transitions may be missed;
 these gauges do not measure throughput or latency. Individual gauge writes
 are not an atomic Prometheus scrape, so a scrape can straddle sample updates.
 Queue state is in memory and may reset on restart; a decrease does not prove
 settlement. No transaction hashes, addresses or request IDs are metric labels.
 
-The queue panels omit values if the scrape is down, the sample timestamp is in
-the future, or its age is at least 10 seconds. Missing telemetry produces a gap,
-not zero. Sample age is shown separately; a sampling failure stops the sampler
+The queue panels omit values if the scrape is down, the sample timestamp is more
+than three seconds in the future, or its age is at least 10 seconds. The bounded
+three-second tolerance matches the scrape timeout and avoids hiding healthy samples
+whose exported timestamp is slightly ahead of the query timestamp. Missing
+telemetry remains a gap, not zero; lines are not joined across missing samples.
+Legends sit on the right, use concise direction/status labels, and show **Last**
+(including an empty last sample), rather than **Last *** (last nonempty sample),
+alongside Max. A sampling failure stops the sampler
 with a warning and leaves its last timestamp unchanged. Fresh queue data alone
 does not establish chain progress or successful settlement.
 
@@ -125,7 +158,9 @@ at 30 seconds because this stack has no alert or recording rules.
 
 ### Settlement: when and why
 
-Open `http://127.0.0.1:19300/d/eez-settlement`. The queue dashboard also links to it.
+Use **EEZ Composer queue** for posting timing, outcomes and trigger reasons.
+For canonical settlement details, enable the [indexer](indexer/README.md) and open
+`http://127.0.0.1:19300/d/eez-settlement-history`.
 The policy's existing evaluation supplies the due reasons and conditional timing;
 the existing attempt ledger supplies submission observations. No RPC calls,
 re-evaluation of policy, transaction copying, or new lifecycle tracker are used
@@ -295,5 +330,15 @@ fabricating an empty queue. Monitoring changes do not require a network reset.
 This stack covers queue membership, policy observations, recorded submission
 outcomes/timings, per-attempt Sync counts and canonical user-completion observations.
 End-to-end user latency distributions, fees, signer or
-follower metrics, OpenTelemetry, log collection, public access and alerts remain
+follower metrics, OpenTelemetry, general-purpose log collection, public access and alerts remain
 separate increments. No changes to Reth or embedded-L1 instrumentation are needed.
+
+### Per-posting lifecycle history
+
+The queue dashboard also has a **Current unresolved submission**
+status card using fresh, healthy Composer samples. **Settlement trigger reasons**
+counts captured reasons per posting attempt; the **Posting submissions** table
+uses the same standalone indexer history, recording
+short-lived transitions that sampled gauges can miss. Enable the
+[posting log collector](indexer/README.md#posting-lifecycle-history-optional)
+to populate it; no new Prometheus labels or Composer database client are needed.

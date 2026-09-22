@@ -284,6 +284,31 @@ Explorer startup/shutdown is independent of the node stack. Preserve its env
 file, databases, and Blobscan origin volume. Explorer readiness and indexed
 L2 confirmations do not establish completed catch-up or canonical L1 settlement.
 
+### Optional wallet bridge UI
+
+The wallet UI requires the protocol's `src/periphery/Bridge.sol` contract on both
+chains. The deployment workload's `BridgeSender` and `BridgeReceiver` contracts
+are test helpers and do not implement that interface. Do not copy their addresses
+from `deployments.env` into the UI's `bridgeL1Address` / `bridgeL2Address` fields.
+
+Deploy the pinned protocol bridge with the same address on both chains, initialize
+L1 with the current registry and rollup ID 0, and L2 with `EEZL2_ADDRESS` and the
+actual rollup ID. Preserve the bridge admin key and deployment receipts. Keep UI
+bindings separate from the workload bindings. Updating the UI does not require a
+Composer restart or a data reset.
+
+Before publishing, check contract bytecode and call `manager()` and `rollupId()`
+through both public RPC routes. Verify the managers belong to this deployment;
+a nonzero manager from an older network is insufficient. Exercise both bridge
+readiness checks in the browser and simulate `bridgeEther` through both Composer
+fronts. Simulation/readiness does not establish canonical cross-chain inclusion.
+
+If the page says `Unable to check the bridge on L1. Retrying…`, reproduce
+`eth_getCode` and `eth_call` with selector `0x481c6a75` (`manager()`) against the
+configured address. A revert with existing code can indicate the wrong contract,
+not a connectivity failure. Preserve the deployed UI image and other environment
+values when correcting its Compose bindings, and verify again after recreation.
+
 ### Optional workloads
 
 Run funded traffic only when the operation includes it. Inspect the

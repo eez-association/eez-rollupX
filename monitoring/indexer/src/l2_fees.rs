@@ -1,4 +1,4 @@
-//! Receipt-based L2 execution fees. Checkpoint bounded finalized-range scans in
+//! Receipt-based L2 execution fees. Checkpoint bounded canonical-range scans in
 //! the existing details row; never expose a partially collected sum as a total.
 use alloy_primitives::{B256, U256};
 use anyhow::{Context, Result, ensure};
@@ -72,15 +72,22 @@ pub async fn collect(rpc: &Rpc, ranges: &Value, old: &Value, budget: usize) -> V
     let mut remaining = budget;
     let mut items = Vec::new();
     for range in ranges {
-        let cached = old["items"]
-            .as_array()
-            .and_then(|items| items.iter().find(|item| item["range"] == *range));
+        let cached = old["items"].as_array().and_then(|items| {
+            items.iter().find(|item| {
+                crate::details::same_range(&item["range"], range) && item["processed"].is_u64()
+            })
+        });
         let mut item = cached.cloned().unwrap_or_else(
             || json!({"range":range,"status":"pending","processed":0,"burnWei":"0","tipWei":"0"}),
         );
-        if range["state"] != "finalized" {
-            item = json!({"range":range,"status":"pending","error":"L2 range not finalized"});
-        } else if item["status"] != "available"
+        // A canonical result is provisional: validate its hash again even if
+        // fully collected. Finality promotion reuses receipts, not stale status.
+        let revalidate = range["state"] != "finalized"
+            || cached.is_none_or(|c| c["range"]["state"] != "finalized");
+        item["range"] = range.clone();
+        if !matches!(range["state"].as_str(), Some("canonical" | "finalized")) {
+            item = json!({"range":range,"status":"pending","error":"L2 range not canonical"});
+        } else if (item["status"] != "available" || revalidate)
             && let Err(error) = advance(rpc, range, &mut item, &mut remaining).await
         {
             item["status"] = json!("pending");
@@ -93,9 +100,6 @@ pub async fn collect(rpc: &Rpc, ranges: &Value, old: &Value, budget: usize) -> V
 }
 
 async fn advance(rpc: &Rpc, range: &Value, item: &mut Value, budget: &mut usize) -> Result<()> {
-    if *budget == 0 {
-        return Ok(());
-    }
     let first = range["first"].as_u64().context("missing range start")?;
     let last = range["last"].as_u64().context("missing range end")?;
     let count = range["count"].as_u64().context("missing range length")?;

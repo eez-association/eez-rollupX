@@ -61,3 +61,5 @@ pub use local::{
 pub use optimistic::OptimisticallyIncluded;
 #[doc(inline)]
 pub use rollup::{RollupConfig, RollupState};
+
+mod posting_events;

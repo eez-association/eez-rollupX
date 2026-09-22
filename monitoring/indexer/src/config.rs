@@ -14,6 +14,8 @@ pub struct Config {
     pub start_block: u64,
     #[serde(default)]
     pub details: Option<DetailsConfig>,
+    #[serde(default)]
+    pub posting_logs_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -27,6 +29,13 @@ pub struct DetailsConfig {
 
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        if let Some(path) = &self.posting_logs_dir {
+            ensure!(
+                path.is_absolute() && path.is_dir(),
+                "posting_logs_dir must be an existing absolute directory"
+            );
+            std::fs::read_dir(path)?;
+        }
         if let Some(details) = &self.details {
             ensure!(
                 details.l2_chain_id > 0 && details.l2_genesis_hash != B256::ZERO,

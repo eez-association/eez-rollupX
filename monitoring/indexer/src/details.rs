@@ -1,7 +1,8 @@
 //! Optional receipt enrichment. One separate worker keeps L2/Beacon outages
 //! from delaying canonical L1 collection; the database FK enforces reorg cleanup.
-use alloy_primitives::B256;
+use alloy_primitives::{B256, U256};
 use anyhow::{Context, Result, anyhow, ensure};
+use futures_util::{StreamExt, TryStreamExt, stream};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -39,8 +40,12 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
         .timeout(Duration::from_secs(10))
         .build()?;
     loop {
-        let rows = client.query("SELECT t.block_hash,t.transaction_hash,t.transaction_index,b.height,b.timestamp,t.blob_gas_used::text,d.data::text,t.gas_used::text FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash) WHERE d.retry_at IS NULL OR d.retry_at <= now() ORDER BY d.checked_at NULLS FIRST,b.height DESC,t.transaction_index DESC LIMIT 8", &[]).await?;
-        for row in rows {
+        let rows = client.query("SELECT t.block_hash,t.transaction_hash,t.transaction_index,b.height,b.timestamp,t.blob_gas_used::text,d.data::text,t.gas_used::text,t.gas_price_wei::text FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash) WHERE d.retry_at IS NULL OR d.retry_at <= now() ORDER BY d.checked_at NULLS FIRST,b.height DESC,t.transaction_index DESC LIMIT 8", &[]).await?;
+        // Each future owns a different details row. Dropping the worker cancels
+        // all outstanding requests; FK checks discard results orphaned by L1 reorgs.
+        let pending = stream::iter(rows).map(|row| async {
+            let row = row;
+
             let block: B256 = row.get::<_, String>(0).parse()?;
             let tx: B256 = row.get::<_, String>(1).parse()?;
             let index = u64::try_from(row.get::<_, i64>(2))?;
@@ -50,7 +55,7 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
             let old: Value =
                 serde_json::from_str(row.get::<_, Option<String>>(6).as_deref().unwrap_or("{}"))?;
             let gas_used: u64 = row.get::<_, String>(7).parse()?;
-            let mut data = json!({"version":3});
+            let mut data = json!({"version":5});
             // Immutable transaction details and successful blob retrieval are
             // reused. Availability means retrieved at the recorded check time.
             data["transaction"] = if old["transaction"]["status"] == "available"
@@ -66,6 +71,28 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
                     }
                     .await,
                 )
+            };
+            data["l1Fees"] = if old["l1Fees"]["status"] == "available" {
+                old["l1Fees"].clone()
+            } else {
+                outcome(
+                    async {
+                        let header = l1.call("eth_getBlockByHash", json!([block, false])).await?;
+                        crate::l1_fees::split(
+                            &header,
+                            block,
+                            height,
+                            U256::from(gas_used),
+                            row.get::<_, String>(8).parse()?,
+                        )
+                    }
+                    .await,
+                )
+            };
+            data["tipReference"] = if old["tipReference"]["status"] == "available" {
+                old["tipReference"].clone()
+            } else {
+                outcome(crate::l1_fees::collect_reference(&l1, height, block).await)
             };
             data["ranges"] = if blob_gas == 0 {
                 // Correlations belong to DA postings, not their non-blob execution updates.
@@ -91,6 +118,36 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
                 json!({"status":"not_applicable","items":[]})
             } else {
                 crate::l2_fees::collect(&l2, &data["ranges"], &old["l2Fees"], 128).await
+            };
+            data["inboundTransactions"] = if old["inboundTransactions"]["status"] == "available" {
+                old["inboundTransactions"].clone()
+            } else {
+                outcome(
+                    async {
+                        let header = l1.block(height).await?;
+                        ensure!(header.hash == block, "inbound source block changed");
+                        let receipt = l1.call("eth_getTransactionReceipt", json!([tx])).await?;
+                        let inbound = crate::cross_chain::inbound(
+                            &receipt,
+                            &header,
+                            tx,
+                            config.registry,
+                            config.rollup_id,
+                        )?;
+                        ensure!(
+                            l1.block(height).await?.hash == block,
+                            "inbound source block changed"
+                        );
+                        Ok(json!({"count": u64::from(inbound)}))
+                    }
+                    .await,
+                )
+            };
+            data["outboundTransactions"] = if blob_gas == 0 {
+                json!({"status":"not_applicable","items":[]})
+            } else {
+                crate::cross_chain::collect(&l2, &data["ranges"], &old["outboundTransactions"])
+                    .await
             };
             data["beacon"] = if old["beacon"]["status"] == "available"
                 && old["beacon"].get("usedBytes").is_some()
@@ -128,7 +185,11 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
             // Finalized ranges and successful retrieval are historical facts.
             // Retry missing details and unfinalized ranges without continually
             // querying the entire finalized history.
-            let complete = (blob_gas == 0 || data["l2Fees"]["status"] == "available")
+            let complete = data["inboundTransactions"]["status"] == "available"
+                && (blob_gas == 0 || data["outboundTransactions"]["status"] == "available")
+                && data["l1Fees"]["status"] == "available"
+                && data["tipReference"]["status"] == "available"
+                && (blob_gas == 0 || data["l2Fees"]["status"] == "available")
                 && data["transaction"]["status"] == "available"
                 && data["beacon"]["status"] == "available"
                 && data["beacon"].get("usedBytes").is_some()
@@ -136,17 +197,60 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
                     || data["ranges"]["items"].as_array().is_some_and(|items| {
                         !items.is_empty() && items.iter().all(|r| r["state"] == "finalized")
                     }));
+            let retry_seconds = details_retry_seconds(&old, &data);
             let encoded = data.to_string();
-            let saved = client.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) VALUES($1,$2,$3::text::jsonb,CASE WHEN $4 THEN 'infinity'::timestamptz ELSE now()+interval '60 seconds' END) ON CONFLICT(block_hash,transaction_hash) DO UPDATE SET data=EXCLUDED.data,checked_at=now(),retry_at=EXCLUDED.retry_at", &[&block.to_string(),&tx.to_string(),&encoded,&complete]).await;
+            let saved = client.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) VALUES($1,$2,$3::text::jsonb,CASE WHEN $4 THEN 'infinity'::timestamptz ELSE now()+$5::bigint*interval '1 second' END) ON CONFLICT(block_hash,transaction_hash) DO UPDATE SET data=EXCLUDED.data,checked_at=now(),retry_at=EXCLUDED.retry_at", &[&block.to_string(),&tx.to_string(),&encoded,&complete,&retry_seconds]).await;
             if let Err(error) = saved {
                 if error.code() == Some(&tokio_postgres::error::SqlState::FOREIGN_KEY_VIOLATION) {
-                    continue;
+                    return Ok(());
                 }
                 return Err(error.into());
             }
-        }
+            Ok::<(), anyhow::Error>(())
+        });
+        pending.buffer_unordered(4).try_collect::<Vec<_>>().await?;
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
+}
+
+// State promotion must not discard an exact range's receipt checkpoint. Compare
+// every other field so changed hashes/bounds always create a fresh scan.
+pub(crate) fn same_range(a: &Value, b: &Value) -> bool {
+    let (Some(mut a), Some(mut b)) = (a.as_object().cloned(), b.as_object().cloned()) else {
+        return false;
+    };
+    a.remove("state");
+    b.remove("state");
+    a == b
+}
+
+// Resume bounded fee scans promptly when they made progress. Unavailable data,
+// unchanged checkpoints and RPC failures retain the slower retry cadence.
+fn details_retry_seconds(old: &Value, new: &Value) -> i64 {
+    let progressing = ["l2Fees", "outboundTransactions"].iter().any(|field| {
+        new[*field]["status"] == "pending"
+            && new[*field]["items"].as_array().is_some_and(|items| {
+                items.iter().any(|item| {
+                    item["status"] == "pending"
+                        && matches!(
+                            item["range"]["state"].as_str(),
+                            Some("canonical" | "finalized")
+                        )
+                        && item.get("error").is_none()
+                        && item["processed"].as_u64().is_some_and(|processed| {
+                            let previous = old[*field]["items"]
+                                .as_array()
+                                .and_then(|items| {
+                                    items.iter().find(|old| old["range"] == item["range"])
+                                })
+                                .and_then(|old| old["processed"].as_u64())
+                                .unwrap_or(0);
+                            processed > previous
+                        })
+                })
+            })
+    });
+    if progressing { 5 } else { 60 }
 }
 
 fn outcome(result: Result<Value>) -> Value {
@@ -462,4 +566,41 @@ pub fn validate_blobs(value: &Value, block_blob_gas: u64) -> Result<usize> {
         );
     }
     Ok(blobs.len())
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    fn progress(processed: u64) -> Value {
+        json!({"l2Fees":{"status":"pending","items":[{
+            "status":"pending","range":{"first":1,"last":7905,"state":"finalized"},
+            "processed":processed
+        }]}})
+    }
+
+    #[test]
+    fn successful_bounded_scans_continue_promptly() {
+        assert_eq!(details_retry_seconds(&json!({}), &progress(128)), 5);
+        assert_eq!(details_retry_seconds(&progress(128), &progress(256)), 5);
+        let outbound = json!({"outboundTransactions": progress(8192)["l2Fees"]});
+        assert_eq!(details_retry_seconds(&json!({}), &outbound), 5);
+        assert_eq!(details_retry_seconds(&outbound, &outbound), 60);
+        let mut failed = outbound.clone();
+        failed["outboundTransactions"]["items"][0]["error"] = json!("RPC unavailable");
+        assert_eq!(details_retry_seconds(&json!({}), &failed), 60);
+    }
+
+    #[test]
+    fn stalls_and_errors_keep_backoff() {
+        let old = progress(128);
+        assert_eq!(details_retry_seconds(&old, &old), 60);
+        let mut failed = progress(256);
+        failed["l2Fees"]["items"][0]["error"] = json!("RPC unavailable");
+        assert_eq!(details_retry_seconds(&old, &failed), 60);
+        assert_eq!(details_retry_seconds(&old, &json!({})), 60);
+        let mut unfinalized = progress(256);
+        unfinalized["l2Fees"]["items"][0]["range"]["state"] = json!("safe");
+        assert_eq!(details_retry_seconds(&old, &unfinalized), 60);
+    }
 }
