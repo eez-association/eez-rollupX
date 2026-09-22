@@ -506,6 +506,14 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+For the mixed outbound signer extension, update Composer and every follower's
+replay implementation before enabling the updated signer, or deploy the matched
+runtime set together. Old derivers reject mixed groups after L1 settlement.
+Once such groups are canonical, downgrading a replaying node to the old binaries
+cannot replay that history. The protocol pin, contracts and stored encoding are
+unchanged; see [signer profile compatibility](../../crates/eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility).
+This is an upgrade requirement, not evidence that a live deployment has run.
+
 For the ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 

@@ -8,7 +8,7 @@ use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, loadExecutionTableCall};
 use eez_protocol::entries::{
-    NestedPairDirection, NestedPairVerification, verify_nested_group, verify_static_outbound_pair,
+    NestedPairDirection, NestedPairVerification, verify_nested_group, verify_outbound_source_group,
 };
 use eez_protocol::system_tx::{
     OutboundSourceEntry, check_entry_shape, check_static_entry_shape, lift_entry_from_l2,
@@ -481,6 +481,20 @@ pub(crate) fn authorize_outbound_effects(
                         ),
                     })?;
                 let source_entries = &loaded_entries[source_start..source_end];
+                // The static pool is shared by the complete user transaction.
+                // Authorizing only a slice could miss an earlier conflicting
+                // lookup or assign mutable receipt events to static rows.
+                if loaded_entries.len() > 1
+                    && loaded_entries
+                        .iter()
+                        .any(|entry| matches!(entry, OutboundSourceEntry::Static(_)))
+                    && (source_start != 0 || source_end != loaded_entries.len())
+                {
+                    return Err(OutboundEffectError::ExecutionTableMismatch {
+                        entry_index: effect.entry_index(),
+                        reason: "mixed outbound host must cover the complete source load".into(),
+                    });
+                }
                 let mut callback_transaction_indices = Vec::new();
                 let mut callback_entries = Vec::new();
                 while let Some(candidate) = incoming.next_if(|candidate| {
@@ -628,8 +642,8 @@ fn authorize_outbound_effect(
         }
     }
     let verification = match source_entries {
-        [OutboundSourceEntry::Static(source)] if callback_entries.is_empty() => {
-            verify_static_outbound_pair(entry, source, RollupId(expected_rollup_id.get()))
+        sources if callback_entries.is_empty() => {
+            verify_outbound_source_group(entry, sources, RollupId(expected_rollup_id.get()))
         }
         _ => {
             let mutable = source_entries

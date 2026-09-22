@@ -2258,47 +2258,56 @@ where
                         selected_sources.len(),
                     )));
                 }
+                // Static lookups share one pool for the whole signed user
+                // transaction. Match the signer's whole-load boundary before
+                // independently verifying the reconstructed source tables.
+                let source_group_ranges = outbound
+                    .iter()
+                    .scan(0usize, |start, group| {
+                        let end = *start + group.effects.len();
+                        let has_static = group.effects.iter().any(|effect| {
+                            matches!(
+                                effect.source_entry,
+                                eez_protocol::system_tx::OutboundSourceEntry::Static(_)
+                            )
+                        });
+                        let range = (*start, (end, has_static));
+                        *start = end;
+                        Some(range)
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
                 let mut source_cursor = 0usize;
                 for (host, &count) in settlement_outbound.iter().zip(&selected_root_counts) {
                     let source_end = source_cursor + count;
                     let selected = &selected_sources[source_cursor..source_end];
-                    let verification = match selected {
-                        [eez_protocol::system_tx::OutboundSourceEntry::Static(source)] => {
-                            eez_protocol::entries::verify_static_outbound_pair(
-                                host,
-                                source,
-                                eez_protocol::RollupId(cfg.this_rollup_id),
+                    let (&group_start, &(group_end, group_has_static)) = source_group_ranges
+                        .range(..=source_cursor)
+                        .next_back()
+                        .ok_or_else(|| {
+                            DeriverError::local_diverged_with_msg(
+                                from_block,
+                                "outbound host has no signed source group",
                             )
-                        }
-                        _ if selected.iter().all(|source| {
-                            matches!(
-                                source,
-                                eez_protocol::system_tx::OutboundSourceEntry::Mutable(_)
-                            )
-                        }) => {
-                            let mutable = selected
-                                .iter()
-                                .map(|source| match source {
-                                    eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
-                                        entry.clone()
-                                    }
-                                    eez_protocol::system_tx::OutboundSourceEntry::Static(_) => {
-                                        unreachable!("guarded mutable source slice")
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            eez_protocol::entries::verify_nested_group(
-                                host,
-                                &mutable,
-                                eez_protocol::entries::NestedPairDirection::Outbound,
-                                eez_protocol::RollupId(cfg.this_rollup_id),
-                            )
-                        }
-                        _ => Err(eez_protocol::ProtocolErrorKind::Unsupported(
-                            "mixed mutable/static roots in one outbound settlement host",
+                        })?;
+                    let host_has_static = selected.iter().any(|source| {
+                        matches!(
+                            source,
+                            eez_protocol::system_tx::OutboundSourceEntry::Static(_)
                         )
-                        .into()),
+                    });
+                    if (group_has_static || host_has_static)
+                        && (source_cursor != group_start || source_end != group_end)
+                    {
+                        return Err(DeriverError::local_diverged_with_msg(
+                            from_block,
+                            "mixed outbound host must cover one complete signed source group",
+                        ));
                     }
+                    let verification = eez_protocol::entries::verify_outbound_source_group(
+                        host,
+                        selected,
+                        eez_protocol::RollupId(cfg.this_rollup_id),
+                    )
                     .map_err(|error| {
                         DeriverError::local_diverged_with_msg(
                             from_block,

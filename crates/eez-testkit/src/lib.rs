@@ -3194,6 +3194,8 @@ sol! {
     }
     #[sol(rpc)]
     interface ISetterWrapper {
+        function readWriteRead(uint256 v) external;
+        function mixedReadSum() external view returns (uint256);
         event Wrapped(uint256 input, bool ok, bool changed, uint256 newValue);
         function proxy() external view returns (address);
         function setViaProxy(uint256 v) external;

@@ -101,7 +101,10 @@ then FIFO inbound entries. Applying inbound entries have an exact re-executed
 L2 effect; lookup-only entries retain their proven result but have a zero-value
 no-op root update and no L2 transaction. Effects may contain an alternating
 L1/L2 nested or reentrant call tree; flat outbound effects may group multiple
-roots from one L2 user transaction. A terminal nested row may fail with a
+roots from one L2 user transaction. A complete flat outbound host may mix
+terminal static lookups with successful mutable roots. Its static lookup results
+must agree for repeated keys, and only mutable roots contribute receipt events.
+Reverted or nested mixed groups remain outside that extension. A terminal nested row may fail with a
 committed reverted rolling hash and no descendants. Canonical, non-overlapping
 `revertNextNCalls` windows may roll back one or more consecutive calls.
 Terminal top-level L1-origin calls may fail with committed revert data as

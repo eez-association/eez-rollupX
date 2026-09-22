@@ -687,13 +687,24 @@ All outbound effects MUST precede all inbound effects.
 
 An outbound candidate transaction MUST be immediately preceded by a canonical,
 successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
-one or more L2 source entries. A group is either one static source entry with no
-callbacks or one or more mutable source entries. The claimed outbound hosts
-MUST partition those source entries exactly: each mutable host consumes as many
-consecutive source roots as it carries top-level `l2ToL1Calls`, while a static
-host consumes its single static source entry, and no source root may be skipped
-or reused. Every L2-to-L1 call
-recomputed from the nested pair MUST have one matching current six-field
+one or more L2 source entries. A group MAY contain only mutable sources,
+or terminal static sources interleaved with successful flat mutable roots in
+one outbound host. A multi-root host containing static sources MUST cover the
+complete load and user transaction; it MUST NOT carry separate callbacks,
+reverted mutable roots, root revert spans, or nested mutable roots.
+
+The load serializes mutable sources first, then static sources. Verification
+MUST traverse the host's original call order, advancing the mutable cursor only
+for mutable roots and matching static roots against their static source order.
+Every source row MUST be accounted for exactly. Static sources MUST have zero
+rolling hash, no descendants or root pins, and destination rollup zero.
+Repeated static lookup keys MUST have identical success and return bytes: the
+pinned EEZL2 resolves the first matching key, regardless of intervening writes.
+Changing-result top-level reads under the same key remain unsupported.
+
+For mutable-only groups the existing cursor/revert verification remains in
+force. Every committed mutable L2-to-L1 call recomputed from the group MUST
+have one matching current six-field
 `EEZL2.CrossChainCallExecuted` event at the candidate transaction, in execution
 and receipt-log order. Every matching EEZL2 event in the terminal receipts
 MUST be claimed exactly once; malformed, missing, reordered, or extra
@@ -713,9 +724,33 @@ Every L2-origin call source address MUST NOT be `SYSTEM_ADDRESS`.
 The signer MUST verify each L1 host and its exact consecutive slice of the
 loaded L2 source table with the same recursive inverse execution defined in
 section 9.2. Each L2-origin source hash uses target rollup `0` and zero
-`callGas`; these hashes MUST equal the ordered event hashes. The update's
+`callGas`; mutable-call hashes MUST equal the ordered event hashes. Static roots
+MUST contribute to the host rolling hash but MUST NOT require receipt events
+or contribute transferred value. The update's
 `etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
 all roots covered by that host, within the `int192` range.
+
+### Mixed outbound profile compatibility
+
+Mixed/static multi-root support extends signer authorization and deriver replay.
+The protocol gitlink, Solidity contracts, transaction ABI, DA encoding and gRPC
+schema are unchanged. Existing Composer source-table construction already emits
+mutable sources followed by static sources under one host. Historical source
+bytes remain unchanged, and mutable-only validation retains its previous rules.
+
+Old signers reject these groups; old Composer/follower derivers reject their
+canonical replay even if an updated signer attests them. Upgrade all replaying
+nodes before enabling the updated signer, or deploy the matched runtime set
+together. Never enable new attestations while a required node still has the old
+replay restriction.
+
+Existing historical source bytes remain replayable by the updated binaries.
+After mixed groups settle, rolling back a replaying node to the old implementation
+cannot replay those groups and is not a supported recovery path. Rolling back
+only the signer restores its rejection and can leave mixed work pending; it does
+not undo canonical settlement. No storage or protocol migration is required.
+Pending requests are in memory and restarts may require client resubmission.
+This extension does not change retry attribution, queue ownership or scheduling.
 
 ## 11. Data-availability and Sync-block verification
 

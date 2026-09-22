@@ -1445,3 +1445,84 @@ async fn inbound_reverting_destination_preserves_caught_result_without_destinati
 async fn outbound_reverting_destination_preserves_caught_result_without_destination_writes() {
     assert_reverting_destination_preserves_caught_result(false).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_mixed_static_reads_and_write_settle_together() {
+    use alloy_rpc_types_eth::BlockNumberOrTag;
+    use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
+
+    let w = setup_cross_chain().await.unwrap();
+    Scenario::new("two static reads, mutable write, two static reads")
+        .outbound(
+            ScenarioCall::new(
+                w.outbound_wrapper,
+                ISetterWrapper::readWriteReadCall { v: U256::from(79) }.abi_encode(),
+            )
+            .with_gas_limit(2_000_000),
+        )
+        .expect_l1_state(value_read(w.outbound_value), 79u64)
+        .expect_l2_state(
+            call_read(
+                w.outbound_wrapper,
+                "mixedReadSum()",
+                ISetterWrapper::mixedReadSumCall {}.abi_encode(),
+            ),
+            66u64,
+        )
+        .expect_l2_state(
+            call_read(
+                w.outbound_wrapper,
+                "completedProxyCalls()",
+                ISetterWrapper::completedProxyCallsCall {}.abi_encode(),
+            ),
+            1u64,
+        )
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+    // Reconstruct from canonical L1/blob data with no Composer proposal state.
+    let target = block_number_and_hash_at(&w.l2_rpc(), BlockNumberOrTag::Safe)
+        .await
+        .unwrap()
+        .unwrap();
+    let follower = NodeHandle::start(
+        "mixed-outbound-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&w.cfg.l2_genesis.0),
+        },
+        &w.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for(SETTLE_TIMEOUT, || async {
+        let actual =
+            block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Number(target.0))
+                .await?;
+        let safe = block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Safe).await?;
+        Ok((actual == Some(target) && safe.is_some_and(|head| head.0 >= target.0)).then_some(()))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "mixed-group follower failed: {error:#}\n{}",
+            follower.log_tail(60)
+        )
+    });
+    assert_eq!(
+        read_state_word(
+            &follower.l2_rpc_url(),
+            &call_read(
+                w.outbound_wrapper,
+                "mixedReadSum()",
+                ISetterWrapper::mixedReadSumCall {}.abi_encode(),
+            )
+        )
+        .await
+        .unwrap(),
+        U256::from(66)
+    );
+    follower.assert_no_divergence_failure_logs();
+    w.node.assert_no_divergence_failure_logs();
+}

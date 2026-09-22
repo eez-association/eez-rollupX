@@ -863,3 +863,215 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
         .is_ok()
     );
 }
+
+/// Construct actual canonical load calldata; the tests exercise the strict
+/// decoder as well as effect binding and outbound authorization.
+fn mixed_outbound_fixture(kinds: &[bool]) -> (CanonicalPostBatch, SettlingBlockObservations) {
+    use eez_protocol::abi::loadExecutionTableCall;
+    use eez_protocol::system_tx::{lower_entry_to_l2, lower_static_entry_to_l2};
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let template = batch.entries[1].l2ToL1Calls[0].clone();
+    let host = &mut batch.entries[1];
+    host.l2ToL1Calls.clear();
+    host.rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+    let mut rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+    let mut mutable = Vec::new();
+    let mut statics = Vec::new();
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    for (index, is_static) in kinds.iter().copied().enumerate() {
+        let mut call = template.clone();
+        call.isStatic = is_static;
+        call.value = U256::ZERO;
+        call.data = Bytes::from(vec![if is_static {
+            0x10 + (statics.len() % 2) as u8
+        } else {
+            0x22
+        }]);
+        let hash = common_cross_chain_call_hash(CallHashInput {
+            call_mode: CallMode::from_is_static(is_static),
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(1),
+            target_address: call.targetAddress,
+            target_rollup_id: RollupId::MAINNET,
+            value: U256::ZERO,
+            data: &call.data,
+        });
+        rolling.call_begin(hash);
+        rolling.call_end(true, &[]);
+        if is_static {
+            statics.push(lower_static_entry_to_l2(&StaticExecutionEntrySol {
+                proxyEntryHash: hash,
+                destinationRollupId: 0,
+                l2ToL1Calls: Vec::new(),
+                rollingHash: B256::ZERO,
+                success: true,
+                returnData: Bytes::new(),
+                expectedRoots: Vec::new(),
+            }));
+        } else {
+            mutable.push(lower_entry_to_l2(&flat_outbound_sidecar_for_call(
+                &call,
+                true,
+                Bytes::new(),
+            )));
+            settling
+                .outbound_event_candidates_mut_for_test()
+                .push(observed_outbound_call(1, index, &call));
+        }
+        host.l2ToL1Calls.push(call);
+    }
+    host.rollingHash = rolling.current();
+    let calldata = loadExecutionTableCall {
+        _entries: mutable,
+        _staticEntries: statics,
+    }
+    .abi_encode();
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate {
+            transaction_index: 0,
+            inspection: super::super::outbound::inspect_outbound_load_candidate(
+                U256::ZERO,
+                &calldata,
+                true,
+            ),
+        });
+    (batch, settling)
+}
+
+#[test]
+fn mixed_outbound_authorizes_reads_before_and_after_write() {
+    for kinds in [
+        vec![true, true, false, true, true],
+        vec![false, true, true],
+        vec![true, true, false],
+        vec![true, true],
+        vec![true],
+        vec![false, true, false, true],
+    ] {
+        let (batch, settling) = mixed_outbound_fixture(&kinds);
+        let plan = effect_plan(&batch, &settling);
+        let authorized = authorize_outbound_effects(&plan).expect("authorize complete mixed host");
+        assert_eq!(authorized.len(), kinds.len());
+        assert_eq!(
+            authorized.groups().map(<[_]>::len).collect::<Vec<_>>(),
+            [kinds.len()]
+        );
+    }
+}
+
+#[test]
+fn mixed_outbound_rejects_changed_host_outcome() {
+    let (mut batch, settling) = mixed_outbound_fixture(&[true, true, false, true, true]);
+    batch.entries[1].rollingHash = B256::repeat_byte(0x99);
+    assert!(matches!(
+        authorize_outbound_effects(&effect_plan(&batch, &settling)),
+        Err(OutboundEffectError::ExecutionTableMismatch { .. })
+    ));
+}
+
+#[test]
+fn mixed_outbound_rejects_missing_mutable_event() {
+    let (batch, mut settling) = mixed_outbound_fixture(&[true, true, false, true, true]);
+    settling.outbound_event_candidates_mut_for_test().clear();
+    assert!(matches!(
+        authorize_outbound_effects(&effect_plan(&batch, &settling)),
+        Err(OutboundEffectError::MissingObservation { .. })
+    ));
+}
+
+#[test]
+fn mixed_outbound_rejects_conflicting_cached_results() {
+    use eez_protocol::abi::loadExecutionTableCall;
+    use eez_protocol::system_tx::{
+        OutboundSourceEntry, lower_entry_to_l2, lower_static_entry_to_l2,
+    };
+    let (batch, mut settling) = mixed_outbound_fixture(&[true, true, false, true, true]);
+    let load = &mut settling.outbound_load_candidates_mut_for_test()[0];
+    let sources = load.inspection.as_ref().unwrap().as_entries();
+    let mut call = loadExecutionTableCall {
+        _entries: Vec::new(),
+        _staticEntries: Vec::new(),
+    };
+    for source in sources {
+        match source {
+            OutboundSourceEntry::Mutable(entry) => call._entries.push(lower_entry_to_l2(entry)),
+            OutboundSourceEntry::Static(entry) => {
+                call._staticEntries.push(lower_static_entry_to_l2(entry))
+            }
+        }
+    }
+    call._staticEntries[2].returnData = Bytes::from_static(&[1]);
+    load.inspection = super::super::outbound::inspect_outbound_load_candidate(
+        U256::ZERO,
+        &call.abi_encode(),
+        true,
+    );
+    match authorize_outbound_effects(&effect_plan(&batch, &settling)) {
+        Err(OutboundEffectError::ExecutionTableMismatch { reason, .. }) => {
+            assert!(reason.contains("conflicting results"))
+        }
+        _ => panic!("expected conflicting static lookup rejection"),
+    }
+}
+
+#[test]
+fn mixed_outbound_rejects_extra_mutable_event() {
+    let (batch, mut settling) = mixed_outbound_fixture(&[true, false, true]);
+    settling
+        .outbound_event_candidates_mut_for_test()
+        .push(observed_outbound_call(
+            1,
+            3,
+            &batch.entries[1].l2ToL1Calls[1],
+        ));
+    assert!(matches!(
+        authorize_outbound_effects(&effect_plan(&batch, &settling)),
+        Err(OutboundEffectError::ObservationCountMismatch { .. })
+    ));
+}
+
+#[test]
+fn mixed_outbound_rejects_wrong_static_call_identity() {
+    let (mut batch, settling) = mixed_outbound_fixture(&[true, false, true]);
+    batch.entries[1].l2ToL1Calls[0].data = Bytes::from_static(&[0xfe]);
+    match authorize_outbound_effects(&effect_plan(&batch, &settling)) {
+        Err(OutboundEffectError::ExecutionTableMismatch { reason, .. }) => {
+            assert!(reason.contains("source lookup"))
+        }
+        _ => panic!("expected static identity rejection"),
+    }
+}
+
+#[test]
+fn mixed_outbound_rejects_partitioning_the_static_pool_between_hosts() {
+    for split in [1, 2] {
+        let (mut batch, settling) = mixed_outbound_fixture(&[false, true, true, true, true]);
+        let mut second = batch.entries[1].clone();
+        second.l2ToL1Calls = batch.entries[1].l2ToL1Calls.split_off(split);
+        batch.entries.push(second);
+        batch.immediateEntryCount += U256::from(1);
+        for host in &mut batch.entries[1..] {
+            let mut rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+            for call in &host.l2ToL1Calls {
+                rolling.call_begin(common_cross_chain_call_hash(CallHashInput {
+                    call_mode: CallMode::from_is_static(call.isStatic),
+                    source_address: call.sourceAddress,
+                    source_rollup_id: RollupId(1),
+                    target_address: call.targetAddress,
+                    target_rollup_id: RollupId::MAINNET,
+                    value: call.value,
+                    data: &call.data,
+                }));
+                rolling.call_end(true, &[]);
+            }
+            host.rollingHash = rolling.current();
+        }
+        match authorize_outbound_effects(&effect_plan(&batch, &settling)) {
+            Err(OutboundEffectError::ExecutionTableMismatch { reason, .. }) => {
+                assert!(reason.contains("complete source load"))
+            }
+            _ => panic!("expected complete static pool rejection"),
+        }
+    }
+}
