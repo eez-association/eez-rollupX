@@ -295,6 +295,7 @@ mod tests {
             eez_protocol::Composition {
                 actions: Vec::new(),
                 source: eez_protocol::SourceComposition {
+                    l2_static_entries: Vec::new(),
                     rollup_id: eez_protocol::RollupId(1),
                     batch: eez_protocol::EvmBatch {
                         entries: vec![Default::default(); entry_count],
@@ -378,6 +379,7 @@ mod tests {
                     revert_span: None,
                 }],
                 source: eez_protocol::SourceComposition {
+                    l2_static_entries: Vec::new(),
                     rollup_id: eez_protocol::RollupId::MAINNET,
                     batch: eez_protocol::EvmBatch {
                         entries: vec![Default::default()],

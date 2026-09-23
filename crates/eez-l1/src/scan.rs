@@ -459,15 +459,25 @@ pub(crate) async fn scan_batch_logs_range(
         let block_hash = l.block_hash.ok_or_else(|| {
             L1Error::Provider("L2ExecutionPerformed log missing block_hash".into())
         })?;
-        let data = l.data().data.as_ref();
-        if data.len() == 32 {
-            settled_by_block.entry(bn).or_default().push(SettledRoot {
-                tx_index,
-                log_index: l.log_index.unwrap_or_default(),
-                block_hash,
-                root: B256::from_slice(data),
-            });
+        // The pinned event carries both commitment and resulting ether balance.
+        // A malformed matching log is an observation error, not evidence that
+        // no settlement occurred; do not silently turn it into a failed attempt.
+        if l.topics().len() != 2 || l.data().data.len() != 64 {
+            return Err(L1Error::Decode(
+                "invalid L2ExecutionPerformed event shape".into(),
+            ));
         }
+        let decoded = L2ExecutionPerformed::decode_log(&alloy_primitives::Log {
+            address: l.address(),
+            data: l.data().clone(),
+        })
+        .map_err(|error| L1Error::Decode(format!("decode L2ExecutionPerformed: {error}")))?;
+        settled_by_block.entry(bn).or_default().push(SettledRoot {
+            tx_index,
+            log_index: l.log_index.unwrap_or_default(),
+            block_hash,
+            root: decoded.newRoot,
+        });
     }
     for roots in settled_by_block.values_mut() {
         roots.sort_by_key(|r| (r.tx_index, r.log_index));
@@ -497,7 +507,7 @@ pub(crate) async fn scan_batch_logs_range(
             .await?;
         let submitter = tx.inner.signer();
         let input = tx.inner.input();
-        // `BatchPosted` carries rollupCount, not rollupId, so we decode every
+        // `BatchPosted` can include several rollup IDs, so we decode every
         // rollup's batch — and a peer posting via a router yields undecodable
         // input. Skip unless it settled OUR rollup (invariant 8).
         let decoded = match postAndVerifyBatchCall::abi_decode(input) {
@@ -1112,6 +1122,33 @@ mod tests {
         assert_eq!(scanned[1].claimed_new_root, Some(b));
     }
 
+    #[tokio::test]
+    async fn malformed_settlement_event_is_not_treated_as_absent_settlement() {
+        for data_words in [1, 3] {
+            let asserter = Asserter::new();
+            let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+            let mut log = settled_root_log(
+                1,
+                B256::repeat_byte(0xab),
+                42,
+                B256::repeat_byte(0x42),
+                B256::repeat_byte(0x21),
+                0,
+                0,
+            );
+            log.inner.data = alloy_primitives::LogData::new_unchecked(
+                log.topics().to_vec(),
+                Bytes::from(vec![0; 32 * data_words]),
+            );
+            asserter.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+            asserter.push_success(&vec![log]);
+            let result = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42).await;
+            assert!(
+                matches!(result, Err(L1Error::Decode(reason)) if reason == "invalid L2ExecutionPerformed event shape")
+            );
+        }
+    }
+
     /// An idle chain still needs one no-op batch to advance its derived cursor,
     /// but competing duplicates must not advance the same range twice.
     #[test]
@@ -1668,7 +1705,8 @@ mod tests {
             inner: alloy_primitives::Log {
                 address: Address::ZERO,
                 data: BatchPosted {
-                    rollupCount: U256::from(1),
+                    sharedPublicInput: B256::ZERO,
+                    rollupIds: vec![1],
                 }
                 .encode_log_data(),
             },
@@ -1699,6 +1737,7 @@ mod tests {
                 data: L2ExecutionPerformed {
                     rollupId: rollup_id,
                     newRoot: root,
+                    etherBalance: U256::from(77),
                 }
                 .encode_log_data(),
             },
@@ -1987,7 +2026,7 @@ mod tests {
         assert!(err.is_source_incomplete(), "unexpected error: {err}");
     }
 
-    /// `BatchPosted` carries rollupCount, not rollupId, so a peer posting via a
+    /// `BatchPosted` can include several rollup IDs, so a peer posting via a
     /// router yields an input we cannot decode. That must not halt us — unless
     /// the same tx settled OUR rollup, which we then genuinely cannot derive.
     #[tokio::test]

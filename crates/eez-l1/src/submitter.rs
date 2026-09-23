@@ -420,12 +420,13 @@ async fn policy_submission_failure<P: Provider, C: Clock>(
             }));
         }
         if let Some(parent) = rpc_block(provider, BlockNumberOrTag::Number(parent_number)).await? {
-            if parent
-                .header
-                .timestamp
-                .checked_add(timing.l1_block_time_secs())
-                != Some(timestamp)
-            {
+            // Exact timestamp pins allow one speculative replacement after a
+            // missing slot. This admits preparation, not a skipped-slot verdict:
+            // the final gate still rejects an already-produced target height,
+            // and the caller re-executes the whole bundle on the current parent.
+            let distance = timestamp.checked_sub(parent.header.timestamp);
+            let slot = timing.l1_block_time_secs();
+            if distance != Some(slot) && distance != slot.checked_mul(2) {
                 return Ok(Some(PolicySubmissionFailure::ParentTimestampMismatch));
             }
             break;
@@ -618,6 +619,29 @@ impl Submitter {
     #[must_use]
     pub fn reader(&self) -> L1Reader {
         self.inner.reader.clone()
+    }
+
+    /// Identify the still-current parent for a single missing-slot replacement.
+    /// Absence is permission to speculate only; it is never settlement evidence.
+    pub async fn replacement_parent(
+        &self,
+        block: u64,
+        timestamp: u64,
+    ) -> L1Result<Option<crate::L1BlockRef>> {
+        let parent = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
+        let distance = self
+            .inner
+            .submission_timing
+            .l1_block_time_secs()
+            .checked_mul(2);
+        Ok((parent.header.number.checked_add(1) == Some(block)
+            && timestamp.checked_sub(parent.header.timestamp) == distance)
+            .then_some(crate::L1BlockRef {
+                number: parent.header.number,
+                hash: parent.header.hash,
+            }))
     }
 
     /// L1 EOA address this Submitter sends from. Used by the Composer
@@ -817,6 +841,8 @@ impl Submitter {
         event!(
             name: "eez.submitter.bundle.dispatch",
             Level::INFO,
+            event_name = "eez.submitter.bundle.dispatch",
+            target_timestamp = prepared.timestamp,
             tx_hash = %post_batch_hash,
             target_block = prepared.block,
             exact = matches!(target, BundleTarget::Exact { .. }),
@@ -1201,7 +1227,9 @@ impl Inner {
         // fought forever (RootMismatch, phantom L2 effects).
         // Receipt, head, and canonical block all read from the SAME
         // tip provider — mixing the lagging embedded L1 for receipts
-        // would re-open the false-death window. If the tip later reorgs
+        // would re-open the false-death window. The Composer may switch to a
+        // deadline replacement while this observer retains the original record;
+        // that switch is never recorded here as a failure. If the tip later reorgs
         // the bundle in, downstream converges it (Watcher → Deriver →
         // recovery cursor re-check drops the stale verdict).
         //
@@ -1213,7 +1241,8 @@ impl Inner {
         loop {
             // Transient RPC failures are retried, never escalated to a
             // failure verdict — while polling, the ledger stays Pending
-            // and the composer's gate stays closed.
+            // without asserting a failure. A bounded deadline replacement can
+            // proceed separately while canonical reconciliation retains history.
             match target_provider.get_transaction_receipt(tx_hash).await {
                 Ok(Some(receipt)) => {
                     let l1_block = receipt.block_number.ok_or_else(|| {
@@ -2812,6 +2841,42 @@ mod tests {
             .unwrap()
         );
         assert_eq!(clock.sleeps(), vec![Duration::from_millis(500); 2]);
+    }
+
+    #[tokio::test]
+    async fn replacement_gate_accepts_one_missing_slot_but_rejects_late_parent_and_larger_gaps() {
+        for (distance, advanced, accepted) in [
+            (10, false, true),
+            (10, true, false),
+            (15, false, false),
+            (9, false, false),
+        ] {
+            let replies = Asserter::new();
+            let parent = mock_block(41, PIN - distance, B256::with_last_byte(1));
+            replies.push_success(&parent);
+            if distance == 10 {
+                replies.push_success(&if advanced {
+                    mock_block(42, PIN - 5, B256::with_last_byte(2))
+                } else {
+                    parent
+                });
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(replies);
+            assert_eq!(
+                super::prepare_policy_submission(
+                    &provider,
+                    BundleTarget::Exact {
+                        block: 42,
+                        timestamp: PIN
+                    },
+                    timing(5_000),
+                    &FakeClock::new(PIN * 1_000 - 4_000)
+                )
+                .await
+                .unwrap(),
+                accepted
+            );
+        }
     }
 
     #[tokio::test]

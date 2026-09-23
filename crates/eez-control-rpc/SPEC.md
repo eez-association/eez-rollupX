@@ -3,8 +3,14 @@
 Status: normative fork Composer profile, adapted from upstream PR #89 (`e4a76aa`)
 
 Protocol baseline: `eez-core-protocol` at
-`3c0cdf4955941a5c23639346932b55b33babebbd`. This profile uses native blobs,
-block-hash commitments, and the defensive grouped-call ABI.
+`820e50f749f63165be6a5797d4c5fe52cbbbbe34`. This profile uses native blobs,
+block-hash commitments, and the grouped-call ABI with position-bound L2 static
+entries. Composer MUST preserve each L2 static `expectedEntryIndex` in the load
+and DA sidecar; the Signer independently binds it to ordered execution. The
+protobuf schema is unchanged. Validation identity schema 2 and the new validator
+revision separate cached facts and reject mixed-version peers. Old L2 call
+selectors and static sidecars are incompatible. See [protocol compatibility](../eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility)
+before deploying or replaying historical networks.
 
 This document tells Composer implementers how to construct a proving request,
 send it to an EEZ prover, validate the response, and use the returned proof in
@@ -609,6 +615,31 @@ The reference node tracks submitted attempts in memory. It retains signed source
 bytes, the exact pooled postBatch envelope, target, manifest, retry counters and
 ownership throughout reconciliation and recomposition within the process.
 Invalid ownership transitions leave the prior state unchanged.
+
+At the next slot's preparation deadline, the Composer MAY replace its active
+speculative L2 suffix if the expected L1 block is still absent. The current
+implementation permits one such replacement per observed L1 head and requires
+completed canonical derivation through the unchanged parent. This deadline is
+not a failure verdict: retain the original envelope, manifest, target, observer
+and signed users until canonical reconciliation. Returning those users to the
+held pool for recomposition MUST preserve reservations and retry counters. Old
+results MUST NOT release users owned by a newer attempt. Canonical source
+evidence can still complete users whose replacement preparation did not finish.
+
+The replacement uses a fresh proof, the next slot's exact timestamp and the same
+poster nonce. Replace the original nonempty Sync with an empty Sync and rebuild
+its speculative descendants before placing complete cross-chain groups in the
+new terminal Sync. Retain ordinary transactions through normal reorg recovery.
+Final bundle execution and target checks remain mandatory. If the original
+settles late, canonical replay replaces the active branch and source
+reconciliation determines which users remain pending. The scheduling deadline
+does not consume a user failure attempt or establish settlement progress.
+
+This is a Composer-only behavior change: protocol encoding, signer validation,
+historical follower replay and database formats are unchanged. Older Composers
+wait for canonical exclusion; followers may run either scheduling version.
+Restart and downgrade retain the in-memory recovery limits below. See the
+[accepted replacement design](../../docs/proposals/skipped-slot-speculative-retry.md).
 
 On restart, canonical derivation recovers settled state and discards the local
 speculative suffix before new cross-chain submissions are accepted. Pending

@@ -11,8 +11,7 @@ use eez_protocol::entries::{
     NestedPairDirection, NestedPairVerification, verify_nested_group, verify_outbound_source_group,
 };
 use eez_protocol::system_tx::{
-    OutboundSourceEntry, check_entry_shape, check_static_entry_shape, lift_entry_from_l2,
-    lift_static_entry_from_l2,
+    OutboundSourceEntry, check_entry_shape, check_l2_static_entry_shape, lift_entry_from_l2,
 };
 use thiserror::Error;
 
@@ -143,8 +142,8 @@ pub(super) fn inspect_outbound_load_candidate(
         sidecars.push(OutboundSourceEntry::Mutable(sidecar));
     }
     for entry in &call._staticEntries {
-        let sidecar = lift_static_entry_from_l2(entry, RollupId::MAINNET);
-        check_static_entry_shape(&sidecar, "outbound static load")
+        let sidecar = entry.clone();
+        check_l2_static_entry_shape(&sidecar, "outbound static load")
             .map_err(|reason| OutboundLoadObservationError::InvalidEntry { reason })?;
         sidecars.push(OutboundSourceEntry::Static(sidecar));
     }

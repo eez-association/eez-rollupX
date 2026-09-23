@@ -19,11 +19,9 @@ use eez_protocol::abi::{
     ExecutionEntrySol, L2StaticExecutionEntrySol, executeIncomingCrossChainCallCall,
     loadExecutionTableCall, postAndVerifyBatchCall,
 };
-use eez_protocol::entries::{
-    NestedPairDirection, verify_nested_group, verify_static_outbound_pair,
-};
+use eez_protocol::entries::{NestedPairDirection, verify_nested_group};
 use eez_protocol::outbound_gate::{observations_from_logs, verify_expected_outbound_hashes};
-use eez_protocol::system_tx::{lift_entry_from_l2, lift_static_entry_from_l2};
+use eez_protocol::system_tx::{OutboundSourceEntry, lift_entry_from_l2};
 use serde_json::{Value, json};
 
 type AnyResult<T> = Result<T, Box<dyn Error>>;
@@ -100,7 +98,9 @@ fn select_static_entry(
     let mut matches = entries
         .iter()
         .enumerate()
-        .filter(|(_, entry)| entry.proxyEntryHash == key);
+        // This diagnostic selects a pure static root immediately after its load,
+        // so no mutable entry has advanced the cursor.
+        .filter(|(_, entry)| entry.expectedEntryIndex.is_zero() && entry.proxyEntryHash == key);
     let selected = matches.next().ok_or("requested static entry is missing")?;
     if matches.next().is_some() {
         return fail("requested static entry is duplicated");
@@ -414,10 +414,16 @@ fn main() -> AnyResult<()> {
             // pre-filter the calldata or silently accept a duplicate key.
             let key = B256::from_str(required_str(&input, "expected_l2_static_key")?)?;
             let (static_index, selected_static) = select_static_entry(&loaded_static, key)?;
-            let source = lift_static_entry_from_l2(selected_static, RollupId::MAINNET);
+            let source = selected_static;
             let mut candidates = Vec::new();
             for (l1_index, host) in posted.entries.iter().enumerate() {
-                if verify_static_outbound_pair(host, &source, l2_rollup).is_ok() {
+                if eez_protocol::entries::verify_outbound_source_group(
+                    host,
+                    &[OutboundSourceEntry::Static(source.clone())],
+                    l2_rollup,
+                )
+                .is_ok()
+                {
                     candidates.push(l1_index);
                 }
             }

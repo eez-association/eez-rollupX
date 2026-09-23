@@ -91,7 +91,31 @@ def main():
     write('ready.json', {'head': head['hash'], 'number': head['number']})
     alternatives = {}
     skipped_timestamp = None
+    delayed_timestamp = None
+    delayed_payload = None
     while True:
+        delay_path = args.control / 'delay-slot.json'
+        if delay_path.exists():
+            pending = json.loads(delay_path.read_text())
+            delay_path.rename(args.control / 'delay-slot.used.json')
+            requested = pending['timestamp']
+            if (not isinstance(requested, int) or requested <= int(time.time())
+                    or requested <= int(head['timestamp'], 16)
+                    or (requested - args.genesis_time) % args.block_seconds):
+                raise ValueError('delay request must identify a future aligned slot')
+            delayed_timestamp = requested
+            write('delay-slot-armed.json', pending)
+        if delayed_payload is not None:
+            release = args.control / 'release-slot.json'
+            if not release.exists():
+                time.sleep(0.05)
+                continue
+            release.rename(args.control / 'release-slot.used.json')
+            head = adopt(delayed_payload)
+            write('delay-slot-released.json', {'number': head['number'], 'hash': head['hash']})
+            alternatives[head['hash']] = build(head, int(head['timestamp'], 16) + args.block_seconds, competing=True)
+            delayed_payload = None
+            delayed_timestamp = None
         skip_path = args.control / 'skip-slot.json'
         if skip_path.exists():
             pending = json.loads(skip_path.read_text())
@@ -124,7 +148,13 @@ def main():
         if timestamp <= int(head['timestamp'], 16) or timestamp == skipped_timestamp:
             time.sleep(0.05)
             continue
-        head = adopt(build(head, timestamp))
+        built = build(head, timestamp)
+        if timestamp == delayed_timestamp:
+            delayed_payload = built
+            write('delay-slot-built.json', {'timestamp': timestamp,
+                'transactions': built['executionPayload']['transactions']})
+            continue
+        head = adopt(built)
         # Build a competing successor immediately, before the next submission
         # window. Its execution and roots come from the real payload builder;
         # no account/state/receipt override or hand-built block is involved.

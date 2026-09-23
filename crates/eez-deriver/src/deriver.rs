@@ -2005,7 +2005,7 @@ where
                             .ok()
                             .filter(|entry| entry.abi_encode() == *raw);
                         let static_entry =
-                            eez_protocol::abi::StaticExecutionEntrySol::abi_decode(raw)
+                            eez_protocol::abi::L2StaticExecutionEntrySol::abi_decode(raw)
                                 .ok()
                                 .filter(|entry| entry.abi_encode() == *raw);
                         let entry = match (mutable, static_entry) {
@@ -2071,9 +2071,7 @@ where
                                     callback_entries: Vec::new(),
                                 });
                             }
-                            eez_protocol::system_tx::OutboundSourceEntry::Static(entry)
-                                if entry.destinationRollupId == 0 =>
-                            {
+                            eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => {
                                 outbound.push(eez_protocol::system_tx::OutboundSyncEffect {
                                     source_entry:
                                         eez_protocol::system_tx::OutboundSourceEntry::Static(
@@ -2091,12 +2089,6 @@ where
                                     )));
                                 };
                                 group.callback_entries.push(entry.clone());
-                            }
-                            eez_protocol::system_tx::OutboundSourceEntry::Static(entry) => {
-                                return Err(DeriverError::l2_provider(format!(
-                                    "postBatch({tx_hash}) static sidecar targets rollup {}, expected mainnet",
-                                    entry.destinationRollupId,
-                                )));
                             }
                             eez_protocol::system_tx::OutboundSourceEntry::Mutable(entry) => {
                                 return Err(DeriverError::l2_provider(format!(

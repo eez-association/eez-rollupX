@@ -867,6 +867,13 @@ fn outbound_effects_require_a_successful_outcome_and_exact_value_accounting() {
 /// Construct actual canonical load calldata; the tests exercise the strict
 /// decoder as well as effect binding and outbound authorization.
 fn mixed_outbound_fixture(kinds: &[bool]) -> (CanonicalPostBatch, SettlingBlockObservations) {
+    mixed_outbound_fixture_with_results(kinds, false)
+}
+
+fn mixed_outbound_fixture_with_results(
+    kinds: &[bool],
+    changing: bool,
+) -> (CanonicalPostBatch, SettlingBlockObservations) {
     use eez_protocol::abi::loadExecutionTableCall;
     use eez_protocol::system_tx::{lower_entry_to_l2, lower_static_entry_to_l2};
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
@@ -897,17 +904,25 @@ fn mixed_outbound_fixture(kinds: &[bool]) -> (CanonicalPostBatch, SettlingBlockO
             data: &call.data,
         });
         rolling.call_begin(hash);
-        rolling.call_end(true, &[]);
+        let result = if changing && is_static {
+            Bytes::from(vec![mutable.len() as u8])
+        } else {
+            Bytes::new()
+        };
+        rolling.call_end(true, &result);
         if is_static {
-            statics.push(lower_static_entry_to_l2(&StaticExecutionEntrySol {
-                proxyEntryHash: hash,
-                destinationRollupId: 0,
-                l2ToL1Calls: Vec::new(),
-                rollingHash: B256::ZERO,
-                success: true,
-                returnData: Bytes::new(),
-                expectedRoots: Vec::new(),
-            }));
+            statics.push(lower_static_entry_to_l2(
+                &StaticExecutionEntrySol {
+                    proxyEntryHash: hash,
+                    destinationRollupId: 0,
+                    l2ToL1Calls: Vec::new(),
+                    rollingHash: B256::ZERO,
+                    success: true,
+                    returnData: result,
+                    expectedRoots: Vec::new(),
+                },
+                U256::from(mutable.len()),
+            ));
         } else {
             mutable.push(lower_entry_to_l2(&flat_outbound_sidecar_for_call(
                 &call,
@@ -983,10 +998,8 @@ fn mixed_outbound_rejects_missing_mutable_event() {
 #[test]
 fn mixed_outbound_rejects_conflicting_cached_results() {
     use eez_protocol::abi::loadExecutionTableCall;
-    use eez_protocol::system_tx::{
-        OutboundSourceEntry, lower_entry_to_l2, lower_static_entry_to_l2,
-    };
-    let (batch, mut settling) = mixed_outbound_fixture(&[true, true, false, true, true]);
+    use eez_protocol::system_tx::{OutboundSourceEntry, lower_entry_to_l2};
+    let (batch, mut settling) = mixed_outbound_fixture(&[true, true, true, false]);
     let load = &mut settling.outbound_load_candidates_mut_for_test()[0];
     let sources = load.inspection.as_ref().unwrap().as_entries();
     let mut call = loadExecutionTableCall {
@@ -996,9 +1009,7 @@ fn mixed_outbound_rejects_conflicting_cached_results() {
     for source in sources {
         match source {
             OutboundSourceEntry::Mutable(entry) => call._entries.push(lower_entry_to_l2(entry)),
-            OutboundSourceEntry::Static(entry) => {
-                call._staticEntries.push(lower_static_entry_to_l2(entry))
-            }
+            OutboundSourceEntry::Static(entry) => call._staticEntries.push(entry.clone()),
         }
     }
     call._staticEntries[2].returnData = Bytes::from_static(&[1]);
@@ -1074,4 +1085,60 @@ fn mixed_outbound_rejects_partitioning_the_static_pool_between_hosts() {
             _ => panic!("expected complete static pool rejection"),
         }
     }
+}
+
+#[test]
+fn mixed_outbound_authorizes_changing_results_at_distinct_positions() {
+    let (batch, settling) =
+        mixed_outbound_fixture_with_results(&[true, true, false, true, true], true);
+    let authorized = authorize_outbound_effects(&effect_plan(&batch, &settling))
+        .expect("position-bound changing reads");
+    assert_eq!(authorized.len(), 5);
+}
+
+#[test]
+fn mixed_outbound_rejects_static_position_tampering() {
+    use eez_protocol::abi::loadExecutionTableCall;
+    use eez_protocol::system_tx::{OutboundSourceEntry, lower_entry_to_l2};
+    for wrong in [U256::ZERO, U256::from(2), U256::MAX] {
+        let (batch, mut settling) = mixed_outbound_fixture(&[true, true, false, true, true]);
+        let load = &mut settling.outbound_load_candidates_mut_for_test()[0];
+        let mut call = loadExecutionTableCall {
+            _entries: Vec::new(),
+            _staticEntries: Vec::new(),
+        };
+        for source in load.inspection.as_ref().unwrap().as_entries() {
+            match source {
+                OutboundSourceEntry::Mutable(entry) => call._entries.push(lower_entry_to_l2(entry)),
+                OutboundSourceEntry::Static(entry) => call._staticEntries.push(entry.clone()),
+            }
+        }
+        call._staticEntries[2].expectedEntryIndex = wrong;
+        load.inspection = super::super::outbound::inspect_outbound_load_candidate(
+            U256::ZERO,
+            &call.abi_encode(),
+            true,
+        );
+        assert!(matches!(
+            authorize_outbound_effects(&effect_plan(&batch, &settling)),
+            Err(OutboundEffectError::ExecutionTableMismatch { .. })
+        ));
+    }
+}
+
+#[test]
+fn outbound_load_rejects_the_previous_protocol_selector() {
+    use super::super::outbound::{OutboundLoadObservationError, inspect_outbound_load_candidate};
+    use eez_protocol::abi::loadExecutionTableCall;
+    let mut calldata = loadExecutionTableCall {
+        _entries: Vec::new(),
+        _staticEntries: Vec::new(),
+    }
+    .abi_encode();
+    calldata[..4].copy_from_slice(&[0xb3, 0x01, 0xbc, 0x80]);
+    assert!(matches!(
+        inspect_outbound_load_candidate(U256::ZERO, &calldata, true),
+        Err(OutboundLoadObservationError::InvalidAbi { .. }
+            | OutboundLoadObservationError::NonCanonicalAbi)
+    ));
 }

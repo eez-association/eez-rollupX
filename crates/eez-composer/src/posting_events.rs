@@ -8,6 +8,26 @@ use std::sync::{
 };
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+/// Wall-clock points for the candidate that produced this posting. A fallback or
+/// rebuilt candidate starts its own preparation interval. Proof request/receipt
+/// bracket the complete client operation, including retries and RPC waits; they
+/// are not signer CPU timings. Missing receipt means no successful proof returned.
+pub(crate) struct PreparationTiming {
+    pub(crate) preparation_started: u64,
+    pub(crate) proof_requested: Option<u64>,
+    pub(crate) proof_received: Option<u64>,
+}
+
+impl PreparationTiming {
+    pub(crate) fn detail(&self) -> Value {
+        json!({
+            "preparation_started_ms": self.preparation_started,
+            "proof_requested_ms": self.proof_requested,
+            "proof_received_ms": self.proof_received,
+        })
+    }
+}
+
 pub(crate) struct PostingEvents {
     context: Value,
     sequence: AtomicU64,

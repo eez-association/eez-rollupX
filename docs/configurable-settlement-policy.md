@@ -286,11 +286,22 @@ An optional `EEZ_PREPARATION_TIME_MS` replaces the implicit rounding remainder
 with a measured preparation allowance. The trigger occurs at the next L1 slot
 minus preparation, proof and submission slack. Block timestamps and the Sync
 grid remain unchanged; the Future suffix covers the combined budget. For
-example, a 5-second/1-second profile with preparation 500 ms, proof 500 ms and
-slack 700 ms triggers at 3.3 seconds after its anchor. This is the packaged
+example, a 5-second/1-second profile with preparation 500 ms, proof 750 ms and
+slack 700 ms triggers at 3.05 seconds after its anchor. This is the packaged
 Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
 all absolute proof and submission deadlines remain enforced.
+If the expected L1 block is still absent at the following preparation deadline,
+the scheduler permits one replacement opportunity on the same parent, with the
+same target execution height and a timestamp one slot later. The Composer
+rebuilds its speculative suffix and retains the old submission as history;
+canonical replay resolves late original inclusion. This does not classify the
+slot as skipped or charge user retries. No new timer setting is introduced.
+One additional opportunity per observed L1 head bounds work during an outage;
+a second consecutive missing slot waits for a new head. See
+[settlement ownership](../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
+On the 5-second/1-second Chiado grid, this preset reserves two Future blocks
+per interval rather than one with the former 500 ms proof budget.
 
 After catch-up, the sequencer rechecks the terminal. Only a terminal exactly at
 the requested future height and timestamp, with deadline headroom and no
@@ -310,8 +321,12 @@ opens, not a mandatory block gap. Selection is logged as
 `eez.submitter.policy.target_selected`, including the
 observed head, timing budget, and chosen offset. Final timestamp, canonical-head,
 fee, and deadline checks still apply, and missed opportunities preserve pending
-work. No new timing setting is required. Explicit Sync targets retain their
-existing behavior.
+work. No new timing setting is required. Once an exact target has been selected,
+capacity splitting into historical prefixes preserves that execution height and
+timestamp for every candidate and its submission. In particular, a skipped-slot
+replacement keeps the same execution height and advances only the timestamp.
+Only an unpinned catch-up opportunity selects a fresh target in the historical
+helper; expired proof/submission deadlines still defer the candidate.
 
 Composer nodes wake the existing L1 scanner on embedded canonical-head
 notifications, so settlement evidence need not wait for the two-second fallback

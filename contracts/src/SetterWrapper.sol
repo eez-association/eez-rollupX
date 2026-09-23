@@ -12,6 +12,8 @@ contract SetterWrapper {
     address public immutable proxy;
     uint256 public completedProxyCalls;
     uint256 public mixedReadSum;
+    uint256 public mixedBefore;
+    uint256 public mixedAfter;
     bool public lastChanged;
     uint256 public lastNewValue;
 
@@ -51,6 +53,24 @@ contract SetterWrapper {
         uint256 sum = _readMarker(11) + _readMarker(22);
         _setViaProxy(v);
         mixedReadSum = sum + _readMarker(11) + _readMarker(22);
+    }
+
+    /// Identical reads reuse a position before the write and select the next
+    /// position afterwards. A local write alone does not advance that cursor.
+    function readChangingValueAroundWrite(uint256 v) external {
+        mixedBefore = _readValue();
+        require(_readValue() == mixedBefore, "before reads disagree");
+        _setViaProxy(v);
+        mixedAfter = _readValue();
+        require(_readValue() == mixedAfter, "after reads disagree");
+        require(mixedAfter == v, "write not visible to read");
+        mixedReadSum = 2 * (mixedBefore + mixedAfter);
+    }
+
+    function _readValue() private view returns (uint256) {
+        (bool ok, bytes memory ret) = proxy.staticcall(abi.encodeWithSignature("value()"));
+        require(ok, "cross-chain value read reverted");
+        return abi.decode(ret, (uint256));
     }
 
     function _readMarker(uint256 marker) private view returns (uint256) {

@@ -18,7 +18,7 @@ contract Value {
     }
 
     /// Stable read used to test mixed read/write groups independently of the
-    /// protocol's top-level changing-result lookup limitation.
+    /// execution-position-dependent result selection.
     function readMarker(uint256 marker) external pure returns (uint256) {
         return marker;
     }

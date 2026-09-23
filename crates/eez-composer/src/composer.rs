@@ -1453,7 +1453,7 @@ where
 
         // Policy catch-up selects its earliest feasible target below.
 
-        // All user ownership changes require complete canonical evidence.
+        // Settled user dispositions require complete canonical evidence.
         // A matching height, including a competing batch, proves no user nonce.
         if let Some(attempt) = rollup.optimistic.pending_attempt() {
             match self.reconcile_attempt(rollup_id, rollup, attempt).await {
@@ -1498,6 +1498,7 @@ where
                     rollup,
                     cursor,
                     sync_height,
+                    bundle_target,
                     "block_limit",
                 )
                 .await
@@ -1516,11 +1517,9 @@ where
         }
 
         // Deferred-late: the bundle missed this Sync block's anchored L1 slot,
-        // so suppress exact-target emission only. Ordered after bounded
-        // emission on purpose — a historical chunk asks the Submitter to
-        // derive and timestamp-pin a fresh future target, so this stale slot
-        // cannot invalidate it. Checking first would starve a chronically late
-        // node (slow prover, relay latency) of settlement entirely.
+        // so suppress exact-target emission only. Late anchor-only catch-up
+        // selects a feasible target in dispatch_minimal_postbatch above;
+        // historical capacity splitting retains whichever target was selected.
         if matches!(mode, SyncSlotMode::Empty) {
             return self.build_empty_slot_block(rollup, &parent_header, timestamp);
         }
@@ -1660,14 +1659,24 @@ where
         let Some(rollup) = self.inner.rollups.get(&rollup_id) else {
             return;
         };
-        if let Some(attempt) = rollup.optimistic.pending_attempt()
-            && let Err(error) = self.reconcile_attempt(rollup_id, rollup, attempt).await
-        {
-            event!(Level::WARN, rollup_id, %error,
+        for attempt in rollup.optimistic.reconciliation_attempts() {
+            if let Err(error) = self.reconcile_attempt(rollup_id, rollup, attempt).await {
+                event!(Level::WARN, rollup_id, %error,
                     "settlement recovery waits for conclusive canonical evidence");
+            }
         }
         if let Err(error) = self.observe_settlement_cost(rollup_id, rollup).await {
             event!(Level::WARN, rollup_id, %error, "canonical receipt cost unavailable; retaining observability retry");
+        }
+    }
+
+    async fn prepare_next_slot(&self, rollup_id: u64, target: u64, timestamp: u64) {
+        if let Err(error) = self
+            .replace_timed_out_attempt(rollup_id, target, timestamp)
+            .await
+        {
+            event!(Level::WARN, rollup_id, %error,
+                "next-slot replacement deferred; retaining submission history and users");
         }
     }
 }
@@ -1683,6 +1692,117 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
+    /// Switch one active speculative branch at the next preparation deadline.
+    /// Canonical derivation remains free to replace it if the original wins.
+    async fn replace_timed_out_attempt(
+        &self,
+        rollup_id: u64,
+        target: u64,
+        timestamp: u64,
+    ) -> Result<(), String> {
+        use crate::optimistic::SubmissionObservation;
+        let rollup = self.inner.rollups.get(&rollup_id).ok_or("unknown rollup")?;
+        let Some(attempt) = rollup.optimistic.pending_attempt() else {
+            return Ok(());
+        };
+        let Some((old_target, old_timestamp)) = attempt.dispatched_target else {
+            return Ok(());
+        };
+        let timing = self.inner.emission.timing;
+        if target != old_target
+            || old_timestamp.checked_add(timing.l1_block_time().as_secs()) != Some(timestamp)
+            || !matches!(
+                attempt.observation,
+                SubmissionObservation::Dispatched { .. } | SubmissionObservation::Uncertain
+            )
+        {
+            return Ok(());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_millis();
+        let deadline = u128::from(old_timestamp) * 1_000 + timing.proof_window_open().as_millis();
+        let cutoff = (u128::from(timestamp) * 1_000).saturating_sub(
+            timing.proof_time().as_millis() + timing.submission_slack().as_millis(),
+        );
+        if now < deadline || now >= cutoff {
+            return Ok(());
+        }
+        let snapshot = rollup.l1_head.settlement_snapshot();
+        let (Some(scanned), Some(endpoint)) = (snapshot.through, snapshot.endpoint) else {
+            return Ok(());
+        };
+        let Some(parent) = self
+            .inner
+            .submitter
+            .replacement_parent(target, timestamp)
+            .await
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(());
+        };
+        if scanned != parent || endpoint.number >= attempt.sync_height {
+            return Ok(());
+        }
+        let _guard = self.inner.committer.begin_reconcile().await;
+        if !rollup.l1_head.generation_is(snapshot.generation)
+            || self
+                .inner
+                .submitter
+                .replacement_parent(target, timestamp)
+                .await
+                .map_err(|error| error.to_string())?
+                != Some(parent)
+        {
+            return Ok(());
+        }
+        // Replace the old cross-chain Sync directly, so Reth reports the whole
+        // removed suffix to its pool. An ancestor-only rewind loses ordinary
+        // transactions in descendants. The sequencer rebuilds those blocks on
+        // this empty Sync before composing the new terminal cross-chain group.
+        let head = self.inner.committer.last_header();
+        let own_hash = if head.number() == attempt.sync_height {
+            Some(head.hash())
+        } else {
+            rollup
+                .l2_provider
+                .sealed_header(attempt.sync_height)
+                .map_err(|error| error.to_string())?
+                .map(|header| header.hash())
+        };
+        if own_hash != Some(attempt.manifest.sync_hash) {
+            return Ok(());
+        }
+        let built = build_sync_block(
+            rollup.l2_provider.as_ref(),
+            &self.inner.evm_config,
+            &attempt.parent,
+            attempt
+                .parent
+                .timestamp()
+                .checked_add(timing.l2_block_time().as_secs())
+                .ok_or("replacement timestamp overflow")?,
+            Address::ZERO,
+            &[],
+        )
+        .map_err(|error| error.to_string())?;
+        if built.header.hash() != attempt.manifest.sync_hash {
+            self.inner
+                .committer
+                .commit_derived(built.payload, built.header, true)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        rollup.held_pool.release_for_replacement(attempt.id)?;
+        event!(name: "eez.composer.settlement.replacement", Level::INFO,
+            event_name = "eez.composer.settlement.replacement", rollup_id,
+            original_post_batch = %attempt.id.post_batch_hash, target_block = target,
+            original_timestamp = old_timestamp, replacement_timestamp = timestamp,
+            "observation deadline passed; rebuilding for next slot with original submission retained as history");
+        Ok(())
+    }
+
     /// How many L2 blocks L1 has yet to record. Flat is healthy; monotonic
     /// growth is what every settlement stall looks like.
     fn log_settlement_backlog(
@@ -2077,6 +2197,7 @@ where
         bundle_target: BundleTarget,
         admission: &admission::Attempt,
     ) -> Result<Option<SyncSlotBlock>, String> {
+        let preparation_started_ms = crate::prover_retry::unix_time_millis();
         let ctx = cc.exec_ctx.as_ref();
         // Read the base SYSTEM_ADDRESS nonce from parent state. The canonical
         // builder allocates outbound-load nonces before inbound-delivery nonces.
@@ -2536,7 +2657,7 @@ where
                         continue;
                     }
                     let source_entries = &composition.source.batch.entries;
-                    let source_static_entries = &composition.source.batch.staticEntries;
+                    let source_static_entries = &composition.source.l2_static_entries;
                     let settlement_root_counts =
                         match eez_protocol::system_tx::outbound_settlement_root_counts(&l1_entries)
                         {
@@ -3866,6 +3987,7 @@ where
                 gas_projection.as_ref(),
                 bundle_target,
                 Some(admission),
+                preparation_started_ms,
             )
             .await;
         if let Err(
@@ -3952,7 +4074,7 @@ where
                 )
                 .await;
         }
-        let prepared_postbatch = match preparation {
+        let (prepared_postbatch, preparation_timing) = match preparation {
             Ok(r) => r,
             Err(
                 error @ (PreparePostBatchError::Actionable(_)
@@ -4293,6 +4415,7 @@ where
             Arc::clone(&rollup.optimistic),
             bundle_target,
             &semantic_transactions,
+            preparation_timing,
         );
         Ok(Some(SyncSlotBlock {
             payload: built.payload,
@@ -4318,6 +4441,7 @@ where
         suggested_fee_recipient: Address,
         bundle_target: BundleTarget,
     ) -> Result<Option<SyncSlotBlock>, String> {
+        let preparation_started_ms = crate::prover_retry::unix_time_millis();
         let empty_built = match build_sync_block(
             rollup.l2_provider.as_ref(),
             &self.inner.evm_config,
@@ -4401,6 +4525,7 @@ where
                 None,
                 bundle_target,
                 None,
+                preparation_started_ms,
             )
             .await;
         if let Err(error) = &preparation
@@ -4413,7 +4538,7 @@ where
                 header: empty_built.header,
             }));
         }
-        let minimal_postbatch_raw = match preparation {
+        let (minimal_postbatch_raw, preparation_timing) = match preparation {
             Ok(raw) => raw,
             Err(err) => {
                 // The whole range will not fit; settle a bounded prefix of it so
@@ -4427,6 +4552,7 @@ where
                         rollup,
                         cursor,
                         sync_height,
+                        bundle_target,
                         match &err {
                             PreparePostBatchError::OverBudget { constraint, .. } => constraint,
                             _ => "preparation_fallback",
@@ -4488,6 +4614,7 @@ where
             Arc::clone(&rollup.optimistic),
             bundle_target,
             &[],
+            preparation_timing,
         );
         Ok(Some(SyncSlotBlock {
             payload: empty_built.payload,
@@ -4528,7 +4655,9 @@ where
     }
 
     /// A leading-immediate-only postBatch ending at a PAST on-grid empty block.
-    /// `cursor` must be the emission decision's read, not a fresh one.
+    /// `cursor` and an exact `bundle_target` belong to the caller's emission
+    /// decision. Splitting capacity must not change the proof/submission target,
+    /// including a next-slot replacement at an unchanged L1 execution height.
     async fn emit_historical_chunk(
         &self,
         ctx: &CrossChainExecCtx,
@@ -4536,8 +4665,10 @@ where
         rollup: &RollupState<L2>,
         cursor: u64,
         sync_height: u64,
+        bundle_target: BundleTarget,
         split_reason: &'static str,
     ) -> Result<(), String> {
+        let preparation_started_ms = crate::prover_retry::unix_time_millis();
         let limits = self.inner.emission;
         let k = u64::from(limits.timing.k());
         // Under the cap the cap-bounded boundary is the sync height itself, which
@@ -4557,12 +4688,15 @@ where
         // from unavailable inputs; only capacity permits trying a shorter range.
         // Endpoint-specific encoding and proof happen for a selected prefix.
         let candidates = self.empty_chunk_boundaries(rollup, cursor, snapped)?;
-        let bundle_target = self
-            .inner
-            .submitter
-            .next_policy_target(self.policy_preparation_budget(rollup_id)?)
-            .await
-            .map_err(|error| error.to_string())?;
+        let bundle_target = match bundle_target {
+            BundleTarget::Exact { .. } => bundle_target,
+            BundleTarget::NextBlock => self
+                .inner
+                .submitter
+                .next_policy_target(self.policy_preparation_budget(rollup_id)?)
+                .await
+                .map_err(|error| error.to_string())?,
+        };
         let provider = rollup.l2_provider.as_ref();
         let maximum_blobs = self.posting_blob_allowance(bundle_target, 0)?;
         let mut over_budget = 0usize;
@@ -4608,9 +4742,10 @@ where
                     None,
                     bundle_target,
                     None,
+                    preparation_started_ms,
                 )
                 .await;
-            let raw = match preparation {
+            let (raw, preparation_timing) = match preparation {
                 Ok(raw) => raw,
                 Err(PreparePostBatchError::OverBudget { constraint, .. }) => {
                     split_reasons.insert(constraint);
@@ -4655,6 +4790,7 @@ where
                 Arc::clone(&rollup.optimistic),
                 bundle_target,
                 &[],
+                preparation_timing,
             );
             return Ok(());
         }
@@ -4726,6 +4862,7 @@ where
         optimistic: Arc<OptimisticallyIncluded>,
         target: BundleTarget,
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
+        preparation_timing: crate::posting_events::PreparationTiming,
     ) {
         let submitter = ctx.submitter.clone();
         if let Some(counts) = optimistic.attempt_user_counts(attempt_id) {
@@ -4772,13 +4909,15 @@ where
             self.inner.posting.clone(),
             semantics.to_vec(),
             events,
+            preparation_timing,
         ));
     }
 
     /// Build + sign the L1 `postBatch` raw tx for a Sync slot's
     /// compositions, covering blocks `posted+1..=parent+1` (intermediate
     /// blocks + the new Sync block at `parent+1`, always the range's last
-    /// block). Returns only the signed EIP-2718 `postBatch` bytes; the caller
+    /// block). Returns the signed EIP-2718 `postBatch` bytes and preparation
+    /// timestamps for this candidate; the caller
     /// appends surviving inbound user transactions to the L1 bundle.
     ///
     /// A later `postAndVerifyBatch` for the same rollup and L1 block replaces the
@@ -4828,7 +4967,8 @@ where
         gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
-    ) -> Result<Bytes, PreparePostBatchError> {
+        preparation_started_ms: u64,
+    ) -> Result<(Bytes, crate::posting_events::PreparationTiming), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
         use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
 
@@ -5869,6 +6009,13 @@ where
         let proof_gate_ms = crate::prover_retry::unix_time_millis();
         let proof_cutoff_ms =
             crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target);
+        let mut preparation_timing = crate::posting_events::PreparationTiming {
+            preparation_started: preparation_started_ms,
+            proof_requested: proof_cutoff_ms
+                .is_none_or(|cutoff| proof_gate_ms <= cutoff)
+                .then_some(proof_gate_ms),
+            proof_received: None,
+        };
         let proof = match prove_with_retry_at(
             self.inner.prover.as_ref(),
             proving_ctx,
@@ -5894,12 +6041,22 @@ where
                         eez_prover::ProverError::Backend(_) => "prover_backend",
                     }
                 };
-                crate::posting_events::PostingEvents::new(ctx.l1_chain_id,
-                    self.inner.posting.registry, rollup_id, 0, sync_block_hash,
-                    sync_block_number, None).with_target(bundle_target).preparation_failed(
-                        serde_json::json!({"reason":reason,
-                            "preparation_ms":preparation_elapsed_ms,
-                            "proof_gate_ms":proof_gate_ms,"proof_start_cutoff_ms":proof_cutoff_ms}));
+                let mut detail = preparation_timing.detail();
+                detail["reason"] = serde_json::json!(reason);
+                detail["preparation_ms"] = serde_json::json!(preparation_elapsed_ms);
+                detail["proof_gate_ms"] = serde_json::json!(proof_gate_ms);
+                detail["proof_start_cutoff_ms"] = serde_json::json!(proof_cutoff_ms);
+                crate::posting_events::PostingEvents::new(
+                    ctx.l1_chain_id,
+                    self.inner.posting.registry,
+                    rollup_id,
+                    0,
+                    sync_block_hash,
+                    sync_block_number,
+                    None,
+                )
+                .with_target(bundle_target)
+                .preparation_failed(detail);
                 let Some(failure) = error.actionable_failure() else {
                     return Err(PreparePostBatchError::Prover(error));
                 };
@@ -5919,6 +6076,7 @@ where
                 return Err(PreparePostBatchError::Actionable(failure));
             }
         };
+        preparation_timing.proof_received = Some(crate::prover_retry::unix_time_millis());
         if !rollup.l1_head.generation_is(policy_anchor.generation) {
             return Err("canonical settlement evidence changed during proving".into());
         }
@@ -5957,6 +6115,31 @@ where
             .pending()
             .await
             .map_err(|error| format!("get_transaction_count({poster}): {error}"))?;
+        // A timeout does not cancel the original postBatch. Reuse its nonce
+        // for the replacement so both cannot execute on the same L1 branch,
+        // even if a relay has exposed the first transaction to the pending pool.
+        let replacement = rollup.optimistic.reconciliation_attempts().into_iter().find(|attempt| {
+            attempt.replacement_released && attempt.dispatched_target.is_some_and(|(block, timestamp)| {
+                matches!(bundle_target, BundleTarget::Exact { block: next, timestamp: next_time }
+                    if next == block && timestamp.checked_add(self.inner.emission.timing.l1_block_time().as_secs()) == Some(next_time))
+            })
+        });
+        let poster_nonce = if let Some(previous) = replacement {
+            use alloy_consensus::{Signed, Transaction, TxEip4844WithSidecar};
+            use alloy_eips::{Decodable2718, eip7594::BlobTransactionSidecarVariant};
+            let mut input = previous.post_batch.as_ref();
+            let signed =
+                Signed::<TxEip4844WithSidecar<BlobTransactionSidecarVariant>>::decode_2718(
+                    &mut input,
+                )
+                .map_err(|error| format!("replacement poster envelope: {error}"))?;
+            if !input.is_empty() {
+                return Err("trailing replacement poster bytes".into());
+            }
+            signed.tx().nonce()
+        } else {
+            poster_nonce
+        };
 
         let posting = &self.inner.posting;
         let quote = posting
@@ -5986,7 +6169,7 @@ where
         let raw = eez_blob_codec::sign_blob_transaction(transaction, &ctx.l1_poster_signer)
             .map_err(|error| error.to_string())?
             .pooled_transaction;
-        Ok(raw)
+        Ok((raw, preparation_timing))
     }
 }
 
@@ -6191,6 +6374,7 @@ async fn observe_bundle_outcome(
     posting: Arc<posting::PostingRuntime>,
     semantics: Vec<eez_protocol::blob_semantics::SemanticTransaction>,
     events: Option<Arc<crate::posting_events::PostingEvents>>,
+    preparation_timing: crate::posting_events::PreparationTiming,
 ) {
     use crate::optimistic::SubmissionObservation;
     let measurements = Arc::new(crate::submission_metrics::SubmissionMetrics::new(rollup_id));
@@ -6199,7 +6383,7 @@ async fn observe_bundle_outcome(
         events.emit(
             "prepared",
             attempt_id.post_batch_hash,
-            serde_json::json!({}),
+            preparation_timing.detail(),
         );
     }
     let preparation = async {
@@ -6913,6 +7097,7 @@ mod tests {
             eez_protocol::Composition {
                 actions: Vec::new(),
                 source: eez_protocol::SourceComposition {
+                    l2_static_entries: Vec::new(),
                     rollup_id: eez_protocol::RollupId(1),
                     batch: eez_protocol::EvmBatch {
                         entries,
@@ -6981,6 +7166,7 @@ mod tests {
         let composition = eez_protocol::Composition {
             actions: Vec::new(),
             source: eez_protocol::SourceComposition {
+                l2_static_entries: Vec::new(),
                 rollup_id: eez_protocol::RollupId::MAINNET,
                 batch: eez_protocol::EvmBatch {
                     staticEntries: vec![Default::default()],

@@ -447,11 +447,15 @@ facts. The implemented identity schema is:
 
 ```text
 keccak256(rlp([
-  Bytes("eez.validation-identity"), 1, canonical_json_version=1,
+  Bytes("eez.validation-identity"), 2, canonical_json_version=1,
   rollup_id, chain_id, system_address20, eez_l2_address20,
   canonical_chain_document_digest32, Bytes(validator_revision), dependency_digest32
 ]))
 ```
+
+Schema 2 accompanies the position-bound L2 static ABI at protocol
+`820e50f749f63165be6a5797d4c5fe52cbbbbe34`; old peers and cached facts have a
+different identity. Canonicalizer v1 is unchanged.
 
 Canonicalizer v1 decodes and sorts object keys by UTF-8 bytes, emits strings with
 compact serde_json escaping, preserves array order and original numeric token

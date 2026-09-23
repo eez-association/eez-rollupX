@@ -84,6 +84,9 @@ pub struct AttemptRecord {
     /// Actual resolved target is retained even if observation later fails.
     pub dispatched_target: Option<(u64, u64)>,
     pub observation: SubmissionObservation,
+    /// The observation deadline released this attempt for recomposition.
+    /// Its observer and manifest remain history; this is not evidence of failure.
+    pub(crate) replacement_released: bool,
     /// Snapshot against which all currently owned users were classified.
     pub(crate) reconciled_at: Option<L1BlockRef>,
     /// Receipt-cost observation follows canonical ownership reconciliation.
@@ -212,6 +215,7 @@ impl OptimisticallyIncluded {
                     post_batch,
                     dispatched_target: None,
                     observation: SubmissionObservation::Prepared,
+                    replacement_released: false,
                     reconciled_at: None,
                     cost_recorded_at: None,
                 },
@@ -241,6 +245,55 @@ impl OptimisticallyIncluded {
                 .values()
                 .find(|attempt| needs_resolution(state, attempt))
                 .cloned()
+        })
+    }
+
+    /// Include superseded submissions until canonical evidence resolves them.
+    pub(crate) fn reconciliation_attempts(&self) -> Vec<AttemptRecord> {
+        self.read(|state| {
+            state
+                .attempts
+                .values()
+                .filter(|attempt| {
+                    attempt.reconciled_at.is_none()
+                        && (attempt.replacement_released || needs_resolution(state, attempt))
+                })
+                .cloned()
+                .collect()
+        })
+    }
+
+    /// Caller holds the pool and engine reconciliation locks after validating
+    /// the next-slot deadline and unchanged canonical parent. Keep signed bytes,
+    /// reservations and history; a timeout never spends the user's retry budget.
+    pub(crate) fn release_for_replacement(&self, id: AttemptId) -> Result<(), String> {
+        self.update(|state| {
+            let attempt = state
+                .attempts
+                .get_mut(&id.generation)
+                .filter(|attempt| {
+                    attempt.id == id
+                        && attempt.reconciled_at.is_none()
+                        && !attempt.replacement_released
+                        && attempt.dispatched_target.is_some()
+                        && matches!(
+                            attempt.observation,
+                            SubmissionObservation::Dispatched { .. }
+                                | SubmissionObservation::Uncertain
+                        )
+                })
+                .ok_or("attempt is not eligible for deadline replacement")?;
+            attempt.replacement_released = true;
+            for user in state
+                .users
+                .values_mut()
+                .filter(|user| user.owner == id.generation)
+            {
+                if user.location == UserLocation::AwaitingEvidence {
+                    user.location = UserLocation::Queued;
+                }
+            }
+            Ok(())
         })
     }
 
@@ -388,7 +441,13 @@ impl OptimisticallyIncluded {
             let mut gaps = Vec::new();
             for (tx, outcome) in attempt.txs.iter().zip(outcomes) {
                 let Some(user) = state.users.get_mut(&tx.hash).filter(|user| {
-                    user.owner == id.generation && user.location == UserLocation::AwaitingEvidence
+                    user.owner == id.generation
+                        && (user.location == UserLocation::AwaitingEvidence
+                            || (attempt.replacement_released
+                                && matches!(
+                                    user.location,
+                                    UserLocation::Queued | UserLocation::Composing
+                                )))
                 }) else {
                     continue;
                 };
@@ -459,6 +518,7 @@ impl OptimisticallyIncluded {
                     if let Some(attempt) = state.attempts.get_mut(&user.owner) {
                         attempt.reconciled_at = None;
                         attempt.observation = SubmissionObservation::Uncertain;
+                        attempt.replacement_released = false;
                     }
                 }
             }
@@ -476,6 +536,7 @@ impl OptimisticallyIncluded {
                 {
                     attempt.reconciled_at = None;
                     attempt.observation = SubmissionObservation::Uncertain;
+                    attempt.replacement_released = false;
                 }
             }
             Ok(())
@@ -523,7 +584,8 @@ impl OptimisticallyIncluded {
 }
 
 fn needs_resolution(state: &AttemptState, attempt: &AttemptRecord) -> bool {
-    attempt.reconciled_at.is_none()
+    !attempt.replacement_released
+        && attempt.reconciled_at.is_none()
         && (attempt.txs.is_empty()
             || state.users.values().any(|user| {
                 user.owner == attempt.id.generation
@@ -676,6 +738,104 @@ mod tests {
             number,
             hash: B256::with_last_byte(u8::try_from(number).unwrap()),
         }
+    }
+
+    #[test]
+    fn deadline_replacement_retains_history_and_old_results_cannot_release_new_owner() {
+        let (ledger, pool, txs, original) = setup();
+        assert!(pool.release_for_replacement(original).is_err());
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        assert!(pool.release_for_replacement(original).is_err());
+        assert_eq!(ledger.blocking_height(), None);
+        assert_eq!(ledger.reconciliation_attempts().len(), 1);
+        let recovered = pool.pop_all();
+        assert_eq!(recovered, txs);
+        let replacement = begin(&ledger, recovered, 11);
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Included { block: block(100) },
+            )
+            .unwrap();
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, replacement);
+        assert!(pool.is_empty());
+        assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
+        ledger.read(|state| {
+            assert!(
+                state
+                    .users
+                    .values()
+                    .all(|user| user.owner == replacement.generation
+                        && user.location == UserLocation::AwaitingEvidence
+                        && user.tx.attempts == 0)
+            )
+        });
+        pool.resolve_attempt(
+            replacement,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(ledger.blocking_height(), None);
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, replacement);
+        assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
+    }
+
+    #[test]
+    fn late_original_settlement_resolves_users_even_if_replacement_preparation_failed() {
+        let (ledger, pool, _, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        assert!(!pool.is_empty());
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Included { block: block(100) },
+            )
+            .unwrap();
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert!(pool.is_empty());
+        assert!(ledger.reconciliation_attempts().is_empty());
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, original);
     }
 
     #[test]

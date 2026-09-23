@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`3c0cdf4955941a5c23639346932b55b33babebbd`. Stateless execution uses
+`820e50f749f63165be6a5797d4c5fe52cbbbbe34`. Stateless execution uses
 `eez-association/stateless` at commit
 `4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
 
@@ -540,7 +540,7 @@ In the terminal block:
 
 - a transaction recovered from `SYSTEM_ADDRESS` MUST target `EEZL2_ADDRESS`;
 - every such transaction MUST have a successful receipt; and
-- a system-to-EEZL2 transaction beginning with selector `0x9e2d7358` is an
+- a system-to-EEZL2 transaction beginning with selector `0xc3fb5f3d` is an
   inbound candidate even when the remainder of its calldata is malformed.
 
 The number of effect-shaped entries after the anchor MUST equal the number of
@@ -626,7 +626,7 @@ An inbound candidate is authorized only if all rules in this section pass.
 
 The system transaction MUST have succeeded and its calldata MUST be the exact
 canonical encoding of current `executeIncomingCrossChainCall`, selector
-`0x9e2d7358`.
+`0xc3fb5f3d`.
 
 The decoded call MUST satisfy:
 
@@ -696,11 +696,18 @@ reverted mutable roots, root revert spans, or nested mutable roots.
 The load serializes mutable sources first, then static sources. Verification
 MUST traverse the host's original call order, advancing the mutable cursor only
 for mutable roots and matching static roots against their static source order.
-Every source row MUST be accounted for exactly. Static sources MUST have zero
-rolling hash, no descendants or root pins, and destination rollup zero.
-Repeated static lookup keys MUST have identical success and return bytes: the
-pinned EEZL2 resolves the first matching key, regardless of intervening writes.
-Changing-result top-level reads under the same key remain unsupported.
+Every source row MUST be accounted for exactly. Static sources use the native
+L2 ABI (without L1 routing or root-pin fields) and MUST have zero rolling hash and
+no descendants. Each `expectedEntryIndex` MUST equal the mutable
+cursor independently reconstructed at that root in the host's call order. The
+complete `(expectedEntryIndex, proxyEntryHash)` lookup key MUST have identical
+success and return bytes wherever repeated. Different positions MAY carry
+different results for the same hash. Local writes without successful mutable
+cross-chain consumption do not advance this cursor; different results at one
+position remain unsupported. Static rows do not advance the mutable cursor.
+The full position-bearing static ABI MUST be retained in DA and compared with
+independent native-blob semantic materialization; an L1-shaped projection that
+drops the position MUST NOT authorize signing or replay.
 
 For mutable-only groups the existing cursor/revert verification remains in
 force. Every committed mutable L2-to-L1 call recomputed from the group MUST
@@ -732,25 +739,24 @@ all roots covered by that host, within the `int192` range.
 
 ### Mixed outbound profile compatibility
 
-Mixed/static multi-root support extends signer authorization and deriver replay.
-The protocol gitlink, Solidity contracts, transaction ABI, DA encoding and gRPC
-schema are unchanged. Existing Composer source-table construction already emits
-mutable sources followed by static sources under one host. Historical source
-bytes remain unchanged, and mutable-only validation retains its previous rules.
+This revision changes the protocol pin, L2 system-call selectors, L2 static
+sidecar encoding, event signatures and proxy/runtime bytecode. It is not a
+binary-only update for networks initialized with the previous protocol. The
+L1 static ABI and gRPC schema remain unchanged. Old L2 static bytes and system
+selectors MUST fail closed; this implementation does not provide historical
+old-protocol replay or an in-place contract/genesis migration.
 
-Old signers reject these groups; old Composer/follower derivers reject their
-canonical replay even if an updated signer attests them. Upgrade all replaying
-nodes before enabling the updated signer, or deploy the matched runtime set
-together. Never enable new attestations while a required node still has the old
-replay restriction.
+Deploy matching contracts, rendered genesis, Composer, Signer and followers as
+one protocol set on a new network. Existing networks must retain their matching
+binaries until a separately validated migration exists. Do not mix old and new
+signers/replaying nodes, or downgrade after new-format history. Pending requests
+remain in memory and restart may require resubmission. This port does not change
+retry attribution, queue ownership or scheduling.
 
-Existing historical source bytes remain replayable by the updated binaries.
-After mixed groups settle, rolling back a replaying node to the old implementation
-cannot replay those groups and is not a supported recovery path. Rolling back
-only the signer restores its rejection and can leave mixed work pending; it does
-not undo canonical settlement. No storage or protocol migration is required.
-Pending requests are in memory and restarts may require client resubmission.
-This extension does not change retry attribution, queue ownership or scheduling.
+Upstream prose in `STATIC_ENTRY.md` and parts of the core specification still
+describes hash-only matching; pinned `IEEZL2.sol`, `EEZL2.sol` and
+`EEZL2StaticCursor.t.sol` establish the position-bearing contract implemented
+here. The discrepancy is recorded in the [port proposal](../../docs/proposals/l2-static-execution-position.md).
 
 ## 11. Data-availability and Sync-block verification
 
@@ -1202,6 +1208,7 @@ struct L2ExecutionEntry {
 }
 
 struct L2StaticExecutionEntry {
+    uint256 expectedEntryIndex;
     bytes32 proxyEntryHash;
     CrossChainCall[] incomingCalls;
     bytes32 rollingHash;
@@ -1236,8 +1243,8 @@ Current selector locks are:
 | `postAndVerifyBatch` | `0xe4a480e4` |
 | `executeL2Txs` | `0xdc6d11fa` |
 | `staticCrossChainCall` | `0x31344ade` |
-| `loadExecutionTable` | `0xb301bc80` |
-| `executeIncomingCrossChainCall` | `0x9e2d7358` |
+| `loadExecutionTable` | `0xbf2eebd3` |
+| `executeIncomingCrossChainCall` | `0xc3fb5f3d` |
 
 ## Annex B. Hash formulas used by the supported profile
 

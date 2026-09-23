@@ -829,7 +829,10 @@ mod tests {
                 eez_protocol::abi::L2ExecutionPerformed::SIGNATURE_HASH
             },
         );
-        code.extend([0x60, 0x20, 0x5f, 0xa2, 0x00]); // LOG2, STOP
+        // The pinned settlement event includes newRoot and etherBalance;
+        // untouched memory supplies the zero balance word in this fixture.
+        let data_length = if skipped { 0x20 } else { 0x40 };
+        code.extend([0x60, data_length, 0x5f, 0xa2, 0x00]); // LOG2, STOP
         code
     }
 
@@ -953,6 +956,17 @@ mod tests {
 
     #[test]
     fn outer_success_without_complete_effects_is_rejected() {
+        let mut truncated = emit_root(false);
+        let length_index = truncated.len() - 4;
+        truncated[length_index] = 0x20;
+        assert!(matches!(
+            execute(
+                truncated,
+                vec![tx(0, REGISTRY, 90_000, Bytes::new())],
+                120_000
+            ),
+            Err(PostingError::Effects(_))
+        ));
         assert!(
             execute(
                 emit_root(false),

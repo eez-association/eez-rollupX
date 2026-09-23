@@ -248,7 +248,7 @@ pub enum OutboundSourceEntry {
     /// A state-changing proxy call consumed from the mutable entry table.
     Mutable(ExecutionEntrySol),
     /// A top-level read consumed from the same-block static entry pool.
-    Static(StaticExecutionEntrySol),
+    Static(L2StaticExecutionEntrySol),
 }
 
 impl OutboundSourceEntry {
@@ -263,7 +263,7 @@ impl OutboundSourceEntry {
 
     /// Borrow the static entry, if this effect consumes one.
     #[must_use]
-    pub const fn as_static(&self) -> Option<&StaticExecutionEntrySol> {
+    pub const fn as_static(&self) -> Option<&L2StaticExecutionEntrySol> {
         match self {
             Self::Mutable(_) => None,
             Self::Static(entry) => Some(entry),
@@ -516,6 +516,24 @@ pub fn check_static_entry_shape(
     Ok(())
 }
 
+/// Check the supported terminal L2 static-source shape, retaining its position.
+/// Position authorization requires the complete ordered host in
+/// `verify_outbound_source_group`; decoding and this shape check are insufficient.
+pub fn check_l2_static_entry_shape(
+    entry: &L2StaticExecutionEntrySol,
+    label: &str,
+) -> Result<(), String> {
+    if entry.proxyEntryHash == alloy_primitives::B256::ZERO {
+        return Err(format!("{label} static entry has a zero proxy hash"));
+    }
+    if !entry.incomingCalls.is_empty() || entry.rollingHash != alloy_primitives::B256::ZERO {
+        return Err(format!(
+            "{label} static source must be a terminal L1 lookup"
+        ));
+    }
+    Ok(())
+}
+
 /// Lower the L1-shaped sidecar transport into the field-identical L2 ABI.
 ///
 /// The sidecar intentionally uses `ExecutionEntrySol` so it can share the
@@ -595,10 +613,16 @@ pub fn lift_entry_from_l2(
     }
 }
 
-/// Lower the shared L1-shaped static sidecar into EEZL2's lean static ABI.
+/// Translate an L1-shaped static call description at an explicit L2 position.
+/// This conversion does not authorize the position or L1 routing/root metadata;
+/// L2 DA and authorization retain the resulting native L2 type.
 #[must_use]
-pub fn lower_static_entry_to_l2(entry: &StaticExecutionEntrySol) -> L2StaticExecutionEntrySol {
+pub fn lower_static_entry_to_l2(
+    entry: &StaticExecutionEntrySol,
+    expected_entry_index: U256,
+) -> L2StaticExecutionEntrySol {
     L2StaticExecutionEntrySol {
+        expectedEntryIndex: expected_entry_index,
         proxyEntryHash: entry.proxyEntryHash,
         incomingCalls: entry
             .l2ToL1Calls
@@ -615,36 +639,6 @@ pub fn lower_static_entry_to_l2(entry: &StaticExecutionEntrySol) -> L2StaticExec
             })
             .collect(),
         rollingHash: entry.rollingHash,
-        success: entry.success,
-        returnData: entry.returnData.clone(),
-    }
-}
-
-/// Lift EEZL2's lean static ABI into the shared DA sidecar shape.
-#[must_use]
-pub fn lift_static_entry_from_l2(
-    entry: &L2StaticExecutionEntrySol,
-    destination_rollup_id: RollupId,
-) -> StaticExecutionEntrySol {
-    StaticExecutionEntrySol {
-        expectedRoots: Vec::new(),
-        proxyEntryHash: entry.proxyEntryHash,
-        l2ToL1Calls: entry
-            .incomingCalls
-            .iter()
-            .map(|call| L2ToL1CallSol {
-                revertNextNCalls: call.revertNextNCalls,
-                isStatic: call.isStatic,
-                gas: call.gas,
-                sourceAddress: call.sourceAddress,
-                sourceRollupId: call.sourceRollupId,
-                targetAddress: call.targetAddress,
-                value: call.value,
-                data: call.data.clone(),
-            })
-            .collect(),
-        rollingHash: entry.rollingHash,
-        destinationRollupId: destination_rollup_id.0,
         success: entry.success,
         returnData: entry.returnData.clone(),
     }
@@ -714,13 +708,13 @@ pub fn build_outbound_group(
                 lowered.push(lower_entry_to_l2(entry));
             }
             OutboundSourceEntry::Static(entry) => {
-                check_static_entry_shape(entry, "outbound")?;
+                check_l2_static_entry_shape(entry, "outbound")?;
                 if !effect.callback_entries.is_empty() {
                     return Err(
                         "outbound static source entry cannot carry callback deliveries".into(),
                     );
                 }
-                lowered_static.push(lower_static_entry_to_l2(entry));
+                lowered_static.push(entry.clone());
             }
         }
         for entry in &effect.callback_entries {
@@ -1119,12 +1113,11 @@ mod tests {
         use alloy_consensus::Transaction as _;
         use alloy_eips::eip2718::Decodable2718 as _;
 
-        let source = StaticExecutionEntrySol {
-            expectedRoots: Vec::new(),
+        let source = L2StaticExecutionEntrySol {
+            expectedEntryIndex: U256::from(7),
             proxyEntryHash: B256::repeat_byte(0x5a),
-            l2ToL1Calls: Vec::new(),
+            incomingCalls: Vec::new(),
             rollingHash: B256::ZERO,
-            destinationRollupId: 0,
             success: true,
             returnData: Bytes::from_static(&[0x42]),
         };
@@ -1145,8 +1138,7 @@ mod tests {
         let load = loadExecutionTableCall::abi_decode(signed.input()).expect("decode static load");
         assert!(load._entries.is_empty());
         assert_eq!(load._staticEntries.len(), 1);
-        let lifted = lift_static_entry_from_l2(&load._staticEntries[0], RollupId::MAINNET);
-        assert_eq!(lifted.abi_encode(), source.abi_encode());
+        assert_eq!(load._staticEntries[0].abi_encode(), source.abi_encode());
     }
 
     #[test]

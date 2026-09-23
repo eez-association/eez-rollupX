@@ -110,9 +110,9 @@ sol! {
 
     function staticCrossChainCall(address sourceAddress, bytes callData) external view returns (bytes);
 
-    event BatchPosted(uint256 indexed rollupCount);
+    event BatchPosted(bytes32 sharedPublicInput, uint64[] rollupIds);
 
-    event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot);
+    event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance);
 
     event L2TxSkipped(uint256 indexed transientIdx, bytes revertData);
 
@@ -196,6 +196,7 @@ sol! {
     /// One read-only top-level L2 execution entry.
     #[derive(Debug, Default)]
     struct L2StaticExecutionEntrySol {
+        uint256 expectedEntryIndex;
         bytes32 proxyEntryHash;
         CrossChainCallSol[] incomingCalls;
         bytes32 rollingHash;
@@ -276,12 +277,12 @@ mod selector_locks {
     fn l2_selectors_match_upstream() {
         assert_eq!(
             loadExecutionTableCall::SELECTOR,
-            [0xb3, 0x01, 0xbc, 0x80],
+            [0xbf, 0x2e, 0xeb, 0xd3],
             "loadExecutionTable selector drifted from pinned protocol"
         );
         assert_eq!(
             executeIncomingCrossChainCallCall::SELECTOR,
-            [0x9e, 0x2d, 0x73, 0x58],
+            [0xc3, 0xfb, 0x5f, 0x3d],
             "executeIncomingCrossChainCall selector drifted from pinned protocol"
         );
     }

@@ -1,0 +1,8 @@
+{
+  "cold_request_bytes": 436388,
+  "cold_request_hash": "0x353cb6f82023a99b18faf66d1df501164a64067ce07fb3210a9678ebead18736",
+  "public_inputs_hash": "65369f50e561b6cdb19fd0e025c45e0ce68bd8680732605d5d7089bddfd68775",
+  "request_bytes": 163312,
+  "request_hash": "0x7d8ca2210508bc3b2f2e35244c84a9d6f3861ce626fb0f12fac146d997ff5cef",
+  "signature": "eb6bf7fb41bb05f2a5abcf105f755d57477c62b7ff28671aef442d2d07c0c2c9579cbabd825b0591f9b3bc9b110d66c29cbff6693b993393774a922d3e1ee1a71c"
+}

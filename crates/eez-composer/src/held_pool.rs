@@ -415,6 +415,19 @@ impl HeldPool {
         Ok(())
     }
 
+    /// Move the current attempt's users back to the queue without declaring
+    /// failure. Retain the old generation so its delayed observer cannot modify
+    /// a newer owner. Called only at the validated replacement deadline.
+    pub(crate) fn release_for_replacement(
+        &self,
+        id: crate::optimistic::AttemptId,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        state.ledger.release_for_replacement(id)?;
+        state.apply_resolution(&[]);
+        Ok(())
+    }
+
     /// A recomposition-time nonce check is not finalized settlement evidence.
     /// Previously submitted users return to canonical reconciliation instead
     /// of losing their reorg history through an ordinary stale-pool eviction.
@@ -436,6 +449,7 @@ impl HeldPool {
                         .ok_or("missing recovery attempt")?;
                     attempt.reconciled_at = None;
                     attempt.observation = crate::optimistic::SubmissionObservation::Uncertain;
+                    attempt.replacement_released = false;
                     reopened = true;
                 }
             }

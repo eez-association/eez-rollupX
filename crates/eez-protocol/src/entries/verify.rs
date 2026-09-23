@@ -7,7 +7,7 @@
 
 use alloy_primitives::{B256, I256, U256, keccak256};
 
-use crate::abi::{ExecutionEntrySol, L2ToL1CallSol, StaticExecutionEntrySol};
+use crate::abi::{ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol};
 use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::EntryRollingHash;
 use crate::{ProtocolErrorKind, ProtocolResult, RollupId};
@@ -215,82 +215,16 @@ pub fn verify_nested_pair(
 /// that executes the read against live L1 state.
 pub fn verify_static_outbound_pair(
     l1_entry: &ExecutionEntrySol,
-    l2_entry: &StaticExecutionEntrySol,
+    l2_entry: &L2StaticExecutionEntrySol,
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<NestedPairVerification> {
-    if l2_rollup_id.is_mainnet() {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound L2 rollup id must be non-zero".into(),
-        )
-        .into());
-    }
-    validate_entry_shape(l1_entry, "L1 static outbound host")?;
-    crate::system_tx::check_static_entry_shape(l2_entry, "L2 static outbound source")
-        .map_err(ProtocolErrorKind::InvalidEncoding)?;
-    if l1_entry.rootUpdates.is_empty()
-        || l1_entry.proxyEntryHash != B256::ZERO
-        || l1_entry.destinationRollupId != l2_rollup_id.0
-        || !l1_entry.success
-        || !l1_entry.returnData.is_empty()
-        || !l1_entry.expectedL1ToL2Calls.is_empty()
-    {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host has inconsistent routing or outcome metadata".into(),
-        )
-        .into());
-    }
-    let [call] = l1_entry.l2ToL1Calls.as_slice() else {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host must contain exactly one L2-to-L1 call".into(),
-        )
-        .into());
-    };
-    if !call.isStatic
-        || call.sourceRollupId != l2_rollup_id.0
-        || !call.value.is_zero()
-        || call.revertNextNCalls != 0
-        || call.gas != 0
-        || !l2_entry.expectedRoots.is_empty()
-        || l2_entry.destinationRollupId != RollupId::MAINNET.0
-        || !l2_entry.l2ToL1Calls.is_empty()
-        || l2_entry.rollingHash != B256::ZERO
-    {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound source/host uses an unsupported table shape".into(),
-        )
-        .into());
-    }
-    let call_hash = source_call_hash(call, l2_rollup_id, RollupId::MAINNET)?;
-    if call_hash != l2_entry.proxyEntryHash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound source hash does not match the L1 call".into(),
-        )
-        .into());
-    }
-    let mut rolling = EntryRollingHash::seed_for_l1(
-        l1_entry
-            .rootUpdates
-            .iter()
-            .map(|update| (update.rollupId, update.currentRoot)),
-        B256::ZERO,
-    );
-    rolling.call_begin(destination_call_hash(
-        call,
+    verify_outbound_source_group(
+        l1_entry,
+        &[crate::system_tx::OutboundSourceEntry::Static(
+            l2_entry.clone(),
+        )],
         l2_rollup_id,
-        RollupId::MAINNET,
-    )?);
-    rolling.call_end(l2_entry.success, &l2_entry.returnData);
-    if rolling.current() != l1_entry.rollingHash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host rolling hash does not bind the cached result".into(),
-        )
-        .into());
-    }
-    Ok(NestedPairVerification {
-        l2_outbound_hashes: Vec::new(),
-        ether_delta: I256::ZERO,
-        outbound_callback_counts: vec![0],
-    })
+    )
 }
 
 fn finish_facts(
@@ -322,8 +256,8 @@ fn finish_facts(
 /// Verify a whole outbound host against the canonical load order (mutable
 /// entries followed by static entries). Static roots are terminal lookups:
 /// they do not advance the mutable cursor or emit outbound events.
-/// Conflicting results for the same static key are rejected because EEZL2
-/// always resolves that key using its first matching cached entry.
+/// Conflicting results for the same (position, proxy hash) key are rejected
+/// because EEZL2 resolves that key using its first matching cached entry.
 ///
 /// Mutable-only sources retain nested/revert verification. Groups containing
 /// static sources support successful flat mutable roots and no root revert
@@ -370,7 +304,7 @@ fn verify_outbound_group(
 fn verify_outbound_tables(
     l1_entry: &ExecutionEntrySol,
     l2_entries: &[ExecutionEntrySol],
-    static_entries: &[StaticExecutionEntrySol],
+    static_entries: &[L2StaticExecutionEntrySol],
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<NestedPairVerification> {
     if l2_rollup_id.is_mainnet() {
@@ -409,21 +343,11 @@ fn verify_outbound_tables(
     }
     let mut static_results = std::collections::BTreeMap::new();
     for entry in static_entries {
-        crate::system_tx::check_static_entry_shape(entry, "outbound static source")
+        crate::system_tx::check_l2_static_entry_shape(entry, "outbound static source")
             .map_err(ProtocolErrorKind::InvalidEncoding)?;
-        if !entry.expectedRoots.is_empty()
-            || entry.destinationRollupId != RollupId::MAINNET.0
-            || !entry.l2ToL1Calls.is_empty()
-            || entry.rollingHash != B256::ZERO
-        {
-            return Err(ProtocolErrorKind::InvalidEncoding(
-                "outbound static source must be a terminal L1 lookup".into(),
-            )
-            .into());
-        }
         let result = (entry.success, &entry.returnData);
         if static_results
-            .insert(entry.proxyEntryHash, result)
+            .insert((entry.expectedEntryIndex, entry.proxyEntryHash), result)
             .is_some_and(|first| first != result)
         {
             return Err(ProtocolErrorKind::InvalidEncoding(
@@ -522,7 +446,8 @@ fn verify_outbound_tables(
                         "outbound static root is missing".into(),
                     ))
                 })?;
-                if root.revertNextNCalls != 0
+                if source.expectedEntryIndex != U256::from(source_cursor)
+                    || root.revertNextNCalls != 0
                     || root.gas != 0
                     || !root.value.is_zero()
                     || source_call_hash(&root, l2_rollup_id, RollupId::MAINNET)?

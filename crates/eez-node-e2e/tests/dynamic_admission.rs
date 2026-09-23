@@ -1008,12 +1008,21 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinking() {
+    next_slot_replacement(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_original_settlement_replaces_the_timeout_branch_without_losing_users() {
+    next_slot_replacement(true).await;
+}
+
+async fn next_slot_replacement(delayed_original: bool) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.
     let mut config = env();
     config.extend([
         ("EEZ_PREPARATION_TIME_MS", "500".into()),
-        ("EEZ_PROOF_TIME_MS", "500".into()),
+        ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
     ]);
     let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
@@ -1085,10 +1094,273 @@ async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinki
     .await
     .unwrap();
     let cursor = world.node.signal_cursor().unwrap();
-    world.drop_next_bundle().unwrap();
+    if delayed_original {
+        world.hold_next_bundle().unwrap();
+    } else {
+        world.drop_next_bundle().unwrap();
+    }
     let mut hashes = Vec::new();
     for offset in 1..=4 {
         hashes.push(send(offset).await);
+    }
+    let dropped = wait_for(TIMEOUT, || async {
+        if delayed_original {
+            world.held_bundle()
+        } else {
+            world.dropped_bundle()
+        }
+    })
+    .await
+    .unwrap();
+    let target = &dropped["params"][0];
+    let target_height = u64::from_str_radix(
+        target["blockNumber"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
+    )
+    .unwrap();
+    let target_timestamp = target["minTimestamp"].as_u64().unwrap();
+    assert_eq!(target["maxTimestamp"], target_timestamp);
+    if delayed_original {
+        world
+            .l1_reorg_control
+            .as_mut()
+            .unwrap()
+            .delay_slot(target_timestamp)
+            .await
+            .unwrap();
+        world.release_bundle(&dropped).unwrap();
+    } else {
+        world
+            .l1_reorg_control
+            .as_mut()
+            .unwrap()
+            .skip_slot(target_timestamp)
+            .await
+            .unwrap();
+    }
+    let original_receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(hashes[0]).await?)
+    })
+    .await
+    .unwrap();
+    let ordinary_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_2).await.unwrap();
+    let ordinary_recipient = alloy_primitives::Address::repeat_byte(0xab);
+    let ordinary = sign_and_send(
+        &world.l2_rpc(),
+        ANVIL_KEY_2,
+        world.l2_chain_id,
+        ordinary_nonce,
+        Some(ordinary_recipient),
+        U256::from(1),
+        vec![],
+        21_000,
+    )
+    .await
+    .unwrap();
+    wait_for(Duration::from_secs(12), || async {
+        let events = world.node.signals_since(cursor)?;
+        Ok(events.into_iter().find(|event| {
+            event.name == "eez.submitter.bundle.dispatch"
+                && event.fields["target_block"] == target_height
+                && event.fields["target_timestamp"] == target_timestamp + 5
+        }))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "no next-slot replacement dispatch: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    if delayed_original {
+        let speculative_ordinary = l2.get_transaction_receipt(ordinary).await.unwrap().unwrap();
+        assert!(
+            speculative_ordinary.block_number.unwrap() > original_receipt.block_number.unwrap()
+        );
+        world
+            .l1_reorg_control
+            .as_mut()
+            .unwrap()
+            .release_delayed_slot()
+            .await
+            .unwrap();
+    }
+    let landed = wait_for(TIMEOUT, || async {
+        Ok(l1.get_block_by_number(target_height.into()).await?)
+    })
+    .await
+    .unwrap();
+    let parent = l1
+        .get_block_by_number((target_height - 1).into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(landed.header.parent_hash, parent.header.hash);
+    assert!(parent.header.timestamp < target_timestamp);
+    assert_eq!(
+        landed.header.timestamp,
+        if delayed_original {
+            target_timestamp
+        } else {
+            target_timestamp + 5
+        }
+    );
+    let mut settled_block = None;
+    for hash in &hashes {
+        let receipt = wait_for(TIMEOUT, || async {
+            let owner: serde_json::Value = l2
+                .client()
+                .request("eez_getCrossChainTransaction", (*hash,))
+                .await?;
+            if owner["ownership"]["reason"] != "Committed" {
+                return Ok(None);
+            }
+            Ok(l2.get_transaction_receipt(*hash).await?)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "skipped source not recovered: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        if *hash == hashes[0] {
+            if delayed_original {
+                assert_eq!(receipt.block_hash, original_receipt.block_hash);
+            } else {
+                assert_ne!(receipt.block_hash, original_receipt.block_hash);
+                assert_eq!(
+                    receipt.block_number.unwrap(),
+                    original_receipt.block_number.unwrap() + 5
+                );
+            }
+        }
+        let owner: serde_json::Value = l2
+            .client()
+            .request("eez_getCrossChainTransaction", (*hash,))
+            .await
+            .unwrap();
+        assert_eq!(owner["ownership"]["canonical"]["number"], target_height);
+        let block = receipt.block_number.unwrap();
+        assert_eq!(
+            *settled_block.get_or_insert(block),
+            block,
+            "a skipped slot must not fragment a previously fitting source group"
+        );
+    }
+    let events = world.node.signals_since(cursor).unwrap();
+    let replacement = events
+        .iter()
+        .position(|event| {
+            event.name == "eez.composer.settlement.replacement"
+                && event.fields["original_timestamp"] == target_timestamp
+        })
+        .unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.name == "eez.composer.admission.submission_backoff")
+    );
+    let next = events[replacement + 1..]
+        .iter()
+        .find(|event| event.name == "eez.composer.sync_slot.drain")
+        .unwrap();
+    assert_eq!(next.fields["selection_limit"], 4);
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
+        nonce + 5
+    );
+    assert_eq!(
+        l2_value(&world.l1_rpc(), world.outbound_value)
+            .await
+            .unwrap(),
+        U256::from(5)
+    );
+    let ordinary_receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(ordinary).await?)
+    })
+    .await
+    .unwrap();
+    assert!(ordinary_receipt.status());
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_2).await.unwrap(),
+        ordinary_nonce + 1
+    );
+    assert_eq!(
+        l2.get_balance(ordinary_recipient).await.unwrap(),
+        U256::from(1)
+    );
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        settled_block
+            .unwrap()
+            .max(ordinary_receipt.block_number.unwrap()),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() {
+    let mut config = env();
+    config.extend([
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "60000".into()),
+        ("EEZ_MAX_BLOBS_PER_BATCH", "1".into()),
+        ("EEZ_PREPARATION_TIME_MS", "500".into()),
+        ("EEZ_PROOF_TIME_MS", "1000".into()),
+        ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
+    ]);
+    let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
+    let follower = NodeHandle::start(
+        "historical-prefix-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_2).await.unwrap();
+    let recipient = alloy_primitives::Address::repeat_byte(0x95);
+    let cursor = world.node.signal_cursor().unwrap();
+    world.drop_next_bundle().unwrap();
+    let mut hashes = Vec::new();
+    // Accumulate more than one blob before the interval trigger. Separate the
+    // transactions by empty Sync boundaries so a historical prefix fits alone.
+    for offset in 0..3 {
+        let hash = sign_and_send(
+            &world.l2_rpc(),
+            ANVIL_KEY_2,
+            world.l2_chain_id,
+            nonce + offset,
+            Some(recipient),
+            U256::from(1),
+            vec![0xff; 50_000],
+            4_000_000,
+        )
+        .await
+        .unwrap();
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        let boundary = receipt.block_number.unwrap() + 6;
+        wait_for(TIMEOUT, || async {
+            Ok((l2.get_block_number().await? >= boundary).then_some(()))
+        })
+        .await
+        .unwrap();
+        hashes.push(hash);
     }
     let dropped = wait_for(TIMEOUT, || async { world.dropped_bundle() })
         .await
@@ -1103,7 +1375,20 @@ async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinki
     )
     .unwrap();
     let target_timestamp = target["minTimestamp"].as_u64().unwrap();
-    assert_eq!(target["maxTimestamp"], target_timestamp);
+    assert!(
+        world
+            .node
+            .signals_since(cursor)
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event.name == "eez.composer.emission.historical_chunk"
+                    && event.fields["split_reasons"]
+                        .as_str()
+                        .is_some_and(|s| s.contains("blob_limit"))
+            }),
+        "fixture must reach the historical blob-prefix path"
+    );
     world
         .l1_reorg_control
         .as_mut()
@@ -1111,83 +1396,38 @@ async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinki
         .skip_slot(target_timestamp)
         .await
         .unwrap();
-    let landed = wait_for(TIMEOUT, || async {
-        Ok(l1.get_block_by_number(target_height.into()).await?)
+    wait_for(Duration::from_secs(12), || async {
+        Ok(world.node.signals_since(cursor)?.into_iter().find(|event| {
+            event.name == "eez.submitter.bundle.dispatch"
+                && event.fields["target_block"] == target_height
+                && event.fields["target_timestamp"] == target_timestamp + 5
+        }))
     })
     .await
-    .unwrap();
-    let parent = l1
-        .get_block_by_number((target_height - 1).into())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(landed.header.parent_hash, parent.header.hash);
-    assert!(parent.header.timestamp < target_timestamp);
-    assert!(landed.header.timestamp > target_timestamp);
-    let mut settled_block = None;
+    .unwrap_or_else(|error| {
+        panic!(
+            "historical prefix lost its next-slot target: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    let mut covered = 0;
     for hash in hashes {
         let receipt = wait_for(TIMEOUT, || async {
-            let owner: serde_json::Value = l2
-                .client()
-                .request("eez_getCrossChainTransaction", (hash,))
-                .await?;
-            if owner["ownership"]["reason"] != "Committed" {
-                return Ok(None);
-            }
             Ok(l2.get_transaction_receipt(hash).await?)
         })
         .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "skipped source not recovered: {error:#}{}",
-                world.settlement_diagnostics()
-            )
-        });
-        assert!(receipt.status());
-        let block = receipt.block_number.unwrap();
-        assert_eq!(
-            *settled_block.get_or_insert(block),
-            block,
-            "a skipped slot must not fragment a previously fitting source group"
-        );
-    }
-    let events = world.node.signals_since(cursor).unwrap();
-    let skipped = events
-        .iter()
-        .position(|e| {
-            e.name == "eez.composer.admission.skipped_slot"
-                && e.fields["submitted_groups"] == 4
-                && e.fields["target"] == format!("Some(({target_height}, {target_timestamp}))")
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "expected canonical skipped-slot decision{}",
-                world.settlement_diagnostics()
-            )
-        });
-    assert!(
-        !events
-            .iter()
-            .any(|e| e.name == "eez.composer.admission.submission_backoff")
-    );
-    let next = events[skipped + 1..]
-        .iter()
-        .find(|e| e.name == "eez.composer.sync_slot.drain")
         .unwrap();
-    assert_eq!(next.fields["selection_limit"], 4);
-    assert_eq!(
-        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
-        nonce + 5
-    );
-    assert_eq!(
-        l2_value(&world.l1_rpc(), world.outbound_value)
-            .await
-            .unwrap(),
-        U256::from(5)
-    );
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], settled_block.unwrap(), TIMEOUT)
+        assert!(receipt.status());
+        covered = covered.max(receipt.block_number.unwrap());
+    }
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
         .await
         .unwrap();
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_2).await.unwrap(),
+        nonce + 3
+    );
+    assert_eq!(l2.get_balance(recipient).await.unwrap(), U256::from(3));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

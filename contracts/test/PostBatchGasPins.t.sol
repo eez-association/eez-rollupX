@@ -267,28 +267,55 @@ contract PostBatchGasPinsTest is Test {
         console.log("anchor plus one deferred entry:", gasUsed);
     }
 
-    function testDeferredQueueStorageAndCleanupLadder() external {
+    // Separate transactions keep the full 42-rung matrix below the test gas cap.
+    function testDeferredQueueStorageAndCleanup0Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(0);
+    }
+
+    function testDeferredQueueStorageAndCleanup31Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(31);
+    }
+
+    function testDeferredQueueStorageAndCleanup32Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(32);
+    }
+
+    function testDeferredQueueStorageAndCleanup33Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(33);
+    }
+
+    function testDeferredQueueStorageAndCleanup63Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(63);
+    }
+
+    function testDeferredQueueStorageAndCleanup64Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(64);
+    }
+
+    function testDeferredQueueStorageAndCleanup65Bytes() external {
+        _deferredQueueStorageAndCleanupLadder(65);
+    }
+
+    function _deferredQueueStorageAndCleanupLadder(uint256 resultSize) private {
         uint256[6] memory entries = [uint256(1), 2, 10, 35, 64, 127];
-        uint256[7] memory resultSizes = [uint256(0), 31, 32, 33, 63, 64, 65];
-        for (uint256 r = 0; r < resultSizes.length; r++) {
-            for (uint256 n = 0; n < entries.length; n++) {
-                (uint256 posted, uint256 cleared) = _deferredRung(entries[n], resultSizes[r], true);
-                // 65 bytes needs a third payload slot and remains an explicit
-                // out-of-bound control, not an extension of eligibility.
-                if (resultSizes[r] <= 64) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * BOUNDED_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
-                }
-                if (resultSizes[r] < 32) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_QUEUE_CLEANUP_GAS_PIN);
-                } else if (resultSizes[r] == 32) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_QUEUE_CLEANUP_GAS_PIN);
-                }
-                console.log("deferred entries / result bytes:", entries[n], resultSizes[r]);
-                console.log("  post / later consumed-queue cleanup:", posted, cleared);
+
+        for (uint256 n = 0; n < entries.length; n++) {
+            (uint256 posted, uint256 cleared) = _deferredRung(entries[n], resultSize, true);
+            // 65 bytes needs a third payload slot and remains an explicit
+            // out-of-bound control, not an extension of eligibility.
+            if (resultSize <= 64) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * BOUNDED_DEFERRED_GAS_PIN);
+                assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
             }
+            if (resultSize < 32) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_DEFERRED_GAS_PIN);
+                assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_QUEUE_CLEANUP_GAS_PIN);
+            } else if (resultSize == 32) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_DEFERRED_GAS_PIN);
+                assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_QUEUE_CLEANUP_GAS_PIN);
+            }
+            console.log("deferred entries / result bytes:", entries[n], resultSize);
+            console.log("  post / later consumed-queue cleanup:", posted, cleared);
         }
     }
 

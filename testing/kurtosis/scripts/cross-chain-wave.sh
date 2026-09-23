@@ -199,7 +199,7 @@ wait_for_builder() {
         # logs. `kurtosis service logs` returns a rolling 200-line window by
         # default, so its match count can remain constant while new bundles
         # are successfully included and older matches leave the window.
-        hits=$(registry_events "BatchPosted(uint256)" "$from_block")
+        hits=$(registry_events "BatchPosted(bytes32,uint64[])" "$from_block")
         if (( ${hits:-0} > 0 )); then
             echo "    ✓ builder included a bundle on L1"; return 0
         fi
@@ -558,7 +558,7 @@ run_waves() {
     # postBatches actually landed on L1 (the original bundle-drop symptom).
     # Counted from THIS run's starting block, not the deploy block.
     local PB_COUNT
-    PB_COUNT=$(registry_events "BatchPosted(uint256)" "$L1_FIRST_COUNTED_BLOCK")
+    PB_COUNT=$(registry_events "BatchPosted(bytes32,uint64[])" "$L1_FIRST_COUNTED_BLOCK")
     if (( PB_COUNT >= WAVES )); then
         echo "    ✓ postBatches on L1 this run: $PB_COUNT (≥ $WAVES waves)"
     else
@@ -566,7 +566,7 @@ run_waves() {
     fi
 
     local EXECUTION_COUNT
-    EXECUTION_COUNT=$(registry_events "L2ExecutionPerformed(uint64,bytes32)" "$L1_FIRST_COUNTED_BLOCK")
+    EXECUTION_COUNT=$(registry_events "L2ExecutionPerformed(uint64,bytes32,uint256)" "$L1_FIRST_COUNTED_BLOCK")
     if (( EXECUTION_COUNT > 0 )); then
         echo "    ✓ L2 execution events on L1 this run: $EXECUTION_COUNT"
     else

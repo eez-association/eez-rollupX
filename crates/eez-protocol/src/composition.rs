@@ -639,6 +639,7 @@ pub fn materialize_actions(
 
     Ok(Composition {
         source: SourceComposition {
+            l2_static_entries: source.l2_static_entries,
             rollup_id: entry_rollup_id,
             batch: source.batch,
             entry_traces: source.entry_traces,

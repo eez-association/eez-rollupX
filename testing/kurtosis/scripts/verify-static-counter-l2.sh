@@ -89,16 +89,17 @@ while IFS=$'\t' read -r candidate_hash candidate_index_hex candidate_input; do
     (( candidate_index < user_index )) || continue
     decoded="$(cast decode-calldata --json "$load_sig" "$candidate_input")" || continue
     key_count="$(jq --arg key "${computed_static_key,,}" \
-        '[.[1][] | select((.[0] | ascii_downcase) == $key)] | length' <<<"$decoded")"
+        '[.[1][] | select((.[0] | tostring) == "0" and (.[1] | ascii_downcase) == $key)] | length' <<<"$decoded")"
     (( key_count <= 1 )) || die "matching static key occurs more than once in a table"
     match_count="$(jq \
         --arg key "${computed_static_key,,}" --arg result "${expected_return,,}" '
           [.[1][] | select(
-            ((.[0] | ascii_downcase) == $key) and
-            ((.[1] | length) == 0) and
-            ((.[2] | ascii_downcase) == "0x0000000000000000000000000000000000000000000000000000000000000000") and
-            (.[3] == true) and
-            ((.[4] | ascii_downcase) == $result)
+            ((.[0] | tostring) == "0") and
+            ((.[1] | ascii_downcase) == $key) and
+            ((.[2] | length) == 0) and
+            ((.[3] | ascii_downcase) == "0x0000000000000000000000000000000000000000000000000000000000000000") and
+            (.[4] == true) and
+            ((.[5] | ascii_downcase) == $result)
           )] | length' <<<"$decoded")"
     [[ "$match_count" == "1" ]] || continue
     matches+=("$candidate_hash $candidate_index_hex")

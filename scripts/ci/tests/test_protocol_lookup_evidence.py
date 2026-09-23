@@ -413,7 +413,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                                     transactionIndex="0x0", status="0x1")
         data["l2_block"] = dict(hash=ROOT, number="0x10",
                                 transactions=[data["transactions"][LOAD], data["transactions"][USER]])
-        data["load_decoded"] = [[], [[KEY, [], ZERO, True, RETURN]]]
+        data["load_decoded"] = [[], [[0, KEY, [], ZERO, True, RETURN]]]
         artifact = self.root / "eez-core-protocol/out/EEZL2.sol/EEZL2.json"
         artifact.parent.mkdir(parents=True)
         artifact.write_text(json.dumps({"methodIdentifiers": {"loadExecutionTable(bytes)": "abcdef01",
@@ -433,17 +433,18 @@ VERIFY_PASS reader.lastRead=1 reader.counter=1
         command = ["bash", str(self.scripts / "verify-static-counter-l2.sh"), str(self.log), str(self.output)]
         for failure in (None, "causal_failure", "orphaned_load", "wrong_return",
                         "unrelated_static_entry", "unrelated_mutable_entry", "duplicate_static_key",
-                        "overwritten_table", "wrong_load_transaction", "l1_reorg", "l2_reorg"):
+                        "overwritten_table", "wrong_load_transaction", "wrong_position", "l1_reorg", "l2_reorg"):
             with self.subTest(failure=failure):
                 mutated = copy.deepcopy(data)
                 if failure == "orphaned_load": mutated["receipts"][LOAD]["blockHash"] = ZERO
-                elif failure == "wrong_return": mutated["load_decoded"][1][0][4] = "0xdead"
+                elif failure == "wrong_return": mutated["load_decoded"][1][0][5] = "0xdead"
+                elif failure == "wrong_position": mutated["load_decoded"][1][0][0] = 1
                 elif failure == "unrelated_static_entry":
-                    mutated["load_decoded"][1].append([ZERO, [], ZERO, True, RETURN])
+                    mutated["load_decoded"][1].append([0, ZERO, [], ZERO, True, RETURN])
                 elif failure == "unrelated_mutable_entry":
                     mutated["load_decoded"][0].append([ZERO, [], [], ZERO, True, RETURN])
                 elif failure == "duplicate_static_key":
-                    mutated["load_decoded"][1].append([KEY, [], ZERO, True, "0xdead"])
+                    mutated["load_decoded"][1].append([0, KEY, [], ZERO, True, "0xdead"])
                 elif failure == "overwritten_table":
                     mutated["transactions"][USER]["transactionIndex"] = "0x2"
                     mutated["receipts"][USER]["transactionIndex"] = "0x2"

@@ -15,8 +15,8 @@ DEFAULT_SYSTEM_BALANCE="0xd3c21bcecceda1000000"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
 EXPECTED_PROXY_SALT="0x7c432a8c413604983b9f189bb5b6650220b6b9b038267802fef07276a796e168"
-EXPECTED_PROXY_INIT_CODE_HASH="0x5addcadf82b61611ae356c8088422f9e84cb800e6936ced26f0de29665c2468f"
-EXPECTED_PROXY_ADDRESS="0x15ea912b805e733b3899149409acead6f56f0e16"
+EXPECTED_PROXY_INIT_CODE_HASH="0xd8e30937dfd0ac69d2334cc4ac78ef3942cec288a46bfa2521ee04dcae0f84f7"
+EXPECTED_PROXY_ADDRESS="0xb142ffeb406be0ae2db544f05b55b9a6bda5e179"
 
 usage() {
     cat >&2 <<'EOF'
@@ -193,8 +193,8 @@ then
     exit 1
 fi
 
-# Bind the canonical proxy creation bytecode, constructor encoding, and CREATE2
-# formula to an independent fixed vector.
+# Bind the canonical no-argument proxy creation bytecode and CREATE2 formula
+# to an independent fixed vector. The proxy binds its manager from msg.sender.
 proxy_artifact="$build_root/out/CrossChainProxy.sol/CrossChainProxy.json"
 proxy_creation_code="$(jq -er \
     '.bytecode.object | select(type == "string" and startswith("0x"))' \
@@ -203,8 +203,7 @@ proxy_salt="$(cast keccak "$(
     cast abi-encode --packed "f(uint64,address)" \
         "$PROXY_VECTOR_ORIGINAL_ROLLUP_ID" "$PROXY_VECTOR_ORIGINAL_ADDRESS"
 )")"
-proxy_constructor_args="$(cast abi-encode "f(address)" "$EEZL2_ADDRESS")"
-proxy_init_code="$(cast concat-hex "$proxy_creation_code" "$proxy_constructor_args")"
+proxy_init_code="$proxy_creation_code"
 proxy_init_code_hash="$(cast keccak "$proxy_init_code")"
 create2_preimage="$(cast concat-hex \
     0xff "$EEZL2_ADDRESS" "$proxy_salt" "$proxy_init_code_hash")"
@@ -224,12 +223,9 @@ do
     fi
 done
 
-# EEZBase caches the CrossChainProxy init-code hash in a constructor immutable.
-# The generator deploys EEZL2 at a temporary address, but the resulting runtime
-# is installed at the canonical genesis predeploy. Patch that one immutable to
-# the hash whose constructor manager is the canonical address. The other three
-# immutable sets are identified by their known public values; fail closed if a
-# compiler or protocol change makes the layout ambiguous.
+# EEZBase caches the argument-free proxy init-code hash. It is independent of
+# the generator's temporary manager address, so validate rather than patch it.
+# Identify every immutable set and fail closed on compiler/layout drift.
 rollup_word="$(cast abi-encode 'f(uint64)' "$rollup_id")"
 system_word="$(cast abi-encode 'f(address)' "$system_address")"
 use_gas_left_word="$(cast abi-encode 'f(bool)' "$USE_GAS_LEFT")"
@@ -276,6 +272,10 @@ for immutable_id in "${immutable_ids[@]}"; do
                 echo "more than one unknown EEZL2 immutable reference set" >&2
                 exit 1
             }
+            [[ "$reference_value" == "$proxy_init_code_hash" ]] || {
+                echo "EEZL2 proxy init-code immutable differs from canonical creation code" >&2
+                exit 1
+            }
             proxy_immutable_id="$immutable_id"
             ;;
     esac
@@ -292,16 +292,6 @@ done
     exit 1
 }
 
-proxy_hash_body="${proxy_init_code_hash#0x}"
-while read -r start length; do
-    replacement_start=$((start * 2))
-    replacement_end=$((replacement_start + length * 2))
-    runtime_body="${runtime_body:0:replacement_start}${proxy_hash_body}${runtime_body:replacement_end}"
-done < <(jq -er \
-    --arg id "$proxy_immutable_id" \
-    '.deployedBytecode.immutableReferences[$id][] | "\(.start) \(.length)"' \
-    "$artifact")
-runtime="0x$runtime_body"
 runtime_hash="$(cast keccak "$runtime")"
 
 genesis_state_root() {

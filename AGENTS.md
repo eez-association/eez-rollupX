@@ -134,6 +134,10 @@ its Solidity implementation/tests and the applicable fork contract:
   rejections; they cannot authorize targeted eviction. During submitted-attempt
   reconciliation, charge eligible users once only for conclusive settlement failure;
   infrastructure uncertainty and source deferrals retain work without that charge.
+  The RPC contract permits one deadline-based speculative replacement on an
+  unchanged L1 parent. Preserve the old submission history and the single
+  current owner; the timeout authorizes recomposition, never canonical completion
+  or eviction. Validate both skipped-slot and late-original inclusion paths.
 - Pending requests and retry counters are **in memory**. Restart reconciles
   canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.
@@ -337,3 +341,8 @@ replacing a Composer on an existing Chiado L2, read the
   deployment is a separate, non-idempotent operation.
 - Keep quick starts to normal setup/run/check commands. Put optional diagnostics
   and recovery in the detailed runbook, not the normal setup sequence.
+
+The feature/events protocol pin uses position-bound L2 static entries and changed
+L2 selectors, proxy initcode and settlement events. It is not a binary-only upgrade
+for pre-existing Chiado contracts/genesis; follow the
+[compatibility boundary](docs/runbooks/chiado-deployment.md#featureevents-protocol-compatibility).

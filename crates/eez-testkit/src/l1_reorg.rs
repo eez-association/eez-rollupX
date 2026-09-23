@@ -132,17 +132,30 @@ impl L1ReorgControl {
     /// Omit one future consensus slot while preserving the current branch.
     /// The next block still comes from the real Engine API payload builder.
     pub async fn skip_slot(&mut self, timestamp: u64) -> Result<()> {
+        self.arm_slot("skip", timestamp).await
+    }
+
+    /// Build the requested slot normally but hold its payload before import.
+    /// Release only after the caller has observed the replacement dispatch.
+    pub async fn delay_slot(&mut self, timestamp: u64) -> Result<()> {
+        self.arm_slot("delay", timestamp).await
+    }
+
+    async fn arm_slot(&mut self, kind: &str, timestamp: u64) -> Result<()> {
         self.check_running()?;
-        let result = self.control.path().join("skip-slot-armed.json");
+        let result = self.control.path().join(format!("{kind}-slot-armed.json"));
         if result.exists() {
             std::fs::remove_file(&result)?;
         }
-        let request = self.control.path().join("skip-slot.new.json");
+        let request = self.control.path().join(format!("{kind}-slot.new.json"));
         std::fs::write(
             &request,
             serde_json::to_vec(&json!({"timestamp": timestamp}))?,
         )?;
-        std::fs::rename(request, self.control.path().join("skip-slot.json"))?;
+        std::fs::rename(
+            request,
+            self.control.path().join(format!("{kind}-slot.json")),
+        )?;
         let record = wait_for(Duration::from_secs(10), || async {
             match std::fs::read(&result) {
                 Ok(bytes) => Ok(Some(serde_json::from_slice::<Value>(&bytes)?)),
@@ -151,13 +164,35 @@ impl L1ReorgControl {
             }
         })
         .await
-        .with_context(|| format!("L1 skip-slot barrier failed: {}", self.diagnostics()))?;
+        .with_context(|| format!("L1 {kind}-slot barrier failed: {}", self.diagnostics()))?;
         self.check_running()?;
         ensure!(
             record["timestamp"] == timestamp,
-            "skip-slot identity mismatch"
+            "controlled slot identity mismatch"
         );
         Ok(())
+    }
+
+    /// Import the already-built original payload and wait for canonical adoption.
+    /// Fails if no delayed payload is ready or the controller cannot import it.
+    pub async fn release_delayed_slot(&mut self) -> Result<()> {
+        self.check_running()?;
+        ensure!(
+            self.control.path().join("delay-slot-built.json").exists(),
+            "delayed payload has not been built"
+        );
+        std::fs::write(self.control.path().join("release-slot.json"), b"{}")?;
+        wait_for(Duration::from_secs(10), || async {
+            Ok(self
+                .control
+                .path()
+                .join("delay-slot-released.json")
+                .exists()
+                .then_some(()))
+        })
+        .await
+        .with_context(|| format!("delayed slot release failed: {}", self.diagnostics()))?;
+        self.check_running()
     }
 
     /// Replace the current unfinalized branch with a new block on this exact

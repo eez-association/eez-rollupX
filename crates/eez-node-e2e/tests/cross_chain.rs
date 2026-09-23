@@ -1448,15 +1448,30 @@ async fn outbound_reverting_destination_preserves_caught_result_without_destinat
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_mixed_static_reads_and_write_settle_together() {
+    assert_mixed_static_reads_and_write_settle(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_changing_static_reads_and_write_settle_and_replay() {
+    assert_mixed_static_reads_and_write_settle(true).await;
+}
+
+async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
     use alloy_rpc_types_eth::BlockNumberOrTag;
     use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
 
     let w = setup_cross_chain().await.unwrap();
+    let expected_sum = if changing { 168u64 } else { 66u64 };
     Scenario::new("two static reads, mutable write, two static reads")
         .outbound(
             ScenarioCall::new(
                 w.outbound_wrapper,
-                ISetterWrapper::readWriteReadCall { v: U256::from(79) }.abi_encode(),
+                if changing {
+                    ISetterWrapper::readChangingValueAroundWriteCall { v: U256::from(79) }
+                        .abi_encode()
+                } else {
+                    ISetterWrapper::readWriteReadCall { v: U256::from(79) }.abi_encode()
+                },
             )
             .with_gas_limit(2_000_000),
         )
@@ -1467,7 +1482,7 @@ async fn outbound_mixed_static_reads_and_write_settle_together() {
                 "mixedReadSum()",
                 ISetterWrapper::mixedReadSumCall {}.abi_encode(),
             ),
-            66u64,
+            expected_sum,
         )
         .expect_l2_state(
             call_read(
@@ -1521,7 +1536,7 @@ async fn outbound_mixed_static_reads_and_write_settle_together() {
         )
         .await
         .unwrap(),
-        U256::from(66)
+        U256::from(expected_sum)
     );
     follower.assert_no_divergence_failure_logs();
     w.node.assert_no_divergence_failure_logs();
