@@ -1,0 +1,283 @@
+{
+  "date_utc": "2026-09-23T21:49:24.312674+00:00",
+  "pr": 34,
+  "pr_base": "3f1c8cba78c604e80c4c2b67b3104e6ad16544b2",
+  "previous_pr_head": "68fde5bb5b0f9743e55a5de98cdff682e9076a49",
+  "source_baseline": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+  "protocol": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+  "runtime_staged_patch_sha256": "fd5f7e14b94526f055b311d99010bcc6d4aaaf78aabcb10ece00fed655704564",
+  "process_results": [
+    {
+      "phase": "skipped-slot",
+      "selected": 1,
+      "command": [
+        "/workspace/target/debug/deps/dynamic_admission-72c50ceb6182f2e3",
+        "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "late-original",
+      "selected": 1,
+      "command": [
+        "/workspace/target/debug/deps/dynamic_admission-72c50ceb6182f2e3",
+        "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "historical-prefix",
+      "selected": 1,
+      "command": [
+        "/workspace/target/debug/deps/dynamic_admission-72c50ceb6182f2e3",
+        "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "canonical-exclusion",
+      "selected": 1,
+      "command": [
+        "/workspace/target/debug/deps/dynamic_admission-72c50ceb6182f2e3",
+        "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "queue-reorg",
+      "selected": 1,
+      "command": [
+        "/workspace/target/debug/deps/queue_reorg-9002b7f519e6fec2",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "queue-liveness",
+      "selected": 3,
+      "command": [
+        "/workspace/target/debug/deps/queue_liveness-bdf1a0184d680c58",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "partial-consumption",
+      "selected": 5,
+      "command": [
+        "/workspace/target/debug/deps/partial_consumption-7295248a80e7bc45",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    }
+  ],
+  "executables": {
+    "partial_consumption": {
+      "executable": "/workspace/target/debug/deps/partial_consumption-7295248a80e7bc45",
+      "sha256": "ba254c85bdfa3b05348d8912546657a75c45c1ec701e90c7fb3c11bdf4ca918d"
+    },
+    "dynamic_admission": {
+      "executable": "/workspace/target/debug/deps/dynamic_admission-72c50ceb6182f2e3",
+      "sha256": "d39522d1705fa14e9084270abdc7d05b999517faec94a498c5e4c56992f41bb0"
+    },
+    "queue_liveness": {
+      "executable": "/workspace/target/debug/deps/queue_liveness-bdf1a0184d680c58",
+      "sha256": "f330235e13d7f52be1b11472b091971421427961f4743c6cb0cf05daac001779"
+    },
+    "queue_reorg": {
+      "executable": "/workspace/target/debug/deps/queue_reorg-9002b7f519e6fec2",
+      "sha256": "c92a8816b6a88cef69f96db1d97f10cf053417f3476992aee11b2406835ee9a6"
+    },
+    "eez-composer": {
+      "executable": "/workspace/target/debug/eez-composer",
+      "sha256": "5f5a0609acb14fcf0d2ac236416aead0d5b34997114ce975ffba3a7243afae78"
+    },
+    "eez-follower": {
+      "executable": "/workspace/target/debug/eez-follower",
+      "sha256": "024ee98d3314ad0040493fea2738096f2bc47bacd9fe4884f375b33e74a20e9d"
+    },
+    "eez-proof-signer": {
+      "executable": "/workspace/target/debug/eez-proof-signer",
+      "sha256": "43d64303f9d5da066353d6096a0f0e624922f241bc7c5ef34199e66223a9cba9"
+    }
+  },
+  "tooling": {
+    "selected": 251,
+    "passed": 247,
+    "skipped": 4,
+    "failed": 0,
+    "seconds": 86.855
+  },
+  "quality": {
+    "composer_unit": {
+      "passed": 222,
+      "ignored": 1
+    },
+    "driver_unit": {
+      "passed": 57,
+      "ignored": 0
+    },
+    "l1_unit": {
+      "passed": 141,
+      "ignored": 0
+    },
+    "ignored": "held_pool::tests::profile_blocked_backlog_discovery: manual component profile",
+    "workspace_fmt": "passed",
+    "workspace_all_targets_clippy": "passed",
+    "genesis_check": "passed",
+    "genesis_state_root": "0x8b19c93d207113a489efb0eb449b14aee1d30ad94cdbe125cf1e0127bec12bcf"
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/pr34-integration/canonical-exclusion.log",
+      "sha256": "e0a610f14e1fde735b51d277d065778fd0fe983566e31088dc2b5e36cb0730cb",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/chiado-config-final.log",
+      "sha256": "27fd8580803b22116ae578287b763f9c0a387029f23076fc0b543d6926f52a9f",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/chiado-tests-final.log",
+      "sha256": "558153e3e07faf852b6c6090f3289930f1f59439b8caea6dd5c843c671f5ef88",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/chiado-tests.log",
+      "sha256": "ba07759e65bc883fa19cb16fdc434d42255f8e5f328356bc0cc8bf50e5617c95",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/clippy.log",
+      "sha256": "c38699d3077cfc33822017ca5ffaf3a2e9c3016d587d748595cd210c2198a1e6",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/container-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/forge-build.log",
+      "sha256": "462cd4c6b3f90b36db27aef357cf928d3ad92cfc4fc2889d2b3870b4ed581f9c",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/genesis-check.log",
+      "sha256": "bc34eb0faf96b3e8ca680e56b8a5ec12cccd2b81e8a49940af4c8dc8390a7592",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/historical-prefix.log",
+      "sha256": "15022c6024c1fd28b1c5702eac3462549caf9478badb8ec3fd827ee57caebb4d",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/late-original.log",
+      "sha256": "824956c5ff7895a0508f942361b239bcd710feaaa470d1639a2250c863aefd10",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/native-build.log",
+      "sha256": "c0bb73aec2c18b93ac770d7844c8bd53491a7144904f6db5c4c7f5ff8e1164ff",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/partial-consumption.log",
+      "sha256": "28ffd96d1cc031b4e8782eb21f5e760ec837130ba78a374d22d164ae1a21797d",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/process-runner.log",
+      "sha256": "714532d4fd75cef1a6bba65d74ee0eab2e63967460a335b8cb6d7528bb1efe28",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/quality-container.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/queue-liveness.log",
+      "sha256": "af6fb3663894998baf0b70a1ea25a3e8e0c9e3004e5826b578685ebc8ad7318d",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/queue-reorg.log",
+      "sha256": "2c791dcc8f26d2c56316562bef5b15f3f8960a8abbb5c1544a399ef0c045c2ed",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/runtime-build.log",
+      "sha256": "fdb4806436cda0b47fd1124cf06d85c4d4ae8c21d42deb796c04a98883d921bc",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/runtime-unit-tests.log",
+      "sha256": "1de791dffe512ec1b11c4682d524a12d424140ab3f80a5d90dc9d2f65c194e2d",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/skipped-slot.log",
+      "sha256": "d9dc19d34c653092b79ba1bd11ec928befb80a8a4e7b4437966af391b6f76efa",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/tooling-tests-final.log",
+      "sha256": "b9aa9d392d180696949c0c8567a95dbe4e4bb0eda5a6eb3447ebd8daaac704be",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-integration/tooling-tests.log",
+      "sha256": "d8d5eb34cb5f5ae1021c01af37181b616e067038fcd70c4fda210b75eac57844",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    }
+  ],
+  "runtime_commit": "c6cd4f5a88619a069d6afcd54db38af632e015fc",
+  "tools": {
+    "rust": "1.94.0",
+    "foundry": "1.7.1",
+    "solidity": "0.8.34",
+    "image": "sha256:7335715efd8b672d267ecc2e8a9fc11c449e35413b1a98ee26ba06065f9aab86",
+    "container_memory_gib": 16,
+    "container_cpus": 4,
+    "cargo_jobs": 2
+  },
+  "commands": [
+    "cargo +1.94.0 test --locked -p eez-node-e2e --test dynamic_admission --test queue_reorg --test queue_liveness --test partial_consumption --no-run --message-format=json",
+    "cargo +1.94.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer --bins",
+    "cargo +1.94.0 test --locked -p eez-composer -p eez-driver -p eez-l1 --lib",
+    "cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings",
+    "cargo +1.94.0 fmt --all --check",
+    "bash scripts/update-eezl2-genesis.sh --check",
+    "python3 -m unittest discover -s scripts/ci/tests -v"
+  ],
+  "limits": [
+    "Process executables were built before the runtime commit, from its staged source patch; hashes retained above.",
+    "No live deployment or traffic was performed for this integration.",
+    "Failed replacement preparation plus late original settlement has unit coverage, not a newly added combined process case.",
+    "Full CI/Kurtosis and image promotion at the published commit remain separate gates.",
+    "Optional real Docker payload, Kurtosis resource, native archive relocation and runtime Docker tests were skipped."
+  ]
+}

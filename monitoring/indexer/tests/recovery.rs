@@ -40,7 +40,7 @@ fn transaction(i: u8, branch: u8) -> B256 {
 }
 fn log(i: u64, branch: u8) -> Value {
     json!({"address":Address::repeat_byte(2),"removed":false,"topics":[L2ExecutionPerformed::SIGNATURE_HASH,B256::from(U256::from(1))],
-        "data":B256::repeat_byte(30+i as u8+branch*10),"blockHash":block_hash(2,branch),"blockNumber":"0x2",
+        "data":format!("{}{}", B256::repeat_byte(30+i as u8+branch*10), "00".repeat(32)),"blockHash":block_hash(2,branch),"blockNumber":"0x2",
         "transactionHash":transaction(if i<2 {0} else {1},branch),"transactionIndex":if i<2 {"0x0"} else {"0x1"},"logIndex":format!("0x{i:x}")})
 }
 fn block(n: u64, branch: u8) -> Value {
@@ -111,19 +111,21 @@ async fn handler(State(state): State<Shared>, Json(request): Json<Value>) -> Jso
             }
             json!(result)
         }
-        "eth_getTransactionReceipt" => {
+        "eth_getBlockReceipts" => {
             if s.bad_receipt {
                 Value::Null
             } else {
-                let tx: B256 = serde_json::from_value(request["params"][0].clone()).unwrap();
-                let logs = (0..if s.branch == 0 { 3 } else { 1 })
-                    .map(|i| log(i, s.branch))
-                    .filter(|l| l["transactionHash"] == json!(tx))
-                    .collect::<Vec<_>>();
-                json!({"blockHash":block_hash(2,s.branch),"blockNumber":"0x2","transactionHash":tx,"transactionIndex":if tx==transaction(0,s.branch) {"0x0"} else {"0x1"},"status":"0x1","type":"0x3","gasUsed":"0xa","effectiveGasPrice":"0x2","blobGasUsed":"0x3","blobGasPrice":"0x4","logs":logs})
+                json!((0..2).map(|i| {
+                    let tx = transaction(i, s.branch);
+                    let logs = (0..if s.branch == 0 { 3 } else { 1 })
+                        .map(|j| log(j, s.branch))
+                        .filter(|l| l["transactionHash"] == json!(tx))
+                        .collect::<Vec<_>>();
+                    json!({"blockHash":block_hash(2,s.branch),"blockNumber":"0x2","transactionHash":tx,"transactionIndex":format!("0x{i:x}"),"status":"0x1","type":"0x3","gasUsed":"0xa","effectiveGasPrice":"0x2","blobGasUsed":"0x3","blobGasPrice":"0x4","logs":logs})
+                }).collect::<Vec<_>>())
             }
         }
-        _ => panic!("unexpected method"),
+        method => panic!("unexpected method {method}"),
     };
     Json(json!({"jsonrpc":"2.0","id":request["id"],"result":value}))
 }
@@ -590,8 +592,15 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
             );
         let rows = db.client.query(&sql, &[]).await.unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].get::<_, String>("metric"), "Cross-chain work");
-        assert_eq!(rows[0].get::<_, f64>("value"), 1.0);
+        assert_eq!(rows[0].get::<_, String>("Trigger"), "Cross-chain work");
+        assert_eq!(
+            rows[0].get::<_, String>("Attempts in range"),
+            "1/1 (100.0%)"
+        );
+        assert_eq!(
+            rows[0].get::<_, String>("Included at target"),
+            "1/1 (100.0%)"
+        );
 
         let panel = dashboard["panels"]
             .as_array()
@@ -616,6 +625,8 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
             .as_str()
             .unwrap()
             .replace("$__timeFilter(p.expected_l1_time)", "true");
+        assert_eq!(dashboard["annotations"]["list"][0]["enable"], false);
+        assert_eq!(dashboard["annotations"]["list"][0]["hide"], true);
         let detail_sql = dashboard["annotations"]["list"][0]["target"]["rawSql"]
             .as_str()
             .unwrap()
@@ -727,6 +738,51 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     assert!(row.get::<_, Option<i64>>(0).is_none());
     for column in 1..4 {
         assert!(row.get::<_, Option<f64>>(column).is_none());
+    }
+    // The latest card must skip newer non-posting blocks/transactions, retain all
+    // updates of the selected posting, and fall back when its block is reorged out.
+    {
+        let dashboard: Value =
+            serde_json::from_str(include_str!("../dashboards/settlements.json")).unwrap();
+        let sql = dashboard["panels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == 1)
+            .unwrap()["targets"][0]["rawSql"]
+            .as_str()
+            .unwrap();
+        let tx = db.client.transaction().await.unwrap();
+        tx.batch_execute("INSERT INTO eez_indexer.blocks(height,hash,parent_hash,timestamp) VALUES
+            (100,'query-old','parent',1000),(101,'query-new','query-old',1005),(102,'query-tip','query-new',1010);
+            INSERT INTO eez_indexer.transactions(block_hash,transaction_hash,transaction_index,gas_used,gas_price_wei,execution_fee_wei,blob_gas_used,blob_gas_price_wei,blob_fee_wei) VALUES
+            ('query-old','old-posting',0,1,1,1,131072,1,1),
+            ('query-new','first-posting',0,1,1,1,131072,1,1),
+            ('query-new','last-posting',1,1,1,1,131072,1,1),
+            ('query-new','later-nonposting',2,1,1,1,0,0,0),
+            ('query-tip','newer-nonposting',0,1,1,1,0,0,0);
+            INSERT INTO eez_indexer.settlements(block_hash,transaction_hash,log_index,l2_block_hash) VALUES
+            ('query-old','old-posting',0,'l2-old'),
+            ('query-new','first-posting',0,'l2-first'),
+            ('query-new','last-posting',1,'l2-middle'),
+            ('query-new','last-posting',2,'l2-last'),
+            ('query-new','later-nonposting',3,'l2-nonposting'),
+            ('query-tip','newer-nonposting',0,'l2-tip');").await.unwrap();
+        let row = tx.query_one(sql, &[]).await.unwrap();
+        assert_eq!(row.get::<_, String>("transaction_hash"), "last-posting");
+        assert_eq!(row.get::<_, i64>("L1 block"), 101);
+        assert_eq!(row.get::<_, i64>("State updates"), 2);
+        tx.execute("DELETE FROM eez_indexer.blocks WHERE height=101", &[])
+            .await
+            .unwrap();
+        let row = tx.query_one(sql, &[]).await.unwrap();
+        assert_eq!(row.get::<_, String>("transaction_hash"), "old-posting");
+        assert_eq!(row.get::<_, i64>("State updates"), 1);
+        tx.execute("UPDATE eez_indexer.transactions SET blob_gas_used=0", &[])
+            .await
+            .unwrap();
+        assert!(tx.query(sql, &[]).await.unwrap().is_empty());
+        tx.rollback().await.unwrap();
     }
     state.lock().unwrap().wrong_chain = true;
     assert!(sync(&cfg, &rpc, &mut db).await.is_err());

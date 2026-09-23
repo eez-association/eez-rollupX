@@ -1,0 +1,135 @@
+{
+  "metadata": {
+    "started_at": "2026-09-23T13:35:49.707490+00:00",
+    "source_head": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+    "protocol": "3c0cdf4955941a5c23639346932b55b33babebbd",
+    "scale": 4,
+    "jobs": 3080,
+    "sources": 3480,
+    "prepare_parallel": 200,
+    "multisend_batch": 220,
+    "send_workers": 4,
+    "send_pause": 1.5,
+    "proof_budget_ms": 750,
+    "semantic_verification": false,
+    "containers": [
+      {
+        "name": "/eez-node-chiado",
+        "id": "2a4eb9706d49e7c45f2d5daf0674d3d2e4f3740462e83aade227ad9bb5815dd2",
+        "image": "sha256:ecd62f1c96ca8970055132815b7db8f419c7f0c70a5e950795cefc152c269edd",
+        "started_at": "2026-09-23T13:26:49.430650111Z"
+      },
+      {
+        "name": "/eez-proof-signer-chiado",
+        "id": "364bde368b0cd5d0fac4780850a87ecbe4a8c49f60773162ecebdf3bea7a7a5a",
+        "image": "sha256:1fe82bae33fd602f436c714e9e33c1776a05b5ca8bd855845907008b71a24778",
+        "started_at": "2026-09-22T21:53:56.622501999Z"
+      }
+    ],
+    "user_stop_requested_at": "2026-09-23T13:47:35.804303+00:00"
+  },
+  "outcomes_before_stop": {
+    "Included at target": 7,
+    "Block produced without inclusion": 5,
+    "Preparation failed": 4,
+    "Network slot skipped": 4,
+    "Deferred before dispatch": 6
+  },
+  "oom": {
+    "oom_at_utc": "2026-09-23T13:39:14Z",
+    "processes": {
+      "solc-0.8.34": {
+        "count": 200,
+        "rss_gib": 36.983
+      },
+      "eez-composer": {
+        "count": 1,
+        "rss_gib": 6.737
+      },
+      "postgres": {
+        "count": 68,
+        "rss_gib": 6.458
+      },
+      "forge": {
+        "count": 200,
+        "rss_gib": 6.345
+      },
+      "bash": {
+        "count": 606,
+        "rss_gib": 1.839
+      },
+      "lighthouse": {
+        "count": 1,
+        "rss_gib": 0.93
+      },
+      "timeout": {
+        "count": 200,
+        "rss_gib": 0.776
+      },
+      "grafana": {
+        "count": 1,
+        "rss_gib": 0.758
+      }
+    }
+  },
+  "final": {
+    "observed_at": "2026-09-23T13:56:13.348510+00:00",
+    "setup": {
+      "L1": {
+        "sent": 5560,
+        "mined": 5560,
+        "pending": 0,
+        "failed": 0
+      },
+      "L2": {
+        "sent": 5840,
+        "mined": 5840,
+        "pending": 0,
+        "failed": 0
+      }
+    },
+    "source_transactions_sent": 0,
+    "last_l2_setup_block": 427561,
+    "last_l2_setup_settlement": {
+      "canonicalL2": true,
+      "l1BlockHash": "0xe8085d1dbd6b6c9b68817adf22eab1b1b9c7d14080e374cc8f4e9a2145605446",
+      "l1BlockNumber": "0x161e4ed",
+      "l1TransactionHash": "0x1bc28933cf9215c92996c6a9d7e78324f3ceaaff7dac0c14843fc612366bf5ee",
+      "l1TransactionIndex": "0x0",
+      "l2Finalized": true,
+      "l2Range": {
+        "blockCount": "0x1a4",
+        "firstBlockHash": "0x266500e21591c05d16d820e87196897c94c48d7a9a8ae2ecba517d68c42d728b",
+        "firstBlockNumber": "0x68624",
+        "lastBlockHash": "0x38998d4365327034515735918d3f52636d6a871e78f953872ab441a56259ad38",
+        "lastBlockNumber": "0x687c7"
+      },
+      "matchedL2Block": {
+        "hash": "0xa0cfa6ddc20ed8a18fbd79b6bdc2827d52bfcc4f7970ed9595d977049b3e7838",
+        "number": "0x68629"
+      }
+    },
+    "l2_safe": 427975,
+    "l2_latest": 428370,
+    "queue": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    },
+    "containers": [
+      {
+        "name": "/eez-node-chiado",
+        "image": "sha256:ecd62f1c96ca8970055132815b7db8f419c7f0c70a5e950795cefc152c269edd",
+        "restart_count": 1,
+        "started_at": "2026-09-23T13:39:15.085163586Z"
+      },
+      {
+        "name": "/eez-proof-signer-chiado",
+        "image": "sha256:1fe82bae33fd602f436c714e9e33c1776a05b5ca8bd855845907008b71a24778",
+        "restart_count": 0,
+        "started_at": "2026-09-22T21:53:56.622501999Z"
+      }
+    ]
+  }
+}

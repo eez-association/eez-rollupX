@@ -19,6 +19,25 @@ observer outcome or preflight failure, with ordered event numbers and monotonic
 elapsed times. Capture applicable trigger reasons before spawning the observer;
 unknown policy context stays unknown. Prepared excludes preceding proving time.
 
+The optional `detail.preparation_started_ms`, `detail.proof_requested_ms`, and
+`detail.proof_received_ms` fields record wall-clock milliseconds for the candidate
+that produced the attempt. Preparation begins before cross-chain simulation or
+minimal Sync-block construction; historical prefix selection starts at the
+beginning of that search. Recomposition/fallback begins a new candidate interval.
+Proof requested is entry into the Composer's permitted proving operation; receipt
+means successful return, including transport and retry waits, not signer CPU time.
+Deadline rejection before the first proof call leaves both proof fields null;
+prover failure leaves receipt null. Failed-preparation events retain the known
+points. Earlier build failures and attempts cancelled before a lifecycle event
+still have no complete history; this does not introduce a durable stage journal.
+
+Grafana plots these timestamps minus the expected L1 timestamp on the existing
+seconds axis. No durations or inferred budget offsets are substituted. Clock
+corrections can affect ordering. These are additive v1 event details: existing
+indexers preserve them, older Composer history stays null, and rollback needs no
+migration or checkpoint reset. Provision the dashboard before or after upgrading
+Composer; only new events from upgraded Composer supply these points.
+
 Observation is not canonical completion. Join transaction hashes to existing
 canonical settlement data at query time; retain off-chain history on reorg.
 No receipt alone establishes successful completion of all cross-chain effects.

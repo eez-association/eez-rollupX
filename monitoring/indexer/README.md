@@ -1,7 +1,7 @@
 # EEZ settlement indexer
 
 A read-only settlement indexer. It indexes the pinned registry's
-`L2ExecutionPerformed(uint64,bytes32)` events for one rollup. Emitted roots can be intermediate commitments that do
+`L2ExecutionPerformed(uint64,bytes32,uint256)` events for one rollup. Emitted roots can be intermediate commitments that do
 not identify a materialized L2 block; explorer links use correlated range endpoints. Optional details add transaction blob hashes, L2 ranges using the
 existing correlation RPC, Beacon blob retrieval, and unique successful cross-chain
 source transaction counts. Optional structured posting logs add local submission
@@ -41,9 +41,15 @@ The existing Composer cross-chain completion card remains an internal confirmati
 observation. It cannot be replaced by a settlement receipt alone.
 
 The protocol reference is `eez-core-protocol` revision
-`3c0cdf4955941a5c23639346932b55b33babebbd`, `EEZ._applyRollupUpdates`, also mirrored
+`820e50f749f63165be6a5797d4c5fe52cbbbbe34`, `EEZ._applyRollupUpdates`, also mirrored
 in `crates/eez-protocol/src/abi.rs`. The previous observer's strict log/receipt
 attribution and transaction-level charge separation inform this smaller indexer.
+
+This event ABI is incompatible with the previous two-field event. Keep the old
+indexer with old-protocol deployments. Deploy this version with matching new
+contracts and a separate network identity/database; no historical event migration
+is provided. The ether-balance word is validated structurally but is not used as
+a settlement or fee claim.
 
 ## Start on the same machine
 
@@ -432,6 +438,10 @@ See the [contract and coverage](../../docs/proposals/posting-lifecycle-history.m
 1. Create a persistent host log directory writable by the node and readable by
    the indexer (container UID 65532). Mount it in Composer at `/var/log/eez-posting`.
    Keep it separate from node databases and credentials.
+   The Chiado base Compose file already mounts `POSTING_LOGS_DIR` (default
+   `./data/posting-logs`) and supplies the options in step 2. Set that variable
+   in the node's `.env` to preserve an existing log location. No node overlay or
+   copied startup script is required; the old posting overlay remains compatible.
 2. Append these existing Reth options to the Composer command, preserving its
    other arguments and stdout logging:
 
@@ -463,10 +473,14 @@ See the [contract and coverage](../../docs/proposals/posting-lifecycle-history.m
    and be readable at startup. No configuration option means no collection worker;
    older configurations continue to work. New tables/view are additive, and the
    existing Grafana read-only role receives access through its default grants.
-4. Open **EEZ Composer queue**. **Current unresolved submission** shows the live
-   oldest unresolved attempt; **Settlement trigger reasons** charts the captured
-   reasons for prepared attempts, including retries. Several causes can apply
-   together, so stacked totals count reasons rather than unique attempts. **Posting submissions** contains one row per recorded
+4. Open **EEZ Composer queue**. **Posting outcomes by target slot** counts distinct
+   observed target slots, including slots with recorded preparation failures.
+   Categories can overlap: a failed preparation followed by inclusion in one slot
+   counts in both columns, and repeated failures in that slot count once.
+   Preparation failures cover the proving boundary, not every construction or
+   admission deferral. **Why Composer attempted a posting** explains the captured
+   reasons and their counts; several reasons can apply to one attempt.
+   **Posting submissions** contains one row per recorded
    attempt with its captured reasons, timings, transaction links and chain status.
    Update its `l1_explorer` and `l2_explorer` constants for another network.
 
@@ -575,3 +589,8 @@ caches survive state promotion; old pending rows without a checkpoint start from
 zero. No rescan of completed finalized history or database reset is necessary.
 For rollback, use the matching older dashboard and indexer together: the old worker
 will defer due canonical rows again. Already stored observations remain in PostgreSQL.
+
+The active deployment also retains the prior operator indexer fixes: canonical
+block-receipt collection, an optional `details.l1_http_url` for transaction
+enrichment, and the transaction-hash lookup index used by posting queries.
+These changes preserve the event attribution checks and the new event ABI.

@@ -34,7 +34,7 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
     client
         .batch_execute("SET statement_timeout='10s'; SET lock_timeout='5s'")
         .await?;
-    let l1 = Rpc::new(&config.http_url)?;
+    let l1 = Rpc::new(settings.l1_http_url.as_deref().unwrap_or(&config.http_url))?;
     let l2 = Rpc::new(&settings.l2_http_url)?;
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))

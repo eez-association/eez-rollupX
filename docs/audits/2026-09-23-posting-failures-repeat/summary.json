@@ -1,0 +1,1699 @@
+{
+  "date": "2026-09-23",
+  "run": "20260923-152613",
+  "source_head": "1832f970884ca9460646a4cde87cca70eaffb3e1 plus deployed historical-target working-tree patch",
+  "protocol_commit_at_run": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "node_image_id": "sha256:d8bac330a05aa0fe3653960ebc170a55c0608e65892ded85bd0477f3079059e7",
+  "composer_sha256": "57a55d8f114e5581a7b2ce5e34c82881c9144c5f39547a54c95a26810e2df37b",
+  "classification_counts": {
+    "relay_path_unavailable": 8,
+    "unresolved_candidate_build_failure": 1,
+    "relay_candidate_not_selected": 1,
+    "canonical_skip": 10,
+    "local_proof_timeout": 1,
+    "late_builder_candidate": 3
+  },
+  "attempts": [
+    {
+      "attempt_id": "1-1790176983308395403:1:3",
+      "utc": "2026-09-23T15:32:55+00:00",
+      "target_block": 23193924,
+      "target_timestamp": 1790177575,
+      "slot": 24956255,
+      "outcome": "excluded",
+      "transaction_hash": "0xb0673045451018f4ec83705d27116f21fb5db95e9c31349b2714618ac5cf048d",
+      "dispatch_ms": 1790177573936,
+      "lead_ms": 1064,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23193924,
+        "hash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+        "parentHash": "0xb0894cc5cb2285182dec322dba75f3c2e3e2f9be8dbd0bd9a88ffb9fdb155d3e",
+        "timestamp": 1790177575,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23193923,
+        "hash": "0xb0894cc5cb2285182dec322dba75f3c2e3e2f9be8dbd0bd9a88ffb9fdb155d3e",
+        "parentHash": "0x4d0ece4e80ce6f50fc8954d1b958183f8b88e55b9945c553840251d712274a4d",
+        "timestamp": 1790177565,
+        "miner": "0x520bb2ad7a6a8177300c9f760d10ccfb09f23dbd",
+        "extraData": "0x4e65746865726d696e642076312e33392e33"
+      },
+      "canonical_observation": {
+        "number": 23193924,
+        "hash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+        "block_timestamp": 1790177575,
+        "observed_at": "2026-09-23T15:32:55.379779Z",
+        "delay_ms": 379.779
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:4",
+      "utc": "2026-09-23T15:33:00+00:00",
+      "target_block": 23193925,
+      "target_timestamp": 1790177580,
+      "slot": 24956256,
+      "outcome": "excluded",
+      "transaction_hash": "0x6bbcc109059d04f84efc2baaea6fd6f078bd15e5610a7827d4f183ded482a9e2",
+      "dispatch_ms": 1790177578741,
+      "lead_ms": 1259,
+      "bid_count": 7,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193925,
+        "hash": "0xdb941f38c6805e34d448678a2d4c4c3945d60845c9a4926812b8186c011fa4d0",
+        "parentHash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+        "timestamp": 1790177580,
+        "miner": "0x520bb2ad7a6a8177300c9f760d10ccfb09f23dbd",
+        "extraData": "0x4e65746865726d696e642076312e33392e33"
+      },
+      "canonical_parent": {
+        "number": 23193924,
+        "hash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+        "parentHash": "0xb0894cc5cb2285182dec322dba75f3c2e3e2f9be8dbd0bd9a88ffb9fdb155d3e",
+        "timestamp": 1790177575,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_observation": {
+        "number": 23193925,
+        "hash": "0xdb941f38c6805e34d448678a2d4c4c3945d60845c9a4926812b8186c011fa4d0",
+        "block_timestamp": 1790177580,
+        "observed_at": "2026-09-23T15:33:00.221727Z",
+        "delay_ms": 221.727
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:32:56.865514Z",
+          "relative_ms": -3134.486,
+          "hash": "0x5ea94b499ed1a63531eedb8d1f43523e7ce948f2982c7904b9b0e1a15937f7c4",
+          "bundles": 0,
+          "gas": 194088,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:56.904397Z",
+          "relative_ms": -3095.603,
+          "hash": "0xd27583b3fa66e3fcbc67a3366ab8fd8ba69433cc54e3dad10f814e3436480efd",
+          "bundles": 0,
+          "gas": 4694364,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:56.952876Z",
+          "relative_ms": -3047.124,
+          "hash": "0x27c3e51ffedb1949bdbb8222c769d3d120aefc29442bb01b4ce6347228696417",
+          "bundles": 0,
+          "gas": 5213628,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:57.049352Z",
+          "relative_ms": -2950.648,
+          "hash": "0x9eb5737a01abf024e021340e1743854d7011c22689f738f9934254a85d746946",
+          "bundles": 0,
+          "gas": 16809255,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:57.152766Z",
+          "relative_ms": -2847.234,
+          "hash": "0x597f2a38cae1889e477456c94ebb9cdb56afddd4b422fd865c68df096722714a",
+          "bundles": 0,
+          "gas": 16906412,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:57.186711Z",
+          "relative_ms": -2813.289,
+          "hash": "0x64ce226254859b9d344564d3c3bd109c42a92610a7b8d4a38f8e0b65da4c5705",
+          "bundles": 0,
+          "gas": 16932149,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:32:58.848878Z",
+          "relative_ms": -1151.122,
+          "hash": "0x0784e971c8dcee21bdfd1c356a74c352780d6ce614e268da80d01f234bf69195",
+          "bundles": 0,
+          "gas": 16886343,
+          "failed_bundles": 1
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:32:56Z",
+          "msg": "block validation successful",
+          "blockHash": "0x5ea94b499ed1a63531eedb8d1f43523e7ce948f2982c7904b9b0e1a15937f7c4",
+          "numBlobs": "0",
+          "durationMs": "9",
+          "timestampRequestStart": "1790177576873",
+          "timestampAfterDecoding": "1790177576873"
+        },
+        {
+          "time": "2026-09-23T15:32:56Z",
+          "msg": "block validation successful",
+          "blockHash": "0xd27583b3fa66e3fcbc67a3366ab8fd8ba69433cc54e3dad10f814e3436480efd",
+          "numBlobs": "0",
+          "durationMs": "32",
+          "timestampRequestStart": "1790177576915",
+          "timestampAfterDecoding": "1790177576923"
+        },
+        {
+          "time": "2026-09-23T15:32:57Z",
+          "msg": "block validation successful",
+          "blockHash": "0x27c3e51ffedb1949bdbb8222c769d3d120aefc29442bb01b4ce6347228696417",
+          "numBlobs": "0",
+          "durationMs": "56",
+          "timestampRequestStart": "1790177576986",
+          "timestampAfterDecoding": "1790177576989"
+        },
+        {
+          "time": "2026-09-23T15:32:57Z",
+          "msg": "block validation successful",
+          "blockHash": "0x9eb5737a01abf024e021340e1743854d7011c22689f738f9934254a85d746946",
+          "numBlobs": "0",
+          "durationMs": "51",
+          "timestampRequestStart": "1790177577052",
+          "timestampAfterDecoding": "1790177577059"
+        },
+        {
+          "time": "2026-09-23T15:32:57Z",
+          "msg": "block validation successful",
+          "blockHash": "0x597f2a38cae1889e477456c94ebb9cdb56afddd4b422fd865c68df096722714a",
+          "numBlobs": "0",
+          "durationMs": "60",
+          "timestampRequestStart": "1790177577158",
+          "timestampAfterDecoding": "1790177577164"
+        },
+        {
+          "time": "2026-09-23T15:32:57Z",
+          "msg": "block validation successful",
+          "blockHash": "0x64ce226254859b9d344564d3c3bd109c42a92610a7b8d4a38f8e0b65da4c5705",
+          "numBlobs": "0",
+          "durationMs": "51",
+          "timestampRequestStart": "1790177577190",
+          "timestampAfterDecoding": "1790177577196"
+        },
+        {
+          "time": "2026-09-23T15:32:58Z",
+          "msg": "block validation successful",
+          "blockHash": "0x0784e971c8dcee21bdfd1c356a74c352780d6ce614e268da80d01f234bf69195",
+          "numBlobs": "0",
+          "durationMs": "44",
+          "timestampRequestStart": "1790177578854",
+          "timestampAfterDecoding": "1790177578856"
+        },
+        {
+          "time": "2026-09-23T15:33:00Z",
+          "msg": "bid delivered",
+          "blockHash": "0x0784e971c8dcee21bdfd1c356a74c352780d6ce614e268da80d01f234bf69195",
+          "msIntoSlot": "125"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "unresolved_candidate_build_failure",
+      "finding": "Single bundle simulated OK but candidate assembly marked one bundle failed; no bundle candidate. Non-bundle header delivered; proposer selected another block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:5",
+      "utc": "2026-09-23T15:33:05+00:00",
+      "target_block": 23193926,
+      "target_timestamp": 1790177585,
+      "slot": 24956257,
+      "outcome": "excluded",
+      "transaction_hash": "0xc57b57fe27ebad254c2e08e13e2929232715155a83e529ff8e66e932eab3887e",
+      "dispatch_ms": 1790177583764,
+      "lead_ms": 1236,
+      "bid_count": 5,
+      "bundle_bids": 3,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193926,
+        "hash": "0xdf3e41a3ef320983e6979302e09d6446ee51051e9cc8912ae8e540f200059a38",
+        "parentHash": "0xdb941f38c6805e34d448678a2d4c4c3945d60845c9a4926812b8186c011fa4d0",
+        "timestamp": 1790177585,
+        "miner": "0x43ce078f12ec86ef99aaac7a9c2b3e32bbcf5103",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d6637613339313630"
+      },
+      "canonical_parent": {
+        "number": 23193925,
+        "hash": "0xdb941f38c6805e34d448678a2d4c4c3945d60845c9a4926812b8186c011fa4d0",
+        "parentHash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+        "timestamp": 1790177580,
+        "miner": "0x520bb2ad7a6a8177300c9f760d10ccfb09f23dbd",
+        "extraData": "0x4e65746865726d696e642076312e33392e33"
+      },
+      "canonical_observation": {
+        "number": 23193926,
+        "hash": "0xdf3e41a3ef320983e6979302e09d6446ee51051e9cc8912ae8e540f200059a38",
+        "block_timestamp": 1790177585,
+        "observed_at": "2026-09-23T15:33:05.204828Z",
+        "delay_ms": 204.828
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:33:02.273685Z",
+          "relative_ms": -2726.315,
+          "hash": "0x6482463e9bda051d1912f7c3fa9350dd87a0d71017c03ee22d626033d503417c",
+          "bundles": 0,
+          "gas": 16865366,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:33:02.289474Z",
+          "relative_ms": -2710.526,
+          "hash": "0x01cae4bf424e27a04755f13f1741fe90563fcea8bca55cdccb1a176232501094",
+          "bundles": 0,
+          "gas": 16868659,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:33:03.855959Z",
+          "relative_ms": -1144.041,
+          "hash": "0x882d3b1db0a67fc0307fcc5fe6878ce22d6685b1f441a3898f5d936296733ade",
+          "bundles": 1,
+          "gas": 16884596,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:33:03.861495Z",
+          "relative_ms": -1138.505,
+          "hash": "0xef4d9702161119d215ffa1e15cb0d39cad781c6bd159602b24c505ee41a75a05",
+          "bundles": 1,
+          "gas": 16887889,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:33:04.741592Z",
+          "relative_ms": -258.408,
+          "hash": "0xb6ba0699752c29b88861716c9e87913b533fd9337ad4780e0dff9d765579cddc",
+          "bundles": 1,
+          "gas": 16934749,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:33:02Z",
+          "msg": "block validation successful",
+          "blockHash": "0x6482463e9bda051d1912f7c3fa9350dd87a0d71017c03ee22d626033d503417c",
+          "numBlobs": "0",
+          "durationMs": "30",
+          "timestampRequestStart": "1790177582276",
+          "timestampAfterDecoding": "1790177582279"
+        },
+        {
+          "time": "2026-09-23T15:33:02Z",
+          "msg": "block validation successful",
+          "blockHash": "0x01cae4bf424e27a04755f13f1741fe90563fcea8bca55cdccb1a176232501094",
+          "numBlobs": "0",
+          "durationMs": "27",
+          "timestampRequestStart": "1790177582291",
+          "timestampAfterDecoding": "1790177582297"
+        },
+        {
+          "time": "2026-09-23T15:33:04Z",
+          "msg": "block validation successful",
+          "blockHash": "0x882d3b1db0a67fc0307fcc5fe6878ce22d6685b1f441a3898f5d936296733ade",
+          "numBlobs": "2",
+          "durationMs": "177",
+          "timestampRequestStart": "1790177583860",
+          "timestampAfterDecoding": "1790177583897"
+        },
+        {
+          "time": "2026-09-23T15:33:04Z",
+          "msg": "block validation successful",
+          "blockHash": "0xef4d9702161119d215ffa1e15cb0d39cad781c6bd159602b24c505ee41a75a05",
+          "numBlobs": "2",
+          "durationMs": "202",
+          "timestampRequestStart": "1790177583871",
+          "timestampAfterDecoding": "1790177583905"
+        },
+        {
+          "time": "2026-09-23T15:33:04Z",
+          "msg": "block validation successful",
+          "blockHash": "0xb6ba0699752c29b88861716c9e87913b533fd9337ad4780e0dff9d765579cddc",
+          "numBlobs": "2",
+          "durationMs": "167",
+          "timestampRequestStart": "1790177584746",
+          "timestampAfterDecoding": "1790177584769"
+        },
+        {
+          "time": "2026-09-23T15:33:05Z",
+          "msg": "bid delivered",
+          "blockHash": "0xb6ba0699752c29b88861716c9e87913b533fd9337ad4780e0dff9d765579cddc",
+          "msIntoSlot": "25"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "relay_candidate_not_selected",
+      "finding": "Three bundle candidates relay-validated; bundle-containing header delivered; no payload delivery; different canonical block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:8",
+      "utc": "2026-09-23T15:34:35+00:00",
+      "target_block": 23193943,
+      "target_timestamp": 1790177675,
+      "slot": 24956275,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x65c6f2f0567d515f113dd741d8eb2cfff30a8d2a3f67ac76df2072778a9fc847",
+      "dispatch_ms": 1790177673746,
+      "lead_ms": 1254,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193943,
+        "hash": "0xfd73f35da4d6e61bb1597dc43bc8ea8a5fdbcb711729ca7a78770c96f88c6ce9",
+        "parentHash": "0x04264fd4ba0e798170f7d213ced71b91c360ca290dac00c71987267302aa7efa",
+        "timestamp": 1790177680,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23193942,
+        "hash": "0x04264fd4ba0e798170f7d213ced71b91c360ca290dac00c71987267302aa7efa",
+        "parentHash": "0xdbd5f575a1c3f3928e9e573e2735917f8741b566cadf1b15eeb201ce339b9cfb",
+        "timestamp": 1790177670,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193943,
+        "hash": "0xfd73f35da4d6e61bb1597dc43bc8ea8a5fdbcb711729ca7a78770c96f88c6ce9",
+        "block_timestamp": 1790177680,
+        "observed_at": "2026-09-23T15:34:40.175124Z",
+        "delay_ms": 175.124
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:34:33.853773Z",
+          "relative_ms": -1146.227,
+          "hash": "0x438c3d78fa848af68e4a495d9dd07cfb2c2491013c3d879366bb198bd5dc8c81",
+          "bundles": 1,
+          "gas": 439404,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:34:34Z",
+          "msg": "block validation successful",
+          "blockHash": "0x438c3d78fa848af68e4a495d9dd07cfb2c2491013c3d879366bb198bd5dc8c81",
+          "numBlobs": "2",
+          "durationMs": "165",
+          "timestampRequestStart": "1790177673860",
+          "timestampAfterDecoding": "1790177673897"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:34:30\u201315:34:40; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:0:0:0",
+      "utc": "2026-09-23T15:34:40+00:00",
+      "target_block": 23193943,
+      "target_timestamp": 1790177680,
+      "slot": 24956276,
+      "outcome": "prover_deadline",
+      "transaction_hash": null,
+      "dispatch_ms": null,
+      "lead_ms": null,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193943,
+        "hash": "0xfd73f35da4d6e61bb1597dc43bc8ea8a5fdbcb711729ca7a78770c96f88c6ce9",
+        "parentHash": "0x04264fd4ba0e798170f7d213ced71b91c360ca290dac00c71987267302aa7efa",
+        "timestamp": 1790177680,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23193942,
+        "hash": "0x04264fd4ba0e798170f7d213ced71b91c360ca290dac00c71987267302aa7efa",
+        "parentHash": "0xdbd5f575a1c3f3928e9e573e2735917f8741b566cadf1b15eeb201ce339b9cfb",
+        "timestamp": 1790177670,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193943,
+        "hash": "0xfd73f35da4d6e61bb1597dc43bc8ea8a5fdbcb711729ca7a78770c96f88c6ce9",
+        "block_timestamp": 1790177680,
+        "observed_at": "2026-09-23T15:34:40.175124Z",
+        "delay_ms": 175.124
+      },
+      "builder_candidates": [],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:34:40Z",
+          "msg": "no bid found",
+          "msIntoSlot": "124"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "local_proof_timeout",
+      "finding": "No submission: 750 ms Composer proof budget expired while signer ordinary-range preparation continued."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:22",
+      "utc": "2026-09-23T15:36:25+00:00",
+      "target_block": 23193963,
+      "target_timestamp": 1790177785,
+      "slot": 24956297,
+      "outcome": "excluded",
+      "transaction_hash": "0x6bf455a8a14fa093c7d4499c23d716c13c3f44708f475e823ee210f9cc11ac4a",
+      "dispatch_ms": 1790177783378,
+      "lead_ms": 1622,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23193963,
+        "hash": "0xf067df00764c1eb7ee1201a557ba33a9410e89b66ce2370865e97339e6df13ef",
+        "parentHash": "0x846dfe143ec36e2afd1a5f26b13ff143d5e09151c279fde325e4816bc8cdb507",
+        "timestamp": 1790177785,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23193962,
+        "hash": "0x846dfe143ec36e2afd1a5f26b13ff143d5e09151c279fde325e4816bc8cdb507",
+        "parentHash": "0xcdf29b563046952ed4110e908638900c670b535ada93188752cda6c742940bfd",
+        "timestamp": 1790177780,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193963,
+        "hash": "0xf067df00764c1eb7ee1201a557ba33a9410e89b66ce2370865e97339e6df13ef",
+        "block_timestamp": 1790177785,
+        "observed_at": "2026-09-23T15:36:25.387101Z",
+        "delay_ms": 387.101
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:32",
+      "utc": "2026-09-23T15:37:15+00:00",
+      "target_block": 23193973,
+      "target_timestamp": 1790177835,
+      "slot": 24956307,
+      "outcome": "excluded",
+      "transaction_hash": "0xee91a5f70fea962b3fe1748703335fb2a5c6a80f0171d6476ec17654f7311057",
+      "dispatch_ms": 1790177833366,
+      "lead_ms": 1634,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23193973,
+        "hash": "0x85bddd4ed2ac05808c3a29c76e3e484706d44410ebdc1fde72bc311642f093eb",
+        "parentHash": "0xd46bf3187d5a9bb25b7f94b4e5d48328083a737b5cffe3dc3037b34723f978d9",
+        "timestamp": 1790177835,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23193972,
+        "hash": "0xd46bf3187d5a9bb25b7f94b4e5d48328083a737b5cffe3dc3037b34723f978d9",
+        "parentHash": "0xd5704018cd683adb5ba7871da6a273a9aaafafd5e7ddd614fa4b804b01af4e36",
+        "timestamp": 1790177830,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193973,
+        "hash": "0x85bddd4ed2ac05808c3a29c76e3e484706d44410ebdc1fde72bc311642f093eb",
+        "block_timestamp": 1790177835,
+        "observed_at": "2026-09-23T15:37:15.361679Z",
+        "delay_ms": 361.679
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:40",
+      "utc": "2026-09-23T15:37:55+00:00",
+      "target_block": 23193981,
+      "target_timestamp": 1790177875,
+      "slot": 24956315,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0xa13f1596df26c0471f527a392fb4fb60a7321b802c39a286c6d7826ade9b0897",
+      "dispatch_ms": 1790177873371,
+      "lead_ms": 1629,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193981,
+        "hash": "0xd1f44d240b037ab350ad30d02ce46d7052031bff16c8bc8b6ce884459466e72e",
+        "parentHash": "0x06dbed65388a70b7ecbfb476e951237eed198e7fd48fd5f589b382bcc72cfc30",
+        "timestamp": 1790177880,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23193980,
+        "hash": "0x06dbed65388a70b7ecbfb476e951237eed198e7fd48fd5f589b382bcc72cfc30",
+        "parentHash": "0xfbfe30532a9ddd22ad4f1551f111e305f094b166d28a3a371eaec7578cbfa436",
+        "timestamp": 1790177870,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193981,
+        "hash": "0xd1f44d240b037ab350ad30d02ce46d7052031bff16c8bc8b6ce884459466e72e",
+        "block_timestamp": 1790177880,
+        "observed_at": "2026-09-23T15:38:00.180375Z",
+        "delay_ms": 180.375
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:37:53.529174Z",
+          "relative_ms": -1470.826,
+          "hash": "0xa7c3909aef1e05e347bbc6cbdcb978c3d42e0a7b30814ce770c4b341deb4508e",
+          "bundles": 1,
+          "gas": 3022970,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:37:53Z",
+          "msg": "block validation successful",
+          "blockHash": "0xa7c3909aef1e05e347bbc6cbdcb978c3d42e0a7b30814ce770c4b341deb4508e",
+          "numBlobs": "1",
+          "durationMs": "55",
+          "timestampRequestStart": "1790177873532",
+          "timestampAfterDecoding": "1790177873542"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:37:50\u201315:38:00; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:41",
+      "utc": "2026-09-23T15:38:00+00:00",
+      "target_block": 23193981,
+      "target_timestamp": 1790177880,
+      "slot": 24956316,
+      "outcome": "excluded",
+      "transaction_hash": "0xa61583912880a969991f4590fa434ae9cf9ea8026e797dca4d74890f8b6fd8db",
+      "dispatch_ms": 1790177878405,
+      "lead_ms": 1595,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193981,
+        "hash": "0xd1f44d240b037ab350ad30d02ce46d7052031bff16c8bc8b6ce884459466e72e",
+        "parentHash": "0x06dbed65388a70b7ecbfb476e951237eed198e7fd48fd5f589b382bcc72cfc30",
+        "timestamp": 1790177880,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23193980,
+        "hash": "0x06dbed65388a70b7ecbfb476e951237eed198e7fd48fd5f589b382bcc72cfc30",
+        "parentHash": "0xfbfe30532a9ddd22ad4f1551f111e305f094b166d28a3a371eaec7578cbfa436",
+        "timestamp": 1790177870,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193981,
+        "hash": "0xd1f44d240b037ab350ad30d02ce46d7052031bff16c8bc8b6ce884459466e72e",
+        "block_timestamp": 1790177880,
+        "observed_at": "2026-09-23T15:38:00.180375Z",
+        "delay_ms": 180.375
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:38:00.260725Z",
+          "relative_ms": 260.725,
+          "hash": "0x2952d316cbbac6bc91e03e8a797ac7c6d3950d262febe67a9bfec6dee8da6133",
+          "bundles": 1,
+          "gas": 5391159,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:38:00Z",
+          "msg": "no bid found",
+          "msIntoSlot": "127"
+        },
+        {
+          "time": "2026-09-23T15:38:00Z",
+          "msg": "submitNewBlock failed: submission for past slot",
+          "blockHash": "0x2952d316cbbac6bc91e03e8a797ac7c6d3950d262febe67a9bfec6dee8da6133",
+          "numBlobs": "1",
+          "timestampRequestStart": "1790177880265",
+          "timestampAfterDecoding": "1790177880281"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "late_builder_candidate",
+      "finding": "After skipped slot, proposer received no bid; builder first candidate arrived after proposer request. Underlying scheduling/simulation delay remains unattributed."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:45",
+      "utc": "2026-09-23T15:38:20+00:00",
+      "target_block": 23193985,
+      "target_timestamp": 1790177900,
+      "slot": 24956320,
+      "outcome": "excluded",
+      "transaction_hash": "0x9d7843760f5ad41e8ad6242f63fbf333d38b0c3f562afc1b65b2efb7943e80d3",
+      "dispatch_ms": 1790177898363,
+      "lead_ms": 1637,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23193985,
+        "hash": "0xaf0c7c08069fd1854045f46c8fff4079eee567bba475ab08495b3acd7d8cac7e",
+        "parentHash": "0x6275c6876a8d70ec51beb66d85f786061eba250726b9e9d17acf58cd435a6cc0",
+        "timestamp": 1790177900,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23193984,
+        "hash": "0x6275c6876a8d70ec51beb66d85f786061eba250726b9e9d17acf58cd435a6cc0",
+        "parentHash": "0x9b1809eb8975cad5213c1f0e3cbdd592333a96c8251e5a16b5012d3334a3a19a",
+        "timestamp": 1790177895,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193985,
+        "hash": "0xaf0c7c08069fd1854045f46c8fff4079eee567bba475ab08495b3acd7d8cac7e",
+        "block_timestamp": 1790177900,
+        "observed_at": "2026-09-23T15:38:20.387185Z",
+        "delay_ms": 387.185
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:50",
+      "utc": "2026-09-23T15:38:45+00:00",
+      "target_block": 23193990,
+      "target_timestamp": 1790177925,
+      "slot": 24956325,
+      "outcome": "excluded",
+      "transaction_hash": "0xcf368d4c1b97336ecbafc429bd8958963f36a4f4d8dae7a11ffa56c5ede11890",
+      "dispatch_ms": 1790177923359,
+      "lead_ms": 1641,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23193990,
+        "hash": "0xd42c41c62a4714495edffc048e8b0c59604a6d0953b15c51b1b8a9ad5d467853",
+        "parentHash": "0x1ce3e445b3f1be1d5e5475a16707186092e7e9d924cd0946986d1b670ae7586f",
+        "timestamp": 1790177925,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23193989,
+        "hash": "0x1ce3e445b3f1be1d5e5475a16707186092e7e9d924cd0946986d1b670ae7586f",
+        "parentHash": "0x3076b310dac56fc082172d5b40da44f9ba60e936d55a8a5e0969aea7415b8fdb",
+        "timestamp": 1790177920,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193990,
+        "hash": "0xd42c41c62a4714495edffc048e8b0c59604a6d0953b15c51b1b8a9ad5d467853",
+        "block_timestamp": 1790177925,
+        "observed_at": "2026-09-23T15:38:45.362782Z",
+        "delay_ms": 362.782
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:51",
+      "utc": "2026-09-23T15:38:50+00:00",
+      "target_block": 23193991,
+      "target_timestamp": 1790177930,
+      "slot": 24956326,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x41b12a5d57422ed294ce4d305df083c15b720957ae63cbcdb4d84b140c8812d9",
+      "dispatch_ms": 1790177928337,
+      "lead_ms": 1663,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193991,
+        "hash": "0xb78c36472aa7a7ae8d00610eb3972a6fbd853c022af695c7237f704129d48393",
+        "parentHash": "0xd42c41c62a4714495edffc048e8b0c59604a6d0953b15c51b1b8a9ad5d467853",
+        "timestamp": 1790177935,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_parent": {
+        "number": 23193990,
+        "hash": "0xd42c41c62a4714495edffc048e8b0c59604a6d0953b15c51b1b8a9ad5d467853",
+        "parentHash": "0x1ce3e445b3f1be1d5e5475a16707186092e7e9d924cd0946986d1b670ae7586f",
+        "timestamp": 1790177925,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_observation": {
+        "number": 23193991,
+        "hash": "0xb78c36472aa7a7ae8d00610eb3972a6fbd853c022af695c7237f704129d48393",
+        "block_timestamp": 1790177935,
+        "observed_at": "2026-09-23T15:38:55.558856Z",
+        "delay_ms": 558.856
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:38:48.415864Z",
+          "relative_ms": -1584.136,
+          "hash": "0x47ee2ecb5065e8c7731a7c66ad82c38050164e074ffb1780c00c9b1307656acf",
+          "bundles": 1,
+          "gas": 485862,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:38:48Z",
+          "msg": "block validation successful",
+          "blockHash": "0x47ee2ecb5065e8c7731a7c66ad82c38050164e074ffb1780c00c9b1307656acf",
+          "numBlobs": "1",
+          "durationMs": "51",
+          "timestampRequestStart": "1790177928418",
+          "timestampAfterDecoding": "1790177928426"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:38:45\u201315:38:55; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:58",
+      "utc": "2026-09-23T15:39:25+00:00",
+      "target_block": 23193997,
+      "target_timestamp": 1790177965,
+      "slot": 24956333,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0xfb1e206fba7024edfd813806038980781d0ee31209c05950b461b3419aa18224",
+      "dispatch_ms": 1790177963474,
+      "lead_ms": 1526,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23193997,
+        "hash": "0xeaafe01578c64845bbbb9e1d22e13e26f1888058003497ae1217fc743283a51c",
+        "parentHash": "0x2c3efd2c6e7d4ecbe6309030b08db8effad05a07943c1b551646a4fa8a05b44a",
+        "timestamp": 1790177970,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_parent": {
+        "number": 23193996,
+        "hash": "0x2c3efd2c6e7d4ecbe6309030b08db8effad05a07943c1b551646a4fa8a05b44a",
+        "parentHash": "0xab3ce71cc718f6dcdcc1a08667fe2c25f3750a54743007712d59661adb9cbfe4",
+        "timestamp": 1790177960,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23193997,
+        "hash": "0xeaafe01578c64845bbbb9e1d22e13e26f1888058003497ae1217fc743283a51c",
+        "block_timestamp": 1790177970,
+        "observed_at": "2026-09-23T15:39:30.378009Z",
+        "delay_ms": 378.009
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:39:23.582753Z",
+          "relative_ms": -1417.247,
+          "hash": "0x342d60df58cc09b52a4aaeb383b9f861b015df8e3b975691b9fbcfe58cacb482",
+          "bundles": 1,
+          "gas": 4739413,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:39:23Z",
+          "msg": "block validation successful",
+          "blockHash": "0x342d60df58cc09b52a4aaeb383b9f861b015df8e3b975691b9fbcfe58cacb482",
+          "numBlobs": "1",
+          "durationMs": "64",
+          "timestampRequestStart": "1790177963587",
+          "timestampAfterDecoding": "1790177963595"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:39:20\u201315:39:30; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:71",
+      "utc": "2026-09-23T15:40:30+00:00",
+      "target_block": 23194009,
+      "target_timestamp": 1790178030,
+      "slot": 24956346,
+      "outcome": "excluded",
+      "transaction_hash": "0x8e29673c7acf56a5c0519d89c6aae7cd922f5c697508440963db571b2c57c99e",
+      "dispatch_ms": 1790178028386,
+      "lead_ms": 1614,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23194009,
+        "hash": "0xe0309b6da985b0cd1a0ea7b7b38479fb70470ea4c10b144d99d0bd1e22452cf1",
+        "parentHash": "0xb08d2f26179d23b76f278ea4b3e20b6d6858bd39acfd414a9039a90bf8ee59b7",
+        "timestamp": 1790178030,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23194008,
+        "hash": "0xb08d2f26179d23b76f278ea4b3e20b6d6858bd39acfd414a9039a90bf8ee59b7",
+        "parentHash": "0x41e3e8bf72689fb2898f824fd0d391ab8f0c1e49c1d951e81c9ceb47d710d815",
+        "timestamp": 1790178025,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194009,
+        "hash": "0xe0309b6da985b0cd1a0ea7b7b38479fb70470ea4c10b144d99d0bd1e22452cf1",
+        "block_timestamp": 1790178030,
+        "observed_at": "2026-09-23T15:40:30.356844Z",
+        "delay_ms": 356.844
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:73",
+      "utc": "2026-09-23T15:40:40+00:00",
+      "target_block": 23194011,
+      "target_timestamp": 1790178040,
+      "slot": 24956348,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x70b7d115dbcc5ef444dc5a4fb0cfd12af5e71a100437d33ea120733cdb79fde2",
+      "dispatch_ms": 1790178038529,
+      "lead_ms": 1471,
+      "bid_count": 2,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194011,
+        "hash": "0x25d720499ecfe1ba26c56e085f95544cd4385de2c5ebb73668cccbe679366bb8",
+        "parentHash": "0xc9b0a4167fe2910314011fcd385e2541c8a8c47ea5dd07aabba2e7ccd99dc5f2",
+        "timestamp": 1790178045,
+        "miner": "0x43ce078f12ec86ef99aaac7a9c2b3e32bbcf5103",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d6637613339313630"
+      },
+      "canonical_parent": {
+        "number": 23194010,
+        "hash": "0xc9b0a4167fe2910314011fcd385e2541c8a8c47ea5dd07aabba2e7ccd99dc5f2",
+        "parentHash": "0xe0309b6da985b0cd1a0ea7b7b38479fb70470ea4c10b144d99d0bd1e22452cf1",
+        "timestamp": 1790178035,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194011,
+        "hash": "0x25d720499ecfe1ba26c56e085f95544cd4385de2c5ebb73668cccbe679366bb8",
+        "block_timestamp": 1790178045,
+        "observed_at": "2026-09-23T15:40:45.112035Z",
+        "delay_ms": 112.035
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:40:36.459462Z",
+          "relative_ms": -3540.538,
+          "hash": "0xe04d8d78012e81589d3f4f8a7c90b71325860b49281670bbec8e7836e93f9ec8",
+          "bundles": 0,
+          "gas": 67860,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:40:38.678077Z",
+          "relative_ms": -1321.923,
+          "hash": "0x30a6f36c2ebd7f261eaf0e4dfd3bc2ae909c765c1064ef08469064db25b91f2f",
+          "bundles": 1,
+          "gas": 8856329,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:40:36Z",
+          "msg": "block validation successful",
+          "blockHash": "0xe04d8d78012e81589d3f4f8a7c90b71325860b49281670bbec8e7836e93f9ec8",
+          "numBlobs": "0",
+          "durationMs": "3",
+          "timestampRequestStart": "1790178036461",
+          "timestampAfterDecoding": "1790178036461"
+        },
+        {
+          "time": "2026-09-23T15:40:38Z",
+          "msg": "block validation successful",
+          "blockHash": "0x30a6f36c2ebd7f261eaf0e4dfd3bc2ae909c765c1064ef08469064db25b91f2f",
+          "numBlobs": "1",
+          "durationMs": "63",
+          "timestampRequestStart": "1790178038680",
+          "timestampAfterDecoding": "1790178038688"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:40:35\u201315:40:45; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:74",
+      "utc": "2026-09-23T15:40:45+00:00",
+      "target_block": 23194011,
+      "target_timestamp": 1790178045,
+      "slot": 24956349,
+      "outcome": "excluded",
+      "transaction_hash": "0x80f7b8652c22df6332eefc8379a2eb2c6bd97f53ddce0ea9ac9dd8934908a302",
+      "dispatch_ms": 1790178043643,
+      "lead_ms": 1357,
+      "bid_count": 2,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194011,
+        "hash": "0x25d720499ecfe1ba26c56e085f95544cd4385de2c5ebb73668cccbe679366bb8",
+        "parentHash": "0xc9b0a4167fe2910314011fcd385e2541c8a8c47ea5dd07aabba2e7ccd99dc5f2",
+        "timestamp": 1790178045,
+        "miner": "0x43ce078f12ec86ef99aaac7a9c2b3e32bbcf5103",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d6637613339313630"
+      },
+      "canonical_parent": {
+        "number": 23194010,
+        "hash": "0xc9b0a4167fe2910314011fcd385e2541c8a8c47ea5dd07aabba2e7ccd99dc5f2",
+        "parentHash": "0xe0309b6da985b0cd1a0ea7b7b38479fb70470ea4c10b144d99d0bd1e22452cf1",
+        "timestamp": 1790178035,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194011,
+        "hash": "0x25d720499ecfe1ba26c56e085f95544cd4385de2c5ebb73668cccbe679366bb8",
+        "block_timestamp": 1790178045,
+        "observed_at": "2026-09-23T15:40:45.112035Z",
+        "delay_ms": 112.035
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:40:45.550582Z",
+          "relative_ms": 550.582,
+          "hash": "0xe02d263cba96df219b82d20cf3715d09231cfb26a19d1f20dc304f25fa3b9c78",
+          "bundles": 0,
+          "gas": 67860,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:40:46.318589Z",
+          "relative_ms": 1318.589,
+          "hash": "0xddeb6e6814c2c6f77c52d5ead0759b09b083256cc2c0bbf89e11410ee0f4c1e1",
+          "bundles": 1,
+          "gas": 12268012,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:40:45Z",
+          "msg": "no bid found",
+          "msIntoSlot": "23"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "late_builder_candidate",
+      "finding": "After skipped slot, proposer received no bid; builder first candidate arrived after proposer request. Underlying scheduling/simulation delay remains unattributed."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:82",
+      "utc": "2026-09-23T15:41:25+00:00",
+      "target_block": 23194019,
+      "target_timestamp": 1790178085,
+      "slot": 24956357,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0xf2f1bd11e4ddfd8a1fe6311480e2ccfe6b1d4e2f482f7d67c52de42d82b33672",
+      "dispatch_ms": 1790178083370,
+      "lead_ms": 1630,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194019,
+        "hash": "0x1de0dfed029fcb75599f258cf7bef8c2ca79867e79ef941cdaf0f546dd2bdd67",
+        "parentHash": "0xe6aa63abd794c4a0261466a8d0b1de97112d454bdc0b055ed14de9a5dda460d1",
+        "timestamp": 1790178100,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23194018,
+        "hash": "0xe6aa63abd794c4a0261466a8d0b1de97112d454bdc0b055ed14de9a5dda460d1",
+        "parentHash": "0xb9a9ecc24bf6c8b22507501c15e3cb12c4d25a3b0708cc84eeae72e81180ef87",
+        "timestamp": 1790178080,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194019,
+        "hash": "0x1de0dfed029fcb75599f258cf7bef8c2ca79867e79ef941cdaf0f546dd2bdd67",
+        "block_timestamp": 1790178100,
+        "observed_at": "2026-09-23T15:41:40.184308Z",
+        "delay_ms": 184.308
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:41:23.459970Z",
+          "relative_ms": -1540.03,
+          "hash": "0x0aaf2688eb7deb9390365a99a68cda7681da65bf426152e5863ed97532391683",
+          "bundles": 1,
+          "gas": 2161520,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:41:23Z",
+          "msg": "block validation successful",
+          "blockHash": "0x0aaf2688eb7deb9390365a99a68cda7681da65bf426152e5863ed97532391683",
+          "numBlobs": "1",
+          "durationMs": "100",
+          "timestampRequestStart": "1790178083466",
+          "timestampAfterDecoding": "1790178083486"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:41:20\u201315:41:40; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:83",
+      "utc": "2026-09-23T15:41:30+00:00",
+      "target_block": 23194019,
+      "target_timestamp": 1790178090,
+      "slot": 24956358,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x2f2e556c05ab647091ee399e7cac4706d337c211de07987ba68ab67d9bcbdeb3",
+      "dispatch_ms": 1790178088430,
+      "lead_ms": 1570,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194019,
+        "hash": "0x1de0dfed029fcb75599f258cf7bef8c2ca79867e79ef941cdaf0f546dd2bdd67",
+        "parentHash": "0xe6aa63abd794c4a0261466a8d0b1de97112d454bdc0b055ed14de9a5dda460d1",
+        "timestamp": 1790178100,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23194018,
+        "hash": "0xe6aa63abd794c4a0261466a8d0b1de97112d454bdc0b055ed14de9a5dda460d1",
+        "parentHash": "0xb9a9ecc24bf6c8b22507501c15e3cb12c4d25a3b0708cc84eeae72e81180ef87",
+        "timestamp": 1790178080,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194019,
+        "hash": "0x1de0dfed029fcb75599f258cf7bef8c2ca79867e79ef941cdaf0f546dd2bdd67",
+        "block_timestamp": 1790178100,
+        "observed_at": "2026-09-23T15:41:40.184308Z",
+        "delay_ms": 184.308
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:41:30.281239Z",
+          "relative_ms": 281.239,
+          "hash": "0x4945566fdad88401386a8ffd7a9089dac54ebb1d5cdec2ec4d0ae8c26b79abb7",
+          "bundles": 1,
+          "gas": 4189854,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:41:30Z",
+          "msg": "block validation successful",
+          "blockHash": "0x4945566fdad88401386a8ffd7a9089dac54ebb1d5cdec2ec4d0ae8c26b79abb7",
+          "numBlobs": "1",
+          "durationMs": "71",
+          "timestampRequestStart": "1790178090287",
+          "timestampAfterDecoding": "1790178090299"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:41:20\u201315:41:40; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:95",
+      "utc": "2026-09-23T15:42:40+00:00",
+      "target_block": 23194031,
+      "target_timestamp": 1790178160,
+      "slot": 24956372,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x52c966a6066f4f7e5f9c66cc1dd1a1a779b871eaa9c8f4ef1697d674219b8273",
+      "dispatch_ms": 1790178158349,
+      "lead_ms": 1651,
+      "bid_count": 1,
+      "bundle_bids": 1,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194031,
+        "hash": "0xc38c09224a48bf1a1432679d50360d35e834a0572a501168419aa4f2b8859ef3",
+        "parentHash": "0xe6c5091116bc1ce7970e14afbf1223f1d04a1a6ea5d7211746244b74c4b1881e",
+        "timestamp": 1790178165,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_parent": {
+        "number": 23194030,
+        "hash": "0xe6c5091116bc1ce7970e14afbf1223f1d04a1a6ea5d7211746244b74c4b1881e",
+        "parentHash": "0x0f473eb947b4930224b7342951324c77e29a50182315aef656004acdad96c8be",
+        "timestamp": 1790178155,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194031,
+        "hash": "0xc38c09224a48bf1a1432679d50360d35e834a0572a501168419aa4f2b8859ef3",
+        "block_timestamp": 1790178165,
+        "observed_at": "2026-09-23T15:42:45.434165Z",
+        "delay_ms": 434.165
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:42:38.438305Z",
+          "relative_ms": -1561.695,
+          "hash": "0xc4c2cb2f4fbedd1661f3e01ee950caf8e437ad11d83c5f1d276fc19ea96e5228",
+          "bundles": 1,
+          "gas": 1111459,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:42:38Z",
+          "msg": "block validation successful",
+          "blockHash": "0xc4c2cb2f4fbedd1661f3e01ee950caf8e437ad11d83c5f1d276fc19ea96e5228",
+          "numBlobs": "1",
+          "durationMs": "86",
+          "timestampRequestStart": "1790178158445",
+          "timestampAfterDecoding": "1790178158462"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:42:35\u201315:42:45; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:97",
+      "utc": "2026-09-23T15:42:50+00:00",
+      "target_block": 23194032,
+      "target_timestamp": 1790178170,
+      "slot": 24956374,
+      "outcome": "excluded",
+      "transaction_hash": "0xb691df61f10b699a6178948f269f16db11e865938b6b134b8db0c116328dbb62",
+      "dispatch_ms": 1790178168340,
+      "lead_ms": 1660,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23194032,
+        "hash": "0xeca80122850d9e7d02067d4224fb2e4c7cf5c7d741bc2aceaf2f87c4a776b7c8",
+        "parentHash": "0xc38c09224a48bf1a1432679d50360d35e834a0572a501168419aa4f2b8859ef3",
+        "timestamp": 1790178170,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23194031,
+        "hash": "0xc38c09224a48bf1a1432679d50360d35e834a0572a501168419aa4f2b8859ef3",
+        "parentHash": "0xe6c5091116bc1ce7970e14afbf1223f1d04a1a6ea5d7211746244b74c4b1881e",
+        "timestamp": 1790178165,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194032,
+        "hash": "0xeca80122850d9e7d02067d4224fb2e4c7cf5c7d741bc2aceaf2f87c4a776b7c8",
+        "block_timestamp": 1790178170,
+        "observed_at": "2026-09-23T15:42:50.359040Z",
+        "delay_ms": 359.04
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:103",
+      "utc": "2026-09-23T15:43:20+00:00",
+      "target_block": 23194038,
+      "target_timestamp": 1790178200,
+      "slot": 24956380,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x77f5eef7201d7191312e66046e3313ef69f78b5be1ee4bc0341a9ec5b957caae",
+      "dispatch_ms": 1790178198363,
+      "lead_ms": 1637,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23194038,
+        "hash": "0xd801e4b2b1dd024dcd1a933de027fccd755fa9105b49c0cb766d0f6e8015e658",
+        "parentHash": "0x86eccc4e7f678c4eee3e180353dfb2a590466e0fdc749259a317757cf1a48f37",
+        "timestamp": 1790178205,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_parent": {
+        "number": 23194037,
+        "hash": "0x86eccc4e7f678c4eee3e180353dfb2a590466e0fdc749259a317757cf1a48f37",
+        "parentHash": "0x8ffe722b6fb7666f523ad8e6366f22f62e4af6a7a3fd4d08a122e726f2ce0126",
+        "timestamp": 1790178195,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194038,
+        "hash": "0xd801e4b2b1dd024dcd1a933de027fccd755fa9105b49c0cb766d0f6e8015e658",
+        "block_timestamp": 1790178205,
+        "observed_at": "2026-09-23T15:43:25.402501Z",
+        "delay_ms": 402.501
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:43:15\u201315:43:25; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:118",
+      "utc": "2026-09-23T15:44:35+00:00",
+      "target_block": 23194052,
+      "target_timestamp": 1790178275,
+      "slot": 24956395,
+      "outcome": "slot_skipped",
+      "transaction_hash": "0x65fe62c1ebdbf5dce4c9a38332d26b3378e7661f6e9028557e94e046e8ec0333",
+      "dispatch_ms": 1790178273362,
+      "lead_ms": 1638,
+      "bid_count": 2,
+      "bundle_bids": 2,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194052,
+        "hash": "0x8a31846a49a1539c60136888c1f4877251aadf4d26a9d52cda5e48d99020b6a7",
+        "parentHash": "0x08d74bebf9d9b2353f4ecc4400a1888ee03f2c860b238ff0906791e98a86c90c",
+        "timestamp": 1790178280,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23194051,
+        "hash": "0x08d74bebf9d9b2353f4ecc4400a1888ee03f2c860b238ff0906791e98a86c90c",
+        "parentHash": "0x1d6dd0550bf89cf8df7cd49f6d93a4abff4f2ddad9cbf4138ab070240b5c8290",
+        "timestamp": 1790178270,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194052,
+        "hash": "0x8a31846a49a1539c60136888c1f4877251aadf4d26a9d52cda5e48d99020b6a7",
+        "block_timestamp": 1790178280,
+        "observed_at": "2026-09-23T15:44:40.194777Z",
+        "delay_ms": 194.777
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:44:33.470876Z",
+          "relative_ms": -1529.124,
+          "hash": "0x80230cbf51f8ddd88f62c2ee3394ed635950df6b444041826ba29c97d4457568",
+          "bundles": 1,
+          "gas": 2601700,
+          "failed_bundles": 0
+        },
+        {
+          "at": "2026-09-23T15:44:33.936115Z",
+          "relative_ms": -1063.885,
+          "hash": "0x234b4f571a3f83ce9f98aeb73527e8cb1dbb22506e4a8e8d517613c1e73df6cc",
+          "bundles": 1,
+          "gas": 2664060,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:44:33Z",
+          "msg": "block validation successful",
+          "blockHash": "0x80230cbf51f8ddd88f62c2ee3394ed635950df6b444041826ba29c97d4457568",
+          "numBlobs": "1",
+          "durationMs": "138",
+          "timestampRequestStart": "1790178273478",
+          "timestampAfterDecoding": "1790178273498"
+        },
+        {
+          "time": "2026-09-23T15:44:34Z",
+          "msg": "block validation successful",
+          "blockHash": "0x234b4f571a3f83ce9f98aeb73527e8cb1dbb22506e4a8e8d517613c1e73df6cc",
+          "numBlobs": "1",
+          "durationMs": "66",
+          "timestampRequestStart": "1790178273940",
+          "timestampAfterDecoding": "1790178273955"
+        }
+      ],
+      "lighthouse_empty": true,
+      "classification": "canonical_skip",
+      "finding": "Canonical gap 15:44:30\u201315:44:40; remote Lighthouse empty."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:119",
+      "utc": "2026-09-23T15:44:40+00:00",
+      "target_block": 23194052,
+      "target_timestamp": 1790178280,
+      "slot": 24956396,
+      "outcome": "excluded",
+      "transaction_hash": "0x921da32e1b1726ac88d6c979bf15169eb0e0ba0227867cbc0b3ee6307f10a8e5",
+      "dispatch_ms": 1790178278407,
+      "lead_ms": 1593,
+      "bid_count": 1,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": true,
+      "canonical_block": {
+        "number": 23194052,
+        "hash": "0x8a31846a49a1539c60136888c1f4877251aadf4d26a9d52cda5e48d99020b6a7",
+        "parentHash": "0x08d74bebf9d9b2353f4ecc4400a1888ee03f2c860b238ff0906791e98a86c90c",
+        "timestamp": 1790178280,
+        "miner": "0xada17e63c5b7d443601d94c6683d379fbdc5f19d",
+        "extraData": "0xd883011105846765746888676f312e32362e35856c696e7578"
+      },
+      "canonical_parent": {
+        "number": 23194051,
+        "hash": "0x08d74bebf9d9b2353f4ecc4400a1888ee03f2c860b238ff0906791e98a86c90c",
+        "parentHash": "0x1d6dd0550bf89cf8df7cd49f6d93a4abff4f2ddad9cbf4138ab070240b5c8290",
+        "timestamp": 1790178270,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194052,
+        "hash": "0x8a31846a49a1539c60136888c1f4877251aadf4d26a9d52cda5e48d99020b6a7",
+        "block_timestamp": 1790178280,
+        "observed_at": "2026-09-23T15:44:40.194777Z",
+        "delay_ms": 194.777
+      },
+      "builder_candidates": [
+        {
+          "at": "2026-09-23T15:44:40.872889Z",
+          "relative_ms": 872.889,
+          "hash": "0xb21830d460470cbe63a5f83e706bcd0874a7728a169e8cde2a28e5227e18658a",
+          "bundles": 0,
+          "gas": 64870,
+          "failed_bundles": 0
+        }
+      ],
+      "relay_events": [
+        {
+          "time": "2026-09-23T15:44:40Z",
+          "msg": "no bid found",
+          "msIntoSlot": "124"
+        }
+      ],
+      "lighthouse_empty": false,
+      "classification": "late_builder_candidate",
+      "finding": "After skipped slot, proposer received no bid; builder first candidate arrived after proposer request. Underlying scheduling/simulation delay remains unattributed."
+    },
+    {
+      "attempt_id": "1-1790176983308395403:1:130",
+      "utc": "2026-09-23T15:45:35+00:00",
+      "target_block": 23194063,
+      "target_timestamp": 1790178335,
+      "slot": 24956407,
+      "outcome": "excluded",
+      "transaction_hash": "0x3c7ba096ce7063b1ba4e172f20859ea7c13dbea28b791b0a0b244954b0d524f7",
+      "dispatch_ms": 1790178333373,
+      "lead_ms": 1627,
+      "bid_count": 0,
+      "bundle_bids": 0,
+      "registered_in_observed_duty_lists": false,
+      "canonical_block": {
+        "number": 23194063,
+        "hash": "0xa5819145c6d3bffc2688a243ccd50e181f4629586823473bff9463769f5eb80e",
+        "parentHash": "0x475248cae7c51a3efe5e3365191ba5289a558a87b997583e7de16e31a26439c0",
+        "timestamp": 1790178335,
+        "miner": "0x60a69ad71c6cb3c1fbc7afa8be898ba6f0988022",
+        "extraData": "0x657269676f6e2d332e372e302d6465762d3261346664323136"
+      },
+      "canonical_parent": {
+        "number": 23194062,
+        "hash": "0x475248cae7c51a3efe5e3365191ba5289a558a87b997583e7de16e31a26439c0",
+        "parentHash": "0x0d3f8ce1ea050e6d0066c837b97aa7a6f73c925fa037b87883b65e624a9e2a14",
+        "timestamp": 1790178330,
+        "miner": "0x55f68a64afe048e8352d15fd2b9d903bbf2052c5",
+        "extraData": "0x726275696c6465722d63686961646f"
+      },
+      "canonical_observation": {
+        "number": 23194063,
+        "hash": "0xa5819145c6d3bffc2688a243ccd50e181f4629586823473bff9463769f5eb80e",
+        "block_timestamp": 1790178335,
+        "observed_at": "2026-09-23T15:45:35.375901Z",
+        "delay_ms": 375.901
+      },
+      "builder_candidates": [],
+      "relay_events": [],
+      "lighthouse_empty": false,
+      "classification": "relay_path_unavailable",
+      "finding": "Absent from observed relay proposer duties; no builder bid or relay header/payload delivery; canonical Erigon block."
+    }
+  ],
+  "evidence": [
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/builder.log",
+      "sha256": "77ca40df9a048d89316d6127175bc3932695411fa54efd1595e083bfcd2339b4",
+      "bytes": 9223736,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/relay.log",
+      "sha256": "dc17b6819f5be0920cddd54b429ccea7eb0cbc96018d24cd2d3e821896225417",
+      "bytes": 3465112,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/lighthouse.log",
+      "sha256": "4616eb0fff073ef511780abbcbf5e8ee9ea4cacd14b599e6dbd2b044808ec9a7",
+      "bytes": 170489,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/fetch-metadata.json",
+      "sha256": "609c86faa70e8f704be550afc57139cb9982f47a879cb636cd9281c6625a3a7d",
+      "bytes": 31493,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/canonical-blocks.json",
+      "sha256": "e3e3cda8f1b4068ec6c444402aaeb3f59fda7dbec67c6b11243cadd8e8de10b7",
+      "bytes": 62154,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/observations.json",
+      "sha256": "b79fd3a05549dff7a33558a73f4daac455fbb7ae247e7de9158d4f2fe19aeb9a",
+      "bytes": 10748,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/attempt-events.json",
+      "sha256": "b41035d594910caa92c670a8a178b05b71467010a915124cfcff703c058a23d0",
+      "bytes": 69101,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/failed-events.json",
+      "sha256": "b83cd5301d544e09b5da46265fba44b1ab3112e2899f574a914afed800ead094",
+      "bytes": 17996,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/explorer-23194019.json",
+      "sha256": "1d76fd82438e95b43a5f2299a527d694182b600eaa1b6dc18445b77db81d3217",
+      "bytes": 1158,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/fetch.py",
+      "sha256": "3ba35121bb1cac788587c3709fe730e9bd9b7edcf80631ed2e66b08ecbb939cf",
+      "bytes": 1937,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/analyze.py",
+      "sha256": "12a462b159facc95a5b890924760a068ec6a81dad0564393b51532e5c3e07876",
+      "bytes": 2444,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/setup-focus.log",
+      "sha256": "f130f5078d58a29e4f2c439596b2df7db651500e1e6453375dff200597ae6669",
+      "bytes": 60319,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/retry-focus.log",
+      "sha256": "9b082a171ffb621b9b95405a9863ce40491500691b32cee28bb20780132af858",
+      "bytes": 58101,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/reth-focused.log",
+      "sha256": "448078e3e135ac32cb26c4f1116bf99c4846f2e4a9ecf162b5ea599ee2140d24",
+      "bytes": 14594,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/builder-trace-focused.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/focused-fetch-metadata.json",
+      "sha256": "81cef1093b2ef3adfd197bb3ab633382df1093e2304f922aafb2e909b0eaca3f",
+      "bytes": 4037,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/focus_fetch.py",
+      "sha256": "f0421f644bb7dca2af22f81bc121da84a45e65522916341356bea79e4d2dd94c",
+      "bytes": 1653,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/capacity-headers.json",
+      "sha256": "5bfa32a65c608fd9f57c95035555ab2147683f5c2e973027ef42dba8e88b1d5e",
+      "bytes": 782,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    },
+    {
+      "path": "/home/edu/Develop/rollupX/artifacts/fix-mixed-outbound-source/artifacts/chiado-staged-fixed/failure-audit/composition-preflights.json",
+      "sha256": "ef0237f5aa8486ecc5f5528a177b77b877aa65b3ec14fa8defbec096bc49d98c",
+      "bytes": 7575,
+      "availability": "local-only; ignored artifacts, no retention guarantee"
+    }
+  ],
+  "limits": [
+    "No per-bundle simulation/build failure trace or signed bundle body available in public logs.",
+    "Builder bundle statistics do not independently identify our exact transaction.",
+    "No changes to services, databases, wallets or configuration. No database copies.",
+    "The original workload used --no-verify: no scenario semantic assertions or independent live follower replay."
+  ],
+  "focused_followup": {
+    "setup": {
+      "target_utc": "2026-09-23T15:33:00Z",
+      "slot": 24956256,
+      "block": 23193925,
+      "postbatch_hash": "0x6bbcc109059d04f84efc2baaea6fd6f078bd15e5610a7827d4f183ded482a9e2",
+      "payload_id": 77315480,
+      "candidate_id": 370022,
+      "candidate_hash": "0x0784e971c8dcee21bdfd1c356a74c352780d6ce614e268da80d01f234bf69195",
+      "parent_hash": "0xfefb1ee5787b8e3bf61aeeb90ba874729b4d666f72294364e238dd6b98f4b7ab",
+      "local_preflight_gas_used": 113305,
+      "signed_gas_limit": 135966,
+      "candidate_gas_used": 16886343,
+      "parent_and_canonical_block_gas_limit": 17000000,
+      "candidate_remaining_gas": 113657,
+      "interpretation": "The submitted candidate cannot append the signed gas allowance without removing/reordering transactions. Gas-pressure hypothesis strengthened; exact insertion position and error still unavailable."
+    },
+    "replacement": {
+      "target_utc": "2026-09-23T15:44:40Z",
+      "slot": 24956396,
+      "block": 23194052,
+      "postbatch_hash": "0x921da32e1b1726ac88d6c979bf15169eb0e0ba0227867cbc0b3ee6307f10a8e5",
+      "old_postbatch_hash": "0x65fe62c1ebdbf5dce4c9a38332d26b3378e7661f6e9028557e94e046e8ec0333",
+      "old_target_utc": "2026-09-23T15:44:35Z",
+      "old_payload_id": 77315894,
+      "payload_id": 77315897,
+      "parent_hash": "0x08d74bebf9d9b2353f4ecc4400a1888ee03f2c860b238ff0906791e98a86c90c",
+      "local_preflight_gas_used": 4389089,
+      "signed_gas_limit": 5652827,
+      "unfinished_candidates": [
+        {
+          "id": 371390,
+          "at": "2026-09-23T15:44:40.849721Z",
+          "true_block_value": "4432958999832000"
+        },
+        {
+          "id": 371391,
+          "at": "2026-09-23T15:44:40.924241Z",
+          "true_block_value": "4451448999832000"
+        }
+      ],
+      "interpretation": "Higher-value unfinished candidates appear late; their transaction lists and finalization outcomes are unavailable. Their value is consistent with the replacement being executed, but this is not exact identity or validity proof."
+    },
+    "trace_coverage": {
+      "focused_ranges_utc": [
+        [
+          "2026-09-23T15:32:45Z",
+          "2026-09-23T15:33:15Z"
+        ],
+        [
+          "2026-09-23T15:44:25Z",
+          "2026-09-23T15:44:55Z"
+        ]
+      ],
+      "builder_trace_records": 0,
+      "reth_records": 54,
+      "exact_bundle_rejection_reason_available": false
+    }
+  }
+}

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use crate::{
     config::Config,
     database::Database,
-    model::{Event, L2ExecutionPerformed, Receipt, number},
+    model::{Event, L2ExecutionPerformed, Receipt, hash, number},
     rpc::Rpc,
 };
 
@@ -89,9 +89,30 @@ pub async fn sync(config: &Config, rpc: &Rpc, db: &mut Database) -> Result<bool>
                 .push(event.clone());
         }
         let mut receipts = Vec::new();
-        for (hash, tx_events) in by_tx {
-            let value = rpc.call("eth_getTransactionReceipt", json!([hash])).await?;
-            receipts.push(Receipt::parse(&value, &block, &tx_events, config)?);
+        if !by_tx.is_empty() {
+            // The embedded L1 can retain canonical block receipts without a
+            // transaction-hash lookup index. Fetch once by the pinned block hash.
+            let values = rpc
+                .call("eth_getBlockReceipts", json!([block.hash]))
+                .await?;
+            let mut receipts_by_transaction = BTreeMap::new();
+            for value in values
+                .as_array()
+                .context("getBlockReceipts did not return an array")?
+            {
+                ensure!(
+                    receipts_by_transaction
+                        .insert(hash(&value["transactionHash"])?, value)
+                        .is_none(),
+                    "duplicate transaction receipt"
+                );
+            }
+            for (transaction, tx_events) in by_tx {
+                let value = receipts_by_transaction
+                    .get(&transaction)
+                    .context("missing settlement receipt")?;
+                receipts.push(Receipt::parse(value, &block, &tx_events, config)?);
+            }
         }
         ensure!(
             rpc.block(height).await?.hash == block.hash

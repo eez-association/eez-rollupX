@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::config::Config;
 
 // Narrow mirror of the pinned ABI, avoiding a dependency on the node/Reth graph.
-sol! { event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot); }
+sol! { event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance); }
 
 pub fn quantity(v: &Value) -> Result<U256> {
     let s = v.as_str().context("missing hex quantity")?;
@@ -90,13 +90,21 @@ impl Event {
             hash(&topics[1])? == B256::from(U256::from(config.rollup_id)),
             "wrong rollup"
         );
+        // Two unindexed ABI words: commitment and the resulting ether balance.
+        // Enforce the complete new event shape even though indexing uses only
+        // the commitment; old-protocol or truncated logs must not be accepted.
+        let data = v["data"]
+            .as_str()
+            .context("missing event data")?
+            .parse::<alloy_primitives::Bytes>()?;
+        ensure!(data.len() == 64, "wrong event data length");
         Ok(Self {
             block_hash: hash(&v["blockHash"])?,
             block_number: number(&v["blockNumber"])?,
             transaction: hash(&v["transactionHash"])?,
             transaction_index: number(&v["transactionIndex"])?,
             log_index: number(&v["logIndex"])?,
-            endpoint: hash(&v["data"])?,
+            endpoint: B256::from_slice(&data[..32]),
         })
     }
     pub fn validate_block(&self, block: &Block) -> Result<()> {

@@ -1,0 +1,242 @@
+{
+  "status": "passed",
+  "runner_exit_code": 0,
+  "identity": {
+    "fork_base": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+    "protocol": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+    "l2_chain_id": 6291,
+    "rollup_id": 1,
+    "registry": "0x5d6b8fc56e43528c219de7eed257564c05923e08",
+    "scale": 1,
+    "jobs": 770,
+    "sources": 870,
+    "prepare_parallel": 4,
+    "send_workers": 2,
+    "send_pause_seconds": 1.5,
+    "multisend_batch": 220,
+    "semantic_verification": false,
+    "containers": {
+      "eez-events-performance-20260923": {
+        "image_id": "sha256:15921d7827e6be635900b414779b67f54a6240094c0dc9f0e61a7b367e47b234",
+        "started_at": "2026-09-23T20:08:59.591025395Z",
+        "restart_count": 0,
+        "memory_limit": 6442450944,
+        "cpu_nano_limit": 2000000000
+      },
+      "eez-node-chiado": {
+        "image_id": "sha256:fa67f9aee6ba45710f7613b92eceb2afab173cd9fa48873a7dfe6014627f2478",
+        "started_at": "2026-09-23T19:18:43.174069286Z",
+        "restart_count": 0,
+        "memory_limit": 0,
+        "cpu_nano_limit": 0
+      },
+      "eez-proof-signer-chiado": {
+        "image_id": "sha256:ee1350476a63d0c2940a3cb406577d0edbb243123a7b3ac0c5f6ac55c921e706",
+        "started_at": "2026-09-23T19:18:37.551997892Z",
+        "restart_count": 0,
+        "memory_limit": 0,
+        "cpu_nano_limit": 0
+      }
+    }
+  },
+  "run_directory": "eez-core-protocol/tmp/e2e-staged-net/20260923-200859",
+  "semantic_verification": false,
+  "setup": {
+    "count": 2850,
+    "successful": 2850,
+    "canonical": 2850,
+    "safe_covered": 2850,
+    "chains": {
+      "L1": {
+        "count": 1390,
+        "blocks": 19,
+        "first_block": 23197006,
+        "last_block": 23197034,
+        "safe_head": 23197149,
+        "safe_covered": 1390
+      },
+      "L2": {
+        "count": 1460,
+        "blocks": 23,
+        "first_block": 3774,
+        "last_block": 3802,
+        "safe_head": 4625,
+        "safe_covered": 1460
+      }
+    }
+  },
+  "source": {
+    "count": 870,
+    "successful": 870,
+    "canonical": 870,
+    "safe_covered": 858,
+    "chains": {
+      "L1": {
+        "count": 520,
+        "blocks": 72,
+        "first_block": 23197036,
+        "last_block": 23197151,
+        "safe_head": 23197149,
+        "safe_covered": 508
+      },
+      "L2": {
+        "count": 350,
+        "blocks": 52,
+        "first_block": 4030,
+        "last_block": 4625,
+        "safe_head": 4625,
+        "safe_covered": 350
+      }
+    }
+  },
+  "phases_seconds": {
+    "build": 0.162,
+    "fund": 20.337,
+    "nonce-barrier": 1.556,
+    "plan-inputs": 0.776,
+    "plan": 390.136,
+    "deploy-send": 28.045,
+    "deploy-mine": 137.129,
+    "deploy-liveness": 1.187,
+    "finish": 0.01,
+    "send": 664.928,
+    "monitor": 7.133,
+    "total": 1253.721
+  },
+  "source_transactions_unique": true,
+  "per_job_source_counts_match_manifests": true,
+  "preparation_failures": 0,
+  "resubmission_runs": 0,
+  "posting": {
+    "as_of_utc": "2026-09-23T20:30:26.934121+00:00",
+    "whole_run_outcomes": {
+      "Included at target": 119,
+      "Network slot skipped": 12,
+      "Block produced without inclusion": 11
+    },
+    "source_window_outcomes": {
+      "Included at target": 114,
+      "Network slot skipped": 12,
+      "Block produced without inclusion": 10
+    },
+    "source_window_start_epoch": 1790194721.589,
+    "scope": "All network posting attempts in these time windows; concurrent public traffic is not excluded."
+  },
+  "posting_sequences_all_intact": true,
+  "final_queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790195403057,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xe285f388b869cf53cfecf9b3de98d12f39a1551ccbc2816d5429743050070576",
+        "number": 23197160
+      },
+      "observedAtMs": 1790195406458
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x320688a6267017bf147d7ae0f050b4ac7691147fc92ac788346196d18756d272",
+        "number": 23197159
+      },
+      "l2": {
+        "hash": "0x7bf9a96332d0790004724b647a4746e261c2540a97d77785714d5f1daac1ec82",
+        "number": 4624
+      }
+    },
+    "unknown": 0
+  },
+  "resource_samples": 56,
+  "minimum_host_available_gib": 39.89,
+  "resources": {
+    "eez-events-performance-20260923": {
+      "sampled_peak_memory_mib": 359.3,
+      "restart_count_before": 0,
+      "restart_count_after": 0,
+      "oom_killed_observed": false
+    },
+    "eez-node-chiado": {
+      "sampled_peak_memory_mib": 13076.48,
+      "restart_count_before": 0,
+      "restart_count_after": 0,
+      "oom_killed_observed": false
+    },
+    "eez-proof-signer-chiado": {
+      "sampled_peak_memory_mib": 160.2,
+      "restart_count_before": 0,
+      "restart_count_after": 0,
+      "oom_killed_observed": false
+    }
+  },
+  "scenarios": {
+    "counter": {
+      "jobs": 100,
+      "sources": 100
+    },
+    "nestedCounter": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "multi-call-nested": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "multi-call-twice": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "counter-multi-tx": {
+      "jobs": 50,
+      "sources": 150
+    },
+    "reentrant": {
+      "jobs": 20,
+      "sources": 20
+    },
+    "revertCounter": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "revertFromOtherChain": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "counterL2": {
+      "jobs": 100,
+      "sources": 100
+    },
+    "nestedCounterL2": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "multi-call-nestedL2": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "multi-call-twiceL2": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "revertCounterL2": {
+      "jobs": 50,
+      "sources": 50
+    },
+    "revertFromOtherChainL2": {
+      "jobs": 50,
+      "sources": 50
+    }
+  },
+  "evidence_sha256": {
+    "run.private.log": "676037e6a79d91221665f1c5149472f5d13eb488a331cc3c88f6ca12fd2840b2",
+    "canonical-receipts.json": "cece98c75489eea629bd59669550f81023cd78fa98087a88502eafc79ac7d073",
+    "posting-attempts.json": "def70cb22997fbcf0596aa1497bbe9436695dbbca99b43d93b6a7f21810c8f48",
+    "samples.jsonl": "90af6d9e8f4bbe747664d13815e41980458c296839d4952aa9fa17e27a17c814",
+    "node.private.log": "75ee58b0ef678455d2b28273949c3ca3efe91841191236d561e64986d5b57d43",
+    "signer.private.log": "4ec8e073e6a2d1429f8591dbe621ea852fa69284b1ed5de891fbb94d3d2f0b89"
+  }
+}

@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS eez_indexer.transactions (
     blob_fee_wei numeric(78,0) NOT NULL,
     PRIMARY KEY(block_hash, transaction_hash), UNIQUE(block_hash, transaction_index)
 );
+-- Posting observations know the transaction hash before they know its canonical
+-- block. The primary key starts with block_hash and cannot serve this lookup.
+CREATE INDEX IF NOT EXISTS transactions_by_hash ON eez_indexer.transactions
+    (transaction_hash) INCLUDE (block_hash);
 CREATE TABLE IF NOT EXISTS eez_indexer.settlements (
     block_hash text NOT NULL, transaction_hash text NOT NULL,
     log_index bigint NOT NULL, l2_block_hash text NOT NULL,

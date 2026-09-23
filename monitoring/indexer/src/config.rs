@@ -21,6 +21,8 @@ pub struct Config {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DetailsConfig {
+    #[serde(default)]
+    pub l1_http_url: Option<String>,
     pub l2_http_url: String,
     pub l2_chain_id: u64,
     pub l2_genesis_hash: B256,
@@ -41,7 +43,10 @@ impl Config {
                 details.l2_chain_id > 0 && details.l2_genesis_hash != B256::ZERO,
                 "invalid L2 identity"
             );
-            for value in [&details.l2_http_url, &details.beacon_url] {
+            for value in [&details.l2_http_url, &details.beacon_url]
+                .into_iter()
+                .chain(details.l1_http_url.iter())
+            {
                 let url = reqwest::Url::parse(value)?;
                 ensure!(
                     matches!(url.scheme(), "http" | "https")

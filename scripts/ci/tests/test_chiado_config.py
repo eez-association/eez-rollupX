@@ -21,6 +21,7 @@ class ChiadoConfigTest(unittest.TestCase):
         self.repo = self.root / "repo"
         for name in (
             "docker-compose.chiado-node.yml", "docker-compose.chiado.yml",
+            "docker-compose.chiado-postings.yml",
             ".env.chiado.example", "scripts/chiado-up.sh",
             "configs/chiado/bootnodes.yaml", "configs/chiado/bootstrap_nodes.yaml",
         ):
@@ -50,7 +51,7 @@ class ChiadoConfigTest(unittest.TestCase):
         node = services["eez-node"]["environment"]
         for key, value in {
             "EEZ_L1_CHAIN_ID": "10200", "EEZ_L1_BLOCK_TIME_MS": "5000",
-            "EEZ_PROOF_TIME_MS": "500", "EEZ_PREPARATION_TIME_MS": "500",
+            "EEZ_PROOF_TIME_MS": "750", "EEZ_PREPARATION_TIME_MS": "500",
             "EEZ_SUBMISSION_SLACK_MS": "700",
             "EEZ_BUNDLE_SUBMISSION_LEAD_MS": "7500",
             "EEZ_L1_BEACON_URL": "http://127.0.0.1:6152/",
@@ -93,6 +94,30 @@ class ChiadoConfigTest(unittest.TestCase):
         result = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(deployment.read_text(), contents)
+
+    def test_posting_logging_survives_normal_startup_and_legacy_overlay(self):
+        for configured in (None, "", str(self.root / "posting-history")):
+            with self.subTest(configured=configured):
+                overrides = {} if configured is None else {"POSTING_LOGS_DIR": configured}
+                result = self.render(overrides, "docker-compose.chiado-node.yml")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                node = json.loads(result.stdout)["services"]["eez-node"]
+                mounts = [v for v in node["volumes"] if v["target"] == "/var/log/eez-posting"]
+                self.assertEqual(len(mounts), 1)
+                self.assertEqual(mounts[0]["source"], configured or str(self.repo / "data/posting-logs"))
+                for flag in ("--log.file.format=json", "--log.file.filter=off,eez_posting=info",
+                             "--log.file.directory=/var/log/eez-posting", "--log.file.name=posting.log",
+                             "--log.file.max-size=10", "--log.file.max-files=20"):
+                    self.assertEqual(node["command"].count(flag), 1)
+                if configured:
+                    legacy = self.render({**overrides, "COMPOSE_FILE":
+                        "docker-compose.chiado-node.yml:docker-compose.chiado-postings.yml"})
+                    self.assertEqual(legacy.returncode, 0, legacy.stderr)
+                    self.assertEqual(json.loads(legacy.stdout)["services"]["eez-node"], node)
+
+    def test_invalid_posting_mount_is_rejected(self):
+        result = self.render({"POSTING_LOGS_DIR": "bad:mount:spec"})
+        self.assertNotEqual(result.returncode, 0)
 
     def test_images_default_to_latest_when_unset_or_empty(self):
         for images in ({}, {"EEZ_NODE_IMAGE": "", "EEZ_PROOF_SIGNER_IMAGE": ""},
@@ -249,8 +274,24 @@ esac
                 self.assertEqual(actual.get("EEZ_PREPARATION_TIME_MS"), value)
                 # Explicit empty reaches Rust's startup validation; Compose must
                 # not silently replace it with a default or an absent setting.
-                self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "500")
+                self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "750")
                 self.assertEqual(actual["EEZ_SUBMISSION_SLACK_MS"], "700")
+
+    def test_proof_budget_profile_and_shell_override_reach_node(self):
+        for value in ("750", "1000", "1500", "", "invalid"):
+            with self.subTest(value=value):
+                result = self.render({"EEZ_PROOF_TIME_MS": value})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                actual = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+                self.assertEqual(actual["EEZ_PROOF_TIME_MS"], value)
+        # Compose supplies the default when no profile value exists. An empty
+        # or invalid explicit value reaches Rust, whose timing validation fails.
+        env_file = self.repo / ".env"
+        env_file.write_text(env_file.read_text().replace("EEZ_PROOF_TIME_MS=750\n", ""))
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actual = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "750")
 
 
 

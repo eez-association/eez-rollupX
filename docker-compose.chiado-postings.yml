@@ -1,0 +1,6 @@
+# Compatibility overlay for existing operator COMPOSE_FILE selections.
+# The base Compose file now supplies the same log mount and all logging flags.
+services:
+  eez-node:
+    volumes:
+      - ${POSTING_LOGS_DIR:?set POSTING_LOGS_DIR}:/var/log/eez-posting

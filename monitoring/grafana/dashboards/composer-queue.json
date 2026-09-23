@@ -27,7 +27,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 26,
         "w": 24,
         "h": 9
       },
@@ -165,7 +165,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 35,
         "w": 12,
         "h": 9
       },
@@ -254,7 +254,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 31,
+        "y": 35,
         "w": 12,
         "h": 9
       },
@@ -330,7 +330,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 44,
         "w": 24,
         "h": 9
       },
@@ -912,133 +912,66 @@
       }
     },
     {
-      "id": 15,
-      "title": "Current unresolved submission",
-      "description": "Oldest unresolved local attempt. Prepared starts after proving; Dispatched means the submission gate was crossed. Receipt observed does not establish completion of every cross-chain request. Idle means no unresolved local attempt. Short states can occur between scrapes; the posting history below records individual events.",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 6,
-        "h": 7
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "scalar(sum without(state) ((0 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"none\"}) or (1 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"prepared\"}) or (2 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"dispatched\"}) or (3 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"included\"}) or (4 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"excluded\"}) or (5 * reth_eez_composer_settlement_submission{job=\"eez-composer-reth\",state=\"uncertain\"})) and on(job,instance,rollup_id) (sum without(state) (reth_eez_composer_settlement_submission{job=\"eez-composer-reth\"}) == 1) and on(job,instance,rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job,instance) (up{job=\"eez-composer-reth\"} == 1))",
-          "legendFormat": "Submission",
-          "range": false,
-          "instant": true,
-          "datasource": {
-            "type": "prometheus",
-            "uid": "eez-prometheus"
-          }
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "-",
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "Idle",
-                  "color": "gray"
-                },
-                "1": {
-                  "text": "Prepared",
-                  "color": "blue"
-                },
-                "2": {
-                  "text": "Dispatched",
-                  "color": "orange"
-                },
-                "3": {
-                  "text": "Receipt observed",
-                  "color": "green"
-                },
-                "4": {
-                  "text": "Excluded",
-                  "color": "red"
-                },
-                "5": {
-                  "text": "Uncertain",
-                  "color": "purple"
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "-",
-                  "color": "transparent"
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "nan",
-                "result": {
-                  "text": "-",
-                  "color": "transparent"
-                }
-              }
-            }
-          ],
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "custom": {
-            "lineWidth": 0,
-            "fillOpacity": 80,
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "last"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "showPercentChange": false,
-        "text": {
-          "valueSize": 48
-        }
-      },
-      "timeFrom": "1m",
-      "hideTimeOverride": true
-    },
-    {
-      "id": 16,
-      "title": "Settlement trigger reasons",
-      "description": "Reasons captured for prepared posting attempts in each time bucket. Several reasons can apply to one attempt, so the stacked total counts reasons rather than unique attempts. Unavailable means no applicable policy context was captured. Retries are separate attempts; periods without postings have no bars.",
-      "type": "timeseries",
+      "id": 19,
+      "type": "table",
+      "title": "Posting outcomes by target slot",
+      "description": "Selected time range. Denominator: distinct target timestamps for which Composer recorded a posting attempt, including preparation failures. Each outcome counts distinct target slots. Only targets before the latest indexed L1 header are counted. An unclassified or deferred attempt remains in the denominator. 0/0 means no eligible target slots in the range. Categories are independent slot counts, not a distribution of attempts: a slot with preparation failures followed by inclusion counts in both columns, and repeated failures in one slot count once. Preparation failed covers recorded proving-stage failures; it does not count every construction or admission deferral.",
       "datasource": {
         "type": "postgres",
         "uid": "eez-indexer-postgres"
       },
       "gridPos": {
-        "x": 6,
+        "x": 0,
         "y": 4,
-        "w": 18,
+        "w": 24,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "eez-indexer-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH eligible AS (\n  SELECT expected_l1_time, outcome\n  FROM eez_indexer.posting_diagnostics\n  WHERE $__timeFilter(expected_l1_time)\n    AND expected_l1_time < (SELECT to_timestamp(max(timestamp)) FROM eez_indexer.blocks)\n), counts AS (\n  SELECT count(DISTINCT expected_l1_time) AS slots,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Included at target') AS included,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Network slot skipped') AS skipped,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Block produced without inclusion') AS produced_without_inclusion,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Preparation failed') AS preparation_failed\n  FROM eligible\n)\nSELECT concat(included,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*included/slots,1)::text || '%' END,')') AS \"Included at target\",\n  concat(skipped,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*skipped/slots,1)::text || '%' END,')') AS \"Network slot skipped\",\n  concat(produced_without_inclusion,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*produced_without_inclusion/slots,1)::text || '%' END,')') AS \"Block produced without inclusion\",\n  concat(preparation_failed,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*preparation_failed/slots,1)::text || '%' END,')') AS \"Preparation failed\"\nFROM counts",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Why Composer attempted a posting",
+      "description": "Selected time range, grouped by recorded policy reasons at preparation. A posting attempt can have several reasons, so counts and percentages across rows can exceed the total. Included at target is a canonical outcome for attempts with that reason. Not recorded means no policy reason was captured, commonly because preparation failed before one was available. These are observed attempts, not all policy evaluations.",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
         "h": 7
       },
       "targets": [
@@ -1048,49 +981,41 @@
             "type": "postgres",
             "uid": "eez-indexer-postgres"
           },
-          "format": "time_series",
+          "format": "table",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT $__timeGroupAlias(p.time, '$__interval'),\nCASE r.reason WHEN 'general' THEN 'Block threshold' WHEN 'pure_always' THEN 'L2 activity' WHEN 'pure_interval' THEN 'L2 interval' WHEN 'cross_chain' THEN 'Cross-chain work' WHEN 'blob_fullness' THEN 'Blob fullness' WHEN 'drain' THEN 'Remaining batch work' WHEN 'window_limit' THEN 'Batch window limit' ELSE 'Unavailable' END AS metric,\ncount(*)::double precision AS value\nFROM eez_indexer.posting_attempts p\nCROSS JOIN LATERAL (SELECT DISTINCT value AS reason FROM jsonb_array_elements_text(coalesce(nullif(nullif(p.trigger_reasons,'null'::jsonb),'[]'::jsonb),'[\"unavailable\"]'::jsonb))) r\nWHERE $__timeFilter(p.time) GROUP BY 1,2 ORDER BY 1,2"
+          "rawSql": "WITH attempts AS (\n  SELECT p.attempt_id, p.trigger_reasons, p.outcome\n  FROM eez_indexer.posting_diagnostics p\n  WHERE $__timeFilter(p.time)\n), totals AS (\n  SELECT count(*) AS attempts FROM attempts\n), expanded AS (\n  SELECT p.attempt_id, p.outcome, r.reason\n  FROM attempts p\n  CROSS JOIN LATERAL (\n    SELECT DISTINCT value AS reason\n    FROM jsonb_array_elements_text(coalesce(nullif(nullif(p.trigger_reasons,'null'::jsonb),'[]'::jsonb),'[\"unavailable\"]'::jsonb))\n  ) r\n), counts AS (\n  SELECT reason, count(*) AS attempts,\n    count(*) FILTER (WHERE outcome='Included at target') AS included\n  FROM expanded GROUP BY reason\n)\nSELECT CASE reason\n    WHEN 'general' THEN 'Block threshold'\n    WHEN 'pure_always' THEN 'L2 activity'\n    WHEN 'pure_interval' THEN 'L2 interval'\n    WHEN 'cross_chain' THEN 'Cross-chain work'\n    WHEN 'blob_fullness' THEN 'Blob fullness'\n    WHEN 'drain' THEN 'Remaining batch work'\n    WHEN 'window_limit' THEN 'Batch window limit'\n    ELSE 'Not recorded' END AS \"Trigger\",\n  CASE reason\n    WHEN 'general' THEN 'Unsettled L2 blocks reached the configured limit'\n    WHEN 'pure_always' THEN 'New L2-only activity; always mode'\n    WHEN 'pure_interval' THEN 'L2-only activity after the configured interval'\n    WHEN 'cross_chain' THEN 'Pending cross-chain work needs settlement'\n    WHEN 'blob_fullness' THEN 'Estimated batch reached the blob fullness threshold'\n    WHEN 'drain' THEN 'Finish a previously selected batch range'\n    WHEN 'window_limit' THEN 'Batch window is reaching its limit'\n    ELSE 'No reason captured, often an early preparation failure' END AS \"Meaning\",\n  concat(c.attempts,'/',t.attempts,' (',round(100.0*c.attempts/nullif(t.attempts,0),1),'%)') AS \"Attempts in range\",\n  concat(c.included,'/',c.attempts,' (',round(100.0*c.included/nullif(c.attempts,0),1),'%)') AS \"Included at target\"\nFROM counts c CROSS JOIN totals t\nORDER BY c.attempts DESC, \"Trigger\""
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "min": 0,
-          "noValue": "-",
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
-            "drawStyle": "bars",
-            "lineWidth": 0,
-            "fillOpacity": 85,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            },
-            "axisLabel": "Posting reasons",
-            "spanNulls": false
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Meaning"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 440
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "legend": {
-          "showLegend": true,
-          "placement": "right",
-          "displayMode": "table",
-          "calcs": [
-            "sum"
-          ],
-          "width": 210
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
         }
       }
     },
@@ -1105,7 +1030,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 49,
+        "y": 53,
         "w": 24,
         "h": 9
       },
@@ -1527,14 +1452,14 @@
       "id": 18,
       "title": "Posting timing & outcomes",
       "type": "timeseries",
-      "description": "Each attempt is positioned at its expected L1 timestamp. Left axis: seconds before/after that timestamp; zero is the target. Prepared is after proving and before final repricing. Colored outcome markers use an independent hidden scale near the top, not counts or durations. Hover the event marker below the plot for attempt ID, expected block, outcome and reason. Multiple attempts can share a target; their event details remain separate. Attempts without a recorded target appear only in Posting submissions. Canonical inclusion/receipt timing stays absent until supported by canonical evidence. No interpolation; wall-clock offsets can reflect host clock skew.",
+      "description": "Each attempt is positioned at its expected L1 timestamp. All timing points share the left axis: seconds before/after that timestamp; zero is the target. Preparation started is the start of constructing the candidate Sync block (or selecting a historical prefix). Proof requested starts the Composer proving operation; Proof received is its successful return, including RPC waits and retries. Prepared follows signing and precedes final repricing. Failed proofs have no Proof received point; attempts rejected before proving have no proof points. Earlier history lacks these new timestamps. Colored outcome markers use an independent hidden scale near the top, not counts or durations. Detailed attempt information is available in Posting submissions. Multiple attempts can share a target and overlap visually. Attempts without a recorded target appear only in Posting submissions. Canonical inclusion/receipt timing requires canonical evidence. No interpolation; wall-clock offsets can reflect host clock skew.",
       "datasource": {
         "type": "postgres",
         "uid": "eez-indexer-postgres"
       },
       "gridPos": {
         "x": 0,
-        "y": 11,
+        "y": 15,
         "w": 24,
         "h": 11
       },
@@ -1544,7 +1469,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT p.expected_l1_time AS time,\n(SELECT max((e.data->>'timestamp_ms')::bigint) / 1000.0 - extract(epoch FROM p.expected_l1_time)\n FROM eez_indexer.posting_events e\n WHERE e.attempt_id=p.attempt_id AND e.data->>'stage'='prepared')::double precision AS \"Prepared\",\np.dispatch_vs_target_seconds::double precision AS \"Dispatch\",\np.inclusion_vs_target_seconds AS \"Canonical inclusion\",\np.receipt_vs_target_seconds::double precision AS \"Receipt observed\"\nFROM eez_indexer.posting_timing p\nWHERE $__timeFilter(p.expected_l1_time)\nORDER BY p.expected_l1_time,p.attempt_id"
+          "rawSql": "SELECT p.expected_l1_time AS time,\n(t.preparation_started_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Preparation started\",\n(t.proof_requested_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Proof requested\",\n(t.proof_received_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Proof received\",\n(t.prepared_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Prepared\",\np.dispatch_vs_target_seconds::double precision AS \"Dispatch\",\np.inclusion_vs_target_seconds AS \"Canonical inclusion\",\np.receipt_vs_target_seconds::double precision AS \"Receipt observed\"\nFROM eez_indexer.posting_timing p\nLEFT JOIN LATERAL (\n SELECT\n max((e.data->>'timestamp_ms')::bigint) FILTER (WHERE e.data->>'stage'='prepared') AS prepared_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'preparation_started_ms')='number' THEN (e.data->'detail'->>'preparation_started_ms')::numeric END) AS preparation_started_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'proof_requested_ms')='number' THEN (e.data->'detail'->>'proof_requested_ms')::numeric END) AS proof_requested_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'proof_received_ms')='number' THEN (e.data->'detail'->>'proof_received_ms')::numeric END) AS proof_received_ms\n FROM eez_indexer.posting_events e\n WHERE e.attempt_id=p.attempt_id AND e.data->>'stage' IN ('prepared','preparation_failed')\n) t ON true\nWHERE $__timeFilter(p.expected_l1_time)\nORDER BY p.expected_l1_time,p.attempt_id"
         },
         {
           "refId": "B",
@@ -1588,6 +1513,51 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Proof received"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "pink"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Proof requested"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preparation started"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -1887,10 +1857,10 @@
       {
         "name": "l2_explorer",
         "type": "textbox",
-        "query": "https://eez.asuscomm.com:4445",
+        "query": "https://explorer.eez.dev",
         "current": {
-          "text": "https://eez.asuscomm.com:4445",
-          "value": "https://eez.asuscomm.com:4445"
+          "text": "https://explorer.eez.dev",
+          "value": "https://explorer.eez.dev"
         },
         "hide": 2,
         "label": "L2 explorer URL"
@@ -1905,7 +1875,7 @@
           "type": "postgres",
           "uid": "eez-indexer-postgres"
         },
-        "enable": true,
+        "enable": false,
         "hide": true,
         "iconColor": "rgba(170, 170, 170, 1)",
         "filter": {

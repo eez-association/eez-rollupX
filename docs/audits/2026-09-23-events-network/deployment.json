@@ -1,0 +1,154 @@
+{
+  "fork_base": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+  "working_tree_dirty": true,
+  "protocol": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+  "l1_chain_id": 10200,
+  "l2_chain_id": 6291,
+  "rollup_id": 1,
+  "registry": "0x5d6b8fc56e43528c219de7eed257564c05923e08",
+  "deployment_block": 23196319,
+  "proof_system": "0xb3c27735413385ba7149b48c6b528ef64eff07b7",
+  "rollup_manager": "0x0205d8d23200b59120d2886979752af80af20ca8",
+  "l2_genesis": "0xeabf267893422f6a5605ffe9c95c6ae88e0d8863e65b7d11d8a6873335ea06d8",
+  "wallet_bridge": "0xCa0a7803C6d982628A48B1Cc82009D6493e3c8fD",
+  "images": [
+    {
+      "tag": "eez-node:events-820e50f",
+      "id": "sha256:fa67f9aee6ba45710f7613b92eceb2afab173cd9fa48873a7dfe6014627f2478"
+    },
+    {
+      "tag": "eez-proof-signer:events-820e50f",
+      "id": "sha256:ee1350476a63d0c2940a3cb406577d0edbb243123a7b3ac0c5f6ac55c921e706"
+    },
+    {
+      "tag": "eez-deploy:events-820e50f",
+      "id": "sha256:79799c05acbc686f47a2e9ca7c9a1a386c9561af637af016cb93f0e7df2c8984"
+    },
+    {
+      "tag": "eez-indexer:events-820e50f",
+      "id": "sha256:c029d807a8d02323117374a7c7fdcc511dd2eb16364f6ef3e47d68674f851d03"
+    },
+    {
+      "tag": "eez-network-monitor:events-820e50f",
+      "id": "sha256:d93b00b3c994d54ffcf77eb3717f6bfd32d29fbd7c59f5c60983483fd16f59a7"
+    }
+  ],
+  "release_binaries": {
+    "eez-composer": {
+      "sha256": "fb0e80eac699af5a50dca2772116fdfb70dbe49dba4bd5b35113bd27d9b319c1",
+      "bytes": 118687760
+    },
+    "eez-follower": {
+      "sha256": "57a216b400a3f954e670d68ed295ca11ec38cefb724ec880a2cf4537a143a436",
+      "bytes": 94718736
+    },
+    "eez-proof-signer": {
+      "sha256": "fa3fe00e80ed5e94d531a7d395215a909d7f0f572bc08e24bb70a0fa9feb13fd",
+      "bytes": 16755136
+    },
+    "eez-genesis-state-root": {
+      "sha256": "5c5bc45007182e21a58a280fce0908a531b080e1180b11165d5e70f0c8943227",
+      "bytes": 874080
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "53688d14792915bee7e2df61dbc3280c1d087bb014688afdce36ef78a86c557c",
+      "bytes": 871136
+    }
+  },
+  "mixed_probe": {
+    "mixedBefore": 5,
+    "mixedAfter": 79,
+    "mixedReadSum": 168,
+    "completedProxyCalls": 1,
+    "l1_value": 79,
+    "safe_block": 920,
+    "canonical_block_hash": "0x690308aca02c328e67ed53f3136e03e8a7b6f91c042df250b3e3a9419c49859b",
+    "status": "passed"
+  },
+  "inbound_probe": {
+    "transaction_hash": "0x0f072908b31d886d42dc5dc7e53c25fa0dc5ff9e68f71a01e700f0822dd93d3f",
+    "receipt_status": 1,
+    "l1_block": 23196515,
+    "l2_receiver_balance_at_safe": 1000
+  },
+  "grafana_queries": [
+    {
+      "panel": "Latest settled commitment",
+      "seconds": 0.018,
+      "rows": 1,
+      "errors": []
+    },
+    {
+      "panel": "Settlement transaction fees",
+      "seconds": 0.01,
+      "rows": 10,
+      "errors": []
+    },
+    {
+      "panel": "Fees",
+      "seconds": 0.006,
+      "rows": 6,
+      "errors": []
+    },
+    {
+      "panel": "Settlement events",
+      "seconds": 0.008,
+      "rows": 5,
+      "errors": []
+    },
+    {
+      "panel": "Cross-chain transactions",
+      "seconds": 0.033,
+      "rows": 3,
+      "errors": []
+    },
+    {
+      "panel": "L1",
+      "seconds": 0.005,
+      "rows": 1,
+      "errors": []
+    },
+    {
+      "panel": "L2 \u00b7 EEZ",
+      "seconds": 0.005,
+      "rows": 1,
+      "errors": []
+    },
+    {
+      "panel": "Unsettled L2 blocks",
+      "seconds": 0.005,
+      "rows": 1,
+      "errors": []
+    },
+    {
+      "panel": "Posting inclusion ratios",
+      "seconds": 0.008,
+      "rows": 1,
+      "errors": []
+    },
+    {
+      "panel": "Why Composer attempted a posting",
+      "seconds": 0.006,
+      "rows": 4,
+      "errors": []
+    },
+    {
+      "panel": "Posting submissions",
+      "seconds": 0.006,
+      "rows": 10,
+      "errors": []
+    },
+    {
+      "panel": "Posting timing & outcomes",
+      "seconds": 0.008,
+      "rows": 20,
+      "errors": []
+    }
+  ],
+  "indexer_binary_sha256": "abb75bcae75125c4c0e9d7b3ae5f30b786af8b878b4f5900768e636abd34dfc0",
+  "backup_sha256": {
+    "state.tar": "2bcc340e8ff6824c52d24fa59d2d8bf3732769bdaf3fc54540f1ec124fc3ae5f",
+    "images.tar": "71c7471025e27b1c790b4fd2c94dff683afcbefa81c5c863e98041486a8a0c94",
+    "configuration.private.tar": "dedf5cafc2a869d862affc198aa362305707653bf739a94f52c3d0b0030241b1"
+  }
+}

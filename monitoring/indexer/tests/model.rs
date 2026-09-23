@@ -39,12 +39,28 @@ fn config_rejects_invalid_identity_endpoints_and_unknown_fields() {
     assert!(serde_json::from_value::<Config>(json!({"unused":true})).is_err());
     let mut c = config();
     c.details = Some(DetailsConfig {
+        l1_http_url: None,
         l2_http_url: "http://localhost:8547".into(),
         l2_chain_id: 2,
         l2_genesis_hash: B256::repeat_byte(7),
         beacon_url: "http://localhost:5052".into(),
     });
     c.validate().unwrap();
+    c.details.as_mut().unwrap().l1_http_url = Some("https://example.com/l1".into());
+    c.validate().unwrap();
+    for invalid in [
+        "",
+        "ws://localhost:8545",
+        "localhost",
+        "https://example.com/#fragment",
+    ] {
+        c.details.as_mut().unwrap().l1_http_url = Some(invalid.into());
+        assert!(
+            c.validate().is_err(),
+            "accepted invalid details L1 URL: {invalid}"
+        );
+    }
+    c.details.as_mut().unwrap().l1_http_url = None;
     c.details.as_mut().unwrap().beacon_url = "ws://localhost:5052".into();
     assert!(c.validate().is_err());
 }
@@ -167,7 +183,15 @@ fn receipt_validation_covers_multiple_events_attribution_and_exact_fees() {
         timestamp: 10,
         transactions: vec![tx],
     };
-    let log = json!({"address":c.registry,"removed":false,"topics":[L2ExecutionPerformed::SIGNATURE_HASH,B256::from(U256::from(1))],"data":B256::repeat_byte(5),"blockHash":block.hash,"blockNumber":"0x1","transactionHash":tx,"transactionIndex":"0x0","logIndex":"0x0"});
+    let log = json!({"address":c.registry,"removed":false,"topics":[L2ExecutionPerformed::SIGNATURE_HASH,B256::from(U256::from(1))],"data":format!("{}{}", B256::repeat_byte(5), "00".repeat(32)),"blockHash":block.hash,"blockNumber":"0x1","transactionHash":tx,"transactionIndex":"0x0","logIndex":"0x0"});
+    for data in [
+        format!("{}", B256::repeat_byte(5)),
+        format!("{}{}", B256::repeat_byte(5), "00".repeat(33)),
+    ] {
+        let mut malformed = log.clone();
+        malformed["data"] = json!(data);
+        assert!(Event::parse(&malformed, &c).is_err());
+    }
     let mut second = log.clone();
     second["logIndex"] = json!("0x1");
     let events = vec![
