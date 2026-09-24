@@ -8,7 +8,7 @@ reconstructing a process from scripts, old logs, or an earlier conversation.
 | New Chiado rollup: minimal command sequence | [Chiado quick start](chiado-quickstart.md) | Published-image procedure; fresh-host rehearsal pending |
 | Sync and run a Composer for an existing Chiado L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Source reviewed; live replay/restore rehearsal pending |
 | Deploy, start, check, and stop a Chiado rollup | [Chiado deployment](chiado-deployment.md) | Source reviewed; static checks; full deployment rehearsal pending |
-| Trace Composer gas for one signed cross-chain source | [Composer gas traces](composer-gas-tracing.md) | Unit coverage; live Chiado activation pending |
+| Trace Composer gas for selected source hashes or an address | [Composer gas traces](composer-gas-tracing.md) | Hash-mode Chiado evidence; address-mode local coverage |
 | Run L2 Blockscout, Chiado Blobscan, or both | [Optional explorers](explorers.md) | Compose/helper and isolated Blobscan source checks; full stack rehearsal pending; operated outside CI |
 
 Use `docs/proposals/` for intended changes, `docs/audits/` for dated evidence,

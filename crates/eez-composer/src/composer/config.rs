@@ -119,8 +119,9 @@ impl ComposerSettings {
             Err(error) => return Err(error),
         };
         let max_speculative_depth = policy.max_speculative_depth;
-        let gas_trace = super::gas_trace::Config::parse(
+        let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
+            get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
             get("EEZ_COMPOSER_GAS_TRACE_DIR")?,
         )
         .map_err(PolicyError::Config)?;
@@ -263,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_gas_trace_requires_a_hash_and_absolute_location_pair() {
+    fn selected_gas_trace_requires_one_selector_and_absolute_location() {
         assert!(settings(&[]).unwrap().gas_trace.is_none());
         assert!(
             settings(&[
@@ -297,8 +298,18 @@ mod tests {
         .unwrap();
         assert!(both.selects(alloy_primitives::B256::ZERO));
         assert!(both.selects(second));
+        let address = alloy_primitives::Address::repeat_byte(0x42).to_string();
+        let address_config = settings(&[
+            ("EEZ_COMPOSER_GAS_TRACE_ADDRESS", &address),
+            ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
+        ])
+        .unwrap()
+        .gas_trace
+        .unwrap();
+        assert!(!address_config.selects(alloy_primitives::B256::ZERO));
         for invalid in [
             vec![("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str())],
+            vec![("EEZ_COMPOSER_GAS_TRACE_ADDRESS", address.as_str())],
             vec![("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces")],
             vec![
                 ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", "invalid"),
@@ -307,6 +318,19 @@ mod tests {
             vec![
                 ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str()),
                 ("EEZ_COMPOSER_GAS_TRACE_DIR", "relative"),
+            ],
+            vec![
+                ("EEZ_COMPOSER_GAS_TRACE_ADDRESS", "invalid"),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
+            ],
+            vec![
+                ("EEZ_COMPOSER_GAS_TRACE_ADDRESS", address.as_str()),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", "relative"),
+            ],
+            vec![
+                ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str()),
+                ("EEZ_COMPOSER_GAS_TRACE_ADDRESS", address.as_str()),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
             ],
         ] {
             assert!(settings(&invalid).is_err(), "{invalid:?}");

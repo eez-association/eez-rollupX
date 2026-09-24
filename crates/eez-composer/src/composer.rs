@@ -258,11 +258,10 @@ fn compose_crosschain(
 
     let mut builder =
         eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
-    let _trace = gas_trace
-        .filter(|config| config.selects(source_hash))
-        .and_then(
-            |config| match config.begin("admission_execution", l1_anchor, source_hash) {
-                Ok(scope) => Some(scope),
+    let _trace =
+        gas_trace.and_then(
+            |config| match config.begin_admission(l1_anchor, source_hash, raw_tx) {
+                Ok(scope) => scope,
                 Err(error) => {
                     tracing::warn!(%source_hash, %error, "cannot start selected gas trace");
                     None
@@ -305,6 +304,9 @@ fn compose_crosschain(
     }
 
     let composition = builder.finalize()?;
+    for action in &composition.actions {
+        gas_trace::note_address(action.target_address, "cross_chain_target");
+    }
     let target_gas = l1_target_gas(&composition.actions);
     if gas_trace::active() {
         gas_trace::emit(serde_json::json!({

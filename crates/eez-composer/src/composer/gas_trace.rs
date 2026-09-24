@@ -1,26 +1,33 @@
-//! Opt-in, transaction-selected gas diagnostics. No opcode inspector is attached
-//! when the selector is absent. Traces omit calldata, memory, and full stacks;
-//! storage keys and gas/refund transitions are enough to inspect queue reuse.
+//! Opt-in gas diagnostics selected by signed source hash or an address touched
+//! during composition. No opcode inspector is attached when the selector is
+//! absent. Traces omit calldata, memory, and full stacks; storage keys and
+//! gas/refund transitions are enough to inspect queue reuse.
 
 use std::{
     cell::RefCell,
+    collections::HashSet,
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     marker::PhantomData,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::PathBuf,
     rc::Rc,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy_primitives::B256;
+use alloy_consensus::{Transaction as _, TxEnvelope, transaction::SignerRecoverable as _};
+use alloy_eips::eip2718::Decodable2718 as _;
+use alloy_primitives::{Address, B256};
 use either::Either;
 use revm::{
     Inspector,
     context_interface::{ContextTr, JournalTr},
     inspector::inspectors::GasInspector,
-    interpreter::{Interpreter, interpreter_types::Jumps},
+    interpreter::{CallInputs, CallOutcome, Interpreter, interpreter_types::Jumps},
 };
 use serde_json::{Value, json};
 
@@ -32,52 +39,151 @@ thread_local! {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
-    selected_txs: Vec<B256>,
+    selector: Selector,
     directory: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+enum Selector {
+    Hashes(Vec<B256>),
+    Address {
+        address: Address,
+        selected: Arc<Mutex<HashSet<B256>>>,
+    },
+}
+
 impl Config {
+    // Address mode writes a provisional admission trace before it knows whether
+    // a nested source/target frame reaches the watched contract. Limit the
+    // distinct retained sources; recompositions of selected sources remain visible.
+    const MAX_ADDRESS_SOURCES: usize = 8;
+
+    #[cfg(test)]
     pub(crate) fn parse(
         hash: Option<String>,
         directory: Option<String>,
     ) -> Result<Option<Self>, String> {
+        Self::parse_with_address(hash, None, directory)
+    }
+
+    pub(crate) fn parse_with_address(
+        hash: Option<String>,
+        address: Option<String>,
+        directory: Option<String>,
+    ) -> Result<Option<Self>, String> {
         let hash = hash.as_deref().filter(|value| !value.is_empty());
+        let address = address.as_deref().filter(|value| !value.is_empty());
         let directory = directory.as_deref().filter(|value| !value.is_empty());
-        match (hash, directory) {
-            (None, None) => Ok(None),
-            (Some(_), None) | (None, Some(_)) => Err(
-                "EEZ_COMPOSER_GAS_TRACE_TX_HASH and EEZ_COMPOSER_GAS_TRACE_DIR must be set together".into(),
+        if hash.is_some() && address.is_some() {
+            return Err(
+                "EEZ_COMPOSER_GAS_TRACE_TX_HASH and EEZ_COMPOSER_GAS_TRACE_ADDRESS are mutually exclusive".into(),
+            );
+        }
+        match (hash, address, directory) {
+            (None, None, None) => Ok(None),
+            (None, None, Some(_)) | (_, _, None) => Err(
+                "exactly one of EEZ_COMPOSER_GAS_TRACE_TX_HASH or EEZ_COMPOSER_GAS_TRACE_ADDRESS requires EEZ_COMPOSER_GAS_TRACE_DIR".into(),
             ),
-            (Some(hash), Some(directory)) => {
-                let hashes = hash.split(',').collect::<Vec<_>>();
-                if hashes.len() > 2 {
-                    return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH accepts at most two hashes".into());
-                }
-                let selected_txs = hashes
-                    .into_iter()
-                    .map(|hash| {
-                        if !hash.starts_with("0x") || hash.len() != 66 {
-                            return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned());
-                        }
-                        hash.parse::<B256>().map_err(|_| {
-                            "EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned()
+            (hash, address, Some(directory)) => {
+                let selector = if let Some(hash) = hash {
+                    let hashes = hash.split(',').collect::<Vec<_>>();
+                    if hashes.len() > 2 {
+                        return Err(
+                            "EEZ_COMPOSER_GAS_TRACE_TX_HASH accepts at most two hashes".into(),
+                        );
+                    }
+                    let selected_txs = hashes
+                        .into_iter()
+                        .map(|hash| {
+                            if !hash.starts_with("0x") || hash.len() != 66 {
+                                return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned());
+                            }
+                            hash.parse::<B256>().map_err(|_| {
+                                "EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned()
+                            })
                         })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if selected_txs.len() == 2 && selected_txs[0] == selected_txs[1] {
-                    return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH contains a duplicate hash".into());
-                }
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if selected_txs.len() == 2 && selected_txs[0] == selected_txs[1] {
+                        return Err(
+                            "EEZ_COMPOSER_GAS_TRACE_TX_HASH contains a duplicate hash".into(),
+                        );
+                    }
+                    Selector::Hashes(selected_txs)
+                } else {
+                    let address = address.expect("selector presence checked by match arms");
+                    if !address.starts_with("0x") || address.len() != 42 {
+                        return Err("EEZ_COMPOSER_GAS_TRACE_ADDRESS must be a 0x-prefixed 20-byte address".into());
+                    }
+                    let address = address.parse::<Address>().map_err(|_| {
+                        "EEZ_COMPOSER_GAS_TRACE_ADDRESS must be a 0x-prefixed 20-byte address".to_owned()
+                    })?;
+                    Selector::Address {
+                        address,
+                        selected: Arc::new(Mutex::new(HashSet::new())),
+                    }
+                };
                 let directory = PathBuf::from(directory);
                 if !directory.is_absolute() {
                     return Err("EEZ_COMPOSER_GAS_TRACE_DIR must be absolute".into());
                 }
-                Ok(Some(Self { selected_txs, directory }))
+                Ok(Some(Self { selector, directory }))
             }
         }
     }
 
-    pub(super) fn selects(&self, hash: B256) -> bool {
-        self.selected_txs.contains(&hash)
+    pub(crate) fn selects(&self, hash: B256) -> bool {
+        match &self.selector {
+            Selector::Hashes(hashes) => hashes.contains(&hash),
+            Selector::Address { selected, .. } => selected
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&hash),
+        }
+    }
+
+    /// Opens a complete source trace before internal target addresses are
+    /// known. Address-mode files are removed on scope exit unless this source
+    /// touches the configured address; hash mode keeps its exact selection.
+    pub(crate) fn begin_admission(
+        &self,
+        parent: B256,
+        source_hash: B256,
+        raw_tx: &[u8],
+    ) -> std::io::Result<Option<Scope>> {
+        let retention = match &self.selector {
+            Selector::Hashes(hashes) if hashes.contains(&source_hash) => Retention::Always,
+            Selector::Hashes(_) => return Ok(None),
+            Selector::Address { address, selected } => {
+                let selected_guard = selected
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if selected_guard.len() >= Self::MAX_ADDRESS_SOURCES
+                    && !selected_guard.contains(&source_hash)
+                {
+                    return Ok(None);
+                }
+                Retention::Address {
+                    address: *address,
+                    selected: Arc::clone(selected),
+                    source_hash,
+                    already_selected: selected_guard.contains(&source_hash),
+                    matched: false,
+                }
+            }
+        };
+        let scope = self.open("admission_execution", parent, source_hash, retention)?;
+        if matches!(&self.selector, Selector::Address { .. }) {
+            let mut bytes = raw_tx;
+            if let Ok(tx) = TxEnvelope::decode_2718(&mut bytes) {
+                if let Ok(sender) = tx.recover_signer() {
+                    note_address(sender, "source_sender");
+                }
+                if let Some(to) = tx.to() {
+                    note_address(to, "source_recipient");
+                }
+            }
+        }
+        Ok(Some(scope))
     }
 
     pub(crate) fn begin(
@@ -92,6 +198,16 @@ impl Config {
                 "gas trace source is not selected",
             ));
         }
+        self.open(phase, parent, selected_source_tx, Retention::Always)
+    }
+
+    fn open(
+        &self,
+        phase: &'static str,
+        parent: B256,
+        selected_source_tx: B256,
+        retention: Retention,
+    ) -> std::io::Result<Scope> {
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -119,12 +235,21 @@ impl Config {
             steps: 0,
             truncated: false,
             tx_index: 0,
+            retention,
         };
         let previous = ACTIVE.with(|active| active.replace(Some(sink)));
         emit(json!({
             "kind": "header", "version": 1, "phase": phase,
             "selected_source_tx": selected_source_tx,
-            "configured_source_txs": self.selected_txs, "parent": parent,
+            "configured_source_txs": match &self.selector {
+                Selector::Hashes(hashes) => hashes.clone(),
+                Selector::Address { .. } => Vec::new(),
+            },
+            "selected_address": match &self.selector {
+                Selector::Hashes(_) => None,
+                Selector::Address { address, .. } => Some(*address),
+            },
+            "parent": parent,
             "started_unix_nanos": started_unix_nanos.to_string(),
         }));
         Ok(Scope {
@@ -141,11 +266,37 @@ struct Sink {
     steps: u64,
     truncated: bool,
     tx_index: usize,
+    retention: Retention,
+}
+
+enum Retention {
+    Always,
+    Address {
+        address: Address,
+        selected: Arc<Mutex<HashSet<B256>>>,
+        source_hash: B256,
+        already_selected: bool,
+        matched: bool,
+    },
 }
 
 impl Sink {
     // A selected trace is diagnostic and must not exhaust the node's disk.
     const MAX_STEPS: u64 = 1_000_000;
+
+    fn note_address(&mut self, candidate: Address, reason: &'static str) {
+        if let Retention::Address {
+            address, matched, ..
+        } = &mut self.retention
+            && *address == candidate
+            && !*matched
+        {
+            *matched = true;
+            self.write(&json!({
+                "kind": "address_match", "address": candidate, "reason": reason,
+            }));
+        }
+    }
 
     fn write(&mut self, value: &Value) {
         if self.error.is_some() {
@@ -188,17 +339,57 @@ pub(crate) struct Scope {
 
 impl Drop for Scope {
     fn drop(&mut self) {
-        let mut sink = ACTIVE.with(|active| active.replace(self.previous.take()));
-        if let Some(sink) = sink.as_mut() {
-            sink.write(&json!({"kind": "end", "steps": sink.steps, "truncated": sink.truncated}));
-            if let Err(error) = sink.writer.flush() {
-                sink.error.get_or_insert_with(|| error.to_string());
+        let Some(mut sink) = ACTIVE.with(|active| active.replace(self.previous.take())) else {
+            return;
+        };
+        sink.write(&json!({"kind": "end", "steps": sink.steps, "truncated": sink.truncated}));
+        if let Err(error) = sink.writer.flush() {
+            sink.error.get_or_insert_with(|| error.to_string());
+        }
+        let keep = match &sink.retention {
+            Retention::Always => true,
+            Retention::Address {
+                selected,
+                source_hash,
+                already_selected,
+                matched,
+                ..
+            } => {
+                if *already_selected {
+                    true
+                } else if *matched {
+                    let mut hashes = selected
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if hashes.len() >= Config::MAX_ADDRESS_SOURCES {
+                        false
+                    } else {
+                        hashes.insert(*source_hash);
+                        if hashes.len() == Config::MAX_ADDRESS_SOURCES {
+                            tracing::warn!(
+                                limit = Config::MAX_ADDRESS_SOURCES,
+                                "address gas trace source limit reached; later sources will not be captured"
+                            );
+                        }
+                        true
+                    }
+                } else {
+                    false
+                }
             }
-            if let Some(error) = &sink.error {
-                tracing::warn!(path = %sink.path.display(), %error, "gas trace is incomplete");
+        };
+        let path = sink.path.clone();
+        let steps = sink.steps;
+        let error = sink.error.take();
+        drop(sink);
+        if keep {
+            if let Some(error) = error {
+                tracing::warn!(path = %path.display(), %error, "gas trace is incomplete");
             } else {
-                tracing::info!(path = %sink.path.display(), steps = sink.steps, "gas trace written");
+                tracing::info!(path = %path.display(), steps, "gas trace written");
             }
+        } else if let Err(error) = std::fs::remove_file(&path) {
+            tracing::warn!(path = %path.display(), %error, "cannot discard unmatched gas trace");
         }
     }
 }
@@ -219,6 +410,14 @@ pub(super) fn emit(value: Value) {
     ACTIVE.with(|active| {
         if let Some(sink) = active.borrow_mut().as_mut() {
             sink.write(&value);
+        }
+    });
+}
+
+pub(super) fn note_address(address: Address, reason: &'static str) {
+    ACTIVE.with(|active| {
+        if let Some(sink) = active.borrow_mut().as_mut() {
+            sink.note_address(address, reason);
         }
     });
 }
@@ -260,6 +459,14 @@ impl StepTracer {
 }
 
 impl<CTX: ContextTr> Inspector<CTX> for StepTracer {
+    fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        // CALL into an empty account or precompile has no opcode rows. For
+        // DELEGATECALL the code and storage addresses also differ.
+        note_address(inputs.bytecode_address, "call_code_address");
+        note_address(inputs.target_address, "call_target_address");
+        None
+    }
+
     fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         self.gas.initialize_interp(&interp.gas);
     }
@@ -289,6 +496,7 @@ impl<CTX: ContextTr> Inspector<CTX> for StepTracer {
         });
         ACTIVE.with(|active| {
             if let Some(sink) = active.borrow_mut().as_mut() {
+                sink.note_address(interp.input.target_address, "executed_frame");
                 let mut value = value;
                 value["tx_index"] = json!(sink.tx_index);
                 sink.write_step(&value);
@@ -344,6 +552,24 @@ mod tests {
             )
             .is_err()
         );
+        let address = Address::repeat_byte(0x42).to_string();
+        assert!(
+            Config::parse_with_address(None, Some(address.clone()), Some("/tmp/traces".into()))
+                .is_ok()
+        );
+        for (hash, address, directory) in [
+            (None, Some(address.clone()), None),
+            (None, None, Some("/tmp/traces".into())),
+            (None, Some("bad".into()), Some("/tmp/traces".into())),
+            (None, Some(address.clone()), Some("relative".into())),
+            (
+                Some(B256::ZERO.to_string()),
+                Some(address),
+                Some("/tmp/traces".into()),
+            ),
+        ] {
+            assert!(Config::parse_with_address(hash, address, directory).is_err());
+        }
     }
 
     #[test]
@@ -441,6 +667,105 @@ mod tests {
         .unwrap();
         assert_eq!(header["selected_source_tx"], second.to_string());
         assert_eq!(header["configured_source_txs"].as_array().unwrap().len(), 2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn address_selection_discards_unmatched_and_shares_matching_source_with_preflight() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-gas-trace-address-{}-{}",
+            std::process::id(),
+            FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let watched = Address::repeat_byte(0x42);
+        let config = Config::parse_with_address(
+            None,
+            Some(watched.to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        let final_config = config.clone();
+        let unmatched = B256::with_last_byte(1);
+        {
+            let _scope = config
+                .begin_admission(B256::ZERO, unmatched, &[])
+                .unwrap()
+                .unwrap();
+            note_address(Address::repeat_byte(0x43), "executed_frame");
+        }
+        assert!(!config.selects(unmatched));
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+
+        let matched = B256::with_last_byte(2);
+        {
+            let _scope = config
+                .begin_admission(B256::ZERO, matched, &[])
+                .unwrap()
+                .unwrap();
+            note_address(watched, "cross_chain_target");
+        }
+        assert!(final_config.selects(matched));
+        assert!(!final_config.selects(unmatched));
+        {
+            let _scope = final_config
+                .begin("preflight_final", B256::ZERO, matched)
+                .unwrap();
+        }
+        let files = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 2);
+        let admission = files
+            .iter()
+            .find(|path| path.to_string_lossy().contains("admission_execution"))
+            .unwrap();
+        assert!(
+            std::fs::read_to_string(admission)
+                .unwrap()
+                .contains("cross_chain_target")
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn address_selection_bounds_distinct_sources_but_keeps_recomposition() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-gas-trace-address-limit-{}-{}",
+            std::process::id(),
+            FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let watched = Address::repeat_byte(0x42);
+        let config = Config::parse_with_address(
+            None,
+            Some(watched.to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        for byte in 1..=Config::MAX_ADDRESS_SOURCES {
+            let hash = B256::with_last_byte(u8::try_from(byte).unwrap());
+            let _scope = config
+                .begin_admission(B256::ZERO, hash, &[])
+                .unwrap()
+                .unwrap();
+            note_address(watched, "executed_frame");
+        }
+        let next = B256::with_last_byte(99);
+        assert!(
+            config
+                .begin_admission(B256::ZERO, next, &[])
+                .unwrap()
+                .is_none()
+        );
+        assert!(!config.selects(next));
+        assert!(
+            config
+                .begin_admission(B256::ZERO, B256::with_last_byte(1), &[])
+                .unwrap()
+                .is_some()
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
