@@ -646,3 +646,14 @@ A new deployment must use matching contract/deploy artifacts, rendered genesis,
 Composer, Signer, followers and settlement indexer. An in-place migration and
 historical old-protocol replay are not implemented. See the
 [port compatibility contract](../proposals/l2-static-execution-position.md#compatibility-and-recovery).
+
+The later `feature/events` pin `9d13218a355e7d543ca8a9927eea2962600b716d`
+also changes EEZ's L1 queue storage from arrays to mappings with active bounds
+and lets static lookup continue past a candidate whose callback rolling hash
+does not match. EEZL2 runtime bytecode and the genesis state root change as
+well. It needs a fresh, matching contract/genesis deployment and a matching
+Composer, Signer and follower revision; replacing binaries on the existing
+`820e50f` network is unsupported. Keep the earlier network and its records on
+its original pin. The new Composer reads retained L1 queue mapping slots
+before granting bounded deferred-entry gas discounts; final ordered execution
+still validates gas.

@@ -1520,6 +1520,13 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     let node = NodeHandle::start("policy-interval", &NodeConfig::default(), &env)
         .await
         .unwrap();
+    // L2 RPC binds before the Composer installs its ordinary-transaction
+    // sequencing limits. Wait for the later startup event before sending.
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((node.count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)? > 0).then_some(()))
+    })
+    .await
+    .unwrap();
     send_l2_value_transfer_confirmed(
         &node.l2_rpc_url(),
         ANVIL_KEY_1,

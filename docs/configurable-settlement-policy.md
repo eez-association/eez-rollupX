@@ -129,9 +129,14 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-Bounded simple deferred entries reserve gas according
+At protocol `9d13218`, bounded simple deferred entries reserve gas according
 to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
-and 270,000 for 33–64 bytes. One successful simple call through a proxy registered
+and 270,000 for 33–64 bytes, provided the corresponding retained queue mapping
+slot is empty or contains only one root update, no nested/callback rows, and
+at most 64 result bytes. The Composer reads every potentially discounted slot
+from the canonical L1 parent, including inactive slots beyond the current
+queue length. An unknown, oversized, or unreadable slot keeps the 370,000
+reserve. One successful simple call through a proxy registered
 at the canonical parent reserves 70,000, plus its measured L1 target execution.
 New proxies and complex,
 nested, reverting or larger entries retain the existing 370,000 reserve.
@@ -141,22 +146,19 @@ Calldata, the fork-specific calldata floor, companion execution and the
 configured gas margin remain separate. These versioned reserves describe the
 tested native ECDSA batch family; they are not network gas limits.
 
-The 160,000 base already includes the leading anchor. Its lower estimate is
-used only with a recognized previous queue: clearing each stored no-call entry
-adds 55,000, 60,000 or 65,000 for those respective result sizes, even when its
-consumption cursor has reached the end. Mixed queues sum each stored entry's
-reserve; the result size comes from canonical storage. Unknown or
-static prior queues retain the conservative projection. Queue shape and existing
-proxies are read from pinned canonical state on each attempt, including after
-a restart. Speculative proxy creation never earns the lower reserve.
+The 160,000 base already includes the leading anchor. Queue replacement now
+resets active bounds without deleting old mapping values, so there is no
+per-entry cleanup reserve. A later post can overwrite those retained values;
+the slot check above determines whether the measured return-size reserve is
+applicable. Existing proxies are read from pinned canonical state on each
+attempt, including after a restart. Speculative proxy creation never earns
+the lower reserve.
 The [result-size reserve audit](audits/2026-09-16-chiado-result-reserves/README.md)
 records the measured classes, native replay tests and public Chiado comparison.
 Discounts cover at most 128 total entries, including the anchor; a larger
-candidate restores the old per-entry reserve rather than imposing a transaction
-count cap. A first source blocked only by previous-queue cleanup remains held
-until independently due consolidation clears that queue. This does not create
-an additional settlement trigger.
-`admission.gas_projection` records the initial reserve and previous-queue cost;
+candidate restores the full per-entry reserve rather than imposing a transaction
+count cap. The `admission.gas_projection` event retains its
+`prior_cleanup_gas` compatibility field, now zero with this protocol pin;
 `gas_budget_cut` also reports the applied entry discount. Final ordered native
 execution remains mandatory before submission.
 The incremental blob estimate includes derivation metadata, semantic messages,

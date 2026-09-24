@@ -45,3 +45,28 @@ portable cold signer capture validates execution and rejects tampered positions
 and group bytes. Final shipping-feature build status and validation exclusions
 are recorded in the audit. This status does not authorize deployment to an old
 network.
+
+## Later feature/events revision
+
+The operator requested the `9d13218a355e7d543ca8a9927eea2962600b716d`
+tip on 2026-09-24 as the next submodule pin. The ABI of the existing position
+field is unchanged, but the L2 runtime changes static lookup behavior: a
+matching proxy hash and position whose callback result hash differs is skipped,
+and a later candidate can resolve. L1 makes the same change, including
+reentrant static rows. The signer retains its canonical observed row order and
+independent exact execution checks; the wider upstream lookup search does not
+expand the signer profile. Existing caught fixtures remain provenance-bound to
+`820e50f` and cannot validate new runtime execution.
+
+The L1 queue mappings retain inactive payload slots after verification.
+Composer therefore stops using the old array-layout cleanup calculation.
+It grants a return-size discount only after reading each prospective mapping
+slot and establishing that its retained payload is empty or bounded. The new
+contract's source, integration gas tests and final ordered execution must all
+pass before the revision is considered ready. The upstream `STATIC_ENTRY.md`
+still says a callback hash mismatch reverts `RollingHashMismatch`; the pinned
+implementation and `EEZStaticLookup.t.sol` instead continue searching and
+eventually return `ExecutionNotFound` / `EntryNotFound` when no candidate matches.
+This disagreement needs an upstream specification correction, but the fork
+follows the pinned implementation and tests. The compatibility and recovery
+boundaries above apply to this later revision too.

@@ -238,7 +238,7 @@ async fn gnosis_explicit_preparation_mixed_wave_after_small_post_replays() {
 
 /// A fitting wave must reach one canonical Sync even after learning from one
 /// small post. Summed L1 user gas limits exceed a block, but their ordered real
-/// execution fits. This exercises companion admission and retained queue cleanup.
+/// execution fits. This exercises companion admission and retained queue replacement.
 async fn single_sync_wave(
     profile: NativeL1Profile,
     inbound_count: u64,
@@ -308,8 +308,8 @@ async fn single_sync_wave(
     let mut previous_l1_block = None;
     for wave in 0..waves {
         // Every prior queue is fully consumed but remains in storage. The
-        // following post must pay its deletion cost, including after a busy
-        // predecessor; cursor == length does not mean there is no work.
+        // following post replaces active bounds and may overwrite retained
+        // slots; cursor == length does not mean there is no stored payload.
         let previous_entries = if wave == 0 { 1 } else { inbound_count };
         assert_eq!(
             registry
@@ -600,7 +600,7 @@ async fn gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay() {
 }
 
 /// Empty return data uses short Solidity byte storage. Both 45-source waves
-/// must fit, including the second post's cleanup of all 45 consumed entries.
+/// must fit, including the second post's overwrite of retained bounded slots.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
     single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true).await;

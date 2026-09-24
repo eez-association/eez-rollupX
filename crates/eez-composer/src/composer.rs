@@ -3577,6 +3577,9 @@ where
                         continue;
                     }
                     budget = next_budget;
+                    if let Some(projection) = &mut gas_projection {
+                        projection.accept_deferred(composition.source.batch.entries.len());
+                    }
                     blob_budget = next_blob;
                     effect_hashes.extend(group_hashes);
                     system_txs_appended += deliveries.len() as u64;

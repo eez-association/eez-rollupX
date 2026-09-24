@@ -11,7 +11,7 @@ use alloy_rlp::RlpEncodable;
 
 const IDENTITY_SCHEMA_VERSION: u64 = 2;
 const VALIDATOR_REVISION: &[u8] =
-    b"eez-derivable-validator-v2;protocol=820e50f749f63165be6a5797d4c5fe52cbbbbe34";
+    b"eez-derivable-validator-v2;protocol=9d13218a355e7d543ca8a9927eea2962600b716d";
 // A conservative fingerprint: every locked version/source/checksum participates,
 // including Reth, Stateless, REVM, Alloy and the JSON implementation. This may
 // invalidate reusable facts after an unrelated dependency change; it cannot
