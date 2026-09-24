@@ -1,5 +1,8 @@
 # Chiado bridge gas: admission, final preflight, and receipts
 
+For a visual explanation of the admission and final-simulation stages, open the
+[standalone HTML explainer](admission-explainer.html).
+
 | Field | Value |
 | --- | --- |
 | Date/status | 2026-09-24 UTC; live measurement complete for one inbound, one outbound, and one combined Sync block |

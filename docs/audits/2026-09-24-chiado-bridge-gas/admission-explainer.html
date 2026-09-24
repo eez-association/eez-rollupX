@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>What the Composer simulates during admission</title>
+  <style>
+    :root {
+      --ink: #172b3a;
+      --muted: #526575;
+      --line: #d5e0e5;
+      --paper: #f6f8f6;
+      --card: #fff;
+      --navy: #0d3445;
+      --teal: #087f83;
+      --gold: #cc8124;
+      --blue: #4366a5;
+      --soft-teal: #e5f4f1;
+      --soft-gold: #fff2dd;
+      --soft-blue: #eaf0fb;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+      line-height: 1.5;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    header { color: white; background: linear-gradient(125deg, #0c3042, #15525b); padding: 3.5rem max(1.2rem, calc((100vw - 1110px) / 2)); }
+    header .eyebrow { margin: 0 0 .65rem; color: #a9e3dd; font-size: .78rem; font-weight: 750; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { max-width: 850px; margin: 0; font-size: clamp(2.1rem, 5vw, 3.5rem); line-height: 1.1; letter-spacing: -.035em; }
+    header p { max-width: 780px; margin: 1.15rem 0 0; color: #e0f1ef; font-size: 1.15rem; }
+    main { max-width: 1110px; margin: auto; padding: 2.2rem 1.2rem 5rem; }
+    h2 { margin: 2.7rem 0 1rem; font-size: 1.65rem; letter-spacing: -.02em; }
+    h3 { margin: 0 0 .55rem; font-size: 1.16rem; }
+    p { margin: .6rem 0 1rem; }
+    a { color: #075f73; text-underline-offset: .16em; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code { font-size: .9em; }
+    .answer { border-left: .45rem solid #55c9bf; background: #e9f6f3; padding: 1.05rem 1.25rem; margin: 0 0 2rem; font-size: 1.08rem; }
+    .answer strong { color: #075e60; }
+    .subtle { color: var(--muted); }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .7rem; counter-reset: stage; }
+    .stage { background: var(--card); border: 1px solid var(--line); border-radius: .8rem; padding: 1rem; box-shadow: 0 3px 15px #183d4910; position: relative; }
+    .stage::before { counter-increment: stage; content: counter(stage, decimal-leading-zero); display: block; color: var(--teal); font-weight: 800; font-size: .8rem; letter-spacing: .1em; margin-bottom: .55rem; }
+    .stage h3 { font-size: 1rem; }
+    .stage p { font-size: .88rem; margin: 0; color: var(--muted); }
+    .stage.last { border-color: #8fc8c4; background: #f1fbf9; }
+    .note { padding: 1rem 1.2rem; border-radius: .7rem; background: var(--soft-gold); border: 1px solid #f0d3a3; margin-top: 1rem; }
+    .legend { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; margin: .35rem 0 1.3rem; font-size: .9rem; color: var(--muted); }
+    .key { display: inline-block; width: .75rem; height: .75rem; border-radius: .2rem; vertical-align: middle; margin-right: .35rem; }
+    .key.reserve { background: var(--gold); } .key.required { background: var(--blue); } .key.receipt { background: var(--teal); }
+    .case-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+    .case { background: var(--card); border: 1px solid var(--line); border-radius: .9rem; overflow: hidden; box-shadow: 0 4px 18px #15384711; }
+    .case-head { padding: 1.05rem 1.2rem .55rem; border-top: .35rem solid var(--teal); }
+    .case.outbound .case-head { border-color: var(--blue); }
+    .case.mixed .case-head { border-color: var(--gold); }
+    .case-head p { color: var(--muted); font-size: .88rem; margin: 0; }
+    .case-body { padding: .6rem 1.2rem 1.2rem; }
+    .measure { margin: .85rem 0; }
+    .measure .labels { display: flex; justify-content: space-between; gap: .35rem; font-size: .83rem; }
+    .measure strong { white-space: nowrap; }
+    .track { height: .58rem; background: #e9eef0; border-radius: 99px; overflow: hidden; margin-top: .28rem; }
+    .fill { display: block; height: 100%; border-radius: inherit; }
+    .fill.reserve { background: var(--gold); } .fill.required { background: var(--blue); } .fill.receipt { background: var(--teal); }
+    .scale { margin: .8rem 0 0; color: var(--muted); font-size: .76rem; }
+    .case-fact { background: #f5f8fa; padding: .7rem .85rem; border-radius: .55rem; font-size: .88rem; margin-top: 1rem; }
+    .case-fact strong { color: var(--navy); }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .explain { border: 1px solid var(--line); border-radius: .8rem; padding: 1.2rem; background: white; }
+    .explain .tag { display: inline-block; color: #076c70; background: var(--soft-teal); font-size: .72rem; font-weight: 800; letter-spacing: .08em; padding: .2rem .45rem; border-radius: .3rem; margin-bottom: .55rem; }
+    .explain .tag.gold { color: #81530f; background: var(--soft-gold); }
+    .explain .tag.blue { color: #34528d; background: var(--soft-blue); }
+    .explain p:last-child { margin-bottom: 0; }
+    .compact { margin: .5rem 0; padding-left: 1.25rem; }
+    .compact li { margin-bottom: .4rem; }
+    details { border: 1px solid var(--line); border-radius: .7rem; background: white; margin: .65rem 0; }
+    summary { cursor: pointer; padding: .9rem 1rem; font-weight: 700; }
+    summary:hover { background: #f2f7f8; }
+    details .detail-body { padding: 0 1rem 1rem; }
+    .hash-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    .hash-table th, .hash-table td { text-align: left; vertical-align: top; border-top: 1px solid var(--line); padding: .5rem .45rem; }
+    .hash-table th { width: 10.5rem; color: var(--muted); font-weight: 600; }
+    .hash-table code { overflow-wrap: anywhere; word-break: break-word; }
+    .fine { color: var(--muted); font-size: .83rem; }
+    footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+    @media (max-width: 900px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .case-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 650px) { .flow, .split { grid-template-columns: 1fr; } header { padding-top: 2.5rem; padding-bottom: 2.5rem; } }
+    @media print { body { background: white; } header { color: var(--ink); background: white; padding: 0; } header p, header .eyebrow { color: var(--ink); } main { padding: 0; } .case, .stage, .explain { break-inside: avoid; box-shadow: none; } details { break-inside: avoid; } details .detail-body { display: block; } }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="eyebrow">Composer admission · Chiado measurement</p>
+    <h1>Yes, it simulates. Just not the final bundle yet.</h1>
+    <p>Admission executes each candidate on local chain-state snapshots, then uses gas and time reserves to decide which complete cross-chain groups to prepare. The full ordered L1 bundle is simulated later, immediately before dispatch.</p>
+  </header>
+  <main>
+    <div class="answer">
+      <strong>Short answer:</strong> “No real simulation” is inaccurate. Admission runs an EVM source simulation and composes its cross-chain effects. That source simulation intercepts the proxy call, so its gas is <em>not</em> a prediction of the source transaction’s eventual receipt. The postBatch number at admission is a conservative formula, not the result of executing the final postBatch transaction.
+    </div>
+
+    <section aria-labelledby="flow-title">
+      <h2 id="flow-title">What happens in order</h2>
+      <div class="flow">
+        <div class="stage"><h3>Choose candidates</h3><p>At a Sync slot, take a finite held-pool snapshot. Check source state, nonce dependencies, and available time. Automatic mode starts with one group after restart until it has a preparation sample.</p></div>
+        <div class="stage"><h3>Execute source on a fork</h3><p>Run each candidate through the EVM on pinned L1 and L2 state. Capture the cross-chain call, result, and target effects. Accepted groups advance the local state seen by the next group.</p></div>
+        <div class="stage"><h3>Apply admission limits</h3><p>Estimate postBatch with base and entry gas pins, shape discounts, calldata, and simulated L1 target gas. Also check companion limits, L2 block gas, blob allowance, and preparation time. Keep groups whole.</p></div>
+        <div class="stage"><h3>Build and prove</h3><p>Construct the actual L2 Sync block and L1 postBatch for the accepted prefix, encode blobs and witnesses, and obtain the proof. These bytes do not exist at the start of admission.</p></div>
+        <div class="stage last"><h3>Simulate final bundle</h3><p>Run the ordered L1 transactions: postBatch first, then inbound companions. Probe the gas limit, reprice, execute the final bytes again, and validate every intended effect before dispatch.</p></div>
+      </div>
+      <p class="note"><strong>Snapshot versus chain:</strong> These EVM runs use local state pinned to a canonical L1 parent and the L2 Sync block being built. They do not broadcast candidate transactions during admission. Actual receipts come only after submission and inclusion.</p>
+    </section>
+
+    <section aria-labelledby="numbers-title">
+      <h2 id="numbers-title">The three measured bridge cases</h2>
+      <p class="subtle">Bars compare <strong>postBatch only</strong> on the same 0–1,200,000 gas scale. The L1 inbound companion and L2 system/user transactions are separate receipts. Admission source gas describes one user transaction; it excludes separate L2 table-load and delivery system transactions.</p>
+      <div class="legend" aria-label="Bar colors"><span><i class="key reserve"></i>Admission reserve</span><span><i class="key required"></i>Final gas required before refunds</span><span><i class="key receipt"></i>Final gas used / receipt</span></div>
+      <div class="case-grid">
+        <article class="case inbound">
+          <div class="case-head"><h3>Inbound · L1 → L2</h3><p>One L1 bridge source and one L2 delivery.</p></div>
+          <div class="case-body">
+            <div class="measure"><div class="labels"><span>Admission postBatch reserve</span><strong>923,156</strong></div><div class="track"><span class="fill reserve" style="width:76.93%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch required</span><strong>1,084,727</strong></div><div class="track"><span class="fill required" style="width:90.39%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch receipt</span><strong>867,782</strong></div><div class="track"><span class="fill receipt" style="width:72.32%"></span></div></div>
+            <p class="scale">All bars: 0 to 1,200,000 gas.</p>
+            <p class="case-fact"><strong>Source:</strong> admission simulated 327,959; L1 companion receipt used 398,895. <strong>L2 delivery:</strong> 179,320.</p>
+          </div>
+        </article>
+        <article class="case outbound">
+          <div class="case-head"><h3>Outbound · L2 → L1</h3><p>One L2 table load and user bridge, then L1 postBatch.</p></div>
+          <div class="case-body">
+            <div class="measure"><div class="labels"><span>Admission postBatch reserve</span><strong>666,742</strong></div><div class="track"><span class="fill reserve" style="width:55.56%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch required</span><strong>250,599</strong></div><div class="track"><span class="fill required" style="width:20.88%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch receipt</span><strong>212,199</strong></div><div class="track"><span class="fill receipt" style="width:17.68%"></span></div></div>
+            <p class="scale">All bars: 0 to 1,200,000 gas.</p>
+            <p class="case-fact"><strong>Source:</strong> admission simulated 327,786; L2 user receipt used 398,452. <strong>L1 target simulation:</strong> 57,114. <strong>L2 load:</strong> 74,825.</p>
+          </div>
+        </article>
+        <article class="case mixed">
+          <div class="case-head"><h3>Mixed · both in one Sync</h3><p>Outbound load/user, then inbound L2 delivery; one L1 postBatch and companion.</p></div>
+          <div class="case-body">
+            <div class="measure"><div class="labels"><span>Admission postBatch reserve</span><strong>843,910</strong></div><div class="track"><span class="fill reserve" style="width:70.33%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch required</span><strong>401,594</strong></div><div class="track"><span class="fill required" style="width:33.47%"></span></div></div>
+            <div class="measure"><div class="labels"><span>Final postBatch receipt</span><strong>401,594</strong></div><div class="track"><span class="fill receipt" style="width:33.47%"></span></div></div>
+            <p class="scale">All bars: 0 to 1,200,000 gas.</p>
+            <p class="case-fact"><strong>L1 companion:</strong> 398,895. <strong>L2:</strong> load 62,867 + outbound user 398,452 + inbound delivery 227,650 = 688,969.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="why-title">
+      <h2 id="why-title">Why admission and final execution differ</h2>
+      <div class="split">
+        <div class="explain"><span class="tag">SOURCE SIMULATION</span><h3>The bridge call is intercepted</h3><p>Admission needs to learn the cross-chain effect without consuming the real proxy entry. Inbound: 327,959 simulated versus 398,895 executed. The final nested proxy call used 68,436 gas; another 2,500 net gas around it gives the 70,936 gap. Outbound: 327,786 simulated versus 398,452 executed; 68,166 nested call + 2,500 = 70,666.</p></div>
+        <div class="explain"><span class="tag gold">POSTBATCH RESERVE</span><h3>A planning formula, not a receipt</h3><p>The mixed reserve rose from 181,000 to 611,742 after outbound, then to 843,910 after inbound. It used a 370,000 entry pin for each group and a 140,000 discount on the inbound entry. Final ordered execution required only 401,594. The 442,316 difference is real for this batch, but the entry pin is deliberately conservative.</p></div>
+        <div class="explain"><span class="tag blue">REFUNDS</span><h3>Required gas can exceed receipt gas</h3><p>The inbound-only postBatch used 867,782 gas after refunds but needed 1,084,727 before them—161,571 more than its 923,156 reserve. A rule based only on receipts could accept a transaction whose final execution needs more gas than reserved. Final preflight checks the complete bundle and its actual required gas.</p></div>
+        <div class="explain"><span class="tag">ORDER AND STATE</span><h3>Grouping changes other components</h3><p>Mixed L2 inbound delivery used 227,650 versus 179,320 alone: 16,718 more execution gas, 12 more intrinsic gas, and 31,600 less refund. Both destination calls used 35,286. The three L1 posts also settled different prior L2 histories (1,460, 110, and 125 blocks), so subtracting standalone post receipts does not isolate a reusable grouping discount.</p></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="decision-title">
+      <h2 id="decision-title">So why not just keep adding until the final simulation says stop?</h2>
+      <p>Admission <em>does</em> advance accepted groups on slot-scoped state; the next candidate sees its predecessors. It checks measured preparation time, L2 declared gas, L1 transaction and bundle budgets, blobs, and nonce dependencies as it goes. The exact L1 postBatch bytes and proof are only available after the chosen Sync block is built and proved. Running the full final preflight after every tentative group would repeatedly rebuild and prove candidates inside a short posting window. The final preflight remains mandatory and can reject a candidate that passed planning.</p>
+      <p class="note">In the mixed experiment, both sources were queued, but automatic admission's cold-start selection was one group after each trace-triggered restart. We temporarily set its existing selection limit to two for the combined measurement, then restored <code>auto</code>. That count limit was separate from gas admission.</p>
+    </section>
+
+    <section aria-labelledby="hash-title">
+      <h2 id="hash-title">Traceable transaction hashes</h2>
+      <p class="subtle">Open a case to see the exact transactions. Every listed receipt succeeded.</p>
+      <details>
+        <summary>Inbound alone · L1 block 23,205,522 · L2 Sync block 51,015</summary>
+        <div class="detail-body"><table class="hash-table"><tbody>
+          <tr><th>L1 postBatch</th><td><code>0x28cf41903fdeb7abc3c618737215381310502b9511fd476338528f1d15fb0199</code></td></tr>
+          <tr><th>L1 bridge source</th><td><code>0xd206b4ad855ea38dfa47111ac61954b78d73026b0ab312b8cf560adfe7fcbf0a</code></td></tr>
+          <tr><th>L2 delivery</th><td><code>0x1e6846d3e9caed8b2779e448be06b1b2180c442889d0d9226bef0fea427a7b8f</code></td></tr>
+        </tbody></table></div>
+      </details>
+      <details>
+        <summary>Outbound alone · L2 Sync block 51,125 · L1 block 23,205,542</summary>
+        <div class="detail-body"><table class="hash-table"><tbody>
+          <tr><th>L2 table load</th><td><code>0x44e55498492d7fc2db4675d9a7708f60261bad8716ed02f7fa23adf014d27165</code></td></tr>
+          <tr><th>L2 bridge source</th><td><code>0x463c655fa3b7a04caa6750ff897a4deec182ae069db8fddcafd9726e8f4c0ab3</code></td></tr>
+          <tr><th>L1 postBatch</th><td><code>0xf0913b69cd8ba4e2abe5bd010bb2027e09ca5b5bdf70bbebd769b542994a46f2</code></td></tr>
+        </tbody></table></div>
+      </details>
+      <details>
+        <summary>Mixed · L2 Sync block 51,580 · L1 block 23,205,628</summary>
+        <div class="detail-body"><table class="hash-table"><tbody>
+          <tr><th>L2 table load</th><td><code>0xe3983bccbf1efedc2b4b33911805768049fe51e04389aedd0c222bfe72f10821</code></td></tr>
+          <tr><th>L2 outbound source</th><td><code>0x280d6bd8805eeb0eed957f396a0bda8f15afeac50c0804d83af1e511d45bfc18</code></td></tr>
+          <tr><th>L2 inbound delivery</th><td><code>0x17f60ef2fb40c673bed5a62fe65bfe7d3fcaeb3f5c18e9d427a31729106d9730</code></td></tr>
+          <tr><th>L1 postBatch</th><td><code>0xbc4b75b3a8f96b7b69cc7139cd760ebd273eb69a6fd0703e1f4e1b2be3a512b5</code></td></tr>
+          <tr><th>L1 inbound source</th><td><code>0x1372c69aa7f01f1bec3b48cccb38f6a587346a3446631cd292fe13eab00570af</code></td></tr>
+        </tbody></table></div>
+      </details>
+    </section>
+
+    <footer>
+      <p>Measured on Chiado, 2026-09-24, PR #34 source commit <code>5d9e04e</code> and pinned protocol <code>820e50f</code>. The full receipt/trace record is in <a href="README.md">the accompanying gas audit</a>. Production code: <a href="../../../crates/eez-composer/src/composer.rs">candidate admission</a>, <a href="../../../crates/eez-composer/src/composer/posting.rs">final preflight</a>, and <a href="../../../docs/configurable-settlement-policy.md">settlement policy</a>.</p>
+      <p class="fine">The displayed numbers are one set of live measurements, not a safe per-block capacity recommendation. Final effect validation and canonical settlement still decide whether a batch actually succeeded.</p>
+    </footer>
+  </main>
+</body>
+</html>
