@@ -79,6 +79,32 @@ measurements, not Chiado receipt gas or a universal discount factor.
 | `forge fmt --check --root contracts` | Solidity formatting | Reports two pre-existing formatting differences in untouched `ECDSAProofSystem.sol` and `DeployRollup.s.sol`; edited `PostBatchGasPins.t.sol` passes targeted format check |
 | GitHub Actions run `35994614812` Kurtosis lane | CI at earlier PR commit | Passed; overall run failed in embedded slice 1/4 due to Composer readiness race addressed by separate local patch |
 
+## PR #34 Kurtosis review at `9fe8d2a`
+
+GitHub Actions [run 36013300851](https://github.com/eduadiez/rollupX/actions/runs/36013300851),
+[job 107699454739](https://github.com/eduadiez/rollupX/actions/runs/36013300851/job/107699454739)
+failed at `Run Enclave`. The runtime artifact was verified, the native wave suite
+passed, and the pinned protocol network suite reported 32 passed and four failed.
+The four failures were exactly `staticLocalWrite`, `staticLocalWriteL2`,
+`nestedStaticLocalWriteL1`, and `nestedStaticLocalWriteL2`; each trigger had no
+receipt after 420 seconds. The upstream pinned sources mark all four
+`E2E_EXCLUDE_FROM_ALL: NOT LIVE YET`, and the upstream network runner excludes
+them from `all`. The fork wrapper had expanded `all` by listing every Solidity
+scenario file and passed each name explicitly, bypassing that marker. The
+diagnostic artifact upload then failed because the GitHub Actions artifact
+quota was exhausted, so full service logs are unavailable from this run.
+
+An offline wrapper regression reproduced the incorrect selection before the
+fix. The wrapper now applies the pinned upstream marker to default `all`,
+records all discovered, eligible, and excluded scenarios in its summary, and
+keeps explicit selections available for development. The 22 affected offline
+wrapper tests pass, including a test whose scenario eligibility comes from the
+actual pinned source files. The complete Python CI tooling suite passed with
+254 tests and four intentional skips. This is a CI selection correction, not evidence
+that the four marked scenarios work on the new live network. Their earlier
+live evidence belongs to the old `820e50f` protocol pin; new-pin live support
+remains unverified.
+
 No new live Chiado deployment or wallet operation was performed. Existing
 `820e50f` Chiado contracts and genesis remain tied to that deployed revision.
 The new source pin needs a separate matching deployment; replacing binaries
@@ -86,8 +112,7 @@ on that existing network is unsupported.
 
 ## Open work
 
-Record the final PR commit identity after pushing. The upstream
-static-entry specification discrepancy needs an upstream correction. This
-local-only audit and ignored `artifacts/native-e2e` logs are not independently
-retrievable from another checkout until the branch is pushed and CI publishes
-new artifacts.
+The upstream static-entry specification discrepancy needs an upstream
+correction. The new-pin static local-write scenarios remain unverified live;
+their full failure diagnostics were not retained because the artifact upload
+hit GitHub's quota. Ignored `artifacts/native-e2e` logs are local-only.

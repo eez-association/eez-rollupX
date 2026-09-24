@@ -647,7 +647,7 @@ bash testing/kurtosis/scripts/run-protocol-e2e.sh
 
 The suite uses the pinned upstream `network-parallel.sh`, with a fresh funded
 wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
-and ARC runners) starts one worker per discovered scenario, including
+and ARC runners) starts one worker per eligible scenario, including
 `revertCounter` and `staticCounterL2`. Foundry artifacts are warmed before workers
 start. Set a positive integer to bound concurrency, or `1` to run serially with
 the same assertions. When both bridge scenarios are selected, `bridge` runs
@@ -656,6 +656,14 @@ first: its settled deposit supplies the shared rollup escrow required by
 wallets. A failed deposit skips the dependent release and fails the suite;
 unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
 escrow, as specified by the pinned protocol's scenario.
+
+The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
+expanding the default `all` target. The current pin marks four static reads
+around local writes as not ready for live network runs. The summary lists all
+discovered scenarios, the live eligible count, and the excluded names;
+`suite.complete` means every eligible scenario was selected. Explicit names
+can still run excluded scenarios during development, but those runs do not
+establish a complete default suite.
 
 `EEZ_PROTOCOL_SUITE_TIMEOUT` bounds all upstream phases together (default 2400 seconds);
 a timeout stops its process group and fails the suite. Do not run another
