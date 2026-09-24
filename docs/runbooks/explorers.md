@@ -138,6 +138,11 @@ the frontend image change with the gateway and public links. See the
 [gateway proposal](../proposals/gateway-single-domain-paths.md) for the
 mixed-version boundary and validation status.
 
+The [2026-09-24 live deployment record](../audits/2026-09-24-gateway-single-domain-deployment/README.md)
+documents the exact feature-branch images, private overlay approach used before
+merge, public path checks, and rollback limits. The older root-path run commands
+above still apply when this optional overlay is not selected.
+
 | Explorer | Browser | API |
 | --- | --- | --- |
 | L2 Blockscout | http://127.0.0.1:18110 | http://127.0.0.1:18111/api/v2/ |
