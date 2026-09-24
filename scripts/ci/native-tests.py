@@ -26,7 +26,7 @@ E2E_TARGETS = (
     "queue_liveness", "queue_reorg")
 E2E_BINARIES = {f"eez-node-e2e::{name}" for name in E2E_TARGETS}
 TARGETS = [*E2E_TARGETS,
-           "public_inputs_hash_vectors", "rolling_hash_vectors", "ethereum_kzg_compatibility"]
+           "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence", "ethereum_kzg_compatibility"]
 # Build the node tests before enabling composer's Tokio test-util dev feature.
 # The latter invalidates Tokio and its dependants, including the shipping node
 # binaries Cargo automatically builds for integration tests. Only composer unit
@@ -39,7 +39,7 @@ ARCHIVES = {
 }
 SUITES = {
     "unit": "kind(lib) | kind(bin) | "
-            "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors))) | "
+            "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors) | binary(=causal_evidence))) | "
             "(package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility))",
     # The Kurtosis target is archived too; its test stays explicitly ignored
     # here and is run by verify-policy-replay.sh against a live enclave.

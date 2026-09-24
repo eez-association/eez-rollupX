@@ -54,6 +54,10 @@ def fixture(scenario):
         },
         "trace": {"type":"CALL", "to":SOURCE, "input":user["input"], "calls":[
             {"type":"STATICCALL" if static else "CALL", "from":SOURCE, "to":PROXY, "calls":[
+                {"type":"STATICCALL", "from":PROXY, "to":REGISTRY,
+                 "input":"0xb7ab4572", "output":"0x" + f"{10000:064x}"},
+                {"type":"CALL", "from":PROXY, "to":PROXY, "input":"0x9f149e1b",
+                 **({"error":"write protection"} if static else {})},
                 {"type":"STATICCALL" if static else "CALL", "from":PROXY, "to":REGISTRY,
                  "input":"0xstaticlookup" if static else "0xmutablelookup", "value":"0x0",
                  "output":ABI_RETURN if static else REVERT,
@@ -91,7 +95,7 @@ if pathlib.Path(sys.argv[0]).name == "blob":
 command = args[0]
 if command == "sig":
     value = {"counter()": "0x61bc221a", "increment()": "0xd09de08a", "incrementProxy()": "0x11111111",
-             "postAndVerifyBatch(bytes)": "0xpost"}[args[1]]
+             "postAndVerifyBatch(bytes)": "0xpost", "STATIC_CHECK_GAS()": "0xb7ab4572"}[args[1]]
 elif command == "calldata":
     if args[1] == "Error(string)":
         assert args[1:] == ["Error(string)", "always reverts"], args
@@ -357,22 +361,43 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         data["decoded"][0][1].append(other)
         result = self.run_fixture("revertCounter", data)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        data["trace"]["calls"][0]["calls"][0]["output"] = "0xdeadbeef"  # e.g. ExecutionNotFound
+        data["trace"]["calls"][0]["calls"][-1]["output"] = "0xdeadbeef"  # e.g. ExecutionNotFound
         result = self.run_fixture("revertCounter", data)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("actual registry lookup", result.stderr)
         self.assertFalse(self.output.exists())
+
+    def test_canonical_events_proxy_traces_include_the_gas_cap_read(self):
+        for scenario in ("topLevelStaticCounter", "revertCounter"):
+            with self.subTest(scenario=scenario):
+                captured = json.loads((CAPTURED_LOGS / f"{scenario}-events-trace.json").read_text())
+                trace = captured.pop("trace")
+                args = []
+                for key, value in captured.items():
+                    args += ["--argjson" if isinstance(value, bool) else "--arg", key,
+                             json.dumps(value) if isinstance(value, bool) else value]
+                result = subprocess.run(["jq", "-ce", *args, "-f", str(SCRIPTS / "lookup-trace.jq")],
+                                        input=json.dumps(trace), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["verified"])
 
     def test_lookup_trace_rejects_wrong_or_ambiguous_execution(self):
         mutations = {
             "missing trace": lambda f: f.update(trace_unavailable=True),
             "outer reverted": lambda f: f["trace"].update(error="execution reverted"),
             "wrong caller": lambda f: f["trace"]["calls"][0].update(**{"from": DESTINATION}),
-            "wrong proxy": lambda f: f["trace"]["calls"][0]["calls"][0].update(**{"from": DESTINATION}),
-            "wrong call": lambda f: f["trace"]["calls"][0]["calls"][0].update(input="0xwrong"),
-            "wrong result": lambda f: f["trace"]["calls"][0]["calls"][0].update(output="0xwrong"),
-            "gas failure": lambda f: f["trace"]["calls"][0]["calls"][0].update(error="out of gas"),
-            "duplicate lookup": lambda f: f["trace"]["calls"][0]["calls"].append(copy.deepcopy(f["trace"]["calls"][0]["calls"][0])),
+            "wrong proxy": lambda f: f["trace"]["calls"][0]["calls"][-1].update(**{"from": DESTINATION}),
+            "wrong call": lambda f: f["trace"]["calls"][0]["calls"][-1].update(input="0xwrong"),
+            "wrong result": lambda f: f["trace"]["calls"][0]["calls"][-1].update(output="0xwrong"),
+            "gas failure": lambda f: f["trace"]["calls"][0]["calls"][-1].update(error="out of gas"),
+            "wrong gas-cap selector": lambda f: f["trace"]["calls"][0]["calls"][0].update(input="0xwrong"),
+            "failed gas-cap read": lambda f: f["trace"]["calls"][0]["calls"][0].update(error="execution reverted"),
+            "short gas-cap result": lambda f: f["trace"]["calls"][0]["calls"][0].update(output="0x01"),
+            "mutable gas-cap read": lambda f: f["trace"]["calls"][0]["calls"][0].update(type="CALL"),
+            "missing gas-cap read": lambda f: f["trace"]["calls"][0]["calls"].pop(0),
+            "extra registry read": lambda f: f["trace"]["calls"][0]["calls"].insert(0, copy.deepcopy(f["trace"]["calls"][0]["calls"][0])),
+            "reordered registry calls": lambda f: f["trace"]["calls"][0]["calls"].reverse(),
+            "duplicate lookup": lambda f: f["trace"]["calls"][0]["calls"].append(copy.deepcopy(f["trace"]["calls"][0]["calls"][-1])),
         }
         for scenario in ("revertCounter", "topLevelStaticCounter"):
             for name, mutate in mutations.items():

@@ -278,9 +278,10 @@ class NativeArtifactTest(unittest.TestCase):
         self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "derivable_operations", "chained_interstate", "partial_consumption",
                                          "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
                                          "queue_liveness", "queue_reorg",
-                                         "public_inputs_hash_vectors", "rolling_hash_vectors",
+                                         "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence",
                                          "ethereum_kzg_compatibility"])
         self.assertIn("kind(lib) | kind(bin)", native.SUITES["unit"])
+        self.assertIn("binary(=causal_evidence)", native.SUITES["unit"])
         self.assertNotIn("--test-threads=1", self.run_archive().args[0])
 
     def test_every_standalone_integration_target_is_selected(self):

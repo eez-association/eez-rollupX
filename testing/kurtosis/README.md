@@ -688,6 +688,18 @@ semantic-blob coverage are all complete. `protocol-e2e/summary.json` is the
 machine-readable index, and each scenario retains its decoded evidence and raw
 Beacon blob response under `protocol-e2e/evidence/`.
 
+Mixed L2 read/write scenarios bind the complete per-user `loadExecutionTable`
+calldata, including every static row and its mutable-entry position, to one L1
+host. Their retained mutable-call events must still match exactly. The
+`eez-protocol::causal_evidence` test target exercises the shipping verifier
+against captured canonical inputs and malformed variants; CI runs it in the
+release unit archive.
+
+The pinned proxy reads `STATIC_CHECK_GAS()` from the registry before its actual
+lookup. Lookup trace evidence requires that exact successful configuration read
+and exactly one result-bearing lookup, with the original caller, calldata, and
+returned/reverted bytes. Additional registry calls remain a verification error.
+
 Upstream failures are never overridden. `staticCounterL2` is verified through
 its static-pool calldata and persisted reader state. `topLevelStaticCounter`
 and `revertCounter` are lookup-only: their L1 result is bound to the signed

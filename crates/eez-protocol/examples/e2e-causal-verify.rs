@@ -7,8 +7,10 @@
 //! source/destination events as exact multisets.
 
 use std::collections::HashMap;
+#[cfg(not(test))]
 use std::env;
 use std::error::Error;
+#[cfg(not(test))]
 use std::fs;
 use std::str::FromStr;
 
@@ -251,6 +253,7 @@ fn parse_direction(input: &Value) -> AnyResult<Direction> {
     }
 }
 
+#[cfg(not(test))]
 fn main() -> AnyResult<()> {
     let mut args = env::args().skip(1);
     let input_path = args
@@ -262,16 +265,22 @@ fn main() -> AnyResult<()> {
     }
 
     let input: Value = serde_json::from_slice(&fs::read(input_path)?)?;
-    let direction = parse_direction(&input)?;
+    let output = verify_input(&input)?;
+    fs::write(output_path, serde_json::to_vec_pretty(&output)?)?;
+    Ok(())
+}
+
+fn verify_input(input: &Value) -> AnyResult<Value> {
+    let direction = parse_direction(input)?;
     let rollup_id = input.get("rollup_id").and_then(Value::as_u64).unwrap_or(1);
     let l2_rollup = RollupId(rollup_id);
     if l2_rollup.is_mainnet() {
         return fail("rollup_id must be non-zero");
     }
-    let registry = Address::from_str(required_str(&input, "registry")?)?;
-    let manager_l2 = Address::from_str(required_str(&input, "manager_l2")?)?;
-    let l1_calldata = parse_bytes(&input, "l1_calldata")?;
-    let l2_calldata = parse_bytes_list(&input, "l2_calldata")?;
+    let registry = Address::from_str(required_str(input, "registry")?)?;
+    let manager_l2 = Address::from_str(required_str(input, "manager_l2")?)?;
+    let l1_calldata = parse_bytes(input, "l1_calldata")?;
+    let l2_calldata = parse_bytes_list(input, "l2_calldata")?;
     let select_static = input
         .get("select_static")
         .and_then(Value::as_bool)
@@ -293,7 +302,7 @@ fn main() -> AnyResult<()> {
         loaded_entries.extend(entries);
         loaded_static.extend(static_entries);
     }
-    let expected_l2 = expected_hashes(&input)?;
+    let expected_l2 = expected_hashes(input)?;
     let selected = select_entries(&loaded_entries, &expected_l2)?;
 
     let l1_logs = receipt_logs(input.get("l1_receipts").ok_or("missing l1_receipts")?)?;
@@ -372,17 +381,30 @@ fn main() -> AnyResult<()> {
             if selected.is_empty() {
                 return fail("outbound causal verification selected no L2 entries");
             }
-            let selected_entries = selected
+            // Each outbound user has its own complete load. Static positions
+            // are local to that load, so combining pools from multiple loads or
+            // filtering away mutable rows would change their meaning.
+            if !loaded_static.is_empty()
+                && (l2_calldata.len() != 1
+                    || !l2_calldata[0].starts_with(&loadExecutionTableCall::SELECTOR)
+                    || selected.len() != loaded_entries.len())
+            {
+                return fail("mixed outbound evidence requires one complete source load");
+            }
+            let sources = selected
                 .iter()
-                .map(|(_, entry)| entry.clone())
+                .map(|(_, entry)| OutboundSourceEntry::Mutable(entry.clone()))
+                .chain(
+                    loaded_static
+                        .iter()
+                        .cloned()
+                        .map(OutboundSourceEntry::Static),
+                )
                 .collect::<Vec<_>>();
             let mut candidates = Vec::new();
             for (l1_index, l1_entry) in posted.entries.iter().enumerate() {
-                if let Ok(facts) = verify_nested_group(
-                    l1_entry,
-                    &selected_entries,
-                    NestedPairDirection::Outbound,
-                    l2_rollup,
+                if let Ok(facts) = eez_protocol::entries::verify_outbound_source_group(
+                    l1_entry, &sources, l2_rollup,
                 ) {
                     candidates.push((l1_index, facts));
                 }
@@ -396,8 +418,9 @@ fn main() -> AnyResult<()> {
             let (l1_index, facts) = candidates.remove(0);
             expected_outbound_hashes.extend(facts.l2_outbound_hashes.iter().copied());
             pairs.push(json!({
-                "kind": "mutable",
+                "kind": if loaded_static.is_empty() { "mutable" } else { "mixed" },
                 "direction": "L2_to_L1",
+                "l2_static_entry_indices": (0..loaded_static.len()).collect::<Vec<_>>(),
                 "l1_entry_indices": [l1_index],
                 "l2_entry_indices": selected.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
                 "proxy_entry_hash": format!("{}", posted.entries[l1_index].proxyEntryHash),
@@ -412,7 +435,7 @@ fn main() -> AnyResult<()> {
             }
             // Select from canonical, unmodified shared table calldata. Never
             // pre-filter the calldata or silently accept a duplicate key.
-            let key = B256::from_str(required_str(&input, "expected_l2_static_key")?)?;
+            let key = B256::from_str(required_str(input, "expected_l2_static_key")?)?;
             let (static_index, selected_static) = select_static_entry(&loaded_static, key)?;
             let source = selected_static;
             let mut candidates = Vec::new();
@@ -475,13 +498,140 @@ fn main() -> AnyResult<()> {
             "event_multiplicity_bijection": true
         }
     });
-    fs::write(output_path, serde_json::to_vec_pretty(&output)?)?;
-    Ok(())
+    Ok(output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mixed_fixture(repeated: bool) -> Value {
+        serde_json::from_str(if repeated {
+            include_str!("../tests/fixtures/events-causal/staticReadX2WriteL2.json")
+        } else {
+            include_str!("../tests/fixtures/events-causal/staticReadWriteL2.json")
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn canonical_read_write_read_evidence_includes_position_bound_static_rows() {
+        for repeated in [false, true] {
+            let result = verify_input(&mixed_fixture(repeated)).unwrap();
+            assert_eq!(result["verified"], true);
+            assert_eq!(result["pairs"][0]["kind"], "mixed");
+            assert_eq!(
+                result["pairs"][0]["l2_static_entry_indices"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                if repeated { 4 } else { 2 }
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_evidence_rejects_missing_extra_changed_and_mispositioned_static_rows() {
+        for mutation in ["missing", "extra", "result", "position", "key", "success"] {
+            let mut input = mixed_fixture(true);
+            let raw = parse_bytes_list(&input, "l2_calldata").unwrap();
+            let mut load = loadExecutionTableCall::abi_decode(&raw[0]).unwrap();
+            match mutation {
+                "missing" => {
+                    load._staticEntries.remove(0);
+                }
+                "extra" => load._staticEntries.push(load._staticEntries[0].clone()),
+                "result" => load._staticEntries[0].returnData = Bytes::from(vec![0xff]),
+                "position" => {
+                    load._staticEntries[0].expectedEntryIndex = alloy_primitives::U256::from(1)
+                }
+                "key" => load._staticEntries[0].proxyEntryHash = B256::ZERO,
+                "success" => load._staticEntries[0].success = false,
+                _ => unreachable!(),
+            }
+            input["l2_calldata"] = json!([format!("0x{}", hex::encode(load.abi_encode()))]);
+            let error = verify_input(&input).unwrap_err().to_string();
+            assert!(
+                error.contains("expected one L1 host"),
+                "{mutation}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_evidence_keeps_load_boundaries_and_exact_event_multiplicity() {
+        for mutation in [
+            "second_load",
+            "unselected_mutable",
+            "incoming_instead_of_load",
+            "missing_events",
+            "duplicate_events",
+            "duplicate_host",
+        ] {
+            let mut input = mixed_fixture(false);
+            let raw = parse_bytes_list(&input, "l2_calldata").unwrap();
+            let mut load = loadExecutionTableCall::abi_decode(&raw[0]).unwrap();
+            let expected_error = match mutation {
+                "second_load" => {
+                    input["l2_calldata"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!(format!(
+                            "0x{}",
+                            hex::encode(
+                                loadExecutionTableCall {
+                                    _entries: vec![],
+                                    _staticEntries: vec![]
+                                }
+                                .abi_encode()
+                            )
+                        )));
+                    "one complete source load"
+                }
+                "unselected_mutable" => {
+                    load._entries.push(Default::default());
+                    input["l2_calldata"] = json!([format!("0x{}", hex::encode(load.abi_encode()))]);
+                    "one complete source load"
+                }
+                "incoming_instead_of_load" => {
+                    let incoming = executeIncomingCrossChainCallCall {
+                        _entries: load._entries,
+                        _staticEntries: load._staticEntries,
+                    };
+                    input["l2_calldata"] =
+                        json!([format!("0x{}", hex::encode(incoming.abi_encode()))]);
+                    "one complete source load"
+                }
+                "missing_events" => {
+                    input["l2_receipts"] = json!([]);
+                    "bijection"
+                }
+                "duplicate_events" => {
+                    let receipt = input["l2_receipts"][0].clone();
+                    input["l2_receipts"].as_array_mut().unwrap().push(receipt);
+                    "bijection"
+                }
+                "duplicate_host" => {
+                    let result = verify_input(&input).unwrap();
+                    let index =
+                        result["pairs"][0]["l1_entry_indices"][0].as_u64().unwrap() as usize;
+                    let mut posted = postAndVerifyBatchCall::abi_decode(
+                        &parse_bytes(&input, "l1_calldata").unwrap(),
+                    )
+                    .unwrap();
+                    posted
+                        .batch
+                        .entries
+                        .push(posted.batch.entries[index].clone());
+                    input["l1_calldata"] = json!(format!("0x{}", hex::encode(posted.abi_encode())));
+                    "found 2"
+                }
+                _ => unreachable!(),
+            };
+            let error = verify_input(&input).unwrap_err().to_string();
+            assert!(error.contains(expected_error), "{mutation}: {error}");
+        }
+    }
 
     #[test]
     fn static_selection_accepts_unrelated_entries_but_rejects_missing_and_duplicate_keys() {

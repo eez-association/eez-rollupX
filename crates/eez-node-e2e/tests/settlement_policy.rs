@@ -2324,6 +2324,18 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l1_before = l1.get_block_number().await.unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
+    let timing_env = world.partial_follower_env();
+    let milliseconds = |name| {
+        timing_env
+            .iter()
+            .find(|(key, _)| *key == name)
+            .unwrap()
+            .1
+            .parse::<u64>()
+            .unwrap()
+    };
+    let l2_seconds = milliseconds("EEZ_L2_BLOCK_TIME_MS") / 1000;
+    let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The combined workload exceeds
@@ -2344,23 +2356,33 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .unwrap(),
         );
     }
-    // Missing scheduler ticks must preserve intermediate empty boundaries.
-    tokio::time::sleep(Duration::from_secs(12)).await;
+    // Cached scheduling can continue briefly after the reader loses RPC.
+    // Recover only after L1 has actually passed the stalled L2 tip by two
+    // slots; a fixed sleep can leave an empty recovery window on Gnosis.
+    let gap_seconds = 2 * milliseconds("EEZ_L1_BLOCK_TIME_MS") / 1000;
+    let (stalled_l2_timestamp, recovery_l1_timestamp) = wait_for(TIMEOUT, || async {
+        let l2_timestamp = l2
+            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("missing L2 tip during RPC outage"))?
+            .header
+            .timestamp;
+        let l1_timestamp = l1
+            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("missing L1 tip during RPC outage"))?
+            .header
+            .timestamp;
+        Ok((l1_timestamp >= l2_timestamp + gap_seconds).then_some((l2_timestamp, l1_timestamp)))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "RPC outage did not create a historical gap: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
     assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
-    let stalled_l2_timestamp = l2
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
-    let recovery_l1_timestamp = l1
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap()
-        .header
-        .timestamp;
     let recovery_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
@@ -2385,18 +2407,6 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     );
     let first = receipts.first().unwrap().block_number.unwrap();
     let covered = receipts.last().unwrap().block_number.unwrap();
-    let timing_env = world.partial_follower_env();
-    let milliseconds = |name| {
-        timing_env
-            .iter()
-            .find(|(key, _)| *key == name)
-            .unwrap()
-            .1
-            .parse::<u64>()
-            .unwrap()
-    };
-    let l2_seconds = milliseconds("EEZ_L2_BLOCK_TIME_MS") / 1000;
-    let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
     let mut previous_l1_timestamp = l1
         .get_block_by_number(l1_before.into())
         .await
@@ -2435,21 +2445,29 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // Recovery may finish in Steady mode once it reaches a usable future slot.
     // Prove that a missing historical boundary was rebuilt after the outage,
     // rather than requiring a structural-only Catchup terminal.
+    let rebuilt_timestamp = world
+        .node
+        .signals_since(recovery_cursor)
+        .unwrap()
+        .iter()
+        .filter(|event| event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Empty")
+        .filter_map(|event| event.fields["timestamp"].as_u64())
+        .find(|timestamp| *timestamp > stalled_l2_timestamp && *timestamp <= recovery_l1_timestamp)
+        .unwrap_or_else(|| panic!(
+            "RPC recovery did not rebuild a missing historical Sync boundary in ({stalled_l2_timestamp}, {recovery_l1_timestamp}]{}",
+            world.settlement_diagnostics(),
+        ));
+    let rebuilt_number = (rebuilt_timestamp - genesis) / l2_seconds;
+    let rebuilt = l2
+        .get_block_by_number(rebuilt_number.into())
+        .full()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rebuilt.header.timestamp, rebuilt_timestamp);
     assert!(
-        world
-            .node
-            .signals_since(recovery_cursor)
-            .unwrap()
-            .iter()
-            .any(|event| {
-                event.name == "eez.composer.sync_slot.invoked"
-                    && event.fields["mode"] == "Empty"
-                    && event.fields["timestamp"].as_u64().is_some_and(|timestamp| {
-                        timestamp > stalled_l2_timestamp && timestamp <= recovery_l1_timestamp
-                    })
-            }),
-        "RPC recovery did not rebuild a missing historical Sync boundary{}",
-        world.settlement_diagnostics(),
+        rebuilt.transactions.is_empty(),
+        "recovered Sync boundary must be empty on the canonical L2"
     );
     let boundaries = signals
         .into_iter()

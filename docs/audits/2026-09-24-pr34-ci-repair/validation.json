@@ -1,0 +1,149 @@
+{
+  "recorded_at": "2026-09-24T07:29:02.023786+00:00",
+  "baseline": "f688387f54e6c26afbccc43b0d21480b37a1d07c",
+  "protocol": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+  "baseline_ci_run": 35925811402,
+  "toolchain": {
+    "rust": "1.94.0",
+    "foundry": "1.7.1",
+    "container": "sha256:7335715efd8b672d267ecc2e8a9fc11c449e35413b1a98ee26ba06065f9aab86",
+    "memory_gib": 16,
+    "cpus": 4,
+    "cargo_jobs": 2
+  },
+  "checks_at_publication": {
+    "baseline_gnosis": "reproduced assertion failure",
+    "diagnostic_gnosis": "reproduced empty timestamp interval",
+    "canonical_mixed_verifier": {
+      "baseline_failed": 2,
+      "candidate_passed": 2
+    },
+    "canonical_lookup_traces": {
+      "baseline_failed": 2,
+      "candidate_passed": 2
+    },
+    "tooling": {
+      "selected": 252,
+      "passed": 248,
+      "skipped": 4
+    },
+    "recovery_process": "pending rebuild and execution",
+    "rust_regressions_and_clippy": "pending corrected test build",
+    "full_ci": "will run on published commit"
+  },
+  "fixtures": [
+    {
+      "path": "crates/eez-protocol/tests/fixtures/events-causal/staticReadWriteL2.json",
+      "sha256": "2c42919a453a7fbc07d73b1d233d7c63ba460f9b73172bd766aec9aa1e490611"
+    },
+    {
+      "path": "crates/eez-protocol/tests/fixtures/events-causal/staticReadX2WriteL2.json",
+      "sha256": "f34e495b8989e91ebd3fc7d243fea7bd17839550c376c781c1de3507d2532063"
+    },
+    {
+      "path": "scripts/ci/tests/fixtures/protocol-lookup/revertCounter-events-trace.json",
+      "sha256": "83a87e8e48d6ee88597ac83b0bab9570ed24952075c819815a476727c37419f5"
+    },
+    {
+      "path": "scripts/ci/tests/fixtures/protocol-lookup/topLevelStaticCounter-events-trace.json",
+      "sha256": "2d4207561def3a6fa6afc90b5d5bac4ca726cfa6d2d16ff6ffbb7419745b03f6"
+    }
+  ],
+  "retained_local_evidence": [
+    {
+      "path": "artifacts/pr34-ci-repair/protocol-tests-compile-error.exit",
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/fixed-recovery-compile-error.log",
+      "sha256": "c0d95bbc85e8f5005dc3e8c29cb74c25a5ccea9e926343bbc4175aaae76a5b68",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/diagnostic-gnosis.log",
+      "sha256": "05dd72b4d9511106bd41f326b89fe7d3cd76160babfc41069cb51fe4e60b944a",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/tooling-with-foundry.log",
+      "sha256": "94287ac3d057e4ca0aca707e1b22c2b3580c95adb0f0637b2c634c4b881c1e94",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/revertCounter-baseline-trace.log",
+      "sha256": "13adaeb434826065ab34e34a0b04ff6506bc3987e658a21ea0e108ad3a89b2ff",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/tooling-full.log",
+      "sha256": "71ce61e38f64001e3504ce733a67993c9cc264ed6ef43b3cab3f4cda2e338b64",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/fixed-recovery-compile-error.exit",
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/verifier-baseline-build.log",
+      "sha256": "24d2ec02d9492d1ca4f1f23c97373f80035e2d428f737f302af5ab759a7fe807",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/diagnostic-gnosis.exit",
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/clippy-compile-error.exit",
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/baseline-build.log",
+      "sha256": "7233f468f46e1f46e6c4ee6ab566e9b5b5fc30f5c686eac66aeb2bad17165791",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/baseline-gnosis.log",
+      "sha256": "449db2faca3daf5c24b00c1b1256adf093f2f21db73f2fdfcf1a6497ff7843bd",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/staticReadX2WriteL2-baseline.log",
+      "sha256": "34f1239d8d90a275e0eb236ec2046ee8abf88e13e037d9b9c75e12989f6cbc77",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/lookup-baseline.log",
+      "sha256": "6db09451a672097aaa07ee21759aee0498b01cd7cfaf6ae4d84836dae212a006",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/baseline-gnosis.exit",
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/clippy-compile-error.log",
+      "sha256": "d3abd56dd6163cd243c4c93932beb01fe672b4c8e487676cfaeb11a39e52b5a2",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/staticReadWriteL2-baseline.log",
+      "sha256": "34f1239d8d90a275e0eb236ec2046ee8abf88e13e037d9b9c75e12989f6cbc77",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/topLevelStaticCounter-baseline-trace.log",
+      "sha256": "13adaeb434826065ab34e34a0b04ff6506bc3987e658a21ea0e108ad3a89b2ff",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/protocol-tests-compile-error.log",
+      "sha256": "a59b800931104a15c8912b5160658b9264476d130b88622e47da7280e488be4b",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    }
+  ]
+}

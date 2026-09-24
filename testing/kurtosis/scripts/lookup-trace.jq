@@ -5,11 +5,19 @@ def lower: ascii_downcase;
 def frames: ., (.calls[]? | frames);
 select(.type == "CALL" and (.to | lower) == $source
        and (.input | lower) == $trigger_input and (.error // "") == "")
-| select(([frames | select((.to // "" | lower) == $registry)] | length) == 1)
+# The pinned proxy first reads the registry's detector gas cap, then performs
+# the lookup. Account for both exact frames; arbitrary extra registry calls
+# must not make a missing or failed lookup appear valid.
+| select(([frames | select((.to // "" | lower) == $registry)] | length) == 2)
 | [.calls[]? | select((.to // "" | lower) == $proxy and (.from | lower) == $source)]
 | if length != 1 then error("expected one direct call to the destination proxy") else .[0] end
 | [.calls[]? | select((.to // "" | lower) == $registry)]
-| if length != 1 then error("expected exactly one executed registry lookup") else .[0] end
+| if length != 2 then error("expected the gas-cap read and one executed registry lookup") else . end
+| select(.[0] | .type == "STATICCALL" and (.from | lower) == $proxy
+    and (.input | lower) == $static_check_gas_input and (.error // "") == ""
+    and (.value // "0x0") == "0x0" and (.calls // [] | length) == 0
+    and (.output | test("^0x[0-9a-fA-F]{64}$")))
+| .[1]
 | select((.from | lower) == $proxy and (.value // "0x0") == "0x0"
     and (.input | lower) == $lookup_input
     and (if $static then .type == "STATICCALL" and (.error // "") == ""
