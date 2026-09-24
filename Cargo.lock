@@ -3187,6 +3187,7 @@ dependencies = [
  "eez-payload-codec",
  "eez-protocol",
  "eez-prover",
+ "either",
  "gnosis-primitives",
  "metrics",
  "metrics-exporter-prometheus",

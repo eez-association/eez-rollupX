@@ -42,6 +42,7 @@ use super::build::{BuildError, ForkSnapshot, SyncBlockFork};
 use super::client::LocalChainClient;
 use super::reset_frame_caller_nonce;
 use super::session::{DIRECT_CALL_GAS_LIMIT, evm_err, provider_err};
+use crate::composer::gas_trace;
 
 /// The concrete local clients slot-scoped composition needs, alongside the
 /// type-erased `ChainClient` views on the wiring. `l1_entry` is the same
@@ -441,24 +442,22 @@ impl TargetExecutionSession for L1TargetSession {
         inspector.top_caller = self.posting_origin.map(|_| self.manager);
         inspector.top_gas_price = self.posting_origin.map(|_| self.posting_gas_price);
         let (return_data, gas_used, success, mut changes, inspector_error) = {
+            let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
-                inspector,
+                traced,
             );
             let result = evm.transact(tx_env).map_err(transact_err)?;
-            let inspector = evm.inspector_mut();
+            let output = result.result.output().cloned().unwrap_or_default();
+            let gas_used = result.result.tx_gas_used();
+            let success = result.result.is_success();
+            drop(evm);
             let inspector_error = inspector
                 .error
                 .take()
                 .or_else(|| inspector.inner.take_error());
-            (
-                result.result.output().cloned().unwrap_or_default(),
-                result.result.tx_gas_used(),
-                result.result.is_success(),
-                result.state,
-                inspector_error,
-            )
+            (output, gas_used, success, result.state, inspector_error)
         };
         if let Some(err) = inspector_error {
             return Err(err);
@@ -653,13 +652,14 @@ impl TargetExecutionSession for InboundL2TargetSession {
         } else {
             factory.build(dispatcher)
         };
+        let mut traced = gas_trace::maybe_trace(&mut inspector, self.fork.chain_id());
         let outcome = if req.call_mode == CallMode::Static {
-            self.fork
-                .execute_static_call_inspected(tx_env, &mut inspector)
+            self.fork.execute_static_call_inspected(tx_env, &mut traced)
         } else {
-            self.fork.execute_call_inspected(tx_env, &mut inspector)
+            self.fork.execute_call_inspected(tx_env, &mut traced)
         }
         .map_err(fork_err)?;
+        drop(traced);
         if let Some(error) = inspector.take_error() {
             return Err(error);
         }

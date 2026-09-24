@@ -17,6 +17,7 @@ pub struct ComposerSettings {
     /// the existing operator count limit, including the unset default of 50.
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
+    pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
     max_speculative_depth: u64,
 }
@@ -118,12 +119,18 @@ impl ComposerSettings {
             Err(error) => return Err(error),
         };
         let max_speculative_depth = policy.max_speculative_depth;
+        let gas_trace = super::gas_trace::Config::parse(
+            get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
+            get("EEZ_COMPOSER_GAS_TRACE_DIR")?,
+        )
+        .map_err(PolicyError::Config)?;
         Ok(Self {
             timing,
             policy,
             max_blobs_per_batch,
             max_user_txs_per_bundle,
             posting_fees,
+            gas_trace,
             emission,
             max_speculative_depth,
         })
@@ -253,5 +260,45 @@ mod tests {
         let fees = config.posting_fees;
         assert_eq!(fees.priority_override, Some(3));
         assert_eq!(fees.gas_margin_bps, 1500);
+    }
+
+    #[test]
+    fn selected_gas_trace_requires_a_hash_and_absolute_location_pair() {
+        assert!(settings(&[]).unwrap().gas_trace.is_none());
+        assert!(
+            settings(&[
+                ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", ""),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", ""),
+            ])
+            .unwrap()
+            .gas_trace
+            .is_none()
+        );
+        let hash = alloy_primitives::B256::ZERO.to_string();
+        let configured = settings(&[
+            ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", &hash),
+            ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
+        ])
+        .unwrap();
+        assert!(
+            configured
+                .gas_trace
+                .unwrap()
+                .selects(alloy_primitives::B256::ZERO)
+        );
+        for invalid in [
+            vec![("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str())],
+            vec![("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces")],
+            vec![
+                ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", "invalid"),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
+            ],
+            vec![
+                ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str()),
+                ("EEZ_COMPOSER_GAS_TRACE_DIR", "relative"),
+            ],
+        ] {
+            assert!(settings(&invalid).is_err(), "{invalid:?}");
+        }
     }
 }

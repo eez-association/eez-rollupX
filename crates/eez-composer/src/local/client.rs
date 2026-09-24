@@ -17,6 +17,7 @@ use reth_storage_api::{BlockNumReader, HeaderProvider, StateProviderBox, StatePr
 use revm::DatabaseCommit;
 use revm::context::result::EVMError;
 
+use crate::composer::gas_trace;
 use eez_evm_inspector::{OverlayChannelHandle, SessionInspectorFactory, new_overlay_channel};
 use eez_protocol::{
     ChainClient, CompositionBuilder, ExecutorError, ExecutorErrorKind, ExecutorResult,
@@ -335,11 +336,12 @@ impl LocalChainClient {
         // The source-simulation inspector dispatches every detected proxy CALL
         // through the composition builder, which records calls in preorder.
         // Attach the cache channel around each downstream dispatch.
-        let inspector = self.inspector_factory().build(dispatcher);
+        let mut inspector = self.inspector_factory().build(dispatcher);
+        let traced = gas_trace::maybe_trace(&mut inspector, evm_env.cfg_env.chain_id);
         let mut evm =
             self.provider
                 .evm_config
-                .evm_with_env_and_inspector(&mut *state, evm_env, inspector);
+                .evm_with_env_and_inspector(&mut *state, evm_env, traced);
         let (gas_used, success, changes) = match evm.transact(tx_env) {
             Ok(r) => (r.result.tx_gas_used(), r.result.is_success(), Some(r.state)),
             // The backing store is unreachable — that is the slot's problem, not
@@ -387,8 +389,8 @@ impl LocalChainClient {
                 (0, false, None)
             }
         };
-        let inspector_error = evm.inspector_mut().take_error();
         drop(evm);
+        let inspector_error = inspector.take_error();
 
         if let Some(err) = inspector_error {
             return Err(err);
@@ -540,6 +542,57 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert_eq!(result.gas_used, 21_000);
+    }
+
+    #[test]
+    fn selected_admission_source_trace_keeps_the_same_gas_result() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-admission-source-trace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let raw = signed_tx(REVERTER);
+        let config = gas_trace::Config::parse(
+            Some(alloy_primitives::keccak256(&raw).to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        let run = |record: bool| {
+            let client = fixture();
+            let slot = L1SlotState::open(&client).unwrap();
+            let (mut state, env) = slot.fork_state(&client).unwrap();
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let _scope = record.then(|| config.begin("admission_execution", B256::ZERO).unwrap());
+            client
+                .simulate_source_tx_on_with_retries(
+                    raw.clone(),
+                    &mut dispatcher,
+                    &mut state,
+                    env,
+                    false,
+                )
+                .unwrap()
+                .gas_used
+        };
+        let ordinary = run(false);
+        assert!(!directory.exists());
+        assert_eq!(run(true), ordinary);
+        let file = std::fs::read_dir(&directory)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let lines = std::fs::read_to_string(file).unwrap();
+        assert!(lines.lines().any(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value["kind"] == "step" && value["chain_id"] == 1
+        }));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

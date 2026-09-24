@@ -293,6 +293,20 @@ esac
         actual = json.loads(result.stdout)["services"]["eez-node"]["environment"]
         self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "750")
 
+    def test_selected_gas_trace_reaches_only_node(self):
+        keys = ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", "EEZ_COMPOSER_GAS_TRACE_DIR")
+        selected = {keys[0]: "0x" + "a" * 64, keys[1]: "/l2/gas-traces"}
+        for overrides in ({}, dict.fromkeys(keys, ""), selected):
+            with self.subTest(overrides=overrides):
+                result = self.render(overrides)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                node = services["eez-node"]["environment"]
+                signer = services["eez-proof-signer"]["environment"]
+                for key in keys:
+                    self.assertEqual(node[key], overrides.get(key, ""))
+                    self.assertNotIn(key, signer)
+
 
 
 if __name__ == "__main__":

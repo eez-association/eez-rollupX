@@ -62,6 +62,7 @@ mod admission;
 mod config;
 mod costs;
 mod gas;
+pub(crate) mod gas_trace;
 mod policy;
 pub use policy::{SettlementPolicyObservation, SettlementStatus};
 mod posting;
@@ -216,6 +217,9 @@ fn compose_crosschain(
     sessions: SlotSessions,
     source_state: &mut crate::local::build::DraftDb,
     source_env: reth_evm::EvmEnvFor<EthEvmConfig>,
+    source_hash: B256,
+    l1_anchor: B256,
+    gas_trace: Option<&gas_trace::Config>,
 ) -> eez_protocol::ComposerResult<(eez_protocol::Composition, SlotSessions, CompositionGas)> {
     use eez_protocol::ChainClient as _;
     use eez_protocol::composition::Rollup;
@@ -254,6 +258,17 @@ fn compose_crosschain(
 
     let mut builder =
         eez_protocol::CompositionBuilder::new(entry_rollup_id, rollups).with_sessions(sessions);
+    let _trace = gas_trace
+        .filter(|config| config.selects(source_hash))
+        .and_then(
+            |config| match config.begin("admission_execution", l1_anchor) {
+                Ok(scope) => Some(scope),
+                Err(error) => {
+                    tracing::warn!(%source_hash, %error, "cannot start selected gas trace");
+                    None
+                }
+            },
+        );
     let source = entry_client
         .simulate_source_tx_on_with_retries(
             raw_tx.to_vec(),
@@ -291,6 +306,13 @@ fn compose_crosschain(
 
     let composition = builder.finalize()?;
     let target_gas = l1_target_gas(&composition.actions);
+    if gas_trace::active() {
+        gas_trace::emit(serde_json::json!({
+            "kind": "admission_simulation_result", "source_hash": source_hash,
+            "source_gas_used": source.gas_used, "l1_target_gas": target_gas,
+            "recorded_calls": recorded_count,
+        }));
+    }
 
     tracing::info!(
         name: "composer.simulate.complete",
@@ -536,6 +558,51 @@ impl PostBatchGasBudget {
         self.companion_required_gas = required;
         true
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn trace_admission_budget(
+    config: Option<&gas_trace::Config>,
+    source_hash: B256,
+    parent: B256,
+    direction: &'static str,
+    before: PostBatchGasBudget,
+    after: PostBatchGasBudget,
+    cost: TxL1Gas,
+    source_sim_gas: u64,
+    companion_limit: u64,
+    companion_estimate: u64,
+    prior_cleanup: u64,
+    gas_gate_accepted: bool,
+) {
+    let Some(config) = config.filter(|config| config.selects(source_hash)) else {
+        return;
+    };
+    let Ok(_trace) = config
+        .begin("admission_budget", parent)
+        .inspect_err(|error| {
+            event!(Level::WARN, %source_hash, %error, "cannot write selected admission gas ledger");
+        })
+    else {
+        return;
+    };
+    gas_trace::emit(serde_json::json!({
+        "kind": "admission_budget", "source_hash": source_hash, "direction": direction,
+        "gas_gate_accepted": gas_gate_accepted, "constraint": after.rejected_constraint,
+        "projected_before": before.projected,
+        "projected_after": gas_gate_accepted.then_some(after.projected),
+        "initial_queue_cleanup": prior_cleanup,
+        "entry_count": cost.entries,
+        "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
+        "entry_discount": cost.entry_discount,
+        "calldata_gas": cost.calldata_gas,
+        "l1_target_sim_gas": cost.target_gas,
+        "source_sim_gas": source_sim_gas,
+        "companion_declared_gas": companion_limit,
+        "companion_sim_gas": companion_estimate,
+        "postbatch_planning_cap": before.cap,
+        "whole_block_cap": before.block_cap,
+    }));
 }
 
 /// What the drain can do with a pair wanting `declared` gas on a Sync block
@@ -1079,6 +1146,7 @@ struct Inner<L2: BlockReader> {
     emission: EmissionLimits,
     policy: policy::EnabledPolicy,
     posting: Arc<posting::PostingRuntime>,
+    gas_trace: Option<gas_trace::Config>,
     max_user_txs_per_bundle: Option<usize>,
     automatic_admission: HashMap<u64, std::sync::Mutex<admission::AutomaticAdmission>>,
 }
@@ -1134,6 +1202,7 @@ where
             max_blobs_per_batch: blob_cap,
             max_user_txs_per_bundle,
             posting_fees,
+            gas_trace,
             emission,
             ..
         } = settings;
@@ -1148,6 +1217,7 @@ where
             operator_gas_cap: emission.max_gas,
             operator_blob_cap: blob_cap,
             costs: std::sync::Mutex::default(),
+            gas_trace: gas_trace.clone(),
         });
         event!(name: "eez.composer.emission.limits", Level::INFO,
             max_blocks = emission.max_blocks, configured_gas_cap = emission.max_gas,
@@ -1169,6 +1239,7 @@ where
                 emission,
                 policy,
                 posting,
+                gas_trace,
                 max_user_txs_per_bundle,
             }),
         })
@@ -2609,6 +2680,9 @@ where
                 sessions,
                 state,
                 env,
+                held.hash,
+                l1_state.anchor.hash(),
+                self.inner.gas_trace.as_ref(),
             );
             match sim {
                 Ok((composition, mut sessions, gas)) => {
@@ -2872,7 +2946,22 @@ where
                         |projection| projection.cost(&l1_entries, target_gas, true, established),
                     );
                     let mut next_budget = budget;
-                    if !next_budget.try_accept(cost) {
+                    let gas_accepted = next_budget.try_accept(cost);
+                    trace_admission_budget(
+                        self.inner.gas_trace.as_ref(),
+                        held.hash,
+                        l1_state.anchor.hash(),
+                        "outbound",
+                        budget,
+                        next_budget,
+                        cost,
+                        gas.source,
+                        0,
+                        0,
+                        prior_cleanup,
+                        gas_accepted,
+                    );
+                    if !gas_accepted {
                         if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
                             admission_cut = Some("prior_queue_cleanup");
                         }
@@ -3241,6 +3330,9 @@ where
                 sessions,
                 &mut l1_fork,
                 l1_env,
+                held.hash,
+                l1_state.anchor.hash(),
+                self.inner.gas_trace.as_ref(),
             );
             match sim {
                 Ok((composition, _sessions, gas)) => {
@@ -3326,8 +3418,23 @@ where
                     let (companion_limit, companion_gas) =
                         (declared_gas_limit(&held.raw_tx), gas.source);
                     let mut next_budget = budget;
-                    if !next_budget.try_accept_with_companion(cost, companion_limit, companion_gas)
-                    {
+                    let gas_accepted =
+                        next_budget.try_accept_with_companion(cost, companion_limit, companion_gas);
+                    trace_admission_budget(
+                        self.inner.gas_trace.as_ref(),
+                        held.hash,
+                        l1_state.anchor.hash(),
+                        "inbound",
+                        budget,
+                        next_budget,
+                        cost,
+                        gas.source,
+                        companion_limit,
+                        companion_gas,
+                        prior_cleanup,
+                        gas_accepted,
+                    );
+                    if !gas_accepted {
                         if budget.blocked_by_cleanup(
                             cost,
                             companion_limit,

@@ -25,6 +25,7 @@ use eez_protocol::{
 
 use super::provider::ChainProvider;
 use super::reset_frame_caller_nonce;
+use crate::composer::gas_trace;
 
 /// Gas cap for simulated direct target calls; exhaustion is returned as an
 /// unsuccessful execution outcome.
@@ -221,7 +222,7 @@ impl LocalExecutionSession {
     /// EVM pass. The caller reads `take_error` before returning the outcome.
     fn execute_internal_with_inspector(
         &mut self,
-        inspector: eez_evm_inspector::SessionInspector<'_>,
+        mut inspector: eez_evm_inspector::SessionInspector<'_>,
         destination: &Address,
         calldata: &Bytes,
         value: &U256,
@@ -231,20 +232,19 @@ impl LocalExecutionSession {
         let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes, inspector_error) = {
+            let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
-                inspector,
+                traced,
             );
             let result = evm.transact(tx_env).map_err(evm_err)?;
-            let inspector_error = evm.inspector_mut().take_error();
-            (
-                result.result.output().cloned().unwrap_or_default(),
-                result.result.tx_gas_used(),
-                result.result.is_success(),
-                result.state,
-                inspector_error,
-            )
+            let output = result.result.output().cloned().unwrap_or_default();
+            let gas_used = result.result.tx_gas_used();
+            let success = result.result.is_success();
+            drop(evm);
+            let inspector_error = inspector.take_error();
+            (output, gas_used, success, result.state, inspector_error)
         };
         if let Some(err) = inspector_error {
             return Err(err);
@@ -273,24 +273,26 @@ impl LocalExecutionSession {
         );
         let (return_data, gas_used, success, inspector_error) =
             if let Some(factory) = self.inspector_factory.clone() {
-                let inspector = factory.build_static(dispatcher);
+                let mut inspector = factory.build_static(dispatcher);
+                let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
-                    inspector,
+                    traced,
                 );
                 let result = evm.transact(tx_env).map_err(evm_err)?;
-                (
-                    result.result.output().cloned().unwrap_or_default(),
-                    result.result.tx_gas_used(),
-                    result.result.is_success(),
-                    evm.inspector_mut().take_error(),
-                )
+                let output = result.result.output().cloned().unwrap_or_default();
+                let gas_used = result.result.tx_gas_used();
+                let success = result.result.is_success();
+                drop(evm);
+                (output, gas_used, success, inspector.take_error())
             } else {
+                let mut inspector = ForceStaticInspector;
+                let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
-                    ForceStaticInspector,
+                    traced,
                 );
                 let result = evm.transact(tx_env).map_err(evm_err)?;
                 (

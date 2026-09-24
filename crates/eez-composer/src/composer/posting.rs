@@ -34,6 +34,7 @@ use revm::{
 use tracing::{Level, event};
 
 use super::CrossChainExecCtx;
+use super::gas_trace;
 use crate::local::provider::ChainProvider;
 
 #[derive(Debug, thiserror::Error)]
@@ -58,6 +59,7 @@ pub(super) struct PostingRuntime {
     pub operator_gas_cap: u64,
     pub operator_blob_cap: Option<u64>,
     pub costs: std::sync::Mutex<super::costs::CostLedger>,
+    pub gas_trace: Option<gas_trace::Config>,
 }
 
 pub(super) struct PostingQuote {
@@ -265,6 +267,7 @@ impl PostingRuntime {
         rollup_id: u64,
         endpoint: B256,
         semantics: &[SemanticTransaction],
+        stage: &'static str,
     ) -> Result<BundleExecution, PostingError> {
         use reth_chainspec::EthChainSpec as _;
         let mut transactions = Vec::with_capacity(raw.len());
@@ -333,14 +336,36 @@ impl PostingRuntime {
             .with_database(StateProviderDatabase::new(provider))
             .with_bundle_update()
             .build();
+        let selected = self.gas_trace.as_ref().filter(|config| {
+            semantics
+                .iter()
+                .any(|semantic| config.selects(alloy_primitives::keccak256(&semantic.tx_data)))
+        });
+        let _trace =
+            selected.and_then(
+                |config| match config.begin(stage, quote.quote.sample.hash) {
+                    Ok(scope) => Some(scope),
+                    Err(error) => {
+                        event!(Level::WARN, %error, "cannot start selected final gas trace");
+                        None
+                    }
+                },
+            );
+        if gas_trace::active() {
+            gas_trace::emit(serde_json::json!({
+                "kind": "preflight_context", "endpoint": endpoint,
+                "target_timestamp": quote.attributes.timestamp,
+                "transaction_count": transactions.len(),
+            }));
+        }
         let mut inspector = EffectInspector::new(self.registry, rollup_id, semantics)?;
         let output = if let Some(config) = &self.chain.gnosis_evm_config {
             let parent = SealedHeader::new(quote.parent.clone().into(), quote.quote.sample.hash);
             let context = config
                 .context_for_next_block(&parent, quote.attributes.clone())
                 .map_err(|e| PostingError::Unavailable(e.to_string()))?;
-            let evm =
-                config.evm_with_env_and_inspector(&mut state, quote.env.clone(), &mut inspector);
+            let traced = gas_trace::maybe_trace(&mut inspector, self.ctx.l1_chain_id);
+            let evm = config.evm_with_env_and_inspector(&mut state, quote.env.clone(), traced);
             run_bundle(
                 config.create_executor(evm, context),
                 transactions,
@@ -354,8 +379,8 @@ impl PostingRuntime {
             let context = config
                 .context_for_next_block(&parent, quote.attributes.clone())
                 .map_err(|e| PostingError::Unavailable(e.to_string()))?;
-            let evm =
-                config.evm_with_env_and_inspector(&mut state, quote.env.clone(), &mut inspector);
+            let traced = gas_trace::maybe_trace(&mut inspector, self.ctx.l1_chain_id);
+            let evm = config.evm_with_env_and_inspector(&mut state, quote.env.clone(), traced);
             run_bundle(
                 config.create_executor(evm, context),
                 transactions,
@@ -365,6 +390,12 @@ impl PostingRuntime {
             )?
         };
         inspector.verify()?;
+        if gas_trace::active() {
+            gas_trace::emit(serde_json::json!({
+                "kind": "preflight_result", "gas_used": output.gas_used,
+                "gas_required": output.gas_required,
+            }));
+        }
         Ok(output)
     }
 
@@ -421,17 +452,38 @@ impl PostingRuntime {
             .map_err(|e| PostingError::Transaction(e.to_string()))
         };
         raw[0] = reprice(&raw[0], probe_gas)?;
-        let probe = self.simulate(&raw, &quote, rollup_id, endpoint, semantics)?;
+        let probe = self.simulate(
+            &raw,
+            &quote,
+            rollup_id,
+            endpoint,
+            semantics,
+            "preflight_probe",
+        )?;
         let selected_gas = self.fees.declared_gas(probe.gas_required[0], probe_gas)?;
         raw[0] = reprice(&raw[0], selected_gas)?;
-        let execution = match self.simulate(&raw, &quote, rollup_id, endpoint, semantics) {
+        let execution = match self.simulate(
+            &raw,
+            &quote,
+            rollup_id,
+            endpoint,
+            semantics,
+            "preflight_final",
+        ) {
             Ok(execution) => execution,
             Err(PostingError::Effects(_)) if selected_gas < probe_gas => {
                 // EIP-150 may need more headroom than consumed gas plus margin.
                 // The larger value was validated, but changing gas invalidates
                 // the prior simulation, so execute the exact final bytes again.
                 raw[0] = reprice(&raw[0], probe_gas)?;
-                self.simulate(&raw, &quote, rollup_id, endpoint, semantics)?
+                self.simulate(
+                    &raw,
+                    &quote,
+                    rollup_id,
+                    endpoint,
+                    semantics,
+                    "preflight_fallback",
+                )?
             }
             Err(error) => return Err(error),
         };
@@ -520,6 +572,7 @@ where
     let mut gas_required = Vec::with_capacity(transactions.len());
     let mut final_root = None;
     for (index, transaction) in transactions.into_iter().enumerate() {
+        gas_trace::set_tx_index(index);
         let result = executor
             .execute_transaction_without_commit(transaction)
             .map_err(|e| PostingError::Transaction(format!("transaction {index}: {e}")))?;
@@ -552,6 +605,13 @@ where
             }
         }
         let gas = result.result.result.gas();
+        if gas_trace::active() {
+            gas_trace::emit(serde_json::json!({
+                "kind": "transaction_result", "tx_index": index,
+                "gas_used": gas.tx_gas_used(),
+                "gas_required": gas.total_gas_spent().max(gas.floor_gas()),
+            }));
+        }
         gas_used.push(gas.tx_gas_used());
         // Refunds reduce the receipt charge, but cannot fund execution. The
         // calldata floor can also exceed execution consumption.
@@ -1050,6 +1110,77 @@ mod tests {
             run(3, 13).is_ok(),
             "a newly composed expected outcome must validate at the final fees"
         );
+    }
+
+    #[test]
+    fn selected_preflight_trace_records_storage_gas_without_changing_execution() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-preflight-trace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let trace = gas_trace::Config::parse(
+            Some(B256::ZERO.to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        let run = |record: bool| {
+            let (config, parent, attrs) = configuration(200_000);
+            let env = config.next_evm_env(&parent, &attrs).unwrap();
+            let mut code = vec![0x60, 1, 0x60, 0, 0x55]; // SSTORE(0, 1)
+            code.extend(emit_root(false));
+            let mut state = State::builder()
+                .with_database(database(code))
+                .with_bundle_update()
+                .build();
+            let context = config
+                .context_for_next_block(&SealedHeader::seal_slow(parent), attrs)
+                .unwrap();
+            let mut inspector = EffectInspector::new(REGISTRY, 1, &[]).unwrap();
+            let _scope = record.then(|| trace.begin("preflight_final", B256::ZERO).unwrap());
+            let traced = gas_trace::maybe_trace(&mut inspector, 1);
+            let evm = config.evm_with_env_and_inspector(&mut state, env, traced);
+            let execution = run_bundle(
+                config.create_executor(evm, context),
+                vec![tx(0, REGISTRY, 120_000, Bytes::new())],
+                REGISTRY,
+                1,
+                ENDPOINT,
+            )
+            .unwrap();
+            inspector.verify().unwrap();
+            (execution.gas_used[0], execution.gas_required[0])
+        };
+        let ordinary = run(false);
+        assert!(!directory.exists(), "ordinary execution wrote a gas trace");
+        let selected = run(true);
+        assert_eq!(ordinary, selected);
+        let files = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        let values = std::fs::read_to_string(&files[0])
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(values.iter().any(|value| {
+            value["kind"] == "step"
+                && value["op"] == 0x55
+                && value["gas_cost"].as_u64().is_some_and(|gas| gas > 0)
+                && value["storage_key"] == "0x0"
+        }));
+        assert!(values.iter().any(|value| {
+            value["kind"] == "transaction_result"
+                && value["gas_used"] == ordinary.0
+                && value["gas_required"] == ordinary.1
+        }));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     fn static_call_database(returned: u8) -> InMemoryDB {
