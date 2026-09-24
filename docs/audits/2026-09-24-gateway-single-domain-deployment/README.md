@@ -11,7 +11,7 @@
 
 ## Findings
 
-The earlier public `/dashboard/` path returned 404. The live gateway now uses one
+Before cutover, public `/dashboard/` returned 404 and `/monitor/` returned 502. The live gateway now uses one
 `PUBLIC_DOMAIN=eez.dev`. `/` redirects to `/dashboard/`; dashboard, monitor,
 Blockscout, Blobscan, Grafana, and Prometheus are served at their documented
 paths. RPC, Composer, and WebSocket routes retain the exact L1/L2 paths, and
@@ -91,3 +91,25 @@ of in-memory Composer requests after a separate node restart.
 | Authenticated Prometheus browser flow | 401 confirms protection, not a successful authorized login | An operator with the existing credentials should open `/prometheus/` |
 | Independent off-host reachability | Host public-DNS requests and local Chromium do not cover every client network | Confirm from a separate external connection |
 | Explorer semantic/data-download checks | Landing pages and APIs do not prove archive completeness | Run the explorer runbook's canonical verification and browser data-download checks when needed |
+
+## PR simplification follow-up (2026-09-24)
+
+At RollupX commit `cc7c2f4`, removed the patch to Blockscout's `nextjs/rewrites.js`:
+Next.js already adds `basePath` to those rules. The deployed E2 image's
+`.next/routes-manifest.json` showed `/explorer/explorer/node-api/:slug*`, and
+`GET /explorer/node-api/media-type?url=invalid` directly against its frontend
+returned 404. This route was not covered by the original landing/API checks.
+
+Rebuilt with `bash deploy/explorers/build-blockscout-frontend-paths.sh` at the
+same upstream pin. Image
+`sha256:31d4274c07398db072e9ea4eae97259fcde759f42d6de9fd6d72150ee5e70508`
+passed the production build. In a disposable container with `--network none`,
+asserted that both rewrite sources contain exactly one `/explorer` prefix and
+repeated the same request: HTTP 200 with `{}`, the handler's expected response
+for an invalid media URL. No backend or external fetch was needed.
+
+The corrected image was built locally, **not deployed** by this follow-up.
+The existing mutable path image tag now names it; running containers retain
+the E2 image until recreated. Full browser and backend checks were not repeated
+for this narrow rewrite correction. Build output is local only at
+`/tmp/blockscout-simplify-build.log`; the disposable check container was removed.

@@ -38,24 +38,9 @@ The old subdomains remained valid until the cutover; no private `.env`, enabled 
 
 Validate Caddy with every optional path template in an isolated no-network container, then exercise the path router against synthetic upstreams. Build the dashboard and both pinned explorer frontends. Check generated HTML assets and browser deep links, API calls, and WebSocket URLs. Validate Grafana and Prometheus path settings against disposable instances or the prepared deployment; do not infer readiness from Caddy syntax alone. Run the fork's explorer configuration and relevant browser checks before cutover. A live cutover needs a separate prepared operation and post-cutover checks.
 
-## Implementation and follow-up
+## Implementation evidence
 
-Implementation was prepared in isolated worktrees. On 2026-09-24, the path-aware dashboard, Blockscout frontend, and Chiado
-Blobscan web images built with distinct tags. The Blobscan build passed its
-existing Chiado profile and blob-proxy checks. A no-network Caddy configuration
-with every optional path enabled validated, and a synthetic upstream confirmed
-prefix stripping/preservation, exact network routes, Prometheus authentication,
-404 fallback, and Beacon POST rejection. Isolated HTTP checks confirmed the
-dashboard and monitor HTML, prefixed Next.js assets, Blockscout's `/explorer`
-landing route, and Blobscan's `/blobscan` landing and favicon routes. A
-disposable Chromium check rendered dashboard, monitor, and Blobscan through
-the gateway. These checks used synthetic settings and no live backend.
-
-The public monitor endpoint returned 502 before deployment. The
-[2026-09-24 deployment record](../audits/2026-09-24-gateway-single-domain-deployment/README.md)
-supersedes that observation with a live 200 response and a same-origin WebSocket
-101. It records live path, asset, RPC, Composer, Beacon, and TLS checks, plus
-remaining authentication and independent external-network limits. The gateway
-and frontend image changes were applied together because their old and new
-path assumptions are incompatible. The proposal remains a draft until the
+The [2026-09-24 deployment record](../audits/2026-09-24-gateway-single-domain-deployment/README.md)
+records the builds, isolated checks, coordinated live cutover, image identities,
+and remaining verification limits. The proposal remains a draft until the
 branches are reviewed and merged.
