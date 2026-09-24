@@ -163,20 +163,6 @@ index 837f0c2..7c80ebb 100644
    font-display: swap;
  }
 \ No newline at end of file
-diff --git a/nextjs/rewrites.js b/nextjs/rewrites.js
-index f779a07..62285c6 100644
---- a/nextjs/rewrites.js
-+++ b/nextjs/rewrites.js
-@@ -1,7 +1,7 @@
- async function rewrites() {
-   return [
--    { source: '/node-api/proxy/:slug*', destination: '/api/proxy' },
--    { source: '/node-api/:slug*', destination: '/api/:slug*' },
-+    { source: '/explorer/node-api/proxy/:slug*', destination: '/api/proxy' },
-+    { source: '/explorer/node-api/:slug*', destination: '/api/:slug*' },
-   ].filter(Boolean);
- }
- 
 diff --git a/pages/_document.tsx b/pages/_document.tsx
 index 9811cf9..4ac1f60 100644
 --- a/pages/_document.tsx
