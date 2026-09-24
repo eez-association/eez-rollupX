@@ -2367,13 +2367,15 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .ok_or_else(|| anyhow::anyhow!("missing L2 tip during RPC outage"))?
             .header
             .timestamp;
-        let l1_timestamp = l1
+        let l1_tip = l1
             .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("missing L1 tip during RPC outage"))?
-            .header
-            .timestamp;
-        Ok((l1_timestamp >= l2_timestamp + gap_seconds).then_some((l2_timestamp, l1_timestamp)))
+            .ok_or_else(|| anyhow::anyhow!("missing L1 tip during RPC outage"))?;
+        let l1_timestamp = l1_tip.header.timestamp;
+        Ok(
+            (l1_tip.header.number >= l1_before + 2 && l1_timestamp >= l2_timestamp + gap_seconds)
+                .then_some((l2_timestamp, l1_timestamp)),
+        )
     })
     .await
     .unwrap_or_else(|error| {
@@ -2612,12 +2614,48 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         (2..=max_blobs).contains(&maximum_posted),
         "the burst must exercise multi-blob posting within the configured cap"
     );
-    assert!(world.node.signals_since(0).unwrap().iter().any(|event| {
-        event.name == "eez.submitter.policy.target_selected"
-            && event.fields["preparation_ms"]
-                .as_u64()
-                .is_some_and(|ms| ms > milliseconds("EEZ_PROOF_TIME_MS"))
-    }));
+    let signals = world.node.signals_since(0).unwrap();
+    assert!(
+        signals.iter().any(|event| {
+            event.name == "eez.composer.settlement.preparation_time"
+                && event.fields["blob_count"]
+                    .as_u64()
+                    .is_some_and(|count| count >= 2)
+                && event.fields["preparation_ms"].as_u64().is_some()
+        }),
+        "multi-blob preparation must record a timing sample"
+    );
+    // An exact target that still fits is retained, so this workload need not
+    // request a new policy target AFTER collecting preparation samples. Check
+    // every actual selection's budget and deadline, without requiring a slow
+    // preparation or incidental retarget. Controlled policy/submitter unit
+    // tests cover the added reserve and slot choice with injected durations.
+    let selections = signals
+        .iter()
+        .filter(|event| event.name == "eez.submitter.policy.target_selected")
+        .collect::<Vec<_>>();
+    assert!(
+        !selections.is_empty(),
+        "recovery must select a usable policy target"
+    );
+    for event in selections {
+        let value = |key: &str| event.fields[key].as_u64().unwrap();
+        let preparation_ms = value("preparation_ms");
+        assert!(preparation_ms >= milliseconds("EEZ_PROOF_TIME_MS"));
+        assert_eq!(
+            value("head_number") + value("block_offset"),
+            value("target_block")
+        );
+        assert_eq!(
+            value("head_timestamp") * 1000
+                + value("block_offset") * milliseconds("EEZ_L1_BLOCK_TIME_MS"),
+            value("target_timestamp") * 1000
+        );
+        assert!(
+            value("selected_at_ms") + preparation_ms + value("submission_slack_ms")
+                < value("target_timestamp") * 1000
+        );
+    }
     assert_eq!(
         world
             .node

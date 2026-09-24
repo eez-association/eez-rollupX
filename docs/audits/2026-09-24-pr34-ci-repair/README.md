@@ -36,6 +36,22 @@
    follower replay, and a subsequent cross-chain request. The timeout is still
    bounded; no Composer timeout or retry policy was relaxed.
 
+4. Once recovery progressed, the first candidate passed Ethereum and reached
+   settlement, follower replay, and the follow-up cross-chain call on Gnosis,
+   then failed an older incidental retarget assertion. Gnosis recorded four
+   101–104 ms preparation samples, but all `policy.target_selected` events
+   preceded them: later exact targets still fit and required no retarget.
+   Requiring a subsequently enlarged budget in that event was therefore not a
+   valid workload invariant. The final test checks that multi-blob preparation
+   records a sample, and that every actual selection reserves at least the
+   configured proof budget, stays on the correct L1 slot/height, and leaves
+   strictly enough preparation and submission time. Existing controlled tests
+   `measured_preparation_reserves_time_without_changing_proof_or_network_budgets`
+   and `policy_target_uses_the_first_slot_with_a_complete_preparation_budget`
+   cover reserve calculation and slot choice using injected durations. The
+   final process check is rerun on both profiles; this intermediate Gnosis
+   failure is retained rather than described as a passing recovery test.
+
 The pinned `STATIC_ENTRY.md` still describes top-level L2 selection as hash-only.
 Its implementation (`EEZL2.sol`, `staticCrossChainCall`) checks both the hash and
 `expectedEntryIndex`; the fork's accepted events integration already accounts

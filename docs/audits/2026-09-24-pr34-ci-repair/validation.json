@@ -144,6 +144,38 @@
       "path": "artifacts/pr34-ci-repair/protocol-tests-compile-error.log",
       "sha256": "a59b800931104a15c8912b5160658b9264476d130b88622e47da7280e488be4b",
       "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/first-recovery-candidate.log",
+      "sha256": "d824155376b64218610cea4a21063a237ff9479e1b5e29de34cb9daafbbf8c98",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/protocol-tests.log",
+      "sha256": "c6c0fac604b9f21d8cfec1c02c4c6cd17ffc10c2d3c81c960f0539d7baf116e9",
+      "availability": "local-only ignored artifact, no retention guarantee"
+    },
+    {
+      "path": "artifacts/pr34-ci-repair/clippy.log",
+      "sha256": "71ce2f4fa2302bcc2361a178f957b7b7b3e5060536bf297bbcf96b5ed3395132",
+      "availability": "local-only ignored artifact, no retention guarantee"
     }
-  ]
+  ],
+  "followup_recorded_at": "2026-09-24T07:40:06.899217+00:00",
+  "first_candidate": "8dc38aaa2524a84778bf04cd61db564c7a88ca01",
+  "first_candidate_ci_run": 35969880939,
+  "first_candidate_results": {
+    "recovery_process": {
+      "ethereum": "passed",
+      "gnosis": "passed recovery/settlement/replay; failed incidental retarget assertion"
+    },
+    "protocol_codec_and_causal": {
+      "passed": 235,
+      "failed": 0
+    },
+    "workspace_all_targets_clippy": "passed",
+    "workspace_fmt": "passed",
+    "ci_lint": "passed"
+  },
+  "final_recovery_process": "pending rerun with deterministic selection assertions"
 }
