@@ -97,6 +97,17 @@ conversion, chain-name routing, exact xDAI formatting, and preservation of
 Ethereum's fork parameters. Deployment validation additionally compares live
 explorer records with canonical RPC and beacon data and checks the browser.
 
+For the single-domain path layout, the optional
+[`build-blockscout-frontend-paths.sh`](build-blockscout-frontend-paths.sh) pins
+Blockscout frontend 2.3.5 to revision
+`95feb0ba3245c67b1ced38e71a38569951add266` and applies the reviewable
+[`blockscout-frontend-paths.patch`](blockscout-frontend-paths.patch). Run
+`build-blobscan.sh --paths` to apply the
+[`blobscan-paths.patch`](blobscan-paths.patch) after the Chiado patch. It builds
+only a separately tagged web image; the existing Chiado API image remains in
+use. The path overlay and cutover checks are in the
+[operator runbook](../../docs/runbooks/explorers.md#single-domain-gateway-paths).
+
 ## Repeatable verification
 
 The [canonical-data check](verify.py) scans every L1 block from deployment

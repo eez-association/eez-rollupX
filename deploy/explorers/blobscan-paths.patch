@@ -1,0 +1,177 @@
+diff --git a/apps/web/next.config.ts b/apps/web/next.config.ts
+index e915c1b..bfc021e 100644
+--- a/apps/web/next.config.ts
++++ b/apps/web/next.config.ts
+@@ -21,7 +21,8 @@ const bundleAnalyzer = withBundleAnalyzer({
+ 
+ const config: NextConfig = {
+   reactStrictMode: true,
+   experimental: { cpus: 2 },
++  basePath: "/blobscan",
+   output: process.env.NEXT_BUILD_OUTPUT as NextConfig["output"],
+   async rewrites() {
+     /**
+diff --git a/apps/web/src/api-client.ts b/apps/web/src/api-client.ts
+index 1703c4c..6537788 100644
+--- a/apps/web/src/api-client.ts
++++ b/apps/web/src/api-client.ts
+@@ -22,11 +22,11 @@ export const api = createTRPCNext<AppRouter>({
+             (opts.direction === "down" && opts.result instanceof Error),
+         }),
+         httpLink({
+-          url: `${getBaseUrl()}/api/trpc`,
++          url: `${getBaseUrl()}/blobscan/api/trpc`,
+         }),
+         // TODO: support batching link via a conditional link so when a flag is provided it uses the batching link
+         // httpBatchLink({
+-        //   url: `${getBaseUrl()}/api/trpc`,
++        //   url: `${getBaseUrl()}/blobscan/api/trpc`,
+         // }),
+       ],
+     };
+diff --git a/apps/web/src/components/BlobscanLogo.tsx b/apps/web/src/components/BlobscanLogo.tsx
+index 72522b1..5f40067 100644
+--- a/apps/web/src/components/BlobscanLogo.tsx
++++ b/apps/web/src/components/BlobscanLogo.tsx
+@@ -7,7 +7,7 @@ export const BlobscanLogo: React.FC<{ className?: string }> = ({
+   <Link href="/">
+     <NextImage
+       className={`block dark:hidden ${className}`}
+-      src="/logo-light.svg"
++      src="/blobscan/logo-light.svg"
+       width="0"
+       height="0"
+       sizes="100vw"
+@@ -16,7 +16,7 @@ export const BlobscanLogo: React.FC<{ className?: string }> = ({
+     />
+     <NextImage
+       className={`hidden dark:block ${className}`}
+-      src="/logo-dark.svg"
++      src="/blobscan/logo-dark.svg"
+       width="0"
+       height="0"
+       sizes="100vw"
+diff --git a/apps/web/src/components/EmptyState.tsx b/apps/web/src/components/EmptyState.tsx
+index 0fb0387..79b671c 100644
+--- a/apps/web/src/components/EmptyState.tsx
++++ b/apps/web/src/components/EmptyState.tsx
+@@ -20,7 +20,7 @@ export function EmptyState({ size = "md", description }: EmptyStateProps) {
+       )}
+     >
+       <Image
+-        src="/empty.png"
++        src="/blobscan/empty.png"
+         alt="Empty Icon"
+         width={330}
+         height={150}
+diff --git a/apps/web/src/components/ErrorViews/BadRequestErrorView.tsx b/apps/web/src/components/ErrorViews/BadRequestErrorView.tsx
+index f2ad03b..e8bd89a 100644
+--- a/apps/web/src/components/ErrorViews/BadRequestErrorView.tsx
++++ b/apps/web/src/components/ErrorViews/BadRequestErrorView.tsx
+@@ -17,7 +17,7 @@ export const BadRequestErrorView: FC<BadRequestErrorViewProps> = function ({
+       code="422"
+       image={
+         <Image
+-          src="/invalid.png"
++          src="/blobscan/invalid.png"
+           alt="Unprocessable Entity"
+           width={450}
+           height={450}
+diff --git a/apps/web/src/components/ErrorViews/UnexpectedErrorView.tsx b/apps/web/src/components/ErrorViews/UnexpectedErrorView.tsx
+index bac80bb..271ffd7 100644
+--- a/apps/web/src/components/ErrorViews/UnexpectedErrorView.tsx
++++ b/apps/web/src/components/ErrorViews/UnexpectedErrorView.tsx
+@@ -6,7 +6,7 @@ export function UnexpectedErrorView() {
+   return (
+     <main className="flex h-screen w-full flex-col items-center justify-center  gap-4 sm:h-fit">
+       <Image
+-        src="/unexpected-error.png"
++        src="/blobscan/unexpected-error.png"
+         alt="Unexpected error"
+         loading="eager"
+         width={650}
+diff --git a/apps/web/src/components/FeedbackWidget/FeedbackModal.tsx b/apps/web/src/components/FeedbackWidget/FeedbackModal.tsx
+index eb379c1..a709893 100644
+--- a/apps/web/src/components/FeedbackWidget/FeedbackModal.tsx
++++ b/apps/web/src/components/FeedbackWidget/FeedbackModal.tsx
+@@ -23,7 +23,7 @@ type Feedback = {
+ };
+ 
+ async function sendFeedback(feedback: Feedback) {
+-  const res = await fetch("/api/feedback", {
++  const res = await fetch("/blobscan/api/feedback", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
+     body: JSON.stringify(feedback),
+diff --git a/apps/web/src/components/FeedbackWidget/FeedbackWidget.tsx b/apps/web/src/components/FeedbackWidget/FeedbackWidget.tsx
+index 0b11dbd..71dbec3 100644
+--- a/apps/web/src/components/FeedbackWidget/FeedbackWidget.tsx
++++ b/apps/web/src/components/FeedbackWidget/FeedbackWidget.tsx
+@@ -6,7 +6,7 @@ import { Button } from "../Button";
+ import { FeedbackModal } from "./FeedbackModal";
+ 
+ async function getEnabled(): Promise<boolean> {
+-  const request = await fetch("/api/feedback/enabled");
++  const request = await fetch("/blobscan/api/feedback/enabled");
+   return (await request.json()).enabled;
+ }
+ 
+diff --git a/apps/web/src/pages/_document.tsx b/apps/web/src/pages/_document.tsx
+index 9c21208..24a1337 100644
+--- a/apps/web/src/pages/_document.tsx
++++ b/apps/web/src/pages/_document.tsx
+@@ -17,13 +17,13 @@ export default class Document extends NextDocument<{ baseUrl: string }> {
+ 
+   render() {
+     const { baseUrl } = this.props;
+-    const ogImage = `${baseUrl}/blobscan-og.png`;
++    const ogImage = `${baseUrl}/blobscan/blobscan-og.png`;
+ 
+     return (
+       <Html lang="en" className="dark h-full">
+         <Head>
+           <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+-          <link rel="icon" href="/favicon.ico" key="favicon" />
++          <link rel="icon" href="/blobscan/favicon.ico" key="favicon" />
+           <meta
+             name="description"
+             content={DEFAULT_DESCRIPTION}
+diff --git a/apps/web/src/pages/blob/[hash].tsx b/apps/web/src/pages/blob/[hash].tsx
+index 1a9b775..f6eedf2 100644
+--- a/apps/web/src/pages/blob/[hash].tsx
++++ b/apps/web/src/pages/blob/[hash].tsx
+@@ -68,7 +68,7 @@ const Blob: NextPage = function () {
+ 
+         try {
+           const response = await fetch(
+-            `/api/blob-data?storage=${storage}&url=${encodeURIComponent(url)}`
++            `/blobscan/api/blob-data?storage=${storage}&url=${encodeURIComponent(url)}`
+           );
+ 
+           if (!response.ok) {
+diff --git a/apps/web/src/providers/Env.tsx b/apps/web/src/providers/Env.tsx
+index 3fbf02b..6410de6 100644
+--- a/apps/web/src/providers/Env.tsx
++++ b/apps/web/src/providers/Env.tsx
+@@ -18,7 +18,7 @@ export const EnvProvider: React.FC<{ children: React.ReactNode }> = ({
+   useEffect(() => {
+     const fetchEnv = async () => {
+       try {
+-        const request = await fetch("/api/env");
++        const request = await fetch("/blobscan/api/env");
+         const env = (await request.json()) as ClientEnvVars;
+ 
+         setEnv(env);
+diff --git a/apps/web/src/sentry.client.config.ts b/apps/web/src/sentry.client.config.ts
+index 47dde9d..8a88a14 100644
+--- a/apps/web/src/sentry.client.config.ts
++++ b/apps/web/src/sentry.client.config.ts
+@@ -15,7 +15,7 @@ type ClientEnvVars = z.output<typeof clientEnvVarsSchema>;
+ 
+ const initSentry = async () => {
+   try {
+-    const request = await fetch("/api/env");
++    const request = await fetch("/blobscan/api/env");
+     const env = (await request.json()) as ClientEnvVars;
+ 
+     const dns = env.PUBLIC_SENTRY_DSN_WEB;

@@ -1,0 +1,10 @@
+# Add to docker-compose.explorers.yml only after building both path images.
+# This overlay retains existing services, ports, databases, and named volumes.
+services:
+  blockscout-web:
+    image: eez-blockscout-frontend:2.3.5-paths
+  blockscout-gateway:
+    volumes:
+      - ./deploy/explorers/nginx.paths.conf:/etc/nginx/nginx.conf:ro
+  blobscan-web:
+    image: eez-blobscan-web:1.40.3-chiado-paths
