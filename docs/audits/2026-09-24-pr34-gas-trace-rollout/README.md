@@ -30,13 +30,19 @@ which is not an EVM trace.
 | `cargo +1.94.0 test --locked -p eez-control-rpc -p eez-prover-client --lib` | Unit | 6 and 30 passed respectively; the signer package has no library target in that invocation |
 | `python3 -m unittest discover -s scripts/ci/tests -p test_chiado_config.py -v` | Static/Compose rendering | 13 passed, including absent, empty, and selected trace setting propagation |
 | `python3 scripts/check-settlement-policy-config.py`; `git diff --cached --check` | Static | Passed |
+| `forge build --root contracts` | Static integration build | Passed with compiler warnings; used pinned Solidity 0.8.34 |
+| `cargo +1.94.0 test --locked -p eez-node-e2e --test dynamic_admission gnosis_automatic_mixed_wave_exceeds_twelve_and_replays -- --exact --test-threads=1` | Isolated Anvil process | 1 passed, 17 filtered out; mixed inbound/outbound wave exceeded twelve accepted requests, follower converged, and L1/L2 values and sender nonces matched. Fresh source binaries were built with prebuilt overrides cleared. |
 | Docker release image builds from PR checkout | Build | Both completed; image IDs above; build labels carry source baseline, patch SHA-256, and protocol pin |
 | `docker compose config --format json` with selected images and empty trace settings | Static | Node received both empty values; signer received neither |
 
 The first trace implementation was tested on a different fork checkout; those
 results do not validate PR 34. The PR checkout checks above provide the source
-baseline for this rollout. No three-case bridge experiment, selected live trace,
-canonical PostBatch receipt comparison, process E2E, or independent replay ran.
+baseline for this rollout. The first isolated process-test attempt was stopped
+before the test ran because its build filled a 31 GiB temporary filesystem;
+the passing run used the checkout's disk-backed target. No three-case bridge
+experiment, selected live trace, or independent canonical PostBatch gas-trace
+comparison ran. The one Gnosis process test did assert follower convergence
+and final state; it does not cover the other bridge cases.
 
 ## Operational changes
 
@@ -47,9 +53,14 @@ operator environment was saved at `/tmp/eez-pr34-env-before-20260924` with mode
 new image tags and two empty `EEZ_COMPOSER_GAS_TRACE_*` settings. Compose recreated
 only `eez-proof-signer` and `eez-node` with `--no-deps --pull never`. The existing
 datadirs, genesis, keys, contracts, deploy image, and other services were retained.
-The signer reported healthy, and node RPC answered after restart. The trace
-selector remained empty, so no diagnostic was generated. Rollback was not
-exercised; the previous node and signer image tags were both `events-820e50f`.
+The signer reported healthy, node RPC answered after restart, L2 block height
+advanced, and both containers had zero restarts in follow-up checks. The queue
+remained empty. At 08:40:23 UTC one proof attempt exceeded the configured 750 ms
+budget; Composer logged that it retained the complete range. Later logs recorded
+completed PostBatch preflight and canonical actual-cost events. This observation
+does not establish why the timeout occurred. The trace selector remained empty,
+so no diagnostic was generated. Rollback was not exercised; the previous node
+and signer image tags were both `events-820e50f`.
 
 ## Remaining acceptance work
 
