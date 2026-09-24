@@ -336,26 +336,32 @@ impl PostingRuntime {
             .with_database(StateProviderDatabase::new(provider))
             .with_bundle_update()
             .build();
-        let selected = self.gas_trace.as_ref().filter(|config| {
+        let selected = self.gas_trace.as_ref().and_then(|config| {
             semantics
                 .iter()
-                .any(|semantic| config.selects(alloy_primitives::keccak256(&semantic.tx_data)))
+                .map(|semantic| alloy_primitives::keccak256(&semantic.tx_data))
+                .find(|hash| config.selects(*hash))
+                .map(|hash| (config, hash))
         });
-        let _trace =
-            selected.and_then(
-                |config| match config.begin(stage, quote.quote.sample.hash) {
-                    Ok(scope) => Some(scope),
-                    Err(error) => {
-                        event!(Level::WARN, %error, "cannot start selected final gas trace");
-                        None
-                    }
-                },
-            );
+        let _trace = selected.and_then(|(config, hash)| {
+            match config.begin(stage, quote.quote.sample.hash, hash) {
+                Ok(scope) => Some(scope),
+                Err(error) => {
+                    event!(Level::WARN, %error, "cannot start selected final gas trace");
+                    None
+                }
+            }
+        });
         if gas_trace::active() {
+            let source_hashes = semantics
+                .iter()
+                .map(|semantic| alloy_primitives::keccak256(&semantic.tx_data))
+                .collect::<Vec<_>>();
             gas_trace::emit(serde_json::json!({
                 "kind": "preflight_context", "endpoint": endpoint,
                 "target_timestamp": quote.attributes.timestamp,
                 "transaction_count": transactions.len(),
+                "source_hashes": source_hashes,
             }));
         }
         let mut inspector = EffectInspector::new(self.registry, rollup_id, semantics)?;
@@ -1141,7 +1147,11 @@ mod tests {
                 .context_for_next_block(&SealedHeader::seal_slow(parent), attrs)
                 .unwrap();
             let mut inspector = EffectInspector::new(REGISTRY, 1, &[]).unwrap();
-            let _scope = record.then(|| trace.begin("preflight_final", B256::ZERO).unwrap());
+            let _scope = record.then(|| {
+                trace
+                    .begin("preflight_final", B256::ZERO, B256::ZERO)
+                    .unwrap()
+            });
             let traced = gas_trace::maybe_trace(&mut inspector, 1);
             let evm = config.evm_with_env_and_inspector(&mut state, env, traced);
             let execution = run_bundle(

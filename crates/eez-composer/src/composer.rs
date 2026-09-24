@@ -261,7 +261,7 @@ fn compose_crosschain(
     let _trace = gas_trace
         .filter(|config| config.selects(source_hash))
         .and_then(
-            |config| match config.begin("admission_execution", l1_anchor) {
+            |config| match config.begin("admission_execution", l1_anchor, source_hash) {
                 Ok(scope) => Some(scope),
                 Err(error) => {
                     tracing::warn!(%source_hash, %error, "cannot start selected gas trace");
@@ -579,7 +579,7 @@ fn trace_admission_budget(
         return;
     };
     let Ok(_trace) = config
-        .begin("admission_budget", parent)
+        .begin("admission_budget", parent, source_hash)
         .inspect_err(|error| {
             event!(Level::WARN, %source_hash, %error, "cannot write selected admission gas ledger");
         })

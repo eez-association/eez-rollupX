@@ -566,7 +566,15 @@ mod tests {
             let slot = L1SlotState::open(&client).unwrap();
             let (mut state, env) = slot.fork_state(&client).unwrap();
             let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
-            let _scope = record.then(|| config.begin("admission_execution", B256::ZERO).unwrap());
+            let _scope = record.then(|| {
+                config
+                    .begin(
+                        "admission_execution",
+                        B256::ZERO,
+                        alloy_primitives::keccak256(&raw),
+                    )
+                    .unwrap()
+            });
             client
                 .simulate_source_tx_on_with_retries(
                     raw.clone(),

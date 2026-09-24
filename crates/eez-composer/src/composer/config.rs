@@ -286,6 +286,17 @@ mod tests {
                 .unwrap()
                 .selects(alloy_primitives::B256::ZERO)
         );
+        let second = alloy_primitives::B256::with_last_byte(1);
+        let selected = format!("{},{}", alloy_primitives::B256::ZERO, second);
+        let both = settings(&[
+            ("EEZ_COMPOSER_GAS_TRACE_TX_HASH", &selected),
+            ("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces"),
+        ])
+        .unwrap()
+        .gas_trace
+        .unwrap();
+        assert!(both.selects(alloy_primitives::B256::ZERO));
+        assert!(both.selects(second));
         for invalid in [
             vec![("EEZ_COMPOSER_GAS_TRACE_TX_HASH", hash.as_str())],
             vec![("EEZ_COMPOSER_GAS_TRACE_DIR", "/tmp/gas-traces")],

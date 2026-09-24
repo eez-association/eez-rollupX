@@ -1,8 +1,8 @@
-# Composer gas traces for one cross-chain source
+# Composer gas traces for selected cross-chain sources
 
 This diagnostic records the admission calculation and local EVM execution for
-one **already signed** cross-chain source transaction. It is off by default.
-The source transaction hash is the selector; the Composer still decides whether
+one or two **already signed** cross-chain source transactions. It is off by default.
+The source transaction hashes are the selectors; the Composer still decides whether
 and when that source is eligible. This procedure does not send a transaction,
 restart a service, or change admission limits by itself.
 It changes no wire, proof, or chain storage format. A previous Composer binary
@@ -17,18 +17,19 @@ Use a matching source revision and protocol pin. In the Composer's environment,
 set both values before starting it:
 
 ```text
-EEZ_COMPOSER_GAS_TRACE_TX_HASH=0x<64 hex digits of the signed source tx hash>
+EEZ_COMPOSER_GAS_TRACE_TX_HASH=0x<64 hex digits>[,0x<64 hex digits>]
 EEZ_COMPOSER_GAS_TRACE_DIR=/l2/gas-traces
 ```
 
 For the Chiado Compose profile, `/l2` is the existing `L2_DATA_DIR` mount. The
 directory must be writable by the node. A bare process may use any absolute
 directory it owns. Both absent or both empty disable tracing; one value without
-the other, a malformed hash, or a relative directory fails startup. Compose
+the other, a malformed or duplicate hash, more than two hashes, or a relative
+directory fails startup. Compose
 reads `.env` at startup, so changing it requires the normal documented restart
 procedure. Preserve the existing operator `.env`, image identity, and datadirs.
 
-Only the selected source creates trace files. New directories use mode `0700`
+Only selected sources create trace files. New directories use mode `0700`
 and each JSON Lines file uses mode `0600`. Filenames include the selected hash,
 phase, process ID, timestamp, and a sequence number. Files remain in the
 configured directory until the operator removes them. Each EVM trace stops
@@ -53,10 +54,10 @@ for normal operation.
 
 ## Compare the three bridge cases
 
-Use three independently selected signed sources: inbound, outbound, and a
-mixed inbound/outbound candidate in one Sync block. The mixed case requires
-selecting one of its signed source hashes; its preflight trace includes the
-whole bundle. Existing process coverage includes
+Use three cases: inbound, outbound, and a mixed inbound/outbound pair in one
+Sync block. Select both signed source hashes for the mixed case. This records
+each source's admission separately and the whole final bundle once. The
+preflight context lists all bundle source hashes. Existing process coverage includes
 [`mixed_direction_state_chain_in_one_slot`](../../crates/eez-node-e2e/tests/chained_interstate.rs)
 and single-direction cases in
 [`cross_chain`](../../crates/eez-node-e2e/tests/cross_chain.rs). These tests do

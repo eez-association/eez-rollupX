@@ -32,7 +32,7 @@ thread_local! {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
-    selected_tx: B256,
+    selected_txs: Vec<B256>,
     directory: PathBuf,
 }
 
@@ -49,29 +49,49 @@ impl Config {
                 "EEZ_COMPOSER_GAS_TRACE_TX_HASH and EEZ_COMPOSER_GAS_TRACE_DIR must be set together".into(),
             ),
             (Some(hash), Some(directory)) => {
-                if !hash.starts_with("0x") || hash.len() != 66 {
-                    return Err(
-                        "EEZ_COMPOSER_GAS_TRACE_TX_HASH must be a 0x-prefixed 32-byte hash"
-                            .into(),
-                    );
+                let hashes = hash.split(',').collect::<Vec<_>>();
+                if hashes.len() > 2 {
+                    return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH accepts at most two hashes".into());
                 }
-                let selected_tx = hash.parse::<B256>().map_err(|_| {
-                    "EEZ_COMPOSER_GAS_TRACE_TX_HASH must be a 0x-prefixed 32-byte hash".to_owned()
-                })?;
+                let selected_txs = hashes
+                    .into_iter()
+                    .map(|hash| {
+                        if !hash.starts_with("0x") || hash.len() != 66 {
+                            return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned());
+                        }
+                        hash.parse::<B256>().map_err(|_| {
+                            "EEZ_COMPOSER_GAS_TRACE_TX_HASH must contain 0x-prefixed 32-byte hashes".to_owned()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if selected_txs.len() == 2 && selected_txs[0] == selected_txs[1] {
+                    return Err("EEZ_COMPOSER_GAS_TRACE_TX_HASH contains a duplicate hash".into());
+                }
                 let directory = PathBuf::from(directory);
                 if !directory.is_absolute() {
                     return Err("EEZ_COMPOSER_GAS_TRACE_DIR must be absolute".into());
                 }
-                Ok(Some(Self { selected_tx, directory }))
+                Ok(Some(Self { selected_txs, directory }))
             }
         }
     }
 
     pub(super) fn selects(&self, hash: B256) -> bool {
-        self.selected_tx == hash
+        self.selected_txs.contains(&hash)
     }
 
-    pub(crate) fn begin(&self, phase: &'static str, parent: B256) -> std::io::Result<Scope> {
+    pub(crate) fn begin(
+        &self,
+        phase: &'static str,
+        parent: B256,
+        selected_source_tx: B256,
+    ) -> std::io::Result<Scope> {
+        if !self.selects(selected_source_tx) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "gas trace source is not selected",
+            ));
+        }
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
@@ -83,7 +103,7 @@ impl Config {
             .as_nanos();
         let filename = format!(
             "{}-{phase}-{}-{started_unix_nanos}-{sequence}.jsonl",
-            self.selected_tx,
+            selected_source_tx,
             std::process::id()
         );
         let path = self.directory.join(filename);
@@ -103,7 +123,8 @@ impl Config {
         let previous = ACTIVE.with(|active| active.replace(Some(sink)));
         emit(json!({
             "kind": "header", "version": 1, "phase": phase,
-            "selected_source_tx": self.selected_tx, "parent": parent,
+            "selected_source_tx": selected_source_tx,
+            "configured_source_txs": self.selected_txs, "parent": parent,
             "started_unix_nanos": started_unix_nanos.to_string(),
         }));
         Ok(Scope {
@@ -293,6 +314,36 @@ mod tests {
         assert!(Config::parse(Some("bad".into()), Some("/tmp/traces".into())).is_err());
         assert!(Config::parse(Some(B256::ZERO.to_string()), Some("relative".into())).is_err());
         assert!(Config::parse(Some(B256::ZERO.to_string()), Some("/tmp/traces".into())).is_ok());
+        let second = B256::with_last_byte(1);
+        let both = Config::parse(
+            Some(format!("{},{}", B256::ZERO, second)),
+            Some("/tmp/traces".into()),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(both.selects(B256::ZERO));
+        assert!(both.selects(second));
+        assert!(
+            Config::parse(
+                Some(format!("{0},{0}", B256::ZERO)),
+                Some("/tmp/traces".into())
+            )
+            .is_err()
+        );
+        assert!(
+            Config::parse(
+                Some(format!("{0},{0},{0}", B256::ZERO)),
+                Some("/tmp/traces".into())
+            )
+            .is_err()
+        );
+        assert!(
+            Config::parse(
+                Some(format!("{},bad", B256::ZERO)),
+                Some("/tmp/traces".into())
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -314,7 +365,9 @@ mod tests {
         assert!(config.selects(B256::ZERO));
         assert!(!config.selects(B256::with_last_byte(1)));
         {
-            let _scope = config.begin("admission_budget", B256::ZERO).unwrap();
+            let _scope = config
+                .begin("admission_budget", B256::ZERO, B256::ZERO)
+                .unwrap();
             emit(json!({"kind": "admission_budget", "projected_before": 12}));
         }
         let paths = std::fs::read_dir(&directory)
@@ -339,6 +392,55 @@ mod tests {
         assert_eq!(values[0]["kind"], "header");
         assert_eq!(values[1]["projected_before"], 12);
         assert_eq!(values[2]["kind"], "end");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn second_selected_source_has_its_own_admission_identity() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-gas-trace-pair-{}-{}",
+            std::process::id(),
+            FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let second = B256::with_last_byte(1);
+        let config = Config::parse(
+            Some(format!("{},{}", B256::ZERO, second)),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            config
+                .begin("admission_execution", B256::ZERO, B256::with_last_byte(2))
+                .is_err()
+        );
+        {
+            let _scope = config
+                .begin("admission_execution", B256::ZERO, second)
+                .unwrap();
+        }
+        let file = std::fs::read_dir(&directory)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(
+            file.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&second.to_string())
+        );
+        let header: Value = serde_json::from_str(
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(header["selected_source_tx"], second.to_string());
+        assert_eq!(header["configured_source_txs"].as_array().unwrap().len(), 2);
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
