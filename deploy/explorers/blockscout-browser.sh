@@ -10,6 +10,9 @@ Object.assign(window.__envs, {
   NEXT_PUBLIC_API_PROTOCOL: window.location.protocol.slice(0, -1),
   NEXT_PUBLIC_API_HOST: window.location.hostname,
   NEXT_PUBLIC_API_PORT: window.location.port,
+  // The path image keeps SSR on the root-path backend; only browser API and
+  // WebSocket calls use the public /explorer prefix.
+  NEXT_PUBLIC_API_BASE_PATH: window.location.pathname === "/explorer" || window.location.pathname.startsWith("/explorer/") ? "/explorer" : "",
   NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: window.location.protocol === "https:" ? "wss" : "ws",
   NEXT_PUBLIC_USE_NEXT_JS_PROXY: "false"
 });

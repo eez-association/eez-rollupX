@@ -1,0 +1,465 @@
+diff --git a/configs/app/meta.ts b/configs/app/meta.ts
+index 87f6405..35ff070 100644
+--- a/configs/app/meta.ts
++++ b/configs/app/meta.ts
+@@ -1,7 +1,7 @@
+ import app from './app';
+ import { getEnvValue, getExternalAssetFilePath } from './utils';
+ 
+-const defaultImageUrl = '/static/og_image.png';
++const defaultImageUrl = '/explorer/static/og_image.png';
+ 
+ const meta = Object.freeze({
+   promoteBlockscoutInTitle: getEnvValue('NEXT_PUBLIC_PROMOTE_BLOCKSCOUT_IN_TITLE') === 'false' ? false : true,
+diff --git a/configs/app/utils.ts b/configs/app/utils.ts
+index 3389a43..d20b8fd 100644
+--- a/configs/app/utils.ts
++++ b/configs/app/utils.ts
+@@ -44,7 +44,7 @@ export const buildExternalAssetFilePath = (name: string, value: string) => {
+     if (!fileExtension) {
+       throw new Error('Cannot get file path');
+     }
+-    return `/assets/configs/${ fileName }.${ fileExtension }`;
++    return `/explorer/assets/configs/${ fileName }.${ fileExtension }`;
+   } catch (error) {
+     return;
+   }
+diff --git a/configs/multichain/config.edge.ts b/configs/multichain/config.edge.ts
+index dbc9705..0ff160f 100644
+--- a/configs/multichain/config.edge.ts
++++ b/configs/multichain/config.edge.ts
+@@ -20,7 +20,7 @@ async function fetchConfig() {
+     `http://${ process.env.HOSTNAME }:${ config.app.port || 3000 }` :
+     config.app.baseUrl;
+ 
+-  const url = baseUrl + '/assets/multichain/config.json';
++  const url = baseUrl + '/explorer/assets/multichain/config.json';
+   const response = await fetch(url);
+   const json = await response.json();
+ 
+diff --git a/lib/api/buildUrl.ts b/lib/api/buildUrl.ts
+index 9199519..d6c3e7f 100644
+--- a/lib/api/buildUrl.ts
++++ b/lib/api/buildUrl.ts
+@@ -18,7 +18,7 @@ export default function buildUrl<R extends ResourceName>(
+   const { api, resource } = getResourceParams(resourceFullName, chain);
+   const baseUrl = !noProxy && isNeedProxy() ? config.app.baseUrl : api.endpoint;
+   const basePath = api.basePath ?? '';
+-  const path = !noProxy && isNeedProxy() ? '/node-api/proxy' + basePath + resource.path : basePath + resource.path;
++  const path = !noProxy && isNeedProxy() ? '/explorer/node-api/proxy' + basePath + resource.path : basePath + resource.path;
+   const url = new URL(compile(path)(pathParams), baseUrl);
+ 
+   queryParams && Object.entries(queryParams).forEach(([ key, value ]) => {
+diff --git a/lib/hooks/useGetCsrfToken.tsx b/lib/hooks/useGetCsrfToken.tsx
+index db3c74b..5acbf8d 100644
+--- a/lib/hooks/useGetCsrfToken.tsx
++++ b/lib/hooks/useGetCsrfToken.tsx
+@@ -31,7 +31,7 @@ export default function useGetCsrfToken() {
+         return { token: csrfFromHeader };
+       }
+ 
+-      return nodeApiFetch('/node-api/csrf');
++      return nodeApiFetch('/explorer/node-api/csrf');
+     },
+     enabled: Boolean(cookies.get(cookies.NAMES.API_TOKEN)),
+   });
+diff --git a/lib/pools/getPoolLinks.ts b/lib/pools/getPoolLinks.ts
+index 19d738f..7413cd3 100644
+--- a/lib/pools/getPoolLinks.ts
++++ b/lib/pools/getPoolLinks.ts
+@@ -14,7 +14,7 @@ export default function getPoolLinks(pool?: Pool): Array<PoolLink> {
+   return [
+     {
+       url: pool.coin_gecko_terminal_url,
+-      image: '/static/gecko_terminal.png',
++      image: '/explorer/static/gecko_terminal.png',
+       title: 'GeckoTerminal',
+     },
+   ].filter(link => Boolean(link.url));
+diff --git a/lib/settings/identIcon.ts b/lib/settings/identIcon.ts
+index 1c26b6e..161aa99 100644
+--- a/lib/settings/identIcon.ts
++++ b/lib/settings/identIcon.ts
+@@ -4,26 +4,26 @@ export const IDENTICONS: Array<{ label: string; id: IdenticonType; sampleBg: str
+   {
+     label: 'GitHub',
+     id: 'github',
+-    sampleBg: 'url("/static/identicon_logos/github.png") center / contain no-repeat',
++    sampleBg: 'url("/explorer/static/identicon_logos/github.png") center / contain no-repeat',
+   },
+   {
+     label: 'Metamask jazzicon',
+     id: 'jazzicon',
+-    sampleBg: 'url("/static/identicon_logos/jazzicon.png") center / contain no-repeat',
++    sampleBg: 'url("/explorer/static/identicon_logos/jazzicon.png") center / contain no-repeat',
+   },
+   {
+     label: 'Ethereum blockies',
+     id: 'blockie',
+-    sampleBg: 'url("/static/identicon_logos/blockies.png") center / contain no-repeat',
++    sampleBg: 'url("/explorer/static/identicon_logos/blockies.png") center / contain no-repeat',
+   },
+   {
+     label: 'Gradient avatar',
+     id: 'gradient_avatar',
+-    sampleBg: 'url("/static/identicon_logos/gradient_avatar.png") center / contain no-repeat',
++    sampleBg: 'url("/explorer/static/identicon_logos/gradient_avatar.png") center / contain no-repeat',
+   },
+   {
+     label: 'Nouns',
+     id: 'nouns',
+-    sampleBg: 'url("/static/identicon_logos/nouns.svg") center / contain no-repeat',
++    sampleBg: 'url("/explorer/static/identicon_logos/nouns.svg") center / contain no-repeat',
+   },
+ ];
+diff --git a/lib/solidityScan/useFetchReport.ts b/lib/solidityScan/useFetchReport.ts
+index 4df19bc..d97d0e0 100644
+--- a/lib/solidityScan/useFetchReport.ts
++++ b/lib/solidityScan/useFetchReport.ts
+@@ -37,7 +37,7 @@ export default function useFetchReport({ hash }: Params) {
+ 
+   React.useEffect(() => {
+     if (errorMessage === ERROR_NAME) {
+-      fetch('/node-api/monitoring/invalid-api-schema', {
++      fetch('/explorer/node-api/monitoring/invalid-api-schema', {
+         method: 'POST',
+         body: JSON.stringify({
+           resource: RESOURCE_NAME,
+diff --git a/lib/xStarScore/useFetchXStarScore.ts b/lib/xStarScore/useFetchXStarScore.ts
+index 9fe773b..a3b5110 100644
+--- a/lib/xStarScore/useFetchXStarScore.ts
++++ b/lib/xStarScore/useFetchXStarScore.ts
+@@ -37,7 +37,7 @@ export default function useFetchXStarScore({ hash }: Params) {
+ 
+   React.useEffect(() => {
+     if (errorMessage === ERROR_NAME) {
+-      fetch('/node-api/monitoring/invalid-api-schema', {
++      fetch('/explorer/node-api/monitoring/invalid-api-schema', {
+         method: 'POST',
+         body: JSON.stringify({
+           resource: RESOURCE_NAME,
+diff --git a/next.config.js b/next.config.js
+index cb22f06..b73ba3f 100644
+--- a/next.config.js
++++ b/next.config.js
+@@ -18,6 +18,7 @@ const moduleExports = {
+     'swagger-ui-react',
+   ],
+   reactStrictMode: true,
++  basePath: '/explorer',
+   webpack(config) {
+     config.module.rules.push(
+       {
+diff --git a/nextjs/global.css b/nextjs/global.css
+index 837f0c2..7c80ebb 100644
+--- a/nextjs/global.css
++++ b/nextjs/global.css
+@@ -1,6 +1,6 @@
+ @font-face {
+   font-family: 'InterFallback';
+-  src: url('/static/fonts/Inter-fallback.woff2') format('woff2');
++  src: url('/explorer/static/fonts/Inter-fallback.woff2') format('woff2');
+   unicode-range: U+2192; /* Only the right arrow */
+   font-display: swap;
+ }
+\ No newline at end of file
+diff --git a/nextjs/rewrites.js b/nextjs/rewrites.js
+index f779a07..62285c6 100644
+--- a/nextjs/rewrites.js
++++ b/nextjs/rewrites.js
+@@ -1,7 +1,7 @@
+ async function rewrites() {
+   return [
+-    { source: '/node-api/proxy/:slug*', destination: '/api/proxy' },
+-    { source: '/node-api/:slug*', destination: '/api/:slug*' },
++    { source: '/explorer/node-api/proxy/:slug*', destination: '/api/proxy' },
++    { source: '/explorer/node-api/:slug*', destination: '/api/:slug*' },
+   ].filter(Boolean);
+ }
+ 
+diff --git a/pages/_document.tsx b/pages/_document.tsx
+index 9811cf9..4ac1f60 100644
+--- a/pages/_document.tsx
++++ b/pages/_document.tsx
+@@ -43,21 +43,21 @@ class MyDocument extends Document {
+           />
+ 
+           { /* eslint-disable-next-line @next/next/no-sync-scripts */ }
+-          <script src="/assets/envs.js"/>
++          <script src="/explorer/assets/envs.js"/>
+           { config.features.opSuperchain.isEnabled && (
+             <>
+               { /* eslint-disable-next-line @next/next/no-sync-scripts */ }
+-              <script src="/assets/multichain/config.js"/>
++              <script src="/explorer/assets/multichain/config.js"/>
+             </>
+           ) }
+ 
+           { /* FAVICON */ }
+-          <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png"/>
+-          <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png"/>
+-          <link rel="icon" type="image/png" sizes="48x48" href="/assets/favicon/favicon-48x48.png"/>
+-          <link rel="shortcut icon" href="/assets/favicon/favicon.ico"/>
+-          <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon/apple-touch-icon-180x180.png"/>
+-          <link rel="icon" type="image/png" sizes="192x192" href="/assets/favicon/android-chrome-192x192.png"/>
++          <link rel="icon" type="image/png" sizes="16x16" href="/explorer/assets/favicon/favicon-16x16.png"/>
++          <link rel="icon" type="image/png" sizes="32x32" href="/explorer/assets/favicon/favicon-32x32.png"/>
++          <link rel="icon" type="image/png" sizes="48x48" href="/explorer/assets/favicon/favicon-48x48.png"/>
++          <link rel="shortcut icon" href="/explorer/assets/favicon/favicon.ico"/>
++          <link rel="apple-touch-icon" sizes="180x180" href="/explorer/assets/favicon/apple-touch-icon-180x180.png"/>
++          <link rel="icon" type="image/png" sizes="192x192" href="/explorer/assets/favicon/android-chrome-192x192.png"/>
+           <link rel="preload" as="image" href={ svgSprite.href }/>
+         </Head>
+         <body>
+diff --git a/toolkit/theme/globals/scrollbar.ts b/toolkit/theme/globals/scrollbar.ts
+index 1521450..b5f71ef 100644
+--- a/toolkit/theme/globals/scrollbar.ts
++++ b/toolkit/theme/globals/scrollbar.ts
+@@ -20,7 +20,7 @@ const scrollbar = {
+   },
+   'body *::-webkit-resizer': {
+     // FIXME for dark mode we need to use a different image - /static/resizer_dark.png
+-    backgroundImage: 'url(/static/resizer_light.png)',
++    backgroundImage: 'url(/explorer/static/resizer_light.png)',
+     backgroundSize: '20px',
+   },
+   'body *': {
+diff --git a/ui/address/details/AddressSaveOnGas.tsx b/ui/address/details/AddressSaveOnGas.tsx
+index 9c19b58..5c5ee3d 100644
+--- a/ui/address/details/AddressSaveOnGas.tsx
++++ b/ui/address/details/AddressSaveOnGas.tsx
+@@ -54,7 +54,7 @@ const AddressSaveOnGas = ({ gasUsed, address }: Props) => {
+ 
+   React.useEffect(() => {
+     if (feature.isEnabled && ERROR_NAME === errorMessage) {
+-      fetch('/node-api/monitoring/invalid-api-schema', {
++      fetch('/explorer/node-api/monitoring/invalid-api-schema', {
+         method: 'POST',
+         body: JSON.stringify({
+           resource: 'external:gas_hawk_saving_potential',
+@@ -78,7 +78,7 @@ const AddressSaveOnGas = ({ gasUsed, address }: Props) => {
+     <>
+       <TextSeparator/>
+       <Skeleton loading={ query.isPlaceholderData } display="flex" alignItems="center" columnGap={{ base: 1, lg: 2 }}>
+-        <Image src="/static/gas_hawk_logo.svg" w="15px" h="20px" alt="GasHawk logo"/>
++        <Image src="/explorer/static/gas_hawk_logo.svg" w="15px" h="20px" alt="GasHawk logo"/>
+         <Link href="https://www.gashawk.io?utm_source=blockscout&utm_medium=address" fontSize="sm" external>
+           Save { percent.toLocaleString(undefined, { maximumFractionDigits: 0 }) }% with GasHawk
+         </Link>
+diff --git a/ui/games/CapybaraRunner.tsx b/ui/games/CapybaraRunner.tsx
+index ad3edcc..f9f5244 100644
+--- a/ui/games/CapybaraRunner.tsx
++++ b/ui/games/CapybaraRunner.tsx
+@@ -39,13 +39,13 @@ const CapybaraRunner = () => {
+     <>
+       <Heading level="2" mt={ 12 } mb={ 2 }>Score 1000 to win a special prize!</Heading>
+       <Box mb={ 4 }>{ isMobile ? 'Tap below to start' : 'Press space to start' }</Box>
+-      <Script strategy="lazyOnload" src="/static/capibara/index.js"/>
++      <Script strategy="lazyOnload" src="/explorer/static/capibara/index.js"/>
+       <Box width={{ base: '100%', lg: '600px' }} height="300px" p="50px 0">
+         <div id="main-frame-error" className="interstitial-wrapper" style={{ marginTop: '20px' }}>
+           <div id="main-content"></div>
+           <div id="offline-resources" style={{ display: 'none' }}>
+-            <img id="offline-resources-1x" src="/static/capibara/capybaraSprite.png"/>
+-            <img id="offline-resources-2x" src="/static/capibara/capybaraSpriteX2.png"/>
++            <img id="offline-resources-1x" src="/explorer/static/capibara/capybaraSprite.png"/>
++            <img id="offline-resources-2x" src="/explorer/static/capibara/capybaraSpriteX2.png"/>
+           </div>
+         </div>
+       </Box>
+diff --git a/ui/games/Puzzle15.tsx b/ui/games/Puzzle15.tsx
+index 5da4f83..a614f33 100644
+--- a/ui/games/Puzzle15.tsx
++++ b/ui/games/Puzzle15.tsx
+@@ -81,7 +81,7 @@ const Puzzle15 = () => {
+ 
+   useEffect(() => {
+     const img = new Image();
+-    img.src = '/static/4x4-easter-game-cut.png';
++    img.src = '/explorer/static/4x4-easter-game-cut.png';
+     img.onload = () => setImage(img);
+   }, []);
+ 
+diff --git a/ui/pages/BlockCountdown.tsx b/ui/pages/BlockCountdown.tsx
+index 76b9a0e..a1cb3e1 100644
+--- a/ui/pages/BlockCountdown.tsx
++++ b/ui/pages/BlockCountdown.tsx
+@@ -91,7 +91,7 @@ const BlockCountdown = ({ hideCapybaraRunner }: Props) => {
+                 display="inline-flex"
+                 href={ createGoogleCalendarLink({ blockHeight: height, timeFromNow: Number(data.result.EstimateTimeInSec), multichainContext }) }
+               >
+-                <Image src="/static/google_calendar.svg" alt="Google calendar logo" boxSize={ 5 } mr={ 2 }/>
++                <Image src="/explorer/static/google_calendar.svg" alt="Google calendar logo" boxSize={ 5 } mr={ 2 }/>
+                 <span>Google</span>
+               </Link>
+               <Button
+@@ -105,7 +105,7 @@ const BlockCountdown = ({ hideCapybaraRunner }: Props) => {
+                 display="inline-flex"
+                 onClick={ handleAddToAppleCalClick }
+               >
+-                <Image src="/static/apple_calendar.svg" alt="Apple calendar logo" boxSize={ 5 }/>
++                <Image src="/explorer/static/apple_calendar.svg" alt="Apple calendar logo" boxSize={ 5 }/>
+                 <span>Apple</span>
+               </Button>
+             </Flex>
+diff --git a/ui/pages/Sprite.tsx b/ui/pages/Sprite.tsx
+index bfb8c9e..a5d1993 100644
+--- a/ui/pages/Sprite.tsx
++++ b/ui/pages/Sprite.tsx
+@@ -60,7 +60,7 @@ const Sprite = () => {
+   const { data, isFetching, isError } = useQuery({
+     queryKey: [ 'sprite' ],
+     queryFn: () => {
+-      return fetch<Array<IconInfo>, unknown>('/icons/registry.json');
++      return fetch<Array<IconInfo>, unknown>('/explorer/icons/registry.json');
+     },
+   });
+ 
+diff --git a/ui/rewards/dashboard/RewardsActivityPassCard.tsx b/ui/rewards/dashboard/RewardsActivityPassCard.tsx
+index ad5052f..9bde8f6 100644
+--- a/ui/rewards/dashboard/RewardsActivityPassCard.tsx
++++ b/ui/rewards/dashboard/RewardsActivityPassCard.tsx
+@@ -9,7 +9,7 @@ import { Link } from 'toolkit/chakra/link';
+ 
+ export default function RewardsActivityPassCard() {
+   const { rewardsConfigQuery } = useRewardsContext();
+-  const backgroundImage = useColorModeValue('/static/merits/cells.svg', '/static/merits/cells_dark.svg');
++  const backgroundImage = useColorModeValue('/explorer/static/merits/cells.svg', '/explorer/static/merits/cells_dark.svg');
+ 
+   const activityPassUrl = config.apis.rewards ?
+     // eslint-disable-next-line max-len
+@@ -65,7 +65,7 @@ export default function RewardsActivityPassCard() {
+           left={{ base: 'calc(50% - 134px)', md: '-8px' }}
+         />
+         <Image
+-          src="/static/merits/activity_pass.svg"
++          src="/explorer/static/merits/activity_pass.svg"
+           alt="Activity pass"
+           width="79px"
+           height="86px"
+diff --git a/ui/rewards/dashboard/tabs/ResourcesTab.tsx b/ui/rewards/dashboard/tabs/ResourcesTab.tsx
+index 73155f3..d24bd26 100644
+--- a/ui/rewards/dashboard/tabs/ResourcesTab.tsx
++++ b/ui/rewards/dashboard/tabs/ResourcesTab.tsx
+@@ -16,7 +16,7 @@ export default function ResourcesTab() {
+         title="Badges"
+         description={ `Collect limited and legendary badges by completing different Blockscout related tasks.
+           Go to the badges website to see what${ apos }s available and start your collection today.` }
+-        imageSrc="/static/merits/badges.svg"
++        imageSrc="/explorer/static/merits/badges.svg"
+         imageWidth="180px"
+         imageHeight="86px"
+         linkText="View badges"
+@@ -25,7 +25,7 @@ export default function ResourcesTab() {
+       <RewardsDashboardInfoCard
+         title="Blockscout campaigns"
+         description="Join Blockscout activities to earn bonus Merits and exclusive rewards from our partners!"
+-        imageSrc="/static/merits/campaigns.svg"
++        imageSrc="/explorer/static/merits/campaigns.svg"
+         imageWidth="180px"
+         imageHeight="76px"
+         linkText="Check campaigns"
+@@ -34,7 +34,7 @@ export default function ResourcesTab() {
+       <RewardsDashboardInfoCard
+         title="Use your Merits"
+         description="Spend your Merits to get exclusive discounts and offers across several web3 products!"
+-        imageSrc="/static/merits/offers.svg"
++        imageSrc="/explorer/static/merits/offers.svg"
+         imageWidth="180px"
+         imageHeight="86px"
+         linkText="Check offers"
+diff --git a/ui/rewards/login/steps/LoginStepContent.tsx b/ui/rewards/login/steps/LoginStepContent.tsx
+index 9d74814..d07d04b 100644
+--- a/ui/rewards/login/steps/LoginStepContent.tsx
++++ b/ui/rewards/login/steps/LoginStepContent.tsx
+@@ -115,7 +115,7 @@ const LoginStepContent = ({ goNext, closeModal, openAuthModal }: Props) => {
+   return (
+     <>
+       <Image
+-        src="/static/merits/merits_program.png"
++        src="/explorer/static/merits/merits_program.png"
+         alt="Merits program"
+         mb={ 3 }
+         fallback={ <Skeleton loading w="full" h="120px"/> }
+diff --git a/ui/shared/IconSvg.tsx b/ui/shared/IconSvg.tsx
+index bc07218..8e5f095 100644
+--- a/ui/shared/IconSvg.tsx
++++ b/ui/shared/IconSvg.tsx
+@@ -6,7 +6,7 @@ import React from 'react';
+ import config from 'configs/app';
+ import { Skeleton } from 'toolkit/chakra/skeleton';
+ 
+-export const href = config.app.spriteHash ? `/icons/sprite.${ config.app.spriteHash }.svg` : '/icons/sprite.svg';
++export const href = config.app.spriteHash ? `/explorer/icons/sprite.${ config.app.spriteHash }.svg` : '/explorer/icons/sprite.svg';
+ 
+ export { IconName };
+ 
+diff --git a/ui/shared/monaco/CodeEditor.tsx b/ui/shared/monaco/CodeEditor.tsx
+index b358cd6..d607a8c 100644
+--- a/ui/shared/monaco/CodeEditor.tsx
++++ b/ui/shared/monaco/CodeEditor.tsx
+@@ -255,7 +255,7 @@ const CodeEditor = ({ data, remappings, libraries, language, mainFile, contractN
+     },
+     '& .main-contract-glyph': {
+       zIndex: 1,
+-      background: 'url(/static/contract_star.png) no-repeat center center',
++      background: 'url(/explorer/static/contract_star.png) no-repeat center center',
+       backgroundSize: '12px',
+       cursor: 'pointer',
+     },
+diff --git a/ui/shared/nft/useNftMediaInfo.tsx b/ui/shared/nft/useNftMediaInfo.tsx
+index fc79b6c..59058fd 100644
+--- a/ui/shared/nft/useNftMediaInfo.tsx
++++ b/ui/shared/nft/useNftMediaInfo.tsx
+@@ -81,7 +81,7 @@ async function getMediaType(data: TokenInstance, field: Params['field']): Promis
+   }
+ 
+   try {
+-    const mediaTypeResourceUrl = route({ pathname: '/node-api/media-type' as StaticRoute<'/api/media-type'>['pathname'], query: { url } });
++    const mediaTypeResourceUrl = route({ pathname: '/explorer/node-api/media-type' as StaticRoute<'/api/media-type'>['pathname'], query: { url } });
+     const response = await fetch(mediaTypeResourceUrl);
+     const payload = await response.json() as { type: MediaType | undefined };
+ 
+diff --git a/ui/shared/tx/interpretation/TxInterpretation.tsx b/ui/shared/tx/interpretation/TxInterpretation.tsx
+index d27d64d..9ebded8 100644
+--- a/ui/shared/tx/interpretation/TxInterpretation.tsx
++++ b/ui/shared/tx/interpretation/TxInterpretation.tsx
+@@ -183,7 +183,7 @@ const TxInterpretationElementByType = (
+ };
+ 
+ const TxInterpretation = ({ summary, isLoading, addressDataMap, className, chainData, isNoves, ...rest }: Props) => {
+-  const novesLogoUrl = useColorModeValue('/static/noves-logo.svg', '/static/noves-logo-dark.svg');
++  const novesLogoUrl = useColorModeValue('/explorer/static/noves-logo.svg', '/explorer/static/noves-logo-dark.svg');
+   if (!summary) {
+     return null;
+   }
+diff --git a/ui/snippets/navigation/RollupStageBadge.tsx b/ui/snippets/navigation/RollupStageBadge.tsx
+index ec38f89..33b8a6c 100644
+--- a/ui/snippets/navigation/RollupStageBadge.tsx
++++ b/ui/snippets/navigation/RollupStageBadge.tsx
+@@ -33,10 +33,10 @@ const RollupStageBadge = ({ chainConfig = config, variant = 'outline', ...props
+ 
+       const src = (() => {
+         if (variant === 'filled') {
+-          return feature.stageIndex === '1' ? '/static/labels/stage-1-filled.svg' : '/static/labels/stage-2-filled.svg';
++          return feature.stageIndex === '1' ? '/explorer/static/labels/stage-1-filled.svg' : '/explorer/static/labels/stage-2-filled.svg';
+         }
+ 
+-        return feature.stageIndex === '1' ? '/static/labels/stage-1.svg' : '/static/labels/stage-2.svg';
++        return feature.stageIndex === '1' ? '/explorer/static/labels/stage-1.svg' : '/explorer/static/labels/stage-2.svg';
+       })();
+ 
+       return (
+diff --git a/ui/snippets/navigation/TestnetBadge.tsx b/ui/snippets/navigation/TestnetBadge.tsx
+index cc9613b..e56aae0 100644
+--- a/ui/snippets/navigation/TestnetBadge.tsx
++++ b/ui/snippets/navigation/TestnetBadge.tsx
+@@ -13,7 +13,7 @@ const TestnetBadge = ({ className }: Props) => {
+     return null;
+   }
+ 
+-  return <Image className={ className } src="/static/labels/testnet.svg" h="14px" w="37px" color="red.400"/>;
++  return <Image className={ className } src="/explorer/static/labels/testnet.svg" h="14px" w="37px" color="red.400"/>;
+ };
+ 
+ export default React.memo(chakra(TestnetBadge));

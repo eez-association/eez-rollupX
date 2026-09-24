@@ -102,6 +102,42 @@ Blobscan's `/blockchain-sync-state`.
 run `up` again. Simply starting a new selection does not stop the old one.
 The rollup runs independently.
 
+## Single-domain gateway paths
+
+The default images above serve the explorer frontends at `/`. For a gateway
+publishing both explorers on one hostname, build the separate path images before
+changing the running services:
+
+```bash
+bash deploy/explorers/build-blockscout-frontend-paths.sh
+bash deploy/explorers/build-blobscan.sh --paths
+docker compose --env-file .env.explorers \
+  -f docker-compose.explorers.yml -f docker-compose.explorers.paths.yml config --quiet
+```
+
+The pinned Blockscout frontend is built for `/explorer`; the pinned Chiado
+Blobscan web image is built for `/blobscan`. The overlay selects only those web
+images and the path-aware Blockscout Nginx proxy. It reuses the existing API,
+indexer, databases, ports, and volumes. Run lifecycle commands with both
+`-f` files in that order after reviewing the rendered configuration. The
+`COMPOSE_FILE` value in `.env.explorers` does not automatically append the path
+overlay when `-f` is supplied.
+
+Blockscout's canonical landing URL is `/explorer`, and Blobscan's is
+`/blobscan`; both accept prefixed assets and deep links. The public gateway
+must preserve these prefixes. Its `/explorer/api/*` and
+`/explorer/socket/*` routes reach the local Blockscout Nginx proxy, which
+removes the prefix for the backend. Keep Blobscan's archive API private.
+
+Before a live cutover, verify prefixed pages, a known deep link, browser API
+calls, Blockscout WebSocket updates, and a Blobscan data download against
+the intended images. Preserve the current root-path image tags and Compose
+selection for rollback. Recreating the web services interrupts browser
+sessions; it does not migrate or discard the explorer databases. Coordinate
+the frontend image change with the gateway and public links. See the
+[gateway proposal](../proposals/gateway-single-domain-paths.md) for the
+mixed-version boundary and validation status.
+
 | Explorer | Browser | API |
 | --- | --- | --- |
 | L2 Blockscout | http://127.0.0.1:18110 | http://127.0.0.1:18111/api/v2/ |
