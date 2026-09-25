@@ -90,3 +90,70 @@ from a fresh checkout. SHA-256 identities:
 
 These scoped checks do not claim a full release-artifact CI rerun, Kurtosis run,
 or deployment validation. No live services or operator state were modified.
+
+## Follow-up: RPC availability is not sequencing readiness
+
+[Run 36124570516](https://github.com/eduadiez/rollupX/actions/runs/36124570516),
+head `d7f699c59d2ce07d81a3e0b7163c9124d5dc7129`, passed the three original
+capacity regressions. Embedded shard 3 instead failed
+`node_fixture_ignores_parent_dotenv`: its first transaction reached RPC before
+the composer bound `SequencingDataGuard`. The pool correctly returned
+`sequencing data limits unavailable before composer readiness`.
+The base remains `f128b6d9bfba7f9edb251490f4a3a01b918c753e`; protocol pin unchanged.
+
+`NodeHandle::start_with_datadir` promises only a responding L2 RPC. In production,
+that RPC starts before guard binding, canonical catch-up, bootstrap validation
+and sequencer startup. The test now waits for height 1 before its single transfer.
+This is a fresh, unposted fixture: there is no historical block to replay, and
+the sequencer cannot produce its first block before those readiness gates.
+This condition is specific to this fixture, not a general restart-readiness API.
+No sleep, transaction retry, timeout increase or production gate change was added.
+The invalid-rollup test additionally asserts that RPC remains at height 0 after
+five L1 blocks. The shared startup helper stays usable for negative startup tests.
+
+The unmodified test passed one Cargo invocation and five additional fresh-process
+runs locally. Therefore the release-CI race was **not reproduced locally**; those
+passes do not negate its recorded failure. The original log is retained under
+`artifacts/ci-36124570516/embedded-shard-3.log`, SHA-256
+`3001b843c8f61f49a5657dd05a8ccc32086cf2b6eb98c9b51200d0e9772b56d9`.
+CI diagnostic artifacts were unavailable because the upload hit the storage quota.
+All local evidence is ignored/local-only, not available from a fresh checkout.
+
+The final CI result has no other test failures: lint, release build/unit tests,
+the other three embedded shards, all four cross-chain shards and Kurtosis
+passed. `CI Result` failed because the embedded shard failed.
+
+Local correction validation uses Rust 1.94.0, locked/offline Cargo, the shared
+root target directory, cleared prebuilt/runtime/signer overrides, rebuilt
+integration contracts and retained per-run diagnostics. The complete startup
+target passed **3/3**, including the strengthened wrong-rollup assertion:
+
+```bash
+cargo +1.94.0 test --locked --offline -p eez-node-e2e --test e2e -- --test-threads=1
+cargo +1.94.0 clippy --locked --offline --workspace --all-targets -- -D warnings
+cargo +1.94.0 fmt --all --check
+git diff --check
+```
+
+Workspace clippy, formatting and whitespace checks passed. Startup-suite log
+SHA-256: `4d3c3ea905b8473da26c639222773fce8b5b0bb688a7e06aba5ed05b7762c268`;
+clippy log: `3837f1185577b8bef2b041f8c27f6e970291c45bf5e8820893cdb167c83c9c56`.
+`fixed-identity.sha256` captures the modified test source, startup test executable,
+composer and signer after the suite; its SHA-256 is
+`efe39a6e92427b63f03cfe47007037bbb54420418aa738fa271e52ef1d005c9f`.
+
+Five additional fresh-process executions of that same test executable with
+`node_fixture_ignores_parent_dotenv --exact --test-threads=1` all passed: **5/5**,
+zero failures or ignored tests (two unrelated tests filtered per invocation).
+The shell stopped on any failure; these were repetitions, not retry-until-green.
+Each had a distinct diagnostic directory and retained the default admission
+guard. Source/executable identities still matched after all repetitions.
+`repeated-results.sha256` identifies the five logs; its SHA-256 is
+`0aacff05bd6c782abfc2ffa13b2f7a50c349de205aec783b1788fc31cbbb7994`.
+
+This removes the observed pre-binding submission race by enforcing startup
+ordering, rather than claiming statistical certainty from successful reruns.
+The corrected source has not run the full release CI matrix or been deployed.
+No production source, dependencies, protocol pin, live services or operator state
+changed. Validation was completed before committing; the user subsequently
+approved committing and pushing the correction to PR #37.

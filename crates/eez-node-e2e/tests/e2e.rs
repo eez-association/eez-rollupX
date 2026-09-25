@@ -14,7 +14,7 @@ use alloy_rpc_types_eth::BlockNumberOrTag;
 
 use eez_testkit::{
     ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeConfig, NodeHandle, send_l2_value_transfer_confirmed,
-    wait_for,
+    wait_for, wait_for_latest_height,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_mins(5);
@@ -38,6 +38,12 @@ async fn node_fixture_ignores_parent_dotenv() {
         NodeHandle::start_with_datadir("isolated-env", &datadir, &NodeConfig::default(), &env)
             .await
             .expect("node must not read parent deployment files");
+    // RPC opens before the composer binds its DA guard and validates bootstrap.
+    // This fresh chain has no history to replay: its first produced block proves
+    // sequencing is ready. Do not retry the transfer or bypass the admission gate.
+    wait_for_latest_height(&node, 1, DEFAULT_TIMEOUT)
+        .await
+        .expect("isolated fixture did not become ready to sequence");
     send_l2_value_transfer_confirmed(
         &node.l2_rpc_url(),
         ANVIL_KEY_1,
@@ -121,6 +127,12 @@ async fn failure_wrong_rollup_id() {
         .await
         .unwrap();
 
+    let l2 = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse().unwrap());
+    assert_eq!(
+        l2.get_block_number().await.unwrap(),
+        0,
+        "RPC availability must not imply sequencing readiness for an unregistered rollup"
+    );
     let snapshot = chain.snapshot().await.unwrap();
     assert_eq!(snapshot.batches_posted, 0);
     assert_eq!(snapshot.executions_performed, 0);
