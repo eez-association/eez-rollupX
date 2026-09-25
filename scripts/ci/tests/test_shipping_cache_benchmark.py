@@ -206,25 +206,31 @@ class ShippingCacheBenchmarkTest(unittest.TestCase):
         self.assertEqual(workflow.get("on", workflow.get(True)),
                          {"push": {"branches": ["test/rollupx-cache-benchmark"]}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
-        self.assertEqual(workflow["jobs"]["restore"]["needs"], "seed")
-        self.assertEqual(workflow["jobs"]["seed"]["needs"], "mutations")
-        self.assertEqual(workflow["env"]["SHIPPING_SEED_KEY"], "rollupx-shipping-probe-v1-36182979151-1")
-        key = workflow["env"]["BENCH_CACHE_KEY"]
-        self.assertIn("github.run_id", key)
-        self.assertIn("github.run_attempt", key)
+        self.assertEqual(set(workflow["jobs"]), {"correctness"})
+        self.assertEqual(workflow["env"]["TEST_SEED_KEY"], "rollupx-test-state-probe-v1-36188091462-1")
         caches = []
         for job in workflow["jobs"].values():
             self.assertEqual(job["runs-on"], "homelab-rust")
             for step in job["steps"]:
                 self.assertNotIn("docker push", step.get("run", ""))
                 if step.get("uses", "").startswith("actions/cache/"):
+                    self.assertTrue(step["uses"].startswith("actions/cache/restore@"))
                     caches.append(step["with"])
-        self.assertEqual(len(caches), 4)
-        self.assertEqual(caches[0], caches[1])
-        self.assertEqual(caches[0]["path"], "artifacts/shipping-cache/state.tar.gz")
-        self.assertEqual(caches[2]["path"], "artifacts/shipping-cache/test-state.tar.gz")
-        self.assertEqual(caches[2]["path"], caches[3]["path"])
-        self.assertEqual(caches[2]["key"], caches[3]["key"])
-        for index in (0, 1, 3):
-            self.assertTrue(caches[index]["fail-on-cache-miss"])
-            self.assertNotIn("restore-keys", caches[index])
+        self.assertEqual(len(caches), 1)
+        self.assertEqual(caches[0]["path"], "artifacts/shipping-cache/test-state.tar.gz")
+        self.assertTrue(caches[0]["fail-on-cache-miss"])
+        self.assertNotIn("restore-keys", caches[0])
+        steps = workflow["jobs"]["correctness"]["steps"]
+        commands = "\n".join(step.get("run", "") for step in steps)
+        for required in ('prepare-runtime-artifacts.sh', '--suite unit', 'export-e2e',
+                         'run-native-suite.sh embedded', 'run-native-suite.sh cross-chain',
+                         'testing/kurtosis/run-ci.sh'):
+            self.assertIn(required, commands)
+        self.assertNotIn('--partition', commands)
+        self.assertNotIn('build-runtime-artifacts.sh', commands)
+        for step in steps:
+            if 'run-native-suite.sh' in step.get('run', '') or 'run-ci.sh' in step.get('run', ''):
+                self.assertFalse(step.get('continue-on-error', False))
+            if 'run-ci.sh' in step.get('run', ''):
+                self.assertIn('github.run_id', step['env']['KURTOSIS_ENCLAVE'])
+                self.assertIn('github.run_attempt', step['env']['KURTOSIS_ENCLAVE'])

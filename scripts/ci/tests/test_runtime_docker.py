@@ -8,7 +8,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -17,11 +19,43 @@ native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 
 
-@unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
-                     "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
+@unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1" or os.environ.get("EEZ_TEST_CACHE_CANDIDATE_IMAGE"),
+                     "opt-in real Docker runtime/cached-candidate fixture")
 class RuntimeDockerTest(unittest.TestCase):
+    def cached_candidate(self, repo, root, env):
+        spec = importlib.util.spec_from_file_location("candidate", repo / "scripts/ci/rollupx-cache-candidate.py")
+        candidate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(candidate)
+        bench, follow = candidate.bench, candidate.follow
+        image = os.environ["EEZ_TEST_CACHE_CANDIDATE_IMAGE"]
+        seed = root / "seed"
+        (seed / "state/cargo").mkdir(parents=True)
+        (seed / "state/target").mkdir()
+        source = bench.stage_source(seed / "state/source")
+        # A tiny shipping seed exercises the real restore/build/seal/package path.
+        # Real combined test-cache performance is measured only on the homelab.
+        bench.run(seed, image, "environment", ["sh", "-ec", "rustc -Vv; cargo -V; mold --version; dpkg-query -W"])
+        follow.compile_phase(seed, image, "shipping", bench.BUILD)
+        follow.freeze_shipping(seed)
+        (seed / "state/followup.json").write_text(json.dumps({
+            "identity": {"commit": env["GITHUB_SHA"], "protocol": candidate.native.identity()["protocol_commit"],
+                         "source": source, "build": list(bench.BUILD)},
+            "environment": (seed / "environment.stdout.log").read_text(),
+            "hashes": follow.frozen_hashes(seed), "completed_ns": time.time_ns()}))
+        work = root / "candidate"
+        work.mkdir()
+        subprocess.run(["tar", "--format=posix", "-czf", str(work / "state.tar.gz"),
+                        "-C", str(seed), "state"], check=True)
+        with patch.object(candidate, "TEST_SEED_COMMIT", env["GITHUB_SHA"]):
+            candidate.prepare(work, image)
+            candidate.package(work)
+        env["EEZ_RUNTIME_OUTPUT_DIR"] = str(work / "runtime")
+        env["EEZ_NATIVE_TEST_OUTPUT_DIR"] = str(work / "native-tests")
+
     def test_real_build_and_same_job_execution(self):
-        with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.") as temporary:
+        # Cache preflight requires real disk capacity, not a small /tmp tmpfs.
+        (REPO / "artifacts").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.", dir=REPO / "artifacts") as temporary:
             root = Path(temporary)
             repo = root / "repo"
             repo.mkdir()
@@ -31,6 +65,8 @@ class RuntimeDockerTest(unittest.TestCase):
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
+                "scripts/ci/rollupx-cache-benchmark.py", "scripts/ci/rollupx-cache-followup.py",
+                "scripts/ci/rollupx-cache-candidate.py",
                 "contracts/test/PostBatchGasPins.t.sol",
             ):
                 path = repo / name
@@ -77,7 +113,7 @@ class RuntimeDockerTest(unittest.TestCase):
                         '}\n'
                     )
                 for test in ({"eez-node-e2e": native.E2E_TARGETS,
-                              "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors"),
+                              "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)
                     (package / f"tests/{test}.rs").write_text(
@@ -93,11 +129,13 @@ class RuntimeDockerTest(unittest.TestCase):
             protocol = repo / "eez-core-protocol"
             protocol.mkdir()
             (protocol / "fixture").touch()
+            (repo / ".gitmodules").write_text('[submodule "eez-core-protocol"]\npath = eez-core-protocol\nurl = https://example.invalid/fixture\n')
             for directory in (protocol, repo):
                 subprocess.run(["git", "-C", str(directory), "init", "-q"], check=True)
                 subprocess.run(["git", "-C", str(directory), "add", "."], check=True)
                 subprocess.run(["git", "-C", str(directory), "-c", "user.name=CI Test",
                                 "-c", "user.email=ci@example.invalid", "commit", "-qm", "fixture"], check=True)
+            subprocess.run(["git", "-C", str(repo), "submodule", "init"], check=True)
             sha = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
             env = os.environ.copy()
             env.update({
@@ -120,13 +158,17 @@ class RuntimeDockerTest(unittest.TestCase):
             images = [f"ghcr.io/{env['GITHUB_REPOSITORY']}-{role}:sha-{sha}-1-1"
                       for role in ("node", "proof-signer", "deploy")]
             try:
-                subprocess.run(["bash", str(repo / "scripts/ci/build-runtime-artifacts.sh")], env=env, check=True)
+                if os.environ.get("EEZ_TEST_CACHE_CANDIDATE_IMAGE"):
+                    with patch.dict(os.environ, env):
+                        self.cached_candidate(repo, root, env)
+                else:
+                    subprocess.run(["bash", str(repo / "scripts/ci/build-runtime-artifacts.sh")], env=env, check=True)
                 # Without publication, validation uses the producer's daemon.
                 subprocess.run(["bash", str(repo / "scripts/ci/prepare-runtime-artifacts.sh"),
                                 env["EEZ_RUNTIME_OUTPUT_DIR"]], env=env, check=True)
                 binary_dir = Path(Path(env["GITHUB_PATH"]).read_text().strip())
-                manifest = json.loads((root / "artifacts/manifest.json").read_text())
-                test_manifest = json.loads((root / "test-artifacts/manifest.json").read_text())
+                manifest = json.loads((Path(env["EEZ_RUNTIME_OUTPUT_DIR"]) / "manifest.json").read_text())
+                test_manifest = json.loads((Path(env["EEZ_NATIVE_TEST_OUTPUT_DIR"]) / "manifest.json").read_text())
                 self.assertEqual(test_manifest["runtime_archive_sha256"], manifest["binaries_sha256"])
                 self.assertEqual(test_manifest["profile"], "release")
                 self.assertFalse((binary_dir / "eez-dev-node").exists(), "removed dev node must not ship")
@@ -141,7 +183,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 consumer_env = dict(env, PATH=str(tools) + os.pathsep + env["PATH"])
                 for suite in ("unit", "embedded", "cross-chain"):
                     consumer_env["CARGO_TARGET_DIR"] = str(root / f"consumer-{suite}")
-                    payload = root / ("test-artifacts" if suite == "unit" else "e2e-only")
+                    payload = Path(env["EEZ_NATIVE_TEST_OUTPUT_DIR"]) if suite == "unit" else root / "e2e-only"
                     subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "run",
                                     str(payload), "--suite", suite],
                                    env=consumer_env, check=True)

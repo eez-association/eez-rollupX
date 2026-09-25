@@ -142,7 +142,7 @@ real shipping-state transport and unchanged reuse, not full-CI speedup.
 
 ## Next gate: source changes and release-test state
 
-The workflow now has three **serial** jobs using
+The follow-up workflow used three **serial** jobs using
 [`rollupx-cache-followup.py`](../../scripts/ci/rollupx-cache-followup.py). The first
 two restore only the immutable cache key `rollupx-shipping-probe-v1-36182979151-1`;
 there is no fallback or cold rebuild on a cache miss. Shipping inputs, protocol
@@ -201,3 +201,93 @@ Local follow-up preflight:
   checks passed. No production Rust was edited, so Rust suites were not rerun.
   Logs: `artifacts/benchmark-validation/followup-tooling.log`; successful local
   fixture state: `artifacts/cache-followup-fixture-l3aqx5ec/`.
+
+## Successful combined-state result
+
+[Run 36188091462](https://github.com/eduadiez/rollupX/actions/runs/36188091462),
+commit `c96e2ef56e855f062eb472a869b74dc41b13c7d1`, passed all three homelab jobs.
+
+| Measurement | Result |
+| --- | ---: |
+| Unchanged shipping after restore | 1.383 s; 1157/1157 fresh |
+| Shipping after test-only edit | 1.149 s; 1157/1157 fresh; identical hashes |
+| Shipping after signer production edit | 50.479 s; 1156/1157 fresh; new CLI text verified |
+| First native-test compilation from shipping state | 1667.072 s |
+| First Composer-unit compilation | 516.459 s |
+| Combined Cargo target | 7,579,158,545 bytes |
+| Combined transport archive | 3,272,029,152 bytes (below 4 GiB cap) |
+| Combined archive creation | 132.132 s |
+| Fresh-job shipping/native/Composer compilation | 1.534 / 1.231 / 1.082 s; all fresh |
+| Native/Composer archive packaging after restore | 3.086 / 2.534 s |
+| Entire restore job, including the new-test canary | 325 s |
+
+All shipping and test executable hashes matched after restoration. The new
+failing test took 49.935 seconds to build and actually failed with the required
+marker and exit 101. Full correctness suites had **not** run at this point.
+
+## Current gate: unpublished packaging and full correctness
+
+The branch-only workflow now restores the immutable combined cache
+`rollupx-test-state-probe-v1-36188091462-1` into **one homelab job**. It neither
+saves another cache nor publishes any images or executable artifacts. There is
+no main/PR trigger and no production CI change. A cache miss or identity drift
+fails closed; there is no automatic cold build or cleanup.
+
+[`rollupx-cache-candidate.py`](../../scripts/ci/rollupx-cache-candidate.py) bridges
+the benchmark's measured Cargo state to the existing production artifact
+contract. It is temporary experiment tooling, not an alternative CI framework:
+
+1. Require a clean exact-revision checkout and recursively pinned protocol
+   submodules. Check source/build/protocol identity against the successful seed,
+   reconcile authoritative shipping inputs, and compare toolchain/native package
+   inventories. Invoke Cargo offline inside the existing four-CPU, 20-GiB,
+   no-swap container; require unchanged shipping hashes.
+2. Export the seven shipping binaries, then invoke the **unmodified production
+   native producer** for both release-test archives. Seal its manifest against
+   this workflow revision and the runtime archive; no cached test-pass marker is
+   accepted. The cached frozen runtime is retained separately as evidence.
+3. Package the same binaries into local node/signer images using the exact
+   production runtime Docker stages, replacing only the Rust builder with a
+   data-only stage. Build the deploy image from the normal Dockerfile, using
+   tracked-only deployment inputs and the local node image's genesis helpers.
+   No Rust compilation occurs during image packaging. Compare every packaged
+   executable to the exported bytes, record image IDs and source labels, then
+   invoke the normal runtime artifact verifier with publication disabled.
+4. Execute both release unit/vector archives, export E2E inputs only after units
+   pass, and run the full embedded and cross-chain suites serially through the
+   existing compiler-free runner. No partition or test-filter changes.
+5. Run the normal Kurtosis assertions in a uniquely named disposable private
+   enclave (`eez-cache-RUN_ID-RUN_ATTEMPT`), including candidate genesis checks,
+   pinned protocol scenarios and real proof-flow assertions. Do not reuse an
+   existing enclave or touch any public network. Preserve independent suite
+   execution after an earlier suite fails; any failed suite keeps the job red.
+
+This gate avoids registry publication and the currently exhausted diagnostic
+artifact quota. Failure uploads remain best effort; command logs remain the
+primary evidence. It still does not run unrelated lint/security/contract CI
+lanes or establish a fair whole-pipeline speed comparison with production CI.
+Nothing from this execution branch is approved for merging or promotion.
+
+Local candidate preflight (2026-09-25):
+
+- Reused the existing runtime Docker integration fixture for this producer,
+  rather than introducing a second fixture workspace. Real cached compilation,
+  production archive creation/sealing, all three local images, image-byte checks,
+  the normal artifact verifier, and compiler-free consumers passed in 52.027s.
+  The tiny workspace ran 12 unit/vector, four embedded and eight cross-chain
+  fixture tests. These are orchestration checks, not RollupX semantic tests.
+- Shipping restore was 12/12 fresh. The fixture starts from a small shipping
+  seed; it does not measure combined real-test-cache reuse or run Kurtosis.
+- Two initial fixture attempts stopped at safety checks: its synthetic submodule
+  was not registered, then its default `/tmp` filesystem lacked the required
+  50 GiB. Registered the fixture submodule and moved it to the workspace disk;
+  neither production check was relaxed. Logs for all three attempts remain in
+  `artifacts/benchmark-validation/candidate-fixture-{first,second,third}.log`.
+- Only uniquely named fixture containers/images and temporary fixture files
+  were removed. No shared caches, image tags, services or networks were pruned.
+- Final full tooling suite: 286 tests in 123.905s, 280 passed and six opt-in
+  skips. The runtime/candidate Docker fixture passed separately above; the other
+  five integration probes were not rerun in this gate. All 16 production
+  workflow-contract tests, workflow shell syntax, Python compilation and
+  whitespace checks passed. Log: `artifacts/benchmark-validation/candidate-tooling-final.log`.
+  Shipping Rust inputs, dependency lockfile and protocol pin are unchanged.

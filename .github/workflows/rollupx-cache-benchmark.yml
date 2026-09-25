@@ -1,6 +1,6 @@
 name: RollupX shipping cache benchmark
 
-# Temporary no-PR branch only. Never deploy or publish images from this workflow.
+# Temporary no-PR branch only. No registry publication or production deployment.
 on:
   push:
     branches: [test/rollupx-cache-benchmark]
@@ -13,99 +13,88 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BENCH_CACHE_KEY: rollupx-test-state-probe-v1-${{ github.run_id }}-${{ github.run_attempt }}
-  SHIPPING_SEED_KEY: rollupx-shipping-probe-v1-36182979151-1
+  TEST_SEED_KEY: rollupx-test-state-probe-v1-36188091462-1
   BENCH_IMAGE: eez-shipping-cache-env:${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
-  mutations:
-    runs-on: homelab-rust
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - run: bash scripts/ci/check-docker.sh
-      - name: Require fresh job-local state
-        run: test ! -e "$GITHUB_WORKSPACE/artifacts/shipping-cache"
-      - name: Reuse the successful shipping baseline (no cold rebuild)
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: artifacts/shipping-cache/state.tar.gz
-          key: ${{ env.SHIPPING_SEED_KEY }}
-          fail-on-cache-miss: true
-      - name: Build tools only
-        run: docker build --platform linux/amd64 -f scripts/ci/Dockerfile.cache-benchmark -t "$BENCH_IMAGE" scripts/ci
-      - name: Measure test-only and production-source invalidation
-        run: python3 scripts/ci/rollupx-cache-followup.py mutations "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
-
-  seed:
-    needs: mutations
+  correctness:
     runs-on: homelab-rust
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          submodules: recursive
       - run: bash scripts/ci/check-docker.sh
       - name: Require fresh job-local state
         run: test ! -e "$GITHUB_WORKSPACE/artifacts/shipping-cache"
-      - name: Reuse clean shipping baseline, never the mutation job's state
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: artifacts/shipping-cache/state.tar.gz
-          key: ${{ env.SHIPPING_SEED_KEY }}
-          fail-on-cache-miss: true
-      - name: Build tools only (no Rust compilation in BuildKit)
-        run: docker build --platform linux/amd64 -f scripts/ci/Dockerfile.cache-benchmark -t "$BENCH_IMAGE" scripts/ci
-      - name: Build both release-test archives and size their Cargo state
-        run: python3 scripts/ci/rollupx-cache-followup.py archives-seed "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
-      - name: Save only the size-checked experiment archive
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: artifacts/shipping-cache/test-state.tar.gz
-          key: ${{ env.BENCH_CACHE_KEY }}
-      - name: Preserve failed seed diagnostics
-        if: failure()
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: shipping-cache-seed-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/shipping-cache/*.json
-            artifacts/shipping-cache/*.log
-          retention-days: 3
-
-  restore:
-    needs: seed
-    runs-on: homelab-rust
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - run: bash scripts/ci/check-docker.sh
-      - name: Require fresh job-local state
-        run: test ! -e "$GITHUB_WORKSPACE/artifacts/shipping-cache"
-      - name: Restore this run's exact archive
+      - name: Restore the successful combined state (no cold rebuild)
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: artifacts/shipping-cache/test-state.tar.gz
-          key: ${{ env.BENCH_CACHE_KEY }}
+          key: ${{ env.TEST_SEED_KEY }}
           fail-on-cache-miss: true
-      - name: Build identical tools (package identity checked before reuse)
+      - name: Build identical tools only
         run: docker build --platform linux/amd64 -f scripts/ci/Dockerfile.cache-benchmark -t "$BENCH_IMAGE" scripts/ci
-      - name: Measure fresh-job archive reuse and reject a stale test
+      - name: Validate cached compilation and produce exact-revision test archives
         run: |
           mv "$GITHUB_WORKSPACE/artifacts/shipping-cache/test-state.tar.gz" "$GITHUB_WORKSPACE/artifacts/shipping-cache/state.tar.gz"
-          python3 scripts/ci/rollupx-cache-followup.py archives-restore "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
-      - name: Preserve failed restore diagnostics
+          python3 scripts/ci/rollupx-cache-candidate.py prepare "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
+      - name: Package local runtime images without recompiling Rust
+        run: python3 scripts/ci/rollupx-cache-candidate.py package "$GITHUB_WORKSPACE/artifacts/shipping-cache"
+      - name: Verify local runtime candidate through the normal consumer
+        id: runtime
+        env:
+          EEZ_EXPECT_PUBLISHED: "false"
+        run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_OUTPUT_DIR"
+      - uses: ./.github/actions/native-test-tools
+      - name: Initialize isolated unit execution directory
+        run: bash scripts/ci/init-cargo-target.sh
+      - name: Run all release unit tests and protocol vectors
+        run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Export verified E2E execution inputs
+        id: e2e-export
+        run: |
+          e2e_dir="$(mktemp -d "$RUNNER_TEMP/eez-cache-e2e.XXXXXXXX")"
+          python3 scripts/ci/native-tests.py export-e2e "$EEZ_NATIVE_TEST_OUTPUT_DIR" --output-dir "$e2e_dir"
+          echo "EEZ_NATIVE_TEST_DIR=$e2e_dir" >> "$GITHUB_ENV"
+      - name: Install Foundry
+        id: foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.7.1
+      - name: Full embedded E2E suite
+        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
+      - name: Full cross-chain E2E suite
+        if: ${{ !cancelled() && steps.foundry.outcome == 'success' && steps.e2e-export.outcome == 'success' }}
+        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
+      - name: Install Kurtosis
+        id: kurtosis
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' && steps.e2e-export.outcome == 'success' && steps.foundry.outcome == 'success' }}
+        run: bash scripts/ci/install-kurtosis.sh
+      - name: Full Kurtosis E2E in a disposable private enclave
+        if: ${{ !cancelled() && steps.kurtosis.outcome == 'success' }}
+        env:
+          KURTOSIS_ENCLAVE: eez-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          KURTOSIS_RESOURCE_CHECK: "true"
+          EEZ_PROTOCOL_MAX_PARALLEL: "all"
+        run: |
+          if kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing enclave" >&2
+            exit 1
+          fi
+          bash testing/kurtosis/run-ci.sh
+      - name: Preserve failure diagnostics (best effort; storage quota may be full)
         if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: shipping-cache-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          name: cache-correctness-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/shipping-cache/*.json
             artifacts/shipping-cache/*.log
+            artifacts/embedded-e2e
+            artifacts/cross-chain-e2e
+            artifacts/kurtosis-e2e
+          if-no-files-found: ignore
           retention-days: 3
