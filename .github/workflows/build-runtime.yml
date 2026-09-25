@@ -33,6 +33,8 @@ jobs:
       # Optional registry layer cache; compiler caching is configured separately.
       EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}
       EEZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # Opt-in until real hosted memory/transfer behavior is measured separately.
+      EEZ_CARGO_STATE_CACHE: ${{ vars.CI_CARGO_STATE_CACHE == 'true' && inputs.runner == 'homelab-rust' }}
     outputs:
       runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}
@@ -85,9 +87,23 @@ jobs:
           EEZ_ORIGINAL_DOCKER_HOST: ${{ steps.docker-cache.outputs.original-host }}
         run: bash scripts/ci/hosted-docker-cache.sh select
       - uses: ./.github/actions/compiler-cache
+        if: ${{ env.EEZ_CARGO_STATE_CACHE != 'true' }}
         with:
           mode: docker
           enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
+      - name: Prepare bounded Cargo state build
+        id: cargo-state
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' }}
+        run: python3 scripts/ci/cargo-state.py prepare "$GITHUB_WORKSPACE/.ci-cargo-state"
+      - name: Restore compatible Cargo state (optional)
+        id: cargo-restore
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport.tar.gz
+          key: ${{ steps.cargo-state.outputs.key }}
+          restore-keys: ${{ steps.cargo-state.outputs.prefix }}
       - name: Log in to GHCR
         id: ghcr-login
         if: ${{ steps.init.outputs.published == 'true' }}
@@ -101,6 +117,18 @@ jobs:
         run: bash scripts/ci/init-cargo-target.sh
       - name: Run all release unit tests and protocol vectors
         run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Prepare capped Cargo state upload (optional, main only)
+        id: cargo-archive
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.cargo-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        run: python3 scripts/ci/cargo-state.py archive "$EEZ_CARGO_STATE_DIR"
+      - name: Save compatible Cargo state (optional, main only)
+        if: ${{ steps.cargo-archive.outcome == 'success' && steps.cargo-archive.outputs.upload == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport.tar.gz
+          key: ${{ steps.cargo-state.outputs.key }}
       - name: Export E2E execution inputs only
         id: e2e-export
         run: |
@@ -171,6 +199,16 @@ jobs:
       - name: Runner failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh
+      - name: Upload Cargo state failure diagnostics
+        if: ${{ failure() && env.EEZ_CARGO_STATE_CACHE == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-state-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .ci-cargo-state/*.log
+            .ci-cargo-state/*.json
+          retention-days: 3
       - name: Log out of GHCR
         if: ${{ always() && steps.ghcr-login.outcome == 'success' }}
         run: docker logout ghcr.io

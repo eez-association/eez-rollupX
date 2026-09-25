@@ -272,7 +272,11 @@ elif args[0] != "logout":
         self.assertIn("steps.local-runtime.outcome == 'success'", by_id["local-kurtosis"]["if"])
         self.assertIn("prepare-runtime-artifacts.sh", by_id["local-runtime"]["run"])
         self.assertEqual(by_id["local-runtime"]["env"]["EEZ_EXPECT_PUBLISHED"], "false")
-        self.assertTrue(all(not s.get("continue-on-error", False) for s in steps if "run" in s))
+        optional = [s for s in steps if "run" in s and s.get("continue-on-error", False)]
+        self.assertEqual([s["id"] for s in optional], ["cargo-archive"])
+        self.assertIn("cargo-state.py archive", optional[0]["run"])
+        self.assertIn("github.event_name == 'push'", optional[0]["if"])
+        self.assertIn("github.event.repository.default_branch", optional[0]["if"])
 
 
 if __name__ == "__main__":

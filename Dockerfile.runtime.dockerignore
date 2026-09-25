@@ -12,6 +12,7 @@
 !scripts/ci/with-compiler-cache.sh
 !scripts/ci/install-nextest.sh
 !scripts/ci/native-tests.py
+!scripts/ci/build-native-runtime.py
 !.config/
 !.config/nextest.toml
 **/target/

@@ -28,3 +28,5 @@ __pycache__/
 .env.*
 # ...except the templates, which carry placeholders instead of keys.
 !.env.*.example
+# Job-private compilation state; never source or consumable runtime artifacts.
+.ci-cargo-state/

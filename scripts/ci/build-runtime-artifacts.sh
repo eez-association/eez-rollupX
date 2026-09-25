@@ -19,6 +19,8 @@ publish="${EEZ_PUBLISH_IMAGES:-false}"
 [[ "$publish" == true || "$publish" == false ]] || { echo "EEZ_PUBLISH_IMAGES must be true or false" >&2; exit 1; }
 cache="${EEZ_RUNTIME_CACHE:-true}"
 [[ "$cache" == true || "$cache" == false ]] || { echo "EEZ_RUNTIME_CACHE must be true or false" >&2; exit 1; }
+cargo_state="${EEZ_CARGO_STATE_CACHE:-false}"
+[[ "$cargo_state" == true || "$cargo_state" == false ]] || { echo "EEZ_CARGO_STATE_CACHE must be true or false" >&2; exit 1; }
 
 root_commit="$(git rev-parse HEAD)"
 protocol_commit="$(git -C eez-core-protocol rev-parse HEAD)"
@@ -102,7 +104,13 @@ resolve_base() {
     docker pull --platform linux/amd64 "$repository@$digest" >&2
     printf '%s@%s\n' "$repository" "$digest"
 }
-rust_base="$(resolve_base rust:1.94.0-bookworm)"
+if [[ "$cargo_state" == true ]]; then
+    : "${EEZ_CARGO_STATE_DIR:?Cargo state must be prepared before the runtime build}"
+    : "${EEZ_CARGO_RUST_BASE:?Cargo state must resolve its Rust base}"
+    rust_base="$EEZ_CARGO_RUST_BASE"
+else
+    rust_base="$(resolve_base rust:1.94.0-bookworm)"
+fi
 runtime_base="$(resolve_base debian:bookworm-slim)"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")
@@ -133,9 +141,18 @@ labels=(--label "org.opencontainers.image.source=$source_url"
 
 phase=compilation
 echo "==> compiling runtime binaries, then release tests (linux/amd64, same target)"
-"${runtime_build[@]}" --target binaries \
-    --output "type=local,dest=$build_dir/binaries" \
-    --metadata-file "$output/binaries-build.json" .
+runtime_context=.
+if [[ "$cargo_state" == true ]]; then
+    python3 scripts/ci/cargo-state.py build "$EEZ_CARGO_STATE_DIR" --output "$build_dir/binaries"
+    runtime_context="$EEZ_CARGO_STATE_DIR/runtime-context"
+    runtime_build=("${build[@]}" -f "$runtime_context/Dockerfile")
+    runtime_cache_to=()
+    cache_status="Cargo state (bounded compile; BuildKit only packages shipping binaries)"
+else
+    "${runtime_build[@]}" --target binaries \
+        --output "type=local,dest=$build_dir/binaries" \
+        --metadata-file "$output/binaries-build.json" .
+fi
 
 cp "$build_dir/binaries/cargo-timing.html" "$output/cargo-timing.html"
 if [[ -d "$build_dir/binaries/build-metrics" ]]; then
@@ -151,10 +168,10 @@ python3 scripts/ci/native-tests.py seal "$test_output" --runtime-archive "$outpu
 phase=packaging
 echo "==> packaging runtime images"
 "${runtime_build[@]}" --target node "${labels[@]}" \
-    --load -t "$node_image" --metadata-file "$output/node-build.json" .
+    --load -t "$node_image" --metadata-file "$output/node-build.json" "$runtime_context"
 "${runtime_build[@]}" --target signer "${labels[@]}" \
     "${runtime_cache_to[@]}" \
-    --load -t "$signer_image" --metadata-file "$output/signer-build.json" .
+    --load -t "$signer_image" --metadata-file "$output/signer-build.json" "$runtime_context"
 "${build[@]}" -f testing/kurtosis/Dockerfile.deploy "${labels[@]}" \
     "${deploy_cache_from[@]}" "${deploy_cache_to[@]}" \
     --build-arg "EEZ_NODE_IMAGE=$node_image" --load -t "$deploy_image" \

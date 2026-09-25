@@ -329,13 +329,10 @@ class RuntimeArtifactsTest(unittest.TestCase):
     def test_target_is_not_in_persistent_runtime_cache_layers(self):
         dockerfile = (REPO / "Dockerfile.runtime").read_text()
         instructions = dockerfile.replace("\\\n", "").splitlines()
-        compile_steps = [line for line in instructions if line.startswith("RUN ") and "cargo build" in line]
+        compile_steps = [line for line in instructions if line.startswith("RUN ") and "build-native-runtime.py /out" in line]
         self.assertEqual(len(compile_steps), 1)
         self.assertIn("rm -rf /build/target", compile_steps[0])
-        self.assertIn("native-tests.py build /out/native-tests --runtime-bin /out/bin", compile_steps[0])
-        self.assertLess(compile_steps[0].index("install -D target/release/eez-composer"),
-                        compile_steps[0].index("native-tests.py build"))
-        self.assertLess(compile_steps[0].index("native-tests.py build"),
+        self.assertLess(compile_steps[0].index("build-native-runtime.py /out"),
                         compile_steps[0].index("rm -rf /build/target"))
         self.assertNotIn("target=/build/target", dockerfile)
         self.assertIn("CARGO_INCREMENTAL=0", dockerfile)

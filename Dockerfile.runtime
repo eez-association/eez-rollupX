@@ -3,7 +3,7 @@
 # Local development keeps the existing Dockerfile / Dockerfile.signer entrypoints.
 ARG RUST_IMAGE=rust:1.94.0-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
-FROM ${RUST_IMAGE} AS builder
+FROM ${RUST_IMAGE} AS build-tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time \
     && rm -rf /var/lib/apt/lists/*
@@ -21,12 +21,13 @@ RUN if [ "$EEZ_COMPILER_CACHE" != none ]; then \
         bash /usr/local/lib/eez/install-sccache.sh /usr/local/bin \
         || echo 'Compiler cache download unavailable; building uncached'; \
     fi
+FROM build-tools AS builder
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # Composer unit tests embed the Solidity gas pins at compile time.
 COPY contracts/test/PostBatchGasPins.t.sol ./contracts/test/PostBatchGasPins.t.sol
 COPY .config/nextest.toml ./.config/nextest.toml
-COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh ./scripts/ci/
+COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh scripts/ci/build-native-runtime.py ./scripts/ci/
 # Only source downloads are cache mounts. Compile and remove target in the same
 # RUN: neither the exported binaries nor cached image layers contain Cargo state.
 # This also holds for mode=max registry exports of the intermediate builder.
@@ -42,24 +43,7 @@ RUN --mount=type=cache,id=runtime-cargo-registry,target=/usr/local/cargo/registr
     --mount=type=secret,id=SCCACHE_REDIS_TTL,env=SCCACHE_REDIS_TTL \
     --mount=type=secret,id=SCCACHE_REDIS_EXPIRATION,env=SCCACHE_REDIS_EXPIRATION \
     --mount=type=secret,id=SCCACHE_REDIS_RW_MODE,env=SCCACHE_REDIS_RW_MODE \
-    EEZ_BUILD_METRICS_DIR=/out/build-metrics \
-    bash /usr/local/lib/eez/with-compiler-cache.sh runtime cargo build --locked --timings --profile release \
-        -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 \
-        --bin eez-composer --bin eez-follower --bin eez-proof-signer \
-        --example genesis_state_root --example genesis_block_hash \
-        --example e2e-causal-verify --example verify_blob_evidence \
-    && install -D target/release/eez-composer /out/bin/eez-composer \
-    && install -D target/release/eez-follower /out/bin/eez-follower \
-    && install -D target/release/eez-proof-signer /out/bin/eez-proof-signer \
-    && install -D target/release/examples/genesis_state_root /out/bin/eez-genesis-state-root \
-    && install -D target/release/examples/genesis_block_hash /out/bin/eez-genesis-block-hash \
-    && install -D target/release/examples/e2e-causal-verify /out/bin/e2e-causal-verify \
-    && install -D target/release/examples/verify_blob_evidence /out/bin/verify_blob_evidence \
-    && cp target/cargo-timings/cargo-timing.html /out/cargo-timing.html \
-    && rustc -Vv > /out/rustc-version.txt \
-    && cargo -V > /out/cargo-version.txt \
-    && EEZ_BUILD_METRICS_DIR=/out/build-metrics \
-        python3 scripts/ci/native-tests.py build /out/native-tests --runtime-bin /out/bin \
+    python3 scripts/ci/build-native-runtime.py /out \
     && rm -rf /build/target
 
 FROM scratch AS binaries
