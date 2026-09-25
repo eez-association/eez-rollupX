@@ -17,7 +17,7 @@ pub fn node_cli_with_chain_document<Ext>() -> eyre::Result<(NodeCli<Ext>, Option
 where
     Ext: clap::Args + std::fmt::Debug,
 {
-    parse(super::node_cli_arguments())
+    super::cli_result::finish(parse(super::node_cli_arguments()))
 }
 
 fn parse<Ext>(argv: Vec<String>) -> eyre::Result<(NodeCli<Ext>, Option<B256>)>

@@ -12,6 +12,8 @@ use reth_ethereum_cli::{chainspec::EthereumChainSpecParser, interface::Cli};
 use reth_node_builder::{NodeBuilder, WithLaunchContext};
 use tracing::{Level, event};
 
+mod cli_result;
+
 #[cfg(feature = "l1-startup")]
 pub mod correlation_rpc;
 
@@ -41,9 +43,10 @@ pub fn node_cli<Ext>() -> eyre::Result<Cli<EthereumChainSpecParser, Ext>>
 where
     Ext: clap::Args + std::fmt::Debug,
 {
-    Ok(Cli::<EthereumChainSpecParser, Ext>::try_parse_from(
-        node_cli_arguments(),
-    )?)
+    cli_result::finish(
+        Cli::<EthereumChainSpecParser, Ext>::try_parse_from(node_cli_arguments())
+            .map_err(Into::into),
+    )
 }
 
 #[cfg(feature = "l1-startup")]
