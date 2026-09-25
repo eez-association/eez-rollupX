@@ -97,6 +97,7 @@ jobs:
         run: python3 scripts/ci/cargo-state.py prepare "$GITHUB_WORKSPACE/.ci-cargo-state"
       - name: Restore compatible Cargo state (optional)
         id: cargo-restore
+        timeout-minutes: 10
         if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' }}
         continue-on-error: true
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -119,10 +120,12 @@ jobs:
         run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
       - name: Prepare capped Cargo state upload (optional, main only)
         id: cargo-archive
+        timeout-minutes: 10
         if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.cargo-restore.outputs.cache-hit != 'true' }}
         continue-on-error: true
         run: python3 scripts/ci/cargo-state.py archive "$EEZ_CARGO_STATE_DIR"
       - name: Save compatible Cargo state (optional, main only)
+        timeout-minutes: 10
         if: ${{ steps.cargo-archive.outcome == 'success' && steps.cargo-archive.outputs.upload == 'true' }}
         continue-on-error: true
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

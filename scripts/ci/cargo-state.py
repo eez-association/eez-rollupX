@@ -179,11 +179,17 @@ def prepare(work):
 
 def restore(work, compatibility):
     """Quarantine rejected state and fall back only before invoking Cargo."""
-    state, archive_path = work / "state", work / "transport.tar.gz"
-    if state.exists() or state.is_symlink():
+    destination, archive_path = work / "state", work / "transport.tar.gz"
+    if destination.exists() or destination.is_symlink():
         raise ValueError("Cargo restore requires fresh job-local state")
     if not archive_path.exists():
         return "miss"
+    # data_filter confines links to the extraction directory, not to the top
+    # level archive entry. Never extract beside the authoritative checkout:
+    # state/link -> ../checkout could otherwise overwrite it before rejection.
+    extraction = work / "restore-staging"
+    extraction.mkdir()
+    state = extraction / "state"
     try:
         if archive_path.stat().st_size > MAX_ARCHIVE:
             raise ValueError("compressed cache exceeds 4 GiB")
@@ -196,7 +202,21 @@ def restore(work, compatibility):
                 expanded += member.size
                 if expanded > MAX_EXPANDED:
                     raise ValueError("expanded cache exceeds 32 GiB")
-            archive.extractall(work, filter="data")
+            archive.extractall(extraction, filter="data")
+        if state.is_symlink() or not state.is_dir():
+            raise ValueError("cache state root must be a directory")
+        if list(extraction.iterdir()) != [state]:
+            raise ValueError("cache extraction contains entries outside state")
+        # Moving accepted state must not turn a previously contained relative
+        # link into a reference to the job's checkout or other sibling inputs.
+        for path in state.rglob("*"):
+            if path.is_symlink():
+                try:
+                    contained = path.resolve().is_relative_to(state)
+                except RuntimeError as error:
+                    raise ValueError("cache contains a cyclic symlink") from error
+                if not contained:
+                    raise ValueError("cache link points outside state")
         metadata = json.loads((state / "cache.json").read_text())
         if metadata["compatibility"] != compatibility:
             raise ValueError("cache compatibility mismatch")
@@ -207,11 +227,11 @@ def restore(work, compatibility):
         for name in ("source", "cargo", "target"):
             if (state / name).is_symlink() or not (state / name).is_dir():
                 raise ValueError("cache directory inventory mismatch")
+        state.rename(destination)
         return "hit"
     except (ValueError, KeyError, TypeError, OSError, tarfile.TarError, EOFError) as error:
         # Keep first-failure evidence. No broad deletion or shared-cache cleanup.
-        if state.exists() or state.is_symlink():
-            state.rename(work / "rejected-state")
+        extraction.rename(work / "rejected-state")
         print("Cargo cache rejected; cold build: " + json.dumps(str(error)), flush=True)
         return "rejected"
 

@@ -50,7 +50,7 @@ class CargoStateTest(unittest.TestCase):
                 work = self.seed(Path(directory), **changes)
                 self.assertEqual(state.restore(work, "tools"), "rejected")
                 self.assertFalse((work / "state").exists())
-                self.assertTrue((work / "rejected-state/cache.json").exists())
+                self.assertTrue((work / "rejected-state/state/cache.json").exists())
                 self.assertTrue((work / "transport.tar.gz").exists())
 
     def test_safe_extraction_permission_normalization_preserves_identity(self):
@@ -80,11 +80,55 @@ class CargoStateTest(unittest.TestCase):
             work = Path(directory)
             (work / "transport.tar.gz").write_bytes(b"invalid gzip")
             self.assertEqual(state.restore(work, "tools"), "rejected")
-        with tempfile.TemporaryDirectory() as directory:
-            work = self.seed(Path(directory))
-            for cap in ("MAX_ARCHIVE", "MAX_EXPANDED"):
+        for cap in ("MAX_ARCHIVE", "MAX_EXPANDED"):
+            with tempfile.TemporaryDirectory() as directory:
+                work = self.seed(Path(directory))
                 with patch.object(state, cap, 1):
                     self.assertEqual(state.restore(work, "tools"), "rejected")
+
+    def test_archive_links_cannot_modify_authoritative_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "checkout").mkdir()
+            source = work / "checkout/input.rs"
+            source.write_text("authoritative")
+            with tarfile.open(work / "transport.tar.gz", "w:gz") as archive:
+                entry = tarfile.TarInfo("state")
+                entry.type = tarfile.DIRTYPE
+                archive.addfile(entry)
+                entry = tarfile.TarInfo("state/link")
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = "../checkout"
+                archive.addfile(entry)
+                entry = tarfile.TarInfo("state/link/input.rs")
+                entry.size = len(b"cached")
+                archive.addfile(entry, io.BytesIO(b"cached"))
+            self.assertEqual(state.restore(work, "tools"), "rejected")
+            self.assertEqual(source.read_text(), "authoritative")
+            self.assertFalse((work / "state").exists())
+            self.assertTrue((work / "rejected-state").is_dir())
+
+    def test_accepted_state_cannot_keep_links_to_job_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            work = self.seed(root)
+            seed = root / "seed/state"
+            (seed / "target/link").symlink_to("../../checkout")
+            with tarfile.open(work / "transport.tar.gz", "w:gz") as archive:
+                archive.add(seed, arcname="state")
+            self.assertEqual(state.restore(work, "tools"), "rejected")
+            self.assertFalse((work / "state").exists())
+
+    def test_contained_relative_links_survive_state_acceptance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            work = self.seed(root)
+            seed = root / "seed/state"
+            (seed / "target/link").symlink_to("../source/Cargo.lock")
+            with tarfile.open(work / "transport.tar.gz", "w:gz") as archive:
+                archive.add(seed, arcname="state")
+            self.assertEqual(state.restore(work, "tools"), "hit")
+            self.assertEqual((work / "state/target/link").read_text(), "fixture")
 
     def test_mode_content_and_deletions_change_source_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,6 +233,7 @@ class CargoStateTest(unittest.TestCase):
         self.assertIn("steps.cargo-archive.outputs.upload == 'true'", save["if"])
         for step in (restore, archive, save):
             self.assertTrue(step["continue-on-error"])
+            self.assertEqual(step["timeout-minutes"], 10)
         for step in steps:
             if "build-runtime-artifacts.sh" in step.get("run", "") or "--suite unit" in step.get("run", ""):
                 self.assertNotIn("continue-on-error", step)
