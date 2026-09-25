@@ -114,8 +114,10 @@ transaction_evidence() {
     # Feed every exact validated receipt to Rust, not a second RPC snapshot.
     printf '%s\n' "$receipt" >"$causal_tmp/$chain-$hash.receipt.json"
     block_number="$(cast to-dec "$block_hex")"
+    tx_index="$(cast to-dec "$(jq -er '.transactionIndex' <<<"$receipt")")"
     tx_to="$(jq -er '.to' <<<"$tx")"
     input="$(jq -er '.input' <<<"$tx")"
+    expected_block="${expected_block:-$block_number}"
 
     reported_block_matches=false
     [[ "$block_number" == "$expected_block" ]] && reported_block_matches=true
@@ -133,10 +135,12 @@ transaction_evidence() {
         --arg role "$role" --arg chain "$chain" --arg hash "$hash" \
         --arg status "$status" --arg block_hex "$block_hex" \
         --argjson block_number "$block_number" --argjson reported_block "$expected_block" \
+        --argjson transaction_index "$tx_index" \
         --argjson reported_block_matches "$reported_block_matches" \
         --arg to "$tx_to" --arg input "$input" \
         '{role: $role, chain: $chain, hash: $hash, status: $status,
           block_number: $block_number, block_hex: $block_hex,
+          transaction_index: $transaction_index,
           reported_block: $reported_block, reported_block_matches: $reported_block_matches,
           to: $to, input: $input}'
 }
@@ -152,9 +156,38 @@ done
 user_receipts_json="$(printf '%s\n' "${user_receipts[@]}" | jq -s .)"
 
 read -r post_hash post_block <<<"$post_row"
-post_receipt="$(transaction_evidence "$L1_RPC" L1 settlement "$post_hash" "$post_block")"
-[[ "$(jq -r '.to | ascii_downcase' <<<"$post_receipt")" == "${ROLLUPS,,}" ]] \
-    || die "postBatch transaction target differs from registry $ROLLUPS"
+# The summary names only the first batch, even when the upstream runner matched
+# a multi-transaction scenario across several settlements. Retain every match,
+# then order the canonical transactions independently of the log's scan order.
+mapfile -t post_hashes < <(
+    { printf '%s\n' "$post_hash";
+      sed -n -E 's/^Matched settlement tx (0x[[:xdigit:]]{64})[[:space:]]*$/\1/p' "$SCENARIO_LOG";
+    } | awk '!seen[$0]++'
+)
+post_receipts=()
+for hash in "${post_hashes[@]}"; do
+    expected_block=""
+    [[ "$hash" == "$post_hash" ]] && expected_block="$post_block"
+    evidence="$(transaction_evidence "$L1_RPC" L1 settlement "$hash" "$expected_block")"
+    [[ "$(jq -r '.to | ascii_downcase' <<<"$evidence")" == "${ROLLUPS,,}" ]] \
+        || die "postBatch transaction target differs from registry $ROLLUPS"
+    post_receipts+=("$evidence")
+done
+post_receipts_json="$(printf '%s\n' "${post_receipts[@]}" | jq -s 'sort_by(.block_number, .transaction_index)')"
+if (( ${#post_hashes[@]} > 1 )); then
+    [[ "$trigger_chain" == L1 ]] || die "multiple settlements require L1 triggers"
+    # The pinned L1 protocol consumes a posted table only in its posting block.
+    # Require one selected settlement before each trigger in that block; never
+    # assign a trigger to a blob merely because it appeared in a summary.
+    jq -en --argjson posts "$post_receipts_json" --argjson users "$user_receipts_json" '
+        all($users[]; . as $user |
+            [$posts[] | select(.block_number == $user.block_number and
+                              .transaction_index < $user.transaction_index)] | length == 1)
+        and all($posts[]; . as $post |
+            any($users[]; .block_number == $post.block_number and
+                          .transaction_index > $post.transaction_index))
+        ' >/dev/null || die "settlements do not uniquely cover trigger blocks"
+fi
 
 read -r load_hash load_block <<<"$load_row"
 hashes_from_line() {
@@ -223,9 +256,9 @@ l2_calls_verified=false
 grep -Eq 'PASS: [0-9]+/[0-9]+ expected L2 calls verified' "$SCENARIO_LOG" \
     && l2_calls_verified=true
 summary_blocks_match="$(jq -n \
-    --argjson users "$user_receipts_json" --argjson settlement "$post_receipt" \
+    --argjson users "$user_receipts_json" --argjson settlements "$post_receipts_json" \
     --argjson systems "$system_receipts_json" \
-    '($users + [$settlement] + $systems) | all(.reported_block_matches)')"
+    '($users + $settlements + $systems) | all(.reported_block_matches)')"
 
 # Build a canonical receipt/calldata input for the Rust verifier. It invokes
 # the same independent two-table verifier used by the deriver, then requires
@@ -237,8 +270,9 @@ for evidence in "${user_receipts[@]}"; do
     jq -c . "$causal_tmp/$trigger_chain-$hash.receipt.json" \
         >>"$causal_tmp/${trigger_chain,,}-receipts.jsonl"
 done
-jq -c . "$causal_tmp/L1-$post_hash.receipt.json" \
-    >>"$causal_tmp/l1-receipts.jsonl"
+while read -r hash; do
+    jq -c . "$causal_tmp/L1-$hash.receipt.json" >>"$causal_tmp/l1-receipts.jsonl"
+done < <(jq -r '.[].hash' <<<"$post_receipts_json")
 for hash in "${system_hashes[@]}"; do
     jq -c . "$causal_tmp/L2-$hash.receipt.json" >>"$causal_tmp/l2-receipts.jsonl"
 done
@@ -249,7 +283,7 @@ direction=L1_to_L2
 jq -n \
     --arg direction "$direction" --arg registry "$ROLLUPS" --arg manager_l2 "$MANAGER_L2" \
     --argjson rollup_id "${ROLLUP_ID:-1}" \
-    --arg l1_calldata "$(jq -r '.input' <<<"$post_receipt")" \
+    --argjson l1_calldata "$(jq 'map(.input) | if length == 1 then .[0] else . end' <<<"$post_receipts_json")" \
     --argjson l2_calldata "$(jq '[.[].input]' <<<"$system_receipts_json")" \
     --argjson expected_l2_entry_hashes "$expected_l2_json" \
     --slurpfile l1_receipts "$causal_tmp/l1-receipts.json" \
@@ -270,20 +304,31 @@ causal_graph="$(jq -c . "$causal_tmp/output.json")"
 # Authenticate the exact physical blob selected by postBatch, decode the
 # native semantic stream, and require every canonical raw trigger transaction
 # to appear byte-for-byte as semantic tx_data.
-trigger_hashes=()
-for evidence in "${user_receipts[@]}"; do
-    trigger_hashes+=("$(jq -r '.hash' <<<"$evidence")")
-done
-blob_evidence_file="$causal_tmp/blob-evidence.json"
-sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
-if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
-    BLOB_VERIFIER="$BLOB_VERIFIER" ROLLUP_ID="$ROLLUP_ID" \
-    bash "$(dirname "$0")/verify-semantic-settlement-blob.sh" \
-        "$post_hash" "$trigger_chain" "$blob_evidence_file" "$sidecars_file" \
-        "${trigger_hashes[@]}"; then
-    die "settlement blob semantic verification failed"
-fi
-blob_da="$(jq -c . "$blob_evidence_file")"
+blob_evidence=()
+while read -r post; do
+    hash="$(jq -r '.hash' <<<"$post")"
+    mapfile -t trigger_hashes < <(jq -r --argjson post "$post" \
+        --argjson count "${#post_hashes[@]}" \
+        '.[] | select($count == 1 or .block_number == $post.block_number) | .hash' \
+        <<<"$user_receipts_json")
+    blob_evidence_file="$causal_tmp/blob-$hash.json"
+    sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
+    if (( ${#post_hashes[@]} > 1 )); then
+        sidecars_file="${OUTPUT_JSON%.json}.$hash.blob-sidecars.json"
+    fi
+    if ! L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" BEACON_URL="$BEACON_URL" \
+        BLOB_VERIFIER="$BLOB_VERIFIER" ROLLUP_ID="$ROLLUP_ID" \
+        bash "$(dirname "$0")/verify-semantic-settlement-blob.sh" \
+            "$hash" "$trigger_chain" "$blob_evidence_file" "$sidecars_file" \
+            "${trigger_hashes[@]}"; then
+        die "settlement blob semantic verification failed"
+    fi
+    jq -e '.verified == true' "$blob_evidence_file" >/dev/null \
+        || die "settlement blob semantic verification failed"
+    blob_evidence+=("$(jq -c . "$blob_evidence_file")")
+done < <(jq -c '.[]' <<<"$post_receipts_json")
+blob_da="$(printf '%s\n' "${blob_evidence[@]}" | jq -s '
+    if length == 1 then .[0] else {verified: all(.verified == true), settlements: .} end')"
 
 # A reorg during RPC collection must not turn individually valid snapshots
 # into evidence for incompatible blocks. Recheck both chains after verification.
@@ -310,7 +355,7 @@ jq -n \
     --arg upstream_table_hash "$load_hash" \
     --arg trigger_chain "$trigger_chain" \
     --argjson trigger_transactions "$user_receipts_json" \
-    --argjson settlement_transaction "$post_receipt" \
+    --argjson settlement_transactions "$post_receipts_json" \
     --argjson system_transactions "$system_receipts_json" \
     --argjson expected_l1_entries "$expected_l1_json" \
     --argjson expected_l2_entries "$expected_l2_json" \
@@ -325,7 +370,7 @@ jq -n \
     '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
       trigger_chain: $trigger_chain, trigger_transactions: $trigger_transactions,
-      settlement_transactions: [$settlement_transaction],
+      settlement_transactions: $settlement_transactions,
       system_transactions: $system_transactions,
       expected: {l1_entries: $expected_l1_entries, l2_entries: $expected_l2_entries,
                  l1_calls: $expected_l1_calls, l2_calls: $expected_l2_calls},

@@ -686,6 +686,15 @@ Missing or duplicate occurrences fail, and full selected receipts/calldata
 still go through the causal verifier. Job-local `*.causal-input.json` files
 allow those checks to be reproduced offline from retained failure diagnostics.
 
+Multi-transaction L1 scenarios may settle in several blocks. The collector
+retains every upstream matched settlement in canonical order, and the causal
+verifier pairs deliveries across those batches while preserving each batch's
+entry indices. Each trigger must follow its selected settlement in the same L1
+block, and its raw bytes must occur in that settlement's authenticated blob.
+For split scenarios, `blob_da.settlements` retains the per-batch verification
+results and separate sidecar files; `blob_da.verified` requires every batch to
+pass. A single-settlement scenario keeps the existing evidence shape.
+
 For every passing scenario, the evidence collector re-reads canonical user,
 settlement, and L2 delivery receipts; verifies the causal execution tables;
 downloads the exact Beacon blob responses; recomputes their KZG versioned hashes;

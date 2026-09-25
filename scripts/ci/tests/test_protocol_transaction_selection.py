@@ -176,21 +176,33 @@ class CollectorTest(SelectionFixture, unittest.TestCase):
 import json, os, sys
 f = json.loads(open(os.environ["FIXTURE"]).read())
 actual = json.loads(open(sys.argv[1]).read())
-assert actual["l2_calldata"] == [f["wanted"]["input"]], actual
-expected_receipts = [f["receipts"][f["wanted"]["hash"]]]
+expected_systems = f.get("wanted_txs", [f["wanted"]])
+assert actual["l2_calldata"] == [tx["input"] for tx in expected_systems], actual
+expected_receipts = [f["receipts"][tx["hash"]] for tx in expected_systems]
 if f.get("outbound"): expected_receipts.insert(0, f["receipts"][f["trigger_hash"]])
 assert actual["l2_receipts"] == expected_receipts, actual
-expected_l1 = [f["receipts"][f["post_hash"]]]
-if not f.get("outbound"): expected_l1.insert(0, f["receipts"][f["trigger_hash"]])
+post_hashes = f.get("post_hashes", [f["post_hash"]])
+expected_l1 = [f["receipts"][h] for h in post_hashes]
+if not f.get("outbound"):
+    expected_l1 = [f["receipts"][h] for h in f.get("trigger_hashes", [f["trigger_hash"]])] + expected_l1
 assert actual["l1_receipts"] == expected_l1, actual
+inputs = [f["transactions"][h]["input"] for h in post_hashes]
+assert actual["l1_calldata"] == (inputs[0] if len(inputs) == 1 else inputs), actual
 if f.get("causal_failure"): raise SystemExit(1)
 open(sys.argv[2], "w").write('{"verified":true}')
 ''')
             for tool in tools.iterdir():
                 tool.chmod(0o755)
-            (scripts / "verify-semantic-settlement-blob.sh").write_text(
-                'jq -e "(.blob_failure // false) | not" "$FIXTURE" >/dev/null || exit 1\n'
-                "echo '{\"verified\":true}' > \"$3\"\n")
+            (scripts / "verify-semantic-settlement-blob.sh").write_text('''python3 - "$@" <<'PY'
+import json, os, sys
+f = json.loads(open(os.environ["FIXTURE"]).read())
+post, chain, output, sidecars, *triggers = sys.argv[1:]
+if f.get("blob_failure") or post == f.get("blob_failure_post"): raise SystemExit(1)
+if "post_triggers" in f: assert triggers == f["post_triggers"][post], (post, triggers)
+with open(output, "w") as stream:
+    json.dump(dict(verified=True, settlement_hash=post, triggers=triggers, sidecars=sidecars), stream)
+PY
+''')
             scenario = root / "E2ECounter.s.sol"
             scenario.write_text("contract ExecuteNetwork {}\n")
             other = self.add_tx([9], "22222222")
@@ -229,7 +241,7 @@ L2 call exec: {other["hash"]}
                        CAUSAL_VERIFIER=str(tools / "causal"), BLOB_VERIFIER="unused", BEACON_URL="unused")
             original_log = log.read_text()
             successes = {"pass", "outbound-without-call-search", "outbound-replayed",
-                         "settlement-summary-hint", "outbound-receipt-snapshot"}
+                         "settlement-summary-hint", "outbound-receipt-snapshot", "split"}
             failures = {
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
@@ -244,12 +256,62 @@ L2 call exec: {other["hash"]}
                 "outbound-reorg-during-collection": "L2 changed during evidence collection",
                 "settlement-orphan": "is absent from its canonical block",
                 "settlement-reorg-during-collection": "L1 changed during evidence collection",
+                "split-missing-batch": "independent trigger/table/event causal verification failed",
+                "split-orphan": "is absent from its canonical block",
+                "split-wrong-registry": "postBatch transaction target differs",
+                "split-blob-failure": "settlement blob semantic verification failed",
+                "split-uncovered-trigger": "settlements do not uniquely cover trigger blocks",
             }
             for case in (*sorted(successes), *failures):
                 with self.subTest(case=case):
                     current = copy.deepcopy(fixture)
                     scenario.write_text("contract ExecuteNetwork {}\n")
                     log.write_text(original_log)
+                    if case.startswith("split"):
+                        # Two triggers settle at 16 and the third at 17. Scan
+                        # order is reversed and includes a repeated match line.
+                        wanted2 = dict(wanted, hash=word(301), input="0x22222222aa", transactionIndex="0x2")
+                        wanted3 = dict(wanted, hash=word(302), input="0x22222222bb",
+                                       blockNumber="0x11", blockHash=word(17), transactionIndex="0x0")
+                        trigger2 = dict(trigger, hash=word(303), transactionIndex="0x2")
+                        trigger3 = dict(trigger, hash=word(304), blockNumber="0x11", blockHash=word(117))
+                        post2 = dict(post, hash=word(305), input="0x11111111cc",
+                                     blockNumber="0x11", blockHash=word(117))
+                        current["blocks"]["l2"]["16"]["transactions"].append(wanted2)
+                        current["blocks"]["l1"]["16"]["transactions"].append(trigger2)
+                        current["blocks"]["l2"]["17"] = dict(number="0x11", hash=word(17), transactions=[wanted3])
+                        current["blocks"]["l1"]["17"] = dict(number="0x11", hash=word(117), transactions=[post2, trigger3])
+                        for tx in (wanted2, wanted3, trigger2, trigger3, post2):
+                            current["transactions"][tx["hash"]] = tx
+                            current["receipts"][tx["hash"]] = dict(
+                                transactionHash=tx["hash"], status="0x1", blockNumber=tx["blockNumber"],
+                                blockHash=tx["blockHash"], transactionIndex=tx["transactionIndex"],
+                                logs=[dict(marker="keep the entire receipt")])
+                        for tx, key in ((wanted2, 2), (wanted3, 3)):
+                            current["inputs"][tx["input"]] = [[[word(key), [], [], word(0), True, "0x"]], []]
+                        current["wanted_txs"] = [wanted, wanted2, wanted3]
+                        current["post_hashes"] = [post["hash"], post2["hash"]]
+                        current["trigger_hashes"] = [trigger["hash"], trigger2["hash"], trigger3["hash"]]
+                        current["post_triggers"] = {post["hash"]: [trigger["hash"], trigger2["hash"]],
+                                                    post2["hash"]: [trigger3["hash"]]}
+                        matches = [post2["hash"], post["hash"], post2["hash"]]
+                        if case == "split-missing-batch": matches = [post["hash"]]
+                        split_log = original_log.replace(f'L2 table expected: [{word(1)}]',
+                                                         f'L2 table expected: [{word(1)}, {word(2)}, {word(3)}]')
+                        split_log = split_log.replace('L2 blocks to verify: [16]', 'L2 blocks to verify: [16, 17]')
+                        split_log += f'User tx[2]: {trigger2["hash"]} (block 16)\nUser tx[3]: {trigger3["hash"]} (block 17)\n'
+                        split_log += ''.join(f'Matched settlement tx {h}\n' for h in matches)
+                        log.write_text(split_log)
+                        if case == "split-orphan": current["receipts"][post2["hash"]]["blockHash"] = word(999)
+                        if case == "split-wrong-registry": post2["to"] = "0x" + "88" * 20
+                        if case == "split-blob-failure": current["blob_failure_post"] = post2["hash"]
+                        if case == "split-uncovered-trigger":
+                            # A matched table posted after its trigger cannot
+                            # have supplied the entry consumed by that trigger.
+                            post2["transactionIndex"], trigger3["transactionIndex"] = "0x1", "0x0"
+                            current["blocks"]["l1"]["17"]["transactions"] = [trigger3, post2]
+                            for tx in (post2, trigger3):
+                                current["receipts"][tx["hash"]]["transactionIndex"] = tx["transactionIndex"]
                     if case.startswith("outbound-"):
                         scenario.write_text("contract ExecuteNetworkL2 {}\n")
                         current["outbound"] = True
@@ -301,8 +363,15 @@ L2 call exec: {other["hash"]}
                     if case in successes:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         evidence = json.loads(output.read_text())
-                        self.assertEqual([t["hash"] for t in evidence["system_transactions"]], [wanted["hash"]])
+                        self.assertEqual([t["hash"] for t in evidence["system_transactions"]],
+                                         [t["hash"] for t in current.get("wanted_txs", [wanted])])
                         self.assertEqual(evidence["source_log"]["upstream_first_table_hash"], other["hash"])
+                        if case == "split":
+                            self.assertEqual([t["hash"] for t in evidence["settlement_transactions"]], current["post_hashes"])
+                            blobs = evidence["blob_da"]["settlements"]
+                            self.assertTrue(evidence["blob_da"]["verified"])
+                            self.assertEqual([b["triggers"] for b in blobs], list(current["post_triggers"].values()))
+                            self.assertNotEqual(blobs[0]["sidecars"], blobs[1]["sidecars"])
                         if case == "outbound-replayed":
                             user = evidence["trigger_transactions"][0]
                             self.assertEqual(user["reported_block"], 10)
