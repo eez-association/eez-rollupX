@@ -17,17 +17,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: cargo-cache-probe-${{ inputs.runner || 'ubuntu-24.04' }}
+  group: cargo-cache-probe-${{ inputs.runner || 'homelab-rust' }}
   cancel-in-progress: false
 
 env:
   PROBE_IMAGE: rust@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
   # Identical relative path and exact key in both jobs; no broad restore prefixes.
-  PROBE_CACHE_KEY: cargo-transport-probe-v2-${{ inputs.runner || 'ubuntu-24.04' }}-${{ github.run_id }}-${{ github.run_attempt }}
+  PROBE_CACHE_KEY: cargo-transport-probe-v2-${{ inputs.runner || 'homelab-rust' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   seed:
-    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.runner || 'homelab-rust' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -56,7 +56,7 @@ jobs:
 
   restore:
     needs: seed
-    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.runner || 'homelab-rust' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

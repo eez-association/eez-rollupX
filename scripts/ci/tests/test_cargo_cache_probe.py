@@ -109,7 +109,7 @@ class CargoCacheProbeTest(unittest.TestCase):
         self.assertEqual(workflow["env"]["PROBE_IMAGE"], probe.RUST_IMAGE)
         caches = []
         for job in workflow["jobs"].values():
-            self.assertEqual(job["runs-on"], "${{ inputs.runner || 'ubuntu-24.04' }}")
+            self.assertEqual(job["runs-on"], "${{ inputs.runner || 'homelab-rust' }}")
             for step in job["steps"]:
                 if step.get("uses", "").startswith("actions/cache/"):
                     caches.append(step)
