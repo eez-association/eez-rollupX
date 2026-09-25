@@ -139,7 +139,7 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
         .unwrap()
         .unwrap()
         .into_inner();
-        assert_eq!(response.operations_tag, 3);
+        assert_eq!(response.operations_tag, 0);
         assert_eq!(response.profile_id, 1);
         assert_eq!(response.validation_identity, expected_identity.to_vec());
         assert_eq!(response.max_window_blocks, blocks.min(65_536) as u64);

@@ -34,7 +34,7 @@ fn refresh_l1_rolling_hash(entry: &mut ExecutionEntrySol) {
 fn test_da_payload_encoder_matches_the_wire_format() {
     assert_eq!(
         encode_da_payload(&[Vec::new()], &[]),
-        [0x00, 0xc4, 0xc1, 0x80, 0xc0, 0xc0]
+        [0x80, 0xc4, 0xc1, 0x80, 0xc0, 0xc0]
     );
 }
 
@@ -79,7 +79,7 @@ fn da_payload_rejects_noncanonical_outer_and_integer_encodings() {
         Err(DaPayloadError::Decode { .. })
     ));
 
-    let mut long_outer_header = vec![0x00, 0xf8, 0x04];
+    let mut long_outer_header = vec![canonical[0], 0xf8, 0x04];
     long_outer_header.extend_from_slice(&canonical[2..]);
     assert!(matches!(
         verify_anchor_only_da_payload(&long_outer_header, [(41, block_rlp.as_slice())]),

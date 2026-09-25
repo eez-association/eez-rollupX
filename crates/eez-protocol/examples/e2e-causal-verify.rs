@@ -45,6 +45,7 @@ fn required_str<'a>(input: &'a Value, key: &str) -> AnyResult<&'a str> {
         .ok_or_else(|| format!("missing string field {key}").into())
 }
 
+#[cfg(test)]
 fn parse_bytes(input: &Value, key: &str) -> AnyResult<Bytes> {
     Bytes::from_str(required_str(input, key)?).map_err(Into::into)
 }
@@ -279,18 +280,32 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
     }
     let registry = Address::from_str(required_str(input, "registry")?)?;
     let manager_l2 = Address::from_str(required_str(input, "manager_l2")?)?;
-    let l1_calldata = parse_bytes(input, "l1_calldata")?;
+    let l1_calldata = parse_bytes_list(input, "l1_calldata")?;
     let l2_calldata = parse_bytes_list(input, "l2_calldata")?;
     let select_static = input
         .get("select_static")
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
-    let posted_call = postAndVerifyBatchCall::abi_decode(&l1_calldata)?;
-    if posted_call.abi_encode() != l1_calldata {
-        return fail("postAndVerifyBatch calldata is not canonical ABI");
+    if l1_calldata.is_empty() {
+        return fail("no L1 settlement calldata");
     }
-    let posted = posted_call.batch;
+    if l1_calldata.len() > 1 && (direction != Direction::Inbound || select_static) {
+        return fail("multiple settlements require mutable inbound evidence");
+    }
+    let mut posted_batches = Vec::with_capacity(l1_calldata.len());
+    for calldata in &l1_calldata {
+        let call = postAndVerifyBatchCall::abi_decode(calldata)?;
+        if call.abi_encode() != *calldata {
+            return fail("postAndVerifyBatch calldata is not canonical ABI");
+        }
+        posted_batches.push(call.batch);
+    }
+    let posted = &posted_batches[0];
+    let posted_entry_count = posted_batches
+        .iter()
+        .map(|batch| batch.entries.len())
+        .sum::<usize>();
     let l2_destination = match direction {
         Direction::Inbound => l2_rollup,
         Direction::Outbound => RollupId::MAINNET,
@@ -315,12 +330,26 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
             if selected.is_empty() {
                 return fail("inbound causal verification selected no L2 entries");
             }
+            // A multi-transaction scenario can settle across blocks. The
+            // collector supplies whole batches in canonical transaction order;
+            // preserve that order and report indices within each original batch.
+            let ordered_l1 = posted_batches
+                .iter()
+                .enumerate()
+                .flat_map(|(batch_index, batch)| {
+                    batch
+                        .entries
+                        .iter()
+                        .enumerate()
+                        .map(move |(entry_index, entry)| (batch_index, entry_index, entry))
+                })
+                .collect::<Vec<_>>();
             let mut next_l1 = 0_usize;
             let mut paired_l1 = Vec::new();
+            let mut used_batches = vec![false; posted_batches.len()];
             for (l2_index, l2_entry) in &selected {
                 let mut match_index = None;
-                for l1_index in next_l1..posted.entries.len() {
-                    let l1_entry = &posted.entries[l1_index];
+                for (l1_index, (_, _, l1_entry)) in ordered_l1.iter().enumerate().skip(next_l1) {
                     if l1_entry.proxyEntryHash != l2_entry.proxyEntryHash {
                         continue;
                     }
@@ -340,7 +369,8 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
                     ));
                 };
                 next_l1 = l1_index + 1;
-                let l1_entry = &posted.entries[l1_index];
+                let (batch_index, entry_index, l1_entry) = ordered_l1[l1_index];
+                used_batches[batch_index] = true;
                 if l1_entry.success {
                     paired_l1.push(l1_entry.proxyEntryHash);
                 }
@@ -348,13 +378,17 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
                 pairs.push(json!({
                     "kind": "mutable",
                     "direction": "L1_to_L2",
-                    "l1_entry_indices": [l1_index],
+                    "l1_settlement_transaction_index": batch_index,
+                    "l1_entry_indices": [entry_index],
                     "l2_entry_indices": [l2_index],
                     "proxy_entry_hash": format!("{}", l1_entry.proxyEntryHash),
                     "ether_delta": facts.ether_delta.to_string(),
                     "l2_outbound_hashes": facts.l2_outbound_hashes.iter()
                         .map(ToString::to_string).collect::<Vec<_>>()
                 }));
+            }
+            if used_batches.iter().any(|used| !used) {
+                return fail("L1 settlement contains no selected causal entry");
             }
 
             let l1_consumed_signature =
@@ -478,7 +512,8 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
     let output = json!({
         "verified": true,
         "direction": match direction { Direction::Inbound => "L1_to_L2", Direction::Outbound => "L2_to_L1" },
-        "posted_l1_entries": posted.entries.len(),
+        "posted_l1_entries": posted_entry_count,
+        "l1_settlement_transactions": posted_batches.len(),
         "l2_system_transactions": l2_calldata.len(),
         "loaded_l2_entries": loaded_entries.len(),
         "loaded_l2_static_entries": loaded_static.len(),
@@ -504,6 +539,213 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn inbound_fixture() -> Value {
+        use alloy_primitives::U256;
+        use eez_protocol::abi::{CrossChainCallSol, L2ExecutionEntrySol, RootUpdateSol};
+        use eez_protocol::action::{CallHashInput, CallMode, common_cross_chain_call_hash};
+        use eez_protocol::rolling_hash::EntryRollingHash;
+
+        let source = Address::repeat_byte(0x11);
+        let target = Address::repeat_byte(0x22);
+        let registry = Address::repeat_byte(0x33);
+        let manager = Address::repeat_byte(0x44);
+        let key = common_cross_chain_call_hash(CallHashInput {
+            call_mode: CallMode::Mutable,
+            source_address: source,
+            source_rollup_id: RollupId::MAINNET,
+            target_address: target,
+            target_rollup_id: RollupId(1),
+            value: U256::ZERO,
+            data: &[],
+        });
+        let mut post = postAndVerifyBatchCall {
+            batch: Default::default(),
+        };
+        let mut deliveries = Vec::new();
+        let mut expected = Vec::new();
+        for n in 1..=3_u8 {
+            let current_root = B256::with_last_byte(n - 1);
+            let result = Bytes::from(U256::from(n).to_be_bytes::<32>().to_vec());
+            post.batch.entries.push(ExecutionEntrySol {
+                rootUpdates: vec![RootUpdateSol {
+                    rollupId: 1,
+                    currentRoot: current_root,
+                    newRoot: B256::with_last_byte(n),
+                    etherDelta: Default::default(),
+                }],
+                proxyEntryHash: key,
+                destinationRollupId: 1,
+                rollingHash: EntryRollingHash::seed_for_l1([(1, current_root)], key).current(),
+                success: true,
+                returnData: result.clone(),
+                ..Default::default()
+            });
+            let mut rolling = EntryRollingHash::seed_for_l2(key);
+            rolling.call_begin(key);
+            rolling.call_end(true, &result);
+            let entry = L2ExecutionEntrySol {
+                proxyEntryHash: key,
+                incomingCalls: vec![CrossChainCallSol {
+                    sourceAddress: source,
+                    sourceRollupId: 0,
+                    targetAddress: target,
+                    gas: 0,
+                    revertNextNCalls: 0,
+                    isStatic: false,
+                    value: U256::ZERO,
+                    data: Bytes::new(),
+                }],
+                rollingHash: rolling.current(),
+                success: true,
+                returnData: result,
+                ..Default::default()
+            };
+            expected.push(runtime_entry_hash(&lift_entry_from_l2(&entry, RollupId(1))));
+            deliveries.push(Bytes::from(
+                executeIncomingCrossChainCallCall {
+                    _entries: vec![entry],
+                    _staticEntries: vec![],
+                }
+                .abi_encode(),
+            ));
+        }
+        let log = |address: Address, signature: &str| {
+            json!({
+                "address": address, "topics": [keccak256(signature), key], "data": "0x"
+            })
+        };
+        json!({
+            "direction": "L1_to_L2", "rollup_id": 1,
+            "registry": registry, "manager_l2": manager,
+            "l1_calldata": Bytes::from(post.abi_encode()),
+            "l2_calldata": deliveries, "expected_l2_entry_hashes": expected,
+            "l1_receipts": [{"logs": vec![log(registry, "ExecutionConsumed(bytes32,uint64,uint256)"); 3]}],
+            "l2_receipts": [{"logs": vec![log(manager,
+                "IncomingCrossChainCallExecuted(bytes32,bool,address,uint64,address,uint256,uint64,bytes)"); 3]}]
+        })
+    }
+
+    #[test]
+    fn inbound_multi_transaction_evidence_spans_settlement_batches() {
+        let mut input = inbound_fixture();
+        assert_eq!(
+            verify_input(&input).unwrap()["pairs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        let mut first =
+            postAndVerifyBatchCall::abi_decode(&parse_bytes(&input, "l1_calldata").unwrap())
+                .unwrap();
+        let mut second = first.clone();
+        second.batch.entries = first.batch.entries.split_off(2);
+        input["l1_calldata"] = json!(Bytes::from(first.abi_encode()));
+        assert!(
+            verify_input(&input)
+                .unwrap_err()
+                .to_string()
+                .contains("L2 entry 2")
+        );
+        input["l1_calldata"] = json!([
+            Bytes::from(first.abi_encode()),
+            Bytes::from(second.abi_encode())
+        ]);
+        let result = verify_input(&input).unwrap();
+        assert_eq!(result["posted_l1_entries"], 3);
+        assert_eq!(result["l1_settlement_transactions"], 2);
+        assert_eq!(result["pairs"][2]["l1_settlement_transaction_index"], 1);
+        assert_eq!(result["pairs"][2]["l1_entry_indices"], json!([0]));
+    }
+
+    #[test]
+    fn split_inbound_evidence_rejects_incomplete_reordered_and_corrupt_inputs() {
+        for mutation in [
+            "missing_batch",
+            "reordered_batches",
+            "changed_result",
+            "noncanonical",
+            "empty",
+            "unused_batch",
+            "missing_delivery",
+            "duplicate_delivery",
+            "missing_trigger",
+        ] {
+            let mut input = inbound_fixture();
+            let mut first =
+                postAndVerifyBatchCall::abi_decode(&parse_bytes(&input, "l1_calldata").unwrap())
+                    .unwrap();
+            let mut second = first.clone();
+            second.batch.entries = first.batch.entries.split_off(2);
+            if mutation == "changed_result" {
+                second.batch.entries[0].returnData = Bytes::from(vec![0xff]);
+            }
+            let mut batches = vec![
+                Bytes::from(first.abi_encode()),
+                Bytes::from(second.abi_encode()),
+            ];
+            let expected_error = match mutation {
+                "missing_batch" => {
+                    batches.pop();
+                    "L2 entry 2"
+                }
+                "reordered_batches" => {
+                    batches.reverse();
+                    "no ordered L1 entry"
+                }
+                "changed_result" => "L2 entry 2",
+                "noncanonical" => {
+                    let mut bytes = batches[1].to_vec();
+                    bytes.extend_from_slice(&[0; 32]);
+                    batches[1] = Bytes::from(bytes);
+                    "not canonical ABI"
+                }
+                "empty" => {
+                    batches.clear();
+                    "no L1 settlement"
+                }
+                "unused_batch" => {
+                    batches.push(Bytes::from(second.abi_encode()));
+                    "no selected causal entry"
+                }
+                "missing_delivery" => {
+                    input["l2_receipts"][0]["logs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .pop();
+                    "L2 destination deliveries"
+                }
+                "duplicate_delivery" => {
+                    let log = input["l2_receipts"][0]["logs"][0].clone();
+                    input["l2_receipts"][0]["logs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(log);
+                    "L2 destination deliveries"
+                }
+                "missing_trigger" => {
+                    input["l1_receipts"][0]["logs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .pop();
+                    "L1 trigger consumptions"
+                }
+                _ => unreachable!(),
+            };
+            input["l1_calldata"] = json!(batches);
+            let error = verify_input(&input).unwrap_err().to_string();
+            assert!(error.contains(expected_error), "{mutation}: {error}");
+        }
+        let mut outbound = mixed_fixture(false);
+        outbound["l1_calldata"] = json!([outbound["l1_calldata"], outbound["l1_calldata"]]);
+        assert!(
+            verify_input(&outbound)
+                .unwrap_err()
+                .to_string()
+                .contains("mutable inbound evidence")
+        );
+    }
 
     fn mixed_fixture(repeated: bool) -> Value {
         serde_json::from_str(if repeated {

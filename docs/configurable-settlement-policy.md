@@ -162,7 +162,8 @@ count cap. The `admission.gas_projection` event retains its
 `gas_budget_cut` also reports the applied entry discount. Final ordered native
 execution remains mandatory before submission.
 The incremental blob estimate includes derivation metadata, semantic messages,
-and the existing RLP integer-list encoding of block bytes. Unknown execution
+and V0 RLP byte-string wrappers for full blocks and entries. Ordinary blocks use
+compact counts, sparse overrides and transaction byte strings. Unknown execution
 header fields are conservatively bounded; the final actual encoding and ordered
 bundle simulation remain authoritative. A single group still gets the exact
 capacity check. Earlier L2 history uses the existing historical-drain rules.

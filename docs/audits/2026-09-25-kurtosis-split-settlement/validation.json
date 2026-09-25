@@ -1,0 +1,136 @@
+{
+  "source_commit": "6fb2ef198a719d73a3aec399e751e0648a6e7d24",
+  "source_tree": "150e738c15f376985ae0139b8c445e0e23efa44f",
+  "ci_merge_commit": "25ad58d342857b256649ea24e63c437ca3bc99d2",
+  "ci_merge_tree": "150e738c15f376985ae0139b8c445e0e23efa44f",
+  "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "tested_patch_sha256": "cba0fd0715565e89f8b022bcc5729a2ff8b425842d58c5dcda8e4519f5e3d6c0",
+  "host_tools": {
+    "rust": "1.94.0",
+    "foundry": "1.7.1",
+    "kurtosis": "1.20.0"
+  },
+  "local_verifier_build_profile": "dev",
+  "runtime_images": [
+    {
+      "Id": "sha256:065ae3443bb51066d41bf8691332a50351a33ce148aa8a0082e69fe7c45e8fe9",
+      "RepoDigests": [
+        "ghcr.io/eduadiez/rollupx-node@sha256:065ae3443bb51066d41bf8691332a50351a33ce148aa8a0082e69fe7c45e8fe9"
+      ],
+      "labels": {
+        "io.eez.build.profile": "release",
+        "io.eez.protocol.revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "org.opencontainers.image.revision": "25ad58d342857b256649ea24e63c437ca3bc99d2",
+        "org.opencontainers.image.source": "https://github.com/eduadiez/rollupX"
+      }
+    },
+    {
+      "Id": "sha256:7975c42f3a836335384993efb4701017194a5fa49ce88eaee22515ecd8566a81",
+      "RepoDigests": [
+        "ghcr.io/eduadiez/rollupx-proof-signer@sha256:7975c42f3a836335384993efb4701017194a5fa49ce88eaee22515ecd8566a81"
+      ],
+      "labels": {
+        "io.eez.build.profile": "release",
+        "io.eez.protocol.revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "org.opencontainers.image.revision": "25ad58d342857b256649ea24e63c437ca3bc99d2",
+        "org.opencontainers.image.source": "https://github.com/eduadiez/rollupX"
+      }
+    },
+    {
+      "Id": "sha256:8beea6e6f6b62e5ee82b3b83c663d035d6bb1f1743b7ac70fafa803ee6deb7e8",
+      "RepoDigests": [
+        "eez-deploy@sha256:8beea6e6f6b62e5ee82b3b83c663d035d6bb1f1743b7ac70fafa803ee6deb7e8"
+      ],
+      "labels": {
+        "io.eez.protocol.revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "org.opencontainers.image.revision": "6fb2ef198a719d73a3aec399e751e0648a6e7d24"
+      }
+    }
+  ],
+  "tool_sha256": {
+    "eez-genesis-block-hash": "0eb6d3fb9bfcf6451cc5d12bb402370a0b375e8f69cbddac229004fdab3c3b13",
+    "eez-genesis-state-root": "498f59d0c5ae5b5aad35bfb1de8f85857a205fd6014083206ea7da36c4d3f93f",
+    "e2e-causal-verify": "b079e4b91e6f1d8755d9712eaabdd3da78cb2386eb9ab375ccbf19db571a10af",
+    "verify_blob_evidence": "5af2b2689e367e53e6613a54929c16629e290bfc25f65a91e2e455432a78a6c3"
+  },
+  "run": {
+    "command": "bash testing/kurtosis/run-ci.sh",
+    "launcher_local_only": "artifacts/kurtosis-local-20260925-1411/run-local.sh",
+    "enclave": "eez-ci-two-byte-20260925-1411",
+    "args_file": "testing/kurtosis/ci-args.yaml",
+    "resource_check": true,
+    "protocol_max_parallel": "all",
+    "started_at": "2026-09-25T14:18:21Z",
+    "finished_at": "2026-09-25T14:47:45Z",
+    "duration_seconds": 1764,
+    "exit_code": 0,
+    "result": "pass",
+    "cleanup": "Enclave removed by runner; subsequent kurtosis enclave ls was empty."
+  },
+  "runtime_checks": {
+    "proof_flow": {
+      "signed_windows": 31,
+      "remote_attestations": 31
+    },
+    "modes": [
+      "inbound",
+      "outbound",
+      "mixed",
+      "mixed-pure"
+    ],
+    "cross_chain_convergence": "pass",
+    "state_chaining": "pass",
+    "l1_l2_root_divergence": 0,
+    "safe_head_convergence": "pass"
+  },
+  "protocol": {
+    "suite": {
+      "discovered": 36,
+      "eligible": 32,
+      "selected": 32,
+      "excluded_from_all": [
+        "nestedStaticLocalWriteL2",
+        "staticLocalWrite",
+        "nestedStaticLocalWriteL1",
+        "staticLocalWriteL2"
+      ],
+      "complete": true
+    },
+    "passed": 32,
+    "failed": 0,
+    "skipped": 0,
+    "accounting_valid": true,
+    "evidence_complete": true,
+    "causal_coverage_complete": true,
+    "semantic_blob_coverage_complete": true,
+    "counter_multi_tx": {
+      "result": "PASS",
+      "triggers": 3,
+      "settlements": 1,
+      "causal_verified": true,
+      "blob_verified": true
+    }
+  },
+  "limitations": [
+    "Full CI artifact producer was not rerun; unchanged release node and signer images came from the failed GitHub run.",
+    "Deployment image was built locally from the matching checkout; evidence verifiers were built locally with Rust 1.94.0.",
+    "Original job diagnostics were unavailable because GitHub artifact upload exceeded quota.",
+    "The live counter-multi-tx scenario settled all three triggers in one batch; split settlement was exercised only by synthetic Rust and mocked collector regression tests.",
+    "Standalone follower replay and the complete CI producer/native matrix were not rerun.",
+    "Four opt-in Python tooling tests were skipped; see README.md."
+  ],
+  "local_only_artifact_root": "artifacts/kurtosis-local-20260925-1411",
+  "local_only_artifact_sha256": {
+    "run.log": "937379de2144a81fa712cd15ac861dbdacce2cfbd30f23a29d4ef8e63495ee3b",
+    "run-local.sh": "9a959526913fed01905f6e1bd18b5235ef845a8481f718dc8113a12203350307",
+    "tested.patch": "cba0fd0715565e89f8b022bcc5729a2ff8b425842d58c5dcda8e4519f5e3d6c0",
+    "identity.json": "31eeecba99bf025e7ee43cf0974db454bd0b8c2d6d2c52279357bbd5e6377400",
+    "results/result.json": "49c9d690f86e93d62b0590403b19ee6f7db0df0a779c4871b712cda2c62f96e7",
+    "results/protocol-e2e/summary.json": "32d6dd9a7bd8fcc1defa283a23fd268cbb3396e8c397fde1ca419c638c0435a0",
+    "validation-logs/rollupx-causal-regression-after.log": "a02afd5f864d641721dbcef545b4817c8d099829556f9aa1c6f7cb5cef7c2fe1",
+    "validation-logs/rollupx-causal-regression-before.log": "e56844719345465f1f437b5ecab1833a083a174a50bc0c059eb9b5ee32e76256",
+    "validation-logs/rollupx-split-ci-tooling.log": "79ce57cc4b3289c339be6793caf8d4f65b6d9059b2a3690054c12f0f5690f1a9",
+    "validation-logs/rollupx-split-clippy.log": "c2fc15a6e45413ad6663c7e98dbeff271d28ee7ca41f0a6a34b097b33bf225a4",
+    "validation-logs/rollupx-split-protocol-tests.log": "b65dd94075a0219495d77465388a662fdbc38a5ab93d8544b0ccebc000e34021"
+  }
+}

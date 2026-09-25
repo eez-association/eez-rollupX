@@ -18,7 +18,12 @@ is an immutable input/original-output oracle, not evidence that later binaries
 were deployed. A successful captured request alone does not establish that its
 particular posting attempt landed. The whole native scenario passed; the signer
 regression independently replays the request through the current shipping path,
-without the old-format test oracle, and checks the original digest/signature.
+without the projected-format test oracle. Since the RollupX V0 wire revision,
+the test first verifies the capture's original digest/signature, then repacks its
+ordinary transactions/empty spans, unchanged terminal, entries and semantic messages using V0.
+The current signer must replay the original blocks/witnesses and attest the new
+independently recomputed DA digest. The narrow capture adapter is test-only;
+shipping code does not accept tag 3. Captured files remain unchanged.
 
 Run the current regressions with:
 

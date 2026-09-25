@@ -386,9 +386,8 @@ impl Attempt {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BlobAdmission {
     header_and_body: usize,
-    header_and_body_items: usize,
     transaction_items: usize,
-    transaction_byte_items: usize,
+    transaction_count: usize,
     overhead: DaOverhead,
     pub companion_blobs: u64,
 }
@@ -408,8 +407,7 @@ fn list_len(items: usize) -> Result<usize, String> {
 impl BlobAdmission {
     pub fn new(mut empty: reth_ethereum_primitives::Block) -> Self {
         // These fields are only known after final execution. Maximal encodings
-        // bound their contribution to Vec<u8>'s RLP INTEGER list, where every
-        // byte >= 128 takes two bytes. The remaining header fields are fixed by
+        // bound the full block byte string. The remaining header fields are fixed by
         // the same parent and next-block attributes as the canonical builder.
         empty.header.gas_used = u64::MAX;
         empty.header.state_root = alloy_primitives::B256::repeat_byte(0xff);
@@ -428,14 +426,8 @@ impl BlobAdmission {
             // Empty ommers, plus an empty withdrawals list when present. The
             // synthetic Sync builder never adds ommers or withdrawals.
             header_and_body: header.len() + body_lists,
-            // The header's own RLP prefix can change when gas-used changes.
-            // Charge its maximum byte expansion even if this template's prefix
-            // happened to contain low bytes.
-            header_and_body_items: header.iter().map(Encodable::length).sum::<usize>()
-                + 2 * body_lists
-                + 2 * (1 + std::mem::size_of::<usize>()),
             transaction_items: 0,
-            transaction_byte_items: 0,
+            transaction_count: 0,
             overhead: DaOverhead::default(),
             companion_blobs: 0,
         }
@@ -448,6 +440,10 @@ impl BlobAdmission {
         companion: Option<&Bytes>,
     ) -> Result<Self, String> {
         let mut next = *self;
+        next.transaction_count = next
+            .transaction_count
+            .checked_add(txs.len())
+            .ok_or("admission transaction count overflow")?;
         for raw in txs {
             let tx = alloy_consensus::TxEnvelope::decode_2718(&mut raw.as_ref())
                 .map_err(|e| format!("admission transaction decode: {e}"))?;
@@ -455,11 +451,6 @@ impl BlobAdmission {
                 .transaction_items
                 .checked_add(tx.length())
                 .ok_or("admission transaction size overflow")?;
-            let encoded = alloy_rlp::encode(tx);
-            next.transaction_byte_items = next
-                .transaction_byte_items
-                .checked_add(encoded.iter().map(Encodable::length).sum::<usize>())
-                .ok_or("admission encoded transaction size overflow")?;
         }
         if let Some(raw) = companion {
             use alloy_consensus::Transaction;
@@ -496,18 +487,9 @@ impl BlobAdmission {
             .header_and_body
             .checked_add(list_len(self.transaction_items)?)
             .ok_or("admission block size overflow")?;
-        let tx_prefix = list_len(self.transaction_items)? - self.transaction_items;
-        let block_prefix = list_len(block_payload)? - block_payload;
-        let block_byte_items = self
-            .header_and_body_items
-            .checked_add(self.transaction_byte_items)
-            .and_then(|n| n.checked_add(2 * (tx_prefix + block_prefix)))
-            .ok_or("admission block byte list size overflow")?;
-        // Preserve the codec's Vec<u8> representation: an RLP integer list,
-        // not Bytes. Prefix bytes may change as the final header gets shorter.
-        let block_item = block_byte_items
-            .checked_add(2 * (list_len(block_byte_items)? - block_byte_items))
-            .ok_or("admission block item size overflow")?;
+        // One list prefix for the block RLP, one byte-string prefix for its
+        // operations field. Both prefixes have the same length at this size.
+        let block_item = list_len(list_len(block_payload)?)?;
         let payload = eez_payload_codec::DerivablePayloadSizer::default()
             .encoded_len_from_items(
                 &eez_payload_codec::derivable::Environment::unused(),
@@ -521,7 +503,12 @@ impl BlobAdmission {
     }
 
     pub fn fits(&self, blobs: usize) -> Result<bool, String> {
-        Ok(self.required_blobs()? <= blobs)
+        // Count the complete group, including generated system transactions.
+        // A refusal uses the same whole-group deferral as a byte-cap refusal.
+        Ok(
+            self.transaction_count <= eez_payload_codec::derivable::MAX_TRANSACTIONS
+                && self.required_blobs()? <= blobs,
+        )
     }
 
     pub fn required_blobs(&self) -> Result<usize, String> {
@@ -537,6 +524,37 @@ mod tests {
     use alloy_consensus::{SignableTransaction, TxEip1559, TxEip4844, TxEnvelope, TxLegacy};
     use alloy_eips::Encodable2718;
     use alloy_primitives::{B256, Signature, U256};
+
+    #[test]
+    fn terminal_count_limit_counts_extensions_without_mutating_the_previous_budget() {
+        let raw = Bytes::from(signed(0, true).encoded_2718());
+        let mut budget = BlobAdmission::new(Default::default());
+        budget.transaction_count = eez_payload_codec::derivable::MAX_TRANSACTIONS - 1;
+        let fitting = budget
+            .extend(std::slice::from_ref(&raw), DaOverhead::default(), None)
+            .unwrap();
+        assert_eq!(
+            fitting.transaction_count,
+            eez_payload_codec::derivable::MAX_TRANSACTIONS
+        );
+        assert!(fitting.fits(8).unwrap());
+        let oversized = budget
+            .extend(&[raw.clone(), raw.clone()], DaOverhead::default(), None)
+            .unwrap();
+        assert!(!oversized.fits(8).unwrap());
+        assert_eq!(
+            budget.transaction_count,
+            eez_payload_codec::derivable::MAX_TRANSACTIONS - 1
+        );
+        // Valid bytes ensure an unrelated decode error cannot satisfy this check.
+        budget.transaction_count = usize::MAX;
+        assert_eq!(
+            budget
+                .extend(&[raw], DaOverhead::default(), None)
+                .unwrap_err(),
+            "admission transaction count overflow"
+        );
+    }
 
     fn sample(groups: usize, preparation_ms: u64) -> Sample {
         Sample {
@@ -1270,7 +1288,7 @@ mod tests {
                     .extend(
                         &[raw],
                         DaOverhead {
-                            entry_items: entry.length(),
+                            entry_items: entry.as_slice().length(),
                             group_items: group.length(),
                             semantic_bytes: semantic,
                         },

@@ -18,9 +18,15 @@ is an immutable input/original-output oracle, not evidence that later binaries
 were deployed. A successful captured request alone does not establish that its
 particular posting attempt landed. The whole native scenario passed at its original protocol revision. The
 feature/events port changes both L2 system-call selectors. The current signer
-regression therefore replays these unchanged bytes as a compatibility rejection
+regression therefore replays the unchanged execution bytes as a compatibility rejection
 and asserts that no signature is produced. Positive signing and DA mutation
 coverage use the separate new-protocol capture; the original oracle is retained.
+
+The test-only V0 adapter verifies the original digest/signature, then repacks the
+DA wrapper while preserving blocks, witnesses, entries and semantic messages.
+This lets the regression reach the protocol-selector rejection instead of failing
+on the historical operations tag. Captured files remain unchanged; shipping code
+does not accept tag 3.
 
 Run the current regressions with:
 

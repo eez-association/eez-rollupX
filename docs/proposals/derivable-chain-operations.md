@@ -1,5 +1,14 @@
 # Derivable ChainOperation: implementation contract
 
+Wire revision (2026-09-22): [two-byte RollupX V0](two-byte-da-v0.md) supersedes
+this document's tag-3 wire shape, sparse-record framing, terminal/entry
+integer-list wrappers and u16 transaction ceiling. The active format is tag
+0/profile 1, with byte-string terminal/entries and a 16,383 transaction ceiling.
+The execution, reconstruction, richer-action, caching and authentication
+requirements below remain in force. Historical tag-3 evidence does not validate
+the new encoding; its validation is recorded separately. The old wire description
+below is retained as design history, not an alternative runtime mode.
+
 Status: implementation in progress, 2026-09-16. Reviewed against
 `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`; the implementation is now aligned with
 `5469c88860408daf776ee812156dd280c1a9e262` ([integration evidence](../research/2026-09-16-blob-efficiency/implementation/main-alignment.md)). No runtime change or deployment is

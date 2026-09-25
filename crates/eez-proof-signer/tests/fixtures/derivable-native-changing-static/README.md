@@ -26,8 +26,13 @@ cached validation facts are imported from the original process. JSON inputs pin
 the chain rules and public Testkit identities;
 all keys used by this fixture are deliberately public test keys. `sha256.json`
 identifies the retained input/output files. The signer tests replay actual
-execution, verify the original digest/signature on retries, and reject changes
-to sidecars, positions and complete-group boundaries without signing.
+execution and reject changes to sidecars, positions and complete-group boundaries
+without signing. On the two-byte V0 branch, the test-only adapter first verifies
+the original digest/signature, then re-encodes only the DA wrapper and recomputes
+the committed digest. It checks the new attestation and identical retry results;
+the original signature cannot attest to changed DA bytes. Captured execution,
+witnesses, sidecars and fixture files remain unchanged. No historical decoder is
+included in the shipping signer.
 
 Source-built executable SHA-256 values:
 

@@ -5,7 +5,6 @@ use std::time::Duration;
 use alloy_consensus::Transaction as _;
 use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rlp::Encodable;
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
     ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeBinary, NodeConfig, NodeHandle, batches_posted,
@@ -15,20 +14,30 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_secs(180);
 
-fn conservative_full_history_len(blocks: &[Vec<u8>]) -> usize {
-    fn list_len(payload: usize) -> usize {
-        payload
-            + alloy_rlp::Header {
-                list: true,
-                payload_length: payload,
-            }
-            .length()
-    }
-    let block_items = blocks.iter().map(Encodable::length).sum();
-    // Tag + RLP([blocks, empty entries, empty groups]). This is only the
-    // conservative admission bound exercised by this test, not a supported
-    // ChainOperation format.
-    1 + list_len(list_len(block_items) + 2)
+fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
+    use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
+
+    let (terminal, ordinary) = blocks.split_last().expect("nonempty interval");
+    // Measure a valid V0 all-full representation, including counts, overrides
+    // and the terminal. Do not use the old integer-list wrapper as a size oracle.
+    Payload::new(
+        ordinary.len() as u64,
+        Environment::unused(),
+        ordinary
+            .iter()
+            .map(|block| Record {
+                empty_gap: 0,
+                data: RecordData::FullBlock(block.clone().into()),
+            })
+            .collect(),
+        terminal.clone(),
+        vec![],
+        vec![],
+    )
+    .unwrap()
+    .encode()
+    .unwrap()
+    .len()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2345,9 +2354,12 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
     let mut hashes = Vec::new();
-    // Each fits by itself on both networks. The combined workload exceeds
-    // even Ethereum's six-blob transaction bound. Queue nonce descendants too.
-    for offset in 0..8 {
+    // Each fits by itself on both networks. The calldata alone must exceed the
+    // network's whole interval capacity even without any encoding overhead.
+    let input_bytes = 70_000;
+    let transaction_count =
+        (max_blobs * eez_blob_codec::DATA_BYTES_PER_BLOB / input_bytes + 1) as u64;
+    for offset in 0..transaction_count {
         hashes.push(
             sign_and_send(
                 &world.l2_rpc(),
@@ -2356,7 +2368,7 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
                 nonce + offset,
                 Some(ANVIL_ADDR_3),
                 U256::from(1),
-                vec![0xff; 70_000],
+                vec![0xff; input_bytes],
                 4_000_000,
             )
             .await
@@ -2509,8 +2521,7 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         encoded.push(alloy_rlp::encode(&block));
         if boundaries.contains(&number) {
             let bytes =
-                eez_blob_codec::native_stream_len(conservative_full_history_len(&encoded), 0)
-                    .unwrap();
+                eez_blob_codec::native_stream_len(full_history_payload_len(&encoded), 0).unwrap();
             assert!(
                 bytes <= max_blobs * eez_blob_codec::DATA_BYTES_PER_BLOB,
                 "unpostable interval ending {number}: {bytes}"
@@ -2522,7 +2533,7 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     assert!(intervals.len() > 1, "overflow must cross a usable boundary");
     assert_eq!(
         onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap(),
-        nonce + 8
+        nonce + transaction_count
     );
     assert_eq!(
         batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
@@ -2689,8 +2700,10 @@ async fn ordinary_rpc_rejects_unpostable_data_without_consuming_nonce() {
         nonce,
         Some(ANVIL_ADDR_3),
         U256::ZERO,
-        vec![0xff; 70_000],
-        4_000_000,
+        // The calldata alone fills the blob; signed-transaction and interval
+        // framing make it unpostable regardless of byte-string compression.
+        vec![0xff; eez_blob_codec::DATA_BYTES_PER_BLOB],
+        8_000_000,
     )
     .await
     .unwrap_err();

@@ -81,7 +81,7 @@ represents one complete preparation or proving request.
 
 ### 2.1 Validation identity and capability discovery
 
-`Capabilities` returns tag 3/profile 1, the 32-byte locally computed validation
+`Capabilities` returns tag 0/profile 1, the 32-byte locally computed validation
 identity, the effective logical block/byte/witness-item/message limits, and both
 timeouts in milliseconds. The reported block maximum is the minimum of the local
 request cap and the format's 65,536 ceiling; the message cap includes the aggregate
@@ -212,12 +212,15 @@ brackets, and a final `CloseBlobStream`, with canonical field-element packing
 and zero padding. New chain-operation payloads are:
 
 ```text
-0x03 || RLP([profileId, ordinaryBlockCount, commonEnvironment, ordinaryRecords, terminalBlock, l2Entries, outboundGroupSizes])
+0x00 || RLP([profileId, ordinaryBlockCount, commonEnvironment, columns, terminalBlock, l2Entries, outboundGroupSizes])
 ```
 
 The new network uses profile 1 from genesis without an activation setting.
-Ordinary records publish execution inputs; the terminal retains its full block RLP.
-See the [operations contract](../../docs/proposals/derivable-chain-operations.md) for
+`columns` contains compact counts, sparse overrides, and flattened derived
+transactions. The terminal retains its full block RLP in an RLP byte string;
+`l2Entries` is a list of RLP byte strings preserving the exact entry contents.
+See the [V0 wire contract](../../docs/proposals/two-byte-da-v0.md#wire-design) and
+[reconstruction contract](../../docs/proposals/derivable-chain-operations.md) for
 canonical bounds and execution requirements. `l2Entries`
 contains each outbound source entry followed by its callbacks, then inbound
 target entries. `outboundGroupSizes` identifies the authorized outbound effects

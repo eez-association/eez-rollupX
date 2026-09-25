@@ -24,14 +24,16 @@ fn env(id: u8) -> Environment {
     }
 }
 
-fn items(shapes: &[(u8, u8, usize)]) -> Vec<Item> {
+// None selects a full exception; Some(id) selects a derived environment.
+// Transaction count is independent of that choice, including for full blocks.
+fn items(shapes: &[(Option<u8>, usize, usize)]) -> Vec<Item> {
     let mut parent_hash = B256::ZERO;
     shapes
         .iter()
-        .chain(std::iter::once(&(0, 0, 0)))
+        .chain(std::iter::once(&(Some(0), 0, 0)))
         .enumerate()
-        .map(|(index, &(kind, id, data_len))| {
-            let transactions = if kind == 1 || kind == 3 {
+        .map(|(index, &(environment, count, data_len))| {
+            let transactions = if count > 0 {
                 vec![
                     TxEip1559 {
                         chain_id: 1,
@@ -42,7 +44,8 @@ fn items(shapes: &[(u8, u8, usize)]) -> Vec<Item> {
                     }
                     .into_signed(Signature::new(U256::from(1), U256::from(2), false))
                     .encoded_2718()
-                    .into(),
+                    .into();
+                    count
                 ]
             } else {
                 vec![]
@@ -63,7 +66,7 @@ fn items(shapes: &[(u8, u8, usize)]) -> Vec<Item> {
             };
             parent_hash = block.header.hash_slow();
             Item {
-                environment: (kind != 2).then(|| env(id)),
+                environment: environment.map(env),
                 transactions,
                 full: alloy_rlp::encode(block),
             }
@@ -137,6 +140,8 @@ fn assert_exact(items: &[Item], terminal: &Item) {
     let entries = vec![vec![0xff; 56], vec![0; 128]];
     let groups = vec![0, 127, 128, 65_535];
     let payload = encoded(items, terminal, entries.clone(), groups.clone());
+    let bytes = payload.encode().unwrap();
+    assert_eq!(Payload::decode(&bytes).unwrap(), payload);
     assert_eq!(summary.ordinary_block_count(), items.len());
     assert_eq!(
         summary.transaction_count(),
@@ -145,7 +150,6 @@ fn assert_exact(items: &[Item], terminal: &Item) {
             .map(|item| item.transactions.len())
             .sum::<usize>()
     );
-    assert_eq!(summary.record_count(), payload.records().len());
     let full_items = items
         .iter()
         .chain(std::iter::once(terminal))
@@ -163,7 +167,7 @@ fn assert_exact(items: &[Item], terminal: &Item) {
         summary
             .encoded_len(&env(0), &terminal.full, &entries, &groups)
             .unwrap(),
-        payload.encode().unwrap().len()
+        bytes.len()
     );
 }
 
@@ -178,10 +182,10 @@ fn future_interval_reserve_rejects_zero_oversized_and_overflowing_inputs() {
 #[test]
 fn joining_changed_empty_environment_inserts_a_record_and_reanchors_next_gap() {
     for gap in [0, 1, 54, 55, 56, 126, 127, 128, 254, 255, 256] {
-        let mut shapes = vec![(0, 0, 0); gap];
-        shapes.extend([(0, 1, 0), (0, 2, 0)]);
-        shapes.extend(vec![(0, 2, 0); gap]);
-        shapes.push((1, 2, 56));
+        let mut shapes = vec![(Some(0), 0, 0); gap];
+        shapes.extend([(Some(1), 0, 0), (Some(2), 0, 0)]);
+        shapes.extend(vec![(Some(2), 0, 0); gap]);
+        shapes.push((Some(2), 1, 56));
         let data = items(&shapes);
         assert_exact(&data[..shapes.len()], &data[shapes.len()]);
         for at in [0, gap, gap + 1, gap + 2] {
@@ -193,12 +197,12 @@ fn joining_changed_empty_environment_inserts_a_record_and_reanchors_next_gap() {
 #[test]
 fn full_prefixes_and_terminal_promotion_do_not_delay_environment_changes() {
     let data = items(&[
-        (2, 0, 0),
-        (2, 0, 0),
-        (0, 1, 0),
-        (2, 0, 0),
-        (3, 2, 55),
-        (0, 2, 0),
+        (None, 0, 0),
+        (None, 127, 0),
+        (Some(1), 0, 0),
+        (None, 128, 0),
+        (Some(2), 1, 55),
+        (Some(2), 0, 0),
     ]);
     for terminal in 0..data.len() {
         for start in 0..=terminal {
@@ -210,8 +214,24 @@ fn full_prefixes_and_terminal_promotion_do_not_delay_environment_changes() {
 #[test]
 fn transaction_and_nested_record_rlp_widths_match_actual_encoding() {
     for length in [0, 1, 55, 56, 255, 256, 65_535, 65_536] {
-        let data = items(&[(1, 128, length), (0, 129, 0), (1, 129, length)]);
+        let data = items(&[
+            (Some(128), 1, length),
+            (Some(129), 0, 0),
+            (Some(129), 1, length),
+        ]);
         assert_exact(&data[..3], &data[3]);
+    }
+}
+
+#[test]
+fn two_byte_counts_and_nonempty_full_exceptions_match_the_codec() {
+    for count in [1, 127, 128, 255, 256, 1428, 16_383] {
+        let data = items(&[(Some(0), count, 0), (Some(0), 0, 0), (None, count, 0)]);
+        // Only the second transaction-bearing ordinary position is full; it
+        // contributes a count token but no flattened transaction item.
+        assert_exact(&data[..3], &data[3]);
+        let p = encoded(&data[..3], &data[3], vec![], vec![]);
+        assert_eq!(Payload::decode(&p.encode().unwrap()).unwrap(), p);
     }
 }
 
@@ -222,7 +242,6 @@ fn maximum_summary_count_and_checked_size_failures_are_bounded() {
     for _ in 0..65_535 {
         summary = summary.combine(&leaf).unwrap();
     }
-    assert_eq!(summary.record_count(), 0);
     assert!(matches!(
         summary.combine(&leaf),
         Err(Error::BlockLimit(65_536))
@@ -239,7 +258,11 @@ proptest! {
 
     #[test]
     fn composition_is_associative_and_matches_dense_encoding(
-        shapes in prop::collection::vec((0u8..4, any::<u8>(), 0usize..260), 0..100),
+        shapes in prop::collection::vec((
+            prop::option::of(any::<u8>()),
+            prop_oneof![12 => 0usize..=2, 1 => Just(127usize), 1 => Just(128usize)],
+            0usize..260,
+        ), 0..100),
         left in 0usize..100, right in 0usize..100,
     ) {
         let data = items(&shapes);

@@ -70,7 +70,7 @@ flowchart LR
    `[load, user]` transaction-byte equality remains part of the DA gate in step 8.
 8. `da` exact-binds every sparse derivation record, the complete terminal block
    and authorized sidecars to independently validated reconstruction facts. The
-   shipping path accepts only tag 3/profile 1. Test-only projected fixtures use
+   shipping path accepts only RollupX V0 tag 0/profile 1. Test-only projected fixtures use
    an independent oracle to exercise lower settlement gates; they are not a
    supported request format.
 9. Only after every gate passes does `CheckedPublicInputProfile` construct
