@@ -94,7 +94,7 @@ fn validate(
     capabilities: &CapabilitiesResponse,
     expected: alloy_primitives::B256,
 ) -> ProverResult<()> {
-    if capabilities.operations_tag != 3 || capabilities.profile_id != 1 {
+    if capabilities.operations_tag != 0 || capabilities.profile_id != 1 {
         return Err(ProverError::Backend(
             "prover operations tag/profile mismatch".into(),
         ));

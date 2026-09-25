@@ -235,14 +235,102 @@ impl Fixture {
         } else {
             chunks(encoded)
         };
-        Self {
+        let mut fixture = Self {
             input,
             state,
             expected_hash: B256::from_slice(
                 &hex::decode(response["public_inputs_hash"].as_str().unwrap()).unwrap(),
             ),
             signature: hex::decode(response["signature"].as_str().unwrap()).unwrap(),
+        };
+        fixture.reencode_v0();
+        fixture
+    }
+
+    fn digest(&mut self) -> B256 {
+        let header = header_mut(&mut self.input[0]);
+        let post = header.post_batch.as_ref().unwrap();
+        let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+        let carrier =
+            settlement::verify_da_carrier_with_limit(&batch, &post.blobs, header.rollup_id, 16)
+                .unwrap();
+        settlement::CheckedPublicInputProfile::new(
+            &batch,
+            self.state.expected_rollup_id,
+            batch.proofSystems[0],
+        )
+        .unwrap()
+        .recompute_public_inputs_hash(
+            self.state.attester.proof_system_vkey(),
+            carrier.transaction_blob_hashes(),
+        )
+        .unwrap()
+        .into_inner()
+    }
+
+    // Adapt only these immutable captured kind-0/empty ordinary fixtures, in tests.
+    // No historical decoder is linked into the shipping signer. Original block
+    // witnesses, terminal, effects and semantic messages are never regenerated.
+    fn reencode_v0(&mut self) {
+        #[derive(alloy_rlp::RlpDecodable)]
+        struct CapturedTransactions {
+            gap: u64,
+            kind: u8,
+            transactions: Vec<Bytes>,
         }
+        #[derive(alloy_rlp::RlpDecodable)]
+        struct Captured {
+            profile: u8,
+            count: u64,
+            environment: Environment,
+            records: Vec<CapturedTransactions>,
+            terminal: Vec<u8>,
+            entries: Vec<Vec<u8>>,
+            groups: Vec<u16>,
+        }
+        assert_eq!(self.digest(), self.expected_hash);
+        assert_eq!(
+            Signature::try_from(self.signature.as_slice())
+                .unwrap()
+                .recover_address_from_prehash(&self.expected_hash)
+                .unwrap(),
+            self.state.attester.address()
+        );
+        let mut native = native_payload(&mut self.input);
+        assert_eq!(native.operations[0], 3);
+        let old: Captured = alloy_rlp::decode_exact(&native.operations[1..]).unwrap();
+        assert_eq!(old.profile, 1);
+        let records = old
+            .records
+            .into_iter()
+            .map(|record| {
+                assert_eq!(
+                    record.kind, 0,
+                    "adapter only covers captured transaction records"
+                );
+                Record {
+                    empty_gap: record.gap,
+                    data: RecordData::Transactions(record.transactions),
+                }
+            })
+            .collect();
+        let new = Payload::new(
+            old.count,
+            old.environment,
+            records,
+            old.terminal,
+            old.entries,
+            old.groups,
+        )
+        .unwrap();
+        native.operations = new.encode().unwrap().into();
+        replace_native_payload(&mut self.input, native);
+        let new_hash = self.digest();
+        assert_ne!(
+            new_hash, self.expected_hash,
+            "changing DA changes the committed digest"
+        );
+        self.expected_hash = new_hash;
     }
 }
 
@@ -308,8 +396,8 @@ fn pipeline_error(state: &ServiceState, input: Vec<ProveChunk>) -> PipelineError
 
 #[tokio::test]
 async fn previous_protocol_system_selectors_are_rejected_without_signing() {
-    // Preserve the original bytes: this is a compatibility boundary, not a
-    // regenerated fixture that hides a changed execution contract.
+    // Only the DA wrapper is adapted to V0; the original execution bytes and
+    // system selectors must still fail the new protocol's authorization gate.
     let fixture = Fixture::load("derivable-native-mixed");
     let error = pipeline_error(&fixture.state, fixture.input.clone());
     assert!(matches!(
@@ -330,7 +418,7 @@ async fn previous_protocol_system_selectors_are_rejected_without_signing() {
 }
 
 #[tokio::test]
-async fn native_changing_reads_and_caught_revert_reproduce_original_attestations() {
+async fn native_changing_reads_and_caught_revert_replay_original_execution_with_v0() {
     for name in [
         "derivable-native-changing-static",
         "derivable-native-lookup",
@@ -383,7 +471,7 @@ async fn native_changing_reads_and_caught_revert_reproduce_original_attestations
             fixture.expected_hash,
             fixture.state.attester.address(),
         );
-        assert_eq!(response.signature, fixture.signature);
+        assert_ne!(response.signature, fixture.signature);
         // Retrying the identical request must recompute the same result.
         let retry = server.attest(fixture.input).await;
         assert_eq!(retry, response);

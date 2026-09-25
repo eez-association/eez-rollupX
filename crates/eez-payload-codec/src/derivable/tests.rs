@@ -66,12 +66,41 @@ fn list(fields: &[Vec<u8>]) -> Vec<u8> {
 }
 
 fn wire(count: u64, env: &Environment, records: &[Vec<u8>]) -> Vec<u8> {
+    // Independent empty-run writer (not the production token encoder).
+    let mut counts = match count {
+        0 => vec![],
+        1 => vec![0],
+        2..=64 => vec![0xc0 + (count - 2) as u8],
+        _ => vec![0xff],
+    };
+    if count >= 65 {
+        let mut n = count;
+        while n >= 128 {
+            counts.push((n as u8 & 127) | 128);
+            n >>= 7;
+        }
+        counts.push(n as u8);
+    }
+    wire_columns(count, env, &counts, records, &[])
+}
+
+fn wire_columns(
+    count: u64,
+    env: &Environment,
+    counts: &[u8],
+    overrides: &[Vec<u8>],
+    txs: &[Bytes],
+) -> Vec<u8> {
     let body = list(&[
         vec![1],
         alloy_rlp::encode(count),
         alloy_rlp::encode(env),
-        list(records),
-        alloy_rlp::encode(block(100_000, B256::ZERO)),
+        list(&[
+            alloy_rlp::encode(counts),
+            list(overrides),
+            list(&txs.iter().map(alloy_rlp::encode).collect::<Vec<_>>()),
+        ]),
+        alloy_rlp::encode(block(100_000, B256::ZERO).as_slice()),
         vec![0xc0],
         vec![0xc0],
     ]);
@@ -170,31 +199,17 @@ fn decoder_preserves_sparse_plan_without_activation_configuration() {
 
 #[test]
 fn runtime_decoder_rejects_earlier_tags_without_an_activation_or_fallback_mode() {
-    for payload in [vec![0], vec![1], vec![2]] {
+    for payload in [vec![1], vec![2], vec![3]] {
         assert!(matches!(Payload::decode(&payload), Err(Error::WrongTag)));
     }
     assert!(matches!(Payload::decode(&[]), Err(Error::WrongTag)));
 }
 
 #[test]
-fn retained_terminal_entries_and_groups_keep_exact_existing_wire() {
-    #[derive(alloy_rlp::RlpEncodable)]
-    struct RetainedFields {
-        blocks: Vec<Vec<u8>>,
-        entries: Vec<Vec<u8>>,
-        groups: Vec<u16>,
-    }
-
+fn terminal_and_entries_are_byte_strings_with_exact_contents_and_unchanged_groups() {
     let terminal = block(99, B256::ZERO);
     let entries = vec![vec![0, 1, 127, 128, 255], vec![], vec![255; 56]];
     let groups = vec![0, 1, 127, 128, 255, 256, u16::MAX];
-    let mut retained = vec![2];
-    RetainedFields {
-        blocks: vec![terminal.clone()],
-        entries: entries.clone(),
-        groups: groups.clone(),
-    }
-    .encode(&mut retained);
     let new = Payload::new(
         0,
         environment(),
@@ -209,20 +224,52 @@ fn retained_terminal_entries_and_groups_keep_exact_existing_wire() {
     assert_eq!(decoded.terminal_block(), terminal);
     assert_eq!(decoded.l2_entries(), entries);
     assert_eq!(decoded.outbound_group_sizes(), groups);
-    let mut old_input = &retained[1..];
-    let mut old_body = Header::decode_bytes(&mut old_input, true).unwrap();
-    let mut old_blocks = Header::decode_bytes(&mut old_body, true).unwrap();
-    let old_terminal = item(&mut old_blocks);
     let mut new_input = &encoded[1..];
     let mut new_body = Header::decode_bytes(&mut new_input, true).unwrap();
     for _ in 0..4 {
         item(&mut new_body);
     }
-    assert_eq!(item(&mut new_body), old_terminal);
     assert_eq!(
-        new_body, old_body,
-        "entry/group RLP must be byte-identical, not just equivalent"
+        Header::decode_bytes(&mut new_body, false).unwrap(),
+        terminal
     );
+    let mut encoded_entries = Header::decode_bytes(&mut new_body, true).unwrap();
+    // Independent literal vector: zero and high bytes are raw data, not integers.
+    assert_eq!(item(&mut encoded_entries), &[0x85, 0, 1, 127, 128, 255]);
+    assert_eq!(item(&mut encoded_entries), &[0x80]);
+    let mut expected = vec![0xb8, 56];
+    expected.extend([255; 56]);
+    assert_eq!(item(&mut encoded_entries), expected);
+    assert!(encoded_entries.is_empty());
+    assert_eq!(new_body, alloy_rlp::encode(&groups));
+
+    // Reject the superseded integer-list wrappers, even though the contents
+    // would otherwise describe the same block and entries.
+    let fields = [
+        vec![1],
+        alloy_rlp::encode(0u64),
+        alloy_rlp::encode(environment()),
+        list(&[vec![0x80], vec![0xc0], vec![0xc0]]),
+        alloy_rlp::encode(terminal.as_slice()),
+        list(
+            &entries
+                .iter()
+                .map(|entry| alloy_rlp::encode(entry.as_slice()))
+                .collect::<Vec<_>>(),
+        ),
+        alloy_rlp::encode(&groups),
+    ];
+    for (index, legacy) in [
+        (4, alloy_rlp::encode(&terminal)),
+        (5, alloy_rlp::encode(&entries)),
+    ] {
+        let mut invalid = fields.clone();
+        invalid[index] = legacy;
+        assert!(matches!(
+            Payload::decode(&[vec![TAG], list(&invalid)].concat()),
+            Err(Error::Rlp(_))
+        ));
+    }
 }
 
 #[test]
@@ -288,12 +335,8 @@ fn gap_and_environment_wire_match_independent_encoder() {
     let mut changed = environment();
     changed.timestamp_step_seconds = 3;
     let txs = vec![tx(10)];
-    let record = list(&[
-        vec![0x80],
-        vec![2],
-        list(&[alloy_rlp::encode(&changed), alloy_rlp::encode(&txs)]),
-    ]);
-    let expected = wire(2, &environment(), &[record]);
+    let record = list(&[vec![0x80], vec![2], alloy_rlp::encode(&changed)]);
+    let expected = wire_columns(2, &environment(), &[1, 0], &[record], &txs);
     let payload = payload(
         2,
         vec![Record {
@@ -328,7 +371,7 @@ fn out_of_range_gap_is_rejected_before_missing_record_data() {
 
 #[test]
 fn cumulative_record_coverage_cannot_consume_terminal() {
-    let one = list(&[vec![0x80], vec![0x80], alloy_rlp::encode(vec![tx(1)])]);
+    let one = list(&[vec![0x80], vec![2], alloy_rlp::encode(environment())]);
     let input = wire(1, &environment(), &[one.clone(), one]);
     assert!(matches!(
         Payload::decode(&input),
@@ -341,18 +384,14 @@ fn empty_transaction_record_unknown_kind_and_noop_change_are_rejected() {
     let empty = list(&[vec![0x80], vec![0x80], vec![0xc0]]);
     assert!(matches!(
         Payload::decode(&wire(1, &environment(), &[empty])),
-        Err(Error::EmptyTransactions(0))
+        Err(Error::RecordKind(0))
     ));
     let unknown = list(&[vec![0x80], vec![3]]);
     assert!(matches!(
         Payload::decode(&wire(1, &environment(), &[unknown])),
         Err(Error::RecordKind(3))
     ));
-    let same = list(&[
-        vec![0x80],
-        vec![2],
-        list(&[alloy_rlp::encode(environment()), vec![0xc0]]),
-    ]);
+    let same = list(&[vec![0x80], vec![2], alloy_rlp::encode(environment())]);
     assert!(matches!(
         Payload::decode(&wire(1, &environment(), &[same])),
         Err(Error::UnchangedEnvironment(0))
@@ -444,9 +483,8 @@ fn malformed_and_nonexact_transaction_envelopes_are_rejected() {
         Bytes::from([good.as_ref(), &[0]].concat()),
         Bytes::from_static(&[0x02, 0xc0]),
     ] {
-        let record = list(&[vec![0x80], vec![0x80], alloy_rlp::encode(vec![bad])]);
         assert!(matches!(
-            Payload::decode(&wire(1, &environment(), &[record])),
+            Payload::decode(&wire_columns(1, &environment(), &[1], &[], &[bad])),
             Err(Error::InvalidTransaction { .. })
         ));
     }
@@ -469,21 +507,162 @@ fn constructor_cannot_emit_a_transaction_the_decoder_rejects() {
 }
 
 #[test]
-fn transaction_count_is_bounded_before_decoding_an_excess_item() {
-    let mut transactions = vec![0x80; usize::from(u16::MAX)];
-    // An intentionally truncated string beyond the allowed count: count failure
-    // must win over attempting to decode or allocate that extra transaction.
-    transactions.push(0xb8);
-    let mut encoded = Vec::new();
-    Header {
-        list: true,
-        payload_length: transactions.len(),
-    }
-    .encode(&mut encoded);
-    encoded.extend(transactions);
-    let record = list(&[vec![0x80], vec![0x80], encoded]);
+fn transaction_count_is_bounded_before_validating_transaction_data() {
     assert!(matches!(
-        Payload::decode(&wire(1, &environment(), &[record])),
+        Payload::new(
+            1,
+            environment(),
+            vec![Record {
+                empty_gap: 0,
+                data: RecordData::Transactions(vec![Bytes::new(); 16_384]),
+            }],
+            block(100, B256::ZERO),
+            vec![],
+            vec![]
+        ),
+        Err(Error::TransactionLimit(0))
+    ));
+}
+
+#[test]
+fn count_coverage_and_flat_transaction_column_are_exact() {
+    for counts in [
+        &[][..],
+        &[0xc0],
+        &[0, 0],
+        &[0x80, 1],
+        &[0xff, 1],
+        &[0xff, 0xff, 0xff, 0xff, 0xff, 15],
+    ] {
+        assert!(matches!(
+            Payload::decode(&wire_columns(1, &environment(), counts, &[], &[])),
+            Err(Error::CountEncoding)
+        ));
+    }
+    assert!(Payload::decode(&wire_columns(1, &environment(), &[1], &[], &[])).is_err());
+    assert!(Payload::decode(&wire_columns(1, &environment(), &[0], &[], &[tx(0)])).is_err());
+    for actual in [0, 1, 128] {
+        let full_block = Block {
+            header: alloy_consensus::Header {
+                number: 99_998,
+                ..Default::default()
+            },
+            body: BlockBody {
+                transactions: (0..actual)
+                    .map(|n| {
+                        reth_ethereum_primitives::TransactionSigned::decode_2718(
+                            &mut tx(n).as_ref(),
+                        )
+                        .unwrap()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        };
+        let full = list(&[
+            vec![0x80],
+            vec![1],
+            alloy_rlp::encode(Bytes::from(alloy_rlp::encode(full_block))),
+        ]);
+        // Leave a derived block between the exception and terminal so this
+        // fixture tests count binding, not adjacent full-block parent links.
+        let wrong = if actual == 0 { vec![1, 0] } else { vec![0xc0] };
+        assert!(matches!(
+            Payload::decode(&wire_columns(
+                2,
+                &environment(),
+                &wrong,
+                std::slice::from_ref(&full),
+                &[]
+            )),
+            Err(Error::CountMismatch)
+        ));
+        let correct = match actual {
+            0 => vec![0xc0],
+            1 => vec![1, 0],
+            _ => vec![0x80, 0x80, 0],
+        };
+        let wire = wire_columns(2, &environment(), &correct, &[full], &[]);
+        assert_eq!(Payload::decode(&wire).unwrap().encode().unwrap(), wire);
+    }
+}
+
+#[test]
+fn mixed_twelve_block_count_vector_is_independent_of_record_framing() {
+    let p = payload(
+        12,
+        vec![
+            Record {
+                empty_gap: 3,
+                data: RecordData::Transactions(vec![tx(1)]),
+            },
+            Record {
+                empty_gap: 5,
+                data: RecordData::Transactions(vec![tx(2)]),
+            },
+        ],
+    );
+    let expected = wire_columns(
+        12,
+        &environment(),
+        &[0xc1, 1, 0xc3, 1, 0xc0],
+        &[],
+        &[tx(1), tx(2)],
+    );
+    assert_eq!(p.encode().unwrap(), expected);
+    assert_eq!(Payload::decode(&expected).unwrap(), p);
+}
+
+#[test]
+fn full_terminal_and_full_ordinary_share_the_count_ceiling() {
+    let transaction = TransactionSigned::decode_2718(&mut tx(0).as_ref()).unwrap();
+    let mut full = Block {
+        header: alloy_consensus::Header {
+            number: 99_999,
+            ..Default::default()
+        },
+        body: BlockBody {
+            transactions: vec![transaction.clone(); MAX_TRANSACTIONS],
+            ..Default::default()
+        },
+    };
+    let terminal = Payload::new(
+        0,
+        environment(),
+        vec![],
+        alloy_rlp::encode(&full),
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(
+        Payload::decode(&terminal.encode().unwrap()).unwrap(),
+        terminal
+    );
+    full.body.transactions.push(transaction);
+    assert!(matches!(
+        Payload::new(
+            0,
+            environment(),
+            vec![],
+            alloy_rlp::encode(&full),
+            vec![],
+            vec![]
+        ),
+        Err(Error::TransactionLimit(0))
+    ));
+    assert!(matches!(
+        Payload::new(
+            1,
+            environment(),
+            vec![Record {
+                empty_gap: 0,
+                data: RecordData::FullBlock(alloy_rlp::encode(&full).into())
+            }],
+            block(100_000, full.header.hash_slow()),
+            vec![],
+            vec![]
+        ),
         Err(Error::TransactionLimit(0))
     ));
 }
@@ -551,7 +730,63 @@ fn full_records_have_exact_number_and_immediately_checkable_parent_links() {
 }
 
 #[test]
-fn exact_sizing_includes_all_rlp_width_boundaries_and_retained_byte_expansion() {
+fn complete_payload_size_comparison_with_pr34_record_framing() {
+    for (name, selected) in [
+        ("terminal-only", vec![]),
+        ("600 empty ordinary", vec![false; 600]),
+        ("600 nonempty ordinary", vec![true; 600]),
+        (
+            "600 alternating ordinary",
+            (0..600).map(|i| i % 2 == 0).collect(),
+        ),
+    ] {
+        let mut gap = 0;
+        let mut records = Vec::new();
+        for active in &selected {
+            if *active {
+                records.push(Record {
+                    empty_gap: gap,
+                    data: RecordData::Transactions(vec![tx(0)]),
+                });
+                gap = 0;
+            } else {
+                gap += 1;
+            }
+        }
+        let p = payload(selected.len() as u64, records);
+        // PR #34's exact seven-field layout, independent of the new encoder.
+        let old_records = p
+            .records()
+            .iter()
+            .map(|record| {
+                let RecordData::Transactions(txs) = &record.data else {
+                    unreachable!()
+                };
+                list(&[
+                    alloy_rlp::encode(record.empty_gap),
+                    alloy_rlp::encode(0u8),
+                    alloy_rlp::encode(txs),
+                ])
+            })
+            .collect::<Vec<_>>();
+        let baseline = 1 + list(&[
+            vec![1],
+            alloy_rlp::encode(selected.len() as u64),
+            alloy_rlp::encode(environment()),
+            list(&old_records),
+            alloy_rlp::encode(p.terminal_block.clone()),
+            vec![0xc0],
+            vec![0xc0],
+        ])
+        .len();
+        let current = p.encode().unwrap().len();
+        eprintln!("{name}: PR34={baseline}, V0={current}");
+        assert!(current < baseline);
+    }
+}
+
+#[test]
+fn exact_sizing_includes_all_rlp_width_boundaries_and_raw_byte_values() {
     for count in [0, 1, 55, 56, 127, 128, 255, 256, 10_000, 65_535] {
         for length in [0, 1, 54, 55, 56, 127, 128, 255, 256, 1024] {
             let p = Payload::new(

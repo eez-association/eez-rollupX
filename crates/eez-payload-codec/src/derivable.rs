@@ -1,4 +1,4 @@
-//! Version 3 operations: sparse ordinary execution inputs and an unchanged full
+//! RollupX V0 operations: compact ordinary counts and an unchanged full
 //! terminal block. This module checks wire structure, not execution validity.
 //!
 //! In particular, a decoded payload is NOT an authenticated or signable block
@@ -11,11 +11,15 @@ use alloy_rlp::{Decodable, Encodable, Header};
 use reth_ethereum_primitives::{Block, TransactionSigned};
 use std::iter::FusedIterator;
 
+mod columns;
+mod counts;
 mod sizing;
 pub use sizing::{DerivablePayloadSizer, interval_payload_bound};
 
 /// Inner operations tag; does not change the outer blob message version.
-pub const TAG: u8 = 3;
+pub const TAG: u8 = 0;
+/// Maximum transactions in a block, including full exceptions and terminal.
+pub const MAX_TRANSACTIONS: usize = counts::MAX_TRANSACTIONS;
 /// Execution-input profile described by this version.
 pub const PROFILE: u8 = 1;
 /// Maximum logical blocks, including the retained terminal.
@@ -77,12 +81,14 @@ pub struct Record {
 /// prohibition on intermediate system transactions remain consumer obligations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecordData {
-    /// Kind 0: at least one exact signed EIP-2718 transaction.
+    /// At least one exact signed EIP-2718 transaction. On wire these live in
+    /// the transaction column, without an override record.
     Transactions(Vec<Bytes>),
     /// Kind 1: exact canonical block RLP. Does not change the active environment.
     FullBlock(Bytes),
-    /// Kind 2: install an environment for THIS block and following derived
-    /// blocks. Transactions may be empty, but the environment must change.
+    /// Install an environment for THIS block and following derived blocks.
+    /// The wire uses a kind-2 override and the shared transaction column.
+    /// Transactions may be empty, but the environment must change.
     EnvironmentChange {
         /// New published environment.
         environment: Environment,
@@ -91,13 +97,14 @@ pub enum RecordData {
     },
 }
 
-/// Structurally validated v3 payload. Fields are private so subsequent mutation
+/// Structurally validated RollupX V0 payload. Fields are private so subsequent mutation
 /// cannot invalidate the bounds used by its block-plan iterator.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payload {
     ordinary_block_count: usize,
     initial_environment: Environment,
     records: Vec<Record>,
+    counts: Bytes,
     terminal_block: Vec<u8>,
     terminal_number: u64,
     l2_entries: Vec<Vec<u8>>,
@@ -109,7 +116,7 @@ pub struct Payload {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Missing or different version.
-    #[error("expected operations tag 0x03")]
+    #[error("expected RollupX operations tag 0x00")]
     WrongTag,
     /// Unknown execution-input profile.
     #[error("unsupported derivation profile {0}")]
@@ -123,13 +130,19 @@ pub enum Error {
     /// Arithmetic bound violation.
     #[error("operations length or position overflow")]
     Overflow,
+    /// Noncanonical, truncated, or incorrectly covering count column.
+    #[error("invalid transaction-count column")]
+    CountEncoding,
+    /// A full exception disagrees with its count token.
+    #[error("full block transaction count disagrees with count column")]
+    CountMismatch,
     /// Record extends beyond the ordinary range.
     #[error("ordinary record {0} exceeds the declared ordinary range")]
     RecordRange(usize),
     /// Zero step/gas or oversized extra data.
     #[error("invalid derivation environment")]
     InvalidEnvironment,
-    /// Redundant environment changes are not canonical for v3.
+    /// Redundant environment changes are not canonical.
     #[error("ordinary record {0} has a no-op environment change")]
     UnchangedEnvironment(usize),
     /// An empty kind-0 record must have been represented by a gap instead.
@@ -139,7 +152,7 @@ pub enum Error {
     #[error("unknown ordinary record kind {0}")]
     RecordKind(u8),
     /// Transaction count bound, including full records and terminal.
-    #[error("more than 65535 transactions in block at position {0}")]
+    #[error("more than 16383 transactions in block at position {0}")]
     TransactionLimit(usize),
     /// Exact transaction envelope decoding failed.
     #[error("invalid transaction at ordinary position {position}, index {transaction}")]
@@ -158,7 +171,7 @@ pub enum Error {
 }
 
 impl Payload {
-    /// Construct a v3 payload, checking syntax and bounded positions. This does
+    /// Construct a payload, checking syntax and bounded positions. This does
     /// not execute transactions, authenticate their senders, or authorize effects.
     pub fn new(
         ordinary_block_count: u64,
@@ -180,14 +193,18 @@ impl Payload {
         let mut position = 0usize;
         let mut active = &initial_environment;
         let mut previous_full: Option<(usize, B256)> = None;
+        let mut encoded_counts = Vec::new();
+        let mut empty_run = 0u32;
         for (index, record) in records.iter().enumerate() {
             position = record_position(position, record.empty_gap, count, index)?;
-            match &record.data {
+            empty_run += record.empty_gap as u32; // range-checked above
+            let transactions = match &record.data {
                 RecordData::Transactions(transactions) => {
                     if transactions.is_empty() {
                         return Err(Error::EmptyTransactions(index));
                     }
                     validate_transactions(transactions, position)?;
+                    transactions.len()
                 }
                 RecordData::FullBlock(bytes) => {
                     let block = decode_block(bytes, position)?;
@@ -196,6 +213,7 @@ impl Payload {
                     }
                     check_full_parent(previous_full, position, &block)?;
                     previous_full = Some((position, block.header.hash_slow()));
+                    block.body.transactions.len()
                 }
                 RecordData::EnvironmentChange {
                     environment,
@@ -207,14 +225,29 @@ impl Payload {
                     }
                     validate_transactions(transactions, position)?;
                     active = environment;
+                    transactions.len()
                 }
+            };
+            if transactions == 0 {
+                empty_run += 1;
+            } else {
+                if empty_run > 0 {
+                    counts::Token::Empty(empty_run).encode(&mut encoded_counts);
+                    empty_run = 0;
+                }
+                counts::Token::Transactions(transactions).encode(&mut encoded_counts);
             }
             position += 1; // bounded above by count <= 65535
         }
         check_full_parent(previous_full, count, &terminal)?;
+        empty_run += (count - position) as u32;
+        if empty_run > 0 {
+            counts::Token::Empty(empty_run).encode(&mut encoded_counts);
+        }
         let payload = Self {
             ordinary_block_count: count,
             initial_environment,
+            counts: encoded_counts.into(),
             records,
             terminal_number: terminal.header.number,
             terminal_block,
@@ -241,92 +274,76 @@ impl Payload {
         let bounded_count = checked_count(count)?;
         let environment = Environment::decode(&mut body)?;
         environment.validate()?;
-        let mut encoded_records = Header::decode_bytes(&mut body, true)?;
-        let mut records = Vec::new();
-        let mut position = 0;
-        while !encoded_records.is_empty() {
-            let mut record = Header::decode_bytes(&mut encoded_records, true)?;
-            let empty_gap = u64::decode(&mut record)?;
-            position = record_position(position, empty_gap, bounded_count, records.len())?;
-            let kind = u8::decode(&mut record)?;
-            let data = match kind {
-                0 => RecordData::Transactions(decode_transactions(&mut record, position)?),
-                1 => RecordData::FullBlock(Bytes::decode(&mut record)?),
-                2 => {
-                    let mut change = Header::decode_bytes(&mut record, true)?;
-                    let environment = Environment::decode(&mut change)?;
-                    environment.validate()?;
-                    let transactions = decode_transactions(&mut change, position)?;
-                    end(change)?;
-                    RecordData::EnvironmentChange {
-                        environment,
-                        transactions,
-                    }
-                }
-                other => return Err(Error::RecordKind(other)),
-            };
-            end(record)?;
-            records.push(Record { empty_gap, data });
-            position += 1;
+        let (records, encoded_counts) = columns::decode(&mut body, bounded_count)?;
+        let terminal_block = Header::decode_bytes(&mut body, false)?.to_vec();
+        let mut entries = Header::decode_bytes(&mut body, true)?;
+        let mut l2_entries = Vec::new();
+        while !entries.is_empty() {
+            l2_entries.push(Header::decode_bytes(&mut entries, false)?.to_vec());
         }
-        // Deliberately retain the existing Vec encodings for terminal and
-        // cross-chain data.
-        let terminal_block = Vec::<u8>::decode(&mut body)?;
-        let l2_entries = Vec::<Vec<u8>>::decode(&mut body)?;
         let groups = Vec::<u16>::decode(&mut body)?;
         end(body)?;
-        Self::new(
+        let payload = Self::new(
             count,
             environment,
             records,
             terminal_block,
             l2_entries,
             groups,
-        )
+        )?;
+        // Derived counts determine exactly how many transactions the column
+        // parser consumes. Full-block counts are bound here to their validated
+        // bodies, without decoding those bodies a second time.
+        if payload.counts.as_ref() != encoded_counts {
+            return Err(Error::CountMismatch);
+        }
+        Ok(payload)
     }
 
     /// Encode this validated shape without altering the retained fields.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        let mut out = Vec::with_capacity(self.encoded_len()?);
+        let column_lengths = columns::lengths(&self.records)?;
+        let entry_items = self.entry_items_len()?;
+        let body_len = self.body_len(column_lengths, entry_items)?;
+        let mut out = Vec::with_capacity(add(1, list_len(body_len)?)?);
         out.push(TAG);
-        list_header(self.body_len()?, &mut out);
+        list_header(body_len, &mut out);
         PROFILE.encode(&mut out);
         (self.ordinary_block_count as u64).encode(&mut out);
         self.initial_environment.encode(&mut out);
-        list_header(self.record_items_len()?, &mut out);
-        for record in &self.records {
-            record.encode(&mut out)?;
+        columns::encode(&self.counts, &self.records, column_lengths, &mut out)?;
+        self.terminal_block.as_slice().encode(&mut out);
+        list_header(entry_items, &mut out);
+        for entry in &self.l2_entries {
+            entry.as_slice().encode(&mut out);
         }
-        self.terminal_block.encode(&mut out);
-        self.l2_entries.encode(&mut out);
         self.outbound_group_sizes.encode(&mut out);
         Ok(out)
     }
 
     /// Exact meaningful operations bytes, including tag and RLP framing.
     pub fn encoded_len(&self) -> Result<usize, Error> {
-        add(1, list_len(self.body_len()?)?)
+        add(
+            1,
+            list_len(self.body_len(columns::lengths(&self.records)?, self.entry_items_len()?)?)?,
+        )
     }
 
-    fn body_len(&self) -> Result<usize, Error> {
-        let entries = self
-            .l2_entries
-            .iter()
-            .try_fold(0, |sum, entry| add(sum, retained_bytes_len(entry)?))?;
+    fn body_len(&self, column_lengths: (usize, usize), entry_items: usize) -> Result<usize, Error> {
         body_len_from_items(
             self.ordinary_block_count,
             &self.initial_environment,
-            self.record_items_len()?,
-            retained_bytes_len(&self.terminal_block)?,
-            entries,
+            columns::body_len(&self.counts, column_lengths)?,
+            self.terminal_block.as_slice().length(),
+            entry_items,
             sum_lengths(&self.outbound_group_sizes)?,
         )
     }
 
-    fn record_items_len(&self) -> Result<usize, Error> {
-        self.records
+    fn entry_items_len(&self) -> Result<usize, Error> {
+        self.l2_entries
             .iter()
-            .try_fold(0, |sum, record| add(sum, list_len(record.body_len()?)?))
+            .try_fold(0, |sum, entry| add(sum, entry.as_slice().length()))
     }
 
     /// Total logical count, including exactly one full terminal.
@@ -397,53 +414,6 @@ fn body_len_from_items(
     length = add(length, terminal_item)?;
     length = add(length, list_len(entry_items)?)?;
     add(length, list_len(group_items)?)
-}
-
-impl Record {
-    fn kind(&self) -> u8 {
-        match self.data {
-            RecordData::Transactions(_) => 0,
-            RecordData::FullBlock(_) => 1,
-            RecordData::EnvironmentChange { .. } => 2,
-        }
-    }
-
-    fn body_len(&self) -> Result<usize, Error> {
-        let data = match &self.data {
-            RecordData::Transactions(txs) => list_len(sum_lengths(txs)?)?,
-            RecordData::FullBlock(bytes) => bytes.length(),
-            RecordData::EnvironmentChange {
-                environment,
-                transactions,
-            } => list_len(add(
-                environment.length(),
-                list_len(sum_lengths(transactions)?)?,
-            )?)?,
-        };
-        add(add(self.empty_gap.length(), self.kind().length())?, data)
-    }
-
-    fn encode(&self, out: &mut Vec<u8>) -> Result<(), Error> {
-        list_header(self.body_len()?, out);
-        self.empty_gap.encode(out);
-        self.kind().encode(out);
-        match &self.data {
-            RecordData::Transactions(txs) => txs.encode(out),
-            RecordData::FullBlock(bytes) => bytes.encode(out),
-            RecordData::EnvironmentChange {
-                environment,
-                transactions,
-            } => {
-                list_header(
-                    add(environment.length(), list_len(sum_lengths(transactions)?)?)?,
-                    out,
-                );
-                environment.encode(out);
-                transactions.encode(out);
-            }
-        }
-        Ok(())
-    }
 }
 
 /// A structurally decoded position, not an authenticated execution result.
@@ -560,20 +530,8 @@ fn end(bytes: &[u8]) -> Result<(), Error> {
     }
 }
 
-fn decode_transactions(input: &mut &[u8], position: usize) -> Result<Vec<Bytes>, Error> {
-    let mut data = Header::decode_bytes(input, true)?;
-    let mut transactions = Vec::new();
-    while !data.is_empty() {
-        if transactions.len() == usize::from(u16::MAX) {
-            return Err(Error::TransactionLimit(position));
-        }
-        transactions.push(Bytes::decode(&mut data)?);
-    }
-    Ok(transactions)
-}
-
 fn validate_transactions(transactions: &[Bytes], position: usize) -> Result<(), Error> {
-    if transactions.len() > usize::from(u16::MAX) {
+    if transactions.len() > MAX_TRANSACTIONS {
         return Err(Error::TransactionLimit(position));
     }
     for (index, bytes) in transactions.iter().enumerate() {
@@ -595,7 +553,7 @@ fn decode_block(bytes: &[u8], position: usize) -> Result<Block, Error> {
     if alloy_rlp::encode(&block) != bytes {
         return Err(Error::InvalidBlock(position));
     }
-    if block.body.transactions.len() > usize::from(u16::MAX) {
+    if block.body.transactions.len() > MAX_TRANSACTIONS {
         return Err(Error::TransactionLimit(position));
     }
     Ok(block)
@@ -623,10 +581,6 @@ fn sum_lengths<T: Encodable>(items: &[T]) -> Result<usize, Error> {
     items
         .iter()
         .try_fold(0, |sum, item| add(sum, item.length()))
-}
-
-fn retained_bytes_len(bytes: &[u8]) -> Result<usize, Error> {
-    list_len(sum_lengths(bytes)?)
 }
 
 fn list_len(payload_length: usize) -> Result<usize, Error> {

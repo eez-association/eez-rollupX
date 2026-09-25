@@ -451,7 +451,7 @@ with malformed output is an internal failure, not an input rejection.
 
 ### 6.5 Derivable-operation reconstruction evidence
 
-When v3 acceptance is configured, successful Stateless replay additionally attempts
+Successful Stateless replay additionally attempts
 whole-block reassembly before discarding receipts and execution requests. The
 parent is the exact ancestor consumed by replay, hash-bound to the child and
 state-bound to the replay pre-state. Reth's pinned assembler takes the actual
@@ -463,7 +463,7 @@ Only this successful check constructs reconstruction evidence, bound to the
 computed block hash at the consuming backend boundary. It retains the actual
 derivable environment when the body has no withdrawals, or full-replay eligibility
 otherwise. Unsupported shapes and failed reconstruction retain no such evidence;
-historical acceptance remains unchanged, while every v3 position MUST reject
+every supported operations position MUST reject
 missing evidence. Reconstruction evidence does not authorize system transactions,
 outbound observations, terminal effects, DA or signing.
 
@@ -760,14 +760,20 @@ here. The discrepancy is recorded in the [port proposal](../../docs/proposals/l2
 
 ## 11. Data-availability and Sync-block verification
 
-The new network uses tag `0x03`, profile 1 from genesis, under the
-[derivable-operations contract](../../docs/proposals/derivable-chain-operations.md).
+The new network uses RollupX V0 tag `0x00`, profile 1 from genesis, under the
+[two-byte wire contract](../../docs/proposals/two-byte-da-v0.md#wire-design) and
+[derivable-operations reconstruction contract](../../docs/proposals/derivable-chain-operations.md).
 There is no activation option, historical payload acceptance or upgrade mode.
 
 Ordinary blocks publish execution inputs and exact signed transactions using
-sparse records; gaps represent empty blocks that still require execution.
-The terminal block retains its complete canonical consensus RLP. The terminal,
-`l2Entries`, and `outboundGroupSizes` retain their existing byte encodings.
+compact count tokens and sparse environment/full-block overrides; empty runs
+still require execution. Counts cover every ordinary position exactly and use
+maximal empty runs. Full-block counts MUST agree with their bodies. Every block,
+including the terminal, MUST contain at most 16,383 transactions.
+The terminal block retains its complete canonical consensus RLP, wrapped as an
+RLP byte string. `l2Entries` is a list of RLP byte strings preserving each entry's
+exact contents and order. Per-byte integer-list wrappers are rejected.
+`outboundGroupSizes` retains its existing encoding.
 
 `l2Entries` contains the derivation tables required to reconstruct and
 authorize cross-chain system transactions. In canonical order it contains:
@@ -780,7 +786,7 @@ how many authorized outbound effects that transaction settles. Every sidecar
 and group size MUST match the independently authorized effect layout exactly.
 No missing, extra, reordered, or byte-different item is accepted.
 
-V3 MUST cover exactly the validated window. Every full record, including the
+V0 MUST cover exactly the validated window. Every full record, including the
 terminal, MUST equal the validated canonical RLP and have successful full-replay
 reconstruction evidence. Every derived position MUST match that block's actual
 environment and exact ordered signed transactions, backed by section 6.5's complete

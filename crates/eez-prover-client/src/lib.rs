@@ -1316,7 +1316,7 @@ mod tests {
 
     fn test_capabilities() -> eez_control_rpc::v1::CapabilitiesResponse {
         eez_control_rpc::v1::CapabilitiesResponse {
-            operations_tag: 3,
+            operations_tag: 0,
             profile_id: 1,
             validation_identity: TEST_IDENTITY.to_vec(),
             max_window_blocks: 65_536,

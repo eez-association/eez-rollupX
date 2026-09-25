@@ -301,7 +301,7 @@ where
                         number: cursor.number(),
                         hash: cursor.hash(),
                     },
-                    encoded.length(),
+                    encoded.as_slice().length(),
                     measure_ordinary(&self.inner.evm_config, &parent, &encoded)?,
                     boundary,
                 ));
@@ -332,7 +332,9 @@ where
             derivation_metadata(compositions, outbound_groups).map_err(PolicyError::Unavailable)?;
         let entry_items = entries
             .iter()
-            .try_fold(0usize, |sum, entry| sum.checked_add(entry.length()))
+            .try_fold(0usize, |sum, entry| {
+                sum.checked_add(entry.as_slice().length())
+            })
             .ok_or(PolicyError::Arithmetic("derivation entry bytes"))?;
         let group_items = groups
             .iter()
@@ -749,7 +751,7 @@ where
                         break;
                     }
                 }
-                let encoded_item_bytes = u64::try_from(encoded.length())
+                let encoded_item_bytes = u64::try_from(encoded.as_slice().length())
                     .map_err(|_| PolicyError::Arithmetic("encoded block item bytes"))?;
                 let parent = rollup
                     .l2_provider
@@ -849,11 +851,10 @@ where
             .checked_add(u64::from(self.inner.emission.timing.k()))
             .is_none_or(|next| next > self.inner.emission.max_blocks);
         let estimated_stream_bytes = if logical_blocks <= self.inner.emission.max_blocks {
-            Some(
-                runtime
-                    .activity
-                    .estimated_stream_bytes_with_overhead(encoded_terminal.length(), overhead)?,
-            )
+            Some(runtime.activity.estimated_stream_bytes_with_overhead(
+                encoded_terminal.as_slice().length(),
+                overhead,
+            )?)
         } else {
             None
         };

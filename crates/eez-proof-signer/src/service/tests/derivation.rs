@@ -413,12 +413,71 @@ async fn cold_v3_full_ordinary_record_is_still_exactly_bound() {
 #[tokio::test]
 async fn new_network_rejects_every_previous_operations_tag_before_signing() {
     let blocks = blocks(2);
-    let previous = [vec![0], vec![1], vec![2]];
+    // Historical tag-0 projected shape is not the new RollupX V0 either.
+    let previous = [vec![0, 0xc3, 0xc0, 0xc0, 0xc0], vec![1], vec![2], vec![3]];
     // This uses the shipping service path, without the separate old-fixture
     // oracle selected by the original regression-test helpers.
     let state = state();
     let server = TestServer::new(state.clone()).await;
     for operations in previous {
+        assert_eq!(
+            server
+                .prove(request(blocks.clone(), operations))
+                .await
+                .code(),
+            Code::InvalidArgument
+        );
+        assert_eq!(state.attester.signing_calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn noncanonical_count_columns_never_reach_the_attester() {
+    #[derive(alloy_rlp::RlpEncodable)]
+    struct Columns {
+        counts: Bytes,
+        overrides: Vec<u8>,
+        transactions: Vec<Bytes>,
+    }
+    #[derive(alloy_rlp::RlpEncodable)]
+    struct Wire {
+        profile: u8,
+        ordinary_count: u64,
+        environment: Environment,
+        columns: Columns,
+        terminal: Bytes,
+        entries: Vec<Bytes>,
+        groups: Vec<u16>,
+    }
+    let blocks = blocks(3);
+    let state = state();
+    let server = TestServer::new(state.clone()).await;
+    for counts in [
+        vec![0],
+        vec![0xc1],
+        vec![0, 0],
+        vec![0xff, 2],
+        vec![0x80, 1],
+        vec![0xff, 0xff, 0xff, 0xff, 0xff, 15],
+    ] {
+        let wire = Wire {
+            profile: 1,
+            ordinary_count: 2,
+            environment: environment(&blocks),
+            columns: Columns {
+                counts: counts.into(),
+                overrides: vec![],
+                transactions: vec![],
+            },
+            terminal: blocks[2].rlp.clone().into(),
+            entries: vec![],
+            groups: vec![],
+        };
+        let operations = [vec![0], alloy_rlp::encode(wire)].concat();
+        assert!(matches!(
+            Payload::decode(&operations),
+            Err(eez_payload_codec::derivable::Error::CountEncoding)
+        ));
         assert_eq!(
             server
                 .prove(request(blocks.clone(), operations))

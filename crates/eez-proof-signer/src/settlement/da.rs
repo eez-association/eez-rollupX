@@ -83,7 +83,8 @@ pub(crate) enum DaPayloadError {
 }
 
 #[cfg(test)]
-const CALL_DATA_TAG: u8 = 0;
+// Test-only projection oracle uses a distinct tag, never the shipping V0 tag.
+const CALL_DATA_TAG: u8 = 0x80;
 #[cfg(test)]
 const GROUPED_CALL_DATA_TAG: u8 = 1;
 

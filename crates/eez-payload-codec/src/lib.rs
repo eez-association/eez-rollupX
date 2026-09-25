@@ -1,8 +1,8 @@
 //! Chain-operation payload codecs for the new network.
 //!
-//! Shipping code accepts only the sparse derivable tag 3/profile 1 format via
-//! [`derivable::Payload`]. Historical tags 0 through 2 are intentionally not
-//! implemented.
+//! Shipping code accepts only the RollupX V0 tag 0/profile 1 format via
+//! [`derivable::Payload`]. Historical formats (including earlier uses of tag 0)
+//! are intentionally unsupported.
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 

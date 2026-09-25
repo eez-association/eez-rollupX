@@ -14,8 +14,7 @@ use super::PolicyError;
 pub(crate) struct BlockActivity {
     pub endpoint: L2Endpoint,
     pub parent_hash: B256,
-    /// The individual block's length as an element of the existing payload's
-    /// `Vec<Vec<u8>>`, including the element's RLP framing.
+    /// The full block's RLP byte-string length when promoted to terminal.
     pub encoded_item_bytes: u64,
     /// This position represented as ordinary, before terminal promotion.
     pub ordinary: DerivablePayloadSizer,
@@ -329,7 +328,7 @@ mod tests {
                     hash: block.header.hash_slow(),
                 },
                 parent_hash: previous,
-                encoded_item_bytes: encoded.length() as u64,
+                encoded_item_bytes: encoded.as_slice().length() as u64,
                 ordinary,
                 pure_transactions: 0,
             });
@@ -470,7 +469,7 @@ mod tests {
             activity.push(BlockActivity {
                 endpoint: L2Endpoint { number, hash },
                 parent_hash,
-                encoded_item_bytes: body.length() as u64,
+                encoded_item_bytes: body.as_slice().length() as u64,
                 ordinary: DerivablePayloadSizer::full_block(&body, block.body.transactions.len())
                     .unwrap(),
                 pure_transactions: block.body.transactions.len() as u64,
@@ -552,7 +551,7 @@ mod tests {
             .update(anchor, end, |hash| {
                 let n = hash[31];
                 let mut measured = block(n, n, n - 1, true);
-                measured.encoded_item_bytes = bodies[usize::from(n - 1)].length() as u64;
+                measured.encoded_item_bytes = bodies[usize::from(n - 1)].as_slice().length() as u64;
                 measured.ordinary =
                     DerivablePayloadSizer::full_block(&bodies[usize::from(n - 1)], 1).unwrap();
                 Ok(measured)
@@ -593,7 +592,7 @@ mod tests {
         index
             .update(next_anchor, replacement, |_| {
                 let mut measured = block(4, 9, 3, false);
-                measured.encoded_item_bytes = replacement_body.length() as u64;
+                measured.encoded_item_bytes = replacement_body.as_slice().length() as u64;
                 measured.ordinary =
                     DerivablePayloadSizer::full_block(&replacement_body, 0).unwrap();
                 Ok(measured)
@@ -628,13 +627,13 @@ mod tests {
             let empty_stream =
                 eez_blob_codec::encode_native_stream(1, Bytes::new(), messages.clone()).unwrap();
             let overhead = DaOverhead {
-                entry_items: entries.iter().map(Encodable::length).sum(),
+                entry_items: entries.iter().map(|entry| entry.as_slice().length()).sum(),
                 group_items: groups.iter().map(Encodable::length).sum(),
                 semantic_bytes: empty_stream.blob_portion.len()
                     - eez_blob_codec::native_stream_len(0, 0).unwrap(),
             };
             let estimated = index
-                .estimated_stream_bytes_with_overhead(terminal.length(), overhead)
+                .estimated_stream_bytes_with_overhead(terminal.as_slice().length(), overhead)
                 .unwrap();
             let operations = full_payload(std::slice::from_ref(&terminal), &entries, &groups);
             let actual =
@@ -642,7 +641,12 @@ mod tests {
             assert_eq!(estimated, actual.blob_portion.len() as u64);
             let physical = eez_blob_codec::pack(&actual.blob_portion).unwrap();
             assert!(estimated < (physical.len() * eez_blob_codec::BLOB_BYTES) as u64);
-            assert!(estimated > index.estimated_stream_bytes(terminal.length()).unwrap());
+            assert!(
+                estimated
+                    > index
+                        .estimated_stream_bytes(terminal.as_slice().length())
+                        .unwrap()
+            );
         }
     }
 
