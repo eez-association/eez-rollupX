@@ -15,7 +15,7 @@ pub(crate) use materialize::materialize_batches;
 pub use materialize::{EntryTrace, finalize_l1_entry_traces};
 pub use verify::{
     NestedPairDirection, NestedPairVerification, verify_nested_group, verify_nested_pair,
-    verify_static_outbound_pair,
+    verify_outbound_source_group, verify_static_outbound_pair,
 };
 
 use alloy_primitives::{Address, B256, Bytes, U256};

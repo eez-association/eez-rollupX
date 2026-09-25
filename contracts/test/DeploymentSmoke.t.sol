@@ -30,6 +30,7 @@ contract DeploymentSmokeTest is Test {
         vkeys[0] = vkey;
 
         Rollup rollup = new Rollup(address(eez), OWNER, 1, proofSystems, vkeys);
+        vm.prank(OWNER);
         uint64 rollupId = eez.registerRollup(address(rollup), INITIAL_STATE_ROOT);
 
         (address registeredRollup, bytes32 stateRoot, uint256 etherBalance) = eez.rollups(rollupId);

@@ -91,6 +91,10 @@ services:
       # The Chiado env preset selects adaptive admission. The numeric fallback
       # keeps Compose rendering deterministic; runtime still requires the policy.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
+      # Select one signed source hash and a writable /l2 directory for tracing.
+      EEZ_COMPOSER_GAS_TRACE_TX_HASH: "${EEZ_COMPOSER_GAS_TRACE_TX_HASH:-}"
+      EEZ_COMPOSER_GAS_TRACE_ADDRESS: "${EEZ_COMPOSER_GAS_TRACE_ADDRESS:-}"
+      EEZ_COMPOSER_GAS_TRACE_DIR: "${EEZ_COMPOSER_GAS_TRACE_DIR:-}"
       # Emission + reorg bounds documented in .env.example. eez-node reads these
       # from the process env, and this service takes no env_file beyond
       # deployments.env, so they have to be forwarded explicitly. Defaults track
@@ -116,7 +120,7 @@ services:
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
       # Without explicit preparation, runtime retains the rounded trigger.
-      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS:-500}"
+      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS-750}"
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
       EEZ_PREPARATION_TIME_MS:
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
@@ -133,6 +137,8 @@ services:
     volumes:
       - ${L1_SNAPSHOT_DIR:?set L1_SNAPSHOT_DIR (reth download target)}:/l1
       - ${L2_DATA_DIR:?set L2_DATA_DIR}:/l2
+      # Bounded posting lifecycle history, separate from chain databases.
+      - ${POSTING_LOGS_DIR:-./data/posting-logs}:/var/log/eez-posting
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
       # Fresh-timestamp L2 genesis overriding the (stale) baked one, so the
       # L1-anchored scheduler starts near grid-height 0 instead of racing
@@ -163,6 +169,12 @@ services:
       # Existing Reth metrics, kept on localhost for the optional monitoring stack.
       - --metrics=127.0.0.1:19091
       - --log.stdout.format=json
+      - --log.file.format=json
+      - --log.file.filter=off,eez_posting=info
+      - --log.file.directory=/var/log/eez-posting
+      - --log.file.name=posting.log
+      - --log.file.max-size=10
+      - --log.file.max-files=20
     logging:
       driver: "local"
 

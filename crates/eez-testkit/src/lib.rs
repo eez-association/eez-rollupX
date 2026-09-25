@@ -947,6 +947,104 @@ struct ProxyCounters {
     rejections: AtomicUsize,
 }
 
+/// Bound complete wire captures, including framing, without changing the RPC input.
+fn encode_fixture_stream<M: prost::Message>(chunks: &[M]) -> Result<Vec<u8>, Status> {
+    let bytes = chunks.iter().try_fold(0usize, |sum, chunk| {
+        sum.checked_add(chunk.encoded_len())
+            .and_then(|n| n.checked_add(prost::length_delimiter_len(chunk.encoded_len())))
+            .ok_or_else(|| Status::resource_exhausted("fixture size overflow"))
+    })?;
+    if bytes > 16 * 1024 * 1024 {
+        return Err(Status::resource_exhausted("fixture capture exceeds 16 MiB"));
+    }
+    let mut encoded = Vec::with_capacity(bytes);
+    for chunk in chunks {
+        chunk
+            .encode_length_delimited(&mut encoded)
+            .expect("Vec encoding");
+    }
+    Ok(encoded)
+}
+
+/// Expand only captured references, following parent hashes through the exact
+/// preparation witnesses. The RPC still forwards the untouched warm request;
+/// signer regressions independently validate this cold stream and compare its
+/// attestation with the original response.
+fn cold_fixture_stream(chunks: &[ProveChunk], directory: &Path) -> Result<Vec<u8>, Status> {
+    use prost::Message as _;
+    let mut encoded = Vec::new();
+    let append = |output: &mut Vec<u8>, bytes: &[u8]| -> Result<(), Status> {
+        if output.len().saturating_add(bytes.len()) > 16 * 1024 * 1024 {
+            return Err(Status::resource_exhausted("cold fixture exceeds 16 MiB"));
+        }
+        output.extend_from_slice(bytes);
+        Ok(())
+    };
+    for chunk in chunks {
+        let Some(prove_chunk::Kind::CachedRange(range)) = &chunk.kind else {
+            append(
+                &mut encoded,
+                &encode_fixture_stream(std::slice::from_ref(chunk))?,
+            )?;
+            continue;
+        };
+        if range
+            .last_number
+            .checked_sub(range.first_number)
+            .is_none_or(|n| n >= 2048)
+        {
+            return Err(Status::resource_exhausted("fixture cached range limit"));
+        }
+        let mut expected = B256::try_from(range.last_hash.as_slice())
+            .map_err(|_| Status::invalid_argument("fixture range hash length"))?;
+        let mut blocks = Vec::new();
+        let mut bytes = 0usize;
+        for number in (range.first_number..=range.last_number).rev() {
+            let path = directory
+                .join("preparation")
+                .join(format!("{expected:x}.protobuf"));
+            let size = std::fs::metadata(&path)
+                .map_err(|error| Status::internal(format!("missing prepared fixture: {error}")))?
+                .len();
+            if size > (16 * 1024 * 1024 - bytes) as u64 {
+                return Err(Status::resource_exhausted(
+                    "prepared fixture exceeds 16 MiB",
+                ));
+            }
+            let wire = std::fs::read(path)
+                .map_err(|error| Status::internal(format!("read prepared fixture: {error}")))?;
+            bytes = bytes.saturating_add(wire.len());
+            if bytes > 16 * 1024 * 1024 {
+                return Err(Status::resource_exhausted(
+                    "prepared fixture exceeds 16 MiB",
+                ));
+            }
+            let mut remaining = wire.as_slice();
+            let prepared = ProveChunk::decode_length_delimited(&mut remaining)
+                .map_err(|error| Status::internal(format!("decode prepared fixture: {error}")))?;
+            let Some(prove_chunk::Kind::Block(block)) = prepared.kind else {
+                return Err(Status::internal("prepared fixture is not a block"));
+            };
+            if !remaining.is_empty()
+                || block.number != number
+                || block.hash != expected.as_slice()
+                || (number == range.first_number && block.hash != range.first_hash)
+            {
+                return Err(Status::internal(
+                    "prepared fixture does not match cached range",
+                ));
+            }
+            expected = B256::try_from(block.parent_hash.as_slice())
+                .map_err(|_| Status::invalid_argument("fixture parent hash length"))?;
+            blocks.push(wire);
+        }
+        for wire in blocks.into_iter().rev() {
+            append(&mut encoded, &wire)?;
+        }
+    }
+    Ok(encoded)
+}
+
 #[derive(Clone, Debug)]
 struct ProverProxyService {
     upstream: String,
@@ -980,11 +1078,60 @@ impl Prover for ProverProxyService {
             }
             chunks.push(chunk);
         }
-        ProverClient::connect(self.upstream.clone())
+        // Cached proving requests omit these witnesses. Explicit fixture export
+        // must retain the original preparation input for independent cold replay.
+        let fixture = self
+            .fixture_directory
+            .as_ref()
+            .map(|_| {
+                let mut total = 0usize;
+                chunks
+                    .iter()
+                    .filter_map(|chunk| match &chunk.kind {
+                        Some(eez_control_rpc::v1::prepare_chunk::Kind::Block(block)) => Some(block),
+                        _ => None,
+                    })
+                    .map(|block| {
+                        let hash = B256::try_from(block.hash.as_slice())
+                            .map_err(|_| Status::invalid_argument("fixture block hash length"))?;
+                        let encoded = encode_fixture_stream(&[ProveChunk {
+                            kind: Some(prove_chunk::Kind::Block(block.clone())),
+                        }])?;
+                        total = total.saturating_add(encoded.len());
+                        if total > 16 * 1024 * 1024 {
+                            return Err(Status::resource_exhausted(
+                                "preparation fixture exceeds 16 MiB",
+                            ));
+                        }
+                        Ok((hash, encoded))
+                    })
+                    .collect::<Result<Vec<_>, Status>>()
+            })
+            .transpose()?;
+        let response = ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(error.to_string()))?
             .prepare_ordinary(tokio_stream::iter(chunks))
-            .await
+            .await?;
+        if let (Some(directory), Some(encoded)) = (&self.fixture_directory, fixture) {
+            let directory = directory.join("preparation");
+            std::fs::create_dir_all(&directory).map_err(|error| {
+                Status::internal(format!("create preparation fixture dir: {error}"))
+            })?;
+            for (hash, block) in encoded {
+                let mut file = tempfile::NamedTempFile::new_in(&directory).map_err(|error| {
+                    Status::internal(format!("create prepared fixture: {error}"))
+                })?;
+                std::io::Write::write_all(file.as_file_mut(), &block).map_err(|error| {
+                    Status::internal(format!("write preparation fixture: {error}"))
+                })?;
+                file.persist(directory.join(format!("{hash:x}.protobuf")))
+                    .map_err(|error| {
+                        Status::internal(format!("publish preparation fixture: {error}"))
+                    })?;
+            }
+        }
+        Ok(response)
     }
 
     async fn capabilities(
@@ -1022,25 +1169,16 @@ impl Prover for ProverProxyService {
         // Explicit fixture export only. Preserve complete augmented witnesses
         // from the real composer; ordinary debug RPC misses observation-only
         // reads and removal-closure nodes. Never capture in normal test runs.
-        let fixture = if self.fixture_directory.is_some() {
-            use prost::Message as _;
-            let bytes = chunks.iter().try_fold(0usize, |sum, chunk| {
-                sum.checked_add(chunk.encoded_len())
-                    .ok_or_else(|| Status::resource_exhausted("fixture size overflow"))
-            })?;
-            if bytes > 16 * 1024 * 1024 {
-                return Err(Status::resource_exhausted("fixture capture exceeds 16 MiB"));
-            }
-            let mut encoded = Vec::new();
-            for chunk in &chunks {
-                chunk
-                    .encode_length_delimited(&mut encoded)
-                    .expect("Vec encoding");
-            }
-            Some(encoded)
-        } else {
-            None
-        };
+        let fixture = self
+            .fixture_directory
+            .as_ref()
+            .map(|directory| {
+                Ok::<_, Status>((
+                    encode_fixture_stream(&chunks)?,
+                    cold_fixture_stream(&chunks, directory)?,
+                ))
+            })
+            .transpose()?;
         let mut client = ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(format!("connect upstream signer: {error}")))?
@@ -1048,15 +1186,21 @@ impl Prover for ProverProxyService {
             .max_decoding_message_size(MAX_MESSAGE_BYTES);
         match client.prove(tokio_stream::iter(chunks)).await {
             Ok(response) => {
-                if let (Some(directory), Some(encoded)) = (&self.fixture_directory, fixture) {
+                if let (Some(directory), Some((encoded, cold))) = (&self.fixture_directory, fixture)
+                {
                     let hash = alloy_primitives::keccak256(&encoded);
                     let path = directory.join(format!("{hash:x}"));
                     std::fs::write(path.with_extension("protobuf"), &encoded).map_err(|error| {
                         Status::internal(format!("write proving fixture: {error}"))
                     })?;
+                    std::fs::write(path.with_extension("cold.protobuf"), &cold).map_err(
+                        |error| Status::internal(format!("write cold proving fixture: {error}")),
+                    )?;
                     std::fs::write(path.with_extension("json"), serde_json::to_vec_pretty(&serde_json::json!({
                         "request_hash": hash,
                         "request_bytes": encoded.len(),
+                        "cold_request_hash": alloy_primitives::keccak256(&cold),
+                        "cold_request_bytes": cold.len(),
                         "public_inputs_hash": hex::encode(&response.get_ref().public_inputs_hash),
                         "signature": hex::encode(&response.get_ref().signature),
                     })).expect("fixture metadata serialization"))
@@ -1463,8 +1607,8 @@ sol! {
     interface IEEZ {
         error InvalidProof();
         error InvalidProofSystemConfig();
-        event BatchPosted(uint256 rollupCount);
-        event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot);
+        event BatchPosted(bytes32 sharedPublicInput, uint64[] rollupIds);
+        event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance);
         event L2TxSkipped(uint256 indexed transientIdx, bytes revertData);
         function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 root, uint256 etherBalance);
         function rollupCounter() external view returns (uint256);
@@ -3194,6 +3338,11 @@ sol! {
     }
     #[sol(rpc)]
     interface ISetterWrapper {
+        function readWriteRead(uint256 v) external;
+        function readChangingValueAroundWrite(uint256 v) external;
+        function mixedBefore() external view returns (uint256);
+        function mixedAfter() external view returns (uint256);
+        function mixedReadSum() external view returns (uint256);
         event Wrapped(uint256 input, bool ok, bool changed, uint256 newValue);
         function proxy() external view returns (address);
         function setViaProxy(uint256 v) external;
@@ -5945,6 +6094,73 @@ mod mined_revert_tests {
 #[cfg(test)]
 mod framework_tests {
     use super::*;
+
+    #[test]
+    fn cold_fixture_expands_exact_prepared_ancestry_and_rejects_wrong_endpoints() {
+        use eez_control_rpc::v1::{BlockWitness, CachedOrdinaryRange};
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("preparation")).unwrap();
+        let block = |number: u64, hash: u8, parent: u8| ProveChunk {
+            kind: Some(prove_chunk::Kind::Block(BlockWitness {
+                number,
+                hash: B256::repeat_byte(hash).to_vec(),
+                parent_hash: B256::repeat_byte(parent).to_vec(),
+                ..Default::default()
+            })),
+        };
+        let first = block(1, 1, 0);
+        let second = block(2, 2, 1);
+        for (hash, chunk) in [(1, &first), (2, &second)] {
+            std::fs::write(
+                directory
+                    .path()
+                    .join("preparation")
+                    .join(format!("{:x}.protobuf", B256::repeat_byte(hash))),
+                encode_fixture_stream(std::slice::from_ref(chunk)).unwrap(),
+            )
+            .unwrap();
+        }
+        let mut range = CachedOrdinaryRange {
+            first_number: 1,
+            last_number: 2,
+            first_hash: B256::repeat_byte(1).to_vec(),
+            last_hash: B256::repeat_byte(2).to_vec(),
+            ..Default::default()
+        };
+        let expand = |range: CachedOrdinaryRange| {
+            cold_fixture_stream(
+                &[
+                    ProveChunk {
+                        kind: Some(prove_chunk::Kind::CachedRange(range)),
+                    },
+                    block(3, 3, 2),
+                ],
+                directory.path(),
+            )
+        };
+        assert_eq!(
+            expand(range.clone()).unwrap(),
+            encode_fixture_stream(&[first, second, block(3, 3, 2)]).unwrap()
+        );
+        range.first_hash = B256::repeat_byte(9).to_vec();
+        assert_eq!(
+            expand(range.clone()).unwrap_err().message(),
+            "prepared fixture does not match cached range"
+        );
+        range.last_number = 2049;
+        assert_eq!(
+            expand(range.clone()).unwrap_err().code(),
+            tonic::Code::ResourceExhausted
+        );
+        range.last_number = 2;
+        range.last_hash = B256::repeat_byte(9).to_vec();
+        assert!(
+            expand(range)
+                .unwrap_err()
+                .message()
+                .starts_with("missing prepared fixture")
+        );
+    }
 
     fn controlled_child() -> NodeHandle {
         let directory = tempfile::tempdir().unwrap();

@@ -42,7 +42,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
-| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer execution-gas margin. The final ordered bundle is checked again at the selected gas limit. |
+| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
 Execution, blob, and gas margins use checked
@@ -129,9 +129,14 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-Bounded simple deferred entries reserve gas according
+At protocol `9d13218`, bounded simple deferred entries reserve gas according
 to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
-and 270,000 for 33–64 bytes. One successful simple call through a proxy registered
+and 270,000 for 33–64 bytes, provided the corresponding retained queue mapping
+slot is empty or contains only one root update, no nested/callback rows, and
+at most 64 result bytes. The Composer reads every potentially discounted slot
+from the canonical L1 parent, including inactive slots beyond the current
+queue length. An unknown, oversized, or unreadable slot keeps the 370,000
+reserve. One successful simple call through a proxy registered
 at the canonical parent reserves 70,000, plus its measured L1 target execution.
 New proxies and complex,
 nested, reverting or larger entries retain the existing 370,000 reserve.
@@ -141,22 +146,19 @@ Calldata, the fork-specific calldata floor, companion execution and the
 configured gas margin remain separate. These versioned reserves describe the
 tested native ECDSA batch family; they are not network gas limits.
 
-The 160,000 base already includes the leading anchor. Its lower estimate is
-used only with a recognized previous queue: clearing each stored no-call entry
-adds 55,000, 60,000 or 65,000 for those respective result sizes, even when its
-consumption cursor has reached the end. Mixed queues sum each stored entry's
-reserve; the result size comes from canonical storage. Unknown or
-static prior queues retain the conservative projection. Queue shape and existing
-proxies are read from pinned canonical state on each attempt, including after
-a restart. Speculative proxy creation never earns the lower reserve.
+The 160,000 base already includes the leading anchor. Queue replacement now
+resets active bounds without deleting old mapping values, so there is no
+per-entry cleanup reserve. A later post can overwrite those retained values;
+the slot check above determines whether the measured return-size reserve is
+applicable. Existing proxies are read from pinned canonical state on each
+attempt, including after a restart. Speculative proxy creation never earns
+the lower reserve.
 The [result-size reserve audit](audits/2026-09-16-chiado-result-reserves/README.md)
 records the measured classes, native replay tests and public Chiado comparison.
 Discounts cover at most 128 total entries, including the anchor; a larger
-candidate restores the old per-entry reserve rather than imposing a transaction
-count cap. A first source blocked only by previous-queue cleanup remains held
-until independently due consolidation clears that queue. This does not create
-an additional settlement trigger.
-`admission.gas_projection` records the initial reserve and previous-queue cost;
+candidate restores the full per-entry reserve rather than imposing a transaction
+count cap. The `admission.gas_projection` event retains its
+`prior_cleanup_gas` compatibility field, now zero with this protocol pin;
 `gas_budget_cut` also reports the applied entry discount. Final ordered native
 execution remains mandatory before submission.
 The incremental blob estimate includes derivation metadata, semantic messages,
@@ -262,7 +264,11 @@ bundles without using blob base fee as a tip signal.
 Execution and blob base fees already follow the selected network and fork.
 Their existing `*_HEADROOM_BPS` settings raise the maximum permitted prices;
 they do not multiply the base fees actually charged. The gas-limit margin
-provides execution headroom; actual charges still use receipt gas consumption.
+is applied to pre-refund execution gas, respecting the calldata floor. Storage
+refunds reduce the receipt charge but cannot supply gas during execution. Actual
+fee estimates and charges still use receipt gas consumption after refunds.
+The complete bundle is revalidated at its final signed limit; the validated
+larger-limit fallback remains available for additional gas-forwarding requirements.
 Fee-quote events include the fee-history estimate, bounds, selected tip, and
 the independent execution/blob fee caps.
 
@@ -282,11 +288,22 @@ An optional `EEZ_PREPARATION_TIME_MS` replaces the implicit rounding remainder
 with a measured preparation allowance. The trigger occurs at the next L1 slot
 minus preparation, proof and submission slack. Block timestamps and the Sync
 grid remain unchanged; the Future suffix covers the combined budget. For
-example, a 5-second/1-second profile with preparation 500 ms, proof 500 ms and
-slack 700 ms triggers at 3.3 seconds after its anchor. This is the packaged
+example, a 5-second/1-second profile with preparation 500 ms, proof 750 ms and
+slack 700 ms triggers at 3.05 seconds after its anchor. This is the packaged
 Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
 all absolute proof and submission deadlines remain enforced.
+If the expected L1 block is still absent at the following preparation deadline,
+the scheduler permits one replacement opportunity on the same parent, with the
+same target execution height and a timestamp one slot later. The Composer
+rebuilds its speculative suffix and retains the old submission as history;
+canonical replay resolves late original inclusion. This does not classify the
+slot as skipped or charge user retries. No new timer setting is introduced.
+One additional opportunity per observed L1 head bounds work during an outage;
+a second consecutive missing slot waits for a new head. See
+[settlement ownership](../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
+On the 5-second/1-second Chiado grid, this preset reserves two Future blocks
+per interval rather than one with the former 500 ms proof budget.
 
 After catch-up, the sequencer rechecks the terminal. Only a terminal exactly at
 the requested future height and timestamp, with deadline headroom and no
@@ -306,8 +323,12 @@ opens, not a mandatory block gap. Selection is logged as
 `eez.submitter.policy.target_selected`, including the
 observed head, timing budget, and chosen offset. Final timestamp, canonical-head,
 fee, and deadline checks still apply, and missed opportunities preserve pending
-work. No new timing setting is required. Explicit Sync targets retain their
-existing behavior.
+work. No new timing setting is required. Once an exact target has been selected,
+capacity splitting into historical prefixes preserves that execution height and
+timestamp for every candidate and its submission. In particular, a skipped-slot
+replacement keeps the same execution height and advances only the timestamp.
+Only an unpinned catch-up opportunity selects a fresh target in the historical
+helper; expired proof/submission deadlines still defer the candidate.
 
 Composer nodes wake the existing L1 scanner on embedded canonical-head
 notifications, so settlement evidence need not wait for the two-second fallback

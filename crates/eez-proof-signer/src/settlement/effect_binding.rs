@@ -4,9 +4,8 @@ use alloy_primitives::{B256, I256};
 use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, RootUpdateSol};
 use eez_protocol::entries::{
-    NestedPairDirection, verify_nested_group, verify_static_outbound_pair,
+    NestedPairDirection, verify_nested_group, verify_outbound_source_group,
 };
-use eez_protocol::system_tx::OutboundSourceEntry;
 use eez_protocol::system_tx::outbound_settlement_root_counts;
 use thiserror::Error;
 
@@ -367,15 +366,10 @@ fn derive_effect_positions(
                         let source_entries = &entries
                             [source_entry_start..source_entry_start + source_entry_count];
                         match source_entries {
-                            [OutboundSourceEntry::Static(entry)]
-                                if callback_entries.is_empty() =>
-                            {
-                                verify_static_outbound_pair(
-                                    claimed,
-                                    entry,
-                                    RollupId(settled_rollup),
-                                )
-                                .is_ok()
+                            sources if callback_entries.is_empty() => {
+                                verify_outbound_source_group(
+                                    claimed, sources, RollupId(settled_rollup),
+                                ).is_ok()
                             }
                             _ => source_entries
                                 .iter()

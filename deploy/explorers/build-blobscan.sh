@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Build the pinned upstream release plus the explicit Chiado compatibility patch.
 set -euo pipefail
+paths=false
+case "${1:-}" in
+  '') [[ $# -eq 0 ]] || { echo 'usage: build-blobscan.sh [--paths]' >&2; exit 2; } ;;
+  --paths) [[ $# -eq 1 ]] || { echo 'usage: build-blobscan.sh [--paths]' >&2; exit 2; }; paths=true ;;
+  *) echo 'usage: build-blobscan.sh [--paths]' >&2; exit 2 ;;
+esac
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 work_dir="$(mktemp -d /tmp/eez-blobscan-build.XXXXXXXX)"
 build_db="eez-blobscan-build-$$"
@@ -21,6 +27,9 @@ curl --fail --location --retry 3 \
 mkdir "$work_dir/source"
 tar -xzf "$work_dir/source.tar.gz" --strip-components=1 -C "$work_dir/source"
 patch --batch -p1 -d "$work_dir/source" < "$script_dir/blobscan-chiado.patch"
+if [[ "$paths" == true ]]; then
+  patch --batch -p1 -d "$work_dir/source" < "$script_dir/blobscan-paths.patch"
+fi
 
 # Prisma's typed SQL generator needs a migrated database even at build time.
 # These are disposable credentials for an empty schema, never runtime secrets.
@@ -52,16 +61,27 @@ docker run --rm --network "$build_network" \
   blossomlabs/blobscan-api@sha256:2edefdf2c959e6d0b574953e17a5a522135a8bf53931ab5bbef4707f6e7dd32c \
   -ec 'node node_modules/prisma/build/index.js migrate deploy --schema schema.prisma'
 
+release=1.40.3-chiado-configurable
+check_image=eez-blobscan-build-check:chiado
+if [[ "$paths" == true ]]; then
+  release=1.40.3-chiado-paths
+  check_image=eez-blobscan-build-check:chiado-paths
+fi
 build_args=(--builder "$builder" --load --progress plain \
-  --build-arg NEXT_PUBLIC_BLOBSCAN_RELEASE=1.40.3-chiado-configurable \
+  --build-arg "NEXT_PUBLIC_BLOBSCAN_RELEASE=$release" \
   --build-arg "GIT_COMMIT=$revision" \
   --build-arg "DATABASE_URL=$build_url" --build-arg "DIRECT_URL=$build_url")
-for target in api web; do
-  docker buildx build "${build_args[@]}" --target "$target" \
-    -t "eez-blobscan-$target:1.40.3-chiado-configurable" "$work_dir/source"
-done
+if [[ "$paths" == true ]]; then
+  docker buildx build "${build_args[@]}" --target web \
+    -t eez-blobscan-web:1.40.3-chiado-paths "$work_dir/source"
+else
+  for target in api web; do
+    docker buildx build "${build_args[@]}" --target "$target" \
+      -t "eez-blobscan-$target:1.40.3-chiado-configurable" "$work_dir/source"
+  done
+fi
 docker buildx build "${build_args[@]}" --target web-builder \
-  -t eez-blobscan-build-check:chiado "$work_dir/source"
+  -t "$check_image" "$work_dir/source"
 docker run --rm --network none \
   -e SKIP_ENV_VALIDATION= -e NODE_ENV=production \
   -e SECRET_KEY=profile-test-secret \
@@ -70,12 +90,12 @@ docker run --rm --network none \
   -e STATS_SYNCER_LOWEST_SLOT=30000000 \
   -e PUBLIC_NETWORK_NAME=chiado -e PUBLIC_BLOBSCAN_START_BLOCK=25000000 \
   --mount "type=bind,src=$script_dir/check-chiado-profile.ts,dst=/app/check-chiado-profile.ts,readonly" \
-  eez-blobscan-build-check:chiado pnpm exec tsx /app/check-chiado-profile.ts
+  "$check_image" pnpm exec tsx /app/check-chiado-profile.ts
 docker run --rm --network none \
   -e SKIP_ENV_VALIDATION= -e NODE_ENV=production -e CHAIN_ID=10200 \
   -e PUBLIC_NETWORK_NAME=chiado -e BLOBSCAN_API_BASE_URL=http://blobscan-api:3001 \
   -e DATABASE_URL=postgresql://test:test@127.0.0.1/test \
   -e DIRECT_URL=postgresql://test:test@127.0.0.1/test \
   --mount "type=bind,src=$script_dir/check-blob-proxy.ts,dst=/app/check-blob-proxy.ts,readonly" \
-  eez-blobscan-build-check:chiado pnpm exec tsx \
+  "$check_image" pnpm exec tsx \
   --tsconfig /app/apps/web/tsconfig.json /app/check-blob-proxy.ts

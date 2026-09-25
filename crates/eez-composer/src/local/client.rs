@@ -17,6 +17,7 @@ use reth_storage_api::{BlockNumReader, HeaderProvider, StateProviderBox, StatePr
 use revm::DatabaseCommit;
 use revm::context::result::EVMError;
 
+use crate::composer::gas_trace;
 use eez_evm_inspector::{OverlayChannelHandle, SessionInspectorFactory, new_overlay_channel};
 use eez_protocol::{
     ChainClient, CompositionBuilder, ExecutorError, ExecutorErrorKind, ExecutorResult,
@@ -335,11 +336,12 @@ impl LocalChainClient {
         // The source-simulation inspector dispatches every detected proxy CALL
         // through the composition builder, which records calls in preorder.
         // Attach the cache channel around each downstream dispatch.
-        let inspector = self.inspector_factory().build(dispatcher);
+        let mut inspector = self.inspector_factory().build(dispatcher);
+        let traced = gas_trace::maybe_trace(&mut inspector, evm_env.cfg_env.chain_id);
         let mut evm =
             self.provider
                 .evm_config
-                .evm_with_env_and_inspector(&mut *state, evm_env, inspector);
+                .evm_with_env_and_inspector(&mut *state, evm_env, traced);
         let (gas_used, success, changes) = match evm.transact(tx_env) {
             Ok(r) => (r.result.tx_gas_used(), r.result.is_success(), Some(r.state)),
             // The backing store is unreachable — that is the slot's problem, not
@@ -387,8 +389,8 @@ impl LocalChainClient {
                 (0, false, None)
             }
         };
-        let inspector_error = evm.inspector_mut().take_error();
         drop(evm);
+        let inspector_error = inspector.take_error();
 
         if let Some(err) = inspector_error {
             return Err(err);
@@ -449,6 +451,8 @@ mod tests {
 
     const RECIPIENT: Address = address!("000000000000000000000000000000000000b0b0");
     const REVERTER: Address = address!("000000000000000000000000000000000000bad0");
+    const NESTED_CALLER: Address = address!("000000000000000000000000000000000000ca11");
+    const NESTED_TARGET: Address = address!("000000000000000000000000000000000000cafe");
 
     fn signer() -> PrivateKeySigner {
         PrivateKeySigner::from_bytes(&B256::with_last_byte(7)).expect("test key")
@@ -540,6 +544,214 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert_eq!(result.gas_used, 21_000);
+    }
+
+    #[test]
+    fn selected_admission_source_trace_keeps_the_same_gas_result() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-admission-source-trace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let raw = signed_tx(REVERTER);
+        let config = gas_trace::Config::parse(
+            Some(alloy_primitives::keccak256(&raw).to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        let run = |record: bool| {
+            let client = fixture();
+            let slot = L1SlotState::open(&client).unwrap();
+            let (mut state, env) = slot.fork_state(&client).unwrap();
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let _scope = record.then(|| {
+                config
+                    .begin(
+                        "admission_execution",
+                        B256::ZERO,
+                        alloy_primitives::keccak256(&raw),
+                    )
+                    .unwrap()
+            });
+            client
+                .simulate_source_tx_on_with_retries(
+                    raw.clone(),
+                    &mut dispatcher,
+                    &mut state,
+                    env,
+                    false,
+                )
+                .unwrap()
+                .gas_used
+        };
+        let ordinary = run(false);
+        assert!(!directory.exists());
+        assert_eq!(run(true), ordinary);
+        let file = std::fs::read_dir(&directory)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let lines = std::fs::read_to_string(file).unwrap();
+        assert!(lines.lines().any(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value["kind"] == "step" && value["chain_id"] == 1
+        }));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn address_trace_selects_an_internal_call_without_changing_gas() {
+        let directory = std::env::temp_dir().join(format!(
+            "eez-internal-address-trace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config = gas_trace::Config::parse_with_address(
+            None,
+            Some(NESTED_TARGET.to_string()),
+            Some(directory.to_str().unwrap().into()),
+        )
+        .unwrap()
+        .unwrap();
+        let raw = signed_tx(NESTED_CALLER);
+        let hash = alloy_primitives::keccak256(&raw);
+        let run = |record: bool| {
+            let provider: MockEthProvider = MockEthProvider::new().with_genesis_block();
+            let header = Header {
+                number: 1,
+                gas_limit: 30_000_000,
+                ..Default::default()
+            };
+            provider.add_header(header.hash_slow(), header);
+            provider.add_account(
+                signer().address(),
+                ExtendedAccount::new(0, U256::from(10_u64.pow(12))),
+            );
+            let mut caller_code = vec![0x60, 0, 0x60, 0, 0x60, 0, 0x60, 0, 0x60, 0, 0x73];
+            caller_code.extend_from_slice(NESTED_TARGET.as_slice());
+            caller_code.extend_from_slice(&[0x61, 0xff, 0xff, 0xf1, 0x00]);
+            provider.add_account(
+                NESTED_CALLER,
+                ExtendedAccount::new(0, U256::ZERO).with_bytecode(Bytes::from(caller_code)),
+            );
+            provider.add_account(
+                NESTED_TARGET,
+                ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("00")),
+            );
+            let client = LocalChainClient::new_entry(
+                provider,
+                EthEvmConfig::new(Arc::new(ChainSpecBuilder::mainnet().build())),
+                RollupId::MAINNET,
+                Address::ZERO,
+                eez_protocol::ChainDialect::EvmL1Style,
+            );
+            let slot = L1SlotState::open(&client).unwrap();
+            let (mut state, env) = slot.fork_state(&client).unwrap();
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let _scope = record.then(|| {
+                config
+                    .begin_admission(B256::ZERO, hash, &raw)
+                    .unwrap()
+                    .unwrap()
+            });
+            client
+                .simulate_source_tx_on_with_retries(
+                    raw.clone(),
+                    &mut dispatcher,
+                    &mut state,
+                    env,
+                    false,
+                )
+                .unwrap()
+                .gas_used
+        };
+        let ordinary = run(false);
+        assert!(!directory.exists());
+        assert_eq!(run(true), ordinary);
+        assert!(config.selects(hash));
+        let file = std::fs::read_dir(&directory)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let lines = std::fs::read_to_string(file).unwrap();
+        assert!(lines.lines().any(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value["kind"] == "address_match"
+                && value["address"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<Address>()
+                    .unwrap()
+                    == NESTED_TARGET
+                && value["reason"] == "call_code_address"
+        }));
+        assert!(lines.lines().any(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value["kind"] == "step"
+                && value["address"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<Address>()
+                    .unwrap()
+                    == NESTED_TARGET
+        }));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn address_trace_selects_signed_sender_and_recipient() {
+        let raw = signed_tx(RECIPIENT);
+        let hash = alloy_primitives::keccak256(&raw);
+        for (address, reason) in [
+            (signer().address(), "source_sender"),
+            (RECIPIENT, "source_recipient"),
+        ] {
+            let directory = std::env::temp_dir().join(format!(
+                "eez-source-address-trace-{reason}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let config = gas_trace::Config::parse_with_address(
+                None,
+                Some(address.to_string()),
+                Some(directory.to_str().unwrap().into()),
+            )
+            .unwrap()
+            .unwrap();
+            {
+                let _scope = config
+                    .begin_admission(B256::ZERO, hash, &raw)
+                    .unwrap()
+                    .unwrap();
+            }
+            assert!(config.selects(hash));
+            let file = std::fs::read_dir(&directory)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let lines = std::fs::read_to_string(file).unwrap();
+            assert!(lines.lines().any(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                value["kind"] == "address_match" && value["reason"] == reason
+            }));
+            std::fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

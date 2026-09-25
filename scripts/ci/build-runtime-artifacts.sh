@@ -67,19 +67,26 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
         [[ "$GITHUB_REF" == "$default_ref" ]] || cache_scopes+=("$default_ref")
         for scope in "${cache_scopes[@]}"; do
             # Mutable cache tags are separate from immutable candidate tags.
-            # Only read the default branch from PRs; never overwrite its cache.
+            # Import one source per image: overlapping BuildKit records from the
+            # default branch can mask a matching ref-scoped compile layer.
             scope_hash="$(printf '%s' "$scope" | sha256sum | cut -c1-16)"
             cache_tag="buildcache-v1-linux-amd64-$scope_hash"
             runtime_ref="$prefix-node:$cache_tag"
             deploy_ref="$prefix-deploy:$cache_tag"
-            runtime_cache_from+=(--cache-from "type=registry,ref=$runtime_ref")
-            deploy_cache_from+=(--cache-from "type=registry,ref=$deploy_ref")
+            if [[ ${#runtime_cache_from[@]} -eq 0 ]] &&
+                docker buildx imagetools inspect "$runtime_ref" >/dev/null 2>&1; then
+                runtime_cache_from=(--cache-from "type=registry,ref=$runtime_ref")
+            fi
+            if [[ ${#deploy_cache_from[@]} -eq 0 ]] &&
+                docker buildx imagetools inspect "$deploy_ref" >/dev/null 2>&1; then
+                deploy_cache_from=(--cache-from "type=registry,ref=$deploy_ref")
+            fi
             if [[ "$scope" == "$GITHUB_REF" ]]; then
                 runtime_cache_to=(--cache-to "type=registry,ref=$runtime_ref,mode=max,ignore-error=true")
                 deploy_cache_to=(--cache-to "type=registry,ref=$deploy_ref,mode=max,ignore-error=true")
             fi
         done
-        cache_status="GHCR (ref-scoped, default-branch fallback, best-effort export)"
+        cache_status="GHCR (one ref-scoped source or default-branch fallback, best-effort export)"
     else
         cache_status="disabled (Docker driver lacks the containerd image store)"
     fi

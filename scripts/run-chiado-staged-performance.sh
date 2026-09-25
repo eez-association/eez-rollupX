@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the requested 770-job staged workload on an already deployed Chiado rollup.
+# Run the staged workload on an already deployed Chiado rollup.
 set -euo pipefail
 set +x
 umask 077
@@ -13,22 +13,26 @@ case "${1:-}" in
         cat <<'HELP'
 Usage: bash scripts/run-chiado-staged-performance.sh [--check]
 
-Runs the 14 requested targets (770 jobs / 870 source transactions) with
+Runs the 14 requested targets (770 jobs / 870 source transactions by default) with
 --no-verify. --check only checks readiness; it does not fund, build or send.
 DEVNET_ENV defaults to eez-core-protocol/chain.env. The profile must contain
 the deployed RPCs, ingress URLs, registry, manager and a funded SOURCE_PK.
 
 Defaults: PREPARE_PARALLEL=200, FUND_ETH=0.005, FLOOR_ETH=0.005,
 SEND_WORKERS=28, POLL_INTERVAL=1, EEZ_STAGED_L2_CHAIN_ID=6290.
+EEZ_STAGED_SCALE multiplies every target count (default 1; 4 gives 3,080 jobs
+and 3,480 source transactions).
 Environment overrides are passed through the existing profile and runner.
 The full run locks the shared worker pool. Do not launch the upstream runner
 directly while this helper is active; upstream only locks its funding step.
+Only fresh runs are supported. Saved RPC URLs do not identify a network after
+replacement; this helper does not resume or resend old signed transactions.
 HELP
         exit 0 ;;
     "") ;;
     *) echo "Unknown argument: $1 (use --help)" >&2; exit 2 ;;
 esac
-[[ $# == 0 ]] || { echo "This helper runs the fixed workload; use --help." >&2; exit 2; }
+[[ $# == 0 ]] || { echo "Unexpected arguments; use --help." >&2; exit 2; }
 for tool in python3 cast forge curl jq bc flock timeout; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
@@ -41,6 +45,7 @@ export FUND_ETH="${FUND_ETH:-0.005}" FLOOR_ETH="${FLOOR_ETH:-0.005}"
 export SEND_WORKERS="${SEND_WORKERS:-28}" POLL_INTERVAL="${POLL_INTERVAL:-1}"
 export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}" TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
 export EEZ_STAGED_L2_CHAIN_ID="${EEZ_STAGED_L2_CHAIN_ID:-6290}"
+export EEZ_STAGED_SCALE="${EEZ_STAGED_SCALE:-1}"
 # Same working directory and profile precedence as the upstream entrypoint.
 cd "$PROTOCOL"
 set -a
@@ -48,6 +53,11 @@ set -a
 source "$DEVNET_ENV"
 set +a
 set +x
+# Validate the effective profile value before deriving keys, locking wallets or
+# querying the network. Avoid arithmetic on an unbounded shell integer.
+[[ "$EEZ_STAGED_SCALE" =~ ^([1-9]|10)$ ]] || {
+    echo "EEZ_STAGED_SCALE must be an integer from 1 to 10" >&2; exit 2;
+}
 : "${SOURCE_PK:?SOURCE_PK must be configured explicitly in DEVNET_ENV}"
 export SOURCE_ADDRESS
 SOURCE_ADDRESS="$(cast wallet address --private-key "$SOURCE_PK" 2>/dev/null)" || {
@@ -124,7 +134,8 @@ def check():
     require(amount * 10**18 == int(amount * 10**18), 'FUND_ETH has more than 18 decimal places')
     chunk = int(os.environ.get('MULTISEND_BATCH', '100'))
     require(chunk > 0, 'MULTISEND_BATCH must be positive')
-    jobs = 770
+    scale = int(os.environ['EEZ_STAGED_SCALE'])
+    jobs = 770 * scale
     faucet_text = Path('script/e2e/run/faucet.txt').read_text()
     match = re.search(r'^address:\s*(0x[0-9a-fA-F]{40})\s*$', faucet_text, re.M)
     require(match, 'The existing faucet file is missing its public address')
@@ -133,7 +144,7 @@ def check():
         workers = [row[0] for row in csv.reader(stream)][:jobs]
     require(len(workers) == jobs and len({a.lower() for a in workers}) == jobs
             and all(re.fullmatch(r'0x[0-9a-fA-F]{40}', a) for a in workers),
-            'This helper requires 770 existing unique worker wallets')
+            f'This helper requires {jobs} existing unique worker wallets')
     # Same upfront requirement as orchestrator-lib.sh; unused funding returns
     # to the faucet. The extra source reserve is an estimate, not a cost cap.
     required = jobs * int(amount * 10**18) + ((jobs + chunk - 1) // chunk) * 5 * 10**16 + 10**17
@@ -143,7 +154,7 @@ def check():
             'Cross-chain queue is not empty; let current work settle first')
     ready = True
     print(f'Profile: {os.environ["DEVNET_ENV"]}')
-    print(f'Workload: 770 jobs / 870 sources; preparation={os.environ["PREPARE_PARALLEL"]}, '
+    print(f'Workload: {jobs} jobs / {870 * scale} sources; preparation={os.environ["PREPARE_PARALLEL"]}, '
           f'send workers={os.environ["SEND_WORKERS"]}; semantic verifier disabled')
     print(f'Funding source: {source}; faucet: {faucet}')
     print(f'Upfront faucet requirement: {tokens(required)} xDAI per layer (includes refundable value)')
@@ -191,8 +202,10 @@ PY
 $CHECK_ONLY && exit 0
 echo "Starting upstream staged runner; its run directory contains timings.csv and job-timings.csv."
 exec bash script/e2e/run/network-staged.sh --no-verify \
-    counter:100 counterL2:100 nestedCounter:50 nestedCounterL2:50 \
-    multi-call-nested:50 multi-call-nestedL2:50 \
-    multi-call-twice:50 multi-call-twiceL2:50 counter-multi-tx:50 \
-    reentrant:20 revertCounter:50 revertCounterL2:50 \
-    revertFromOtherChain:50 revertFromOtherChainL2:50
+    "counter:$((100 * EEZ_STAGED_SCALE))" "counterL2:$((100 * EEZ_STAGED_SCALE))" \
+    "nestedCounter:$((50 * EEZ_STAGED_SCALE))" "nestedCounterL2:$((50 * EEZ_STAGED_SCALE))" \
+    "multi-call-nested:$((50 * EEZ_STAGED_SCALE))" "multi-call-nestedL2:$((50 * EEZ_STAGED_SCALE))" \
+    "multi-call-twice:$((50 * EEZ_STAGED_SCALE))" "multi-call-twiceL2:$((50 * EEZ_STAGED_SCALE))" \
+    "counter-multi-tx:$((50 * EEZ_STAGED_SCALE))" "reentrant:$((20 * EEZ_STAGED_SCALE))" \
+    "revertCounter:$((50 * EEZ_STAGED_SCALE))" "revertCounterL2:$((50 * EEZ_STAGED_SCALE))" \
+    "revertFromOtherChain:$((50 * EEZ_STAGED_SCALE))" "revertFromOtherChainL2:$((50 * EEZ_STAGED_SCALE))"

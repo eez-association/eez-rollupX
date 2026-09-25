@@ -1,0 +1,865 @@
+{
+  "requested_command": "bash script/e2e/run/network-staged.sh all",
+  "fork_base": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+  "protocol": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+  "protocol_worktree_clean": true,
+  "l2_chain_id": 6291,
+  "rollup_id": 1,
+  "registry": "0x5d6b8fc56e43528c219de7eed257564c05923e08",
+  "prepare_parallel": 2,
+  "send_workers": 4,
+  "send_pause_seconds": 0.25,
+  "verify_parallel": 2,
+  "semantic_verification": true,
+  "full_run_lock": "eez-core-protocol/tmp/.eez-network-e2e.lock",
+  "scenario_count": 32,
+  "run_dir": "eez-core-protocol/tmp/e2e-staged-net/20260923-214411",
+  "images": {
+    "eez-node-chiado": "sha256:fa67f9aee6ba45710f7613b92eceb2afab173cd9fa48873a7dfe6014627f2478",
+    "eez-proof-signer-chiado": "sha256:ee1350476a63d0c2940a3cb406577d0edbb243123a7b3ac0c5f6ac55c921e706"
+  },
+  "status": "completed",
+  "runner_exit_code": 0,
+  "l1_rpc": "local embedded Chiado RPC",
+  "first_attempt": {
+    "run_dir": "eez-core-protocol/tmp/e2e-staged-net/20260923-214019",
+    "exit_code": 1,
+    "passed": 5,
+    "failed_verification": 0,
+    "not_verifiable": 27,
+    "cause": "External L1 RPC HTTP 429 during planning and deployment; retained as failed attempt"
+  },
+  "final_attempt": {
+    "passed": 32,
+    "failed": 0,
+    "not_verifiable": 0,
+    "deploy_transactions": 132,
+    "source_transactions": 34,
+    "total_seconds": 60.937,
+    "semantic_verification": true
+  },
+  "canonical_source_receipts": [
+    {
+      "job": "multi-call-two-diff-1",
+      "chain": "L1",
+      "transaction_hash": "0x617bf76656f8373ec7752f160aa84f08613b41894c1e04a68906af9ec8171568",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "multi-call-twice-1",
+      "chain": "L1",
+      "transaction_hash": "0x2cd8129544632949d31dacdd9a1b436eb31700332e1f73dd816d929b928bffcb",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "multi-call-twiceL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xa8f2a3b0b8b3e1ff69e0f738f31a1b4d1630006deb3a9e6f268cc831fc150e1e",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "multi-call-two-diffL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x7ac590dd2f653fbc097fa89925500db7024ca1201334f956216ad475d398d315",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "transaction_hash": "0xa2639801cbfd1a871718de66cdbcb7c5a95b0a708c08a01db37fe4c0f8c27e56",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "deepNested-1",
+      "chain": "L1",
+      "transaction_hash": "0x834d491def1a26afd9474928bbb4f21e749bf6c62beefe1d581cb94b59e8850a",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "flash-loan-1",
+      "chain": "L1",
+      "transaction_hash": "0xb02937657a3c559608d3663c50befcd8c58f1be539f6a81cdc02555aac89bb16",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "multi-call-nested-1",
+      "chain": "L1",
+      "transaction_hash": "0xae25fb757eedd7b1396a3fcb7e58cc1f7ab103041ba224f1c1b8de980932c061",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "transaction_hash": "0xa87754d8870679a9a7d719f64c97710f0f0dfb1961eb55a4b40d4855289dc7c5",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "multi-call-nestedL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xee7eb8d3bee18aa99fcee7ec0325b7793eeca3ffec3b985b78f71d01aee76e27",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedCounterL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x8141c1a99a9da09f4392b9cb75481baf3e7afc4b511d407130fb8b0b809743f4",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "bridge-1",
+      "chain": "L1",
+      "transaction_hash": "0x909ad525c9ee030e22550cb7df662efadcdc57afe1c158c0d937e43046d0a2ea",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "counter-multi-tx-1",
+      "chain": "L1",
+      "transaction_hash": "0xde0bba6789080fc4d1bdba7798f5b6d77be733e8343c078762262428061c14c9",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "bridgeL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x9d0d635dd4311c7f84303b9409ca2fb84288a60e6576184b07fbd1ec0f302482",
+      "canonical_block": 1900,
+      "block_hash": "0x7007d8c44e13a3af6bda239cb9f03cccf10dbcbd4c2bf413aa5acd0cff1f50c4",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "reentrant-1",
+      "chain": "L1",
+      "transaction_hash": "0x36fa03ca9fa0fe9e8b899c571934dae16d6b593d4d5acc28387326f26d2a2295",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "counterL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xc70eb07b86ad99113a7644b2f89c97fe3439c31c3b6ac94b05c1b3958ba13546",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedCounter-1",
+      "chain": "L1",
+      "transaction_hash": "0xaaaae60b2efc3b20205cb1e3fe00175458975ce45dc65ba5584b01475d7d9ac8",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertCounter-1",
+      "chain": "L1",
+      "transaction_hash": "0x9e5babbc1194cffedcdeb31d920f227893584038aa9669fb0be370418143c5c9",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedCallRevertL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x8f87cb3aed01bcadca68f52418865a72424cf64995dec1df48166533959df6a5",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertFromOtherChain-1",
+      "chain": "L1",
+      "transaction_hash": "0xa05743b1c6f6d30038a3d68cd7b12b303f32e96c78e849dd273078cbdc5dc577",
+      "canonical_block": 23196667,
+      "block_hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "counter-1",
+      "chain": "L1",
+      "transaction_hash": "0xfad6c74548f835f55fce2e4a56f16a716e46a39da7809be0fa1a82bcd3bbf867",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertFromOtherChainL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xccefbb6310f1766456184a93480715b0ee094085989e061efabf933e53069bc4",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertFromOtherChainNested-1",
+      "chain": "L2",
+      "transaction_hash": "0xf49792d58a80ff5fb83519b53d710323dfeded222653c610ad05edd51cc1e8d5",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertFromOtherChainAndCallAgainL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xee480ecd22b484e8d40065a35a86b7988924abe2e37e2728c4deccaaa569f474",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedCallRevert-1",
+      "chain": "L1",
+      "transaction_hash": "0x0e32c89117ca899e9c202f1af83d503a5e54323c44a7bf3b6bdbb07eb7fcf232",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "topLevelStaticCounter-1",
+      "chain": "L1",
+      "transaction_hash": "0xfec44349e5767840521cee2f9d96e03ef36dccdf7e26e4d34a651c711fe4458f",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "staticReadX2Write-1",
+      "chain": "L1",
+      "transaction_hash": "0x07df24ae6373d84cf51cec9d9d7bcdefcc18b0de285add44ffc3f7cd059738cd",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "staticReadWrite-1",
+      "chain": "L1",
+      "transaction_hash": "0x54a7448a1ae52567f0d899c6ca62e5402e7d0ad3f0e90aadd8eaa3b24dbbc6c7",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "revertCounterL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xbdc0d06a2e8ba264ffa27c0038f9cbe53bcd1263183e90def48a344b404bbc2f",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "staticReadWriteL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x78498831ca72cdb02507cb2f5b10fa10032a3d854f7bb1f3c20d53abc1d39ecd",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "staticReadX2WriteL2-1",
+      "chain": "L2",
+      "transaction_hash": "0xcdc42db1dabc178dd34cb7bc6210705372ac387be80cea237a32e28902be734c",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "staticCounterL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x4ce06712689f14a8d332b5fc152b3fbe3b64e6306e4914c2d13a9814916ea675",
+      "canonical_block": 1895,
+      "block_hash": "0x6ac82c3b921d7b27829f6ca977a25839080d7b5e1fc8e0a7e700dc7a38854883",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedStaticCounter-1",
+      "chain": "L1",
+      "transaction_hash": "0x2925c33271f59e853154710885072c847f93112b295d060097bf6503e74dd5fe",
+      "canonical_block": 23196668,
+      "block_hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+      "receipt_status": 1,
+      "safe_head": 23196672,
+      "covered_by_safe": true
+    },
+    {
+      "job": "nestedStaticCounterL2-1",
+      "chain": "L2",
+      "transaction_hash": "0x6476a770d382cac44e426ec2205b41fb732ea48cce6cea61d00ab47802bab155",
+      "canonical_block": 1900,
+      "block_hash": "0x7007d8c44e13a3af6bda239cb9f03cccf10dbcbd4c2bf413aa5acd0cff1f50c4",
+      "receipt_status": 1,
+      "safe_head": 1900,
+      "covered_by_safe": true
+    }
+  ],
+  "post_run_queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790192678056,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0x6bc85499d512548f46565eab1d6651c42ad31e00cec09d5f67f71e89a7558dc2",
+        "number": 23196668
+      },
+      "observedAtMs": 1790192681254
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0xf05999a41aa1bf7c90338ed89669489d3cb11c673be7224ec2aac3b9a5787431",
+        "number": 23196667
+      },
+      "l2": {
+        "hash": "0xb438b035989727d4e31d082af9589a580f543bfc9583c2097dce7fa793e98fe0",
+        "number": 1899
+      }
+    },
+    "unknown": 0
+  },
+  "scenarios": [
+    {
+      "job": "multi-call-twice-1",
+      "scenario": "script/e2e/multi_call/L1_to_L2/multi-call-twice/E2EMultiCallTwice.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 2 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (2 of 2 entries, field-by-field)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 2/2 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "acb1df9526a87e84dfe8f6999ad43c9e058c742e31299641452a4262550394c8"
+    },
+    {
+      "job": "multi-call-two-diff-1",
+      "scenario": "script/e2e/multi_call/L1_to_L2/multi-call-two-diff/E2EMultiCallTwoDiff.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 2 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 2/2 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (2 of 2 entries, field-by-field)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 2/2 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "dde476a8f39465c6ee279b801b3c0f5ffb39de2e4c6de86b582631111323f147"
+    },
+    {
+      "job": "multi-call-twiceL2-1",
+      "scenario": "script/e2e/multi_call/L2_to_L1/multi-call-twiceL2/E2EMultiCallTwiceL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "75a50dc14cef7f78411cf8bd8bcb0a6d3739a339789243f94852f38608de3e5e"
+    },
+    {
+      "job": "multi-call-two-diffL2-1",
+      "scenario": "script/e2e/multi_call/L2_to_L1/multi-call-two-diffL2/E2EMultiCallTwoDiffL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 2/2 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "9d47a9bb10f66c3af7dcd20b6ee105abdd4838531d53352eddb5ff5e869d0dd8"
+    },
+    {
+      "job": "counter-multi-tx-1",
+      "scenario": "script/e2e/multi_tx/L1_to_L2/counter-multi-tx/E2ECounterMultiTx.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 3 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 3/3 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (3 of 3 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (3 entries)",
+        "PASS: L2 field checks on 3 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 3 expected entries found across 1 L2 block(s)",
+        "PASS: 3/3 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "f9ccb8ac23a8d6a79a6fccef2f0d7483eb2038d79e90c7332eb761cd4c0e48c8"
+    },
+    {
+      "job": "deepNested-1",
+      "scenario": "script/e2e/nested/L1_to_L2/deepNested/E2EDeepNested.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "fc610fd3d2dd1e965671191f686200862bee82bd2bae0ab764b39cdb42e0e264"
+    },
+    {
+      "job": "flash-loan-1",
+      "scenario": "script/e2e/nested/L1_to_L2/flash-loan/E2EFlashLoan.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 2 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 2/2 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (2 of 2 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (2 entries)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 2/2 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "74b1f567e450ed579b067a29b62727f25dc8960cc4d34cb8cccd6ded7c0777fd"
+    },
+    {
+      "job": "multi-call-nested-1",
+      "scenario": "script/e2e/nested/L1_to_L2/multi-call-nested/E2EMultiCallNested.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 3 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 3/3 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (3 of 3 entries, field-by-field)",
+        "PASS: L2 field checks on 3 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 3 expected entries found across 1 L2 block(s)",
+        "PASS: 3/3 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "9de0e1c5e1250f82e6a5b421d7934ddcf7c86abb7768a1c4f3f35091eb3fbe55"
+    },
+    {
+      "job": "nestedCounter-1",
+      "scenario": "script/e2e/nested/L1_to_L2/nestedCounter/E2ENestedCounter.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "35970142c95c527dea366c6afc89300c3d16526268d684ee004f1aab1301b081"
+    },
+    {
+      "job": "multi-call-nestedL2-1",
+      "scenario": "script/e2e/nested/L2_to_L1/multi-call-nestedL2/E2EMultiCallNestedL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 2 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 2 expected entries found across 1 L2 block(s)",
+        "PASS: 2/2 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "d5a36c6ec4374562b0f9d696c0bfb28f7b63dedcb65a4c3aa3924f8f042c078f"
+    },
+    {
+      "job": "nestedCounterL2-1",
+      "scenario": "script/e2e/nested/L2_to_L1/nestedCounterL2/E2ENestedCounterL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "6d10d5afbe4e448c8a9a82d35cdf1004de5fd6c456d7f4f334fcb5f01e3827ff"
+    },
+    {
+      "job": "bridge-1",
+      "scenario": "script/e2e/one_way/L1_to_L2/bridge/E2EBridge.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "b296e50ee99a17ac83e12feffd9d7eaccae2cdf741988bc7558b00c0cf18bec3"
+    },
+    {
+      "job": "counter-1",
+      "scenario": "script/e2e/one_way/L1_to_L2/counter/E2ECounter.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "72528012345b4eedc2ce14aa5650e62a6e515dc91738810ac10d86a11ff16d56"
+    },
+    {
+      "job": "bridgeL2-1",
+      "scenario": "script/e2e/one_way/L2_to_L1/bridgeL2/E2EBridgeL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "1d628320f13b7a4b5d82cc1080bb2313123217f65911081c0c27989e61644fd5"
+    },
+    {
+      "job": "counterL2-1",
+      "scenario": "script/e2e/one_way/L2_to_L1/counterL2/E2ECounterL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "75fa3ad5dd3a2fe6ca0f8b16e9116a569db1d61cf3822b954cd6fa92b86ee080"
+    },
+    {
+      "job": "reentrant-1",
+      "scenario": "script/e2e/reentrant/L1_to_L2/reentrant/E2EReentrant.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "50a5f518a344ee03d587138b6e36864469c25b80c210a4feae0e496fb1030d15"
+    },
+    {
+      "job": "nestedCallRevert-1",
+      "scenario": "script/e2e/revert/L1_to_L2/nestedCallRevert/E2ENestedCallRevert.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "365637d27601662436d756af710d0e351561123f11675a9d432182c9c1837e8e"
+    },
+    {
+      "job": "revertCounter-1",
+      "scenario": "script/e2e/revert/L1_to_L2/revertCounter/E2ERevertCounter.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: none of 1 absent key(s) appears on L2 in blocks 1891..1918"
+      ],
+      "verify_log_sha256": "b6c21fcdbcd8668fee4739d4f87d13c97dc99bfca31e62fb2528b9de962f8e7f"
+    },
+    {
+      "job": "revertFromOtherChain-1",
+      "scenario": "script/e2e/revert/L1_to_L2/revertFromOtherChain/E2ERevertFromOtherChain.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: rollup 1 live root == simulated committed cursor",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "e6a7455e691f062b8d84311b6adc93c65801e492b1606f375190d4822bd28ec5"
+    },
+    {
+      "job": "nestedCallRevertL2-1",
+      "scenario": "script/e2e/revert/L2_to_L1/nestedCallRevertL2/E2ENestedCallRevertL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "cee42716f4bd5de1c338de1f113c717bf4321dbd21970cc86ef16020a6497d4c"
+    },
+    {
+      "job": "revertCounterL2-1",
+      "scenario": "script/e2e/revert/L2_to_L1/revertCounterL2/E2ERevertCounterL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)"
+      ],
+      "verify_log_sha256": "e03616232b4b806932cb08570f1ba59b8784238eed2f29d3486ba1e1de25fd60"
+    },
+    {
+      "job": "revertFromOtherChainAndCallAgainL2-1",
+      "scenario": "script/e2e/revert/L2_to_L1/revertFromOtherChainAndCallAgainL2/E2ERevertFromOtherChainAndCallAgainL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "29edade9e0c6c27b5f7a7d80216b7c117aa60b5ea43b01e2241f58c1f8e3f1bd"
+    },
+    {
+      "job": "revertFromOtherChainL2-1",
+      "scenario": "script/e2e/revert/L2_to_L1/revertFromOtherChainL2/E2ERevertFromOtherChainL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)"
+      ],
+      "verify_log_sha256": "2abb7fe8ad515379454451f81d6d91a4b4644a0d92e3511551c310d53558d7fd"
+    },
+    {
+      "job": "revertFromOtherChainNested-1",
+      "scenario": "script/e2e/revert/L2_to_L1/revertFromOtherChainNested/E2ERevertFromOtherChainNested.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "3b1b5daba84cda128c111cbfc92ec986bead5864cec3da9bc890f858784bfcf9"
+    },
+    {
+      "job": "nestedStaticCounter-1",
+      "scenario": "script/e2e/static/L1_to_L2/nestedStaticCounter/E2ENestedStaticCounter.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: rollup 1 live root == simulated committed cursor",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "72b32b2bc0ce1fd1efe437cac9f1fe05d2928666e028f93770e42ff7376ce400"
+    },
+    {
+      "job": "staticReadWrite-1",
+      "scenario": "script/e2e/static/L1_to_L2/staticReadWrite/E2EStaticReadWrite.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: posted batch static entries match expected static table (2 entries, root pins neutralized)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified",
+        "VERIFY_PASS L1 read 0 -> increment 1 -> read 1, one trigger",
+        "VERIFY_PASS L2 counter=1"
+      ],
+      "verify_log_sha256": "7eaa506a18fd8ae12d2bcba12241c99d32aeed3b4500cd1fd701462dce144f26"
+    },
+    {
+      "job": "staticReadX2Write-1",
+      "scenario": "script/e2e/static/L1_to_L2/staticReadX2Write/E2EStaticReadX2Write.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)",
+        "PASS: 1/1 expected call hashes consumed in L1 range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: posted batch static entries match expected static table (2 entries, root pins neutralized)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified",
+        "VERIFY_PASS L1 reads [0,0] -> increment 1 -> reads [1,1], one trigger",
+        "VERIFY_PASS L2 counter=1"
+      ],
+      "verify_log_sha256": "61ed08dedafc5905336458767bdb8edeb07e684e4fa404ecf7226505e5cf668c"
+    },
+    {
+      "job": "topLevelStaticCounter-1",
+      "scenario": "script/e2e/static/L1_to_L2/topLevelStaticCounter/E2ETopLevelStaticCounter.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch static entries match expected static table (1 entries, root pins neutralized)",
+        "PASS: none of 1 absent key(s) appears on L2 in blocks 1891..1925",
+        "VERIFY_PASS reader.lastRead=1 reader.counter=1 (predicted 1)"
+      ],
+      "verify_log_sha256": "58c34d67465e970c036aa224b6dc29237f250529d5a49baaf0fbcb2087beb90b"
+    },
+    {
+      "job": "nestedStaticCounterL2-1",
+      "scenario": "script/e2e/static/L2_to_L1/nestedStaticCounterL2/E2ENestedStaticCounterL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified"
+      ],
+      "verify_log_sha256": "12b3b92b8cee7da6b6dd817eea4faa8e538e8cc5370e8d87a125392599ca1edc"
+    },
+    {
+      "job": "staticCounterL2-1",
+      "scenario": "script/e2e/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "VERIFY_PASS reader.lastRead=1 reader.counter=1"
+      ],
+      "verify_log_sha256": "f7eaa2e4ab5a1bb01a931d0a434e8369ec4d27e0b7d9a2ab3072b0741771f972"
+    },
+    {
+      "job": "staticReadWriteL2-1",
+      "scenario": "script/e2e/static/L2_to_L1/staticReadWriteL2/E2EStaticReadWriteL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified",
+        "VERIFY_PASS L1 counter=1",
+        "VERIFY_PASS L2 read 0 -> increment 1 -> read 1, one trigger"
+      ],
+      "verify_log_sha256": "2b12df5cb43ede397cbcde3badf49aba806bc02e9548b64cfc3db865be0bebb5"
+    },
+    {
+      "job": "staticReadX2WriteL2-1",
+      "scenario": "script/e2e/static/L2_to_L1/staticReadX2WriteL2/E2EStaticReadX2WriteL2.s.sol",
+      "result": "PASS",
+      "semantic_checks": [
+        "PASS: 1 settlement tx(s) with BatchPosted in range",
+        "PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)",
+        "PASS: posted rolling hashes reproduced from posted roots (1 entries)",
+        "PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)",
+        "PASS: all 1 expected entries found across 1 L2 block(s)",
+        "PASS: 1/1 expected L2 calls verified",
+        "VERIFY_PASS L1 counter=1",
+        "VERIFY_PASS L2 reads [0,0] -> increment 1 -> reads [1,1], one trigger"
+      ],
+      "verify_log_sha256": "8c99de98a5f5a77bb43fc928e101c11e29eceff95be4e4d0d290ce59ce5f3395"
+    }
+  ],
+  "final_runner_log_sha256": "e386554f10f2c2a29a0708919d9236bb52709cdc05d8030be0db50c169fe7c18",
+  "initial_runner_log_sha256": "f5bef9a0c310c54c2ad3c3d14fa7a98534974e381cf62ff326e9ccf306d307dd",
+  "final_started_utc": "2026-09-23T19:44:11.923000+00:00",
+  "final_completed_utc": "2026-09-23T19:45:12.860000+00:00"
+}

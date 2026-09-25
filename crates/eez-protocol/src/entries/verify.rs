@@ -1,4 +1,4 @@
-//! Independent verification of mutable L1/L2 entry pairs and root groups.
+//! Independent verification of L1/L2 entry pairs and outbound root groups.
 //!
 //! The verifier is the inverse of the protocol's `TableGenerator`: unified
 //! rows are consumed in forward order, their position keys select the next
@@ -7,7 +7,7 @@
 
 use alloy_primitives::{B256, I256, U256, keccak256};
 
-use crate::abi::{ExecutionEntrySol, L2ToL1CallSol, StaticExecutionEntrySol};
+use crate::abi::{ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol};
 use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::EntryRollingHash;
 use crate::{ProtocolErrorKind, ProtocolResult, RollupId};
@@ -215,82 +215,16 @@ pub fn verify_nested_pair(
 /// that executes the read against live L1 state.
 pub fn verify_static_outbound_pair(
     l1_entry: &ExecutionEntrySol,
-    l2_entry: &StaticExecutionEntrySol,
+    l2_entry: &L2StaticExecutionEntrySol,
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<NestedPairVerification> {
-    if l2_rollup_id.is_mainnet() {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound L2 rollup id must be non-zero".into(),
-        )
-        .into());
-    }
-    validate_entry_shape(l1_entry, "L1 static outbound host")?;
-    crate::system_tx::check_static_entry_shape(l2_entry, "L2 static outbound source")
-        .map_err(ProtocolErrorKind::InvalidEncoding)?;
-    if l1_entry.rootUpdates.is_empty()
-        || l1_entry.proxyEntryHash != B256::ZERO
-        || l1_entry.destinationRollupId != l2_rollup_id.0
-        || !l1_entry.success
-        || !l1_entry.returnData.is_empty()
-        || !l1_entry.expectedL1ToL2Calls.is_empty()
-    {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host has inconsistent routing or outcome metadata".into(),
-        )
-        .into());
-    }
-    let [call] = l1_entry.l2ToL1Calls.as_slice() else {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host must contain exactly one L2-to-L1 call".into(),
-        )
-        .into());
-    };
-    if !call.isStatic
-        || call.sourceRollupId != l2_rollup_id.0
-        || !call.value.is_zero()
-        || call.revertNextNCalls != 0
-        || call.gas != 0
-        || !l2_entry.expectedRoots.is_empty()
-        || l2_entry.destinationRollupId != RollupId::MAINNET.0
-        || !l2_entry.l2ToL1Calls.is_empty()
-        || l2_entry.rollingHash != B256::ZERO
-    {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound source/host uses an unsupported table shape".into(),
-        )
-        .into());
-    }
-    let call_hash = source_call_hash(call, l2_rollup_id, RollupId::MAINNET)?;
-    if call_hash != l2_entry.proxyEntryHash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound source hash does not match the L1 call".into(),
-        )
-        .into());
-    }
-    let mut rolling = EntryRollingHash::seed_for_l1(
-        l1_entry
-            .rootUpdates
-            .iter()
-            .map(|update| (update.rollupId, update.currentRoot)),
-        B256::ZERO,
-    );
-    rolling.call_begin(destination_call_hash(
-        call,
+    verify_outbound_source_group(
+        l1_entry,
+        &[crate::system_tx::OutboundSourceEntry::Static(
+            l2_entry.clone(),
+        )],
         l2_rollup_id,
-        RollupId::MAINNET,
-    )?);
-    rolling.call_end(l2_entry.success, &l2_entry.returnData);
-    if rolling.current() != l1_entry.rollingHash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "static outbound host rolling hash does not bind the cached result".into(),
-        )
-        .into());
-    }
-    Ok(NestedPairVerification {
-        l2_outbound_hashes: Vec::new(),
-        ether_delta: I256::ZERO,
-        outbound_callback_counts: vec![0],
-    })
+    )
 }
 
 fn finish_facts(
@@ -319,9 +253,58 @@ fn finish_facts(
     })
 }
 
+/// Verify a whole outbound host against the canonical load order (mutable
+/// entries followed by static entries). Static roots are terminal lookups:
+/// they do not advance the mutable cursor or emit outbound events.
+/// Conflicting results for the same (position, proxy hash) key are rejected
+/// because EEZL2 resolves that key using its first matching cached entry.
+///
+/// Mutable-only sources retain nested/revert verification. Groups containing
+/// static sources support successful flat mutable roots and no root revert
+/// spans. The caller must bind the complete load and receipt evidence before
+/// treating the returned facts as authorization.
+///
+/// # Errors
+///
+/// Rejects unsupported table shapes, noncanonical source order, incomplete
+/// coverage, conflicting static results, and mismatched identities or hashes.
+pub fn verify_outbound_source_group(
+    l1_entry: &ExecutionEntrySol,
+    sources: &[crate::system_tx::OutboundSourceEntry],
+    l2_rollup_id: RollupId,
+) -> ProtocolResult<NestedPairVerification> {
+    use crate::system_tx::OutboundSourceEntry;
+    let mut mutable = Vec::new();
+    let mut statics = Vec::new();
+    for source in sources {
+        match source {
+            OutboundSourceEntry::Mutable(entry) if statics.is_empty() => {
+                mutable.push(entry.clone())
+            }
+            OutboundSourceEntry::Static(entry) => statics.push(entry.clone()),
+            OutboundSourceEntry::Mutable(_) => {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "outbound load must put mutable entries before static entries".into(),
+                )
+                .into());
+            }
+        }
+    }
+    verify_outbound_tables(l1_entry, &mutable, &statics, l2_rollup_id)
+}
+
 fn verify_outbound_group(
     l1_entry: &ExecutionEntrySol,
     l2_entries: &[ExecutionEntrySol],
+    l2_rollup_id: RollupId,
+) -> ProtocolResult<NestedPairVerification> {
+    verify_outbound_tables(l1_entry, l2_entries, &[], l2_rollup_id)
+}
+
+fn verify_outbound_tables(
+    l1_entry: &ExecutionEntrySol,
+    l2_entries: &[ExecutionEntrySol],
+    static_entries: &[L2StaticExecutionEntrySol],
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<NestedPairVerification> {
     if l2_rollup_id.is_mainnet() {
@@ -330,7 +313,7 @@ fn verify_outbound_group(
         )
         .into());
     }
-    if l2_entries.is_empty() {
+    if l2_entries.is_empty() && static_entries.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
             "outbound effect has no L2 source entries".into(),
         )
@@ -345,6 +328,48 @@ fn verify_outbound_group(
             ))
             .into());
         }
+    }
+    if !static_entries.is_empty()
+        && (!l1_entry.success
+            || !l1_entry.expectedL1ToL2Calls.is_empty()
+            || l2_entries.iter().any(|entry| {
+                !entry.l2ToL1Calls.is_empty() || !entry.expectedL1ToL2Calls.is_empty()
+            }))
+    {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "mixed outbound groups require a successful flat host and flat mutable sources".into(),
+        )
+        .into());
+    }
+    let mut static_results = std::collections::BTreeMap::new();
+    for entry in static_entries {
+        crate::system_tx::check_l2_static_entry_shape(entry, "outbound static source")
+            .map_err(ProtocolErrorKind::InvalidEncoding)?;
+        let result = (entry.success, &entry.returnData);
+        if static_results
+            .insert((entry.expectedEntryIndex, entry.proxyEntryHash), result)
+            .is_some_and(|first| first != result)
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "outbound static sources have conflicting results for the same lookup key".into(),
+            )
+            .into());
+        }
+    }
+    // Reverted spans reuse mutable cursor slots, whereas static pool rows are
+    // never consumed. Keep that extension out of the mixed profile until its
+    // source-count and replay partitioning are specified together.
+    if !static_entries.is_empty()
+        && (l1_entry
+            .l2ToL1Calls
+            .iter()
+            .any(|call| call.revertNextNCalls != 0)
+            || l2_entries.iter().any(|entry| !entry.success))
+    {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "mixed outbound groups do not support reverted mutable roots or root spans".into(),
+        )
+        .into());
     }
     if l1_entry.rootUpdates.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
@@ -368,10 +393,10 @@ fn verify_outbound_group(
         l1_entry,
     ))
     .map_err(|reason| crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(reason)))?[0];
-    if l2_entries.len() != source_count {
+    if l2_entries.len() + static_entries.len() != source_count {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
             "outbound L1 host carries {source_count} source roots but the L2 table has {} entries",
-            l2_entries.len(),
+            l2_entries.len() + static_entries.len(),
         ))
         .into());
     }
@@ -388,7 +413,8 @@ fn verify_outbound_group(
     let mut facts = AccumulatedFacts::default();
     let mut call_index = 0usize;
     let mut source_cursor = 0usize;
-    let mut seen_sources = vec![false; source_count];
+    let mut seen_sources = vec![false; l2_entries.len()];
+    let mut static_cursor = 0usize;
     while call_index < l1_entry.l2ToL1Calls.len() {
         let marker = l1.peek_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
@@ -409,6 +435,38 @@ fn verify_outbound_group(
         let saved_source_cursor = source_cursor;
 
         for root_index in call_index..group_end {
+            if l1.peek_current_call().is_some_and(|root| root.isStatic) {
+                let source = static_entries.get(static_cursor).ok_or_else(|| {
+                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                        "outbound static root has no source lookup".into(),
+                    ))
+                })?;
+                let root = l1.take_current_call().ok_or_else(|| {
+                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                        "outbound static root is missing".into(),
+                    ))
+                })?;
+                if source.expectedEntryIndex != U256::from(source_cursor)
+                    || root.revertNextNCalls != 0
+                    || root.gas != 0
+                    || !root.value.is_zero()
+                    || source_call_hash(&root, l2_rollup_id, RollupId::MAINNET)?
+                        != source.proxyEntryHash
+                {
+                    return Err(ProtocolErrorKind::InvalidEncoding(
+                        "outbound static root does not match its source lookup".into(),
+                    )
+                    .into());
+                }
+                l1.rolling.call_begin(destination_call_hash(
+                    &root,
+                    l2_rollup_id,
+                    RollupId::MAINNET,
+                )?);
+                l1.rolling.call_end(source.success, &source.returnData);
+                static_cursor += 1;
+                continue;
+            }
             let source_entry = source_entries.get(source_cursor).ok_or_else(|| {
                 crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound root {root_index} advances beyond {source_count} source cursor slots"
@@ -469,7 +527,7 @@ fn verify_outbound_group(
         }
         call_index = group_end;
     }
-    if seen_sources.iter().any(|seen| !seen) {
+    if seen_sources.iter().any(|seen| !seen) || static_cursor != static_entries.len() {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
             "outbound group did not exercise every source entry: {seen_sources:?}",
         ))

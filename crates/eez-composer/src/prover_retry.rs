@@ -194,16 +194,7 @@ fn retry_budget(
 /// Run one complete proving operation with the Composer profile's closed
 /// retryable-error allowlist. Every attempt is independently bounded by the
 /// configured proof-time budget.
-pub(crate) async fn prove_with_retry(
-    prover: &dyn Prover,
-    ctx: ProvingContext,
-    timing: RollupTiming,
-    target: BundleTarget,
-) -> Result<Bytes, ProverError> {
-    prove_with_retry_at(prover, ctx, timing, target, unix_time_millis()).await
-}
-
-async fn prove_with_retry_at(
+pub(crate) async fn prove_with_retry_at(
     prover: &dyn Prover,
     ctx: ProvingContext,
     timing: RollupTiming,
@@ -304,6 +295,7 @@ mod tests {
             eez_protocol::Composition {
                 actions: Vec::new(),
                 source: eez_protocol::SourceComposition {
+                    l2_static_entries: Vec::new(),
                     rollup_id: eez_protocol::RollupId(1),
                     batch: eez_protocol::EvmBatch {
                         entries: vec![Default::default(); entry_count],
@@ -387,6 +379,7 @@ mod tests {
                     revert_span: None,
                 }],
                 source: eez_protocol::SourceComposition {
+                    l2_static_entries: Vec::new(),
                     rollup_id: eez_protocol::RollupId::MAINNET,
                     batch: eez_protocol::EvmBatch {
                         entries: vec![Default::default()],

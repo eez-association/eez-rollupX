@@ -1,0 +1,55 @@
+# Merge with compose.yaml. The indexer reads the node; it never owns node data.
+services:
+  indexer-db:
+    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INDEXER_DATABASE_PORT:-19432}:5432"
+    environment:
+      POSTGRES_USER: eez_indexer
+      POSTGRES_DB: eez_indexer
+      POSTGRES_PASSWORD: ${INDEXER_DATABASE_PASSWORD:?Set INDEXER_DATABASE_PASSWORD}
+      INDEXER_GRAFANA_PASSWORD: ${INDEXER_GRAFANA_PASSWORD:?Set INDEXER_GRAFANA_PASSWORD}
+    volumes:
+      - indexer-data:/var/lib/postgresql
+      - ./indexer/init-db.sh:/docker-entrypoint-initdb.d/10-reader.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U eez_indexer -d eez_indexer"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging:
+      driver: local
+      options: {max-size: "10m", max-file: "3"}
+
+  indexer:
+    image: eez-indexer:local
+    build: ./indexer
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://eez_indexer:${INDEXER_DATABASE_PASSWORD:?Set INDEXER_DATABASE_PASSWORD}@127.0.0.1:${INDEXER_DATABASE_PORT:-19432}/eez_indexer
+    command: ["--config", "/etc/eez-indexer/config.json"]
+    volumes:
+      - ./config.indexer.json:/etc/eez-indexer/config.json:ro
+    depends_on:
+      indexer-db: {condition: service_healthy}
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    logging:
+      driver: local
+      options: {max-size: "10m", max-file: "3"}
+
+  grafana:
+    environment:
+      INDEXER_DATABASE_HOST: 127.0.0.1:${INDEXER_DATABASE_PORT:-19432}
+      INDEXER_GRAFANA_PASSWORD: ${INDEXER_GRAFANA_PASSWORD:?Set INDEXER_GRAFANA_PASSWORD}
+    volumes:
+      - ./grafana/provisioning/datasources/indexer.yml:/etc/grafana/provisioning/datasources/indexer.yml:ro
+      # The empty tracked directory exists inside the read-only parent mount.
+      - ./indexer/dashboards:/var/lib/grafana/dashboards/indexer:ro
+
+volumes:
+  indexer-data:

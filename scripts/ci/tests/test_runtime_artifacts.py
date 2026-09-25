@@ -41,6 +41,8 @@ elif tool == "kurtosis":
 elif args[:2] == ["buildx", "inspect"]:
     print("Name: default\nDriver: " + os.environ.get("MOCK_DRIVER", "docker"))
 elif args[:3] == ["buildx", "imagetools", "inspect"]:
+    if args[3] == os.environ.get("MOCK_MISSING_CACHE_REF"):
+        sys.exit(1)
     print("sha256:" + "d" * 64)
 elif args[0] == "info":
     if option("--format") == "{{json .DriverStatus}}":
@@ -265,7 +267,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
                     self.assertNotIn("private-", json.dumps(command))
                 self.assertEqual(len(builds), 4, "compiler caching must not add a control build")
 
-    def test_registry_cache_is_ref_scoped_with_read_only_main_fallback(self):
+    def test_registry_cache_prefers_ref_scoped_source(self):
         self.env["MOCK_IMAGE_STORE"] = "containerd"
         self.build()
         builds = [c for c in self.commands() if c[:3] == ["docker", "buildx", "build"]]
@@ -275,8 +277,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
             role = "deploy" if "testing/kurtosis/Dockerfile.deploy" in command else "node"
             repo = f"ghcr.io/eduadiez/rollupx-{role}"
             imports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-from"]
-            self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(ref)}"
-                                      for ref in (self.env["GITHUB_REF"], "refs/heads/main")])
+            self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])}"])
             exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
             if "signer" in command or role == "deploy":
                 self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode=max,ignore-error=true"])
@@ -284,6 +285,23 @@ class RuntimeArtifactsTest(unittest.TestCase):
                 self.assertEqual(exports, [], "export the shared compiler stage only once")
         self.assertEqual(len(builds), 4, "caching must not add another compilation")
         self.assertTrue(all("@sha256:" in image["reference"] for image in self.manifest()["images"].values()))
+
+    def test_missing_ref_cache_uses_read_only_default_branch_fallback(self):
+        self.env["MOCK_IMAGE_STORE"] = "containerd"
+        tag = lambda ref: "buildcache-v1-linux-amd64-" + hashlib.sha256(ref.encode()).hexdigest()[:16]
+        self.env["MOCK_MISSING_CACHE_REF"] = (
+            f"ghcr.io/eduadiez/rollupx-node:{tag(self.env['GITHUB_REF'])}")
+        self.build()
+        builds = [c for c in self.commands() if c[:3] == ["docker", "buildx", "build"]]
+        for command in builds:
+            role = "deploy" if "testing/kurtosis/Dockerfile.deploy" in command else "node"
+            repo = f"ghcr.io/eduadiez/rollupx-{role}"
+            imports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-from"]
+            expected_ref = "refs/heads/main" if role == "node" else self.env["GITHUB_REF"]
+            self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(expected_ref)}"])
+            exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
+            if "signer" in command or role == "deploy":
+                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode=max,ignore-error=true"])
 
     def test_main_cache_is_imported_only_once(self):
         self.env.update(MOCK_IMAGE_STORE="containerd", GITHUB_REF="refs/heads/trunk", EEZ_DEFAULT_BRANCH="trunk")

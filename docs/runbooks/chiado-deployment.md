@@ -15,6 +15,12 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 | Checked | Source/configuration consistency, Compose rendering, Bash syntax, and offline regressions; see [validation record](../proposals/chiado-published-images.md#compatibility-and-validation) |
 | Pending | Full fresh-host deployment and restart rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
 
+The [2026-09-23 network replacement](../audits/2026-09-23-events-network/README.md)
+records the live deployment of protocol `820e50f` to a new registry and L2 chain
+6291, including backup boundaries, active configuration locations and semantic
+checks. It used locally validated release images; it does not validate an
+in-place upgrade of the previous registry or a full archive restoration.
+
 ## Select the procedure
 
 | Operation | Procedure | Required starting state |
@@ -135,7 +141,7 @@ values; update them deliberately rather than replacing keys, bindings, or paths.
 | --- | --- |
 | Settlement | Enabled; pure L2 `always`; general trigger at 300 unsettled L2 blocks; fullness trigger `off` |
 | Admission | `EEZ_MAX_USER_TXS_PER_BUNDLE=auto` |
-| Preparation / proof / submission slack | 500 / 500 / 700 ms |
+| Preparation / proof / submission slack | 500 / 750 / 700 ms |
 | Execution / blob fee ceiling | 500,000,000,000 / 10,000,000,000 native base units per gas |
 | Priority fee | Network estimate plus 2000 bps, with a 1,000,000,000 minimum |
 | Signer request capacity | 2048 blocks |
@@ -284,6 +290,31 @@ Explorer startup/shutdown is independent of the node stack. Preserve its env
 file, databases, and Blobscan origin volume. Explorer readiness and indexed
 L2 confirmations do not establish completed catch-up or canonical L1 settlement.
 
+### Optional wallet bridge UI
+
+The wallet UI requires the protocol's `src/periphery/Bridge.sol` contract on both
+chains. The deployment workload's `BridgeSender` and `BridgeReceiver` contracts
+are test helpers and do not implement that interface. Do not copy their addresses
+from `deployments.env` into the UI's `bridgeL1Address` / `bridgeL2Address` fields.
+
+Deploy the pinned protocol bridge with the same address on both chains, initialize
+L1 with the current registry and rollup ID 0, and L2 with `EEZL2_ADDRESS` and the
+actual rollup ID. Preserve the bridge admin key and deployment receipts. Keep UI
+bindings separate from the workload bindings. Updating the UI does not require a
+Composer restart or a data reset.
+
+Before publishing, check contract bytecode and call `manager()` and `rollupId()`
+through both public RPC routes. Verify the managers belong to this deployment;
+a nonzero manager from an older network is insufficient. Exercise both bridge
+readiness checks in the browser and simulate `bridgeEther` through both Composer
+fronts. Simulation/readiness does not establish canonical cross-chain inclusion.
+
+If the page says `Unable to check the bridge on L1. Retrying…`, reproduce
+`eth_getCode` and `eth_call` with selector `0x481c6a75` (`manager()`) against the
+configured address. A revert with existing code can indicate the wrong contract,
+not a connectivity failure. Preserve the deployed UI image and other environment
+values when correcting its Compose bindings, and verify again after recreation.
+
 ### Optional workloads
 
 Run funded traffic only when the operation includes it. Inspect the
@@ -291,6 +322,12 @@ Run funded traffic only when the operation includes it. Inspect the
 on **both chains**, and it assumes public development accounts. The
 [staged performance runner](../../scripts/run-chiado-staged-performance.sh) locks
 shared wallets; `--check` is readiness-only and normal runs use `--no-verify`.
+`EEZ_STAGED_SCALE` must resolve to an integer from 1 through 10 after loading
+`DEVNET_ENV`. Profile assignments take precedence over inherited environment
+values. The helper supports fresh runs only; the diagnostic `--resend` shortcut
+was removed because saved endpoint URLs do not identify a replaced network.
+Recovering an older run requires a separate assessment of its original network,
+signed transaction identities and current source nonces before any resubmission.
 The lock is per protocol checkout: coordinate wallet use across worktrees/hosts
 and do not bypass it with a concurrent upstream runner. See
 [workload commands](../../README.md#exercise-it). Startup/throughput/receipts do
@@ -298,6 +335,14 @@ not validate cross-chain semantics or independent follower replay; record those
 checks separately when required.
 
 ## Restart and stop
+
+The base node Compose file writes bounded posting lifecycle logs under
+`POSTING_LOGS_DIR` (default `./data/posting-logs`). Set the node's `.env` to the
+existing log root when retaining monitoring history. The normal startup script
+preserves this mount and logging configuration. The old posting overlay remains
+compatible but is no longer required. Point the optional indexer collector at
+the same host directory as described in the
+[monitoring setup](../../monitoring/indexer/README.md).
 
 Use the recorded checkout, keys, bindings, genesis/profile, JWT, and datadirs.
 Pin the recorded commit/digests in `.env` to keep the same runtime: Compose can
@@ -481,6 +526,26 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+The deadline-based skipped-slot retry changes only Composer scheduling and
+in-memory ownership. Its rollout needs no contract deployment, genesis change,
+database migration or signer upgrade. Preserve the configured proof budget (750 ms in the current preset) and
+existing timing overrides. Validate next-slot dispatch and late-original
+recovery with the source-based process tests before upgrading the existing node.
+At runtime, `eez.composer.settlement.replacement` records speculation; it is not
+proof of a skipped slot or successful settlement. Canonical settlement and
+source outcomes remain the verification criteria. Downgrading restores waiting
+for canonical exclusion and has the normal restart limit: pending users may
+need resubmission. See the
+[replacement design](../proposals/skipped-slot-speculative-retry.md).
+
+For the mixed outbound signer extension, update Composer and every follower's
+replay implementation before enabling the updated signer, or deploy the matched
+runtime set together. Old derivers reject mixed groups after L1 settlement.
+Once such groups are canonical, downgrading a replaying node to the old binaries
+cannot replay that history. The protocol pin, contracts and stored encoding are
+unchanged; see [signer profile compatibility](../../crates/eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility).
+This is an upgrade requirement, not evidence that a live deployment has run.
+
 For the ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 
@@ -570,3 +635,25 @@ Keep raw logs/databases outside Git. For shared evidence, retain a retrievable
 artifact location and digest; an ignored local path is not available to another
 operator. Update this procedure with verified corrections and preserve the dated
 audit as the record of the particular execution.
+
+## feature/events protocol compatibility
+
+The source pin `820e50f749f63165be6a5797d4c5fe52cbbbbe34` changes L2 system
+selectors, static sidecars, proxy construction, EEZL2 genesis runtime and L1
+monitoring events. It cannot replace the binaries on an existing old-protocol
+network. Keep that network's matching runtime and configuration checkout.
+A new deployment must use matching contract/deploy artifacts, rendered genesis,
+Composer, Signer, followers and settlement indexer. An in-place migration and
+historical old-protocol replay are not implemented. See the
+[port compatibility contract](../proposals/l2-static-execution-position.md#compatibility-and-recovery).
+
+The later `feature/events` pin `9d13218a355e7d543ca8a9927eea2962600b716d`
+also changes EEZ's L1 queue storage from arrays to mappings with active bounds
+and lets static lookup continue past a candidate whose callback rolling hash
+does not match. EEZL2 runtime bytecode and the genesis state root change as
+well. It needs a fresh, matching contract/genesis deployment and a matching
+Composer, Signer and follower revision; replacing binaries on the existing
+`820e50f` network is unsupported. Keep the earlier network and its records on
+its original pin. The new Composer reads retained L1 queue mapping slots
+before granting bounded deferred-entry gas discounts; final ordered execution
+still validates gas.

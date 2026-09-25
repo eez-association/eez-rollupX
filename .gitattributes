@@ -1,1 +1,2 @@
 testing/kurtosis/blobscan/*.patch -whitespace
+deploy/explorers/*.patch -whitespace

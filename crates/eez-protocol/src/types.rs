@@ -143,6 +143,9 @@ impl ExecutionOutcome {
 /// Source-side execution batch for the entry rollup.
 #[derive(Debug, Clone)]
 pub struct SourceComposition {
+    /// L2 source static rows, with positions in the mutable table. L1 static
+    /// entries remain in `batch.staticEntries`; these ABI types differ.
+    pub l2_static_entries: Vec<crate::abi::L2StaticExecutionEntrySol>,
     /// Entry rollup whose transaction was simulated.
     pub rollup_id: RollupId,
     /// Source-side entries derived from calls observed during simulation.

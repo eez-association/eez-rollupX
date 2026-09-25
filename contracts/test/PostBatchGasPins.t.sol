@@ -81,14 +81,11 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant POSTBATCH_ENTRY_GAS_PIN = 370_000;
 
     // Restricted current-entry shapes only. Runtime also charges target gas,
-    // exact transaction/ABI gas, prior-queue cleanup and its configured margin.
+    // exact transaction/ABI gas and its configured margin.
     uint256 private constant SHORT_DEFERRED_GAS_PIN = 230_000;
     uint256 private constant WORD_DEFERRED_GAS_PIN = 250_000;
     uint256 private constant BOUNDED_DEFERRED_GAS_PIN = 270_000;
     uint256 private constant EXISTING_PROXY_GAS_PIN = 70_000;
-    uint256 private constant SHORT_QUEUE_CLEANUP_GAS_PIN = 55_000;
-    uint256 private constant WORD_QUEUE_CLEANUP_GAS_PIN = 60_000;
-    uint256 private constant SIMPLE_QUEUE_CLEANUP_GAS_PIN = 65_000;
 
     uint64 private constant ROLLUP_ID = 1;
     uint256 private constant PROVER_KEY = 0xA11CE;
@@ -267,42 +264,65 @@ contract PostBatchGasPinsTest is Test {
         console.log("anchor plus one deferred entry:", gasUsed);
     }
 
-    function testDeferredQueueStorageAndCleanupLadder() external {
+    // Separate transactions keep the full 42-rung matrix below the test gas cap.
+    function testDeferredQueueStorageAndReset0Bytes() external {
+        _deferredQueueStorageAndResetLadder(0);
+    }
+
+    function testDeferredQueueStorageAndReset31Bytes() external {
+        _deferredQueueStorageAndResetLadder(31);
+    }
+
+    function testDeferredQueueStorageAndReset32Bytes() external {
+        _deferredQueueStorageAndResetLadder(32);
+    }
+
+    function testDeferredQueueStorageAndReset33Bytes() external {
+        _deferredQueueStorageAndResetLadder(33);
+    }
+
+    function testDeferredQueueStorageAndReset63Bytes() external {
+        _deferredQueueStorageAndResetLadder(63);
+    }
+
+    function testDeferredQueueStorageAndReset64Bytes() external {
+        _deferredQueueStorageAndResetLadder(64);
+    }
+
+    function testDeferredQueueStorageAndReset65Bytes() external {
+        _deferredQueueStorageAndResetLadder(65);
+    }
+
+    function _deferredQueueStorageAndResetLadder(uint256 resultSize) private {
         uint256[6] memory entries = [uint256(1), 2, 10, 35, 64, 127];
-        uint256[7] memory resultSizes = [uint256(0), 31, 32, 33, 63, 64, 65];
-        for (uint256 r = 0; r < resultSizes.length; r++) {
-            for (uint256 n = 0; n < entries.length; n++) {
-                (uint256 posted, uint256 cleared) = _deferredRung(entries[n], resultSizes[r], true);
-                // 65 bytes needs a third payload slot and remains an explicit
-                // out-of-bound control, not an extension of eligibility.
-                if (resultSizes[r] <= 64) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * BOUNDED_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
-                }
-                if (resultSizes[r] < 32) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_QUEUE_CLEANUP_GAS_PIN);
-                } else if (resultSizes[r] == 32) {
-                    assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_DEFERRED_GAS_PIN);
-                    assertLe(cleared, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_QUEUE_CLEANUP_GAS_PIN);
-                }
-                console.log("deferred entries / result bytes:", entries[n], resultSizes[r]);
-                console.log("  post / later consumed-queue cleanup:", posted, cleared);
+
+        for (uint256 n = 0; n < entries.length; n++) {
+            (uint256 posted, uint256 cleared) = _deferredRung(entries[n], resultSize, true);
+            // 65 bytes needs a third payload slot and remains an explicit
+            // out-of-bound control, not an extension of eligibility.
+            if (resultSize <= 64) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * BOUNDED_DEFERRED_GAS_PIN);
+                assertLe(cleared, POSTBATCH_BASE_GAS_PIN, "queue reset must not scale with old entries");
             }
+            if (resultSize < 32) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * SHORT_DEFERRED_GAS_PIN);
+            } else if (resultSize == 32) {
+                assertLe(posted, POSTBATCH_BASE_GAS_PIN + entries[n] * WORD_DEFERRED_GAS_PIN);
+            }
+            console.log("deferred entries / result bytes:", entries[n], resultSize);
+            console.log("  post / later queue reset:", posted, cleared);
         }
     }
 
-    function testDeferredQueueCleanupAlsoRemovesUnconsumedEntries() external {
+    function testDeferredQueueResetRetainsUnconsumedEntriesOutsideActiveBounds() external {
         (uint256 posted, uint256 cleared) = _deferredRung(35, 32, false);
         assertLe(posted, POSTBATCH_BASE_GAS_PIN + 35 * WORD_DEFERRED_GAS_PIN);
-        assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 35 * WORD_QUEUE_CLEANUP_GAS_PIN);
-        assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 35 * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
-        assertGt(cleared, POSTBATCH_BASE_GAS_PIN + POSTBATCH_ENTRY_GAS_PIN, "one old anchor pin cannot cover cleanup");
-        console.log("35 unconsumed 32-byte entries, post / later cleanup:", posted, cleared);
+        assertLe(cleared, POSTBATCH_BASE_GAS_PIN);
+        console.log("35 unconsumed 32-byte entries, post / later reset:", posted, cleared);
         (posted, cleared) = _deferredRung(127, 64, false);
         assertLe(posted, POSTBATCH_BASE_GAS_PIN + 127 * BOUNDED_DEFERRED_GAS_PIN);
-        assertLe(cleared, POSTBATCH_BASE_GAS_PIN + 127 * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
-        console.log("127 unconsumed 64-byte entries, post / later cleanup:", posted, cleared);
+        assertLe(cleared, POSTBATCH_BASE_GAS_PIN);
+        console.log("127 unconsumed 64-byte entries, post / later reset:", posted, cleared);
     }
 
     function testMixedDeferredQueueReservesAreAdditiveBeforeAndAfterConsumption() external {
@@ -315,23 +335,45 @@ contract PostBatchGasPinsTest is Test {
         }
         uint256 postReserve = POSTBATCH_BASE_GAS_PIN + 43 * SHORT_DEFERRED_GAS_PIN + 42 * WORD_DEFERRED_GAS_PIN + 42
             * BOUNDED_DEFERRED_GAS_PIN;
-        uint256 cleanupReserve = POSTBATCH_BASE_GAS_PIN + 43 * SHORT_QUEUE_CLEANUP_GAS_PIN + 42
-            * WORD_QUEUE_CLEANUP_GAS_PIN + 42 * SIMPLE_QUEUE_CLEANUP_GAS_PIN;
         for (uint256 consumed = 0; consumed < 2; consumed++) {
             (uint256 posted, uint256 cleared) = _deferredRung(resultSizes, consumed == 1);
             assertLe(posted, postReserve, "mixed queue creation exceeds the sum of result-size reserves");
-            assertLe(cleared, cleanupReserve, "mixed queue cleanup exceeds the sum of result-size reserves");
+            assertLe(cleared, POSTBATCH_BASE_GAS_PIN, "mixed queue reset must not scale with old entries");
             assertLe(posted, POSTBATCH_BASE_GAS_PIN + resultSizes.length * BOUNDED_DEFERRED_GAS_PIN);
-            assertLe(cleared, POSTBATCH_BASE_GAS_PIN + resultSizes.length * SIMPLE_QUEUE_CLEANUP_GAS_PIN);
-            console.log("mixed 127-entry queue, consumed / post / later cleanup:", consumed, posted, cleared);
+            console.log("mixed 127-entry queue, consumed / post / later reset:", consumed, posted, cleared);
         }
     }
 
     function testDeferredDynamicDataOutsideTheBoundNeedsFallback() external {
         (uint256 posted, uint256 cleared) = _deferredRung(1, 1024, false);
         assertGt(posted, POSTBATCH_BASE_GAS_PIN + BOUNDED_DEFERRED_GAS_PIN, "unbounded result needs extra storage gas");
-        assertGt(cleared, POSTBATCH_BASE_GAS_PIN + SIMPLE_QUEUE_CLEANUP_GAS_PIN, "old dynamic data needs extra cleanup");
-        console.log("out-of-bound 1024-byte result, post / later cleanup:", posted, cleared);
+        assertLe(cleared, POSTBATCH_BASE_GAS_PIN, "old dynamic data remains behind inactive bounds");
+        console.log("out-of-bound 1024-byte result, post / later reset:", posted, cleared);
+    }
+
+    function testBoundedRetainedMappingSlotsFitDeferredPinsOnOverwrite() external {
+        for (uint256 sizeIndex; sizeIndex < 2; sizeIndex++) {
+            uint256 resultBytes = sizeIndex == 0 ? 31 : 64;
+            uint256 count = sizeIndex == 0 ? 45 : 127;
+            uint256 pin = sizeIndex == 0 ? SHORT_DEFERRED_GAS_PIN : BOUNDED_DEFERRED_GAS_PIN;
+            delete touched;
+            (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+            for (uint256 wave; wave < 2; wave++) {
+                ProofSystemBatchPerVerificationEntries memory batch =
+                    _batch(eez, proofSystem, address(0), Rung(count, 0, false, false, 64));
+                batch.immediateEntryCount = 1;
+                bytes memory result = _nonzeroBytes(resultBytes);
+                for (uint256 i = 1; i < batch.entries.length; i++) {
+                    batch.entries[i].proxyEntryHash = bytes32(i);
+                    batch.entries[i].returnData = result;
+                }
+                uint256 used = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
+                assertLe(used, POSTBATCH_BASE_GAS_PIN + count * pin, "bounded retained slots exceed reserve");
+                assertEq(eez.queueLength(ROLLUP_ID), count);
+                console.log("retained-slot wave / result bytes / gas:", wave, resultBytes, used);
+                vm.roll(block.number + 1);
+            }
+        }
     }
 
     function testQueueStorageLayoutIncludesTheStaticQueue() external {
@@ -353,8 +395,9 @@ contract PostBatchGasPinsTest is Test {
         });
         _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
         uint256 head = uint256(keccak256(abi.encode(ROLLUP_ID, uint256(3))));
-        assertEq(uint256(vm.load(address(eez), bytes32(head + 1))), 0, "normal queue length at mapping head + 1");
-        assertEq(uint256(vm.load(address(eez), bytes32(head + 2))), 1, "static queue length at mapping head + 2");
+        assertEq(uint256(vm.load(address(eez), bytes32(head))) >> 192, 1, "active static queue length");
+        assertEq(vm.load(address(eez), bytes32(head + 1)), bytes32(0), "normal queue mapping head");
+        assertEq(vm.load(address(eez), bytes32(head + 2)), bytes32(0), "static queue mapping head");
         assertEq(eez.queueLength(ROLLUP_ID), 0, "normal getter does not reveal the nonempty static queue");
     }
 
@@ -503,12 +546,12 @@ contract PostBatchGasPinsTest is Test {
         vm.roll(block.number + 1);
         batch = _batch(eez, proofSystem, address(0), Rung(0, 0, false, false, 64));
         cleared = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
-        assertEq(eez.queueLength(ROLLUP_ID), 0, "next post deletes the old queue");
+        assertEq(eez.queueLength(ROLLUP_ID), 0, "next post resets the active queue length");
         assertEq(eez.entryQueueIndex(ROLLUP_ID), 0, "next post resets the cursor");
         uint256 head = uint256(keccak256(abi.encode(ROLLUP_ID, uint256(3))));
         assertEq(uint256(vm.load(address(eez), bytes32(head))), uint64(block.number), "packed cursor reset");
-        assertEq(vm.load(address(eez), bytes32(head + 1)), bytes32(0), "normal queue head cleared");
-        assertEq(vm.load(address(eez), bytes32(head + 2)), bytes32(0), "static queue remains empty");
+        assertEq(vm.load(address(eez), bytes32(head + 1)), bytes32(0), "normal queue mapping head");
+        assertEq(vm.load(address(eez), bytes32(head + 2)), bytes32(0), "static queue mapping head");
     }
 
     /// Pins the exact compiler storage layout read by native admission. Both
@@ -525,12 +568,15 @@ contract PostBatchGasPinsTest is Test {
         uint256 head = uint256(keccak256(abi.encode(ROLLUP_ID, uint256(3))));
         uint256 queueHead = head + 1;
         uint256 count = batch.entries.length - 1;
-        assertEq(uint256(vm.load(address(eez), bytes32(head))), uint64(block.number) | (cursor << 64));
-        assertEq(uint256(vm.load(address(eez), bytes32(queueHead))), count, "normal queue mapping offset");
+        assertEq(
+            uint256(vm.load(address(eez), bytes32(head))),
+            uint64(block.number) | (cursor << 64) | (count << 128),
+            "packed active queue bounds"
+        );
+        assertEq(vm.load(address(eez), bytes32(queueHead)), bytes32(0), "normal queue mapping head");
         assertEq(vm.load(address(eez), bytes32(head + 2)), bytes32(0), "static queue mapping offset");
-        uint256 base = uint256(keccak256(abi.encode(queueHead)));
         for (uint256 i = 0; i < count; i++) {
-            uint256 entrySlot = base + 7 * i;
+            uint256 entrySlot = uint256(keccak256(abi.encode(i, queueHead)));
             ExecutionEntry memory entry = batch.entries[i + 1];
             assertEq(uint256(vm.load(address(eez), bytes32(entrySlot))), 1, "entry stride and rollup-update length");
             assertEq(vm.load(address(eez), bytes32(entrySlot + 1)), entry.proxyEntryHash, "proxy hash offset");

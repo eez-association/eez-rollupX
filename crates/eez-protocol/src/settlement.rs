@@ -559,6 +559,7 @@ mod tests {
         }
         Composition {
             source: SourceComposition {
+                l2_static_entries: Vec::new(),
                 rollup_id: RollupId::MAINNET,
                 callback_entry_counts: vec![0; batch.entries.len()],
                 batch,

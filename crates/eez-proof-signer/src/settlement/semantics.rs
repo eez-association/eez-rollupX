@@ -469,7 +469,7 @@ fn outbound_sidecars(
     let mut encoded = Vec::with_capacity(
         composition.source.batch.entries.len()
             + callback_entries.len()
-            + composition.source.batch.staticEntries.len(),
+            + composition.source.l2_static_entries.len(),
     );
     let mut callback_cursor = 0usize;
     for (entry, callback_count) in composition
@@ -487,10 +487,9 @@ fn outbound_sidecars(
     encoded.extend(
         composition
             .source
-            .batch
-            .staticEntries
+            .l2_static_entries
             .iter()
-            .map(eez_protocol::abi::StaticExecutionEntrySol::abi_encode),
+            .map(eez_protocol::abi::L2StaticExecutionEntrySol::abi_encode),
     );
     Ok(encoded)
 }

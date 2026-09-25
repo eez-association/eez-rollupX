@@ -10,7 +10,9 @@ use std::collections::HashMap;
 
 use alloy_primitives::{B256, Bytes, U256, keccak256};
 
-use crate::abi::{ExecutionEntrySol, ExpectedL1ToL2CallSol, StaticExecutionEntrySol};
+use crate::abi::{
+    ExecutionEntrySol, ExpectedL1ToL2CallSol, L2StaticExecutionEntrySol, StaticExecutionEntrySol,
+};
 use crate::action::{CallHashInput, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::EntryRollingHash;
 use crate::{CallMode, EvmBatch, ExecutedAction, ProtocolErrorKind, ProtocolResult, RollupId};
@@ -43,6 +45,7 @@ enum TraceEvent {
 #[derive(Debug)]
 pub(crate) struct MaterializedBatch {
     pub(crate) batch: EvmBatch,
+    pub(crate) l2_static_entries: Vec<L2StaticExecutionEntrySol>,
     pub(crate) entry_traces: Vec<EntryTrace>,
     /// Prefix of `batch.entries` belonging to the transaction's entry side.
     ///
@@ -141,7 +144,11 @@ pub(crate) fn materialize_batches(
         }
         for assignment in &plan.assignments {
             if assignment.source_slot.is_none() {
-                materializer.push_static_entry(entry_rollup_id, &recorded[assignment.root]);
+                materializer.push_l2_static_entry(
+                    entry_rollup_id,
+                    &recorded[assignment.root],
+                    assignment.entry_cursor,
+                );
             }
         }
 
@@ -379,6 +386,7 @@ struct RevertRegion {
 struct L2RootAssignment {
     root: usize,
     source_slot: Option<usize>,
+    entry_cursor: usize,
 }
 
 #[derive(Debug)]
@@ -399,6 +407,7 @@ impl L2RootPlan {
                 assignments.push(L2RootAssignment {
                     root,
                     source_slot: None,
+                    entry_cursor: cursor,
                 });
                 continue;
             }
@@ -435,6 +444,7 @@ impl L2RootPlan {
             assignments.push(L2RootAssignment {
                 root,
                 source_slot: Some(source_slot),
+                entry_cursor: source_slot,
             });
 
             if let Some((end, saved_cursor)) = active_region
@@ -604,6 +614,7 @@ struct ActiveContext {
 struct ChainOutput {
     entries: Vec<ExecutionEntrySol>,
     static_entries: Vec<StaticExecutionEntrySol>,
+    l2_static_entries: Vec<L2StaticExecutionEntrySol>,
     traces: Vec<EntryTrace>,
     immediate_count: usize,
 }
@@ -803,6 +814,25 @@ impl<'a> Materializer<'a> {
         });
         output.traces.push(EntryTrace::default());
         entry_index
+    }
+
+    fn push_l2_static_entry(&mut self, chain: RollupId, call: &ExecutedAction, cursor: usize) {
+        self.outputs
+            .entry(chain)
+            .or_default()
+            .l2_static_entries
+            .push(L2StaticExecutionEntrySol {
+                expectedEntryIndex: U256::from(cursor),
+                proxyEntryHash: source_call_hash(call),
+                incomingCalls: Vec::new(),
+                rollingHash: B256::ZERO,
+                success: call.outcome.is_success(),
+                returnData: Bytes::copy_from_slice(
+                    call.outcome
+                        .return_data()
+                        .expect("materializable outcome is resolved"),
+                ),
+            });
     }
 
     fn push_static_entry(&mut self, chain: RollupId, call: &ExecutedAction) {
@@ -1125,6 +1155,7 @@ impl<'a> Materializer<'a> {
                         ),
                         ..Default::default()
                     },
+                    l2_static_entries: output.l2_static_entries,
                     entry_traces: output.traces,
                     source_entry_count: if chain == entry_rollup_id {
                         source_entry_count
@@ -1931,7 +1962,7 @@ mod tests {
         let l2_output = batches.remove(&l2).expect("L2 static source");
         assert!(batches.is_empty());
         assert!(l2_output.batch.entries.is_empty());
-        assert_eq!(l2_output.batch.staticEntries.len(), 1);
+        assert_eq!(l2_output.l2_static_entries.len(), 1);
 
         l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
             rollupId: l2.0,
@@ -1942,14 +1973,93 @@ mod tests {
         finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces)
             .expect("finalize L2 static root host");
 
-        let verified = crate::entries::verify_static_outbound_pair(
+        let verified = crate::entries::verify_outbound_source_group(
             &l1.batch.entries[0],
-            &l2_output.batch.staticEntries[0],
+            &[crate::system_tx::OutboundSourceEntry::Static(
+                l2_output.l2_static_entries[0].clone(),
+            )],
             l2,
         )
         .expect("verify L2 static root");
         assert!(verified.l2_outbound_hashes.is_empty());
         assert_eq!(verified.ether_delta, I256::ZERO);
+    }
+
+    #[test]
+    fn mixed_static_results_are_bound_to_the_materialized_mutable_position() {
+        use crate::system_tx::OutboundSourceEntry;
+        let l2 = RollupId(1);
+        let mut read = action(0, None, l2, RollupId::MAINNET);
+        read.call_mode = CallMode::Static;
+        let mut changed = read.clone();
+        changed.outcome = crate::ExecutionOutcome::Resolved {
+            return_data: vec![0x41],
+            gas_used: 21_000,
+            success: true,
+        };
+        let mut write = action(1, None, l2, RollupId::MAINNET);
+        write.value = U256::ZERO;
+        for has_write in [true, false] {
+            let calls = if has_write {
+                vec![
+                    read.clone(),
+                    read.clone(),
+                    write.clone(),
+                    changed.clone(),
+                    changed.clone(),
+                ]
+            } else {
+                vec![read.clone(), changed.clone()]
+            };
+            let mut batches = materialize_batches(&calls, l2).unwrap();
+            let mut host = batches.remove(&RollupId::MAINNET).unwrap();
+            let source = batches.remove(&l2).unwrap();
+            assert!(source.batch.staticEntries.is_empty());
+            let positions = source
+                .l2_static_entries
+                .iter()
+                .map(|entry| entry.expectedEntryIndex)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                positions,
+                if has_write {
+                    vec![U256::ZERO, U256::ZERO, U256::from(1), U256::from(1)]
+                } else {
+                    vec![U256::ZERO, U256::ZERO]
+                }
+            );
+            host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+                rollupId: 1,
+                currentRoot: B256::with_last_byte(1),
+                newRoot: B256::with_last_byte(2),
+                etherDelta: EtherDeltaSol::ZERO,
+            });
+            finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).unwrap();
+            let sources = source
+                .batch
+                .entries
+                .into_iter()
+                .map(OutboundSourceEntry::Mutable)
+                .chain(
+                    source
+                        .l2_static_entries
+                        .into_iter()
+                        .map(OutboundSourceEntry::Static),
+                )
+                .collect::<Vec<_>>();
+            let verified =
+                crate::entries::verify_outbound_source_group(&host.batch.entries[0], &sources, l2);
+            if has_write {
+                assert!(verified.is_ok(), "{verified:?}");
+            } else {
+                assert!(
+                    verified
+                        .unwrap_err()
+                        .to_string()
+                        .contains("conflicting results")
+                );
+            }
+        }
     }
 
     #[test]

@@ -59,8 +59,9 @@ pub(super) struct QueueTelemetry {
     ready: HashMap<B256, (SourceState, u64)>,
     current: Option<SourceState>,
     evaluated_at_ms: Option<u64>,
-    completed: HashSet<(B256, u64)>,
+    completed: HashMap<(B256, u64), L1BlockRef>,
     last_completion: Option<(L1BlockRef, u64)>,
+    completion_observations: [u64; 2],
     // Observations only: never consulted for admission, ownership or recovery.
     recent_removals: VecDeque<LocalRemoval>,
 }
@@ -150,7 +151,7 @@ impl QueueTelemetry {
             self.blocked.retain(|_, blocked| {
                 queued.contains(&blocked.hash) || in_flight.contains_key(&blocked.hash)
             });
-            self.completed.retain(|(hash, generation)| {
+            self.completed.retain(|(hash, generation), _| {
                 data.users.get(hash).is_some_and(|u| u.owner == *generation)
             });
         });
@@ -163,12 +164,17 @@ impl QueueTelemetry {
                     reason: TerminalReason::Committed,
                     canonical: Some(block),
                 } = user.location
-                    && self.completed.insert((*hash, user.owner))
-                    && self
+                    && self.completed.insert((*hash, user.owner), block).is_none()
+                {
+                    let index = usize::from(user.tx.direction == Direction::Outbound);
+                    self.completion_observations[index] =
+                        self.completion_observations[index].saturating_add(1);
+                    if self
                         .last_completion
                         .is_none_or(|(previous, _)| block.number >= previous.number)
-                {
-                    self.last_completion = Some((block, now_ms()));
+                    {
+                        self.last_completion = Some((block, now_ms()));
+                    }
                 }
             }
         });
@@ -180,8 +186,10 @@ impl QueueTelemetry {
             .is_some_and(|(block, _)| block.number > ancestor)
         {
             self.last_completion = None;
-            self.completed.clear();
         }
+        // Consecutive reorgs may move below an earlier surviving completion
+        // while last_completion is already unknown.
+        self.completed.retain(|_, block| block.number <= ancestor);
         self.current = None;
         self.ready.clear();
     }
@@ -385,6 +393,8 @@ impl PoolState {
             blocked_reasons: reasons,
             oldest_pending_at_ms: oldest,
             last_completion_at_ms: telemetry.last_completion.map(|(_, time)| time),
+            last_completion_l1_block: telemetry.last_completion.map(|(block, _)| block.number),
+            completion_observations: telemetry.completion_observations,
             oldest_service_at_ms: oldest_service,
             // Reorg invalidation clears current source state but retains the
             // old RPC evaluation timestamp. Do not export that as valid.
@@ -406,6 +416,11 @@ pub struct QueueSnapshot {
     pub oldest_pending_at_ms: Option<u64>,
     /// Local observation time of the latest retained canonical cross-chain completion.
     pub last_completion_at_ms: Option<u64>,
+    /// L1 state against which completion was confirmed, not necessarily its inclusion block.
+    pub last_completion_l1_block: Option<u64>,
+    /// Inbound/outbound canonical-completion observations since process start.
+    /// Reobservation after reorg counts again; these are not unique-user totals.
+    pub completion_observations: [u64; 2],
     /// Last evaluation start time; absent before evaluation or after invalidation.
     pub evaluated_at_ms: Option<u64>,
     oldest_service_at_ms: Option<u64>,
@@ -421,6 +436,28 @@ pub struct QueueCounts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consecutive_reorgs_only_forget_invalidated_completion_identities() {
+        let earlier = (B256::repeat_byte(1), 1);
+        let later = (B256::repeat_byte(2), 2);
+        let mut telemetry = QueueTelemetry::default();
+        let block = |number| L1BlockRef {
+            number,
+            hash: B256::ZERO,
+        };
+        telemetry.completed.insert(earlier, block(10));
+        telemetry.completed.insert(later, block(20));
+        telemetry.last_completion = Some((block(20), 1000));
+        telemetry.completion_observations = [1, 1];
+        telemetry.invalidate_after_l1(15);
+        assert!(telemetry.completed.contains_key(&earlier));
+        assert!(!telemetry.completed.contains_key(&later));
+        assert!(telemetry.last_completion.is_none());
+        telemetry.invalidate_after_l1(5);
+        assert!(telemetry.completed.is_empty());
+        assert_eq!(telemetry.completion_observations, [1, 1]);
+    }
     use alloy_primitives::Bytes;
 
     fn request(byte: u8, direction: Direction) -> HeldTx {

@@ -133,7 +133,7 @@ done
 # every committed blob is retrievable through the post-Fulu Beacon API.
 batch_logs="$(cast logs --address "$EEZ_REGISTRY_ADDRESS" \
     --from-block "$START_L1_BLOCK" --to-block latest \
-    'BatchPosted(uint256)' --rpc-url "$L1" --json 2>/dev/null || true)"
+    'BatchPosted(bytes32,uint64[])' --rpc-url "$L1" --json 2>/dev/null || true)"
 settlement_tx="$(jq -r 'if type == "array" and length > 0 then .[-1].transactionHash else empty end' <<<"$batch_logs")"
 [[ "$settlement_tx" =~ ^0x[[:xdigit:]]{64}$ ]] || {
     echo "✗ commitment advanced but no post-start BatchPosted transaction was found" >&2

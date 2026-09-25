@@ -147,7 +147,10 @@ mapfile -t all_scenario_paths < <(
 (( ${#all_scenario_paths[@]} > 0 )) || { echo "no upstream protocol E2Es discovered" >&2; exit 1; }
 
 declare -A all_path_by_name=()
+declare -A eligible_path_by_name=()
 all_scenario_names=()
+eligible_scenario_paths=()
+excluded_names=()
 for path in "${all_scenario_paths[@]}"; do
     name="$(basename "$(dirname "$path")")"
     if [[ -n "${all_path_by_name[$name]+x}" ]]; then
@@ -156,6 +159,12 @@ for path in "${all_scenario_paths[@]}"; do
     fi
     all_path_by_name["$name"]="$path"
     all_scenario_names+=("$name")
+    if grep -q '^// E2E_EXCLUDE_FROM_ALL:' "$PROTOCOL/$path"; then
+        excluded_names+=("$name")
+    else
+        eligible_path_by_name["$name"]="$path"
+        eligible_scenario_paths+=("$path")
+    fi
 done
 
 if [[ -n "${EEZ_PROTOCOL_SCENARIOS:-}" ]]; then
@@ -168,7 +177,7 @@ selected_paths=()
 for target in "${targets[@]}"; do
     matches=()
     if [[ "$target" == "all" ]]; then
-        matches=("${all_scenario_paths[@]}")
+        matches=("${eligible_scenario_paths[@]}")
     elif [[ -d "$PROTOCOL/script/e2e/$target" ]]; then
         mapfile -t matches < <(
             find "$PROTOCOL/script/e2e/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
@@ -183,6 +192,7 @@ for target in "${targets[@]}"; do
     (( ${#matches[@]} > 0 )) || { echo "no upstream scenario matches '$target'" >&2; exit 1; }
     selected_paths+=("${matches[@]}")
 done
+(( ${#selected_paths[@]} > 0 )) || { echo "no live upstream protocol E2Es selected" >&2; exit 1; }
 
 declare -A selected_path_by_name=()
 selected_names=()
@@ -197,8 +207,16 @@ for path in "${selected_paths[@]}"; do
 done
 
 suite_complete=false
-(( ${#selected_names[@]} == ${#all_scenario_names[@]} )) && suite_complete=true
-echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; selected ${#selected_names[@]} (complete=$suite_complete)"
+if (( ${#selected_names[@]} == ${#eligible_scenario_paths[@]} )); then
+    suite_complete=true
+    for name in "${selected_names[@]}"; do
+        if [[ -z "${eligible_path_by_name[$name]+x}" ]]; then
+            suite_complete=false
+            break
+        fi
+    done
+fi
+echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; ${#eligible_scenario_paths[@]} live in 'all'; selected ${#selected_names[@]} (complete=$suite_complete)"
 
 json_array() {
     jq -cn --args '$ARGS.positional' "$@"
@@ -359,7 +377,9 @@ evidence_index="$evidence_dir/index.json"
 jq \
     --arg protocol_commit "$actual_protocol" \
     --argjson discovered_count "${#all_scenario_names[@]}" \
+    --argjson eligible_count "${#eligible_scenario_paths[@]}" \
     --argjson selected_count "${#selected_names[@]}" \
+    --argjson excluded_from_all "$(json_array ${excluded_names[@]+"${excluded_names[@]}"})" \
     --argjson suite_complete "$suite_complete" \
     --argjson accounting_ok "$accounting_ok" \
     --argjson upstream_exit_status "$status" \
@@ -377,7 +397,9 @@ jq \
      [.[] | select(.result == "PASS") | .scenario] as $passed |
      {schema_version: 5, protocol_commit: $protocol_commit,
       targets: $targets, execution: $execution[0],
-      suite: {discovered: $discovered_count, selected: $selected_count, complete: $suite_complete},
+      suite: {discovered: $discovered_count, eligible: $eligible_count,
+              selected: $selected_count, excluded_from_all: $excluded_from_all,
+              complete: $suite_complete},
       accounting: {valid: $accounting_ok, missing: $missing_results,
                    duplicates: $duplicate_results, unexpected: $unexpected_results},
       upstream_exit_status: $upstream_exit_status,
@@ -402,7 +424,8 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
         echo "### Protocol network E2E"
         echo
-        jq -r '"- Scenarios: \(.suite.selected)/\(.suite.discovered) selected",
+        jq -r '"- Scenarios: \(.suite.selected)/\(.suite.eligible) live eligible (\(.suite.discovered) discovered)",
+               "- Excluded from default all: \(.suite.excluded_from_all | join(", "))",
                "- Results: \(.passed | length) passed, \(.failed | length) failed, \(.skipped | length) skipped",
                "- Valid accounting: \(.accounting.valid)",
                "- Complete receipt / causal / semantic-blob checks: \(.evidence_complete) / \(.causal_coverage.complete) / \(.semantic_blob_coverage.complete)"' \

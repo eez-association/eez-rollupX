@@ -87,6 +87,9 @@ services:
       # Keep the whole bundle small enough to fit one L1 block — a 60M devnet
       # block is roomy, a 17M chain is not.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-50}"
+      EEZ_COMPOSER_GAS_TRACE_TX_HASH: "${EEZ_COMPOSER_GAS_TRACE_TX_HASH:-}"
+      EEZ_COMPOSER_GAS_TRACE_ADDRESS: "${EEZ_COMPOSER_GAS_TRACE_ADDRESS:-}"
+      EEZ_COMPOSER_GAS_TRACE_DIR: "${EEZ_COMPOSER_GAS_TRACE_DIR:-}"
       # ── Timing (12s L1 / 2s L2 → K=6; proof+slack=3000 < 12000) ──
       EEZ_L1_BLOCK_TIME_MS: "12000"
       EEZ_L2_BLOCK_TIME_MS: "2000"

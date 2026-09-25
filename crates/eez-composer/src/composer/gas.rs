@@ -20,9 +20,6 @@ const DEFERRED_ENTRY_GAS: u64 = 270_000;
 const SHORT_DEFERRED_ENTRY_GAS: u64 = 230_000;
 const WORD_DEFERRED_ENTRY_GAS: u64 = 250_000;
 const EXISTING_PROXY_ENTRY_GAS: u64 = 70_000;
-const PREVIOUS_ENTRY_CLEANUP_GAS: u64 = 65_000;
-const SHORT_ENTRY_CLEANUP_GAS: u64 = 55_000;
-const WORD_ENTRY_CLEANUP_GAS: u64 = 60_000;
 const MAX_SIMPLE_RESULT_BYTES: usize = 64;
 pub(super) const MAX_SHAPED_ENTRIES: u64 = 128;
 
@@ -34,6 +31,8 @@ pub(super) struct Projection {
     rollup_id: u64,
     pub(super) cleanup_gas: u64,
     immediate_calls: Vec<Option<B256>>,
+    deferred_slots: Vec<bool>,
+    deferred_count: usize,
     parent_proxies: std::collections::HashMap<(u64, Address), bool>,
 }
 
@@ -43,16 +42,30 @@ impl Projection {
         registry: Address,
         rollup_id: u64,
     ) -> Result<Option<Self>, String> {
-        let cleanup = previous_cleanup(rollup_id, |key| {
-            state
-                .storage(registry, key)
-                .map(Option::unwrap_or_default)
-                .map_err(|e| e.to_string())
-        })?;
-        Ok(cleanup.map(|cleanup_gas| Self {
+        let queue_head =
+            U256::from_be_bytes(keccak256((U256::from(rollup_id), U256::from(3)).abi_encode()).0)
+                .wrapping_add(U256::from(1));
+        // The mapping retains payloads beyond its active length. Inspect every
+        // index we may discount, including inactive old slots. Any unknown
+        // shape keeps the full per-entry reserve.
+        let mut deferred_slots = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
+        for index in 0..MAX_SHAPED_ENTRIES {
+            let entry_slot =
+                U256::from_be_bytes(keccak256((U256::from(index), queue_head).abi_encode()).0);
+            let bounded = bounded_old_slot(entry_slot, |slot| {
+                state
+                    .storage(registry, B256::from(slot))
+                    .map(Option::unwrap_or_default)
+                    .map_err(|e| e.to_string())
+            })?;
+            deferred_slots.push(bounded);
+        }
+        Ok(Some(Self {
             rollup_id,
-            cleanup_gas,
+            cleanup_gas: 0,
             immediate_calls: Vec::new(),
+            deferred_slots,
+            deferred_count: 0,
             parent_proxies: Default::default(),
         }))
     }
@@ -139,27 +152,29 @@ impl Projection {
         immediate: bool,
         established: Option<B256>,
     ) -> u64 {
-        if immediate {
-            if self.simple_immediate_shape(entry)
-                && established == Some(keccak256(entry.l2ToL1Calls[0].abi_encode()))
-            {
-                return EXISTING_PROXY_ENTRY_GAS;
-            }
-        } else if self.common_shape(entry)
-            && !entry.proxyEntryHash.is_zero()
-            && entry.destinationRollupId == self.rollup_id
-            && entry.l2ToL1Calls.is_empty()
+        if immediate
+            && self.simple_immediate_shape(entry)
+            && established == Some(keccak256(entry.l2ToL1Calls[0].abi_encode()))
         {
-            // Solidity stores up to 31 bytes in the length slot; 32 bytes
-            // needs one external slot and 33..=64 needs two. Charge only the
-            // measured size class, with the same shape gates and final check.
-            return match entry.returnData.len() {
-                0..=31 => SHORT_DEFERRED_ENTRY_GAS,
-                32 => WORD_DEFERRED_ENTRY_GAS,
-                _ => DEFERRED_ENTRY_GAS,
-            };
+            return EXISTING_PROXY_ENTRY_GAS;
         }
         POSTBATCH_ENTRY_GAS_PIN
+    }
+
+    fn deferred_entry_gas(&self, entry: &ExecutionEntrySol, index: usize) -> u64 {
+        if self.deferred_slots.get(index) != Some(&true)
+            || !self.common_shape(entry)
+            || entry.proxyEntryHash.is_zero()
+            || entry.destinationRollupId != self.rollup_id
+            || !entry.l2ToL1Calls.is_empty()
+        {
+            return POSTBATCH_ENTRY_GAS_PIN;
+        }
+        match entry.returnData.len() {
+            0..=31 => SHORT_DEFERRED_ENTRY_GAS,
+            32 => WORD_DEFERRED_ENTRY_GAS,
+            _ => DEFERRED_ENTRY_GAS,
+        }
     }
 
     pub fn cost(
@@ -172,7 +187,15 @@ impl Projection {
         let mut cost = projected_tx_l1_gas(entries, target_gas);
         cost.entry_discount = entries
             .iter()
-            .map(|entry| POSTBATCH_ENTRY_GAS_PIN - self.entry_gas(entry, immediate, established))
+            .enumerate()
+            .map(|(index, entry)| {
+                let priced = if immediate {
+                    self.entry_gas(entry, true, established)
+                } else {
+                    self.deferred_entry_gas(entry, self.deferred_count + index)
+                };
+                POSTBATCH_ENTRY_GAS_PIN - priced
+            })
             .fold(0, u64::saturating_add);
         cost
     }
@@ -180,6 +203,10 @@ impl Projection {
     pub fn accept_immediate(&mut self, count: usize, established: Option<B256>) {
         self.immediate_calls
             .extend(std::iter::repeat_n(established, count));
+    }
+
+    pub fn accept_deferred(&mut self, count: usize) {
+        self.deferred_count = self.deferred_count.saturating_add(count);
     }
 
     pub fn batch_gas(&self, batch: &eez_protocol::EvmBatch, calldata: u64, target: u64) -> u64 {
@@ -220,11 +247,11 @@ impl Projection {
             .enumerate()
             .map(|(index, entry)| {
                 if discounted {
-                    self.entry_gas(
-                        entry,
-                        index < self.immediate_calls.len(),
-                        self.immediate_calls.get(index).copied().flatten(),
-                    )
+                    if index < self.immediate_calls.len() {
+                        self.entry_gas(entry, true, self.immediate_calls[index])
+                    } else {
+                        self.deferred_entry_gas(entry, index - self.immediate_calls.len())
+                    }
                 } else {
                     POSTBATCH_ENTRY_GAS_PIN
                 }
@@ -237,56 +264,33 @@ impl Projection {
     }
 }
 
-/// Pinned EEZ storage layout, asserted against populated and consumed queues
-/// in the Solidity gas tests. Only the bounded no-call queue shape is read;
-/// static/nested/large queues disable discounts for this candidate. This is
-/// deliberately independent of entryQueueIndex: consumption leaves storage.
-fn previous_cleanup<E>(
-    rollup_id: u64,
-    mut read: impl FnMut(B256) -> Result<U256, E>,
-) -> Result<Option<u64>, E> {
-    let head =
-        U256::from_be_bytes(keccak256((U256::from(rollup_id), U256::from(3)).abi_encode()).0);
-    let normal = head.wrapping_add(U256::from(1));
-    let length = read(B256::from(normal))?;
-    if length >= U256::from(MAX_SHAPED_ENTRIES)
-        || !read(B256::from(head.wrapping_add(U256::from(2))))?.is_zero()
-    {
-        return Ok(None);
-    }
-    let start = U256::from_be_bytes(keccak256(normal.to_be_bytes::<32>()).0);
-    let count = length.to::<u64>();
-    let mut cleanup_gas = 0u64;
-    for index in 0..count {
-        let entry = start.wrapping_add(U256::from(index * 7));
-        if read(B256::from(entry))? > U256::from(1)
-            || !read(B256::from(entry.wrapping_add(U256::from(2))))?.is_zero()
-            || !read(B256::from(entry.wrapping_add(U256::from(3))))?.is_zero()
-        {
-            return Ok(None);
-        }
-        let data = read(B256::from(entry.wrapping_add(U256::from(6))))?;
-        // Solidity short bytes put length*2 in the low byte. Long results in
-        // the measured range (32..=64 bytes) occupy one or two extra slots.
-        let low = data.byte(0);
-        let short = low & 1 == 0 && low <= 62;
-        let long = low & 1 == 1
-            && data >= U256::from(65)
-            && data <= U256::from(MAX_SIMPLE_RESULT_BYTES * 2 + 1);
-        let entry_gas = if short {
-            SHORT_ENTRY_CLEANUP_GAS
-        } else if long {
-            if data == U256::from(65) {
-                WORD_ENTRY_CLEANUP_GAS
-            } else {
-                PREVIOUS_ENTRY_CLEANUP_GAS
+/// Solidity 0.8.34 stores each mapping value at `keccak256(index, mappingSlot)`.
+/// A prior empty or one-update/no-call entry with at most two result data words
+/// has bounded overwrite work. The active queue length is not evidence here:
+/// discarded mapping entries remain allocated for later replacement.
+fn bounded_old_slot<E>(
+    entry_slot: U256,
+    mut read: impl FnMut(U256) -> Result<U256, E>,
+) -> Result<bool, E> {
+    let roots = read(entry_slot)?;
+    if roots.is_zero() {
+        for offset in 1..7 {
+            if !read(entry_slot.wrapping_add(U256::from(offset)))?.is_zero() {
+                return Ok(false);
             }
-        } else {
-            return Ok(None);
-        };
-        cleanup_gas = cleanup_gas.saturating_add(entry_gas);
+        }
+        return Ok(true);
     }
-    Ok(Some(cleanup_gas))
+    if roots != U256::from(1)
+        || !read(entry_slot.wrapping_add(U256::from(2)))?.is_zero()
+        || !read(entry_slot.wrapping_add(U256::from(3)))?.is_zero()
+    {
+        return Ok(false);
+    }
+    let data = read(entry_slot.wrapping_add(U256::from(6)))?;
+    let low = data.byte(0);
+    Ok((low & 1 == 0 && low <= 62)
+        || (low & 1 == 1 && data >= U256::from(65) && data <= U256::from(129)))
 }
 
 #[cfg(test)]
@@ -303,6 +307,8 @@ mod tests {
             rollup_id: 1,
             cleanup_gas: cleanup,
             immediate_calls: Vec::new(),
+            deferred_slots: vec![false; MAX_SHAPED_ENTRIES as usize],
+            deferred_count: 0,
             parent_proxies: Default::default(),
         }
     }
@@ -380,48 +386,12 @@ mod tests {
     }
 
     #[test]
-    fn deferred_discount_has_explicit_shape_boundaries() {
+    fn deferred_reserves_do_not_depend_on_result_size() {
         let p = model(0);
-        let entry = deferred();
-        assert_eq!(p.entry_gas(&entry, false, None), DEFERRED_ENTRY_GAS);
-        let changes: [fn(&mut ExecutionEntrySol); 6] = [
-            |e| e.returnData = Bytes::from(vec![0xff; MAX_SIMPLE_RESULT_BYTES + 1]),
-            |e| e.success = false,
-            |e| e.destinationRollupId = 2,
-            |e| e.proxyEntryHash = B256::ZERO,
-            |e| e.rootUpdates[0].rollupId = 2,
-            |e| e.rootUpdates.push(e.rootUpdates[0].clone()),
-        ];
-        for change in changes {
-            let mut other = entry.clone();
-            change(&mut other);
-            assert_eq!(p.entry_gas(&other, false, None), POSTBATCH_ENTRY_GAS_PIN);
-        }
-        let mut with_call = entry;
-        with_call.l2ToL1Calls = immediate().0.l2ToL1Calls;
-        assert_eq!(
-            p.entry_gas(&with_call, false, None),
-            POSTBATCH_ENTRY_GAS_PIN
-        );
-    }
-
-    #[test]
-    fn deferred_reserves_follow_storage_boundaries_without_expanding_eligibility() {
-        let p = model(0);
-        for (length, expected) in [
-            (0, 230_000),
-            (1, 230_000),
-            (30, 230_000),
-            (31, 230_000),
-            (32, 250_000),
-            (33, 270_000),
-            (63, 270_000),
-            (64, 270_000),
-            (65, 370_000),
-        ] {
+        for length in [0, 1, 30, 31, 32, 33, 63, 64, 65] {
             let mut entry = deferred();
             entry.returnData = Bytes::from(vec![0xff; length]);
-            assert_eq!(p.entry_gas(&entry, false, None), expected);
+            assert_eq!(p.entry_gas(&entry, false, None), POSTBATCH_ENTRY_GAS_PIN);
             // Return size alone never grants immediate or failed-entry savings.
             assert_eq!(p.entry_gas(&entry, true, None), POSTBATCH_ENTRY_GAS_PIN);
             entry.success = false;
@@ -430,11 +400,96 @@ mod tests {
     }
 
     #[test]
-    fn mixed_result_reserves_admit_a_larger_complete_prefix_and_match_final_sizing() {
-        // The same previous short/word/long queue costs 180k to clear, even
-        // after consumption. Two mixed three-entry groups save 120k compared
-        // with reserving 270k for every result. Use an exact budget boundary.
-        let p = model(180_000);
+    fn bounded_mapping_slots_enable_size_discount_at_the_correct_index() {
+        let mut p = model(0);
+        p.deferred_slots[0] = true;
+        p.deferred_slots[2] = true;
+        let mut short = deferred();
+        short.returnData = Bytes::from(vec![0xff; 31]);
+        let mut word = deferred();
+        word.returnData = Bytes::from(vec![0xff; 32]);
+        assert_eq!(
+            p.cost(std::slice::from_ref(&short), 0, false, None)
+                .entry_discount,
+            140_000
+        );
+        p.accept_deferred(1);
+        assert_eq!(
+            p.cost(std::slice::from_ref(&word), 0, false, None)
+                .entry_discount,
+            0
+        );
+        p.accept_deferred(1);
+        assert_eq!(
+            p.cost(std::slice::from_ref(&word), 0, false, None)
+                .entry_discount,
+            120_000
+        );
+        let b = batch(vec![anchor(), short, word.clone(), word], 1);
+        assert_eq!(
+            p.batch_gas(&b, 0, 0),
+            p.initial_gas() + 230_000 + 370_000 + 250_000
+        );
+        let changes: [fn(&mut ExecutionEntrySol); 7] = [
+            |e: &mut ExecutionEntrySol| e.returnData = Bytes::from(vec![0xff; 65]),
+            |e| e.success = false,
+            |e| e.destinationRollupId = 2,
+            |e| e.proxyEntryHash = B256::ZERO,
+            |e| e.rootUpdates[0].rollupId = 2,
+            |e| e.rootUpdates.push(e.rootUpdates[0].clone()),
+            |e| e.l2ToL1Calls.push(immediate().0.l2ToL1Calls[0].clone()),
+        ];
+        for change in changes {
+            let mut unsupported = deferred();
+            change(&mut unsupported);
+            assert_eq!(
+                p.deferred_entry_gas(&unsupported, 0),
+                POSTBATCH_ENTRY_GAS_PIN
+            );
+        }
+    }
+
+    #[test]
+    fn old_mapping_slot_must_be_empty_or_bounded_before_discount() {
+        let slot = U256::from(101);
+        let mut values = std::collections::HashMap::<U256, U256>::new();
+        let classify = |values: &std::collections::HashMap<U256, U256>| {
+            bounded_old_slot(slot, |key| {
+                Ok::<_, ()>(*values.get(&key).unwrap_or(&U256::ZERO))
+            })
+            .unwrap()
+        };
+        assert!(classify(&values));
+        values.insert(slot + U256::from(1), U256::from(1));
+        assert!(
+            !classify(&values),
+            "a nonempty zero-update slot is not fresh"
+        );
+        values.clear();
+        values.insert(slot, U256::from(1));
+        values.insert(slot + U256::from(6), U256::from(129));
+        assert!(
+            classify(&values),
+            "one update and a 64-byte result are bounded"
+        );
+        for (offset, value) in [(0, 2), (2, 1), (3, 1), (6, 131)] {
+            let key = slot + U256::from(offset);
+            let original = values.insert(key, U256::from(value));
+            assert!(
+                !classify(&values),
+                "unsupported prior shape at offset {offset}"
+            );
+            if let Some(original) = original {
+                values.insert(key, original);
+            } else {
+                values.remove(&key);
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_result_reserves_match_final_sizing() {
+        let p = model(0);
         let entries: Vec<_> = [31, 32, 64]
             .into_iter()
             .map(|length| {
@@ -444,7 +499,7 @@ mod tests {
             })
             .collect();
         let cost = p.cost(&entries, 0, false, None);
-        assert_eq!(cost.entry_discount, 360_000);
+        assert_eq!(cost.entry_discount, 0);
         let cap = p.initial_gas() + 2 * cost.total() + POSTBATCH_DRAIN_MARGIN;
         let mut budget = PostBatchGasBudget::new(cap);
         budget.projected = p.initial_gas();
@@ -463,14 +518,6 @@ mod tests {
             budget.projected,
             p.batch_gas(&final_batch, 2 * cost.calldata_gas, 0)
         );
-        let old_cost = TxL1Gas {
-            entry_discount: 3 * (POSTBATCH_ENTRY_GAS_PIN - DEFERRED_ENTRY_GAS),
-            ..cost
-        };
-        let mut old = PostBatchGasBudget::new(cap);
-        old.projected = p.initial_gas();
-        assert!(old.try_accept(old_cost));
-        assert!(!old.try_accept(old_cost));
     }
 
     #[test]
@@ -526,7 +573,7 @@ mod tests {
 
     #[test]
     fn admission_and_final_projection_share_reserves_and_preserve_occurrence_evidence() {
-        let mut p = model(35 * PREVIOUS_ENTRY_CLEANUP_GAS);
+        let mut p = model(0);
         let (entry, _) = immediate();
         let key = Some(keccak256(entry.l2ToL1Calls[0].abi_encode()));
         let mut budget = PostBatchGasBudget::new(16_777_216);
@@ -549,10 +596,7 @@ mod tests {
                 30_000
             )
         );
-        assert!(
-            p.initial_gas() > 21_000 + POSTBATCH_BASE_GAS_PIN + POSTBATCH_ENTRY_GAS_PIN,
-            "the old extra anchor pin cannot pay for 35 consumed prior entries"
-        );
+        assert_eq!(p.initial_gas(), 21_000 + POSTBATCH_BASE_GAS_PIN);
         assert_eq!(
             p.batch_gas(&batch(vec![anchor()], 1), 0, 0),
             p.initial_gas()
@@ -560,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn exceeding_measured_size_restores_all_reserves_and_rejection_is_atomic() {
+    fn exceeding_measured_size_preserves_full_reserves_and_rejection_is_atomic() {
         let p = model(0);
         let cost = p.cost(&[deferred()], 0, false, None);
         let mut budget = PostBatchGasBudget::new(100_000_000);
@@ -578,12 +622,9 @@ mod tests {
             budget.projected,
             p.batch_gas(&final_128, 127 * cost.calldata_gas, 0)
         );
-        budget.cap = budget.projected + cost.total();
+        budget.cap = budget.projected + cost.total() - 1;
         let before = budget;
-        assert!(
-            !budget.try_accept(cost),
-            "128th source must restore the earlier discounts too"
-        );
+        assert!(!budget.try_accept(cost));
         assert_eq!(budget.projected, before.projected);
         assert_eq!(budget.entry_discount, before.entry_discount);
         budget.cap = 100_000_000;
@@ -607,88 +648,8 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_reads_persisted_lengths_not_the_consumed_cursor_and_bounds_reads() {
-        let rid = 1;
-        let head = U256::from_be_bytes(keccak256((U256::from(rid), U256::from(3)).abi_encode()).0);
-        let normal = head + U256::from(1);
-        let start = U256::from_be_bytes(keccak256(normal.to_be_bytes::<32>()).0);
-        let mut storage = std::collections::HashMap::new();
-        storage.insert(B256::from(normal), U256::from(2));
-        storage.insert(B256::from(head), U256::from(2) << 64); // consumed both
-        for (i, encoded) in [
-            U256::from_be_bytes([0xfe; 32]) & !U256::from(193),
-            U256::from(129),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let entry = start + U256::from(i * 7);
-            storage.insert(B256::from(entry), U256::from(1));
-            storage.insert(B256::from(entry + U256::from(6)), encoded);
-        }
-        let read = |map: &std::collections::HashMap<B256, U256>| {
-            previous_cleanup(rid, |key| {
-                Ok::<_, ()>(map.get(&key).copied().unwrap_or_default())
-            })
-            .unwrap()
-        };
-        assert_eq!(read(&storage), Some(120_000));
-        for length in 0..=MAX_SIMPLE_RESULT_BYTES {
-            let encoded = if length < 32 {
-                U256::from(length * 2)
-            } else {
-                U256::from(length * 2 + 1)
-            };
-            storage.insert(B256::from(start + U256::from(6)), encoded);
-            let expected = match length {
-                0..=31 => 120_000,
-                32 => 125_000,
-                _ => 130_000,
-            };
-            assert_eq!(read(&storage), Some(expected), "result bytes {length}");
-        }
-        for malformed in [1, 63, 64, 66, 128, 131] {
-            storage.insert(B256::from(start + U256::from(6)), U256::from(malformed));
-            assert_eq!(
-                read(&storage),
-                None,
-                "invalid or oversized result encoding {malformed}"
-            );
-        }
-        storage.insert(B256::from(start + U256::from(6)), U256::from(131));
-        assert_eq!(read(&storage), None, "65-byte old result needs fallback");
-        storage.insert(B256::from(start + U256::from(6)), U256::ZERO);
-        storage.insert(B256::from(start + U256::from(2)), U256::from(1));
-        assert_eq!(read(&storage), None, "old inline calls need fallback");
-        storage.insert(B256::from(normal), U256::ZERO);
-        storage.insert(B256::from(head + U256::from(2)), U256::from(1));
-        assert_eq!(
-            read(&storage),
-            None,
-            "empty normal queue does not imply empty static queue"
-        );
-        let mut reads = 0;
-        assert_eq!(
-            previous_cleanup(rid, |_| {
-                reads += 1;
-                Ok::<_, ()>(U256::MAX)
-            })
-            .unwrap(),
-            None
-        );
-        assert_eq!(
-            reads, 1,
-            "untrusted lengths cannot cause an unbounded state walk"
-        );
-        assert_eq!(
-            previous_cleanup(rid, |_| Err::<U256, _>("unavailable")),
-            Err("unavailable")
-        );
-    }
-
-    #[test]
-    fn fitted_deferred_work_can_exceed_the_old_thirty_four_entry_projection() {
-        let p = model(35 * PREVIOUS_ENTRY_CLEANUP_GAS);
+    fn deferred_work_keeps_full_reserve_under_the_transaction_cap() {
+        let p = model(0);
         let cap = eez_l1::posting_fees::PostingFeeConfig::parse(|name| {
             Ok(matches!(
                 name,
@@ -702,17 +663,17 @@ mod tests {
         .estimate_budget(16_777_216);
         let mut budget = PostBatchGasBudget::new(cap);
         budget.projected = p.initial_gas();
-        for _ in 0..35 {
+        for _ in 0..30 {
             assert!(budget.try_accept(p.cost(&[deferred()], 0, false, None)));
         }
         assert!(budget.projected + POSTBATCH_DRAIN_MARGIN <= cap);
     }
 
     #[test]
-    fn unsupported_batch_family_keeps_conservative_reserves_and_known_cleanup() {
-        let p = model(PREVIOUS_ENTRY_CLEANUP_GAS);
+    fn unsupported_batch_family_keeps_conservative_reserves() {
+        let p = model(0);
         let b = batch(vec![anchor(), deferred()], 1);
-        let conservative = projected_postbatch_gas(2, 100, 200) + PREVIOUS_ENTRY_CLEANUP_GAS;
+        let conservative = projected_postbatch_gas(2, 100, 200);
         let changes: [fn(&mut eez_protocol::EvmBatch); 7] = [
             |b| b.blobIndices = vec![U256::ZERO; 65],
             |b| b.proofSystems.push(Address::ZERO),
@@ -732,34 +693,21 @@ mod tests {
     #[test]
     fn reserves_match_executable_solidity_bounds() {
         let contract = include_str!("../../../../contracts/test/PostBatchGasPins.t.sol");
-        for (name, expected) in [
-            ("BOUNDED_DEFERRED_GAS_PIN", DEFERRED_ENTRY_GAS),
-            ("SHORT_DEFERRED_GAS_PIN", SHORT_DEFERRED_ENTRY_GAS),
-            ("WORD_DEFERRED_GAS_PIN", WORD_DEFERRED_ENTRY_GAS),
-            ("EXISTING_PROXY_GAS_PIN", EXISTING_PROXY_ENTRY_GAS),
-            ("SIMPLE_QUEUE_CLEANUP_GAS_PIN", PREVIOUS_ENTRY_CLEANUP_GAS),
-            ("SHORT_QUEUE_CLEANUP_GAS_PIN", SHORT_ENTRY_CLEANUP_GAS),
-            ("WORD_QUEUE_CLEANUP_GAS_PIN", WORD_ENTRY_CLEANUP_GAS),
-        ] {
-            let prefix = format!("uint256 private constant {name} = ");
-            let value = contract
-                .lines()
-                .find_map(|line| line.trim().strip_prefix(&prefix))
-                .expect("contract gas assertion constant")
-                .trim_end_matches(';')
-                .replace('_', "")
-                .parse::<u64>()
-                .unwrap();
-            assert_eq!(
-                value, expected,
-                "Rust and executable contract bound {name} drifted"
-            );
-        }
+        let prefix = "uint256 private constant EXISTING_PROXY_GAS_PIN = ";
+        let value = contract
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(prefix))
+            .expect("contract gas assertion constant")
+            .trim_end_matches(';')
+            .replace('_', "")
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(value, EXISTING_PROXY_ENTRY_GAS);
     }
 
     #[test]
     fn temporary_cleanup_pressure_does_not_label_a_fitting_source_unpostable() {
-        let p = model(20 * PREVIOUS_ENTRY_CLEANUP_GAS);
+        let p = model(1_300_000);
         let cost = p.cost(&[deferred()], 0, false, None);
         let mut budget = PostBatchGasBudget::new(1_700_000);
         budget.projected = p.initial_gas();

@@ -192,14 +192,16 @@ def main():
     assert attempt_counts == [0, 0, 0]
     height = attempt["sync_height"]
     full = attempt["sync_hash"]
-    # The pinned EEZ event contains an indexed rollup ID and one newRoot word.
-    topic = command("cast", "keccak", "L2ExecutionPerformed(uint64,bytes32)")
+    # The pinned event has an indexed rollup ID, then newRoot and etherBalance.
+    topic = command("cast", "keccak", "L2ExecutionPerformed(uint64,bytes32,uint256)")
     manager = rpc(l1, "eth_getTransactionByHash", post_hash)["to"].lower()
     roots = [log for log in first["logs"] if log["address"].lower() == manager
              and log["topics"][0].lower() == topic.lower()]
     assert len(roots) == 1, "expected exactly one first-user rollup update"
-    prefix = roots[0]["data"]
-    assert len(prefix) == 66 and prefix != full
+    event_data = roots[0]["data"]
+    assert len(roots[0]["topics"]) == 2 and len(event_data) == 130
+    prefix = event_data[:66]
+    assert prefix != full
     wait_for(lambda: (block := rpc(l2, "eth_getBlockByNumber", hex(height), False)) and block["hash"] == prefix,
              "canonical partial prefix")
 

@@ -1269,7 +1269,12 @@ async fn launch_composer(
         sequencer.run().await;
     });
 
-    event!(name: "eez.node.composer.spawned", Level::INFO, "spawning eez composer umbrella");
+    event!(
+        name: "eez.node.composer.spawned",
+        Level::INFO,
+        event_name = "eez.node.composer.spawned",
+        "spawning eez composer umbrella"
+    );
     let composer_events = l1_watcher.subscribe();
     task_executor.spawn_critical_task("eez-composer", async move {
         composer.run(composer_events).await;

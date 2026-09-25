@@ -123,6 +123,7 @@ cast rpc debug_traceTransaction "$trigger_hash" '{"tracer":"callTracer","timeout
 trace_evidence="$(jq -ce --arg source "${source,,}" --arg registry "${ROLLUPS,,}" \
     --arg proxy "${proxy,,}" --arg trigger_input "$(cast sig "$trigger_sig")" \
     --arg lookup_input "${lookup_input,,}" --arg output "${trace_output,,}" --argjson static "$static" \
+    --arg static_check_gas_input "$(cast sig 'STATIC_CHECK_GAS()')" \
     -f "$HERE/lookup-trace.jq" "$trace_file")" || die "actual registry lookup returned the wrong result/revert"
 
 [[ "$(cast call "$source" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 1 ]] \

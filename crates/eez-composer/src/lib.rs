@@ -44,6 +44,7 @@ pub mod optimistic;
 mod prover_retry;
 pub mod rollup;
 pub mod settlement_policy;
+mod submission_metrics;
 
 #[doc(inline)]
 pub use composer::{Composer, ComposerConfigError, ComposerSettings, CrossChainExecCtx};
@@ -60,3 +61,5 @@ pub use local::{
 pub use optimistic::OptimisticallyIncluded;
 #[doc(inline)]
 pub use rollup::{RollupConfig, RollupState};
+
+mod posting_events;

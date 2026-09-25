@@ -380,23 +380,32 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         return json.loads((self.root / "artifacts/protocol-e2e/summary.json").read_text())
 
     def test_full_wrapper_accounts_for_every_pinned_scenario_and_keeps_evidence_gate(self):
-        # Discovery/count follow the current pin, not a hand-maintained 28-name list.
+        # Discovery and default eligibility follow the current pin.
         paths = sorted((REPO / "eez-core-protocol/script/e2e").rglob("E2E*.s.sol"))
         names = [p.parent.name for p in paths if "shared" not in p.parts]
+        excluded = [p.parent.name for p in paths if "shared" not in p.parts
+                    and any(line.startswith("// E2E_EXCLUDE_FROM_ALL:")
+                            for line in p.read_text().splitlines())]
+        eligible = [name for name in names if name not in excluded]
         self.add_scenarios(*names)
+        for name in excluded:
+            scenario = self.protocol / "script/e2e/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
+            scenario.write_text("// E2E_EXCLUDE_FROM_ALL: NOT LIVE YET\n" + scenario.read_text())
         wrapper = self.set_up_outer_wrapper()
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         summary = self.summary()
-        self.assertEqual(summary["suite"], dict(discovered=len(names), selected=len(names), complete=True))
-        self.assertCountEqual(summary["passed"], names)
+        self.assertEqual(summary["suite"], dict(discovered=len(names), eligible=len(eligible),
+                                                selected=len(eligible), excluded_from_all=sorted(excluded),
+                                                complete=True))
+        self.assertCountEqual(summary["passed"], eligible)
         self.assertTrue(summary["accounting"]["valid"])
         self.assertTrue(summary["evidence_complete"])
         self.assertTrue(summary["semantic_blob_coverage"]["complete"])
         self.assertEqual(summary["execution"]["runner"], "network-parallel")
         self.assertEqual([p["phase"] for p in summary["execution"]["phases"]],
                          ["bridge-prerequisite", "parallel"])
-        self.assert_schedule(2, names)
+        self.assert_schedule(2, eligible)
 
     def test_outer_selection_is_expanded_once_and_incomplete_coverage_is_explicit(self):
         self.add_scenarios("one", "two", "revertCounter")
@@ -404,9 +413,37 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.env["EEZ_PROTOCOL_SCENARIOS"] = "one revertCounter"
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.summary()["suite"], dict(discovered=3, selected=2, complete=False))
+        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=3, selected=2,
+                                                       excluded_from_all=[], complete=False))
         self.assertCountEqual(self.summary()["passed"], ["one", "revertCounter"])
         self.assert_schedule(2, ["one", "revertCounter"])
+
+    def test_default_suite_respects_upstream_network_exclusions(self):
+        self.add_scenarios("one", "two", "staticLocalWrite")
+        scenario = self.protocol / "script/e2e/fixtures/L1_to_L2/staticLocalWrite/E2EFixture.s.sol"
+        scenario.write_text("// E2E_EXCLUDE_FROM_ALL: NOT LIVE YET\n" + scenario.read_text())
+        wrapper = self.set_up_outer_wrapper()
+
+        result = self.run_outer(wrapper)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertCountEqual(self.summary()["passed"], ["one", "two"])
+        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=2, selected=2,
+                                                       excluded_from_all=["staticLocalWrite"], complete=True))
+        self.assert_schedule(2, ["one", "two"])
+
+        self.env["EEZ_PROTOCOL_SCENARIOS"] = "staticLocalWrite"
+        self.tool("date", "#!/bin/sh\necho 20000101-000001\n")
+        result = self.run_outer(wrapper)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.summary()["passed"], ["staticLocalWrite"])
+        self.assertFalse(self.summary()["suite"]["complete"])
+
+        self.env["EEZ_PROTOCOL_SCENARIOS"] = "one staticLocalWrite"
+        self.tool("date", "#!/bin/sh\necho 20000101-000002\n")
+        result = self.run_outer(wrapper)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.summary()["suite"]["complete"],
+                         "replacing a live scenario with an excluded one is incomplete")
 
     def test_outer_all_parallel_still_accounts_for_every_pinned_scenario(self):
         paths = sorted((REPO / "eez-core-protocol/script/e2e").rglob("E2E*.s.sol"))

@@ -16,9 +16,11 @@ public identities. `sha256.json` identifies every retained input file.
 The capture occurred before main alignment and subsequent signer hardening; it
 is an immutable input/original-output oracle, not evidence that later binaries
 were deployed. A successful captured request alone does not establish that its
-particular posting attempt landed. The whole native scenario passed; the signer
-regression independently replays the request through the current shipping path,
-without the old-format test oracle, and checks the original digest/signature.
+particular posting attempt landed. The whole native scenario passed at its original protocol revision. The
+feature/events port changes both L2 system-call selectors. The current signer
+regression therefore replays these unchanged bytes as a compatibility rejection
+and asserts that no signature is produced. Positive signing and DA mutation
+coverage use the separate new-protocol capture; the original oracle is retained.
 
 Run the current regressions with:
 

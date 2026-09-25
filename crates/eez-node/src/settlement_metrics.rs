@@ -10,6 +10,7 @@ pub(crate) struct SettlementMetrics {
     due: Gauge,
     reasons: [(DueReasons, Gauge); 7],
     anchor: Gauge,
+    anchor_l1_block: Gauge,
     settled: Gauge,
     unsettled: Gauge,
     threshold: Gauge,
@@ -41,6 +42,7 @@ impl SettlementMetrics {
             reasons: DueReasons::ALL.map(|(reason, name)| (reason,
                 metrics::gauge!("eez_composer_settlement_trigger", "rollup_id" => rollup.clone(), "reason" => name))),
             anchor: gauge("eez_composer_settlement_anchor_timestamp_seconds", Unit::Seconds, "Canonical L1 timestamp anchoring the last policy evaluation; may be initial registration"),
+            anchor_l1_block: gauge("eez_composer_settlement_anchor_l1_block", Unit::Count, "L1 block containing the commitment used by the last policy evaluation"),
             settled: gauge("eez_composer_settlement_anchor_l2_block", Unit::Count, "Validated L2 commitment used by the last policy evaluation"),
             unsettled: gauge("eez_composer_settlement_unsettled_blocks", Unit::Count, "Candidate-to-anchor block distance at the last evaluation, including the candidate Sync block"),
             threshold: gauge("eez_composer_settlement_block_threshold", Unit::Count, "Configured general settlement trigger in unsettled L2 blocks"),
@@ -65,6 +67,8 @@ impl SettlementMetrics {
             }));
         }
         self.anchor.set(value(|p| p.anchor.l1_timestamp as f64));
+        self.anchor_l1_block
+            .set(value(|p| p.anchor.l1.number as f64));
         self.settled.set(value(|p| p.anchor.endpoint.number as f64));
         self.unsettled
             .set(value(|p| p.decision.unsettled_blocks as f64));
@@ -166,6 +170,7 @@ mod tests {
         assert_eq!(read("anchor_timestamp_seconds", None), 1000.0);
         assert_eq!(read("target_timestamp_seconds", None), 1005.0);
         assert_eq!(read("anchor_l2_block", None), 10.0);
+        assert_eq!(read("anchor_l1_block", None), 100.0);
         assert_eq!(read("unsettled_blocks", None), 12.0);
         assert_eq!(read("block_threshold", None), 150.0);
         for (reason, name) in DueReasons::ALL {
@@ -233,7 +238,7 @@ mod tests {
                     && line.contains("rollup_id=\"2\"")
             })
             .collect::<Vec<_>>();
-        assert_eq!(other_lines.len(), 21);
+        assert_eq!(other_lines.len(), 22);
         assert!(other_lines.iter().all(|line| line.ends_with(" NaN")));
     }
 }

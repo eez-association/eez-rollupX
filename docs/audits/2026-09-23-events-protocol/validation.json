@@ -1,0 +1,273 @@
+{
+  "source_baseline": "1832f970884ca9460646a4cde87cca70eaffb3e1",
+  "protocol_baseline": "3c0cdf4955941a5c23639346932b55b33babebbd",
+  "protocol_candidate": "820e50f749f63165be6a5797d4c5fe52cbbbbe34",
+  "cargo_lock_sha256": "00217f48dc4d6c974d11b20692ab28e27e32e7dd60262138a9c8c3c3d668fbc6",
+  "native_executables": {
+    "cross_chain": {
+      "executable": "/workspace/target/debug/deps/cross_chain-76c83a5860952289",
+      "sha256": "0a6328a34107daecb8a56a0dd9ae25b84e25a45dd9e52bb7d6daa72cb3f7fb62",
+      "selected_tests": 24
+    },
+    "chained_interstate": {
+      "executable": "/workspace/target/debug/deps/chained_interstate-1caea1da03c13580",
+      "sha256": "0a89740b077017055368042aef632aac16dfe77e61ce0f4ecfb209aa8dbd2499",
+      "selected_tests": 5
+    },
+    "partial_consumption": {
+      "executable": "/workspace/target/debug/deps/partial_consumption-7295248a80e7bc45",
+      "sha256": "69b5650d352f45597afc7a52417baf509a056398a151c8362c4fe0e5465b1d54",
+      "selected_tests": 5
+    },
+    "eez-composer": {
+      "executable": "/workspace/target/debug/eez-composer",
+      "sha256": "e30cf5a1211529c53cbe9f36c1d847439031ede2316eb88e916463c7410aabac"
+    },
+    "eez-follower": {
+      "executable": "/workspace/target/debug/eez-follower",
+      "sha256": "7c2495de7e89858a33801a581151c6b2ad74e10cdf88396185c9be2a6fa76c32"
+    },
+    "eez-proof-signer": {
+      "executable": "/workspace/target/debug/eez-proof-signer",
+      "sha256": "53c9e2ff26af19d8774a3b9749e8ae07b5e9b651c7916e2678effdca852a17e0"
+    }
+  },
+  "capture_executables": {
+    "cross_chain": {
+      "executable": "/workspace/target/debug/deps/cross_chain-76c83a5860952289",
+      "sha256": "4d7a06d74202230495a316a70c42de110b1f85b1bea1af88630a42e40d884769"
+    },
+    "eez-composer": {
+      "executable": "/workspace/target/debug/eez-composer",
+      "sha256": "e30cf5a1211529c53cbe9f36c1d847439031ede2316eb88e916463c7410aabac"
+    },
+    "eez-proof-signer": {
+      "executable": "/workspace/target/debug/eez-proof-signer",
+      "sha256": "53c9e2ff26af19d8774a3b9749e8ae07b5e9b651c7916e2678effdca852a17e0"
+    },
+    "eez-follower": {
+      "executable": "/workspace/target/debug/eez-follower",
+      "sha256": "7c2495de7e89858a33801a581151c6b2ad74e10cdf88396185c9be2a6fa76c32"
+    }
+  },
+  "native_results": [
+    {
+      "phase": "changing-static",
+      "command": [
+        "/workspace/target/debug/deps/cross_chain-76c83a5860952289",
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "cross_chain",
+      "command": [
+        "/workspace/target/debug/deps/cross_chain-76c83a5860952289",
+        "--skip",
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "chained_interstate",
+      "command": [
+        "/workspace/target/debug/deps/chained_interstate-1caea1da03c13580",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    },
+    {
+      "phase": "partial_consumption",
+      "command": [
+        "/workspace/target/debug/deps/partial_consumption-7295248a80e7bc45",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "returncode": 0
+    }
+  ],
+  "logs": [
+    {
+      "file": "artifacts/events-protocol/baseline-foundry171.log",
+      "bytes": 2179,
+      "sha256": "064d864e28b3b8259b0edd92f9e51474bda77f82b27e8fee2d3bb19b04365eca",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/core-tests.log",
+      "bytes": 35302,
+      "sha256": "312e5c72e34de237f83f9f50c1be32aea437ddee258baf27e6888871bdd9b110",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/contracts.log",
+      "bytes": 5243,
+      "sha256": "afaa7a8f9fb4c9d33e46c6bfe711e539a2389149a57b780d3d701dc24157c87d",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/protocol-anvil.log",
+      "bytes": 1952,
+      "sha256": "c75d23e5c4a2b8998f57d1f48284c04e230df76aebf049f5f6ddb10bb2c85dcf",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/genesis-check-current-helper.log",
+      "bytes": 116,
+      "sha256": "bc34eb0faf96b3e8ca680e56b8a5ec12cccd2b81e8a49940af4c8dc8390a7592",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/indexer-tests.log",
+      "bytes": 15478,
+      "sha256": "64b3ba672f84be7420240e76a2b7d07da53a641f2d7a541a407442c360850fd7",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/indexer-clippy.log",
+      "bytes": 5295,
+      "sha256": "0fc2eddf149e4a06b025eb534544cc79fb37822d3aebc4e86282073dc7b474b2",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/tooling-tests-final.log",
+      "bytes": 41909,
+      "sha256": "405e34b048ac42d066af9ea607b9569c148a36d20a5e370a010239e62c80f769",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/scan-tests.log",
+      "bytes": 3007,
+      "sha256": "9bed75fcb0285cb6ab6f3f4cba4b525fb476fcb5db9c49d4a3ea2feb8318fddc",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/changing-static.log",
+      "bytes": 301,
+      "sha256": "a85e23cf1a6b6a595266621f5790b7034d663ca343c70e04e744746b2e9efb76",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/cross_chain.log",
+      "bytes": 4467,
+      "sha256": "6b77d47f43a43bd308ddf6248fa670332a3d08f7abf698220a032e6b1f52fa86",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/chained_interstate.log",
+      "bytes": 977,
+      "sha256": "06889c193a7b59891d7cda626d73f75a72643891af93c0459422483d843c53b0",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/partial_consumption.log",
+      "bytes": 3620,
+      "sha256": "e7685a066b7e93d54ec7c0200a7cd97496e70845855b197a589073cde6001620",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/capture-complete.log",
+      "bytes": 301,
+      "sha256": "6df91f5c1968b37f33b9d4544bc29383bc9fc85da00505c50d0e87464d758be0",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/rust-final.log",
+      "bytes": 95284,
+      "sha256": "81b241e8eefca63e1d5a368d59e1e2f64922673aa46a293d0c2e82297f6a43de",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/fmt-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/clippy-final.log",
+      "bytes": 11659,
+      "sha256": "abde667e872a94dd7211e557e873026ca866d926d9fa269e2932c8bf75dabe82",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/signer-check-final.log",
+      "bytes": 20298,
+      "sha256": "ac886f87cda69f8fbeab77f4240e42fb4a864967a01149ffb29654c5fe54d82f",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/signer-clippy-final.log",
+      "bytes": 332,
+      "sha256": "5ad58df1244c62abc49f0b28423253f889b23b0523ef64d143e1ba5568c19648",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/signer-doc-final.log",
+      "bytes": 207,
+      "sha256": "5c2683a76f807671756460c773602b37fe0e8cd9aebe709de4b0797361b659fe",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/shipping-build-final.log",
+      "bytes": 9595,
+      "sha256": "51046683c5ea642858c5c8eb7f28f95363c133b20a9c7c87c1c577584515120a",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    },
+    {
+      "file": "artifacts/events-protocol/genesis-check-final.log",
+      "bytes": 116,
+      "sha256": "bc34eb0faf96b3e8ca680e56b8a5ec12cccd2b81e8a49940af4c8dc8390a7592",
+      "availability": "local-only ignored artifact; no retention guarantee"
+    }
+  ],
+  "shipping_build": "passed; Rust 1.94.0 --locked, Dockerfile.runtime package/target/feature selection, dev optimized profile; release profile and published image not built",
+  "deployment": "not performed",
+  "database_copies": false,
+  "working_tree_code_diff_sha256": "30055c951ead6a7f6fe9b9c297a4bf6eba4d2ba51b611b0df9fd8930a13ff1e6",
+  "working_tree_code_diff_scope": "All tracked changes against fork baseline excluding docs and AGENTS.md; includes preserved pre-existing settlement/timing work. Untracked portable fixture inputs are identified separately.",
+  "portable_fixture_sha256": {
+    "request.protobuf": "2c9c9a2e2cbe29a8d0a3cca20c428b14eadc5bac06aadd47153bed94c62931c0",
+    "cold-request.protobuf": "38200adb289d8dc3da010bba2cb6385cbc3aef914c5142107a1e728d7d94c795",
+    "response.json": "7a5423bc31782dedc30da807fa4ca48bcec31e3a0191446cf568ab9f7f012d43",
+    "identity.json": "7ae95aa0638082ed579be992b51500da2d52a2403782c2f249232012d932f1f4",
+    "chain-config.json": "9ca9a80927c78ea811aeb5315f2aab67cf7887ff6d16d75e700aa2cbba5d9ee3",
+    "l1-genesis.json": "3c6f73e06364566b4d4418af1a15c23c1c5d2e8bed0609270428950b87646ba9"
+  },
+  "shipping_command": "cargo +1.94.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --bin eez-composer --bin eez-follower --bin eez-proof-signer --example genesis_state_root --example genesis_block_hash --example e2e-causal-verify --example verify_blob_evidence",
+  "shipping_executables": {
+    "eez-composer": {
+      "sha256": "5f5a0609acb14fcf0d2ac236416aead0d5b34997114ce975ffba3a7243afae78",
+      "bytes": 804103632
+    },
+    "eez-follower": {
+      "sha256": "024ee98d3314ad0040493fea2738096f2bc47bacd9fe4884f375b33e74a20e9d",
+      "bytes": 656246376
+    },
+    "eez-proof-signer": {
+      "sha256": "43d64303f9d5da066353d6096a0f0e624922f241bc7c5ef34199e66223a9cba9",
+      "bytes": 450137552
+    },
+    "examples/genesis_state_root": {
+      "sha256": "3750377dfba7fae61562a5fad0f4f8cde080781ff16d8ab75f18c77b9ded7d5d",
+      "bytes": 23372288
+    },
+    "examples/genesis_block_hash": {
+      "sha256": "347b06bc52381d1df68cf6cebdeba8e2ac1d12551985322f3f39669434334e37",
+      "bytes": 21938592
+    },
+    "examples/e2e-causal-verify": {
+      "sha256": "12abcc62ce22d782d8f138c812aacbbd4020d5de5c4ed066a8a2273da5f0459f",
+      "bytes": 22885264
+    },
+    "examples/verify_blob_evidence": {
+      "sha256": "fe5dea41397e56d8085dad729aceb0ca0065f54ef0eab904da280f12f1486ea0",
+      "bytes": 24492392
+    }
+  }
+}

@@ -17,318 +17,163 @@
   },
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Composer scrape",
-      "description": "Prometheus can scrape the process. This does not establish queue collection or settlement health.",
+      "id": 3,
+      "type": "timeseries",
+      "title": "Cross-chain queue",
+      "description": "Queued requests await composition, including blocked or not-yet-evaluated requests. In-flight requests are reserved for composition or awaiting settlement evidence. These are disjoint states; a move between them is not proof of completion. Inbound originates on L1; outbound originates on L2. Missing or stale telemetry stays a gap, never zero. The queue is in memory and may reset on restart.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
-        "w": 8,
-        "h": 4
+        "y": 26,
+        "w": 24,
+        "h": 9
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"eez-composer-reth\"}",
-          "instant": true,
-          "legendFormat": "{{instance}}"
+          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"queued\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}} \u00b7 queued",
+          "range": true,
+          "interval": "1s"
+        },
+        {
+          "refId": "B",
+          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"in_flight\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{direction}} \u00b7 in-flight",
+          "range": true,
+          "interval": "1s"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Unknown",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 2
-              }
-            ]
+          "decimals": 0,
+          "min": 0,
+          "noValue": "-",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "spanNulls": false,
+            "showPoints": "never"
           },
           "mappings": [
             {
-              "type": "value",
+              "type": "special",
               "options": {
-                "0": {
-                  "text": "Down",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "Up",
-                  "color": "green"
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
                 }
               }
             }
           ]
         },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Queue sample age",
-      "description": "Age of the last successful membership/telemetry sample. Sampling and scraping run every second. Queue charts hide samples at least 10 seconds old. This timestamp is independent of source-state evaluation.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 8,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "(time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) and (reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"} > 0)",
-          "instant": true,
-          "legendFormat": "{{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^inbound \u00b7"
+            },
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^outbound \u00b7"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "in-flight$"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
               },
               {
-                "color": "red",
-                "value": 10
+                "id": "custom.fillOpacity",
+                "value": 0
               }
             ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
-      }
-    },
-    {
-      "id": 3,
-      "type": "timeseries",
-      "title": "Queued cross-chain requests",
-      "description": "Held requests awaiting composition, including requests that may be blocked or not yet evaluated. Inbound originates on L1; outbound originates on L2. Values are sampled; brief transitions may not be visible. Missing or stale telemetry is a gap, never an empty queue. Queue state is in memory and may reset on restart.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 24,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"queued\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "legendFormat": "{{direction}} \u00b7 rollup {{rollup_id}} \u00b7 {{instance}}",
-          "range": true,
-          "interval": "1s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "min": 0,
-          "noValue": "Unknown",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "spanNulls": false,
-            "showPoints": "never"
           }
-        },
-        "overrides": []
+        ]
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
+          "displayMode": "table",
+          "placement": "right",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 4,
-      "type": "timeseries",
-      "title": "In-flight cross-chain requests",
-      "description": "Outstanding held-pool reservations, including composition and waiting for settlement evidence. This is not the number of concurrently executing requests or a count of all unsettled historical transactions. Values are sampled; brief transitions may not be visible. Missing or stale telemetry is a gap, never an empty queue. Queue state is in memory and may reset on restart.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 13,
-        "w": 24,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"in_flight\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "legendFormat": "{{direction}} \u00b7 rollup {{rollup_id}} \u00b7 {{instance}}",
-          "range": true,
-          "interval": "1s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "min": 0,
-          "noValue": "Unknown",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Last evaluation age",
-      "description": "Age of the last source-state evaluation start, not sample age or completion time. It may increase when idle. Unknown before evaluation or after reorg invalidation. Read alongside the last-evaluated readiness charts.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 8,
-        "h": 4
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "((time() - reth_eez_composer_queue_evaluation_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "instant": true,
-          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "Unknown",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "width": 280
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hideZeros": false
+        }
       }
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "Last-evaluated queue readiness",
-      "description": "Cached ready / blocked / unknown classifications of queued requests across both directions. They sum to queued membership in each pool snapshot. Consult Last evaluation age: a fresh sample does not establish fresh readiness. In-flight work is excluded.",
+      "description": "Cached ready / blocked / awaiting-evaluation classifications of queued requests across both directions. They sum to queued membership in each pool snapshot. A fresh sample does not establish a recent evaluation; readiness can remain cached while idle. In-flight work is excluded. Awaiting evaluation means no valid ready/blocked classification is recorded for the current evaluated source state; this includes new requests and invalidated earlier evaluations.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 9
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "legendFormat": "{{status}} \u00b7 rollup {{rollup_id}}",
+          "expr": "reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{status}}",
           "range": true,
           "interval": "1s"
         }
@@ -337,7 +182,7 @@
         "defaults": {
           "unit": "short",
           "min": 0,
-          "noValue": "Unknown",
+          "noValue": "-",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "stepAfter",
@@ -345,18 +190,52 @@
             "fillOpacity": 10,
             "spanNulls": false,
             "showPoints": "never"
-          }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unknown"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Awaiting evaluation"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
+          "displayMode": "table",
+          "placement": "right",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
-          ]
+          ],
+          "width": 220
         },
         "tooltip": {
           "mode": "multi",
@@ -368,22 +247,22 @@
       "id": 7,
       "type": "timeseries",
       "title": "Last-evaluated blocking reasons",
-      "description": "Queued requests blocked by nonce, fee, balance or escrow, including affected successors. Across both directions. These are cached observations from the last evaluated source state; consult Last evaluation age.",
+      "description": "Queued requests blocked by nonce, fee, balance or escrow, including affected successors. Across both directions. These are cached observations from the last evaluated source state. They can remain cached while idle.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 9
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "reth_eez_composer_queue_blocked_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "legendFormat": "{{reason}} \u00b7 rollup {{rollup_id}}",
+          "expr": "reth_eez_composer_queue_blocked_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "{{reason}}",
           "range": true,
           "interval": "1s"
         }
@@ -392,7 +271,7 @@
         "defaults": {
           "unit": "short",
           "min": 0,
-          "noValue": "Unknown",
+          "noValue": "-",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "stepAfter",
@@ -400,18 +279,39 @@
             "fillOpacity": 10,
             "spanNulls": false,
             "showPoints": "never"
-          }
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
+          "displayMode": "table",
+          "placement": "right",
           "calcs": [
-            "lastNotNull",
+            "last",
             "max"
-          ]
+          ],
+          "width": 220
         },
         "tooltip": {
           "mode": "multi",
@@ -423,22 +323,22 @@
       "id": 8,
       "type": "timeseries",
       "title": "Oldest tracked pending request",
-      "description": "Age since the earliest retained in-memory admission among queued and in-flight requests. Replacement starts a new admission. Recovery preserves retained timestamps. Empty queue or missing history is unknown. This is not end-to-end latency.",
+      "description": "Age since the earliest retained in-memory admission among queued and in-flight requests. Replacement starts a new admission. Recovery preserves retained timestamps. Empty queue or missing history is unknown, never a zero age. Last is the last plotted sample. The Oldest age metrics card at the top uses two-second samples independently of plot resolution. This is not end-to-end transaction latency.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 31,
-        "w": 12,
+        "y": 44,
+        "w": 24,
         "h": 9
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}",
+          "expr": "((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
+          "legendFormat": "Oldest request age",
           "range": true,
           "interval": "1s"
         }
@@ -447,26 +347,51 @@
         "defaults": {
           "unit": "s",
           "min": 0,
-          "noValue": "Unknown",
+          "noValue": "-",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "stepAfter",
             "lineWidth": 2,
             "fillOpacity": 10,
             "spanNulls": false,
-            "showPoints": "never"
+            "showPoints": "never",
+            "axisLabel": "Age"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
+          "displayMode": "table",
+          "placement": "right",
           "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+            "last"
+          ],
+          "width": 280
         },
         "tooltip": {
           "mode": "multi",
@@ -475,124 +400,1505 @@
       }
     },
     {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Metrics endpoint scrape duration",
-      "description": "Prometheus still fetches and parses the full Reth endpoint before retaining the allowlisted queue metrics. Scrape interval and timeout are one second. This measures scrape elapsed time, not CPU overhead.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "eez-prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 31,
-        "w": 12,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "scrape_duration_seconds{job=\"eez-composer-reth\"}",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "interval": "1s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0,
-          "noValue": "Unknown",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "spanNulls": false,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "id": 10,
+      "id": 11,
       "type": "stat",
-      "title": "Last cross-chain completion age",
-      "description": "Local observation time of the latest retained canonical cross-chain completion. Unknown on restart or invalidating reorg. A quiet period is not automatically a stall; use the Settlement dashboard for policy triggers and submission observations.",
+      "title": "Outstanding requests",
+      "description": "All held requests: queued plus in-flight. Inbound originates on L1; outbound on L2. These are outstanding requests, not completed transaction counts. Instant snapshot at the selected end time (now for a live time range), refreshed every five seconds. Stale or missing telemetry shows Unavailable, never an empty queue. Individual gauge reads may straddle an update.",
       "datasource": {
         "type": "prometheus",
         "uid": "eez-prometheus"
       },
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "timeFrom": "1m",
+      "hideTimeOverride": true,
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scalar(sum(reth_eez_composer_queue_requests{job=\"eez-composer-reth\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Total",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "scalar(sum(reth_eez_composer_queue_requests{job=\"eez-composer-reth\",direction=\"inbound\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Inbound",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "scalar(sum(reth_eez_composer_queue_requests{job=\"eez-composer-reth\",direction=\"outbound\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Outbound",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "-",
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inbound"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Outbound"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 13,
+          "valueSize": 28
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Processing",
+      "description": "Queued requests await composition. In-flight requests are reserved for composition or awaiting settlement evidence. The two states are disjoint and sum to outstanding requests. Instant snapshot at the selected end time (now for a live time range), refreshed every five seconds. Stale or missing telemetry shows Unavailable, never an empty queue. Individual gauge reads may straddle an update.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "timeFrom": "1m",
+      "hideTimeOverride": true,
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scalar(sum(reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"queued\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Queued",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "scalar(sum(reth_eez_composer_queue_requests{job=\"eez-composer-reth\",state=\"in_flight\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "In-flight",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "-",
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Queued"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "In-flight"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 13,
+          "valueSize": 28
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Queued readiness",
+      "description": "Breakdown of queued requests across both directions. Ready + blocked + awaiting evaluation = queued in each pool snapshot. Readiness is cached from the last valid source-state evaluation; in-flight requests are excluded. Instant snapshot at the selected end time (now for a live time range), refreshed every five seconds. Stale or missing telemetry shows Unavailable, never an empty queue. Individual gauge reads may straddle an update.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 11,
+        "y": 0,
+        "w": 7,
+        "h": 4
+      },
+      "timeFrom": "1m",
+      "hideTimeOverride": true,
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scalar(sum(reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\",status=\"ready\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Ready",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "scalar(sum(reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\",status=\"blocked\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Blocked",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "C",
+          "expr": "scalar(sum(reth_eez_composer_queue_readiness_requests{job=\"eez-composer-reth\",status=\"unknown\"} and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)))",
+          "legendFormat": "Awaiting evaluation",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "decimals": 0,
+          "noValue": "-",
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ready"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blocked"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Awaiting evaluation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 28
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Oldest age metrics",
+      "description": "Minimum, maximum and arithmetic mean of the oldest tracked pending-request age, evaluated every two seconds over the selected period. Only valid nonempty-queue samples contribute; missing, stale and empty-queue observations are excluded. Average describes the oldest-age signal while requests are present, not mean waiting time per transaction. Peaks between samples can still be missed. A dash means no valid observations in the selected range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scalar(min_over_time((((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1))[$__range:2s]))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "Minimum"
+        },
+        {
+          "refId": "B",
+          "expr": "scalar(max_over_time((((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1))[$__range:2s]))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "Maximum"
+        },
+        {
+          "refId": "C",
+          "expr": "scalar(avg_over_time((((time() - reth_eez_composer_queue_oldest_pending_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= -3) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1))[$__range:2s]))",
+          "instant": true,
+          "range": false,
+          "legendFormat": "Average"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "-",
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Minimum"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Maximum"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "wideLayout": false,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 20
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Posting outcomes by target slot",
+      "description": "Selected time range. Denominator: distinct target timestamps for which Composer recorded a posting attempt, including preparation failures. Each outcome counts distinct target slots. Only targets before the latest indexed L1 header are counted. An unclassified or deferred attempt remains in the denominator. 0/0 means no eligible target slots in the range. Categories are independent slot counts, not a distribution of attempts: a slot with preparation failures followed by inclusion counts in both columns, and repeated failures in one slot count once. Preparation failed covers recorded proving-stage failures; it does not count every construction or admission deferral.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
         "w": 24,
         "h": 4
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "((time() - reth_eez_composer_queue_last_completion_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and on(job, instance, rollup_id) (((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) >= 0) and ((time() - reth_eez_composer_queue_sample_timestamp_seconds{job=\"eez-composer-reth\"}) < 10)) and on(job, instance) (up{job=\"eez-composer-reth\"} == 1)",
-          "instant": true,
-          "legendFormat": "rollup {{rollup_id}} \u00b7 {{instance}}"
+          "datasource": {
+            "type": "postgres",
+            "uid": "eez-indexer-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH eligible AS (\n  SELECT expected_l1_time, outcome\n  FROM eez_indexer.posting_diagnostics\n  WHERE $__timeFilter(expected_l1_time)\n    AND expected_l1_time < (SELECT to_timestamp(max(timestamp)) FROM eez_indexer.blocks)\n), counts AS (\n  SELECT count(DISTINCT expected_l1_time) AS slots,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Included at target') AS included,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Network slot skipped') AS skipped,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Block produced without inclusion') AS produced_without_inclusion,\n    count(DISTINCT expected_l1_time) FILTER (WHERE outcome='Preparation failed') AS preparation_failed\n  FROM eligible\n)\nSELECT concat(included,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*included/slots,1)::text || '%' END,')') AS \"Included at target\",\n  concat(skipped,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*skipped/slots,1)::text || '%' END,')') AS \"Network slot skipped\",\n  concat(produced_without_inclusion,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*produced_without_inclusion/slots,1)::text || '%' END,')') AS \"Block produced without inclusion\",\n  concat(preparation_failed,'/',slots,' (',CASE WHEN slots=0 THEN '\u2014' ELSE round(100.0*preparation_failed/slots,1)::text || '%' END,')') AS \"Preparation failed\"\nFROM counts",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "noValue": "\u2014"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Why Composer attempted a posting",
+      "description": "Selected time range, grouped by recorded policy reasons at preparation. A posting attempt can have several reasons, so counts and percentages across rows can exceed the total. Included at target is a canonical outcome for attempts with that reason. Not recorded means no policy reason was captured, commonly because preparation failed before one was available. These are observed attempts, not all policy evaluations.",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "eez-indexer-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "WITH attempts AS (\n  SELECT p.attempt_id, p.trigger_reasons, p.outcome\n  FROM eez_indexer.posting_diagnostics p\n  WHERE $__timeFilter(p.time)\n), totals AS (\n  SELECT count(*) AS attempts FROM attempts\n), expanded AS (\n  SELECT p.attempt_id, p.outcome, r.reason\n  FROM attempts p\n  CROSS JOIN LATERAL (\n    SELECT DISTINCT value AS reason\n    FROM jsonb_array_elements_text(coalesce(nullif(nullif(p.trigger_reasons,'null'::jsonb),'[]'::jsonb),'[\"unavailable\"]'::jsonb))\n  ) r\n), counts AS (\n  SELECT reason, count(*) AS attempts,\n    count(*) FILTER (WHERE outcome='Included at target') AS included\n  FROM expanded GROUP BY reason\n)\nSELECT CASE reason\n    WHEN 'general' THEN 'Block threshold'\n    WHEN 'pure_always' THEN 'L2 activity'\n    WHEN 'pure_interval' THEN 'L2 interval'\n    WHEN 'cross_chain' THEN 'Cross-chain work'\n    WHEN 'blob_fullness' THEN 'Blob fullness'\n    WHEN 'drain' THEN 'Remaining batch work'\n    WHEN 'window_limit' THEN 'Batch window limit'\n    ELSE 'Not recorded' END AS \"Trigger\",\n  CASE reason\n    WHEN 'general' THEN 'Unsettled L2 blocks reached the configured limit'\n    WHEN 'pure_always' THEN 'New L2-only activity; always mode'\n    WHEN 'pure_interval' THEN 'L2-only activity after the configured interval'\n    WHEN 'cross_chain' THEN 'Pending cross-chain work needs settlement'\n    WHEN 'blob_fullness' THEN 'Estimated batch reached the blob fullness threshold'\n    WHEN 'drain' THEN 'Finish a previously selected batch range'\n    WHEN 'window_limit' THEN 'Batch window is reaching its limit'\n    ELSE 'No reason captured, often an early preparation failure' END AS \"Meaning\",\n  concat(c.attempts,'/',t.attempts,' (',round(100.0*c.attempts/nullif(t.attempts,0),1),'%)') AS \"Attempts in range\",\n  concat(c.included,'/',c.attempts,' (',round(100.0*c.included/nullif(c.attempts,0),1),'%)') AS \"Included at target\"\nFROM counts c CROSS JOIN totals t\nORDER BY c.attempts DESC, \"Trigger\""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Meaning"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 440
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Posting submissions",
+      "description": "One row per local submission attempt, with reasons captured before its observer starts. Timings are measured inside that attempt: Prepared \u2192 dispatch excludes preceding proof work. Receipt observed is the submitter\u2019s observation; Chain status is joined to current indexed canonical commitments. Missing events flags incomplete retained history. Different attempts at the same L2 height remain separate. History is Intact when the recorded sequence through its latest stage has no missing events. Expected L1 block/time are captured at dispatch. Target result compares the canonical inclusion height with that target; block difference is actual minus expected. Receipt observation delay is the local receipt-event time minus the canonical block timestamp, not inclusion delay. Wall-clock differences require a synchronized host clock. Missing canonical data stays unavailable. Outcome separates local deferral, canonical skipped slots and observed omission from a produced block. External omission reasons remain unknown. Preparation-failure durations end before the first proof call; successful durations measure prepared to dispatch.",
+      "type": "table",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "eez-indexer-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT p.time AS \"Prepared / first seen\", p.l2_block AS \"L2 block\",\nCASE WHEN p.trigger_reasons IS NULL OR p.trigger_reasons='null'::jsonb THEN 'Unavailable'\n ELSE (SELECT string_agg(CASE r WHEN 'general' THEN 'Block threshold' WHEN 'pure_always' THEN 'L2 activity' WHEN 'pure_interval' THEN 'L2 interval' WHEN 'cross_chain' THEN 'Cross-chain work' WHEN 'blob_fullness' THEN 'Blob fullness' WHEN 'drain' THEN 'Remaining batch work' WHEN 'window_limit' THEN 'Batch window limit' END, ', ') FROM jsonb_array_elements_text(p.trigger_reasons) AS r) END AS \"Trigger reasons\",\np.outcome AS \"Latest stage\", p.explanation AS \"Reason\",\ncoalesce(p.preparation_ms,(p.detail->>'preparation_ms')::double precision) AS \"Preparation / dispatch duration\", p.observation_ms AS \"Dispatch \u2192 outcome\",\ncoalesce(p.canonical_l1_block,(p.detail->>'l1_block')::bigint) AS \"L1 block\",\np.target_l1_block AS \"Expected L1 block\", p.expected_l1_time AS \"Expected L1 time\",\np.included_l1_time AS \"Included L1 time\", p.target_result AS \"Target result\",\np.inclusion_block_delta AS \"Block difference\", p.receipt_observation_seconds AS \"Receipt observation delay\",\np.transaction_hash AS \"L1 transaction\", p.chain_status AS \"Chain status\",\nCASE WHEN c.checked_at IS NULL OR c.checked_at < now()-interval '15 seconds' THEN 'Collector unavailable'\n     WHEN c.error IS NOT NULL THEN 'Collector error' ELSE p.history END AS \"History\",\np.attempt_id AS \"Attempt\", p.posting_id AS \"L2 hash\"\nFROM eez_indexer.posting_diagnostics p LEFT JOIN eez_indexer.posting_collection c ON true\nWHERE $__timeFilter(p.time) ORDER BY p.time DESC,p.attempt_id DESC LIMIT 100",
+          "editorMode": "code"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "-",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "-"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preparation / dispatch duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "custom.filterable",
+                "value": false
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Dispatch \u2192 outcome"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 155
+              },
+              {
+                "id": "custom.filterable",
+                "value": false
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 hash"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L2 block"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "L2 block",
+                    "url": "${l2_explorer}/block/${__data.fields[\"L2 hash\"]}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 transaction"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "L1 transaction",
+                    "url": "${l1_explorer}/tx/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Attempt"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              },
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "L1 block"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "L1 block",
+                    "url": "${l1_explorer}/block/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Prepared / first seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trigger reasons"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latest stage"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 240
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Reason"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Chain status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Canonical commitment": {
+                        "text": "Canonical",
+                        "color": "green"
+                      },
+                      "Not in indexed canonical history": {
+                        "text": "Not indexed",
+                        "color": "orange"
+                      },
+                      "No indexed commitment": {
+                        "text": "Not indexed",
+                        "color": "gray"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "History"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 95
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Observed sequence intact": {
+                        "text": "Intact",
+                        "color": "green"
+                      },
+                      "Missing events": {
+                        "text": "Incomplete",
+                        "color": "orange"
+                      },
+                      "Collector error": {
+                        "text": "Error",
+                        "color": "red"
+                      },
+                      "Collector unavailable": {
+                        "text": "Unavailable",
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expected L1 block"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "L1 block",
+                    "url": "${l1_explorer}/block/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Expected L1 time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 185
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Included L1 time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 185
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Target result"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 135
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Block difference"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Receipt observation delay"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "title": "Posting timing & outcomes",
+      "type": "timeseries",
+      "description": "Each attempt is positioned at its expected L1 timestamp. All timing points share the left axis: seconds before/after that timestamp; zero is the target. Preparation started is the start of constructing the candidate Sync block (or selecting a historical prefix). Proof requested starts the Composer proving operation; Proof received is its successful return, including RPC waits and retries. Prepared follows signing and precedes final repricing. Failed proofs have no Proof received point; attempts rejected before proving have no proof points. Earlier history lacks these new timestamps. Colored outcome markers use an independent hidden scale near the top, not counts or durations. Detailed attempt information is available in Posting submissions. Multiple attempts can share a target and overlap visually. Attempts without a recorded target appear only in Posting submissions. Canonical inclusion/receipt timing requires canonical evidence. No interpolation; wall-clock offsets can reflect host clock skew.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT p.expected_l1_time AS time,\n(t.preparation_started_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Preparation started\",\n(t.proof_requested_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Proof requested\",\n(t.proof_received_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Proof received\",\n(t.prepared_ms / 1000.0 - extract(epoch FROM p.expected_l1_time))::double precision AS \"Prepared\",\np.dispatch_vs_target_seconds::double precision AS \"Dispatch\",\np.inclusion_vs_target_seconds AS \"Canonical inclusion\",\np.receipt_vs_target_seconds::double precision AS \"Receipt observed\"\nFROM eez_indexer.posting_timing p\nLEFT JOIN LATERAL (\n SELECT\n max((e.data->>'timestamp_ms')::bigint) FILTER (WHERE e.data->>'stage'='prepared') AS prepared_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'preparation_started_ms')='number' THEN (e.data->'detail'->>'preparation_started_ms')::numeric END) AS preparation_started_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'proof_requested_ms')='number' THEN (e.data->'detail'->>'proof_requested_ms')::numeric END) AS proof_requested_ms,\n max(CASE WHEN jsonb_typeof(e.data->'detail'->'proof_received_ms')='number' THEN (e.data->'detail'->>'proof_received_ms')::numeric END) AS proof_received_ms\n FROM eez_indexer.posting_events e\n WHERE e.attempt_id=p.attempt_id AND e.data->>'stage' IN ('prepared','preparation_failed')\n) t ON true\nWHERE $__timeFilter(p.expected_l1_time)\nORDER BY p.expected_l1_time,p.attempt_id"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT p.expected_l1_time AS time, p.outcome AS metric, 1::double precision AS value\nFROM eez_indexer.posting_diagnostics p\nWHERE $__timeFilter(p.expected_l1_time)\nORDER BY p.expected_l1_time,p.attempt_id"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "noValue": "Unknown / not applicable",
+          "decimals": 3,
+          "noValue": "-",
+          "custom": {
+            "drawStyle": "points",
+            "showPoints": "always",
+            "pointSize": 7,
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisLabel": "Seconds relative to expected L1 timestamp",
+            "axisCenteredZero": true,
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "axisPlacement": "left"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "transparent",
                 "value": null
+              },
+              {
+                "color": "gray",
+                "value": 0
               }
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Proof received"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "pink"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Proof requested"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preparation started"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Prepared"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Dispatch"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Canonical inclusion"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Receipt observed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1.15
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Outcome"
+              },
+              {
+                "id": "custom.axisCenteredZero",
+                "value": false
+              },
+              {
+                "id": "custom.axisColorMode",
+                "value": "text"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 11
+              },
+              {
+                "id": "custom.thresholdsStyle",
+                "value": {
+                  "mode": "off"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "Recorded"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Included at target"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Included at another target"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Network slot skipped"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Block produced without inclusion"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Deferred before dispatch"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Preparation failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Observation uncertain"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Awaiting canonical evidence"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "In progress"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Receipt observed; awaiting canonical match"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "right"
         },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       }
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "l1_explorer",
+        "type": "textbox",
+        "query": "https://gnosis-chiado.blockscout.com",
+        "current": {
+          "text": "https://gnosis-chiado.blockscout.com",
+          "value": "https://gnosis-chiado.blockscout.com"
+        },
+        "hide": 2,
+        "label": "L1 explorer URL"
+      },
+      {
+        "name": "l2_explorer",
+        "type": "textbox",
+        "query": "https://explorer.eez.dev",
+        "current": {
+          "text": "https://explorer.eez.dev",
+          "value": "https://explorer.eez.dev"
+        },
+        "hide": 2,
+        "label": "L2 explorer URL"
+      }
+    ]
   },
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "Posting attempt details",
+        "datasource": {
+          "type": "postgres",
+          "uid": "eez-indexer-postgres"
+        },
+        "enable": false,
+        "hide": true,
+        "iconColor": "rgba(170, 170, 170, 1)",
+        "filter": {
+          "exclude": false,
+          "ids": [
+            18
+          ]
+        },
+        "target": {
+          "refId": "Anno",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT p.expected_l1_time AS time,\nconcat('Outcome: ',p.outcome,'<br>Attempt: ',p.attempt_id,\n'<br>Expected L1 block: ',p.target_l1_block,'<br>L2 sync block: ',p.l2_block,\n'<br>Reason: ',p.explanation,'<br>L1 transaction: ',coalesce(p.transaction_hash,'Not signed')) AS text,\np.outcome AS tags\nFROM eez_indexer.posting_diagnostics p\nWHERE $__timeFilter(p.expected_l1_time)\nORDER BY p.expected_l1_time,p.attempt_id"
+        }
+      }
+    ]
   },
   "links": [
     {
       "type": "link",
-      "title": "Settlement",
-      "url": "/d/eez-settlement"
+      "title": "Settlement history",
+      "url": "/d/eez-settlement-history"
     }
   ]
 }

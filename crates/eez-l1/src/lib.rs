@@ -47,4 +47,6 @@ pub use reconciled_settlement::{
 #[doc(inline)]
 pub use scan::{BatchLogChunks, ScannedBatch, Settlement};
 #[doc(inline)]
-pub use submitter::{BundleDropReason, BundleTarget, SendOutcome, Submitter};
+pub use submitter::{
+    BundleDropReason, BundleTarget, PolicySubmissionFailure, SendOutcome, Submitter,
+};

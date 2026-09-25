@@ -637,6 +637,9 @@ where
         // Before the composition: a pending verdict would seed the whole burst
         // on a doomed head, for compose_sync_slot to reorg away at its end.
         composer.recover_failed(rollup_id).await;
+        composer
+            .prepare_next_slot(rollup_id, l1_head + 1, sync_slot_timestamp)
+            .await;
         let head = self.committer.last_header().number();
         // Catchup ignores the speculative cap (a steady-state bound): a
         // dropped pb heals by recomposing next trigger, which freezing to

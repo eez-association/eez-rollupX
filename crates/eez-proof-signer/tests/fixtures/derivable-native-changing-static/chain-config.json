@@ -1,0 +1,21 @@
+{
+  "berlinBlock": 0,
+  "byzantiumBlock": 0,
+  "cancunTime": 0,
+  "chainId": 1,
+  "constantinopleBlock": 0,
+  "daoForkSupport": false,
+  "eip150Block": 0,
+  "eip155Block": 0,
+  "eip158Block": 0,
+  "homesteadBlock": 0,
+  "istanbulBlock": 0,
+  "londonBlock": 0,
+  "mergeNetsplitBlock": 0,
+  "osakaTime": 0,
+  "petersburgBlock": 0,
+  "pragueTime": 0,
+  "shanghaiTime": 0,
+  "terminalTotalDifficulty": 0,
+  "terminalTotalDifficultyPassed": true
+}

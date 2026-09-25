@@ -9,7 +9,7 @@ ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 source "$K/scripts/lib.sh"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
-EXPECTED_PROXY_ADDRESS="0x15ea912b805e733b3899149409acead6f56f0e16"
+EXPECTED_PROXY_ADDRESS="0xa23698cefade17c7a50c1a7e0e0eb54ae6e5aa12"
 
 for tool in cast jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not in PATH" >&2; exit 1; }

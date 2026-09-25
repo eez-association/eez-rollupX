@@ -17,6 +17,12 @@ contract Value {
         value = initial;
     }
 
+    /// Stable read used to test mixed read/write groups independently of the
+    /// execution-position-dependent result selection.
+    function readMarker(uint256 marker) external pure returns (uint256) {
+        return marker;
+    }
+
     /// Sets `value` and returns the result the cross-chain caller sees
     /// synchronously on L1: whether the value actually changed, and the
     /// new value. The composer captures this return tuple from the L2

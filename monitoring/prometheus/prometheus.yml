@@ -4,8 +4,8 @@ global:
 
 scrape_configs:
   - job_name: eez-composer-reth
-    scrape_interval: 1s
-    scrape_timeout: 1s
+    scrape_interval: 3s
+    scrape_timeout: 3s
     metrics_path: /metrics
     static_configs:
       - targets:
@@ -14,5 +14,5 @@ scrape_configs:
     # explicitly Composer-owned queue families for this first dashboard.
     metric_relabel_configs:
       - source_labels: [__name__]
-        regex: reth_eez_composer_(queue_(requests|readiness_requests|blocked_requests|sample_timestamp_seconds|oldest_pending_timestamp_seconds|evaluation_timestamp_seconds|last_completion_timestamp_seconds)|settlement_(due|trigger|anchor_timestamp_seconds|anchor_l2_block|unsettled_blocks|block_threshold|pure_interval_deadline_timestamp_seconds|target_timestamp_seconds|evaluation_timestamp_seconds|submission))
+        regex: reth_eez_composer_(queue_(last_completion_l1_block|completion_observations_total|requests|readiness_requests|blocked_requests|sample_timestamp_seconds|oldest_pending_timestamp_seconds|evaluation_timestamp_seconds|last_completion_timestamp_seconds)|submission_(events_total|event_timestamp_seconds|exclusions_total|duration_seconds(_sum|_count)?|last_duration_seconds|target_l1_block|target_timestamp_seconds|included_l1_block|sync_l2_block|sync_requests|sync_requests_per_attempt(_sum|_count)?)|settlement_(anchor_l1_block|due|trigger|anchor_timestamp_seconds|anchor_l2_block|unsettled_blocks|block_threshold|pure_interval_deadline_timestamp_seconds|target_timestamp_seconds|evaluation_timestamp_seconds|submission))
         action: keep

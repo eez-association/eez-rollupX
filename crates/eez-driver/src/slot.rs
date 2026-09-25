@@ -13,6 +13,8 @@
 //!   and sleeps until `L1.timestamp + proof_window_open` after each
 //!   head — i.e. the wall-clock moment when the prover should start
 //!   so the postBatch bundle reaches the relay before the next L1 block.
+//!   If that block is absent, one additional trigger targets the following
+//!   timestamp on the same L1 parent; a new head replaces the pending timer.
 //! - [`SlotEvent::LiveTick`] — wall-clock `l2_block_time` tick, also
 //!   produced by [`spawn_l1_anchored`] between sync-slot triggers, so
 //!   the RPC head advances one Live block per cadence instead of in
@@ -80,7 +82,8 @@ pub enum SlotEvent {
         /// L2 block height the Sync block will land at.
         block_height: u64,
         /// Wall-clock unix timestamp the Sync block will advertise.
-        /// = `L1.timestamp_of_anchor + L1_block_time`.
+        /// Normally `L1.timestamp_of_anchor + L1_block_time`; one missing-slot
+        /// replacement may target the following timestamp on the same parent.
         timestamp: u64,
         /// L1 block this slot is anchored to; the postBatch targets
         /// `l1_head + 1` in steady state.
@@ -196,6 +199,13 @@ pub trait SyncSlotComposer: Send + Sync + 'static {
     async fn recover_failed(&self, rollup_id: u64) {
         let _ = rollup_id;
     }
+
+    /// Before building the next interval, optionally replace an unresolved
+    /// speculative suffix whose observation deadline has passed. This is not
+    /// a settlement verdict; canonical replay still decides which batch won.
+    async fn prepare_next_slot(&self, rollup_id: u64, target: u64, timestamp: u64) {
+        let _ = (rollup_id, target, timestamp);
+    }
 }
 
 /// Cheap clone-able handle for a [`SyncSlotComposer`].
@@ -216,6 +226,7 @@ struct PendingSyncSlot {
     l1_head: u64,
     /// L1 block timestamp of the anchoring head (logging only).
     l1_timestamp: u64,
+    replacement: bool,
 }
 
 impl PendingSyncSlot {
@@ -232,7 +243,27 @@ impl PendingSyncSlot {
             timestamp,
             l1_head: head.block_number,
             l1_timestamp: head.timestamp,
+            replacement: false,
         }
+    }
+
+    /// One extra opportunity per observed head bounds work during an outage.
+    /// A missing slot advances time, not the execution block number.
+    fn replacement(self, timing: RollupTiming) -> Option<Self> {
+        if self.replacement {
+            return None;
+        }
+        Some(Self {
+            trigger_at_ms: self
+                .trigger_at_ms
+                .checked_add(u64::try_from(timing.l1_block_time().as_millis()).ok()?)?,
+            block_height: self.block_height.checked_add(u64::from(timing.k()))?,
+            timestamp: self
+                .timestamp
+                .checked_add(timing.l1_block_time().as_secs())?,
+            replacement: true,
+            ..self
+        })
     }
 
     fn remaining(self, now_ms: u64) -> Duration {
@@ -253,6 +284,8 @@ impl PendingSyncSlot {
 ///    — the moment preparation should start so proof and submission finish
 ///    before the next L1 block lands.
 /// 3. When the trigger instant passes, send [`SlotEvent::SyncSlot`].
+/// 4. Arm one further preparation deadline on the same head. A new head
+///    supersedes it; without a new head it fires once, then remains disarmed.
 ///
 /// Between anchor triggers an internal `l2_block_time` ticker emits
 /// [`SlotEvent::LiveTick`] carrying the latest anchor-computed sync
@@ -280,8 +313,8 @@ pub fn spawn_l1_anchored(
         // Latest anchor-computed sync-slot height. None until the
         // first L1 head; LiveTicks are suppressed until then.
         let mut latest_sync_height: Option<u64> = None;
-        // Armed sync-slot trigger. None while idle between fire and
-        // the next L1 head.
+        // One ordinary trigger and at most one replacement per observed head.
+        // Disarm after the replacement until a new L1 head arrives.
         let mut pending: Option<PendingSyncSlot> = None;
 
         loop {
@@ -311,7 +344,7 @@ pub fn spawn_l1_anchored(
                     let next = PendingSyncSlot::new(head, timing, l2_genesis_timestamp);
                     let block_height = next.block_height;
 
-                    if let Some(stale) = pending {
+                    if let Some(stale) = pending.filter(|slot| !slot.replacement) {
                         // Only reachable when heads arrive faster than
                         // proof_window_open apart — a watcher catch-up
                         // burst. The newest anchor wins; the Sequencer's
@@ -332,6 +365,8 @@ pub fn spawn_l1_anchored(
                     let fired = pending
                         .take()
                         .expect("branch enabled only while pending.is_some()");
+                    pending = fired.replacement(timing);
+                    latest_sync_height = Some(fired.block_height);
                     event!(
                         name: "eez.slot.l1_anchored.trigger",
                         Level::DEBUG,
@@ -395,6 +430,43 @@ pub(crate) fn now_unix_millis() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_slot_replacement_advances_time_once_without_inventing_an_l1_block() {
+        let timing = RollupTiming::new(5000, 1000, 1000, 700).with_preparation_time_ms(500);
+        let first = PendingSyncSlot::new(
+            eez_l1::L1HeadInfo {
+                block_number: 7,
+                block_hash: [1; 32],
+                timestamp: 100,
+            },
+            timing,
+            1,
+        );
+        let retry = first.replacement(timing).unwrap();
+        assert_eq!((first.timestamp, first.trigger_at_ms), (105, 102_800));
+        assert_eq!(
+            (
+                retry.timestamp,
+                retry.trigger_at_ms,
+                retry.block_height,
+                retry.l1_head
+            ),
+            (110, 107_800, 109, 7)
+        );
+        assert!(retry.replacement(timing).is_none());
+        let delayed = PendingSyncSlot::new(
+            eez_l1::L1HeadInfo {
+                block_number: 8,
+                block_hash: [2; 32],
+                timestamp: 105,
+            },
+            timing,
+            1,
+        );
+        assert_eq!(delayed.timestamp, retry.timestamp);
+        assert_eq!(delayed.l1_head, 8);
+    }
 
     #[test]
     fn scheduler_preserves_fractional_trigger_and_catches_up_without_extending_it() {
