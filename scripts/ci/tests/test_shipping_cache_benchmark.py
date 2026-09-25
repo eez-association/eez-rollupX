@@ -207,6 +207,8 @@ class ShippingCacheBenchmarkTest(unittest.TestCase):
                          {"push": {"branches": ["test/rollupx-cache-benchmark"]}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["restore"]["needs"], "seed")
+        self.assertEqual(workflow["jobs"]["seed"]["needs"], "mutations")
+        self.assertEqual(workflow["env"]["SHIPPING_SEED_KEY"], "rollupx-shipping-probe-v1-36182979151-1")
         key = workflow["env"]["BENCH_CACHE_KEY"]
         self.assertIn("github.run_id", key)
         self.assertIn("github.run_attempt", key)
@@ -217,8 +219,12 @@ class ShippingCacheBenchmarkTest(unittest.TestCase):
                 self.assertNotIn("docker push", step.get("run", ""))
                 if step.get("uses", "").startswith("actions/cache/"):
                     caches.append(step["with"])
+        self.assertEqual(len(caches), 4)
+        self.assertEqual(caches[0], caches[1])
         self.assertEqual(caches[0]["path"], "artifacts/shipping-cache/state.tar.gz")
-        self.assertEqual(caches[0]["path"], caches[1]["path"])
-        self.assertEqual(caches[0]["key"], caches[1]["key"])
-        self.assertTrue(caches[1]["fail-on-cache-miss"])
-        self.assertNotIn("restore-keys", caches[1])
+        self.assertEqual(caches[2]["path"], "artifacts/shipping-cache/test-state.tar.gz")
+        self.assertEqual(caches[2]["path"], caches[3]["path"])
+        self.assertEqual(caches[2]["key"], caches[3]["key"])
+        for index in (0, 1, 3):
+            self.assertTrue(caches[index]["fail-on-cache-miss"])
+            self.assertNotIn("restore-keys", caches[index])
