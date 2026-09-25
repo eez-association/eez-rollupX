@@ -94,9 +94,13 @@ class CargoCacheProbeTest(unittest.TestCase):
         self.assertNotIn("--archive", args)
         self.assertNotIn("-a", args)
 
-    def test_workflow_is_manual_and_cache_is_scoped_to_one_attempt(self):
+    def test_workflow_is_branch_scoped_and_cache_is_scoped_to_one_attempt(self):
         workflow = yaml.safe_load((REPO / ".github/workflows/cargo-cache-probe.yml").read_text())
-        self.assertEqual(set(workflow.get("on", workflow.get(True))), {"workflow_dispatch"})
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(set(events), {"workflow_dispatch", "push"})
+        self.assertEqual(events["push"], {"branches": ["test/cargo-cache-probe-run"]})
+        ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
+        self.assertEqual(ci.get("on", ci.get(True))["push"], {"branches": ["main"]})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["restore"]["needs"], "seed")
         key = workflow["env"]["PROBE_CACHE_KEY"]
@@ -105,7 +109,7 @@ class CargoCacheProbeTest(unittest.TestCase):
         self.assertEqual(workflow["env"]["PROBE_IMAGE"], probe.RUST_IMAGE)
         caches = []
         for job in workflow["jobs"].values():
-            self.assertEqual(job["runs-on"], "${{ inputs.runner }}")
+            self.assertEqual(job["runs-on"], "${{ inputs.runner || 'ubuntu-24.04' }}")
             for step in job["steps"]:
                 if step.get("uses", "").startswith("actions/cache/"):
                     caches.append(step)

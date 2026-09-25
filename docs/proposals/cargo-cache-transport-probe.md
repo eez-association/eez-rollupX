@@ -3,6 +3,12 @@
 Status: isolated manual experiment; not a replacement for production CI.
 This standalone probe does not change production build workflows or caches.
 
+Temporary execution branch exception: `test/cargo-cache-probe-run` adds a push
+trigger restricted to that exact branch, with GitHub-hosted runners as the
+fallback when no manual input exists. No PR is opened from this branch; normal
+CI's push trigger remains restricted to main. PR #38 stays unmerged and retains
+the manual-only workflow. These temporary trigger changes are not for merging.
+
 ## Why this step
 
 The operator's 2026-09-25 ARC diagnostics confirm disposable workspaces and

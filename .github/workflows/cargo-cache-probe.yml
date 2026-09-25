@@ -2,6 +2,9 @@ name: Cargo cache transport probe
 
 # Experimental: no automatic PR/main runs, image publication or production caches.
 on:
+  # Temporary execution branch only; never open a PR from this branch.
+  push:
+    branches: [test/cargo-cache-probe-run]
   workflow_dispatch:
     inputs:
       runner:
@@ -14,17 +17,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: cargo-cache-probe-${{ inputs.runner }}
+  group: cargo-cache-probe-${{ inputs.runner || 'ubuntu-24.04' }}
   cancel-in-progress: false
 
 env:
   PROBE_IMAGE: rust@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
   # Identical relative path and exact key in both jobs; no broad restore prefixes.
-  PROBE_CACHE_KEY: cargo-transport-probe-v2-${{ inputs.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
+  PROBE_CACHE_KEY: cargo-transport-probe-v2-${{ inputs.runner || 'ubuntu-24.04' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   seed:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -53,7 +56,7 @@ jobs:
 
   restore:
     needs: seed
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
