@@ -35,6 +35,12 @@ fn data_build_error(message: impl Into<String>) -> PayloadBuilderError {
     PayloadBuilderError::other(std::io::Error::other(message.into()))
 }
 
+fn full_block_item_bytes(block: &impl Encodable) -> usize {
+    // V0 wraps canonical block RLP as a byte string, not a Vec<u8> integer list.
+    // Keep cached, completed and empty payload checks in the same units.
+    alloy_rlp::encode(block).as_slice().length()
+}
+
 /// Installed before RPC/payload startup and bound once the composer exists.
 /// Weak ownership avoids a cycle through the composer's payload-builder handle.
 pub struct SequencingDataGuard {
@@ -204,7 +210,7 @@ where
             // cached candidate merely because it paid a higher execution tip.
             args.best_payload = args
                 .best_payload
-                .filter(|p| alloy_rlp::encode(p.block()).length() <= limit);
+                .filter(|p| full_block_item_bytes(p.block()) <= limit);
         }
         let outcome = reth_ethereum_payload_builder::default_ethereum_payload(
             self.evm_config.clone(),
@@ -231,7 +237,7 @@ where
             },
         )?;
         if let (Some(limit), Some(payload)) = (limit, outcome.payload()) {
-            let actual = alloy_rlp::encode(payload.block()).length();
+            let actual = full_block_item_bytes(payload.block());
             if actual > limit {
                 return Err(data_build_error(format!(
                     "sequencing DA invariant: actual encoded block {actual} exceeds {limit}"
@@ -269,7 +275,7 @@ where
             self.config.clone(),
         );
         let payload = inner.build_empty_payload(config)?;
-        if limit.is_some_and(|n| alloy_rlp::encode(payload.block()).length() > n) {
+        if limit.is_some_and(|n| full_block_item_bytes(payload.block()) > n) {
             return Err(data_build_error(
                 "empty block exceeds sequencing data budget",
             ));
@@ -352,6 +358,47 @@ mod tests {
     };
 
     type Tx = Arc<ValidPoolTransaction<EthPooledTransaction>>;
+
+    #[test]
+    fn payload_checks_measure_the_v0_byte_string_not_an_integer_list() {
+        use alloy_consensus::{BlockBody, Header};
+
+        for byte in [0, 0x7f, 0x80, 0xff] {
+            for length in [0, 55, 56, 70_000, 126_976] {
+                let transaction = TransactionSigned::new_unhashed(
+                    Transaction::Legacy(TxLegacy {
+                        input: vec![byte; length].into(),
+                        to: TxKind::Call(Address::ZERO),
+                        ..Default::default()
+                    }),
+                    Signature::new(U256::ONE, U256::ONE, false),
+                );
+                for transactions in [vec![], vec![transaction]] {
+                    let bound = transactions
+                        .iter()
+                        .fold(BlockDaSizer::new(BUILDER_EXTRA_DATA), |s, tx| {
+                            s.with_transaction(&alloy_rlp::encode(tx)).unwrap()
+                        });
+                    let block = reth_ethereum_primitives::Block::new(
+                        Header {
+                            extra_data: Bytes::from_static(BUILDER_EXTRA_DATA),
+                            ..Default::default()
+                        },
+                        BlockBody {
+                            transactions,
+                            ..Default::default()
+                        },
+                    );
+                    // Serialize the actual V0 full-block field independently.
+                    let encoded = alloy_rlp::encode(&block);
+                    let expected = alloy_rlp::encode(encoded.as_slice()).len();
+                    let actual = full_block_item_bytes(&block);
+                    assert_eq!(actual, expected, "byte={byte} length={length}");
+                    assert!(actual <= bound.item_bytes().unwrap());
+                }
+            }
+        }
+    }
 
     fn tx(sender: u64, nonce: u64, bytes: usize) -> Tx {
         let transaction = TransactionSigned::new_unhashed(

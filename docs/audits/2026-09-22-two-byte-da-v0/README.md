@@ -6,6 +6,8 @@ Those preserve full contents and execution rules but change wire bytes and capac
 accounting. Follow-up evidence is recorded in [simplification validation](simplification.md).
 The September 24 base/protocol update is tracked separately in the
 [PR #34 update record](pr34-update.md).
+The subsequent PR #37 sequencing-size regression and fix are recorded in
+[CI regression validation](ci-fix.md).
 Historical results and failures below are retained unchanged.
 
 | Field | Value |
