@@ -1,0 +1,6 @@
+# Same Rust base and native build packages as Dockerfile.runtime. No Rust build
+# occurs here: compilation runs in an explicitly bounded docker run container.
+FROM rust@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time \
+    && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,78 @@
+name: RollupX shipping cache benchmark
+
+# Temporary no-PR branch only. Never deploy or publish images from this workflow.
+on:
+  push:
+    branches: [test/rollupx-cache-benchmark]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollupx-shipping-cache-benchmark
+  cancel-in-progress: false
+
+env:
+  BENCH_CACHE_KEY: rollupx-shipping-probe-v1-${{ github.run_id }}-${{ github.run_attempt }}
+  BENCH_IMAGE: eez-shipping-cache-env:${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  seed:
+    runs-on: homelab-rust
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/ci/check-docker.sh
+      - name: Build tools only (no Rust compilation in BuildKit)
+        run: docker build --platform linux/amd64 -f scripts/ci/Dockerfile.cache-benchmark -t "$BENCH_IMAGE" scripts/ci
+      - name: Cold shipping build and capped transport archive
+        run: python3 scripts/ci/rollupx-cache-benchmark.py seed "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
+      - name: Save only the size-checked experiment archive
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: artifacts/shipping-cache/state.tar.gz
+          key: ${{ env.BENCH_CACHE_KEY }}
+      - name: Preserve failed seed diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: shipping-cache-seed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/shipping-cache/*.json
+            artifacts/shipping-cache/*.log
+          retention-days: 3
+
+  restore:
+    needs: seed
+    runs-on: homelab-rust
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - run: bash scripts/ci/check-docker.sh
+      - name: Require fresh job-local state
+        run: test ! -e "$GITHUB_WORKSPACE/artifacts/shipping-cache"
+      - name: Restore this run's exact archive
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: artifacts/shipping-cache/state.tar.gz
+          key: ${{ env.BENCH_CACHE_KEY }}
+          fail-on-cache-miss: true
+      - name: Build identical tools (package identity checked before reuse)
+        run: docker build --platform linux/amd64 -f scripts/ci/Dockerfile.cache-benchmark -t "$BENCH_IMAGE" scripts/ci
+      - name: Reconcile current sources and measure unchanged shipping rebuild
+        run: python3 scripts/ci/rollupx-cache-benchmark.py restore "$GITHUB_WORKSPACE/artifacts/shipping-cache" --image "$BENCH_IMAGE"
+      - name: Preserve failed restore diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: shipping-cache-restore-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/shipping-cache/*.json
+            artifacts/shipping-cache/*.log
+          retention-days: 3
