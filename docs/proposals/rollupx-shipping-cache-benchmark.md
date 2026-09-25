@@ -23,8 +23,10 @@ uses two sequential homelab jobs. Do not open a PR from its execution branch
    the exact runtime package/binary/example selection, release profile and mold
    flags. Keep `CARGO_INCREMENTAL=0`; no sccache or production caches are used.
 3. Record artifact freshness, phase times, cgroup peak memory, seven executable
-   hashes, Cargo home/target size and archive preparation time. Execute `--help`
-   for the three shipping binaries as smoke checks, not semantic validation.
+   hashes, Cargo home/target size and archive preparation time. Persist build
+   measurements before CLI checks. Check help for all three shipping binaries,
+   short help/version and node help for composer/follower, and rejection of an
+   unknown argument for all three. These are CLI checks, not semantic validation.
 4. Archive sources, dependency downloads and compiled state with PAX timestamps.
    Refuse upload above 4 GiB compressed. The run-specific cache has no fallback
    key and the restore job fails on a miss. No cache budget increase or cleanup
@@ -64,6 +66,28 @@ candidate on the same source, resources and workloads, including all transfer
 costs. Production integration also needs compatibility keys, cold-build fallback
 and a reviewed source inventory; none is enabled by this experiment.
 
+## First homelab attempt and retry
+
+[Run 36173369573](https://github.com/eduadiez/rollupX/actions/runs/36173369573)
+compiled the real shipping selection successfully in 1690.625 seconds (28m11s),
+with a compilation-container peak of 10,615,058,432 bytes (about 9.9 GiB).
+It then failed because `eez-composer --help` returned exit 1. No transport archive
+was uploaded, and restore was skipped. The diagnostic artifact upload also hit
+GitHub's artifact storage quota; that is distinct from the Actions cache quota.
+
+Composer and follower both propagated Clap's help/version display requests as
+application errors. The retry branch lets Clap print and exit at the CLI
+entrypoint: help/version return 0, argument errors return 2, and non-Clap
+application errors remain fallible. Signer parsing is unchanged, including its
+lack of a version flag. No protocol or runtime execution rules are changed.
+
+The benchmark now records its partial result before CLI checks, emits bounded,
+escaped log tails directly into the job log on failures/timeouts, and uses
+60-second CLI-check deadlines. Invalid-argument checks require exit 2 and the
+specific diagnostic; crashes and help failures cannot pass as expected errors.
+Failed CLI checks still prevent archive creation and cache upload. The retry
+remains branch-only, without merging or changing production CI.
+
 ## Local preflight evidence (2026-09-25)
 
 - Full tooling suite: 272 tests in 119.884s; 267 passed, five opt-in tests skipped.
@@ -78,3 +102,21 @@ and a reviewed source inventory; none is enabled by this experiment.
 - Local-only logs are in `artifacts/benchmark-validation/` and
   `artifacts/shipping-cache-fixture-lma8nrg_/` in this worktree. These validate
   orchestration, not real RollupX cache size or performance.
+
+Retry preflight (same date):
+
+- All 16 node-common library tests passed with `l1-startup`, including subprocess
+  exit-code/output-stream regressions and existing chain-document parser tests.
+- Rebuilt the actual composer and follower in the local dev profile with default
+  shipping features. All 14 CLI checks passed: long/short help and version, node
+  help, and invalid root/node arguments, checking exit codes and output streams.
+- Workspace/all-target Clippy (`--locked`, warnings denied), Rust formatting,
+  and whitespace checks passed. No dependency or lockfile change.
+- Full tooling run: 275 tests, 270 passed and the same five opt-in skips as above.
+  After adding the partial-report regression and tightening short-version checks,
+  all 12 benchmark tests passed with the bounded real Docker fixture enabled.
+  Unchanged fixture restore was all-fresh with identical executable hashes.
+- Logs: `artifacts/benchmark-validation/{tooling-cli-fix,clippy-cli-fix,production-cli-fix,docker-fixture-cli-fix-final}.log`.
+  Fixture evidence: `artifacts/shipping-cache-fixture-r9slt3l4/`.
+  These checks do not claim full release/Kurtosis CI or a successful real
+  shipping-cache transport; the isolated homelab retry must establish the latter.

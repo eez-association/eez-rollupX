@@ -80,27 +80,73 @@ def container(work, image, command, network=False):
             'cat /sys/fs/cgroup/memory.events >&2; exit "$result"', "benchmark", *command]
 
 
-def run(work, image, label, command, network=False):
+def diagnostics(work, label):
+    # Bounded tails are available even when GitHub's artifact quota is full.
+    # Prefix and JSON-escape each line so output cannot inject workflow commands.
+    for channel in ("stdout", "stderr"):
+        path = work / f"{label}.{channel}.log"
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 16384))
+            tail = stream.read().decode(errors="replace")
+        for line in tail.splitlines()[-40:]:
+            print(f"{label} {channel}: {json.dumps(line)}", flush=True)
+
+
+def run(work, image, label, command, network=False, *, expected_code=0, timeout=5400):
     args = container(work, image, command, network)
     name = args[args.index("--name") + 1]
     started = time.monotonic()
     print(f"Starting {label}", flush=True)
+    code = None
     try:
         with (work / f"{label}.stdout.log").open("w") as stdout, \
                 (work / f"{label}.stderr.log").open("w") as stderr:
-            result = subprocess.run(args, stdout=stdout, stderr=stderr, timeout=5400)
+            code = subprocess.run(args, stdout=stdout, stderr=stderr, timeout=timeout).returncode
+    except subprocess.TimeoutExpired:
+        pass  # Preserve timing and diagnostics before reporting the timeout.
     finally:
         subprocess.run(["docker", "rm", "--force", name], timeout=20,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    metric = {"seconds": round(time.monotonic() - started, 3), "exit_code": result.returncode}
+    metric = {"seconds": round(time.monotonic() - started, 3), "exit_code": code,
+              "timed_out": code is None}
     match = re.search(r"EEZ_BENCH_MEMORY_PEAK_BYTES=(\d+)", (work / f"{label}.stderr.log").read_text())
     if match:
         metric["container_memory_peak_bytes"] = int(match[1])
     (work / f"{label}.json").write_text(json.dumps(metric, indent=2) + "\n")
     print(label + ": " + json.dumps(metric), flush=True)
-    if result.returncode:
+    if code != expected_code:
+        diagnostics(work, label)
         raise RuntimeError(f"{label} failed; see preserved logs in {work}")
     return metric
+
+
+def smoke_cli(work, image):
+    for name in BINARIES[:3]:
+        cases = [("help", ["--help"], 0, "Usage:")]
+        if name != "eez-proof-signer":
+            cases += [("short-help", ["-h"], 0, "Usage:"),
+                      ("version", ["--version"], 0, "Version:"),
+                      ("short-version", ["-V"], 0, "Reth "),
+                      ("node-help", ["node", "--help"], 0, "Usage:")]
+        cases += [("invalid", ["--invalid-cli-fixture"], 2,
+                   "unexpected argument '--invalid-cli-fixture'")]
+        for suffix, argv, expected_code, expected_text in cases:
+            label = name + "-" + suffix
+            run(work, image, label, ["/probe/state/target/release/" + name, *argv],
+                expected_code=expected_code, timeout=60)
+            channel = "stderr" if expected_code else "stdout"
+            if expected_text not in (work / f"{label}.{channel}.log").read_text():
+                diagnostics(work, label)
+                raise ValueError(f"{label}: missing expected CLI output on {channel}")
+
+
+def write_report(work, report):
+    (work / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2), flush=True)
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(summary, "a") as stream:
+            stream.write("\n### Shipping cache benchmark (not full CI)\n\n```json\n"
+                         + json.dumps(report, indent=2) + "\n```\n")
 
 
 def freshness(log):
@@ -173,10 +219,11 @@ def benchmark(mode, work, image):
     report["hashes"] = hashes(state)
     if mode == "restore" and report["hashes"] != seed["hashes"]:
         raise ValueError("unchanged restored build changed shipping executable bytes")
-    for name in BINARIES[:3]:
-        run(work, image, name + "-help", ["/probe/state/target/release/" + name, "--help"])
     report["target_bytes"] = int(output("du", "-sb", str(state / "target")).split()[0])
     report["cargo_home_bytes"] = int(output("du", "-sb", str(state / "cargo")).split()[0])
+    report["status"] = "build measured; CLI checks and cache preparation pending"
+    write_report(work, report)
+    smoke_cli(work, image)
     if mode == "seed":
         (state / "seed.json").write_text(json.dumps({"identity": identity, "environment": environment,
             "hashes": report["hashes"], "completed_ns": time.time_ns()}, indent=2) + "\n")
@@ -185,14 +232,10 @@ def benchmark(mode, work, image):
                         "-C", str(work), "state"], check=True)
         report["archive_seconds"] = round(time.monotonic() - started, 3)
         report["archive_bytes"] = (work / "state.tar.gz").stat().st_size
-    (work / "result.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(report, indent=2), flush=True)
-    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(summary, "a") as stream:
-            stream.write("\n### Shipping cache benchmark (not full CI)\n\n```json\n"
-                         + json.dumps(report, indent=2) + "\n```\n")
     if mode == "seed":
         check_archive_size(work / "state.tar.gz")
+    report["status"] = "complete"
+    write_report(work, report)
 
 
 if __name__ == "__main__":
