@@ -124,6 +124,8 @@ the bounded producer, then seals and packages artifacts normally. Only a
 default-branch push after successful unit execution attempts to archive/save
 state, and exact cache hits are not re-uploaded. Both Actions operations use the
 same transport path, because paths participate in Actions' cache version.
+Optional restore, compression and upload each have a ten-minute step timeout,
+so cache service or compression stalls cannot consume the whole job deadline.
 
 The initial resource policy is four CPUs, 20 GiB memory, no swap, and 1,024 PIDs
 per compilation container. Preparation requires a Docker host with at least
@@ -202,3 +204,35 @@ the separate CLI help/exit-code fix, which is not included in this cache change.
 The optional data-only payload, standalone native relocation and Kurtosis
 resource probes were not rerun. Local logs are under
 `artifacts/cargo-state-validation/` and are not available from another checkout.
+
+## Extraction-isolation review
+
+Review of integration commit `8430cf51` reproduced an archive-boundary defect:
+`state/link -> ../checkout` followed by a file beneath that link could overwrite
+the staged checkout before cache metadata validation rejected the archive.
+Python's safe extraction filter confines links to its extraction root, which
+was then the whole job workspace, not just the cached state. This was a local
+crafted-input reproduction, not an observed GitHub cache compromise.
+
+Restore now extracts into a fresh isolated staging directory, validates its
+root/inventory and rejects links outside state before moving accepted state
+into the build location. Rejected extraction stays quarantined; the authoritative
+checkout is never an extraction destination. Regression tests cover both the
+pre-validation overwrite and an otherwise-valid cache retaining a link to a job
+sibling; an ordinary contained relative link remains supported. Full tooling
+and Docker transport validation are being repeated after this correction.
+The first repeated Docker probe stopped before compilation because Docker Hub
+returned an unauthenticated pull-limit error (HTTP 429) while resolving the Rust
+base. Its log is `artifacts/cargo-state-validation/isolation-docker.log`; it is
+not a passing result and image resolution was not bypassed. The final extraction
+path therefore still requires successful real Docker/homelab validation.
+The repeated tooling suite passed 272 tests in 128.558s (268 passed, four
+opt-in skips); all 13 focused cache regressions and 16 workflow-contract tests
+also passed after bounding the optional cache steps.
+
+The final integration experiment is isolated on
+`test/ci-cargo-state-integration`, with no registry publication or repository
+variable changes. Its concurrency group queues it behind the existing full
+correctness experiment, preserving that run's first result. It validates cold
+production build → one capped cache upload → fresh-job restore → the normal
+producer/verifier and all release, native E2E and private Kurtosis suites.
