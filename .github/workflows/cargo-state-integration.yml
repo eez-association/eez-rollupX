@@ -1,0 +1,153 @@
+name: Cargo state integration validation
+
+# Temporary validation branch only; never part of the merge candidate.
+on:
+  push:
+    branches: [test/ci-cargo-state-integration]
+
+permissions:
+  contents: read
+
+# Queue behind the ongoing experiment; do not cancel it or overlap heavy jobs.
+concurrency:
+  group: rollupx-shipping-cache-benchmark
+  cancel-in-progress: false
+
+env:
+  EEZ_CARGO_STATE_CACHE: "true"
+  EEZ_PUBLISH_IMAGES: "false"
+  EEZ_EXPECT_PUBLISHED: "false"
+  EEZ_RUNTIME_CACHE: "false"
+
+jobs:
+  cold:
+    runs-on: homelab-rust
+    timeout-minutes: 120
+    outputs:
+      cache-key: ${{ steps.plan.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: bash scripts/ci/check-docker.sh
+      - name: Initialize private outputs without registry credentials
+        run: |
+          echo "EEZ_RUNTIME_OUTPUT_DIR=$(mktemp -d "$RUNNER_TEMP/cargo-runtime.XXXXXXXX")" >> "$GITHUB_ENV"
+          echo "EEZ_NATIVE_TEST_OUTPUT_DIR=$(mktemp -d "$RUNNER_TEMP/cargo-tests.XXXXXXXX")" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/cargo-docker.XXXXXXXX")" >> "$GITHUB_ENV"
+      - name: Prepare exact production tools and inputs
+        id: plan
+        run: python3 scripts/ci/cargo-state.py prepare "$GITHUB_WORKSPACE/.ci-cargo-state"
+      - name: Cold production build and local image packaging
+        run: |
+          bash scripts/ci/build-runtime-artifacts.sh
+          jq -e '.restore == "miss"' .ci-cargo-state/built.json
+      - name: Normal runtime verifier
+        run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_OUTPUT_DIR"
+      - uses: ./.github/actions/native-test-tools
+      - run: bash scripts/ci/init-cargo-target.sh
+      - name: Full release units and protocol vectors
+        run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Archive successfully tested state within production bounds
+        id: archive
+        run: python3 scripts/ci/cargo-state.py archive "$EEZ_CARGO_STATE_DIR"
+      - name: Require a transportable archive for this experiment
+        env:
+          UPLOAD: ${{ steps.archive.outputs.upload }}
+        run: test "$UPLOAD" = true
+      - name: Save one isolated experiment cache
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport.tar.gz
+          key: ${{ steps.plan.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Preserve first failure diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-integration-cold-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .ci-cargo-state/*.log
+            .ci-cargo-state/*.json
+          retention-days: 3
+
+  warm-correctness:
+    needs: cold
+    runs-on: homelab-rust
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: bash scripts/ci/check-docker.sh
+      - name: Initialize fresh private outputs
+        run: |
+          echo "EEZ_RUNTIME_OUTPUT_DIR=$(mktemp -d "$RUNNER_TEMP/cargo-runtime.XXXXXXXX")" >> "$GITHUB_ENV"
+          echo "EEZ_NATIVE_TEST_OUTPUT_DIR=$(mktemp -d "$RUNNER_TEMP/cargo-tests.XXXXXXXX")" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/cargo-docker.XXXXXXXX")" >> "$GITHUB_ENV"
+      - name: Prepare the exact production integration
+        run: python3 scripts/ci/cargo-state.py prepare "$GITHUB_WORKSPACE/.ci-cargo-state"
+      - name: Restore only this run's tested state
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport.tar.gz
+          key: ${{ needs.cold.outputs.cache-key }}
+          fail-on-cache-miss: true
+      - name: Warm production build and local image packaging
+        run: |
+          bash scripts/ci/build-runtime-artifacts.sh
+          jq -e '.restore == "hit"' .ci-cargo-state/built.json
+      - name: Normal runtime verifier
+        id: runtime
+        run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_OUTPUT_DIR"
+      - uses: ./.github/actions/native-test-tools
+      - run: bash scripts/ci/init-cargo-target.sh
+      - name: Full release units and protocol vectors
+        run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Export verified E2E payload
+        id: e2e
+        run: |
+          destination="$(mktemp -d "$RUNNER_TEMP/cargo-e2e.XXXXXXXX")"
+          python3 scripts/ci/native-tests.py export-e2e "$EEZ_NATIVE_TEST_OUTPUT_DIR" --output-dir "$destination"
+          echo "EEZ_NATIVE_TEST_DIR=$destination" >> "$GITHUB_ENV"
+      - name: Install Foundry
+        id: foundry
+        uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
+        with:
+          version: v1.7.1
+      - name: Full embedded E2E suite
+        run: bash scripts/ci/run-native-suite.sh embedded "$EEZ_NATIVE_TEST_DIR"
+      - name: Full cross-chain E2E suite
+        if: ${{ !cancelled() && steps.foundry.outcome == 'success' && steps.e2e.outcome == 'success' }}
+        run: bash scripts/ci/run-native-suite.sh cross-chain "$EEZ_NATIVE_TEST_DIR"
+      - name: Install Kurtosis
+        id: kurtosis
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' && steps.foundry.outcome == 'success' && steps.e2e.outcome == 'success' }}
+        run: bash scripts/ci/install-kurtosis.sh
+      - name: Full Kurtosis suite in a fresh private enclave
+        if: ${{ !cancelled() && steps.kurtosis.outcome == 'success' }}
+        env:
+          KURTOSIS_ENCLAVE: eez-cargo-${{ github.run_id }}-${{ github.run_attempt }}
+          KURTOSIS_RESOURCE_CHECK: "true"
+          EEZ_PROTOCOL_MAX_PARALLEL: "all"
+        run: |
+          if kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing enclave" >&2
+            exit 1
+          fi
+          bash testing/kurtosis/run-ci.sh
+      - name: Preserve first failure diagnostics
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-integration-warm-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .ci-cargo-state/*.log
+            .ci-cargo-state/*.json
+            artifacts/embedded-e2e
+            artifacts/cross-chain-e2e
+            artifacts/kurtosis-e2e
+          retention-days: 3
