@@ -109,12 +109,26 @@ compile times are not used to claim a speedup. Local-only logs are retained unde
 ignored benchmark artifacts; the CI runs linked from PR #40 provide the retrievable
 end-to-end evidence. Temporary benchmark helpers are not part of the proposal.
 
-The isolated homelab cold-seed run is
-[36241181032](https://github.com/eduadiez/rollupX/actions/runs/36241181032).
+The isolated homelab cold-seed run
+[36241181032](https://github.com/eduadiez/rollupX/actions/runs/36241181032) passed:
+72m40s build/packaging, 960 + 233 passing release tests, 2m51s state export,
+2m19s upload, and a 2,584,239,842-byte OCI layout.
 Its first attempt, [36241113812](https://github.com/eduadiez/rollupX/actions/runs/36241113812),
 stopped before compilation because the temporary workflow used an unavailable
 host `/usr/bin/time`; it now uses Bash's built-in timing. This is not a passing run
 or a production-code failure.
+
+The fresh-runner full workflow
+[36245553606](https://github.com/eduadiez/rollupX/actions/runs/36245553606) restored
+that exact cache, recompiled zero crates, and passed lint, release units, all eight
+E2E shards and Kurtosis. Its source tree matches candidate `dbcfade` (the temporary
+seed workflow was removed). The producer took 10m31s: 66s Actions restoration and
+6m43s build/packaging/cache publication. The earlier PR #39 warm CI run
+[36233221434](https://github.com/eduadiez/rollupX/actions/runs/36233221434) took
+7m47s, including 91s restoration and 3m12s build/packaging. These separate homelab
+runs are not a controlled same-node A/B. Docker state loading/copying was a
+substantial cost in the new run; the faster local result does not establish an
+end-to-end CI speedup. Retained state therefore remains opt-in.
 
 The PR's CI evidence must cover genuine cold export, transported warm execution,
 ordinary output-cache reuse and the complete validation matrix before merging.
