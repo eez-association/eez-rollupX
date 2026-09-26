@@ -1,0 +1,9 @@
+{
+  "run": "eez-core-protocol/tmp/e2e-staged-net/20260926-131828",
+  "semantic_jobs_passed": 770,
+  "failed": 0,
+  "run_exit_code": 0,
+  "job_timings_sha256": "0e1f6026f4f6fd2cc8a2d3d1de4a692ab6da4a9e6c5b2a51b49a5e6c83f5dd1f",
+  "semantic_verification": true,
+  "independent_live_follower": false
+}

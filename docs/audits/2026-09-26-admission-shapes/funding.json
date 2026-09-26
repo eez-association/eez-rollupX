@@ -1,0 +1,26 @@
+{
+  "started_at": "2026-09-26T13:09:53.268264+00:00",
+  "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "mode": "approved-funding",
+  "queue_before": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": null,
+    "inFlight": 0,
+    "lastCanonicalCompletion": null,
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": null,
+    "unknown": 0
+  },
+  "funding": {
+    "transaction_hash": "0x32349963af94414828faecfc8df61354b8481f5a1bacf3df529da91d92b95bb6",
+    "from": "0x2eA2A5A1fe1BA4F4134c993E0c9A700706031E52",
+    "to": "0x2A8dd7551eF6Fc95000C76F2A0e7848A4bA5E73e",
+    "amount_wei": 400000000000000000,
+    "status": 1
+  },
+  "finished_at": "2026-09-26T13:10:05.865204+00:00"
+}

@@ -1,0 +1,289 @@
+{
+  "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "result": "28 shapes covered by 8 tests",
+  "log_sha256": "89b1c58d796d40cc23db3bb40de84a9aa53084f372fe08df4b4ed56400b51a63",
+  "rows": [
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 1,
+      "calls": 2,
+      "measured_caller_frame_gas": 204324,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 270000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 1,
+      "calls": 3,
+      "measured_caller_frame_gas": 229288,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 310000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 1,
+      "calls": 4,
+      "measured_caller_frame_gas": 254275,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 350000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 1,
+      "nested_rows": 1,
+      "measured_caller_frame_gas": 225195,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 305000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 1
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 1,
+      "nested_rows": 2,
+      "measured_caller_frame_gas": 290523,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 380000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 2
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 1,
+      "nested_rows": 3,
+      "measured_caller_frame_gas": 368083,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 455000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 3
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 1,
+      "nested_rows": 4,
+      "measured_caller_frame_gas": 416828,
+      "old_reserve_excluding_calldata_and_target": 530000,
+      "new_reserve_excluding_calldata_and_target": 490000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 4
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 10,
+      "calls": 2,
+      "measured_caller_frame_gas": 845853,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 1260000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 10,
+      "calls": 3,
+      "measured_caller_frame_gas": 1095616,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 1660000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 10,
+      "calls": 4,
+      "measured_caller_frame_gas": 1345828,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 2060000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 10,
+      "nested_rows": 1,
+      "measured_caller_frame_gas": 1036606,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 1610000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 1
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 10,
+      "nested_rows": 2,
+      "measured_caller_frame_gas": 1690348,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 2360000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 2
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 10,
+      "nested_rows": 3,
+      "measured_caller_frame_gas": 2466947,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 3110000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 3
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 10,
+      "nested_rows": 4,
+      "measured_caller_frame_gas": 2954879,
+      "old_reserve_excluding_calldata_and_target": 3860000,
+      "new_reserve_excluding_calldata_and_target": 3460000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 4
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 127,
+      "calls": 2,
+      "measured_caller_frame_gas": 9366845,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 14130000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 127,
+      "calls": 3,
+      "measured_caller_frame_gas": 12673738,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 19210000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 127,
+      "calls": 4,
+      "measured_caller_frame_gas": 16023939,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 24290000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 64,
+      "calls": 2,
+      "measured_caller_frame_gas": 4736825,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 7200000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 64,
+      "calls": 3,
+      "measured_caller_frame_gas": 6366474,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 9760000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "multi",
+      "entries_excluding_anchor": 64,
+      "calls": 4,
+      "measured_caller_frame_gas": 8007743,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 12320000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 0
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 64,
+      "nested_rows": 1,
+      "measured_caller_frame_gas": 5963077,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 9440000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 1
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 64,
+      "nested_rows": 2,
+      "measured_caller_frame_gas": 10206843,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 14240000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 2
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 64,
+      "nested_rows": 3,
+      "measured_caller_frame_gas": 15258044,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 19040000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 3
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 64,
+      "nested_rows": 4,
+      "measured_caller_frame_gas": 18414853,
+      "old_reserve_excluding_calldata_and_target": 23840000,
+      "new_reserve_excluding_calldata_and_target": 21280000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 4
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 127,
+      "nested_rows": 1,
+      "measured_caller_frame_gas": 11836309,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 18575000,
+      "total_l1_calls_per_entry": 2,
+      "result_rows_per_entry": 1
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 127,
+      "nested_rows": 2,
+      "measured_caller_frame_gas": 20397428,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 28100000,
+      "total_l1_calls_per_entry": 3,
+      "result_rows_per_entry": 2
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 127,
+      "nested_rows": 3,
+      "measured_caller_frame_gas": 30609805,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 37625000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 3
+    },
+    {
+      "shape": "nested",
+      "entries_excluding_anchor": 127,
+      "nested_rows": 4,
+      "measured_caller_frame_gas": 36953438,
+      "old_reserve_excluding_calldata_and_target": 47150000,
+      "new_reserve_excluding_calldata_and_target": 42070000,
+      "total_l1_calls_per_entry": 4,
+      "result_rows_per_entry": 4
+    }
+  ],
+  "measurement_basis": "Caller-frame gas before refunds, including the leading root anchor, proof verification and 64 blob references. Reserves exclude separately charged calldata and target execution."
+}

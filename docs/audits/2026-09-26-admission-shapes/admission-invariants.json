@@ -1,0 +1,18 @@
+{
+  "canonical_candidate_count": 25,
+  "accepted_counts_match_canonical_sources": true,
+  "complete_histories": true,
+  "all_acknowledged": true,
+  "all_acknowledgements_before_dispatch_deadline": true,
+  "minimum_acknowledgement_headroom_ms": 171.22524899999996,
+  "preparation_ms": {
+    "max": 725,
+    "median": 440
+  },
+  "proof_ms": {
+    "max": 201.149828,
+    "median": 108.397265
+  },
+  "gas_required_within_signed_limit": true,
+  "weighted_estimate_to_receipt_ratio": 1.8453626685447762
+}

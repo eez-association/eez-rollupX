@@ -647,10 +647,13 @@ Keep the upgraded indexer when rolling back Composer: PostgreSQL rejects an old
 from `bounded-calls-2` expose entry reserve, L1 call count and nested result count;
 the target simulation term separately covers execution. The entry reserve is
 the proposed group's shape cost before any batch-size discount revocation.
+For inbound sources, the call and result counts describe metadata stored by
+postBatch; executing their companion transactions remains a separate charge.
 
 Composer emits bounded-label `eez_composer_admission_events_total` and
 `eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in
 the retained event records. Logs use the existing nonblocking tracing sink.
 Malformed/conflicting records stop checkpoint advancement and surface collector
-errors. The task's [validation audit](../../docs/audits/2026-09-26-admission-throughput/README.md)
-records SQL/replay checks and live coverage.
+errors. The [initial validation audit](../../docs/audits/2026-09-26-admission-throughput/README.md)
+and [selection/shape follow-up](../../docs/audits/2026-09-26-admission-shapes/README.md)
+record SQL/replay checks and live coverage.

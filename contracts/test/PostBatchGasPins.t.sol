@@ -534,14 +534,23 @@ contract PostBatchGasPinsTest is Test {
         }
     }
 
-    function _boundedImmediateRung(uint256 entries, uint256 inputBytes, uint256 resultBytes)
+    function _boundedImmediateRung(
+        uint256 entries,
+        uint256 inputBytes,
+        uint256 resultBytes
+    )
         private
         returns (uint256 gasUsed)
     {
         return _boundedImmediateCallsRung(entries, 1, inputBytes, resultBytes);
     }
 
-    function _boundedImmediateCallsRung(uint256 entries, uint256 calls, uint256 inputBytes, uint256 resultBytes)
+    function _boundedImmediateCallsRung(
+        uint256 entries,
+        uint256 calls,
+        uint256 inputBytes,
+        uint256 resultBytes
+    )
         private
         returns (uint256 gasUsed)
     {
@@ -676,7 +685,11 @@ contract PostBatchGasPinsTest is Test {
         return keccak256(abi.encodePacked(hash, uint8(1), callHash));
     }
 
-    function _deferredRung(uint256 entries, uint256 resultBytes, bool consume)
+    function _deferredRung(
+        uint256 entries,
+        uint256 resultBytes,
+        bool consume
+    )
         private
         returns (uint256 posted, uint256 cleared)
     {
@@ -687,7 +700,10 @@ contract PostBatchGasPinsTest is Test {
         return _deferredRung(resultSizes, consume);
     }
 
-    function _deferredRung(uint256[] memory resultSizes, bool consume)
+    function _deferredRung(
+        uint256[] memory resultSizes,
+        bool consume
+    )
         private
         returns (uint256 posted, uint256 cleared)
     {
@@ -743,7 +759,11 @@ contract PostBatchGasPinsTest is Test {
     /// Pins the exact compiler storage layout read by native admission. Both
     /// zero/nonzero cursor and short/long dynamic bytes are checked against
     /// actual stored entries, so upstream layout drift cannot pass silently.
-    function _assertDeferredStorageLayout(EEZ eez, ProofSystemBatchPerVerificationEntries memory batch, uint256 cursor)
+    function _assertDeferredStorageLayout(
+        EEZ eez,
+        ProofSystemBatchPerVerificationEntries memory batch,
+        uint256 cursor
+    )
         private
         view
     {
@@ -820,7 +840,11 @@ contract PostBatchGasPinsTest is Test {
         return _measure(eez, batch, batch.entries[batch.entries.length - 1].rollupUpdates[0].newRoot);
     }
 
-    function _measure(EEZ eez, ProofSystemBatchPerVerificationEntries memory batch, bytes32 expectedRoot)
+    function _measure(
+        EEZ eez,
+        ProofSystemBatchPerVerificationEntries memory batch,
+        bytes32 expectedRoot
+    )
         private
         returns (uint256 gasUsed)
     {
@@ -855,7 +879,12 @@ contract PostBatchGasPinsTest is Test {
 
     /// A composer-shaped call: the leading anchor plus `outboundEntries` entries,
     /// all immediate, with state deltas chained from the live root.
-    function _batch(EEZ eez, ECDSAProofSystem proofSystem, address target, Rung memory shape)
+    function _batch(
+        EEZ eez,
+        ECDSAProofSystem proofSystem,
+        address target,
+        Rung memory shape
+    )
         private
         returns (ProofSystemBatchPerVerificationEntries memory batch)
     {
@@ -921,7 +950,12 @@ contract PostBatchGasPinsTest is Test {
 
     /// An outbound settlement entry: `proxyEntryHash == 0` so EEZ.sol drains it
     /// inline, one state delta chaining `currentState` to the prior `newState`.
-    function _entry(EEZ eez, bytes32 currentState, bytes32 newState, L2ToL1Call[] memory calls)
+    function _entry(
+        EEZ eez,
+        bytes32 currentState,
+        bytes32 newState,
+        L2ToL1Call[] memory calls
+    )
         private
         view
         returns (ExecutionEntry memory)
@@ -942,7 +976,11 @@ contract PostBatchGasPinsTest is Test {
 
     /// EEZBase's tagged fold for this shape: the entry seed, then CALL_BEGIN and
     /// CALL_END per call. Every call succeeds with empty return data.
-    function _rollingHash(EEZ eez, RollupUpdate[] memory updates, L2ToL1Call[] memory calls)
+    function _rollingHash(
+        EEZ eez,
+        RollupUpdate[] memory updates,
+        L2ToL1Call[] memory calls
+    )
         private
         view
         returns (bytes32 hash)
@@ -955,7 +993,11 @@ contract PostBatchGasPinsTest is Test {
         RollupUpdate[] memory updates,
         L2ToL1Call[] memory calls,
         bytes memory result
-    ) private view returns (bytes32 hash) {
+    )
+        private
+        view
+        returns (bytes32 hash)
+    {
         for (uint256 i = 0; i < updates.length; i++) {
             hash = keccak256(abi.encodePacked(hash, updates[i].rollupId, updates[i].currentRoot));
         }
