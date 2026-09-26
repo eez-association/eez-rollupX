@@ -24,6 +24,27 @@ contract EmptyTarget {
     function ping() external {}
 }
 
+/// Executes real reentrant resolutions, including callback arrays in their
+/// expected rows. The outer result is empty so the rolling-hash oracle can
+/// isolate protocol framing from application result handling.
+contract NestedPinTarget {
+    address private immutable proxy;
+    uint256 private immutable rows;
+
+    constructor(address proxy_, uint256 rows_) {
+        proxy = proxy_;
+        rows = rows_;
+    }
+
+    fallback() external {
+        bytes memory input = new bytes(256);
+        for (uint256 i = 0; i < rows; i++) {
+            (bool ok, bytes memory result) = proxy.call(input);
+            require(ok && result.length == 64, "nested resolution failed");
+        }
+    }
+}
+
 /// A fixed-size nonzero result exercises return copying and rolling-hash work
 /// independently of input length. Actual callee execution remains charged by
 /// the composer's separate target-gas term.
@@ -87,6 +108,8 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant BOUNDED_DEFERRED_GAS_PIN = 270_000;
     uint256 private constant EXISTING_PROXY_GAS_PIN = 70_000;
     uint256 private constant RETAINED_WORD_DISCOUNT = 15_000;
+    uint256 private constant EXTRA_IMMEDIATE_CALL_GAS = 40_000;
+    uint256 private constant IMMEDIATE_RESULT_ROW_GAS = 35_000;
 
     uint64 private constant ROLLUP_ID = 1;
     uint256 private constant PROVER_KEY = 0xA11CE;
@@ -515,19 +538,142 @@ contract PostBatchGasPinsTest is Test {
         private
         returns (uint256 gasUsed)
     {
+        return _boundedImmediateCallsRung(entries, 1, inputBytes, resultBytes);
+    }
+
+    function _boundedImmediateCallsRung(uint256 entries, uint256 calls, uint256 inputBytes, uint256 resultBytes)
+        private
+        returns (uint256 gasUsed)
+    {
         delete touched;
         (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
         BoundedReturnTarget target = new BoundedReturnTarget(resultBytes);
         touched.push(address(target));
         ProofSystemBatchPerVerificationEntries memory batch =
-            _batch(eez, proofSystem, address(target), Rung(entries, 1, true, false, 64));
+            _batch(eez, proofSystem, address(target), Rung(entries, calls, true, false, 64));
         bytes memory result = _nonzeroBytes(resultBytes);
         for (uint256 i = 1; i < batch.entries.length; i++) {
-            batch.entries[i].l2ToL1Calls[0].data = _nonzeroBytes(inputBytes);
+            for (uint256 j = 0; j < calls; j++) {
+                batch.entries[i].l2ToL1Calls[j].data = _nonzeroBytes(inputBytes);
+            }
             batch.entries[i].rollingHash =
                 _rollingHashWithResult(eez, batch.entries[i].rollupUpdates, batch.entries[i].l2ToL1Calls, result);
         }
         return _measure(eez, batch, batch.entries[entries].rollupUpdates[0].newRoot);
+    }
+
+    function testBoundedExistingMultiCallAndNestedGas1() external {
+        _complexImmediateLadder(1);
+    }
+
+    function testBoundedExistingMultiCallAndNestedGas10() external {
+        _complexImmediateLadder(10);
+    }
+
+    function testBoundedExistingMultiCallAndNestedGas64() external {
+        _complexImmediateLadder(64);
+    }
+
+    function testBoundedExistingMultiCallAndNestedGas127() external {
+        _complexImmediateLadder(127);
+    }
+
+    function _complexImmediateLadder(uint256 entries) private {
+        for (uint256 calls = 2; calls <= 4; calls++) {
+            uint256 used = _boundedImmediateCallsRung(entries, calls, 256, 64);
+            uint256 pin = EXISTING_PROXY_GAS_PIN + (calls - 1) * EXTRA_IMMEDIATE_CALL_GAS;
+            assertLe(used, POSTBATCH_BASE_GAS_PIN + entries * pin, "multi-call reserve");
+            console.log("existing multi entries / calls / execution:", entries, calls, used);
+        }
+        if (entries < 127) {
+            for (uint256 rows = 1; rows <= 4; rows++) {
+                _nestedCase(entries, rows);
+            }
+        }
+    }
+
+    function testBoundedNestedGas127Rows1() external {
+        _nestedCase(127, 1);
+    }
+
+    function testBoundedNestedGas127Rows2() external {
+        _nestedCase(127, 2);
+    }
+
+    function testBoundedNestedGas127Rows3() external {
+        _nestedCase(127, 3);
+    }
+
+    function testBoundedNestedGas127Rows4() external {
+        _nestedCase(127, 4);
+    }
+
+    function _nestedCase(uint256 entries, uint256 rows) private {
+        uint256 callbacks = rows < 4 ? rows : 3;
+        uint256 used = _nestedImmediateRung(entries, rows, callbacks);
+        uint256 pin = EXISTING_PROXY_GAS_PIN + callbacks * EXTRA_IMMEDIATE_CALL_GAS + rows * IMMEDIATE_RESULT_ROW_GAS;
+        assertLe(used, POSTBATCH_BASE_GAS_PIN + entries * pin, "nested reserve");
+        console.log("existing nested entries / rows / execution:", entries, rows, used);
+    }
+
+    function _nestedImmediateRung(uint256 entries, uint256 rows, uint256 callbacks) private returns (uint256) {
+        delete touched;
+        (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+        address remote = address(0x9000);
+        address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
+        NestedPinTarget target = new NestedPinTarget(proxy, rows);
+        BoundedReturnTarget callback = new BoundedReturnTarget(64);
+        touched.push(proxy);
+        touched.push(address(target));
+        touched.push(address(callback));
+        ProofSystemBatchPerVerificationEntries memory batch =
+            _batch(eez, proofSystem, address(target), Rung(entries, 1, true, false, 64));
+        for (uint256 i = 1; i < batch.entries.length; i++) {
+            _nestedEntry(eez, batch.entries[i], NestedShape(address(target), address(callback), rows, callbacks), i);
+        }
+        return _measure(eez, batch, batch.entries[entries].rollupUpdates[0].newRoot);
+    }
+
+    struct NestedShape {
+        address target;
+        address callback;
+        uint256 rows;
+        uint256 callbacks;
+    }
+
+    function _nestedEntry(EEZ eez, ExecutionEntry memory entry, NestedShape memory shape, uint256 index) private {
+        entry.l2ToL1Calls[0].data = _nonzeroBytes(256);
+        bytes32 hash = _rollingHash(eez, entry.rollupUpdates, new L2ToL1Call[](0));
+        hash = _callBegin(eez, hash, entry.l2ToL1Calls[0]);
+        entry.expectedL1ToL2Calls = new ExpectedL1ToL2Call[](shape.rows);
+        for (uint256 j = 0; j < shape.rows; j++) {
+            bytes32 nestedHash = eez.computeCrossChainCallHash(
+                false, shape.target, eez.MAINNET_ROLLUP_ID(), address(0x9000), ROLLUP_ID, 0, 0, new bytes(256)
+            );
+            L2ToL1Call[] memory calls = new L2ToL1Call[](j < shape.callbacks ? 1 : 0);
+            if (calls.length != 0) {
+                address source = address(uint160(0x10000 + index * 4 + j));
+                touched.push(eez.createCrossChainProxy(source, ROLLUP_ID));
+                calls[0] = L2ToL1Call(0, false, 0, source, ROLLUP_ID, shape.callback, 0, _nonzeroBytes(256));
+            }
+            entry.expectedL1ToL2Calls[j] = ExpectedL1ToL2Call(
+                keccak256(abi.encodePacked(nestedHash, hash)), calls, bytes32(0), true, new bytes(64)
+            );
+            hash = keccak256(abi.encodePacked(hash, uint8(3), nestedHash));
+            if (calls.length != 0) {
+                hash = _callBegin(eez, hash, calls[0]);
+                hash = keccak256(abi.encodePacked(hash, uint8(2), true, _nonzeroBytes(64)));
+            }
+            hash = keccak256(abi.encodePacked(hash, uint8(4)));
+        }
+        entry.rollingHash = keccak256(abi.encodePacked(hash, uint8(2), true, bytes("")));
+    }
+
+    function _callBegin(EEZ eez, bytes32 hash, L2ToL1Call memory call_) private view returns (bytes32) {
+        bytes32 callHash = eez.computeCrossChainCallHash(
+            false, call_.sourceAddress, ROLLUP_ID, call_.targetAddress, eez.MAINNET_ROLLUP_ID(), 0, 0, call_.data
+        );
+        return keccak256(abi.encodePacked(hash, uint8(1), callHash));
     }
 
     function _deferredRung(uint256 entries, uint256 resultBytes, bool consume)

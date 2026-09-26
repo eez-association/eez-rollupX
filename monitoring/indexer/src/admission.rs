@@ -166,6 +166,7 @@ pub fn parse(line: &[u8], config: &Config) -> Result<Option<Value>> {
             key.as_str(),
             "queued"
                 | "selected"
+                | "selection_limit"
                 | "accepted"
                 | "deferred"
                 | "position"

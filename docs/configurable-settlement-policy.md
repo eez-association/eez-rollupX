@@ -160,8 +160,19 @@ from the canonical L1 parent, including inactive slots beyond the current
 queue length. An unknown, oversized, or unreadable slot keeps the 370,000
 reserve. One successful simple call through a proxy registered
 at the canonical parent reserves 70,000, plus its measured L1 target execution.
-New proxies and complex,
-nested, reverting or larger entries retain the existing 370,000 reserve.
+The `bounded-calls-2` estimator also prices a successful immediate entry with
+multiple calls or nested results at 70,000 for its first L1 call, 40,000 per
+additional L1 call (including callbacks), and 35,000 per nested result row.
+This family permits at most four L1 calls and four result rows; all calls use
+registered canonical-parent proxies, zero value, implicit gas forwarding,
+mutable successful execution, at most 256 input bytes and 64 result bytes.
+The measured topology is top-level L1 calls, L2 reentries and leaf L1 callbacks;
+deeper recursion, forced reverts and static rows retain the general reserve.
+Call/result evidence stays bound to the accepted occurrence through root
+stitching and final ABI sizing. These immediate rows use transient storage;
+deferred queue entries continue using the separate retained-word model above.
+New proxies, unmeasured shapes, reverting or larger entries retain the existing
+370,000 reserve. Actual target execution is added separately in every case.
 The measured simple family permits up to 64 result bytes; an immediate call
 also permits at most 256 input bytes and requires its entry result to be empty.
 Calldata, the fork-specific calldata floor, companion execution and the
@@ -183,6 +194,24 @@ count cap. The `admission.gas_projection` event retains its
 `prior_cleanup_gas` compatibility field, now zero with this protocol pin;
 `gas_budget_cut` also reports the applied entry discount. Final ordered native
 execution remains mandatory before submission.
+
+Admission telemetry keeps the finite snapshot (`selected`) separate from the
+effective `selection_limit` and its originating reason. Summary reasons identify
+gas/blob/time cuts, `configured_count_limit`, `fifo_fairness_limit`,
+`submission_backoff`, `pipeline_deadline_backoff`, `preparation_probe_limit`,
+`snapshot_exhausted`, or `eligible_sources_exhausted`. A resource cut takes
+precedence if it occurs before reaching the count cap. Snapshot exhaustion does
+not describe arrivals after the snapshot. These observations do not change the
+underlying fairness, retry, or ownership rules. New source records additionally
+separate entry reserve, L1 call count and nested result count from target gas.
+
+The new fields are additive within the existing admission event family.
+Upgrade the monitoring views/dashboard before Composer. Old events retain
+unknown selection limits/causes; no historical backfill is inferred. There is
+no configuration, consensus/storage encoding, follower-replay or signer-profile
+change. Runtime rollback retains the normal in-memory queue recovery boundary.
+Keep the upgraded indexer/views on runtime rollback: an older indexer's startup
+DDL cannot replace a view while dropping its newly appended columns.
 The incremental blob estimate includes derivation metadata, semantic messages,
 and V0 RLP byte-string wrappers for full blocks and entries. Ordinary blocks use
 compact counts, sparse overrides and transaction byte strings. Unknown execution

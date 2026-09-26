@@ -615,7 +615,14 @@ Inbound companion preflight and indexed source receipt gas are separate columns;
 L2 outbound receipt gas is not collected here. No exact per-source share of the
 aggregate canonical postBatch receipt is claimed.
 
-Selected counts describe the finite snapshot. Queued counts exclude claimed
+Selected counts describe the finite snapshot. `selection_limit` is its effective
+count cap; `selection_limit_reason` identifies an active configured, fairness,
+submission, deadline, or preparation-probe cap. `admission_stop_reason` reports
+the first resource cut or the count cap actually reached, and distinguishes
+snapshot exhaustion from exhaustion of eligible sources. It remains separate
+from a later proof/preflight failure (`outcome_reason` in Grafana). Old records
+without these fields show **Unknown (legacy or incomplete)**, not an empty
+queue. Queued counts exclude claimed
 sources reused by a rebuild. Only sources reaching individual
 checks receive source records; untouched and selection-filtered work is counted
 in each summary. This keeps repeated backlog logging bounded by examined work.
@@ -633,6 +640,13 @@ null. Check collector status and its last successful check before interpreting
 coverage. Preserve retained JSON logs and existing database checkpoints across
 restart. Old collectors ignore the new family; retaining additive tables/views
 on rollback is safe. Monitoring is operational history, not durable queue ownership.
+
+Apply the additive views before loading the updated dashboard and Composer.
+Keep the upgraded indexer when rolling back Composer: PostgreSQL rejects an old
+`CREATE OR REPLACE VIEW` that would remove appended columns. Source histories
+from `bounded-calls-2` expose entry reserve, L1 call count and nested result count;
+the target simulation term separately covers execution. The entry reserve is
+the proposed group's shape cost before any batch-size discount revocation.
 
 Composer emits bounded-label `eez_composer_admission_events_total` and
 `eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in

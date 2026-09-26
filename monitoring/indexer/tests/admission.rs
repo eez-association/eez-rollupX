@@ -62,6 +62,15 @@ fn admission_schema_rejects_wrong_context_and_malformed_gas() {
     assert!(parse(&line(&source), &config()).is_err());
     let invalid_count = event(2, "summary", json!({"examined_count":-1}));
     assert!(parse(&line(&invalid_count), &config()).is_err());
+    for invalid in [json!(-1), json!("one")] {
+        assert!(
+            parse(
+                &line(&event(0, "started", json!({"selection_limit":invalid}))),
+                &config()
+            )
+            .is_err()
+        );
+    }
     let oversized = event(2, "finished", json!({"extra":"x".repeat(64*1024)}));
     assert!(parse(&line(&oversized), &config()).is_err());
 }
@@ -101,7 +110,11 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         .unwrap();
     let source = B256::repeat_byte(4);
     let records = [
-        event(0, "started", json!({"queued":2,"selected":2})),
+        event(
+            0,
+            "started",
+            json!({"queued":2,"selected":2,"selection_limit":1,"selection_limit_reason":"fifo_fairness_limit"}),
+        ),
         event(
             1,
             "source_selected",
@@ -121,7 +134,7 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         event(
             4,
             "summary",
-            json!({"accepted":1,"deferred":1,"projected_gas":500000,"planning_cap":1000000,"examined_count":1,"not_examined_count":1,"selection_filtered_count":0}),
+            json!({"accepted":1,"deferred":1,"projected_gas":500000,"planning_cap":1000000,"examined_count":1,"not_examined_count":1,"selection_filtered_count":0,"reason":"fifo_fairness_limit"}),
         ),
         event(
             5,
@@ -325,6 +338,20 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
             assert_eq!(prediction.get::<_, Option<i64>>("examined"), Some(1));
             assert_eq!(prediction.get::<_, Option<i64>>("not_examined"), Some(1));
             assert_eq!(
+                prediction.get::<_, Option<f64>>("selection_limit"),
+                Some(1.0)
+            );
+            assert_eq!(
+                prediction
+                    .get::<_, Option<String>>("selection_limit_reason")
+                    .as_deref(),
+                Some("fifo_fairness_limit")
+            );
+            assert_eq!(
+                prediction.get::<_, String>("admission_stop_reason"),
+                "fifo_fairness_limit"
+            );
+            assert_eq!(
                 prediction.get::<_, Option<f64>>("proof_estimate_ms"),
                 Some(125.0)
             );
@@ -339,6 +366,11 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
                 .find(|r| r.get::<_, String>("candidate_id") == "123-456:1:1")
                 .unwrap();
             assert!(legacy.get::<_, Option<f64>>("proof_estimate_ms").is_none());
+            assert!(legacy.get::<_, Option<f64>>("selection_limit").is_none());
+            assert_eq!(
+                legacy.get::<_, String>("admission_stop_reason"),
+                "Unknown (legacy or incomplete)"
+            );
         }
     }
     connection.abort();

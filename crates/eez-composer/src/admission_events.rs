@@ -27,6 +27,7 @@ impl Candidate {
         target: BundleTarget,
         selected: usize,
         queued: usize,
+        selection_limit: (usize, Option<&'static str>),
         rebuild_of: Option<String>,
     ) -> Self {
         static SESSION: OnceLock<String> = OnceLock::new();
@@ -50,13 +51,17 @@ impl Candidate {
             context: json!({"version":1,"candidate_id":id,"chain_id":chain_id,
                 "registry":registry,"rollup_id":rollup_id,"l2_parent":parent,
                 "target_block":block,"target_timestamp":timestamp,"rebuild_of":rebuild_of,
-                "policy_version":"shared-deadline-1","estimator_version":"retained-words-1"}),
+                "policy_version":"shared-deadline-1","estimator_version":"bounded-calls-2"}),
             id,
             sequence: AtomicU64::new(0),
             started: Instant::now(),
             rollup: rollup_id.to_string(),
         };
-        candidate.emit("started", json!({"queued":queued,"selected":selected}));
+        candidate.emit(
+            "started",
+            json!({"queued":queued,"selected":selected,
+            "selection_limit":selection_limit.0,"selection_limit_reason":selection_limit.1}),
+        );
         candidate
     }
 
@@ -108,6 +113,7 @@ mod tests {
                 },
                 40,
                 100,
+                (20, Some("submission_backoff")),
                 parent,
             )
         };

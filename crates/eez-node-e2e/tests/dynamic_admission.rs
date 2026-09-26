@@ -13,6 +13,105 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(240);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn existing_proxy_multicall_estimate_reaches_final_post_and_replays() {
+    use eez_testkit::ISetterWrapper;
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
+        .await
+        .unwrap();
+    let follower = NodeHandle::start(
+        "multi-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
+    for wave in 0..2 {
+        let cursor = world.node.signal_cursor().unwrap();
+        let value = U256::from(70 + wave);
+        let hash = sign_and_send(
+            &world.l2_xchain(),
+            ANVIL_KEY_4,
+            world.l2_chain_id,
+            nonce + wave,
+            Some(world.outbound_wrapper),
+            U256::ZERO,
+            ISetterWrapper::setSameValueTwiceCall { v: value }.abi_encode(),
+            1_200_000,
+        )
+        .await
+        .unwrap();
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        wait_for_safe_prefix_convergence(
+            &[&world.node, &follower],
+            receipt.block_number.unwrap(),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            l2_value(&world.l1_rpc(), world.outbound_value)
+                .await
+                .unwrap(),
+            value
+        );
+        let completed = ISetterWrapper::new(
+            world.outbound_wrapper,
+            ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap()),
+        )
+        .completedProxyCalls()
+        .call()
+        .await
+        .unwrap();
+        assert_eq!(completed, U256::from(2 * (wave + 1)));
+        let events: Vec<serde_json::Value> = world
+            .node
+            .signals_since(cursor)
+            .unwrap()
+            .iter()
+            .filter(|e| e.name == "eez.composer.admission.v1")
+            .map(|e| serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap())
+            .collect();
+        let estimate = events
+            .iter()
+            .find(|e| {
+                e["kind"] == "source_estimate" && e["detail"]["source_hash"] == hash.to_string()
+            })
+            .unwrap();
+        assert_eq!(estimate["detail"]["l1_call_count"], 2);
+        assert_eq!(
+            estimate["detail"]["entry_reserve_gas"],
+            if wave == 0 { 370_000 } else { 110_000 }
+        );
+        let cid = &estimate["candidate_id"];
+        let summary = events
+            .iter()
+            .find(|e| &e["candidate_id"] == cid && e["kind"] == "summary")
+            .unwrap();
+        assert_eq!(summary["detail"]["reason"], "snapshot_exhausted");
+        let projection = events
+            .iter()
+            .find(|e| &e["candidate_id"] == cid && e["kind"] == "full_projection")
+            .unwrap();
+        assert!(
+            projection["detail"]["projected_gas"].as_u64().unwrap() < 1_000_000,
+            "bounded projection reaches final sizing"
+        );
+    }
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 sol! {
     #[sol(rpc)]
     interface IDeferredQueue {

@@ -20,6 +20,13 @@ const DEFERRED_ENTRY_GAS: u64 = 270_000;
 const SHORT_DEFERRED_ENTRY_GAS: u64 = 230_000;
 const WORD_DEFERRED_ENTRY_GAS: u64 = 250_000;
 const EXISTING_PROXY_ENTRY_GAS: u64 = 70_000;
+// Bounded successful multi-call/nested immediate entries reuse registered
+// proxies. Their reentrant table is transient; deferred queue storage uses a
+// different model. Target execution and calldata remain separate charges.
+const EXTRA_IMMEDIATE_CALL_GAS: u64 = 40_000;
+const IMMEDIATE_RESULT_ROW_GAS: u64 = 35_000;
+const MAX_IMMEDIATE_CALLS: usize = 4;
+const MAX_IMMEDIATE_ROWS: usize = 4;
 // A cold zero-to-nonzero SSTORE costs 17,100 more than overwriting an
 // originally nonzero word. Reserve 2,100 of that saving for variation. Only
 // fixed words observed nonzero in the exact parent earn this discount; dynamic
@@ -94,36 +101,171 @@ impl Projection {
         21_000 + POSTBATCH_BASE_GAS_PIN + self.cleanup_gas
     }
 
-    /// Only a single successful, non-reentrant L1 action with bounded input
-    /// and output can use the established-proxy pin. In particular, entry
-    /// success does not imply that the underlying target call succeeded.
-    pub fn simple_immediate(
+    /// Evidence includes successful bounded execution and every L1 source
+    /// proxy's registration at the canonical parent. Entry success alone does
+    /// not establish success of its nested target calls.
+    pub fn immediate_evidence(
         &mut self,
         entries: &[ExecutionEntrySol],
         actions: &[ExecutedAction],
         parent: &mut L1TargetSession,
     ) -> Result<Option<B256>, String> {
-        let ([entry], [action]) = (entries, actions) else {
+        let [entry] = entries else {
             return Ok(None);
         };
-        if !self.simple_immediate_action(entry, action) {
-            return Ok(None);
-        }
-        let call = &entry.l2ToL1Calls[0];
-        let key = (call.sourceRollupId, call.sourceAddress);
-        let registered = if let Some(known) = self.parent_proxies.get(&key) {
-            *known
+        let evidence = if let [action] = actions
+            && self.simple_immediate_action(entry, action)
+        {
+            keccak256(entry.l2ToL1Calls[0].abi_encode())
+        } else if self.bounded_immediate_actions(entry, actions) {
+            Self::immediate_shape_key(entry)
         } else {
-            let found = parent
-                .proxy_is_registered(call.sourceAddress, RollupId(call.sourceRollupId))
-                .map_err(|e| e.to_string())?;
-            self.parent_proxies.insert(key, found);
-            found
-        };
-        if !registered {
             return Ok(None);
+        };
+        for call in entry.l2ToL1Calls.iter().chain(
+            entry
+                .expectedL1ToL2Calls
+                .iter()
+                .flat_map(|row| &row.l2ToL1Calls),
+        ) {
+            let key = (call.sourceRollupId, call.sourceAddress);
+            let registered = if let Some(known) = self.parent_proxies.get(&key) {
+                *known
+            } else {
+                let found = parent
+                    .proxy_is_registered(call.sourceAddress, RollupId(call.sourceRollupId))
+                    .map_err(|e| e.to_string())?;
+                self.parent_proxies.insert(key, found);
+                found
+            };
+            if !registered {
+                return Ok(None);
+            }
         }
-        Ok(Some(keccak256(call.abi_encode())))
+        Ok(Some(evidence))
+    }
+
+    fn bounded_immediate_gas(&self, entry: &ExecutionEntrySol) -> Option<u64> {
+        let calls = entry.l2ToL1Calls.iter().chain(
+            entry
+                .expectedL1ToL2Calls
+                .iter()
+                .flat_map(|row| &row.l2ToL1Calls),
+        );
+        let count = calls.clone().count();
+        if entry.rootUpdates.len() > 1
+            || entry
+                .rootUpdates
+                .iter()
+                .any(|u| u.rollupId != self.rollup_id || !u.etherDelta.is_zero())
+            || !entry.proxyEntryHash.is_zero()
+            || !entry.success
+            || !entry.returnData.is_empty()
+            || entry.destinationRollupId != self.rollup_id
+            || entry.l2ToL1Calls.is_empty()
+            || !(1..=MAX_IMMEDIATE_CALLS).contains(&count)
+            || entry.expectedL1ToL2Calls.len() > MAX_IMMEDIATE_ROWS
+            || (count == 1 && entry.expectedL1ToL2Calls.is_empty())
+            || entry.expectedL1ToL2Calls.iter().any(|row| {
+                !row.success
+                    || !row.revertedOrStaticRollingHash.is_zero()
+                    || row.returnData.len() > MAX_SIMPLE_RESULT_BYTES
+            })
+            || calls.into_iter().any(|call| {
+                call.sourceRollupId != self.rollup_id
+                    || call.data.len() > 256
+                    || !call.value.is_zero()
+                    || call.gas != 0
+                    || call.isStatic
+                    || call.revertNextNCalls != 0
+            })
+        {
+            return None;
+        }
+        Some(
+            EXISTING_PROXY_ENTRY_GAS
+                + (count as u64 - 1) * EXTRA_IMMEDIATE_CALL_GAS
+                + entry.expectedL1ToL2Calls.len() as u64 * IMMEDIATE_RESULT_ROW_GAS,
+        )
+    }
+
+    fn bounded_immediate_actions(
+        &self,
+        entry: &ExecutionEntrySol,
+        actions: &[ExecutedAction],
+    ) -> bool {
+        if self.bounded_immediate_gas(entry).is_none() {
+            return false;
+        }
+        let mut calls: Vec<_> = entry
+            .l2ToL1Calls
+            .iter()
+            .chain(
+                entry
+                    .expectedL1ToL2Calls
+                    .iter()
+                    .flat_map(|row| &row.l2ToL1Calls),
+            )
+            .collect();
+        if actions.len() != calls.len() + entry.expectedL1ToL2Calls.len() {
+            return false;
+        }
+        let mut rows = 0;
+        for (index, action) in actions.iter().enumerate() {
+            // Measured family: top-level L1 calls, their L2 reentries, and
+            // leaf L1 callbacks. Deeper recursion retains the general pin.
+            let depth = match action.parent_index {
+                None => 0,
+                Some(parent) if parent < index => match actions[parent].parent_index {
+                    None => 1,
+                    Some(root) if root < parent && actions[root].parent_index.is_none() => 2,
+                    _ => return false,
+                },
+                _ => return false,
+            };
+            if (action.target_rollup_id == RollupId::MAINNET) != (depth % 2 == 0) {
+                return false;
+            }
+            if action.revert_span.is_some()
+                || action.call_mode != CallMode::Mutable
+                || !action.value.is_zero()
+                || action.data.len() > 256
+                || !matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. } if return_data.len() <= MAX_SIMPLE_RESULT_BYTES)
+            {
+                return false;
+            }
+            if action.target_rollup_id == RollupId::MAINNET {
+                let Some(index) = calls.iter().position(|call| {
+                    action.source_rollup_id.0 == call.sourceRollupId
+                        && action.source_address == call.sourceAddress
+                        && action.target_address == call.targetAddress
+                        && action.data == call.data
+                }) else {
+                    return false;
+                };
+                calls.swap_remove(index);
+            } else if action.source_rollup_id == RollupId::MAINNET
+                && action.target_rollup_id.0 == self.rollup_id
+            {
+                rows += 1;
+            } else {
+                return false;
+            }
+        }
+        calls.is_empty() && rows == entry.expectedL1ToL2Calls.len()
+    }
+
+    /// Root stitching changes position keys and rolling hashes. Only those
+    /// derived fields are excluded; call arrays, results and row ordering stay
+    /// bound to this occurrence's checked execution evidence.
+    fn immediate_shape_key(entry: &ExecutionEntrySol) -> B256 {
+        let mut shape = entry.clone();
+        shape.rootUpdates.clear();
+        shape.rollingHash = B256::ZERO;
+        for row in &mut shape.expectedL1ToL2Calls {
+            row.expectedL1toL2Hash = B256::ZERO;
+        }
+        keccak256(shape.abi_encode())
     }
 
     fn simple_immediate_action(&self, entry: &ExecutionEntrySol, action: &ExecutedAction) -> bool {
@@ -177,6 +319,13 @@ impl Projection {
             && established == Some(keccak256(entry.l2ToL1Calls[0].abi_encode()))
         {
             return EXISTING_PROXY_ENTRY_GAS;
+        }
+        if immediate
+            && established.is_some()
+            && let Some(gas) = self.bounded_immediate_gas(entry)
+            && established == Some(Self::immediate_shape_key(entry))
+        {
+            return gas.min(POSTBATCH_ENTRY_GAS_PIN);
         }
         POSTBATCH_ENTRY_GAS_PIN
     }
@@ -697,6 +846,129 @@ mod tests {
             p.batch_gas(&batch(vec![anchor()], 1), 0, 0),
             p.initial_gas()
         );
+    }
+
+    #[test]
+    fn bounded_nested_evidence_binds_calls_results_and_occurrences_through_root_stitching() {
+        use eez_protocol::abi::ExpectedL1ToL2CallSol;
+        let mut p = model(0);
+        let (mut entry, root) = immediate();
+        let mut reentry = root.clone();
+        reentry.parent_index = Some(0);
+        reentry.source_rollup_id = RollupId::MAINNET;
+        reentry.target_rollup_id = RollupId(1);
+        let mut callback = root.clone();
+        callback.parent_index = Some(1);
+        entry.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::repeat_byte(7),
+            l2ToL1Calls: vec![entry.l2ToL1Calls[0].clone()],
+            success: true,
+            returnData: Bytes::from(vec![0xff; 64]),
+            revertedOrStaticRollingHash: B256::ZERO,
+        });
+        let actions = vec![root, reentry, callback];
+        assert!(p.bounded_immediate_actions(&entry, &actions));
+        let key = Some(Projection::immediate_shape_key(&entry));
+        assert_eq!(p.entry_gas(&entry, true, None), POSTBATCH_ENTRY_GAS_PIN);
+        assert_eq!(p.entry_gas(&entry, true, key), 145_000);
+        let cost = p.cost(std::slice::from_ref(&entry), 50_000, true, key);
+        let mut budget = PostBatchGasBudget::new(16_777_216);
+        budget.projected = p.initial_gas();
+        assert!(budget.try_accept(cost));
+        p.accept_immediate(1, key);
+        entry.rootUpdates[0].currentRoot = B256::repeat_byte(8);
+        entry.rootUpdates[0].newRoot = B256::repeat_byte(9);
+        entry.rollingHash = B256::repeat_byte(10);
+        entry.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(11);
+        assert_eq!(p.entry_gas(&entry, true, key), 145_000);
+        assert_eq!(
+            budget.projected,
+            p.batch_gas(
+                &batch(vec![anchor(), entry.clone()], 2),
+                cost.calldata_gas,
+                50_000
+            )
+        );
+        for change in [
+            |e: &mut ExecutionEntrySol| {
+                e.expectedL1ToL2Calls[0].returnData = Bytes::from(vec![1; 64])
+            },
+            |e: &mut ExecutionEntrySol| {
+                e.expectedL1ToL2Calls[0].l2ToL1Calls[0].targetAddress = Address::ZERO
+            },
+            |e: &mut ExecutionEntrySol| e.expectedL1ToL2Calls[0].success = false,
+            |e: &mut ExecutionEntrySol| e.l2ToL1Calls[0].revertNextNCalls = 1,
+        ] {
+            let mut changed = entry.clone();
+            change(&mut changed);
+            assert_eq!(p.entry_gas(&changed, true, key), POSTBATCH_ENTRY_GAS_PIN);
+        }
+        for change in [
+            |a: &mut Vec<ExecutedAction>| {
+                a.pop();
+            },
+            |a: &mut Vec<ExecutedAction>| a[2].data = Bytes::new(),
+            |a: &mut Vec<ExecutedAction>| a[1].parent_index = Some(2),
+            |a: &mut Vec<ExecutedAction>| a[2].revert_span = Some(1),
+            |a: &mut Vec<ExecutedAction>| {
+                a[2].outcome = ExecutionOutcome::Resolved {
+                    success: false,
+                    return_data: vec![],
+                    gas_used: 1,
+                }
+            },
+            |a: &mut Vec<ExecutedAction>| {
+                a[2].outcome = ExecutionOutcome::Resolved {
+                    success: true,
+                    return_data: vec![0; 65],
+                    gas_used: 1,
+                }
+            },
+        ] {
+            let mut changed = actions.clone();
+            change(&mut changed);
+            assert!(!p.bounded_immediate_actions(&entry, &changed));
+        }
+        for extra in 0..4 {
+            let mut changed = entry.clone();
+            changed
+                .l2ToL1Calls
+                .extend(std::iter::repeat_n(entry.l2ToL1Calls[0].clone(), extra));
+            assert_eq!(p.bounded_immediate_gas(&changed).is_some(), extra <= 2);
+        }
+        for change in [
+            |e: &mut ExecutionEntrySol| {
+                e.expectedL1ToL2Calls[0].returnData = Bytes::from(vec![0; 65])
+            },
+            |e: &mut ExecutionEntrySol| {
+                e.expectedL1ToL2Calls
+                    .resize(5, e.expectedL1ToL2Calls[0].clone())
+            },
+            |e: &mut ExecutionEntrySol| {
+                e.expectedL1ToL2Calls[0].l2ToL1Calls[0].data = Bytes::from(vec![0; 257])
+            },
+            |e: &mut ExecutionEntrySol| e.expectedL1ToL2Calls[0].l2ToL1Calls[0].gas = 1,
+            |e: &mut ExecutionEntrySol| e.expectedL1ToL2Calls[0].l2ToL1Calls[0].isStatic = true,
+            |e: &mut ExecutionEntrySol| e.expectedL1ToL2Calls[0].l2ToL1Calls[0].sourceRollupId = 2,
+        ] {
+            let mut changed = entry.clone();
+            change(&mut changed);
+            assert!(p.bounded_immediate_gas(&changed).is_none());
+        }
+    }
+
+    #[test]
+    fn complex_pin_literals_match_the_measured_contract_fixture() {
+        let sol = include_str!("../../../../contracts/test/PostBatchGasPins.t.sol");
+        for (name, gas) in [
+            ("EXTRA_IMMEDIATE_CALL_GAS", EXTRA_IMMEDIATE_CALL_GAS),
+            ("IMMEDIATE_RESULT_ROW_GAS", IMMEDIATE_RESULT_ROW_GAS),
+        ] {
+            assert!(sol.contains(&format!(
+                "uint256 private constant {name} = {}_000;",
+                gas / 1000
+            )));
+        }
     }
 
     #[test]

@@ -150,6 +150,29 @@ that extra storage compatibility work.
 
 ### Explain and tighten the gas model
 
+#### September 26 follow-up: selection visibility and gas shapes
+
+The user authorized the first two follow-up priorities: explicit selection-cap
+reasons in Grafana and more accurate gas estimates for nested/multi-call work.
+Keep selection/fairness/retry behavior unchanged in this follow-up. Record the
+effective count cap and its cause separately from the finite snapshot and from
+the resource that stopped admission. Historical missing causes remain unknown;
+do not infer queue exhaustion from a null reason.
+
+The protocol engineer supplied separate measurements for posting/storage and
+later call execution. Treat these as profiling leads, not replacement constants:
+the measurement revision, proof system, storage state and transaction boundary
+are unspecified. Reproduce relevant shapes against the pinned contracts with
+cold access, fresh and retained queues, result-size boundaries and multiple
+entries. Lower reserves only for bounded, tested shapes; preserve conservative
+fallbacks, canonical-parent evidence, final ABI projection and native preflight.
+No protocol, signer-profile or wire-format changes are intended.
+
+Acceptance requires cause-preserving count-limit regressions, collector/SQL
+mixed-history checks, pinned Solidity gas measurements, estimator boundary tests
+and native admission/settlement regressions. Record measured gas and preparation
+overhead; a lower estimate alone does not establish higher settled throughput.
+
 Reuse the existing `TxL1Gas`, `PostBatchGasBudget` and selected
 `trace_admission_budget` calculations. Expose their terms, then profile the
 largest discrepancies by direction, immediate/deferred/static/nested shape,

@@ -256,7 +256,10 @@ SELECT e.candidate_id, to_timestamp(e.first_ms/1000.0) AS time,
     t.gas_used AS canonical_receipt_gas,
     CASE WHEN NOT e.contiguous THEN 'Missing events' WHEN e.finished THEN 'Complete sequence'
          ELSE 'Open sequence' END AS history,
-    e.preflight AS preflight_detail
+    e.preflight AS preflight_detail,
+    (e.started->>'selection_limit')::numeric AS selection_limit,
+    e.started->>'selection_limit_reason' AS selection_limit_reason,
+    e.summary->>'reason' AS admission_stop_reason
 FROM events e
 LEFT JOIN eez_indexer.posting_events link ON link.data->>'stage'='prepared'
     AND link.data->'detail'->>'candidate_id'=e.candidate_id
@@ -295,7 +298,10 @@ SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.s
     c.transaction_hash AS postbatch_hash,c.canonical_l1_block,c.reason,c.history,
     (s.preflight->>'preflight_used_gas')::numeric AS source_preflight_gas,
     (s.preflight->>'preflight_required_gas')::numeric AS source_required_gas,
-    t.gas_used AS canonical_source_receipt_gas
+    t.gas_used AS canonical_source_receipt_gas,
+    (s.estimate->>'entry_reserve_gas')::numeric AS entry_reserve_gas,
+    (s.estimate->>'l1_call_count')::numeric AS l1_call_count,
+    (s.estimate->>'nested_result_count')::numeric AS nested_result_count
 FROM sources s JOIN eez_indexer.admission_candidates c USING(candidate_id)
 LEFT JOIN eez_indexer.transactions t ON t.transaction_hash=s.source_hash
     AND coalesce(s.estimate->>'direction',s.selected->>'direction')='inbound';

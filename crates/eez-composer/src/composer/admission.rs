@@ -72,8 +72,24 @@ impl Sample {
 #[derive(Default, Debug)]
 pub(super) struct AutomaticAdmission {
     sample: Option<Sample>,
-    retry_limit: Option<usize>,
+    retry_limit: Option<SelectionLimit>,
     timings: Arc<PipelineTimings>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SelectionLimit {
+    count: usize,
+    reason: &'static str,
+}
+
+impl SelectionLimit {
+    fn tighter(self, other: Self) -> Self {
+        if self.count <= other.count {
+            self
+        } else {
+            other
+        }
+    }
 }
 
 impl AutomaticAdmission {
@@ -81,9 +97,13 @@ impl AutomaticAdmission {
     /// absent from the local gas/blob model. Canonical reconciliation decides
     /// which users retry; only shrink their next preparation selection here.
     pub fn submission_failed(&mut self, submitted: usize) -> usize {
-        let limit = (submitted / 2).max(1);
-        self.retry_limit = Some(self.retry_limit.map_or(limit, |old| old.min(limit)));
-        self.retry_limit.unwrap()
+        let limit = SelectionLimit {
+            count: (submitted / 2).max(1),
+            reason: "submission_backoff",
+        };
+        let limit = self.retry_limit.map_or(limit, |old| old.tighter(limit));
+        self.retry_limit = Some(limit);
+        limit.count
     }
 
     fn limit(&self, queued: usize, available: Duration) -> usize {
@@ -95,7 +115,7 @@ impl AutomaticAdmission {
         // spending an L1 posting solely to measure a single group.
         let estimated = queued;
         estimated
-            .min(self.retry_limit.unwrap_or(usize::MAX))
+            .min(self.retry_limit.map_or(usize::MAX, |limit| limit.count))
             .min(queued)
     }
 
@@ -106,6 +126,7 @@ impl AutomaticAdmission {
             started: Instant::now(),
             available,
             selected: self.limit(queued, available),
+            selection_limit_reason: self.retry_limit.map(|limit| limit.reason),
             previous: self.sample,
             deadline,
             timings: Arc::clone(&self.timings),
@@ -148,7 +169,10 @@ impl AutomaticAdmission {
             } else {
                 admitted.min(attempt.selected)
             };
-            Some((workload / 2).max(1))
+            Some(SelectionLimit {
+                count: (workload / 2).max(1),
+                reason: "pipeline_deadline_backoff",
+            })
         } else if progress.completed {
             None
         } else {
@@ -159,10 +183,17 @@ impl AutomaticAdmission {
         // eligible group. A successful FIFO prefix already made fair progress;
         // let the next opportunity use its measured budgets, not a count cap.
         if progress.limited && (progress.fifo_bypassed || progress.prepared.is_none()) {
-            let fair_limit = progress.accepted.max(1).min((attempt.selected / 2).max(1));
+            let fair_limit = SelectionLimit {
+                count: progress.accepted.max(1).min((attempt.selected / 2).max(1)),
+                reason: if progress.fifo_bypassed {
+                    "fifo_fairness_limit"
+                } else {
+                    "preparation_probe_limit"
+                },
+            };
             self.retry_limit = Some(
                 self.retry_limit
-                    .map_or(fair_limit, |limit| limit.min(fair_limit)),
+                    .map_or(fair_limit, |limit| limit.tighter(fair_limit)),
             );
         }
     }
@@ -218,6 +249,7 @@ pub(super) struct Attempt {
     started: Instant,
     available: Duration,
     pub selected: usize,
+    pub selection_limit_reason: Option<&'static str>,
     previous: Option<Sample>,
     pub deadline: Option<PipelineDeadline>,
     pub timings: Arc<PipelineTimings>,
@@ -229,6 +261,25 @@ pub(super) struct Attempt {
 }
 
 impl Attempt {
+    /// A resource cut can precede a count cap. Exhausting the snapshot says
+    /// nothing about sources that arrived after it was taken.
+    pub fn stop_reason(
+        &self,
+        resource: Option<&'static str>,
+        accepted: usize,
+        snapshot: usize,
+    ) -> &'static str {
+        if let Some(reason) = resource {
+            reason
+        } else if accepted >= self.selected && self.selected < snapshot {
+            self.selection_limit_reason.unwrap_or("selection_limit")
+        } else if accepted == snapshot {
+            "snapshot_exhausted"
+        } else {
+            "eligible_sources_exhausted"
+        }
+    }
+
     pub fn window_exhausted(&self) {
         self.progress.lock().unwrap().window_exhausted = true;
     }
@@ -664,6 +715,7 @@ mod tests {
             started: Instant::now(),
             available: Duration::from_secs(1),
             selected,
+            selection_limit_reason: None,
             previous: prepared,
             deadline: None,
             timings: Arc::default(),
@@ -721,6 +773,37 @@ mod tests {
             AutomaticAdmission::default().limit(1000, Duration::from_secs(1)),
             1000
         );
+    }
+
+    #[test]
+    fn selection_causes_survive_tighter_limits_and_resource_cuts_take_precedence() {
+        let mut state = AutomaticAdmission::default();
+        let fair = attempt(100, 30, true, Some(sample(30, 100)));
+        fair.progress.lock().unwrap().fifo_bypassed = true;
+        state.finish(&fair);
+        assert_eq!(state.retry_limit.unwrap().reason, "fifo_fairness_limit");
+        state.submission_failed(80);
+        assert_eq!(state.retry_limit.unwrap().count, 30);
+        assert_eq!(state.retry_limit.unwrap().reason, "fifo_fairness_limit");
+        state.submission_failed(40);
+        assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
+        let mut a = attempt(20, 20, false, Some(sample(20, 100)));
+        a.selection_limit_reason = Some(state.retry_limit.unwrap().reason);
+        assert_eq!(a.stop_reason(None, 20, 100), "submission_backoff");
+        assert_eq!(
+            a.stop_reason(Some("l1_tx_gas_budget"), 10, 100),
+            "l1_tx_gas_budget"
+        );
+        assert_eq!(a.stop_reason(None, 20, 20), "snapshot_exhausted");
+        assert_eq!(a.stop_reason(None, 10, 100), "eligible_sources_exhausted");
+        a.window_exhausted();
+        state.finish(&a);
+        assert_eq!(
+            state.retry_limit.unwrap().reason,
+            "pipeline_deadline_backoff"
+        );
+        state.finish(&attempt(10, 10, false, Some(sample(10, 100))));
+        assert!(state.retry_limit.is_none());
     }
 
     #[test]

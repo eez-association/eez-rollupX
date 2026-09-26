@@ -572,6 +572,7 @@ fn trace_admission_budget(
     before: PostBatchGasBudget,
     after: PostBatchGasBudget,
     cost: TxL1Gas,
+    entries: &[eez_protocol::abi::ExecutionEntrySol],
     source_sim_gas: u64,
     companion_limit: u64,
     companion_estimate: u64,
@@ -588,6 +589,9 @@ fn trace_admission_budget(
         "entry_count": cost.entries,
         "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
         "entry_discount": cost.entry_discount,
+        "entry_reserve_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries).saturating_sub(cost.entry_discount),
+        "l1_call_count": entries.iter().map(|e| e.l2ToL1Calls.len() + e.expectedL1ToL2Calls.iter().map(|r| r.l2ToL1Calls.len()).sum::<usize>()).sum::<usize>(),
+        "nested_result_count": entries.iter().map(|e| e.expectedL1ToL2Calls.len()).sum::<usize>(),
         "calldata_gas": cost.calldata_gas,
         "l1_target_sim_gas": cost.target_gas,
         "source_sim_gas": source_sim_gas,
@@ -1644,6 +1648,7 @@ where
             .begin(pool_len_before, self.inner.emission.timing, bundle_target);
         if let Some(limit) = self.inner.max_user_txs_per_bundle {
             automatic.selected = limit.min(pool_len_before);
+            automatic.selection_limit_reason = Some("configured_count_limit");
         }
         let max_user_txs = automatic.selected;
         let drained = if max_user_txs > 0 {
@@ -2361,6 +2366,12 @@ where
                 bundle_target,
                 drained.len(),
                 pool.len(),
+                (
+                    admission.selected.min(drained.len()),
+                    admission
+                        .selection_limit_reason
+                        .filter(|_| admission.selected < drained.len()),
+                ),
                 previous.clone(),
             ));
             *previous = Some(candidate.id.clone());
@@ -2982,7 +2993,7 @@ where
                     // the cap the whole bundle dies silently (invariant 7).
                     let established = match (&mut gas_projection, &mut gas_parent) {
                         (Some(projection), Some(parent)) => {
-                            match projection.simple_immediate(
+                            match projection.immediate_evidence(
                                 &l1_entries,
                                 &composition.actions,
                                 parent,
@@ -3011,6 +3022,7 @@ where
                         budget,
                         next_budget,
                         cost,
+                        &l1_entries,
                         gas.source,
                         0,
                         0,
@@ -3508,6 +3520,7 @@ where
                         budget,
                         next_budget,
                         cost,
+                        &composition.source.batch.entries,
                         gas.source,
                         companion_limit,
                         companion_gas,
@@ -3809,7 +3822,7 @@ where
                 "not_examined_count":snapshot.len().saturating_sub(examined.len()),
                 "selection_filtered_count":selection_filtered,
                 "source_fee_count":selection.fee_blocked().len(),
-                "reason":admission_cut.or(budget.rejected_constraint),
+                "reason":admission.stop_reason(admission_cut.or(budget.rejected_constraint).or((!deferred.is_empty()).then_some("l2_block_capacity")), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
                 "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
                 "companion_gas":budget.companion_gas,
