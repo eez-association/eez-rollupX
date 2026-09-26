@@ -75,12 +75,24 @@ Local validation: 262 tooling tests completed (four opt-in integrations skipped)
 the real Docker producer fixture separately passed cold/export/warm, changed
 shipping source, changed build-script input, source deletion and new failing-test
 execution. The new failure prevents cache export.
+Additional real-Docker checks passed: corrupt layer, future timestamp and escaping
+symlink rejection; and `mode=min` executable/archive reuse in an empty, bounded
+BuildKit builder without invoking Cargo. These extend the existing opt-in Docker
+test (`EEZ_TEST_DOCKER_CARGO_STATE=1` and `EEZ_TEST_DOCKER_FLAT_CACHE=1`, both with
+`EEZ_TEST_DOCKER_RUNTIME=1`); they are not new production helpers.
 
 The precursor full-workspace Docker recipe, using four CPUs, 20 GiB RAM and no
 compiler cache, measured 45m14s cold, 1m20s OCI export and 38s restored (12s in the
 Cargo/archive step). Transport was 2,455,534,847 bytes. No crates recompiled on
 restore and all seven shipping hashes matched. These are local prototype results,
 not the final producer's fresh-runner CI timing or a matched PR #39 comparison.
+
+The isolated homelab cold-seed run is
+[36241181032](https://github.com/eduadiez/rollupX/actions/runs/36241181032).
+Its first attempt, [36241113812](https://github.com/eduadiez/rollupX/actions/runs/36241113812),
+stopped before compilation because the temporary workflow used an unavailable
+host `/usr/bin/time`; it now uses Bash's built-in timing. This is not a passing run
+or a production-code failure.
 
 CI validation and performance comparison remain in progress; no merge-readiness
 is claimed yet. Temporary research fixtures and logs are not part of this PR.
