@@ -284,14 +284,15 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             retry.b256("sync_hash").unwrap(),
             "repricing must preserve the proved retry endpoint"
         );
-        // This fixture embeds L1 in the same process. Advance beyond reth's
-        // two-block persistence threshold before killing it, then verify the
-        // original receipt survives. The dev chain does not advance finality.
-        wait_for(TIMEOUT, || async {
-            Ok((l1.get_block_number().await? > inclusion_block + 2).then_some(()))
-        })
-        .await
-        .unwrap();
+        // Killing the composer also kills this fixture's isolated L1. Establish
+        // disk persistence of the settled prefix before testing lost retry ownership.
+        world
+            .wait_for_persisted_l1_block(
+                alloy_rpc_types_eth::BlockNumHash::new(inclusion_block, posted.block_hash.unwrap()),
+                TIMEOUT,
+            )
+            .await
+            .unwrap();
         assert!(
             l1.get_transaction_receipt(hashes[omitted])
                 .await
@@ -301,7 +302,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         );
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
-        world.restart_composer().await.unwrap();
+        world.crash_and_restart_composer().await.unwrap();
         wait_for(TIMEOUT, || async {
             Ok((l1.get_block_number().await? > target).then_some(()))
         })

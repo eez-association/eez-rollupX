@@ -2,9 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Fresh-network port validated locally; release acceptance not met because of reproduced forkchoice and default crash-persistence failures |
+| Design status | Draft PR preparation; prior validation recorded; main-based candidate checks in progress; upstream forkchoice blocker remains |
 | Date | 2026-09-26 |
-| Source baseline | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc` on an isolated validation branch |
+| PR base | Latest `origin/main` fetched for preparation: `7c90266a5fe8cfdb46b249c61079badc2dce71a3`; unrelated admission-branch commits excluded |
+| Prior validation baseline | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc` on an isolated validation branch |
 | Protocol baseline | `9d13218a355e7d543ca8a9927eea2962600b716d`, unchanged |
 
 The user requests a working official Reth v2.6.0 stack, validated locally with
@@ -16,6 +17,15 @@ The [completed validation audit](../audits/2026-09-26-reth-v2.6-validation/READM
 records two passing full Kurtosis runs, independent replay, the original native
 failures and their controls. R4 remains unmet for unmodified official v2.6.0;
 passing normal settlement is not release acceptance.
+
+The main-based PR separates graceful policy-change restarts from intentional
+crashes, retains production L2 persistence defaults, and establishes persisted
+fixture state before crash assertions that depend on it. The earlier `2/0/0`
+controls diagnosed the test failures; they did not establish a production
+durability requirement or zero-loss guarantee. Earlier binaries and Kurtosis
+results do not validate this new base. Unmodified v2.6.0 remains blocked by the
+independently reproduced #27429 forkchoice issue; no backport is authorized by
+the official-release requirement.
 
 ## Implementation boundary
 

@@ -362,6 +362,22 @@ anchors and pending activity are rebuilt under the new configuration. Restart
 time never becomes a settlement timestamp. Existing nonce and source-outcome
 reconciliation remain authoritative.
 
+Recovery can retain validated ordinary L2 history present in the reopened chain
+database. A completed graceful shutdown lets the engine flush its recent blocks
+and state; a crash or forced kill can lose an unflushed suffix. An execution
+receipt alone is not a crash-durability acknowledgement. Settled history is
+recoverable from canonical L1 and available blob data; unpublished history that
+was never persisted has no such recovery source. Clients must reconcile receipts
+and nonces before resubmitting unsettled transactions. The policy does not make
+in-memory request ownership or retry counters durable.
+
+Reth persistence settings are local storage choices, not consensus parameters.
+The v2.6 port retains upstream production L2 defaults. The short persistence
+window for isolated native-test L1 miners exists because those miners have no
+peers from which to recover lost history. Operational policy-change tests must
+use graceful shutdown; deliberate crash tests must establish any required durable
+fixture state before killing the process.
+
 ## Deployment checklist
 
 1. Select the mode, general threshold, and both price ceilings.

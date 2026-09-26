@@ -3549,6 +3549,7 @@ dependencies = [
  "hyper-util",
  "prost",
  "reth-chainspec",
+ "reth-db",
  "reth_gnosis",
  "serde",
  "serde_json",
