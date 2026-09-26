@@ -123,6 +123,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "GITHUB_REPOSITORY": "eez-ci-fixture/runtime-" + hashlib.sha256(root.name.encode()).hexdigest()[:16],
                 "GITHUB_SHA": sha,
                 "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_TEMP": str(root),
+                "EEZ_CARGO_STATE_CACHE": "false", "EEZ_COMPILER_CACHE": "none", "EEZ_RUNTIME_CACHE": "false",
                 "EEZ_RUNTIME_OUTPUT_DIR": str(root / "artifacts"), "EEZ_PUBLISH_IMAGES": "false",
                 "EEZ_NATIVE_TEST_OUTPUT_DIR": str(root / "test-artifacts"),
                 "EEZ_EXPECT_PUBLISHED": "false", "GITHUB_ENV": str(root / "github-env"),
@@ -187,6 +188,8 @@ class RuntimeDockerTest(unittest.TestCase):
                         subprocess.run(["docker", "rm", container], env=env, check=True)
                 for binary in binary_dir.iterdir():
                     self.assertEqual(subprocess.check_output([str(binary)], text=True).strip(), binary.name)
+                if os.environ.get("EEZ_TEST_DOCKER_FLAT_CACHE") == "1":
+                    self.exercise_flat_cache(repo, root, env)
                 if os.environ.get("EEZ_TEST_DOCKER_CARGO_STATE") == "1":
                     self.exercise_cargo_state(repo, root, env, consumer_env, images)
             except BaseException:
@@ -200,6 +203,37 @@ class RuntimeDockerTest(unittest.TestCase):
             finally:
                 # Unique fixture tags only; no shared images, caches or networks pruned.
                 subprocess.run(["docker", "image", "rm", *dict.fromkeys(images)], env=env, check=False)
+
+    def exercise_flat_cache(self, repo, root, env):
+        """mode=min must reuse outputs in an empty builder, not just this daemon."""
+        cache = root / "flat-cache"
+        args = ["--platform", "linux/amd64", "--provenance=false", "--progress", "plain",
+                "-f", str(repo / "Dockerfile.runtime"), "--target", "binaries"]
+        for name in ("RUST_IMAGE", "RUNTIME_IMAGE"):
+            if name in env:
+                args += ["--build-arg", f"{name}={env[name]}"]
+        subprocess.run(["docker", "buildx", "build", "--builder", "default", *args,
+                        "--cache-to", f"type=local,dest={cache},mode=min",
+                        "--output", "type=cacheonly", str(repo)], env=env, check=True)
+        builder = "eez-flat-cache-" + hashlib.sha256(root.name.encode()).hexdigest()[:16]
+        subprocess.run(["docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
+                        "--driver-opt", "image=moby/buildkit:v0.31.1,memory=2g,memory-swap=2g,cpu-period=100000,cpu-quota=200000"],
+                       env=env, check=True)
+        try:
+            with (root / "flat-fresh-builder.log").open("w") as stream:
+                result = subprocess.run(["docker", "buildx", "build", "--builder", builder, *args,
+                                         "--cache-from", f"type=local,src={cache}",
+                                         "--output", f"type=local,dest={root / 'flat-output'}", str(repo)],
+                                        env=env, stdout=stream, stderr=subprocess.STDOUT)
+            log = (root / "flat-fresh-builder.log").read_text()
+            self.assertEqual(result.returncode, 0, log[-16000:])
+            self.assertNotIn("Compiling ", log)
+            self.assertNotIn("==> runtime: compiler cache=", log)
+            self.assertTrue((root / "flat-output/bin/eez-follower").is_file())
+            self.assertTrue((root / "flat-output/native-tests/native-tests.tar.zst").is_file())
+        finally:
+            # Only the unique builder and its own disposable volume are removed.
+            subprocess.run(["docker", "buildx", "rm", builder], env=env, check=True)
 
     def exercise_cargo_state(self, repo, root, env, consumer_env, images):
         """Real producer/OCI transport, not a second implementation of the build."""

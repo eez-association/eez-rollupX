@@ -110,6 +110,8 @@ elif args[:2] == ["buildx", "build"]:
         }))
 elif args[:2] == ["image", "inspect"]:
     image = args[-1]
+    if image.startswith(("rust@", "debian@")) and os.environ.get("MOCK_BASE_MISSING"):
+        sys.exit(1)
     index = role(image)
     if "--format" not in args:
         print(json.dumps([{
@@ -127,6 +129,8 @@ elif args[:2] == ["image", "inspect"]:
     else:
         digit = str(index + 1) if os.environ.get("MOCK_IMAGE_STORE") == "containerd" else "abc"[index]
         print("sha256:" + digit * 64)
+elif args[0] == "pull" and os.environ.get("MOCK_PULL_FAIL"):
+    sys.exit(23)
 elif args[0] not in ("pull", "push"):
     raise SystemExit("Unexpected mocked command: " + repr(args))
 '''
@@ -322,6 +326,13 @@ class RuntimeArtifactsTest(unittest.TestCase):
                 self.log.write_text("")
                 self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
                 self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_failed_base_pull_stops_before_building(self):
+        self.env.update(EEZ_CARGO_STATE_CACHE="true", MOCK_BASE_MISSING="1", MOCK_PULL_FAIL="1",
+                        RUST_IMAGE="rust@sha256:" + "d" * 64)
+        self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+        self.assertTrue(any(c[1] == "pull" for c in self.commands()))
+        self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
 
     def test_source_reconciliation_and_cache_validation_precede_cargo(self):
         dockerfile = (REPO / "Dockerfile.runtime").read_text()
