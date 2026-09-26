@@ -639,9 +639,12 @@ async fn automatic_admission_static_only_exclusion_preserves_ordinary_descendant
 async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     let mut config = env();
     config.push(("RUST_LOG", "info,txpool=debug,engine::tree=debug".into()));
-    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &config)
-        .await
-        .unwrap();
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        NativeL1Profile::GnosisPrague,
+        &config,
+    )
+    .await
+    .unwrap();
     let follower = NodeHandle::start(
         "auto-predecessor-follower",
         &NodeConfig {
@@ -725,22 +728,29 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     let mut held = wait_for(TIMEOUT, || async { world.held_bundle() })
         .await
         .unwrap();
+    // A relay response can time out before the first ordinary descendant is
+    // built. Hold canonical observations independently so this fixture really
+    // creates a descendant of the unconfirmed Sync before authorizing recovery.
+    world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    let dispatched = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.name == "eez.composer.bundle.dispatched")
+        .unwrap();
+    let sync_hash = dispatched.fields["sync_hash"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let sync_height = dispatched.fields["sync_height"].as_u64().unwrap();
     if static_only {
-        let dispatched = world
-            .node
-            .signals_since(cursor)
-            .unwrap()
-            .into_iter()
-            .find(|e| e.name == "eez.composer.bundle.dispatched")
-            .unwrap();
-        let hash = dispatched.fields["sync_hash"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let block = wait_for(TIMEOUT, || async { Ok(l2.get_block_by_hash(hash).await?) })
-            .await
-            .unwrap();
+        let block = wait_for(TIMEOUT, || async {
+            Ok(l2.get_block_by_hash(sync_hash).await?)
+        })
+        .await
+        .unwrap();
         assert!(
             block.transactions.is_empty(),
             "static-only source must produce an empty Sync"
@@ -764,6 +774,17 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     .await
     .unwrap();
     assert!(original.status());
+    assert!(original.block_number.unwrap() > sync_height);
+    assert_eq!(
+        l2.get_block_by_number(sync_height.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        sync_hash,
+        "the ordinary predecessor must descend from the still-unconfirmed Sync"
+    );
     let outbound = sign_and_send(
         &world.l2_xchain(),
         ANVIL_KEY_4,
@@ -781,6 +802,7 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     // the original post or its companions can enter L1 through it.
     held["params"][0]["txs"] = serde_json::json!([]);
     world.release_bundle(&held).unwrap();
+    world.fail_rpc_methods(&[]).unwrap();
     let replayed = wait_for(TIMEOUT, || async {
         Ok(l2
             .get_transaction_receipt(predecessor)

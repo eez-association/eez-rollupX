@@ -357,3 +357,12 @@ on measurements. Skipped-slot capacity learning uses conclusive canonical header
 evidence for the absent target itself; it does not need to reinterpret source
 dispositions as successful replacement effects. Actual produced replacements
 retain their own partial-consumption checks.
+
+Native validation exposed a cold-estimate liveness boundary: a 500 ms preparation
+allocation plus a 1,000 ms proof seed left slightly less than the 1,500 ms sum
+of bootstrap finishing, proof and finalization reserves. No first observation
+could be collected. The implementation permits a first-group timing probe only
+when the regular estimate rejects it, retaining finishing/finalization reserves,
+a 25 ms minimum proof opportunity, all resource gates and the original deadline.
+The candidate summary identifies this fallback. It does not impose a one-group
+limit on cold batches that fit the ordinary estimate.

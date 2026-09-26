@@ -56,6 +56,9 @@ completed validation record.
 | Cancun/Prague/Osaka gas pin fixtures | Embedded EVM | 26 passed per fork, zero skipped (`gas-pins-{cancun,prague,osaka}.log`) |
 | Existing indexer canonical restart/reorg/checkpoint recovery | PostgreSQL/mocked RPC | 1 selected/passed (`indexer-recovery.log`) |
 | Chiado configuration propagation | Mocked Compose/config | 13 passed; Chiado and Kurtosis policy checker passed |
+| Final Composer/driver/L1/RPC/client unit run at `3cb712c` | Unit/local RPC | Composer 239 passed/1 manual profile ignored; driver 58, L1 144, control RPC 6 and prover client 30 passed. `--lib` did not select the signer binary; its separate run is pending. |
+| Complete integration contracts | Embedded EVM | 45 passed, zero failed/skipped (`contracts-full.log`) |
+| Cold timing probe correction | Unit | Composer 240 passed, 1 existing manual timing profile ignored (`cold-probe-composer-tests.log`) |
 
 ### First failures retained
 
@@ -68,6 +71,29 @@ split into four tests by prior return-data shape, preserving every transition;
 all pass. Initial compile errors while extending internal test fixtures and the
 submitter helper are retained in iteration logs.
 
+The first full native admission run at `3cb712c` exposed two recovery fixture
+failures and a real cold-estimate starvation defect. The old relay-hold fixtures
+assumed acknowledgement could remain pending past the delivery deadline; their
+ordinary transaction was first sequenced after reconciliation, so there was no
+orphan to recover. Retained canonical blocks/receipts and follower logs establish
+that ordering. The corrected fixture independently interrupts canonical header
+observations and asserts that its predecessor descends from the held Sync.
+
+The skipped-slot test's initial source exposed the starvation defect: the
+500/1,000/1,500 ms preparation/proof/slack configuration repeatedly selected zero
+groups because the cold reserves consumed the entire planning window. The
+bounded first-group timing probe described in the proposal corrects that case.
+The obsolete full run was stopped after those failures; its logs/datadirs remain
+under `native/`, with ownership/termination recorded in `native-initial-stop.json`.
+It is not reported as a passing suite. A corrected full run is pending.
+
+Actual Grafana rendering caught a nested `$__timeFilter` expansion failure in
+the timeline panel that the SQL-only check did not model. Moving its timestamp
+expression into a subquery lets Grafana filter a simple column. The original
+browser failure is retained as `grafana-initial-macro-failure.json`; all seven
+panels subsequently queried successfully. Filter/export/outage checks use only
+the owned disposable database and Grafana on localhost port 19301.
+
 ## Operations and remaining validation
 
 The original operator configuration, keys, datadirs and running Chiado services
@@ -75,6 +101,26 @@ have been preserved. A separate owned PostgreSQL container,
 `eez-admission-test-db-20260926`, uses localhost port 19433 and database
 `eez_indexer_test`; production monitoring uses a different container/port. No
 production schema reset or contract deployment is part of this change.
+
+At 07:56:49 UTC, the additive indexer upgrade was applied using an image-only
+Compose override, after comparing the rendered environment and log mounts with
+the active service. Image `eez-indexer:3cb712c-local` is
+`sha256:9e17c58af36478fdf5ed7a7769166807bf3dd4eac443e9b8248fb2cd5c5f93d8`.
+History/checkpoints were retained, the restricted Grafana reader has access to
+the new views, and the collector reports no error. Prometheus configuration was
+checked with `promtool` and reloaded. The node/signer remain at baseline pending
+corrected native validation and image rebuilds.
+
+Baseline live run `20260926-075533` uses the same 14-target/870-source workload
+and current configuration, with the new wrapper's semantic verifier enabled.
+It needed 0.47 L1 and 0.1 L2 test-token top-ups from the established funding
+accounts. Setup again stalled on local L1 propagation. All 352 original pending
+L1 setup payload hashes and network identity were checked before relaying to
+the existing external endpoint. The first concurrent relay accepted 297 and
+received 55 HTTP errors; the remaining 55 were rechecked and accepted sequentially.
+No signatures, nonces, fees or values changed. Source send plus monitoring took
+201.354 seconds, with 870 successful source receipts; semantic verification is
+still in progress. Raw artifacts and each relay result remain local-only.
 
 Outstanding: final unit/format checks, wider native semantic/replay and
 reconciliation regressions, image builds with recorded source/digests, additive

@@ -180,6 +180,7 @@ struct Progress {
     fifo_bypassed: bool,
     completed: bool,
     window_exhausted: bool,
+    cold_timing_probe: bool,
     prepared: Option<Sample>,
     blob_preparation: Duration,
     blobs: usize,
@@ -288,9 +289,36 @@ impl Attempt {
     }
 
     fn next_group_fits(&self, accepted: usize, elapsed: Duration) -> bool {
+        self.group_start_decision(accepted, elapsed).0
+    }
+
+    /// An unmeasured proof allocation must not prevent the first observation
+    /// forever. Probe at most one complete group when the ordinary estimate
+    /// refuses it, retaining finishing/finalization reserves and the original
+    /// proof deadline. Wider windows still use normal multi-group admission.
+    fn cold_probe_fits(&self, groups: usize, blobs: usize, elapsed: Duration) -> bool {
+        if self.deadline.is_none() || self.previous.is_some() || groups != 1 {
+            return false;
+        }
+        let post = self.timings.post_reserve(Workload {
+            groups,
+            blobs,
+            witnesses: self.witnesses.load(std::sync::atomic::Ordering::Relaxed),
+        });
+        self.available.saturating_sub(elapsed).as_nanos()
+            > self
+                .bootstrap_tail(blobs, elapsed)
+                .saturating_add(post.saturating_add(Duration::from_millis(25)).as_nanos())
+    }
+
+    pub fn used_cold_timing_probe(&self) -> bool {
+        self.progress.lock().unwrap().cold_timing_probe
+    }
+
+    fn group_start_decision(&self, accepted: usize, elapsed: Duration) -> (bool, bool) {
         let remaining = self.available.saturating_sub(elapsed);
         if remaining.is_zero() {
-            return false;
+            return (false, false);
         }
         let next = accepted.saturating_add(1);
         let blobs = self.progress.lock().unwrap().blobs.max(1);
@@ -307,16 +335,19 @@ impl Attempt {
         } else {
             elapsed.as_nanos() / accepted as u128
         };
-        remaining.as_nanos()
+        let estimated = remaining.as_nanos()
             > group
                 .saturating_add(tail)
-                .saturating_add(self.pipeline_reserve(next, blobs))
+                .saturating_add(self.pipeline_reserve(next, blobs));
+        let probe = !estimated && self.cold_probe_fits(next, blobs, elapsed);
+        (estimated || probe, probe)
     }
 
     fn can_start_at(&self, accepted: usize, elapsed: Duration) -> bool {
-        let fits = self.next_group_fits(accepted, elapsed);
+        let (fits, probe) = self.group_start_decision(accepted, elapsed);
         let next = accepted.saturating_add(1);
         let mut progress = self.progress.lock().unwrap();
+        progress.cold_timing_probe |= probe;
         if fits {
             if let Some(started) = progress.started_groups.checked_add(1) {
                 progress.started_groups = started;
@@ -356,7 +387,11 @@ impl Attempt {
                     .flatten()
             });
         progress.unmeasured_work |= measured.is_none();
-        if remaining.as_nanos() <= tail.saturating_add(self.pipeline_reserve(groups, blobs)) {
+        let estimated =
+            remaining.as_nanos() > tail.saturating_add(self.pipeline_reserve(groups, blobs));
+        let probe = !estimated && self.cold_probe_fits(groups, blobs, elapsed);
+        progress.cold_timing_probe |= probe;
+        if !estimated && !probe {
             // This matching group is refused before its duration is added or
             // the caller appends it. Its work must not train the estimate, but
             // it does not invalidate the earlier accepted prefix. Cancel only
@@ -686,6 +721,34 @@ mod tests {
             AutomaticAdmission::default().limit(1000, Duration::from_secs(1)),
             1000
         );
+    }
+
+    #[test]
+    fn cold_proof_seed_cannot_permanently_block_the_first_observation() {
+        let mut a = attempt(30, 0, false, None);
+        a.available = Duration::from_millis(1490);
+        a.proof_estimate = Duration::from_millis(1000);
+        a.deadline = PipelineDeadline::new(
+            RollupTiming::new(5000, 1000, 1000, 1500),
+            BundleTarget::Exact {
+                block: 1,
+                timestamp: unix_time_millis() / 1000 + 5,
+            },
+            unix_time_millis(),
+        );
+        assert!(a.can_start_at(0, Duration::ZERO));
+        assert!(a.can_finish_at(1, 1, Duration::from_millis(10)));
+        assert!(a.used_cold_timing_probe());
+        assert!(!a.can_start_at(1, Duration::from_millis(10)));
+        assert!(!a.can_finish_at(1, 5, Duration::from_millis(10)));
+        assert!(!a.can_finish_at(1, 1, a.available));
+        a.available = Duration::from_millis(525);
+        assert!(!a.can_start_at(0, Duration::ZERO));
+        // A roomier cold window admits more than one without a probe.
+        a.available = Duration::from_secs(3);
+        a.progress.lock().unwrap().cold_timing_probe = false;
+        assert!(a.can_start_at(1, Duration::from_millis(10)));
+        assert!(!a.used_cold_timing_probe());
     }
 
     #[test]

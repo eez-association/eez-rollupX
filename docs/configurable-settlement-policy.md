@@ -69,6 +69,13 @@ blob; these are planning estimates, not consensus limits. See the
 [validation record](audits/2026-09-26-admission-throughput/README.md) for measured
 profiles and remaining limits.
 
+If the uncalibrated proof allocation would reject even the first group forever,
+one complete group may probe the available window. This retains the finishing
+and finalization reserves plus a 25 ms minimum proof opportunity, and proving
+still uses the original shared deadline. The summary records `cold_timing_probe`.
+This fallback applies only when the normal estimate refuses that first group;
+it does not cap cold batches that already fit the complete estimate.
+
 For exact-target cross-chain candidates, the exclusive deadline is target time
 minus submission slack. `EEZ_PREPARATION_TIME_MS` and `EEZ_PROOF_TIME_MS` control
 scheduling estimates; they are not separate hard stage limits. Preparation can

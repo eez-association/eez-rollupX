@@ -226,7 +226,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT to_timestamp((data->>'timestamp_ms')::bigint/1000.0) AS time,candidate_id,sequence,data->>'kind' AS stage,(data->>'elapsed_ms')::float8 AS elapsed_ms,(data->'detail')::text AS detail FROM eez_indexer.admission_events WHERE $__timeFilter(to_timestamp((data->>'timestamp_ms')::bigint/1000.0)) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY (data->>'timestamp_ms')::bigint DESC,candidate_id,sequence LIMIT 3000",
+          "rawSql": "SELECT time,candidate_id,sequence,stage,elapsed_ms,detail FROM (SELECT to_timestamp((data->>'timestamp_ms')::bigint/1000.0) AS time,candidate_id,sequence,data->>'kind' AS stage,(data->>'elapsed_ms')::float8 AS elapsed_ms,(data->'detail')::text AS detail FROM eez_indexer.admission_events) e WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC,candidate_id,sequence LIMIT 3000",
           "editorMode": "code"
         }
       ],

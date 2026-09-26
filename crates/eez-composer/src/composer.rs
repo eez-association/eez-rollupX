@@ -3798,6 +3798,7 @@ where
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
                 "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
                 "companion_gas":budget.companion_gas,
+                "cold_timing_probe":admission.used_cold_timing_probe(),
             }),
         );
         if !deferred.is_empty() {
