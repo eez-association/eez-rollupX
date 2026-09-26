@@ -11,7 +11,7 @@ use eez_testkit::{
 };
 use std::time::Duration;
 
-const TIMEOUT: Duration = Duration::from_secs(240);
+const TIMEOUT: Duration = Duration::from_mins(4);
 
 sol! {
     #[sol(rpc)]

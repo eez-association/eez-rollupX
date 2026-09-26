@@ -12,7 +12,7 @@ use eez_testkit::{
     wait_for_safe_prefix_convergence,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
     use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};

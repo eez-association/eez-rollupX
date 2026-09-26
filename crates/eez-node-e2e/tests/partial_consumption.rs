@@ -19,7 +19,7 @@ use eez_testkit::{
     wait_for,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(120);
+const TIMEOUT: Duration = Duration::from_mins(2);
 
 async fn attempt_event(
     world: &eez_testkit::CrossChainWorld,
@@ -247,6 +247,9 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         let held = wait_for(TIMEOUT, || async { world.held_bundle() })
             .await
             .unwrap();
+        // The hold is one-shot. Keep later allowed replacements out of L1
+        // while the original partial prefix crosses the persistence boundary.
+        world.fail_rpc_methods(&["eth_sendBundle"]).unwrap();
         assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
         assert_eq!(held["params"][0]["txs"][1], request["txs"][omitted + 1]);
         let target = u64::from_str_radix(
@@ -289,6 +292,13 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         })
         .await
         .unwrap();
+        assert!(
+            l1.get_transaction_receipt(hashes[omitted])
+                .await
+                .unwrap()
+                .is_none(),
+            "restart fixture must still own an unsettled source before the crash"
+        );
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
         world.restart_composer().await.unwrap();
@@ -323,6 +333,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             .unwrap()
             .parse()
             .unwrap();
+        world.fail_rpc_methods(&[]).unwrap();
         let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
         let resubmitted = wait_for(TIMEOUT, || async {
             match front.send_raw_transaction(&raw).await {
