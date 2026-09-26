@@ -8,9 +8,13 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses
-`eez-association/stateless` at commit
-`4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
+`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses the
+[local Reth v2.6 port](../../vendor/stateless), based on
+`eez-association/stateless` commit
+`4fc3806bdd0e6b296c761ef4d4b260938365cf45`. Its
+[provenance and patches](../../vendor/README.md) preserve the transaction
+checkpoints required by this profile; the root lockfile selects the runtime
+dependency graph. This dependency port does not extend the admitted proof profile.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. Solidity
 defines on-chain behavior. This document defines the additional conditions the

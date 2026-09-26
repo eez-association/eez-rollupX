@@ -28,7 +28,7 @@ shipping code does not accept tag 3. Captured files remain unchanged.
 Run the current regressions with:
 
 ```sh
-cargo +1.94.0 test --locked -p eez-proof-signer service::tests::derivation::captured
+cargo +1.95.0 test --locked -p eez-proof-signer service::tests::derivation::captured
 ```
 
 To capture new requests, use `EEZ_TEST_PROVE_FIXTURE_DIR` with the existing native

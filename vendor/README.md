@@ -24,3 +24,24 @@ Reth-Gnosis adapts the download command's return value and selects the existing
 interpreter features explicitly; the default Reth binary now also selects JIT,
 which is not used by EEZ's custom Gnosis EVM. Gnosis primitives follows the
 matching REVM/Alloy type versions. None of these ports modifies Reth source.
+
+## Reviewing and maintaining the ports
+
+The [Stateless](patches/stateless.patch), [Reth-Gnosis](patches/reth-gnosis.patch),
+and [Gnosis primitives](patches/gnosis-primitives.patch) patches show the exact
+source/manifest differences from the revisions above. They exclude generated
+Cargo lockfiles; the root lockfile selects EEZ's shipping graph and Stateless's
+lockfile supports its standalone regression tests. Gnosis also has whitespace
+normalization in imported scripts/workflows. No upstream tracked file was omitted.
+These patches are review artifacts; Cargo builds the adjacent source directories.
+From the repository root, `git apply --reverse --check vendor/patches/*.patch`
+checks that they still describe those sources. Regenerate them against the
+recorded bases whenever a port changes.
+
+EEZ owns maintenance of these local modifications. Prefer upstreaming the
+dependency/API compatibility work and replacing the Gnosis ports with an exact
+compatible upstream revision after validation. Stateless must retain the signer's
+transaction checkpoints and destroyed-storage handling until an upstream API or
+a separately reviewed adapter provides equivalent validation. A newer dependency
+version alone does not establish that equivalence. Preserve the checkpoint and
+storage-reset regressions when changing either base.

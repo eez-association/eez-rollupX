@@ -44,7 +44,7 @@ Source-built executable SHA-256 values:
 Run from the fork root:
 
 ```sh
-cargo +1.94.0 test --locked -p eez-proof-signer service::tests::derivation::captured
+cargo +1.95.0 test --locked -p eez-proof-signer service::tests::derivation::captured
 ```
 
 The old `derivable-native-mixed` capture is retained unchanged as an old-selector
