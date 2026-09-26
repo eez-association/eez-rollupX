@@ -219,7 +219,17 @@ impl RollupTiming {
         Duration::from_millis(self.l2_block_time_ms as u64)
     }
 
-    /// Prover wall-clock budget as a [`Duration`].
+    /// Preparation planning allocation; exact-target cross-chain preparation
+    /// may borrow unused proof time while respecting the shared submission deadline.
+    #[must_use]
+    pub fn preparation_time(self) -> Duration {
+        self.l1_block_time()
+            .saturating_sub(self.proof_window_open())
+            .saturating_sub(self.proof_time())
+            .saturating_sub(self.submission_slack())
+    }
+
+    /// Prover planning allocation as a [`Duration`].
     #[must_use]
     pub const fn proof_time(self) -> Duration {
         Duration::from_millis(self.proof_time_ms as u64)

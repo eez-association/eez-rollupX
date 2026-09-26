@@ -1355,3 +1355,12 @@ The [implementation coverage](configurable-settlement-policy-implementation.md)
 records the resolved interpretations, requirement mapping, and revision-specific
 validation. Production profile selection and activation remain explicit
 deployment steps; completed public Chiado runs have separate audit evidence.
+
+## Cross-chain admission throughput (2026-09-26)
+
+The user requested removing mandatory one-source warm-up, sharing preparation
+and proving time up to the submission deadline, and recording complete gas
+admission history in Grafana. The [authorized implementation plan](cross-chain-admission-throughput.md)
+extends this policy with acceptance checks, production paths, compatibility and
+measured packing work. The current behavior is specified in the [runtime policy](../configurable-settlement-policy.md);
+local and live validation are recorded in the [September 26 audit](../audits/2026-09-26-admission-throughput/README.md).

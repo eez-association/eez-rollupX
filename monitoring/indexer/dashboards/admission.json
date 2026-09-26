@@ -1,0 +1,333 @@
+{
+  "uid": "eez-admission",
+  "title": "EEZ Cross-chain admission",
+  "description": "Admission decisions, shared deadline timing and gas projection versus canonical receipt evidence.",
+  "tags": [
+    "eez",
+    "admission"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "candidate",
+        "label": "Candidate ID (* = all)",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "hide": 0
+      },
+      {
+        "name": "source",
+        "label": "Source hash (* = all)",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Admission estimate versus canonical postBatch",
+      "description": "Every candidate, including successful batches without a cut. Receipt gas includes refunds and the calldata floor; required gas sizes execution before refunds. Canonical receipt gas is for the complete postBatch. Missing values stay null.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,candidate_id,accepted,deferred,reason,admission_gas::float8,full_projection_gas::float8,preflight_gas_used::float8,preflight_gas_required::float8,signed_gas_limit::float8,canonical_receipt_gas::float8,admission_gas::float8/nullif(canonical_receipt_gas,0) AS estimate_receipt_ratio,canonical_l1_block,transaction_hash,chain_status,history,rebuild_of FROM eez_indexer.admission_candidates WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Preparation, proof and delivery",
+      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,candidate_id,selected,accepted,preparation_ms,nominal_preparation_ms,proof_ms,finalization_ms,delivery_ms,relay_acknowledged,dispatch_remaining_ms,reason,history FROM eez_indexer.admission_candidates WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Gas estimates per source transaction",
+      "description": "Filter by candidate ID or source hash; Inspect \u2192 Data exports CSV. Source simulation gas is not an exact share of the canonical postBatch receipt. Source preflight and canonical source receipt gas refer to inbound L1 companions; outbound L2 receipt gas is not collected here. Accepted deltas may include revocation of earlier discounts at a shape boundary. No estimate recorded means selection did not reach a recorded gas estimate, or telemetry is incomplete.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,candidate_id,source_hash,direction,position,decision,gas_constraint,source_simulation_gas::float8,l1_target_simulation_gas::float8,entry_count,entry_pin_gas::float8,entry_discount::float8,calldata_gas::float8,companion_declared_gas::float8,companion_simulation_gas::float8,source_preflight_gas::float8,source_required_gas::float8,canonical_source_receipt_gas::float8,projected_before::float8,projected_after::float8,accepted_delta_gas::float8,postbatch_hash,canonical_l1_block,reason,history FROM eez_indexer.admission_sources WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) AND (${source:sqlstring}='*' OR source_hash=${source:sqlstring}) ORDER BY time DESC,candidate_id,position LIMIT 10000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Projection accounting",
+      "description": "Shared base and adjustments are separated from the accepted source deltas. Compare accepted observations with the summary to identify missing records.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.time,c.candidate_id,c.admission_gas::float8,sum(s.accepted_delta_gas)::float8 AS accepted_source_deltas,(c.admission_gas-sum(s.accepted_delta_gas))::float8 AS shared_base_and_adjustments,count(*) FILTER(WHERE s.decision='Accepted') AS accepted_observations,c.accepted,c.history FROM eez_indexer.admission_candidates c LEFT JOIN eez_indexer.admission_sources s USING(candidate_id) WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) GROUP BY c.time,c.candidate_id,c.admission_gas,c.accepted,c.history ORDER BY c.time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Candidate event timeline",
+      "description": "Raw observations retain failed/rebuilt candidate identity. Finished marks the final sequence; gaps are reported even after collector restart.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_timestamp((data->>'timestamp_ms')::bigint/1000.0) AS time,candidate_id,sequence,data->>'kind' AS stage,(data->>'elapsed_ms')::float8 AS elapsed_ms,(data->'detail')::text AS detail FROM eez_indexer.admission_events WHERE $__timeFilter(to_timestamp((data->>'timestamp_ms')::bigint/1000.0)) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY (data->>'timestamp_ms')::bigint DESC,candidate_id,sequence LIMIT 3000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Posting estimate coverage",
+      "description": "Historical estimates are never reconstructed from receipt gas. Older producers and ordinary-only posting paths do not emit cross-chain admission candidates.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT p.time,p.attempt_id,p.transaction_hash,p.canonical_l1_block,CASE WHEN a.candidate_id IS NULL AND link.data->'detail'->>'candidate_id' IS NOT NULL THEN 'Candidate records missing' WHEN a.candidate_id IS NULL THEN 'No candidate telemetry (older producer or ordinary posting)' WHEN a.admission_gas IS NULL THEN 'Candidate has no summary' ELSE 'Estimate recorded' END AS coverage,a.history FROM eez_indexer.posting_attempts p LEFT JOIN eez_indexer.admission_candidates a USING(attempt_id) LEFT JOIN eez_indexer.posting_events link ON link.attempt_id=p.attempt_id AND link.data->>'stage'='prepared' WHERE $__timeFilter(p.time) ORDER BY p.time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Collector status",
+      "description": "A stale check or an error means coverage may be incomplete. Quiet queues do not themselves indicate collector failure.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT checked_at,error,extract(epoch FROM now()-checked_at)::float8 AS seconds_since_check,(SELECT max(imported_at) FROM eez_indexer.admission_events) AS last_admission_import FROM eez_indexer.posting_collection",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ]
+}

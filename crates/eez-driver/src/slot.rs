@@ -164,6 +164,12 @@ pub enum SyncSlotMode {
 /// `eez-composer`, to avoid a dependency cycle.
 #[async_trait]
 pub trait SyncSlotComposer: Send + Sync + 'static {
+    /// Cross-chain admission owns its combined preparation/proof deadline.
+    /// Ordinary-only settlement retains the configured proof-start gate.
+    fn has_cross_chain_work(&self, _rollup_id: u64) -> bool {
+        false
+    }
+
     /// The scheduler owns the Sync grid, including its genesis/slot offset.
     /// Publish its target before starting an ordinary payload job.
     fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64);

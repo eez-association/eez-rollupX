@@ -502,10 +502,27 @@ authenticated.
 ### 6.3 Retry procedure and settlement cutoff
 
 The reference Composer starts backoff at 100 ms, doubles its base up to 1,000 ms,
-and applies ±20% jitter. For an exact L1 target, the latest attempt start reserves
-both the configured proof-time budget and submission slack. Each attempt has its
-own proof-time timeout. The `NextBlock` mode instead bounds the complete proving
-episode by the proof-time budget.
+and applies ±20% jitter. Cross-chain candidates with an exact L1 target share
+one exclusive deadline: target timestamp minus submission slack. Preparation
+and proof settings are planning allocations. Crossing the preparation allocation
+MUST NOT discard an accepted candidate or substitute an empty L1 posting while
+proving and post-proof work still fit. A proof operation may exceed its planning
+allocation by using time left by preparation. Its timeout, stream/cache repair,
+and retries share the original remaining window minus the post-proof reserve;
+retries MUST NOT reset the deadline. The monotonic bound MUST NOT be extended by
+a backward wall-clock correction; forward corrections may shorten it.
+
+Reserve signing, response validation, ordered native preflight and delivery.
+Recheck the exact target, canonical parent and exclusive deadline before relay
+dispatch. A timed-out delivery after dispatch is uncertain submission, not
+proof of exclusion. A timed-out signer RPC does not release the server's worker
+permit before that worker exits. No parallel proof race is introduced.
+
+Ordinary-only exact-target posting retains the configured full-proof start
+reserve and per-attempt timeout. `NextBlock` bounds the complete proving episode
+by the proof-time budget. Older Composers retain these older timing semantics
+for cross-chain candidates too; this scheduling change does not change the wire
+schema, signer validation or historical follower decoding.
 
 For a retryable status, each retry MUST open a new `Prove` call and resend the
 complete header and block stream. The Composer SHOULD use exponential backoff

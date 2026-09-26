@@ -16,11 +16,18 @@ pub(crate) struct PreparationTiming {
     pub(crate) preparation_started: u64,
     pub(crate) proof_requested: Option<u64>,
     pub(crate) proof_received: Option<u64>,
+    pub(crate) proof_received_at: Option<Instant>,
+    pub(crate) candidate: Option<std::sync::Arc<crate::admission_events::Candidate>>,
+    pub(crate) deadline: Option<crate::prover_retry::PipelineDeadline>,
+    pub(crate) workload: crate::prover_retry::Workload,
+    pub(crate) timings: Option<std::sync::Arc<crate::prover_retry::PipelineTimings>>,
 }
 
 impl PreparationTiming {
     pub(crate) fn detail(&self) -> Value {
         json!({
+            "candidate_id": self.candidate.as_ref().map(|c| &c.id),
+            "deadline_ms": self.deadline.map(|d|d.unix_ms),
             "preparation_started_ms": self.preparation_started,
             "proof_requested_ms": self.proof_requested,
             "proof_received_ms": self.proof_received,

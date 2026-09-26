@@ -67,3 +67,30 @@ class StagedPerformanceConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("Unknown argument: --resend", result.stderr)
         self.assertFalse(self.marker.exists())
+
+    def test_verify_mode_reaches_the_locked_runner_and_check_never_sends(self):
+        args_file = self.root / "runner-args"
+        lock_file = self.root / "lock-observed"
+        for name, body in {
+            "cast": "echo 0x" + "11" * 20,
+            "python3": "exit 0",
+            "flock": "touch " + shlex.quote(str(lock_file)),
+        }.items():
+            (self.tools / name).write_text("#!/bin/sh\n" + body + "\n")
+        runner = self.root / "eez-core-protocol/script/e2e/run/network-staged.sh"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("#!/bin/bash\nset -eu\n"
+                          + "test -f " + shlex.quote(str(lock_file)) + "\n"
+                          + "printf '%s\\n' \"$@\" > " + shlex.quote(str(args_file)) + "\n")
+        for args, verify in (((), False), (("--verify",), True)):
+            with self.subTest(args=args):
+                result = self.run_helper(args=args)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                forwarded = args_file.read_text().splitlines()
+                self.assertEqual("--no-verify" in forwarded, not verify)
+                self.assertIn("counter:100", forwarded)
+                self.assertIn("revertFromOtherChainL2:50", forwarded)
+        args_file.unlink()
+        result = self.run_helper(args=("--verify", "--check"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(args_file.exists())

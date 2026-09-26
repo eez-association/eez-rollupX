@@ -22,6 +22,13 @@ use crate::config::SubmitterConfig;
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
+/// Bounded delivery observation. A missing acknowledgement after dispatch is
+/// uncertain submission, not evidence that the relay did not receive the bundle.
+struct DeliveryWindow {
+    deadline: tokio::time::Instant,
+    observed: Box<dyn FnOnce(Duration, bool) + Send>,
+}
+
 /// Wall-clock cap on the target-block + inclusion check.
 const TARGET_WAIT_BUDGET: Duration = Duration::from_secs(30);
 const TARGET_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -703,7 +710,7 @@ impl Submitter {
         target: BundleTarget,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
-        self.send_bundle_checked(raw_txs, target, None, record_dispatch)
+        self.send_bundle_checked(raw_txs, target, None, record_dispatch, None)
             .await
     }
 
@@ -744,8 +751,34 @@ impl Submitter {
         quote: crate::posting_fees::FeeQuote,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
-        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch)
+        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch, None)
             .await
+    }
+
+    /// Use the caller's original monotonic deadline for relay delivery. The
+    /// existing wall-clock/parent gate still applies; canonical observation can
+    /// continue after delivery expires. Cancellation after dispatch returns an
+    /// uncertain transport error and must not release source ownership.
+    pub async fn send_bundle_quoted_before(
+        &self,
+        raw_txs: &[alloy_primitives::Bytes],
+        target: BundleTarget,
+        quote: crate::posting_fees::FeeQuote,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+        deadline: tokio::time::Instant,
+        observed: impl FnOnce(Duration, bool) + Send + 'static,
+    ) -> L1Result<SendOutcome> {
+        self.send_bundle_checked(
+            raw_txs,
+            target,
+            Some(quote),
+            record_dispatch,
+            Some(DeliveryWindow {
+                deadline,
+                observed: Box::new(observed),
+            }),
+        )
+        .await
     }
 
     async fn send_bundle_checked(
@@ -754,6 +787,7 @@ impl Submitter {
         target: BundleTarget,
         quote: Option<crate::posting_fees::FeeQuote>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+        delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
             "injected failpoint: submitter::send::start".into()
@@ -834,6 +868,16 @@ impl Submitter {
                 BundleDropReason::SubmissionWindowMissed,
             ));
         }
+        if delivery
+            .as_ref()
+            .is_some_and(|window| tokio::time::Instant::now() >= window.deadline)
+        {
+            return Ok(dropped(
+                post_batch_hash,
+                prepared.block,
+                BundleDropReason::SubmissionWindowMissed,
+            ));
+        }
         record_dispatch(prepared.block, prepared.timestamp)?;
         // Dispatch breadcrumb: correlate this postBatch tx to the L1 block we
         // aim it at. `SendOutcome::Included` later carries the ACTUAL inclusion
@@ -852,7 +896,13 @@ impl Submitter {
         // Every bundle uses one timestamp-pinned target and permits only the
         // validated inbound source users to revert. postBatch is always required.
         self.inner
-            .dispatch_and_observe(raw_txs, post_batch_hash, prepared, &reverting_hashes)
+            .dispatch_and_observe(
+                raw_txs,
+                post_batch_hash,
+                prepared,
+                &reverting_hashes,
+                delivery,
+            )
             .await
     }
 
@@ -1116,22 +1166,37 @@ impl Inner {
         post_batch_hash: TxHash,
         target: PreparedTarget,
         reverting_hashes: &[B256],
+        delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
             .iter()
             .map(|t| hex::encode_prefixed(t.as_ref()))
             .collect();
         let hex_refs: Vec<&str> = hexes.iter().map(String::as_str).collect();
-        let result = match post_bundle(
+        let request = post_bundle(
             &self.http,
             self.config.builder_rpc_url.as_str(),
             &hex_refs,
             target.block,
             target.timestamp,
             reverting_hashes,
-        )
-        .await
-        {
+        );
+        let acknowledgement = if let Some(window) = delivery {
+            let started = tokio::time::Instant::now();
+            let result = tokio::time::timeout_at(window.deadline, request)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(L1Error::Submission(
+                        "relay acknowledgement exceeded the shared deadline; delivery uncertain"
+                            .into(),
+                    ))
+                });
+            (window.observed)(started.elapsed(), result.is_ok());
+            result
+        } else {
+            request.await
+        };
+        let result = match acknowledgement {
             Ok(()) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
@@ -1857,6 +1922,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delivery_deadline_bounds_acknowledgement_without_claiming_exclusion() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let (received, request) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = vec![0; 8192];
+            let count = stream.read(&mut bytes).await.unwrap();
+            assert!(count > 0);
+            received.send(()).unwrap();
+            // Headers arrive, but the body never completes. Sending the request
+            // already crossed the external boundary; timeout is uncertainty.
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let submitter = test_submitter(url);
+        let (post, hash) = signed_user(1, 0);
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let saved = observed.clone();
+        let result = tokio::spawn(async move {
+            submitter
+                .inner
+                .dispatch_and_observe(
+                    &[post],
+                    hash,
+                    PreparedTarget {
+                        block: 42,
+                        timestamp: PIN,
+                        expected_parent_hash: None,
+                    },
+                    &[],
+                    Some(super::DeliveryWindow {
+                        deadline: tokio::time::Instant::now() + Duration::from_millis(300),
+                        observed: Box::new(move |elapsed, ack| {
+                            *saved.lock().unwrap() = Some((elapsed, ack))
+                        }),
+                    }),
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            result.await.unwrap(),
+            Err(crate::L1Error::Submission(_))
+        ));
+        assert_eq!(
+            observed.lock().unwrap().as_ref().map(|(_, ack)| *ack),
+            Some(false)
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn dispatch_capture_preserves_outcomes_and_replay_requests() {
         struct CaptureDirectory(std::path::PathBuf);
         impl Drop for CaptureDirectory {
@@ -1923,9 +2050,13 @@ mod tests {
                     .bundle_capture_dir = (capture != "disabled").then(|| root.clone());
                 let result = tokio::time::timeout(
                     Duration::from_secs(5),
-                    submitter
-                        .inner
-                        .dispatch_and_observe(&raw, post_hash, target, &[user_hash]),
+                    submitter.inner.dispatch_and_observe(
+                        &raw,
+                        post_hash,
+                        target,
+                        &[user_hash],
+                        None,
+                    ),
                 )
                 .await
                 .expect("capture must not interrupt dispatch or observation");

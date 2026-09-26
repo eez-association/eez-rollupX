@@ -7,14 +7,18 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROTOCOL="$ROOT/eez-core-protocol"
 CHECK_ONLY=false
-case "${1:-}" in
+VERIFY=false
+while (($#)); do
+case "$1" in
     --check) CHECK_ONLY=true; shift ;;
+    --verify) VERIFY=true; shift ;;
     --help|-h)
         cat <<'HELP'
-Usage: bash scripts/run-chiado-staged-performance.sh [--check]
+Usage: bash scripts/run-chiado-staged-performance.sh [--check] [--verify]
 
 Runs the 14 requested targets (770 jobs / 870 source transactions by default) with
---no-verify. --check only checks readiness; it does not fund, build or send.
+--no-verify by default. --verify enables per-job semantic assertions after mining.
+--check only checks readiness; it does not fund, build or send.
 DEVNET_ENV defaults to eez-core-protocol/chain.env. The profile must contain
 the deployed RPCs, ingress URLs, registry, manager and a funded SOURCE_PK.
 
@@ -29,10 +33,9 @@ Only fresh runs are supported. Saved RPC URLs do not identify a network after
 replacement; this helper does not resume or resend old signed transactions.
 HELP
         exit 0 ;;
-    "") ;;
     *) echo "Unknown argument: $1 (use --help)" >&2; exit 2 ;;
 esac
-[[ $# == 0 ]] || { echo "Unexpected arguments; use --help." >&2; exit 2; }
+done
 for tool in python3 cast forge curl jq bc flock timeout; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
@@ -53,6 +56,8 @@ set -a
 source "$DEVNET_ENV"
 set +a
 set +x
+# Publish the selected CLI mode for the read-only preflight summary.
+export EEZ_STAGED_VERIFY="$VERIFY"
 # Validate the effective profile value before deriving keys, locking wallets or
 # querying the network. Avoid arithmetic on an unbounded shell integer.
 [[ "$EEZ_STAGED_SCALE" =~ ^([1-9]|10)$ ]] || {
@@ -155,7 +160,8 @@ def check():
     ready = True
     print(f'Profile: {os.environ["DEVNET_ENV"]}')
     print(f'Workload: {jobs} jobs / {870 * scale} sources; preparation={os.environ["PREPARE_PARALLEL"]}, '
-          f'send workers={os.environ["SEND_WORKERS"]}; semantic verifier disabled')
+          f'send workers={os.environ["SEND_WORKERS"]}; semantic verifier '
+          + ('enabled' if os.environ['EEZ_STAGED_VERIFY'] == 'true' else 'disabled'))
     print(f'Funding source: {source}; faucet: {faucet}')
     print(f'Upfront faucet requirement: {tokens(required)} xDAI per layer (includes refundable value)')
     for layer, chain_id, contract in [('L1', 10200, 'ROLLUPS'),
@@ -201,7 +207,9 @@ PY
 
 $CHECK_ONLY && exit 0
 echo "Starting upstream staged runner; its run directory contains timings.csv and job-timings.csv."
-exec bash script/e2e/run/network-staged.sh --no-verify \
+verify_args=(--no-verify)
+$VERIFY && verify_args=()
+exec bash script/e2e/run/network-staged.sh "${verify_args[@]}" \
     "counter:$((100 * EEZ_STAGED_SCALE))" "counterL2:$((100 * EEZ_STAGED_SCALE))" \
     "nestedCounter:$((50 * EEZ_STAGED_SCALE))" "nestedCounterL2:$((50 * EEZ_STAGED_SCALE))" \
     "multi-call-nested:$((50 * EEZ_STAGED_SCALE))" "multi-call-nestedL2:$((50 * EEZ_STAGED_SCALE))" \

@@ -86,6 +86,7 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant WORD_DEFERRED_GAS_PIN = 250_000;
     uint256 private constant BOUNDED_DEFERRED_GAS_PIN = 270_000;
     uint256 private constant EXISTING_PROXY_GAS_PIN = 70_000;
+    uint256 private constant RETAINED_WORD_DISCOUNT = 15_000;
 
     uint64 private constant ROLLUP_ID = 1;
     uint256 private constant PROVER_KEY = 0xA11CE;
@@ -376,6 +377,56 @@ contract PostBatchGasPinsTest is Test {
         }
     }
 
+    function testRetainedWordDiscountFromEmptyResult() external {
+        _retainedTransitions(0);
+    }
+
+    function testRetainedWordDiscountFromShortResult() external {
+        _retainedTransitions(31);
+    }
+
+    function testRetainedWordDiscountFromWordResult() external {
+        _retainedTransitions(32);
+    }
+
+    function testRetainedWordDiscountFromLongResult() external {
+        _retainedTransitions(64);
+    }
+
+    function _retainedTransitions(uint256 oldSize) private {
+        uint256[4] memory sizes = [uint256(0), 31, 32, 64];
+        uint256[3] memory counts = [uint256(1), 10, 127];
+        for (uint256 n; n < counts.length; n++) {
+            for (uint256 next; next < sizes.length; next++) {
+                delete touched;
+                (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+                uint256 count = counts[n];
+                for (uint256 wave; wave < 2; wave++) {
+                    uint256 size = wave == 0 ? oldSize : sizes[next];
+                    ProofSystemBatchPerVerificationEntries memory batch =
+                        _batch(eez, proofSystem, address(0), Rung(count, 0, false, false, 64));
+                    batch.immediateEntryCount = 1;
+                    bytes memory result = _nonzeroBytes(size);
+                    for (uint256 i = 1; i < batch.entries.length; i++) {
+                        batch.entries[i].proxyEntryHash = keccak256(abi.encode(i, wave));
+                        batch.entries[i].rollingHash = keccak256(abi.encode(i, wave, uint256(1)));
+                        batch.entries[i].returnData = result;
+                    }
+                    uint256 used = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
+                    uint256 pin = size < 32
+                        ? SHORT_DEFERRED_GAS_PIN
+                        : size == 32 ? WORD_DEFERRED_GAS_PIN : BOUNDED_DEFERRED_GAS_PIN;
+                    // All six fixed words are nonzero after the first wave.
+                    // Dynamic bytes can grow/shrink; their slots earn no discount.
+                    if (wave == 1) pin -= 6 * RETAINED_WORD_DISCOUNT;
+                    assertLe(used, POSTBATCH_BASE_GAS_PIN + count * pin, "retained-word reserve exceeded");
+                    _assertDeferredStorageLayout(eez, batch, 0);
+                    vm.roll(block.number + 1);
+                }
+            }
+        }
+    }
+
     function testQueueStorageLayoutIncludesTheStaticQueue() external {
         delete touched;
         (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
@@ -460,11 +511,7 @@ contract PostBatchGasPinsTest is Test {
         }
     }
 
-    function _boundedImmediateRung(
-        uint256 entries,
-        uint256 inputBytes,
-        uint256 resultBytes
-    )
+    function _boundedImmediateRung(uint256 entries, uint256 inputBytes, uint256 resultBytes)
         private
         returns (uint256 gasUsed)
     {
@@ -483,11 +530,7 @@ contract PostBatchGasPinsTest is Test {
         return _measure(eez, batch, batch.entries[entries].rollupUpdates[0].newRoot);
     }
 
-    function _deferredRung(
-        uint256 entries,
-        uint256 resultBytes,
-        bool consume
-    )
+    function _deferredRung(uint256 entries, uint256 resultBytes, bool consume)
         private
         returns (uint256 posted, uint256 cleared)
     {
@@ -498,10 +541,7 @@ contract PostBatchGasPinsTest is Test {
         return _deferredRung(resultSizes, consume);
     }
 
-    function _deferredRung(
-        uint256[] memory resultSizes,
-        bool consume
-    )
+    function _deferredRung(uint256[] memory resultSizes, bool consume)
         private
         returns (uint256 posted, uint256 cleared)
     {
@@ -557,11 +597,7 @@ contract PostBatchGasPinsTest is Test {
     /// Pins the exact compiler storage layout read by native admission. Both
     /// zero/nonzero cursor and short/long dynamic bytes are checked against
     /// actual stored entries, so upstream layout drift cannot pass silently.
-    function _assertDeferredStorageLayout(
-        EEZ eez,
-        ProofSystemBatchPerVerificationEntries memory batch,
-        uint256 cursor
-    )
+    function _assertDeferredStorageLayout(EEZ eez, ProofSystemBatchPerVerificationEntries memory batch, uint256 cursor)
         private
         view
     {
@@ -638,11 +674,7 @@ contract PostBatchGasPinsTest is Test {
         return _measure(eez, batch, batch.entries[batch.entries.length - 1].rollupUpdates[0].newRoot);
     }
 
-    function _measure(
-        EEZ eez,
-        ProofSystemBatchPerVerificationEntries memory batch,
-        bytes32 expectedRoot
-    )
+    function _measure(EEZ eez, ProofSystemBatchPerVerificationEntries memory batch, bytes32 expectedRoot)
         private
         returns (uint256 gasUsed)
     {
@@ -677,12 +709,7 @@ contract PostBatchGasPinsTest is Test {
 
     /// A composer-shaped call: the leading anchor plus `outboundEntries` entries,
     /// all immediate, with state deltas chained from the live root.
-    function _batch(
-        EEZ eez,
-        ECDSAProofSystem proofSystem,
-        address target,
-        Rung memory shape
-    )
+    function _batch(EEZ eez, ECDSAProofSystem proofSystem, address target, Rung memory shape)
         private
         returns (ProofSystemBatchPerVerificationEntries memory batch)
     {
@@ -748,12 +775,7 @@ contract PostBatchGasPinsTest is Test {
 
     /// An outbound settlement entry: `proxyEntryHash == 0` so EEZ.sol drains it
     /// inline, one state delta chaining `currentState` to the prior `newState`.
-    function _entry(
-        EEZ eez,
-        bytes32 currentState,
-        bytes32 newState,
-        L2ToL1Call[] memory calls
-    )
+    function _entry(EEZ eez, bytes32 currentState, bytes32 newState, L2ToL1Call[] memory calls)
         private
         view
         returns (ExecutionEntry memory)
@@ -774,11 +796,7 @@ contract PostBatchGasPinsTest is Test {
 
     /// EEZBase's tagged fold for this shape: the entry seed, then CALL_BEGIN and
     /// CALL_END per call. Every call succeeds with empty return data.
-    function _rollingHash(
-        EEZ eez,
-        RollupUpdate[] memory updates,
-        L2ToL1Call[] memory calls
-    )
+    function _rollingHash(EEZ eez, RollupUpdate[] memory updates, L2ToL1Call[] memory calls)
         private
         view
         returns (bytes32 hash)
@@ -791,11 +809,7 @@ contract PostBatchGasPinsTest is Test {
         RollupUpdate[] memory updates,
         L2ToL1Call[] memory calls,
         bytes memory result
-    )
-        private
-        view
-        returns (bytes32 hash)
-    {
+    ) private view returns (bytes32 hash) {
         for (uint256 i = 0; i < updates.length; i++) {
             hash = keccak256(abi.encodePacked(hash, updates[i].rollupId, updates[i].currentRoot));
         }

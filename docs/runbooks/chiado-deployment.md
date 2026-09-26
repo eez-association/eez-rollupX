@@ -322,6 +322,8 @@ Run funded traffic only when the operation includes it. Inspect the
 on **both chains**, and it assumes public development accounts. The
 [staged performance runner](../../scripts/run-chiado-staged-performance.sh) locks
 shared wallets; `--check` is readiness-only and normal runs use `--no-verify`.
+Add `--verify` to run per-job semantic assertions after the measured mining phase,
+under the same wallet lock. This does not itself run an independent follower.
 `EEZ_STAGED_SCALE` must resolve to an integer from 1 through 10 after loading
 `DEVNET_ENV`. Profile assignments take precedence over inherited environment
 values. The helper supports fresh runs only; the diagnostic `--resend` shortcut

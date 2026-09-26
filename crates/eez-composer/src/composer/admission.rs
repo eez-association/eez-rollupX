@@ -3,7 +3,7 @@
 //! and the final encoded transaction/bundle remains the authoritative check.
 
 use std::{
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -14,7 +14,7 @@ use eez_driver::RollupTiming;
 use eez_l1::BundleTarget;
 
 use crate::{
-    prover_retry::{proof_start_cutoff_ms, unix_time_millis},
+    prover_retry::{PipelineDeadline, PipelineTimings, Workload, unix_time_millis},
     settlement_policy::index::DaOverhead,
 };
 
@@ -73,6 +73,7 @@ impl Sample {
 pub(super) struct AutomaticAdmission {
     sample: Option<Sample>,
     retry_limit: Option<usize>,
+    timings: Arc<PipelineTimings>,
 }
 
 impl AutomaticAdmission {
@@ -89,29 +90,33 @@ impl AutomaticAdmission {
         if available.is_zero() {
             return 0;
         }
-        // Learn the final preparation tail with one cold-start group. Once it
-        // is known, inspect the finite FIFO snapshot and stop incrementally at
-        // the actual time/gas/blob budget. A low-traffic sample must not reset a
-        // learned network to a one-user or doubling-only admission ramp.
-        let estimated = self.sample.map_or(1, |_| queued);
+        // The first candidate uses the same finite queue and resource checks.
+        // Bootstrap finishing reserves protect the first proof handoff without
+        // spending an L1 posting solely to measure a single group.
+        let estimated = queued;
         estimated
             .min(self.retry_limit.unwrap_or(usize::MAX))
             .min(queued)
     }
 
     pub fn begin(&self, queued: usize, timing: RollupTiming, target: BundleTarget) -> Attempt {
-        let available = Duration::from_millis(
-            proof_start_cutoff_ms(timing, target)
-                // A missing target has no safe preparation budget. The normal
-                // minimal/history path resolves a target without draining users.
-                .unwrap_or(0)
-                .saturating_sub(unix_time_millis()),
-        );
+        let deadline = PipelineDeadline::new(timing, target, unix_time_millis());
+        let available = deadline.map_or(Duration::ZERO, PipelineDeadline::remaining);
         Attempt {
             started: Instant::now(),
             available,
             selected: self.limit(queued, available),
             previous: self.sample,
+            deadline,
+            timings: Arc::clone(&self.timings),
+            proof_estimate: timing.proof_time(),
+            post_reserve: self.timings.post_reserve(Workload {
+                groups: queued,
+                blobs: usize::MAX,
+                witnesses: usize::MAX,
+            }),
+            witnesses: std::sync::atomic::AtomicUsize::new(usize::MAX),
+            previous_candidate: Mutex::default(),
             progress: Mutex::default(),
         }
     }
@@ -136,15 +141,7 @@ impl AutomaticAdmission {
             // FIFO group next time. Exact resource/deadline guards still apply.
             self.sample = None;
         }
-        self.retry_limit = if !progress.completed
-            || progress
-                .prepared
-                .is_none_or(|s| s.preparation > attempt.available)
-        {
-            // Selected is FIFO lookahead, which may be the whole backlog. A
-            // cutoff miss must reduce the workload that actually reached
-            // preparation, including a smaller rebuilt candidate, rather than
-            // leave enough lookahead to repeat the same oversized prefix.
+        self.retry_limit = if progress.window_exhausted {
             let admitted = progress.prepared.map_or(progress.accepted, |s| s.groups);
             let workload = if admitted == 0 {
                 attempt.selected
@@ -152,8 +149,11 @@ impl AutomaticAdmission {
                 admitted.min(attempt.selected)
             };
             Some((workload / 2).max(1))
-        } else {
+        } else if progress.completed {
             None
+        } else {
+            // Source/provider/prover uncertainty does not measure capacity.
+            self.retry_limit
         };
         // Shrink lookahead when outbound-first execution bypassed an older
         // eligible group. A successful FIFO prefix already made fair progress;
@@ -179,6 +179,7 @@ struct Progress {
     limited: bool,
     fifo_bypassed: bool,
     completed: bool,
+    window_exhausted: bool,
     prepared: Option<Sample>,
     blob_preparation: Duration,
     blobs: usize,
@@ -217,10 +218,54 @@ pub(super) struct Attempt {
     available: Duration,
     pub selected: usize,
     previous: Option<Sample>,
+    pub deadline: Option<PipelineDeadline>,
+    pub timings: Arc<PipelineTimings>,
+    proof_estimate: Duration,
+    pub post_reserve: Duration,
+    witnesses: std::sync::atomic::AtomicUsize,
+    pub previous_candidate: Mutex<Option<String>>,
     progress: Mutex<Progress>,
 }
 
 impl Attempt {
+    pub fn window_exhausted(&self) {
+        self.progress.lock().unwrap().window_exhausted = true;
+    }
+
+    fn bootstrap_tail(&self, blobs: usize, elapsed: Duration) -> u128 {
+        // Conservative cold bootstrap allowance, verified by the native
+        // cold-process suite before rollout. Non-KZG work also tracks this admission
+        // pass, protecting larger/complex candidates before calibration.
+        elapsed
+            .max(Duration::from_millis(100))
+            .as_nanos()
+            .saturating_add(
+                Duration::from_millis(250)
+                    .as_nanos()
+                    .saturating_mul(blobs as u128),
+            )
+    }
+
+    pub fn witness_count(&self, witnesses: usize) {
+        self.witnesses
+            .store(witnesses, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn pipeline_reserve(&self, groups: usize, blobs: usize) -> u128 {
+        let workload = Workload {
+            groups,
+            blobs,
+            witnesses: self.witnesses.load(std::sync::atomic::Ordering::Relaxed),
+        };
+        self.timings
+            .proof_estimate(self.proof_estimate, workload)
+            .saturating_add(if self.deadline.is_some() {
+                self.timings.post_reserve(workload)
+            } else {
+                self.post_reserve
+            })
+            .as_nanos()
+    }
+
     /// Add 10% of the actual window to measured finishing predictions. The
     /// conservative full-pass fallback can cover this allowance already.
     /// The proof budget and absolute cutoff remain authoritative.
@@ -250,9 +295,11 @@ impl Attempt {
         let next = accepted.saturating_add(1);
         let blobs = self.progress.lock().unwrap().blobs.max(1);
         let jitter = self.jitter_reserve();
-        let tail = self.previous.map_or(elapsed.max(jitter).as_nanos(), |s| {
-            s.tail_for(next, blobs, elapsed, jitter)
-        });
+        let tail = self
+            .previous
+            .map_or(self.bootstrap_tail(blobs, elapsed), |s| {
+                s.tail_for(next, blobs, elapsed, jitter)
+            });
         let group = if accepted == 0 {
             self.previous.map_or(0, |s| {
                 s.preparation.saturating_sub(s.tail).as_nanos() / s.groups.max(1) as u128
@@ -260,7 +307,10 @@ impl Attempt {
         } else {
             elapsed.as_nanos() / accepted as u128
         };
-        remaining.as_nanos() > group.saturating_add(tail)
+        remaining.as_nanos()
+            > group
+                .saturating_add(tail)
+                .saturating_add(self.pipeline_reserve(next, blobs))
     }
 
     fn can_start_at(&self, accepted: usize, elapsed: Duration) -> bool {
@@ -291,9 +341,11 @@ impl Attempt {
     fn can_finish_at(&self, groups: usize, blobs: usize, elapsed: Duration) -> bool {
         let remaining = self.available.saturating_sub(elapsed);
         let jitter = self.jitter_reserve();
-        let tail = self.previous.map_or(jitter.as_nanos(), |s| {
-            s.tail_for(groups, blobs, elapsed, jitter)
-        });
+        let tail = self
+            .previous
+            .map_or(self.bootstrap_tail(blobs, elapsed), |s| {
+                s.tail_for(groups, blobs, elapsed, jitter)
+            });
         let mut progress = self.progress.lock().unwrap();
         let measured = progress
             .group_started
@@ -304,7 +356,7 @@ impl Attempt {
                     .flatten()
             });
         progress.unmeasured_work |= measured.is_none();
-        if remaining.as_nanos() <= tail {
+        if remaining.as_nanos() <= tail.saturating_add(self.pipeline_reserve(groups, blobs)) {
             // This matching group is refused before its duration is added or
             // the caller appends it. Its work must not train the estimate, but
             // it does not invalidate the earlier accepted prefix. Cancel only
@@ -578,6 +630,12 @@ mod tests {
             available: Duration::from_secs(1),
             selected,
             previous: prepared,
+            deadline: None,
+            timings: Arc::default(),
+            proof_estimate: Duration::ZERO,
+            post_reserve: Duration::ZERO,
+            witnesses: std::sync::atomic::AtomicUsize::new(usize::MAX),
+            previous_candidate: Mutex::default(),
             progress: Mutex::new(Progress {
                 accepted,
                 limited,
@@ -603,7 +661,7 @@ mod tests {
     fn automatic_selection_learns_once_then_uses_finite_snapshot_and_actual_time() {
         let mut state = AutomaticAdmission::default();
         assert_eq!(state.limit(1000, Duration::ZERO), 0);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1000);
         assert_eq!(state.limit(0, Duration::from_secs(1)), 0);
         let unknown_target = state.begin(
             1000,
@@ -626,7 +684,7 @@ mod tests {
         // Restart discards only performance estimates.
         assert_eq!(
             AutomaticAdmission::default().limit(1000, Duration::from_secs(1)),
-            1
+            1000
         );
     }
 
@@ -635,6 +693,7 @@ mod tests {
         let mut state = AutomaticAdmission {
             sample: Some(sample(64, 100)),
             retry_limit: None,
+            timings: Arc::default(),
         };
         let mut selected = 64;
         while selected > 1 {
@@ -665,24 +724,21 @@ mod tests {
     }
 
     #[test]
-    fn timeouts_and_incomplete_preparation_back_off_without_an_unbounded_retry() {
+    fn nominal_preparation_overrun_and_infrastructure_uncertainty_do_not_reduce_capacity() {
         let mut state = AutomaticAdmission::default();
-        state.finish(&attempt(64, 64, false, Some(sample(64, 2000))));
+        // A prepared candidate may exceed the nominal allocation and still prove
+        // before the shared deadline. The overrun alone is not a capacity failure.
+        state.finish(&attempt(64, 64, false, Some(sample(64, 1200))));
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1000);
+        let failed_rpc = attempt(64, 64, false, Some(sample(64, 100)));
+        failed_rpc.progress.lock().unwrap().completed = false;
+        state.finish(&failed_rpc);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1000);
+        failed_rpc.window_exhausted();
+        state.finish(&failed_rpc);
         assert_eq!(state.limit(1000, Duration::from_secs(1)), 32);
-        state.finish(&attempt(32, 0, false, None));
+        state.submission_failed(32);
         assert_eq!(state.limit(1000, Duration::from_secs(1)), 16);
-        state.finish(&attempt(16, 0, true, None));
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1);
-        let failed_proof = attempt(16, 16, false, Some(sample(16, 100)));
-        failed_proof.progress.lock().unwrap().completed = false;
-        state.finish(&failed_proof);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 8);
-        state.submission_failed(8);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 4);
-        state.submission_failed(4);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 2);
-        state.submission_failed(2);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1);
     }
 
     #[test]
@@ -695,9 +751,11 @@ mod tests {
                     let mut state = AutomaticAdmission {
                         sample: Some(sample(62, 477)),
                         retry_limit: None,
+                        timings: Arc::default(),
                     };
                     let mut failed = attempt(selected, 60, true, prepared);
                     failed.available = Duration::from_millis(491);
+                    failed.window_exhausted();
                     {
                         let mut progress = failed.progress.lock().unwrap();
                         progress.completed = false;
@@ -717,6 +775,7 @@ mod tests {
     fn failed_rebuilt_candidate_backs_off_from_its_final_prepared_work() {
         let mut state = AutomaticAdmission::default();
         let failed = attempt(1164, 60, true, Some(sample(12, 1100)));
+        failed.window_exhausted();
         state.finish(&failed);
         assert_eq!(state.limit(1164, failed.available), 6);
     }
@@ -867,6 +926,7 @@ mod tests {
         let mut state = AutomaticAdmission {
             sample: Some(sample(1, 2000)),
             retry_limit: None,
+            timings: Arc::default(),
         };
         let mut blocked = attempt(state.limit(100, Duration::from_millis(500)), 0, true, None);
         blocked.previous = state.sample;
@@ -1353,10 +1413,12 @@ mod tests {
         );
     }
     #[test]
-    fn source_only_deferral_preserves_capacity_but_resource_and_transport_failures_back_off() {
+    fn source_and_transport_uncertainty_preserve_capacity_but_zero_progress_resource_cuts_back_off()
+    {
         let mut state = AutomaticAdmission {
             sample: Some(sample(64, 100)),
             retry_limit: None,
+            timings: Arc::default(),
         };
         let a = attempt(64, 0, false, None);
         a.source_deferred(true);
@@ -1372,6 +1434,6 @@ mod tests {
         let transport = attempt(64, 0, false, None);
         transport.source_deferred(true);
         state.finish(&transport);
-        assert_eq!(state.limit(1000, Duration::from_secs(1)), 32);
+        assert_eq!(state.limit(1000, Duration::from_secs(1)), 1000);
     }
 }

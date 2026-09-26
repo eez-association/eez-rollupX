@@ -30,7 +30,8 @@ and its pinned protocol revision; upstream `main` is not a substitute.
 - Respect the [staged Chiado runner](scripts/run-chiado-staged-performance.sh)'s
   wallet lock; do not bypass it with the upstream runner. The lock is per protocol
   checkout, so separate worktrees must still coordinate use of shared wallets.
-  Its `--no-verify` workload measures execution/throughput, not semantic correctness.
+  Its default `--no-verify` workload measures execution/throughput, not semantic
+  correctness. Use its `--verify` flag when semantic assertions are required.
 - Keep private keys, authenticated URLs, private hostnames, and bulk logs/databases
   out of committed records. Do not treat public fixture/workload keys as private
   operator credentials. The repository and published images are public; do not

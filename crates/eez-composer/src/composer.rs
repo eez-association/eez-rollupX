@@ -565,6 +565,7 @@ impl PostBatchGasBudget {
 #[allow(clippy::too_many_arguments)]
 fn trace_admission_budget(
     config: Option<&gas_trace::Config>,
+    candidate: &crate::admission_events::Candidate,
     source_hash: B256,
     parent: B256,
     direction: &'static str,
@@ -577,19 +578,9 @@ fn trace_admission_budget(
     prior_cleanup: u64,
     gas_gate_accepted: bool,
 ) {
-    let Some(config) = config.filter(|config| config.selects(source_hash)) else {
-        return;
-    };
-    let Ok(_trace) = config
-        .begin("admission_budget", parent, source_hash)
-        .inspect_err(|error| {
-            event!(Level::WARN, %source_hash, %error, "cannot write selected admission gas ledger");
-        })
-    else {
-        return;
-    };
-    gas_trace::emit(serde_json::json!({
+    let detail = serde_json::json!({
         "kind": "admission_budget", "source_hash": source_hash, "direction": direction,
+        "l1_parent": parent,"fixed_drain_reserve_gas": POSTBATCH_DRAIN_MARGIN,
         "gas_gate_accepted": gas_gate_accepted, "constraint": after.rejected_constraint,
         "projected_before": before.projected,
         "projected_after": gas_gate_accepted.then_some(after.projected),
@@ -604,7 +595,20 @@ fn trace_admission_budget(
         "companion_sim_gas": companion_estimate,
         "postbatch_planning_cap": before.cap,
         "whole_block_cap": before.block_cap,
-    }));
+    });
+    candidate.emit("source_estimate", detail.clone());
+    let Some(config) = config.filter(|config| config.selects(source_hash)) else {
+        return;
+    };
+    let Ok(_trace) = config
+        .begin("admission_budget", parent, source_hash)
+        .inspect_err(|error| {
+            event!(Level::WARN, %source_hash, %error, "cannot write selected admission gas ledger");
+        })
+    else {
+        return;
+    };
+    gas_trace::emit(detail);
 }
 
 /// What the drain can do with a pair wanting `declared` gas on a Sync block
@@ -1441,6 +1445,13 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
+    fn has_cross_chain_work(&self, rollup_id: u64) -> bool {
+        self.inner
+            .rollups
+            .get(&rollup_id)
+            .is_some_and(|rollup| !rollup.held_pool.is_empty())
+    }
+
     fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64) {
         self.inner
             .policy
@@ -1797,7 +1808,8 @@ where
             .as_millis();
         let deadline = u128::from(old_timestamp) * 1_000 + timing.proof_window_open().as_millis();
         let cutoff = (u128::from(timestamp) * 1_000).saturating_sub(
-            timing.proof_time().as_millis() + timing.submission_slack().as_millis(),
+            crate::prover_retry::POST_PROOF_RESERVE.as_millis()
+                + timing.submission_slack().as_millis(),
         );
         if now < deadline || now >= cutoff {
             return Ok(());
@@ -2189,6 +2201,7 @@ where
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
         if self.inner.max_user_txs_per_bundle.is_none()
+            && charge
             && submission_backoff_required(&outcomes, skipped_slot)
         {
             let next_selection_max = self.inner.automatic_admission[&rollup_id]
@@ -2199,16 +2212,11 @@ where
                 event_name = "eez.composer.admission.submission_backoff", rollup_id,
                 submitted_groups = attempt.txs.len(), next_selection_max,
                 "canonical reconciliation left incomplete sources; reducing the next automatic selection");
-        } else if skipped_slot
-            && !outcomes.is_empty()
-            && outcomes
-                .iter()
-                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. }))
-        {
+        } else if skipped_slot && !outcomes.is_empty() {
             event!(name: "eez.composer.admission.skipped_slot", Level::INFO,
                 event_name = "eez.composer.admission.skipped_slot", rollup_id,
                 submitted_groups = attempt.txs.len(), target = ?attempt.dispatched_target,
-                "canonical target slot was skipped and all sources remain retryable; retaining automatic selection");
+                "canonical target slot was skipped; source dispositions do not measure this candidate capacity");
         }
         event!(name: "eez.composer.settlement.reconciled", Level::INFO,
             event_name = "eez.composer.settlement.reconciled",
@@ -2280,6 +2288,19 @@ where
                 format!("unknown rollup_id {rollup_id} in compose_cross_chain_batch")
             })?;
         let pool = rollup.held_pool.as_ref();
+        admission.witness_count(rollup.l1_head.settlement_snapshot().endpoint.map_or(
+            usize::MAX,
+            |endpoint| {
+                usize::try_from(
+                    parent_header
+                        .number
+                        .saturating_sub(endpoint.number)
+                        .saturating_add(1),
+                )
+                .unwrap_or(usize::MAX)
+            },
+        ));
+
         let state = rollup
             .l2_provider
             .state_by_block_hash(parent_hash)
@@ -2330,6 +2351,31 @@ where
                 )
                 .await;
         }
+        let candidate = {
+            let mut previous = admission.previous_candidate.lock().unwrap();
+            let candidate = Arc::new(crate::admission_events::Candidate::new(
+                ctx.l1_chain_id,
+                self.inner.posting.registry,
+                rollup_id,
+                parent_hash,
+                bundle_target,
+                drained.len(),
+                pool.len() + drained.len(),
+                previous.clone(),
+            ));
+            for (position, held) in drained.iter().enumerate() {
+                candidate.emit(
+                    "source_selected",
+                    serde_json::json!({"source_hash":held.hash,
+                    "position":position,"direction":match held.direction {
+                        Direction::Inbound => "inbound",
+                        Direction::Outbound => "outbound",
+                    }}),
+                );
+            }
+            *previous = Some(candidate.id.clone());
+            candidate
+        };
 
         drop(state);
 
@@ -2611,9 +2657,17 @@ where
         let mut out_iter = outbounds.into_iter();
         while let Some((idx, held)) = out_iter.next() {
             if !selection.consider(idx) {
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"dependency_or_selection"}),
+                );
                 continue;
             }
             if !pool.claim(&held) {
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
+                );
                 selection.block(idx);
                 continue;
             }
@@ -2626,7 +2680,7 @@ where
                 continue;
             }
             if !admission.can_start_group(survivors.len()) {
-                admission_cut = Some("preparation_time");
+                admission_cut = Some("pipeline_time");
                 deferred = abort_rest(
                     Some((idx, held)),
                     &mut out_iter,
@@ -2951,6 +3005,7 @@ where
                     let gas_accepted = next_budget.try_accept(cost);
                     trace_admission_budget(
                         self.inner.gas_trace.as_ref(),
+                        &candidate,
                         held.hash,
                         l1_state.anchor.hash(),
                         "outbound",
@@ -3067,7 +3122,7 @@ where
                     if let Some(next) = next_blob
                         && !admission.can_finish_group(survivors.len() + 1, next.required_blobs()?)
                     {
-                        admission_cut = Some("preparation_time");
+                        admission_cut = Some("pipeline_time");
                         deferred = abort_rest(
                             Some((idx, held)),
                             &mut out_iter,
@@ -3208,6 +3263,11 @@ where
                     // L1). The L1 settlement is `outbound_entries`, spliced
                     // separately with dest=rid.
                     semantic_transactions.push(semantic);
+                    candidate.emit(
+                        "source_accepted",
+                        serde_json::json!({"source_hash":held.hash,
+                        "position":idx,"projected_gas":budget.projected}),
+                    );
                     selection.accept(idx);
                     pool.record_ready(&held, source_state);
                     survivors.push((idx, held));
@@ -3216,6 +3276,11 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
+                    candidate.emit(
+                        "source_outcome",
+                        serde_json::json!({"source_hash":held.hash,
+                        "reason":"source_condition","condition":condition}),
+                    );
                     defer_source(
                         pool,
                         &mut selection,
@@ -3268,9 +3333,17 @@ where
         let mut in_iter = inbounds.into_iter();
         while let Some((idx, held)) = in_iter.next() {
             if !selection.consider(idx) {
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"dependency_or_selection"}),
+                );
                 continue;
             }
             if !pool.claim(&held) {
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
+                );
                 selection.block(idx);
                 continue;
             }
@@ -3283,7 +3356,7 @@ where
                 continue;
             }
             if !admission.can_start_group(survivors.len()) {
-                admission_cut = Some("preparation_time");
+                admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
             }
@@ -3424,6 +3497,7 @@ where
                         next_budget.try_accept_with_companion(cost, companion_limit, companion_gas);
                     trace_admission_budget(
                         self.inner.gas_trace.as_ref(),
+                        &candidate,
                         held.hash,
                         l1_state.anchor.hash(),
                         "inbound",
@@ -3534,7 +3608,7 @@ where
                     if let Some(next) = next_blob
                         && !admission.can_finish_group(survivors.len() + 1, next.required_blobs()?)
                     {
-                        admission_cut = Some("preparation_time");
+                        admission_cut = Some("pipeline_time");
                         deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                         break;
                     }
@@ -3600,6 +3674,11 @@ where
                     );
                     semantic_transactions.push(semantic);
                     survivor_comps.push((composition, held.hash));
+                    candidate.emit(
+                        "source_accepted",
+                        serde_json::json!({"source_hash":held.hash,
+                        "position":idx,"projected_gas":budget.projected}),
+                    );
                     selection.accept(idx);
                     pool.record_ready(&held, source_state);
                     survivors.push((idx, held));
@@ -3608,6 +3687,11 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
+                    candidate.emit(
+                        "source_outcome",
+                        serde_json::json!({"source_hash":held.hash,
+                        "reason":"source_condition","condition":condition}),
+                    );
                     defer_source(
                         pool,
                         &mut selection,
@@ -3685,6 +3769,16 @@ where
             rollup_id,
             source_deferred.iter().map(|(_, held)| held.hash),
         );
+        for (index, held) in &deferred {
+            candidate.emit("source_outcome", serde_json::json!({"source_hash":held.hash,"position":index,
+                "reason":admission_cut.or(budget.rejected_constraint).unwrap_or("l2_block_capacity")}));
+        }
+        for &index in selection.fee_blocked() {
+            candidate.emit(
+                "source_outcome",
+                serde_json::json!({"source_hash":snapshot[index].hash,"reason":"source_fee"}),
+            );
+        }
         requeue_unprocessed(pool, rollup_id, &poison_gaps, source_deferred);
 
         // ── Deferred work: settle what fits, keep the rest held. ──────
@@ -3695,6 +3789,16 @@ where
             survivors.len(),
             !deferred.is_empty(),
             selection.fifo_bypassed(),
+        );
+        candidate.emit(
+            "summary",
+            serde_json::json!({
+                "accepted":survivors.len(), "deferred":deferred.len(),
+                "reason":admission_cut.or(budget.rejected_constraint),
+                "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
+                "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
+                "companion_gas":budget.companion_gas,
+            }),
         );
         if !deferred.is_empty() {
             let deferred_count = deferred.len();
@@ -3851,6 +3955,11 @@ where
                 event!(name: "eez.composer.admission.deferred", Level::INFO,
                     event_name = "eez.composer.admission.deferred", rollup_id, constraint,
                     "no group admitted within this opportunity; users remain pending");
+                if constraint == "pipeline_time" {
+                    // A time-constrained cross-chain candidate must not consume
+                    // the remaining window by substituting an empty L1 batch.
+                    return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+                }
             } else {
                 let evicted = poison.len();
                 event!(
@@ -4099,6 +4208,7 @@ where
                 gas_projection.as_ref(),
                 bundle_target,
                 Some(admission),
+                Some(Arc::clone(&candidate)),
                 preparation_started_ms,
             )
             .await;
@@ -4637,6 +4747,7 @@ where
                 None,
                 bundle_target,
                 None,
+                None,
                 preparation_started_ms,
             )
             .await;
@@ -4853,6 +4964,7 @@ where
                     0, // no inline outbound target calls
                     None,
                     bundle_target,
+                    None,
                     None,
                     preparation_started_ms,
                 )
@@ -5079,6 +5191,7 @@ where
         gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
+        candidate: Option<Arc<crate::admission_events::Candidate>>,
         preparation_started_ms: u64,
     ) -> Result<(Bytes, crate::posting_events::PreparationTiming), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
@@ -5912,6 +6025,15 @@ where
         if floor_active {
             projected_gas = projected_gas.max(calldata_floor_gas(&projected));
         }
+        if let Some(candidate) = &candidate {
+            candidate.emit(
+                "full_projection",
+                serde_json::json!({"projected_gas":projected_gas,
+                "calldata_bytes":projected.len(),"calldata_gas":calldata_gas(&projected),
+                "calldata_floor_gas":calldata_floor_gas(&projected),"gas_ceiling":ceiling,
+                "entries":batch.entries.len(),"blobs":blob_count}),
+            );
+        }
         match posting.fees.declared_gas(projected_gas, ceiling) {
             Ok(_) => {}
             Err(eez_l1::posting_fees::PostingFeeError::GasBudget {
@@ -6119,24 +6241,71 @@ where
         }
         let preparation_elapsed_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
         let proof_gate_ms = crate::prover_retry::unix_time_millis();
-        let proof_cutoff_ms =
-            crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target);
+        let workload = crate::prover_retry::Workload {
+            groups: semantic_transactions.len(),
+            blobs: proving_ctx.blobs.len(),
+            witnesses: proving_ctx.blocks.len(),
+        };
+        let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
+            attempt.timings.post_reserve(workload)
+        });
+        let deadline = admission.and_then(|attempt| attempt.deadline);
+        let proof_cutoff_ms = if deadline.is_some() {
+            None
+        } else {
+            crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target)
+        };
         let mut preparation_timing = crate::posting_events::PreparationTiming {
             preparation_started: preparation_started_ms,
             proof_requested: proof_cutoff_ms
                 .is_none_or(|cutoff| proof_gate_ms <= cutoff)
                 .then_some(proof_gate_ms),
             proof_received: None,
+            proof_received_at: None,
+            candidate,
+            deadline,
+            workload,
+            timings: admission.map(|a| Arc::clone(&a.timings)),
         };
-        let proof = match prove_with_retry_at(
-            self.inner.prover.as_ref(),
-            proving_ctx,
-            self.inner.emission.timing,
-            bundle_target,
-            proof_gate_ms,
-        )
-        .await
-        {
+        if let Some(candidate) = &preparation_timing.candidate {
+            candidate.emit(
+                "proof_requested",
+                serde_json::json!({"deadline_ms":deadline.map(|d|d.unix_ms),
+                "remaining_ms":deadline.map(|d|d.remaining().as_secs_f64()*1000.0),
+                "post_reserve_ms":post_reserve.as_secs_f64()*1000.0,
+                "nominal_preparation_ms":self.inner.emission.timing.preparation_time().as_millis(),
+                "preparation_ms":proof_gate_ms.saturating_sub(preparation_started_ms),
+                "groups":workload.groups,"blobs":workload.blobs,"witnesses":workload.witnesses}),
+            );
+            candidate.duration(
+                "preparation",
+                std::time::Duration::from_millis(
+                    proof_gate_ms.saturating_sub(preparation_started_ms),
+                ),
+            );
+        }
+        let proof_started = std::time::Instant::now();
+        let proof_result = if let Some(deadline) = deadline {
+            crate::prover_retry::prove_with_shared_deadline(
+                self.inner.prover.as_ref(),
+                proving_ctx,
+                self.inner.emission.timing,
+                bundle_target,
+                deadline,
+                post_reserve,
+            )
+            .await
+        } else {
+            prove_with_retry_at(
+                self.inner.prover.as_ref(),
+                proving_ctx,
+                self.inner.emission.timing,
+                bundle_target,
+                proof_gate_ms,
+            )
+            .await
+        };
+        let proof = match proof_result {
             Ok(proof) => proof,
             Err(error) => {
                 let reason = if proof_cutoff_ms.is_some_and(|cutoff| proof_gate_ms > cutoff) {
@@ -6153,6 +6322,14 @@ where
                         eez_prover::ProverError::Backend(_) => "prover_backend",
                     }
                 };
+                if let Some(attempt) = admission
+                    && deadline.is_some_and(|d| d.remaining() <= post_reserve)
+                {
+                    attempt.window_exhausted();
+                }
+                if let Some(candidate) = &preparation_timing.candidate {
+                    candidate.emit("proof_failed", serde_json::json!({"reason":reason,"proof_ms":proof_started.elapsed().as_secs_f64()*1000.0}));
+                }
                 let mut detail = preparation_timing.detail();
                 detail["reason"] = serde_json::json!(reason);
                 detail["preparation_ms"] = serde_json::json!(preparation_elapsed_ms);
@@ -6189,6 +6366,20 @@ where
             }
         };
         preparation_timing.proof_received = Some(crate::prover_retry::unix_time_millis());
+        preparation_timing.proof_received_at = Some(std::time::Instant::now());
+        if let Some(attempt) = admission {
+            attempt
+                .timings
+                .observe_proof(workload, proof_started.elapsed());
+        }
+        if let Some(candidate) = &preparation_timing.candidate {
+            candidate.duration("proof", proof_started.elapsed());
+            candidate.emit(
+                "proof_received",
+                serde_json::json!({"proof_ms":proof_started.elapsed().as_secs_f64()*1000.0}),
+            );
+        }
+
         if !rollup.l1_head.generation_is(policy_anchor.generation) {
             return Err("canonical settlement evidence changed during proving".into());
         }
@@ -6390,11 +6581,11 @@ fn submission_backoff_required(
             SourceOutcome::Terminal(TerminalReason::Committed | TerminalReason::SourceCompleted)
         )
     };
-    outcomes.iter().any(|outcome| !completed(outcome))
-        && !(skipped_slot
-            && outcomes
-                .iter()
-                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. })))
+    // Consecutive canonical headers proved that this target was never built.
+    // Source completion elsewhere (including a replacement) is not a capacity
+    // observation for this candidate. Its dispositions remain fully reconciled;
+    // a partially applied replacement is evaluated under its own produced target.
+    !skipped_slot && outcomes.iter().any(|outcome| !completed(outcome))
 }
 
 /// Mutable consumption belongs to the most recent batch for this rollup in
@@ -6498,7 +6689,20 @@ async fn observe_bundle_outcome(
             preparation_timing.detail(),
         );
     }
+    let finalization_started = std::time::Instant::now();
+    let signing_elapsed = preparation_timing
+        .proof_received_at
+        .map_or(std::time::Duration::ZERO, |at| at.elapsed());
     let preparation = async {
+        if preparation_timing
+            .deadline
+            .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
+        {
+            return Err((
+                "pipeline_deadline",
+                "shared window exhausted before finalization".into(),
+            ));
+        }
         if let Some(reason) = submitter
             .policy_submission_failure(target)
             .await
@@ -6518,7 +6722,7 @@ async fn observe_bundle_outcome(
                     "prepared attempt no longer owns this submission".to_owned(),
                 )
             })?;
-        let (prepared, quote, _) = posting
+        let (prepared, quote, execution) = posting
             .finalize(
                 bundle.clone(),
                 target,
@@ -6528,24 +6732,87 @@ async fn observe_bundle_outcome(
             )
             .await
             .map_err(|error| ("final_pricing_failed", error.to_string()))?;
+        if preparation_timing
+            .deadline
+            .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
+        {
+            return Err((
+                "pipeline_deadline",
+                "shared finalization window exhausted".into(),
+            ));
+        }
         let hash = post_batch_blob_transaction_hash(&prepared[0])
             .map_err(|error| ("invalid_envelope", error))?;
         let id = optimistic
             .replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())
             .map_err(|error| ("ledger_update_failed", error))?;
-        Ok::<_, (&str, String)>((prepared, quote, id))
+        Ok::<_, (&str, String)>((prepared, quote, id, execution))
+    };
+    let preparation = if let Some(deadline) = preparation_timing.deadline {
+        tokio::time::timeout(
+            deadline
+                .remaining()
+                .saturating_sub(crate::prover_retry::DELIVERY_RESERVE),
+            preparation,
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err((
+                "pipeline_deadline",
+                "shared finalization window exhausted".into(),
+            ))
+        })
+    } else {
+        preparation.await
+    };
+    let preflight_elapsed = finalization_started.elapsed();
+    let finalization_elapsed = signing_elapsed.saturating_add(preflight_elapsed);
+    if let Some(candidate) = &preparation_timing.candidate {
+        candidate.duration("finalization", finalization_elapsed);
     }
-    .await;
     let fee_quote = match preparation {
-        Ok((prepared, quote, id)) => {
+        Ok((prepared, quote, id, execution)) => {
+            if let Some(timings) = &preparation_timing.timings {
+                timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
+            }
+            let detail = serde_json::json!({"candidate_id":preparation_timing.candidate.as_ref().map(|c|&c.id),
+                "preflight_gas_used":execution.gas_used.get(..1),"preflight_gas_required":execution.gas_required.get(..1),
+                "signed_gas_limits":execution.gas_limits.get(..1),"finalization_ms":finalization_elapsed.as_secs_f64()*1000.0,
+                "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0});
+            if let Some(candidate) = &preparation_timing.candidate {
+                let mut detail = detail.clone();
+                detail["transaction_hash"] = serde_json::json!(id.post_batch_hash);
+                candidate.emit("preflight", detail);
+                // One bounded event per companion; large bundles must not turn
+                // the posting event into an oversized uncollectable log line.
+                for (index, hash) in execution.transaction_hashes.iter().enumerate().skip(1) {
+                    candidate.emit(
+                        "source_preflight",
+                        serde_json::json!({"source_hash":hash,
+                        "preflight_used_gas":execution.gas_used.get(index),
+                        "preflight_required_gas":execution.gas_required.get(index),
+                        "signed_limit_gas":execution.gas_limits.get(index)}),
+                    );
+                }
+            }
             bundle = prepared;
             attempt_id = id;
             if let Some(events) = &events {
-                events.emit("repriced", id.post_batch_hash, serde_json::json!({}));
+                events.emit("repriced", id.post_batch_hash, detail);
             }
             quote
         }
         Err((reason, error)) => {
+            if reason == "pipeline_deadline"
+                && let Some(timings) = &preparation_timing.timings
+            {
+                // A censored sample is a lower bound on finishing work. Preserve
+                // it with headroom so the next selection reserves more time.
+                timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
+            }
+            if let Some(candidate) = &preparation_timing.candidate {
+                candidate.emit("preflight_failed", serde_json::json!({"reason":reason}));
+            }
             measurements.preflight_failed();
             if let Some(events) = &events {
                 events.emit(
@@ -6572,27 +6839,66 @@ async fn observe_bundle_outcome(
     let recorder = Arc::clone(&optimistic);
     let dispatch_measurements = Arc::clone(&measurements);
     let dispatch_events = events.clone();
-    let record_dispatch = move |block, timestamp| match recorder.observe(
-        attempt_id,
-        SubmissionObservation::Dispatched { block, timestamp },
-    ) {
-        Ok(true) => {
-            dispatch_measurements.dispatch(block, timestamp);
-            if let Some(events) = &dispatch_events {
-                events.dispatch(attempt_id.post_batch_hash, block, timestamp);
-            }
-            Ok(())
+    let dispatch_deadline = preparation_timing.deadline;
+    let dispatch_candidate = preparation_timing.candidate.clone();
+    let record_dispatch = move |block, timestamp| {
+        if dispatch_deadline.is_some_and(|d| d.remaining().is_zero()) {
+            return Err(eez_l1::L1Error::Submission(
+                "shared submission window exhausted".into(),
+            ));
         }
-        Ok(false) => Err(eez_l1::L1Error::Submission(
-            "attempt was superseded before dispatch".into(),
-        )),
-        Err(error) => Err(eez_l1::L1Error::Submission(format!(
-            "cannot record dispatch: {error}"
-        ))),
+        if let Some(candidate) = &dispatch_candidate {
+            candidate.emit(
+                "dispatch",
+                serde_json::json!({"transaction_hash":attempt_id.post_batch_hash,
+                "remaining_ms":dispatch_deadline.map(|d|d.remaining().as_secs_f64()*1000.0)}),
+            );
+        }
+        match recorder.observe(
+            attempt_id,
+            SubmissionObservation::Dispatched { block, timestamp },
+        ) {
+            Ok(true) => {
+                dispatch_measurements.dispatch(block, timestamp);
+                if let Some(events) = &dispatch_events {
+                    events.dispatch(attempt_id.post_batch_hash, block, timestamp);
+                }
+                Ok(())
+            }
+            Ok(false) => Err(eez_l1::L1Error::Submission(
+                "attempt was superseded before dispatch".into(),
+            )),
+            Err(error) => Err(eez_l1::L1Error::Submission(format!(
+                "cannot record dispatch: {error}"
+            ))),
+        }
     };
-    let outcome = submitter
-        .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
-        .await;
+    let outcome = if let Some(deadline) = preparation_timing.deadline {
+        let candidate = preparation_timing.candidate.clone();
+        submitter
+            .send_bundle_quoted_before(
+                &bundle,
+                target,
+                fee_quote,
+                record_dispatch,
+                deadline.instant(),
+                move |elapsed, acknowledged| {
+                    if let Some(candidate) = candidate {
+                        candidate.duration("delivery", elapsed);
+                        candidate.emit(
+                            "delivery",
+                            serde_json::json!({"transaction_hash":attempt_id.post_batch_hash,
+                        "delivery_ms":elapsed.as_secs_f64()*1000.0,"acknowledged":acknowledged}),
+                        );
+                    }
+                },
+            )
+            .await
+    } else {
+        submitter
+            .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
+            .await
+    };
     measurements.outcome(outcome.as_ref().ok());
     if let Some(events) = &events {
         let (stage, detail) = match &outcome {
@@ -6734,7 +7040,7 @@ mod tests {
     }
 
     #[test]
-    fn proven_skipped_slot_retains_capacity_only_when_every_source_can_retry() {
+    fn proven_skipped_slot_retains_capacity_even_when_sources_complete_elsewhere() {
         use crate::optimistic::{SourceOutcome, TerminalReason};
         let retry = SourceOutcome::Retryable { source_nonce: 4 };
         assert!(!submission_backoff_required(&[retry, retry], true));
@@ -6750,8 +7056,8 @@ mod tests {
             TerminalReason::PoolDiscarded,
         ] {
             assert!(
-                submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),
-                "partial or independent source consumption must preserve backoff: {reason:?}"
+                !submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),
+                "a skipped target cannot measure capacity: {reason:?}"
             );
         }
     }
@@ -6768,9 +7074,19 @@ mod tests {
                 ],
                 skipped_slot,
             ));
+            assert_eq!(
+                submission_backoff_required(
+                    &[SourceOutcome::Terminal(TerminalReason::SourceReverted)],
+                    skipped_slot
+                ),
+                !skipped_slot
+            );
             assert!(submission_backoff_required(
-                &[SourceOutcome::Terminal(TerminalReason::SourceReverted)],
-                skipped_slot,
+                &[
+                    SourceOutcome::Retryable { source_nonce: 4 },
+                    SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects)
+                ],
+                false
             ));
         }
     }

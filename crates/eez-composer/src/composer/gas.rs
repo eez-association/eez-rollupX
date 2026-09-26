@@ -20,6 +20,12 @@ const DEFERRED_ENTRY_GAS: u64 = 270_000;
 const SHORT_DEFERRED_ENTRY_GAS: u64 = 230_000;
 const WORD_DEFERRED_ENTRY_GAS: u64 = 250_000;
 const EXISTING_PROXY_ENTRY_GAS: u64 = 70_000;
+// A cold zero-to-nonzero SSTORE costs 17,100 more than overwriting an
+// originally nonzero word. Reserve 2,100 of that saving for variation. Only
+// fixed words observed nonzero in the exact parent earn this discount; dynamic
+// result slots and speculative writes never do. Pinned transitions are exercised
+// by PostBatchGasPins plus native repeated-wave preflight checks.
+const RETAINED_WORD_DISCOUNT: u64 = 15_000;
 const MAX_SIMPLE_RESULT_BYTES: usize = 64;
 pub(super) const MAX_SHAPED_ENTRIES: u64 = 128;
 
@@ -32,6 +38,7 @@ pub(super) struct Projection {
     pub(super) cleanup_gas: u64,
     immediate_calls: Vec<Option<B256>>,
     deferred_slots: Vec<bool>,
+    deferred_discounts: Vec<u64>,
     deferred_count: usize,
     parent_proxies: std::collections::HashMap<(u64, Address), bool>,
 }
@@ -49,6 +56,7 @@ impl Projection {
         // index we may discount, including inactive old slots. Any unknown
         // shape keeps the full per-entry reserve.
         let mut deferred_slots = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
+        let mut deferred_discounts = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
         for index in 0..MAX_SHAPED_ENTRIES {
             let entry_slot =
                 U256::from_be_bytes(keccak256((U256::from(index), queue_head).abi_encode()).0);
@@ -58,6 +66,17 @@ impl Projection {
                     .map(Option::unwrap_or_default)
                     .map_err(|e| e.to_string())
             })?;
+            let discount = if bounded {
+                retained_word_discount(entry_slot, |slot| {
+                    state
+                        .storage(registry, B256::from(slot))
+                        .map(Option::unwrap_or_default)
+                        .map_err(|e| e.to_string())
+                })?
+            } else {
+                0
+            };
+            deferred_discounts.push(discount);
             deferred_slots.push(bounded);
         }
         Ok(Some(Self {
@@ -65,6 +84,7 @@ impl Projection {
             cleanup_gas: 0,
             immediate_calls: Vec::new(),
             deferred_slots,
+            deferred_discounts,
             deferred_count: 0,
             parent_proxies: Default::default(),
         }))
@@ -170,11 +190,12 @@ impl Projection {
         {
             return POSTBATCH_ENTRY_GAS_PIN;
         }
-        match entry.returnData.len() {
+        let fresh = match entry.returnData.len() {
             0..=31 => SHORT_DEFERRED_ENTRY_GAS,
             32 => WORD_DEFERRED_ENTRY_GAS,
             _ => DEFERRED_ENTRY_GAS,
-        }
+        };
+        fresh.saturating_sub(self.deferred_discounts.get(index).copied().unwrap_or(0))
     }
 
     pub fn cost(
@@ -264,6 +285,31 @@ impl Projection {
     }
 }
 
+/// Six fixed words only: proxy hash, rolling hash, destination/success and
+/// the one retained root update's packed identity/delta and two roots. The
+/// existing bounded-shape check is required before calling this helper.
+fn retained_word_discount<E>(
+    entry_slot: U256,
+    mut read: impl FnMut(U256) -> Result<U256, E>,
+) -> Result<u64, E> {
+    if read(entry_slot)? != U256::from(1) {
+        return Ok(0);
+    }
+    let root_data = U256::from_be_bytes(keccak256(entry_slot.abi_encode()).0);
+    let mut words = 0;
+    for slot in [
+        entry_slot.wrapping_add(U256::from(1)),
+        entry_slot.wrapping_add(U256::from(4)),
+        entry_slot.wrapping_add(U256::from(5)),
+        root_data,
+        root_data.wrapping_add(U256::from(1)),
+        root_data.wrapping_add(U256::from(2)),
+    ] {
+        words += u64::from(!read(slot)?.is_zero());
+    }
+    Ok(words * RETAINED_WORD_DISCOUNT)
+}
+
 /// Solidity 0.8.34 stores each mapping value at `keccak256(index, mappingSlot)`.
 /// A prior empty or one-update/no-call entry with at most two result data words
 /// has bounded overwrite work. The active queue length is not evidence here:
@@ -308,6 +354,7 @@ mod tests {
             cleanup_gas: cleanup,
             immediate_calls: Vec::new(),
             deferred_slots: vec![false; MAX_SHAPED_ENTRIES as usize],
+            deferred_discounts: vec![0; MAX_SHAPED_ENTRIES as usize],
             deferred_count: 0,
             parent_proxies: Default::default(),
         }
@@ -447,6 +494,55 @@ mod tests {
                 POSTBATCH_ENTRY_GAS_PIN
             );
         }
+    }
+
+    #[test]
+    fn retained_fixed_words_discount_only_the_exact_slot_and_keep_shape_fallbacks() {
+        let slot = U256::from(101);
+        let root = U256::from_be_bytes(keccak256(slot.abi_encode()).0);
+        for mask in 0u8..64 {
+            let slots = [
+                slot + U256::from(1),
+                slot + U256::from(4),
+                slot + U256::from(5),
+                root,
+                root.wrapping_add(U256::from(1)),
+                root.wrapping_add(U256::from(2)),
+            ];
+            let discount = retained_word_discount(slot, |key| {
+                Ok::<_, ()>(
+                    if key == slot
+                        || slots
+                            .iter()
+                            .enumerate()
+                            .any(|(i, s)| *s == key && mask & (1 << i) != 0)
+                    {
+                        U256::from(1)
+                    } else {
+                        U256::ZERO
+                    },
+                )
+            })
+            .unwrap();
+            assert_eq!(
+                discount,
+                u64::from(mask.count_ones()) * RETAINED_WORD_DISCOUNT
+            );
+        }
+        let mut projection = model(0);
+        projection.deferred_slots[0] = true;
+        projection.deferred_discounts[0] = 6 * RETAINED_WORD_DISCOUNT;
+        let mut entry = deferred();
+        assert_eq!(projection.deferred_entry_gas(&entry, 0), 180_000);
+        assert_eq!(
+            projection.deferred_entry_gas(&entry, 1),
+            POSTBATCH_ENTRY_GAS_PIN
+        );
+        entry.returnData = Bytes::from(vec![0xff; 65]);
+        assert_eq!(
+            projection.deferred_entry_gas(&entry, 0),
+            POSTBATCH_ENTRY_GAS_PIN
+        );
     }
 
     #[test]

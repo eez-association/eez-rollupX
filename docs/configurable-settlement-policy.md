@@ -32,7 +32,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_BLOBS_PER_BATCH` | No operator cap | Optional positive integer, additionally bounded by active network transaction/block and transport limits. Applies only to outgoing posts. |
 | `EEZ_MAX_POSTBATCH_GAS` | No operator cap | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. |
 | `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` for adaptive resource/time admission. Compose retains a numeric interpolation fallback of 12, but startup still requires the mandatory policy settings. Parsed once; restart to change. |
-| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Reserve preparation independently of proof and relay slack, with an exact millisecond trigger. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
+| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Planning allocation used with proof and slack for the exact millisecond trigger; cross-chain preparation and proving share the final submission deadline. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
 | `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
@@ -59,59 +59,66 @@ and its successors stay queued; earlier nonces and independent source chains
 remain eligible. Fees are reevaluated each opportunity. Balance and nonce checks,
 full simulation, and final bundle validation still apply.
 
-With `EEZ_MAX_USER_TXS_PER_BUNDLE=auto`, the composer selects a finite FIFO
-prefix using preparation measurements from previous attempts. It starts with
-one group after restart. Once a sample exists, it considers the queued snapshot
-without an artificial doubling ramp and stops incrementally as measured time,
-gas or DA permits. It computes and caches each effect-prefix commitment during
-admission, charging that repeated execution to elapsed time, and reserves time
-for final block construction, encoding, KZG and witnesses before the existing
-proof cutoff. KZG is measured separately and scales with physical blobs. The
-composer adds 10% of the actual preparation window to calibrated finishing
-predictions for variation and the handoff to proving. Without a calibrated
-relationship, it takes the larger of a full admission pass and the observed
-non-KZG finishing cost plus that allowance, then adds KZG. This preserves the
-conservative fallback without counting its headroom twice after a small post.
-Group-start and pre-append checks both use that reserve.
-The proof-time budget and absolute cutoff are unchanged. The finishing estimate
-uses the observed relationship between accepted-group work and non-KZG finishing
-time, with the previous finishing sample as a floor.
-Only complete, consistently measured accepted groups train that relationship.
-If the finish-time check refuses the next group before it is appended, discard
-that group's measurement and retain the valid accepted prefix. Its rejected
-work and prospective extra blob never reduce the reserve. Source deferrals,
-unknown or inconsistent measurements, failed appends and rebuilt candidates
-retain the conservative full-admission-pass reserve. An untouched FIFO suffix
-contributes no measurement.
-A smaller candidate may scale the prior sample down; growth uses the current
-measured work without multiplying a small post's fixed overhead.
-The `admission.prepared` event reports admission, finishing and blob timings,
-the available window and its `jitter_reserve_ms`, accepted-group work, and whether
-that sample qualified for calibration.
-Crossing a blob boundary rechecks the preparation allowance before accepting
-the complete group. Incomplete preparation, failed submission, or a capacity
-cut that bypasses older eligible FIFO work reduces the next selection. A
-failed preparation halves the actual admitted workload, or the final prepared
-group count after a rebuild, instead of halving a potentially much larger queued
-snapshot. Without an admitted group, the existing lookahead/probe backoff applies.
-A successful FIFO prefix does not impose a redundant count cap on the next slot.
-The backoff still prevents outbound-first execution from indefinitely bypassing
-an older inbound transaction.
-If the time estimate prevents even the first group from being admitted, the
-next opportunity makes a bounded one-group probe and learns again. A stale
-slow sample cannot permanently freeze admission. This discards only the
-performance estimate; all resource/deadline checks still apply. Source-state
-waits and transport failures keep their existing retry behavior.
-After canonical reconciliation identifies an excluded or partially consumed
-submission, automatic admission reduces its next selection too. Source
-dispositions, nonce rules, and actual-submission attempt accounting remain
-authoritative; a relay error alone never proves that nothing executed.
-A strict timestamp gap between consecutive canonical L1 headers can establish
-that the target slot did not exist. When that evidence matches the completed
-canonical scan, the observer conclusively reports uncharged exclusion, no post
-or settlement was applied, and every source can retry, admission retains its
-existing estimate. `admission.skipped_slot` records this decision. Actual exclusions,
-partial consumption and uncertain or unavailable evidence retain backoff.
+With `EEZ_MAX_USER_TXS_PER_BUNDLE=auto`, the composer considers a finite FIFO
+queue snapshot from the first candidate. There is no mandatory one-source
+calibration post. Group-start and pre-append checks reserve the remaining
+build/encoding/KZG/witness work, proving and finalization. Whole source groups,
+nonce dependencies, gas, blob and L2 bounds still apply. The cold finishing seed
+is the larger of elapsed admission work and 100 ms, plus 250 ms per physical
+blob; these are planning estimates, not consensus limits. See the
+[validation record](audits/2026-09-26-admission-throughput/README.md) for measured
+profiles and remaining limits.
+
+For exact-target cross-chain candidates, the exclusive deadline is target time
+minus submission slack. `EEZ_PREPARATION_TIME_MS` and `EEZ_PROOF_TIME_MS` control
+scheduling estimates; they are not separate hard stage limits. Preparation can
+run beyond its allocation and continue proving the same accepted candidate.
+Proving uses the remaining deadline less finalization/delivery reserve; retries,
+streaming and cache repair cannot reset that window. A fast preparation can
+leave more time for a slow proof. A true window failure keeps source ownership
+and produces an empty local Sync when required, without an unproved or substitute
+empty L1 posting. Late scheduler entry uses this same cross-chain policy.
+Ordinary-only exact-target posting and `NextBlock` keep their prior timing rules.
+
+Preparation learns consistently measured group work and finishing/KZG cost.
+Only complete measured groups train the finishing relationship; failed appends,
+rebuilds and source-state waits retain conservative estimates. The calibrated
+finishing reserve includes 10% of the available window for variation. A rejected
+next group does not invalidate the accepted prefix's clean sample. Proof and
+finalization retain at most 32 observations per rollup and stage, with 25%
+headroom. Only samples covering at least the requested group count, physical
+blob count and witness block count replace their bootstrap estimate. Finalization
+reserves at least 150 ms, including 25 ms for delivery. These samples are in
+memory and are discarded on restart; they are not durable queue state.
+
+A nominal preparation overrun or infrastructure error does not halve selection.
+A full proving-window failure can reduce the next selection using admitted work,
+and a resource cut that bypasses older eligible FIFO work retains the fairness
+backoff. A successful FIFO prefix removes a redundant count cap. If a stale
+estimate blocks every group, the next opportunity makes a bounded probe under
+all resource/deadline checks. Canonically observed, charged exclusions or partial
+consumption in produced blocks retain submission backoff. A strict timestamp gap
+between consecutive canonical headers proves the old target was never produced;
+that target cannot train capacity even if some of its sources completed in a
+replacement. Source dispositions and replacement ownership still reconcile
+independently. `admission.skipped_slot` records this distinction.
+
+The bounded deferred-entry gas model can discount six fixed storage words that
+are already nonzero in the exact canonical parent. It discounts 15,000 gas per
+observed word; dynamic result storage, unknown shapes and speculative writes earn
+no such discount. The existing shape and 128-entry limits remain. Final full-ABI
+projection and exact signed-bundle native execution still validate gas and every
+intended effect. This is not a receipt-ratio discount.
+
+The retained `eez.composer.admission.v1` event family records each candidate,
+source gas decision, summary (including no-cut batches), proof/preflight/delivery
+timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
+for estimate/receipt joins, missing-event reporting and CSV export. Version
+`shared-deadline-1` identifies the scheduling behavior. Deploy the additive
+collector/schema/dashboard before the new Composer; old collectors ignore the
+new family and old histories retain null estimates. Rollback can leave those
+additive tables and checkpoints in place. No ABI, storage migration, protocol
+pin or signer-profile change is required.
 
 Complete groups must fit L2 block gas, the active L1 transaction and whole-bundle
 gas budgets, and the remaining blob allowance after companion transactions.
@@ -293,7 +300,7 @@ example, a 5-second/1-second profile with preparation 500 ms, proof 750 ms and
 slack 700 ms triggers at 3.05 seconds after its anchor. This is the packaged
 Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
-all absolute proof and submission deadlines remain enforced.
+the applicable proof policy and absolute submission deadline remain enforced.
 If the expected L1 block is still absent at the following preparation deadline,
 the scheduler permits one replacement opportunity on the same parent, with the
 same target execution height and a timestamp one slot later. The Composer

@@ -245,6 +245,7 @@ async fn single_sync_wave(
     outbound_count: u64,
     waves: u64,
     empty_inbound_return_data: bool,
+    warmup: bool,
 ) {
     let mut config = env();
     // These waves test gas/blob fit, not a 500-ms throughput guarantee on every
@@ -282,26 +283,28 @@ async fn single_sync_wave(
         .unwrap();
     let chain = l1.get_chain_id().await.unwrap();
     let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
-    let warm = sign_and_send(
-        &world.l1_xchain(),
-        ANVIL_KEY_2,
-        chain,
-        nonce,
-        Some(inbound_proxy),
-        U256::ZERO,
-        IValue::setValueCall { v: U256::ZERO }.abi_encode(),
-        2_000_000,
-    )
-    .await
-    .unwrap();
-    assert!(
-        wait_for(TIMEOUT, || async {
-            Ok(l1.get_transaction_receipt(warm).await?)
-        })
+    if warmup {
+        let warm = sign_and_send(
+            &world.l1_xchain(),
+            ANVIL_KEY_2,
+            chain,
+            nonce,
+            Some(inbound_proxy),
+            U256::ZERO,
+            IValue::setValueCall { v: U256::ZERO }.abi_encode(),
+            2_000_000,
+        )
         .await
-        .unwrap()
-        .status()
-    );
+        .unwrap();
+        assert!(
+            wait_for(TIMEOUT, || async {
+                Ok(l1.get_transaction_receipt(warm).await?)
+            })
+            .await
+            .unwrap()
+            .status()
+        );
+    }
     let registry = IDeferredQueue::new(world.cfg.eez_address, &l1);
     let outbound_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
     let mut previous_sync = None;
@@ -310,7 +313,11 @@ async fn single_sync_wave(
         // Every prior queue is fully consumed but remains in storage. The
         // following post replaces active bounds and may overwrite retained
         // slots; cursor == length does not mean there is no stored payload.
-        let previous_entries = if wave == 0 { 1 } else { inbound_count };
+        let previous_entries = if wave == 0 {
+            u64::from(warmup)
+        } else {
+            inbound_count
+        };
         assert_eq!(
             registry
                 .queueLength(world.cfg.rollup_id)
@@ -350,7 +357,7 @@ async fn single_sync_wave(
                         &world.l1_xchain(),
                         ANVIL_KEY_2,
                         chain,
-                        nonce + 1 + wave * inbound_count + i,
+                        nonce + u64::from(warmup) + wave * inbound_count + i,
                         Some(inbound_proxy),
                         U256::ZERO,
                         IValue::setValueCall {
@@ -519,7 +526,7 @@ async fn single_sync_wave(
         );
         assert_eq!(
             onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
-            nonce + 1 + (wave + 1) * inbound_count
+            nonce + u64::from(warmup) + (wave + 1) * inbound_count
         );
         assert_eq!(
             onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
@@ -578,12 +585,12 @@ async fn single_sync_wave(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1, false).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1, false, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1, false).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1, false, true).await;
 }
 
 /// Two 40-source batches each fit one Sync. The second replaces a consumed but
@@ -591,24 +598,24 @@ async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
 /// 80 sources are independently replayed by the follower.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2, false).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2, false, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2, false).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2, false, true).await;
 }
 
 /// Empty return data uses short Solidity byte storage. Both 45-source waves
 /// must fit, including the second post's overwrite of retained bounded slots.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 45, 0, 2, true).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 45, 0, 2, true, true).await;
 }
 
 /// A source can depend on an ordinary L2 predecessor seen on the unsafe
@@ -1520,4 +1527,16 @@ async fn automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts(
             serde_json::from_str(e.fields["attempt_counts"].as_str().unwrap()).unwrap();
         assert!(attempts.iter().all(|n| *n == 0));
     }
+}
+
+/// No calibration post is sent. Each cold process must settle the complete
+/// fitting wave in its first batch, then repeat with retained queue storage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_cold_and_warm_fitting_waves_have_no_calibration_post() {
+    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 2, false, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_cold_and_warm_fitting_waves_have_no_calibration_post() {
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 2, false, false).await;
 }

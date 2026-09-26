@@ -594,3 +594,39 @@ The active deployment also retains the prior operator indexer fixes: canonical
 block-receipt collection, an optional `details.l1_http_url` for transaction
 enrichment, and the transaction-hash lookup index used by posting queries.
 These changes preserve the event attribution checks and the new event ABI.
+
+
+### Admission history
+
+The optional posting collector also imports `eez.composer.admission.v1` into
+`admission_events`, under the same transactional file checkpoint. Upgrade this
+collector before the new Composer. The additive `admission_candidates` and
+`admission_sources` views power **EEZ Cross-chain admission** (`eez-admission`).
+The existing PostgreSQL datasource and read-only Grafana role are reused.
+
+The dashboard shows all candidates, including successful no-cut batches;
+per-source simulation, pin/discount/calldata and companion gas; full-calldata
+projection; final preflight gas used/required; signed limit; and canonical
+postBatch receipt gas. Filter by candidate ID or source hash and use
+**Inspect → Data → Download CSV**. Rebuilt candidates have separate IDs and an
+explicit predecessor. Repricing joins through the posting's final signed hash.
+An orphaned receipt disappears from the canonical join while observations remain.
+Inbound companion preflight and indexed source receipt gas are separate columns;
+L2 outbound receipt gas is not collected here. No exact per-source share of the
+aggregate canonical postBatch receipt is claimed.
+
+Preparation, proving, native finalization, relay acknowledgement and dispatch
+headroom are distinct observations. A relay acknowledgement is not settlement.
+Sequence gaps are explicit; `finished` records the expected final sequence.
+Missing historical estimates and candidates that never reached simulation remain
+null. Check collector status and its last successful check before interpreting
+coverage. Preserve retained JSON logs and existing database checkpoints across
+restart. Old collectors ignore the new family; retaining additive tables/views
+on rollback is safe. Monitoring is operational history, not durable queue ownership.
+
+Composer emits bounded-label `eez_composer_admission_events_total` and
+`eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in
+the retained event records. Logs use the existing nonblocking tracing sink.
+Malformed/conflicting records stop checkpoint advancement and surface collector
+errors. The task's [validation audit](../../docs/audits/2026-09-26-admission-throughput/README.md)
+records SQL/replay checks and live coverage.
