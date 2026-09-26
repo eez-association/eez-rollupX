@@ -17,6 +17,9 @@ jobs:
     if: github.ref == 'refs/heads/test/docker-native-integration'
     runs-on: homelab-rust
     timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
     env:
       EEZ_CARGO_STATE_CACHE: 'true'
       EEZ_COMPILER_CACHE: none
@@ -53,10 +56,10 @@ jobs:
           printf '%s  %s\n' 9447199cdb435f25880548343c128a4b6650e8891ee598905d8d29d39a8e359b \
             "$DOCKER_CONFIG/cli-plugins/docker-buildx" | sha256sum --check --status
           chmod 755 "$DOCKER_CONFIG/cli-plugins/docker-buildx"
-          /usr/bin/time -v bash scripts/ci/build-runtime-artifacts.sh prepare-state
+          time bash scripts/ci/build-runtime-artifacts.sh prepare-state
       - name: Cold real producer and all runtime image packaging
         run: |
-          /usr/bin/time -v bash scripts/ci/build-runtime-artifacts.sh 2>&1 | tee artifacts/docker-native-integration/cold.log
+          time bash scripts/ci/build-runtime-artifacts.sh 2>&1 | tee artifacts/docker-native-integration/cold.log
           grep -q 'Docker Cargo state: miss' artifacts/docker-native-integration/cold.log
       - name: Verify exact produced runtime
         run: bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_OUTPUT_DIR"
@@ -68,7 +71,7 @@ jobs:
         id: export
         timeout-minutes: 10
         run: |
-          /usr/bin/time -v bash scripts/ci/build-runtime-artifacts.sh export-state
+          time bash scripts/ci/build-runtime-artifacts.sh export-state
           du -sb .ci-cargo-state/transport
       - name: Save only this validation branch's seed
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
