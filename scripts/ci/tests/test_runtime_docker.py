@@ -213,8 +213,16 @@ class RuntimeDockerTest(unittest.TestCase):
             if name in env:
                 args += ["--build-arg", f"{name}={env[name]}"]
         subprocess.run(["docker", "buildx", "build", "--builder", "default", *args,
-                        "--cache-to", f"type=local,dest={cache},mode=min",
+                        "--cache-to", f"type=local,dest={cache},mode=min,compression=zstd,compression-level=1",
                         "--output", "type=cacheonly", str(repo)], env=env, check=True)
+        index = json.loads((cache / "index.json").read_text())
+        digest = index["manifests"][0]["digest"].removeprefix("sha256:")
+        manifest = json.loads((cache / "blobs/sha256" / digest).read_text())
+        self.assertTrue(manifest["layers"])
+        # Already-exported base blobs can remain gzip: do not force a costly
+        # conversion of reusable layers just to change their compression.
+        self.assertIn("application/vnd.oci.image.layer.v1.tar+zstd",
+                      {layer["mediaType"] for layer in manifest["layers"]})
         builder = "eez-flat-cache-" + hashlib.sha256(root.name.encode()).hexdigest()[:16]
         subprocess.run(["docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
                         "--driver-opt", "image=moby/buildkit:v0.31.1,memory=2g,memory-swap=2g,cpu-period=100000,cpu-quota=200000"],
@@ -231,6 +239,12 @@ class RuntimeDockerTest(unittest.TestCase):
             self.assertNotIn("==> runtime: compiler cache=", log)
             self.assertTrue((root / "flat-output/bin/eez-follower").is_file())
             self.assertTrue((root / "flat-output/native-tests/native-tests.tar.zst").is_file())
+            expected_bin = Path(Path(env["GITHUB_PATH"]).read_text().strip())
+            actual_bin = root / "flat-output/bin"
+            self.assertEqual({p.name: native.digest(p) for p in actual_bin.iterdir()},
+                             {p.name: native.digest(p) for p in expected_bin.iterdir()})
+            tests = json.loads((root / "test-artifacts/manifest.json").read_text())
+            native.verify_archives(root / "flat-output/native-tests", tests)
         finally:
             # Only the unique builder and its own disposable volume are removed.
             subprocess.run(["docker", "buildx", "rm", builder], env=env, check=True)

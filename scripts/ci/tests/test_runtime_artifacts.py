@@ -434,8 +434,8 @@ class RuntimeArtifactsTest(unittest.TestCase):
             self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])}"])
             exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
             if "binaries" in command or role == "deploy":
-                mode = "max" if role == "deploy" else "min"
-                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode={mode},ignore-error=true"])
+                settings = "mode=max" if role == "deploy" else "mode=min,compression=zstd,compression-level=1"
+                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},{settings},ignore-error=true"])
             else:
                 self.assertEqual(exports, [], "export flat executable output only once, never Cargo state")
         self.assertEqual(len(builds), 4, "caching must not add another compilation")
@@ -456,8 +456,8 @@ class RuntimeArtifactsTest(unittest.TestCase):
             self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(expected_ref)}"])
             exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
             if "binaries" in command or role == "deploy":
-                mode = "max" if role == "deploy" else "min"
-                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode={mode},ignore-error=true"])
+                settings = "mode=max" if role == "deploy" else "mode=min,compression=zstd,compression-level=1"
+                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},{settings},ignore-error=true"])
 
     def test_main_cache_is_imported_only_once(self):
         self.env.update(MOCK_IMAGE_STORE="containerd", GITHUB_REF="refs/heads/trunk", EEZ_DEFAULT_BRANCH="trunk")

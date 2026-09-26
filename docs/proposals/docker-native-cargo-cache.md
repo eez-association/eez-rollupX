@@ -133,3 +133,47 @@ end-to-end CI speedup. Retained state therefore remains opt-in.
 The PR's CI evidence must cover genuine cold export, transported warm execution,
 ordinary output-cache reuse and the complete validation matrix before merging.
 No fixture or local timing alone establishes merge readiness.
+
+### Output-cache compression follow-up
+
+Use `compression=zstd,compression-level=1` for newly exported runtime-output
+cache layers. Keep `mode=min`, existing cache references and best-effort export;
+do not force recompression of reusable gzip blobs. Deployment images, executable
+archives, Cargo-state transport and all validation gates are unchanged.
+
+A local comparison against `9965ba48`, using the full release outputs, separate
+empty BuildKit v0.33.0 builders and identical four-CPU/20-GiB limits, measured:
+
+| Operation | Default gzip | Zstandard level 1 |
+| --- | ---: | ---: |
+| Output-cache export | 17.27 s | 5.36 s |
+| Fresh-builder cache restore and output export | 9.05 s | 7.25 s |
+| Compressed output layer | 639,046,593 bytes | 623,082,386 bytes |
+
+Each restore matched every file in its original output directory and invoked no
+Cargo compilation. All seven shipping hashes also matched the tested seed.
+These are single local samples, not end-to-end CI speedup guarantees; they exclude
+registry network transfer. The smaller real-Docker producer fixture separately
+passed packaging, test execution and mixed gzip/Zstandard cache restoration,
+with all shipping binaries and both test archives verified after restoration.
+
+An earlier four-sample `COPY --link` restoration experiment did not show a useful
+gain (baseline 37.84/41.65 s, linked 39.81/41.01 s); that change was discarded.
+
+The same-node homelab comparison in
+[run 36263540887](https://github.com/eduadiez/rollupX/actions/runs/36263540887)
+used identical output files, empty bounded builders and the reverse sample order:
+
+| Operation | Default gzip | Zstandard level 1 |
+| --- | ---: | ---: |
+| Output-cache export | 26.009 s | 8.039 s |
+| Fresh-builder cache restore and output export | 21.167 s | 15.216 s |
+| Compressed output layer | 638,759,692 bytes | 624,086,441 bytes |
+
+Both restored directories matched the originals byte-for-byte. The real producer
+recompiled no Rust crates, packaged all three runtime images, and its release
+archives passed 960 + 233 tests (three existing skips). The overall workflow is
+**failed**, solely because the final diagnostic artifact upload hit GitHub's
+storage quota; the producer, units and comparison steps succeeded. Measurements
+remain in its job log. This comparison excludes GHCR transfer and does not claim
+an equivalent percentage improvement for the complete CI workflow.

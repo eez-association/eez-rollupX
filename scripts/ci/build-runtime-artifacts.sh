@@ -193,7 +193,9 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
                 deploy_cache_from=(--cache-from "type=registry,ref=$deploy_ref")
             fi
             if [[ "$scope" == "$GITHUB_REF" ]]; then
-                runtime_cache_to=(--cache-to "type=registry,ref=$runtime_ref,mode=min,ignore-error=true")
+                # Large binaries and already-compressed test archives do not
+                # justify gzip's CPU cost. Existing cache blobs remain reusable.
+                runtime_cache_to=(--cache-to "type=registry,ref=$runtime_ref,mode=min,compression=zstd,compression-level=1,ignore-error=true")
                 deploy_cache_to=(--cache-to "type=registry,ref=$deploy_ref,mode=max,ignore-error=true")
             fi
         done
