@@ -1,0 +1,236 @@
+{
+  "run_id": "1f900485-e06a-4f29-ab22-877cd383773d",
+  "shipping_candidate": 2,
+  "source_commit": "af4f54ce8d538ddb3b605bb6bf7449e832b09e0e",
+  "selected": 101,
+  "passed": 90,
+  "failed": 11,
+  "exit_status": 100,
+  "retries": 0,
+  "duration_seconds": 7489.869,
+  "by_binary": {
+    "chained_interstate": {
+      "PASS": 5
+    },
+    "cross_chain": {
+      "PASS": 24
+    },
+    "derivable_operations": {
+      "PASS": 3
+    },
+    "dynamic_admission": {
+      "PASS": 21
+    },
+    "e2e": {
+      "PASS": 3
+    },
+    "partial_consumption": {
+      "PASS": 4
+    },
+    "queue_liveness": {
+      "PASS": 3
+    },
+    "queue_reorg": {
+      "PASS": 1
+    },
+    "settlement_policy": {
+      "PASS": 22,
+      "FAIL": 9
+    },
+    "settlement_policy_cost": {
+      "PASS": 2
+    },
+    "settlement_policy_gas": {
+      "FAIL": 2,
+      "PASS": 2
+    }
+  },
+  "failures": [
+    {
+      "binary": "settlement_policy",
+      "test": "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+      "status": "FAIL",
+      "seconds": 76.124,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:2138:9:",
+      "first_failure": "assertion `left == right` failed: four blobs of separated history need two complete two-blob posts\n      left: 1\n     right: 2",
+      "retained_world": "eez-cross-chain-1317760-uwvesO",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1317760-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 16,
+          "retained_head": 16
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "fee_ceiling_blocks_posting_without_losing_activity_or_splitting",
+      "status": "FAIL",
+      "seconds": 223.798,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:947:9:",
+      "first_failure": "fee recovery failed: nodes did not converge:",
+      "retained_world": "eez-cross-chain-1552375-jiNjSe",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1552375-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+      "status": "FAIL",
+      "seconds": 223.576,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:650:9:",
+      "first_failure": "fee outage was not reported: timed out after 180s",
+      "retained_world": "eez-cross-chain-1581005-sQ7t1Z",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1581005-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+      "status": "FAIL",
+      "seconds": 223.599,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:1310:29:",
+      "first_failure": "post missing: timed out after 180s",
+      "retained_world": "eez-cross-chain-1624581-0Uj6HA",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1624581-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "lowering_blob_cap_rejects_retained_unsplittable_history_without_losing_it",
+      "status": "FAIL",
+      "seconds": 223.513,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:1013:18:",
+      "first_failure": "called `Result::unwrap()` on an `Err` value: timed out after 180s",
+      "retained_world": "eez-cross-chain-1861788-5q9rwe",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1861788-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "status": "FAIL",
+      "seconds": 76.055,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:2062:9:",
+      "first_failure": "fixture must restart during the drain",
+      "retained_world": "eez-cross-chain-1891590-okIBNj",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1891590-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 16,
+          "retained_head": 16
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+      "status": "FAIL",
+      "seconds": 208.878,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:1310:29:",
+      "first_failure": "post missing: timed out after 180s",
+      "retained_world": "eez-cross-chain-1894885-icEYOH",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1894885-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays",
+      "status": "FAIL",
+      "seconds": 223.369,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:1310:29:",
+      "first_failure": "post missing: timed out after 180s",
+      "retained_world": "eez-cross-chain-1901650-5GDC3C",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1901650-4.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy",
+      "test": "retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty",
+      "status": "FAIL",
+      "seconds": 223.787,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy.rs:105:9:",
+      "first_failure": "old witness replay failed: nodes did not converge:",
+      "retained_world": "eez-cross-chain-1910080-KWXFx5",
+      "startup_reconciliation": [
+        {
+          "log": "eez-node-restarted-composer-1910080-3.log",
+          "retain_pure_l2": true,
+          "settled_l2": 0,
+          "previous_head": 0,
+          "retained_head": 0
+        }
+      ]
+    },
+    {
+      "binary": "settlement_policy_gas",
+      "test": "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "status": "FAIL",
+      "seconds": 218.088,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy_gas.rs:357:13:",
+      "first_failure": "companion missing: timed out after 180s",
+      "retained_world": "eez-cross-chain-1928473-Op6lDo",
+      "startup_reconciliation": []
+    },
+    {
+      "binary": "settlement_policy_gas",
+      "test": "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "status": "FAIL",
+      "seconds": 218.066,
+      "assertion_location": "crates/eez-node-e2e/tests/settlement_policy_gas.rs:357:13:",
+      "first_failure": "companion missing: timed out after 180s",
+      "retained_world": "eez-cross-chain-1939860-L6AT3Z",
+      "startup_reconciliation": []
+    }
+  ],
+  "separate_restart_test_passed": true,
+  "runtime_sha256_file": "runtime-v2-sha256.txt",
+  "input_inventory": "native-test-inputs.json",
+  "raw_log_sha256": "d67dc87535a7f32af3bd8c6e4aaf69395766e29518b8013d5d0254eca70f5c60"
+}

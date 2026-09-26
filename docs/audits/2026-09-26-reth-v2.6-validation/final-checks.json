@@ -1,0 +1,16 @@
+{
+  "fmt_exit_status": 0,
+  "workspace_clippy_exit_status": 0,
+  "clippy_warnings_denied": true,
+  "local_documentation_links_checked": 28,
+  "shell_examples_syntax_checked": 35,
+  "replay_wrapper_bash_syntax_exit_status": 0,
+  "git_diff_check_exit_status": 0,
+  "shipping_runtime_hashes_verified_unchanged": true,
+  "protocol_gitlink": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "protocol_worktree_clean": true,
+  "test_source_sha256": {
+    "crates/eez-node-e2e/tests/kurtosis_policy_replay.rs": "85b1994251934af7c78628235e6486a3a0c1dd73b1947d996a6c4cf3966e047d",
+    "crates/eez-node-e2e/tests/settlement_policy_gas.rs": "58e5209e7f9a65a68b0c8fa5daa1adefa47adfbe2ec932771a20edf2e3d3ebb6"
+  }
+}

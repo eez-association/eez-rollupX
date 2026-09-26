@@ -1,0 +1,189 @@
+{
+  "run_id": "1f900485-e06a-4f29-ab22-877cd383773d",
+  "profile": "ci",
+  "retries": 0,
+  "binaries": {
+    "eez-node-e2e::chained_interstate": {
+      "path": "target/debug/deps/chained_interstate-e012401d4d27f437",
+      "sha256": "8862e9cc3a9d2e003afaa80225fb2ff11dea2468a6d1b5b5830115d43ded390c",
+      "selected": [
+        "identical_outbound_calls_in_separate_transactions_chain_state",
+        "mixed_direction_state_chain_in_one_slot",
+        "poison_mid_bundle_leaves_survivors_correct",
+        "same_sender_outbound_chain",
+        "three_order_dependent_inbound_calls_in_one_bundle"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::cross_chain": {
+      "path": "target/debug/deps/cross_chain-214010073100ccd2",
+      "sha256": "2a6e20d18dd8bebd5fc47b15710c01ba0bbff938190fbdb94bc1b53191247cfb",
+      "selected": [
+        "both_directions_return_value_and_wrapper_success_repeated_waves",
+        "both_directions_zero_value_direct_proxy_success_single_call",
+        "codeless_registered_targets_complete_deterministically_in_both_directions",
+        "direct_ccm_l2_outbound_call_is_rejected",
+        "inbound_deposit_to_payable_contract_runs_fallback",
+        "inbound_destination_events_are_retained_in_the_l2_block",
+        "inbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly",
+        "inbound_empty_calldata_and_zero_value_is_not_skipped",
+        "inbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+        "inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "inbound_value_and_calldata_apply_atomically",
+        "minimal_bidirectional_cross_chain_smoke",
+        "mismatched_actionable_rejection_retains_the_candidate",
+        "opaque_prover_rejection_retains_the_candidate",
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "outbound_destination_events_are_retained_in_the_l1_block",
+        "outbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly",
+        "outbound_mixed_static_reads_and_write_settle_together",
+        "outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+        "outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+        "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "real_signer_attester_mismatch_never_submits_a_batch",
+        "real_signer_rejects_tampered_post_batch_calldata",
+        "real_signer_rejects_tampered_witness"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::derivable_operations": {
+      "path": "target/debug/deps/derivable_operations-559ace9c43267ee8",
+      "sha256": "cdb21e3e4435443b0d887c7a3696b0de1933f686522ee7bf6e6dbf4921429fd8",
+      "selected": [
+        "ethereum_native_v3_post_replays_from_blobs_without_sequencer_headers",
+        "gnosis_native_v3_post_replays_from_blobs_without_sequencer_headers",
+        "native_capacity_uses_the_observed_sync_residue"
+      ],
+      "ignored": [
+        "ethereum_native_large_history_cold_checkpoint",
+        "gnosis_native_large_history_cold_checkpoint",
+        "retained_native_history_cold_checkpoint"
+      ]
+    },
+    "eez-node-e2e::dynamic_admission": {
+      "path": "target/debug/deps/dynamic_admission-3bb2f937984a9f64",
+      "sha256": "d01a3b9b0e8409f5cd3c00b2f2d9c1f9d527d6638a21dccd5daa3f103e836f22",
+      "selected": [
+        "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+        "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+        "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+        "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+        "automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source",
+        "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+        "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+        "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+        "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+        "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+        "late_original_settlement_replaces_the_timeout_branch_without_losing_users"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::e2e": {
+      "path": "target/debug/deps/e2e-25f15ec0a127dc2d",
+      "sha256": "b9a088e00c640a74bc7ece0d50b6a9ba0125748e34f825943c92d14f2ffc7550",
+      "selected": [
+        "anvil_reorg_preserves_wall_clock",
+        "failure_wrong_rollup_id",
+        "node_fixture_ignores_parent_dotenv"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::partial_consumption": {
+      "path": "target/debug/deps/partial_consumption-6fea67b5caefd978",
+      "sha256": "945577461e7115249f25f0074b3c800ce092ebaa151258644ced7ed8da4d8c8d",
+      "selected": [
+        "first_source_omission_keeps_the_registration_anchor",
+        "last_source_omission_keeps_two_user_prefix",
+        "partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::queue_liveness": {
+      "path": "target/debug/deps/queue_liveness-ae5acbf71993ca91",
+      "sha256": "da9d3db97b09c19ce4a876eb469fd9b8dc57677a3aba02f70ec11968289d4e2c",
+      "selected": [
+        "ethereum_delayed_escrow_funding_with_normal_bundle_limit",
+        "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::queue_reorg": {
+      "path": "target/debug/deps/queue_reorg-0a0fe1f20c67bee1",
+      "sha256": "4cf3d185c05b69a60e1ce9947024be684b6bd5529008275c6f9f3a287dbac938",
+      "selected": [
+        "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::settlement_policy": {
+      "path": "target/debug/deps/settlement_policy-845abea8e2e52a04",
+      "sha256": "bcee2ee8ab87ca9428f335ab0ff9fdb81f78022003e97d3d8e878248b0aa11ab",
+      "selected": [
+        "always_skips_idle_syncs_then_settles_included_activity_and_replays",
+        "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+        "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+        "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+        "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+        "ethereum_fee_waits_do_not_consume_the_first_outbound_selection",
+        "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+        "fee_ceiling_blocks_posting_without_losing_activity_or_splitting",
+        "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "general_block_rule_consolidates_empty_history_before_the_pure_interval",
+        "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+        "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+        "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+        "gnosis_fee_waits_do_not_consume_the_first_outbound_selection",
+        "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+        "interval_posts_accumulated_activity_using_the_registration_l1_timestamp",
+        "interval_preserves_execution_but_waits_below_all_thresholds",
+        "late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target",
+        "lowering_blob_cap_rejects_retained_unsplittable_history_without_losing_it",
+        "more_than_three_hundred_blocks_settle_in_one_native_batch",
+        "native_gnosis_always_settles_with_native_blob_fees_and_independent_replay",
+        "ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+        "ordinary_rpc_rejects_unpostable_data_without_consuming_nonce",
+        "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+        "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+        "restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+        "retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays",
+        "retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty",
+        "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+        "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::settlement_policy_cost": {
+      "path": "target/debug/deps/settlement_policy_cost-0d037e23a96a55e0",
+      "sha256": "b0be6a1fb8356985f81dbd2ba7ccbb444130ae5024d78ee0b2a25cf369734347",
+      "selected": [
+        "ethereum_receipts_use_bounded_fee_history_priority",
+        "gnosis_receipts_use_bounded_fee_history_priority"
+      ],
+      "ignored": []
+    },
+    "eez-node-e2e::settlement_policy_gas": {
+      "path": "target/debug/deps/settlement_policy_gas-d87adfbab9c65372",
+      "sha256": "8efea0cf258c2de2d6d3b79f7a1648967654bee42a427c8a4ba9f0c0284a065c",
+      "selected": [
+        "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+        "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+        "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups"
+      ],
+      "ignored": []
+    }
+  }
+}

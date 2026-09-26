@@ -1,0 +1,49 @@
+{
+  "verified": true,
+  "enclave": "eez-reth260-20260926-v2",
+  "rollup_id": 1,
+  "sender": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  "contract": {
+    "address": "0x121525a50836042846362fAAB126168b998D1cF2",
+    "deployment_tx": "0x913a0d5aa6ebb655f96dafad1827b197746a7a8984411ccfdab308607b429737",
+    "increment_tx": "0xb87a730817d1653be623b24a2dbc2508c91ca74b52950c55b30f31d851f1174e",
+    "add_41_tx": "0x5c88a746aec5425ff9edf4f5db14e6e3d63d546cf0d3d71c3ca921a238d61333",
+    "value_at_safe": 42
+  },
+  "settlement": {
+    "safe_l2_block": 780,
+    "safe_l2_block_hash": "0x30eabbc66b6a2482912964f04b923e945aea683c3014ea67dec584f5d4523025",
+    "l1_registry_commitment": "0x30eabbc66b6a2482912964f04b923e945aea683c3014ea67dec584f5d4523025"
+  },
+  "l2_transaction_to_l1_blob_batch": {
+    "0x913a0d5aa6ebb655f96dafad1827b197746a7a8984411ccfdab308607b429737": "0x7872d1e5b747fff3396ba94f97dec44d161ae6802ba5a3d3a89756cdf6fc949d",
+    "0xb87a730817d1653be623b24a2dbc2508c91ca74b52950c55b30f31d851f1174e": "0x7872d1e5b747fff3396ba94f97dec44d161ae6802ba5a3d3a89756cdf6fc949d",
+    "0x5c88a746aec5425ff9edf4f5db14e6e3d63d546cf0d3d71c3ca921a238d61333": "0x7872d1e5b747fff3396ba94f97dec44d161ae6802ba5a3d3a89756cdf6fc949d"
+  },
+  "authenticated_batches": [
+    {
+      "abi_call_data_bytes": 0,
+      "beacon_slot": 131,
+      "blob_count": 1,
+      "blob_gas_used": 131072,
+      "blob_indices": [
+        "0"
+      ],
+      "blob_versioned_hashes": [
+        "0x0157ed6ac374aa4dc7e22edebe4375f4e90ad652a12e5b9ca674f083c9cd7dbf"
+      ],
+      "kzg_commitments": [
+        "0xa83580f9e9c2c8a39cc544565b2b0d66ca98e163cae6a2f4c677523bedfd4f625445f31b2fbe6db358651004fb1b8ad2"
+      ],
+      "l1_block_hash": "0x4c0791d85ec1b47bd14144c62bfea4597f65a10337ee8e4b062b9646970cfc9f",
+      "l1_block_number": 131,
+      "l1_chain_id": 7331,
+      "l1_transaction_hash": "0x7872d1e5b747fff3396ba94f97dec44d161ae6802ba5a3d3a89756cdf6fc949d",
+      "rollup_id": 1,
+      "verified": true
+    }
+  ],
+  "blobscan_verified": false,
+  "independent_execution_verified": true,
+  "independent_execution_evidence": "independent-replay.json"
+}

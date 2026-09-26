@@ -1,0 +1,23 @@
+{
+  "checked_blocks": 42,
+  "checked_derived_blocks": 41,
+  "checked_receipts": 3,
+  "safe_l2_block": 780,
+  "safe_l2_block_hash": "0x30eabbc66b6a2482912964f04b923e945aea683c3014ea67dec584f5d4523025",
+  "source": "canonical_l1_only",
+  "verified": true,
+  "baseline": {
+    "binary": "target/debug/deps/kurtosis_policy_replay-1dbdb65e5e4dbbc2",
+    "sha256": "9238731ffd69deca22e2f592e7e582bf4c2f5ec1d49b3822b080e6b603f7a6f0",
+    "source_sha256": "30dddf38d2f997e60f5be29dfc5d75df10e277dbdf3b920d9b344403242a527b",
+    "exit_status": 101,
+    "failure": "missing hash on a derived blob record after successful safe-height/hash reconstruction",
+    "seconds": 9.27
+  },
+  "corrected": {
+    "exit_status": 0,
+    "seconds": 8.77,
+    "test_executable_sha256": "3e3fec146056a3f72ac21ee705cb84690bcdd70e7113726de93629bef8fd9de3",
+    "follower_sha256": "b66235af521ddddc30a6ca3a047395e2b8452c668da12d2c4b58ae31f6f46c5d"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "implementation_commit": "af4f54ce8d538ddb3b605bb6bf7449e832b09e0e",
+  "cargo_lock_sha256": "5bffd08b79dbcda6f7a32d68b51d7cd805d7894a66f709c9b93318a1e5c2bb13",
+  "reth_packages": 102,
+  "reth_sources": [
+    "git+https://github.com/paradigmxyz/reth?rev=73a3a00862a8f14f89e30da8de001456f18cfae0#73a3a00862a8f14f89e30da8de001456f18cfae0"
+  ],
+  "related_packages": [
+    {
+      "name": "alloy-consensus",
+      "version": "2.4.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "alloy-eips",
+      "version": "2.4.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "alloy-evm",
+      "version": "0.39.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "alloy-genesis",
+      "version": "2.4.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "gnosis-primitives",
+      "version": "0.2.8"
+    },
+    {
+      "name": "reth_gnosis",
+      "version": "2.1.0"
+    },
+    {
+      "name": "revm",
+      "version": "43.0.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "revm-database",
+      "version": "43.0.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "stateless",
+      "version": "0.1.0"
+    },
+    {
+      "name": "tries",
+      "version": "0.1.0"
+    }
+  ]
+}

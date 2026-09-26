@@ -1,0 +1,137 @@
+{
+  "unit-tests-01.log": {
+    "sha256": "27874cd967fdbb5ed9f4811f151492d923e026a9f3138c7bc66f25c9ab0d0534",
+    "nonempty_results": [
+      {
+        "passed": 21,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 251,
+        "failed": 0,
+        "ignored": 1
+      },
+      {
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 59,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 14,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 43,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 168,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 30,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "empty_results_not_counted": 0
+  },
+  "runtime-unit-tests.log": {
+    "sha256": "e7b2c32b1710ded169ab41346c9c760e4244c8e4328ffe06d7169a5028c44d6d",
+    "nonempty_results": [
+      {
+        "passed": 48,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 144,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 48,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "empty_results_not_counted": 1
+  },
+  "signer-tests-01.log": {
+    "sha256": "72d94791e2c6f2f180d0aa1abdb3e3fb0b931242670ebe4a9de52c87c2e7feb3",
+    "nonempty_results": [
+      {
+        "passed": 330,
+        "failed": 0,
+        "ignored": 2
+      }
+    ],
+    "empty_results_not_counted": 0
+  },
+  "oracle-tests.log": {
+    "sha256": "7f9575e52ec7ae9d26c659ef430ae9256c2fde8dd006d94b4d1a177cd2b38608",
+    "nonempty_results": [
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "empty_results_not_counted": 0
+  },
+  "stateless-tests-02.log": {
+    "sha256": "41e33876f04ce3d24047e5d8e78c3dcab1a8486393d91f35333a99f17951d787",
+    "nonempty_results": [
+      {
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "empty_results_not_counted": 2
+  }
+}
