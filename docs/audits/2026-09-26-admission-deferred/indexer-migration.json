@@ -1,0 +1,7 @@
+{
+  "upgrade_from": "bfcb68d",
+  "candidate": "85f3691",
+  "history_rows_before": 7,
+  "history_rows_after": 7,
+  "atomic_schema_upgrade": true
+}

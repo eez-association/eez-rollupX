@@ -1,0 +1,46 @@
+{
+  "baseline": {
+    "first_source_ms": {
+      "median": 4.362314,
+      "max": 16.680180999999997
+    },
+    "last_accepted_ms": {
+      "median": 231.284005,
+      "max": 453.898675
+    },
+    "summary_ms": {
+      "median": 232.754016,
+      "max": 479.277591
+    },
+    "after_summary_ms": {
+      "median": 203.914531,
+      "max": 390.337199
+    },
+    "per_accepted_before_summary_ms": {
+      "median": 6.163330111111112,
+      "max": 17.340788470588237
+    }
+  },
+  "candidate": {
+    "first_source_ms": {
+      "median": 5.817166500000001,
+      "max": 8.939703
+    },
+    "last_accepted_ms": {
+      "median": 249.7968055,
+      "max": 491.051844
+    },
+    "summary_ms": {
+      "median": 255.618202,
+      "max": 512.9613840000001
+    },
+    "after_summary_ms": {
+      "median": 222.11703899999998,
+      "max": 443.524171
+    },
+    "per_accepted_before_summary_ms": {
+      "median": 6.670939556543386,
+      "max": 23.0659936
+    }
+  }
+}

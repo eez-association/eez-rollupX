@@ -1,0 +1,93 @@
+[
+  {
+    "name": "dynamic_admission + settlement_policy_cost + settlement_policy_gas",
+    "status": "passed",
+    "passed": 27,
+    "failed": 0,
+    "ignored": 0,
+    "log": "native-main.log",
+    "test_source": "85f3691cb9c7ccbf8c0b8700576733283e5af7fc",
+    "prebuilt_overrides": false,
+    "log_sha256": "9dfe58ca9bff04e9267c54a9a6f39b3ac5029d37f8480dbd972a08d8a9f18904"
+  },
+  {
+    "index": 0,
+    "case": {
+      "name": "settlement_policy",
+      "targets": [
+        "settlement_policy"
+      ],
+      "filters": [
+        "interval_preserves_execution_but_waits_below_all_thresholds",
+        "cross_chain_overrides_interval_and_validates_two_ordered_companions"
+      ],
+      "expected": 2
+    },
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-j",
+      "4",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "settlement_policy",
+      "--",
+      "--test-threads=1",
+      "--exact",
+      "interval_preserves_execution_but_waits_below_all_thresholds",
+      "cross_chain_overrides_interval_and_validates_two_ordered_companions"
+    ],
+    "started_at": "2026-09-26T14:54:02.343013+00:00",
+    "status": "passed",
+    "log": "native-final-settlement_policy.log",
+    "exit_code": 0,
+    "finished_at": "2026-09-26T14:58:57.450746+00:00",
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "log_sha256": "94a9078a225e4bcd42c87cddec4bbcf75622946e4815af12977c3377e1308cf4"
+  },
+  {
+    "index": 1,
+    "case": {
+      "name": "cross_chain",
+      "targets": [
+        "cross_chain"
+      ],
+      "filters": [
+        "both_directions_return_value_and_wrapper_success_repeated_waves",
+        "inbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly"
+      ],
+      "expected": 2
+    },
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-j",
+      "4",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "cross_chain",
+      "--",
+      "--test-threads=1",
+      "--exact",
+      "both_directions_return_value_and_wrapper_success_repeated_waves",
+      "inbound_dynamic_and_empty_bytes_returns_are_preserved_distinctly"
+    ],
+    "started_at": "2026-09-26T14:58:57.451012+00:00",
+    "status": "passed",
+    "log": "native-final-cross_chain.log",
+    "exit_code": 0,
+    "finished_at": "2026-09-26T15:04:49.052215+00:00",
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "log_sha256": "a5af9ffe698b95e9f36571bb9f50fa5d8d7e19a58f2c60060f2ed10c0400993b"
+  }
+]

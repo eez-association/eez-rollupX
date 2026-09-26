@@ -1,0 +1,161 @@
+{
+  "counterL2": {
+    "baseline": {
+      "370000": 100
+    },
+    "candidate": {
+      "370000": 100
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "counter": {
+    "baseline": {
+      "370000": 35,
+      "160000": 65
+    },
+    "candidate": {
+      "217000": 40,
+      "123000": 59,
+      "370000": 1
+    },
+    "baseline_mean": 233500.0,
+    "candidate_mean": 163070.0
+  },
+  "nestedCounterL2": {
+    "baseline": {
+      "105000": 50
+    },
+    "candidate": {
+      "105000": 50
+    },
+    "baseline_mean": 105000.0,
+    "candidate_mean": 105000.0
+  },
+  "nestedCounter": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "223000": 30,
+      "155000": 20
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 195800.0
+  },
+  "multi-call-nestedL2": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "multi-call-nested": {
+    "baseline": {
+      "1110000": 16,
+      "900000": 34
+    },
+    "candidate": {
+      "495000": 10,
+      "433000": 30,
+      "569000": 3,
+      "563000": 4,
+      "816000": 1,
+      "573000": 2
+    },
+    "baseline_mean": 967200.0,
+    "candidate_mean": 477220.0
+  },
+  "multi-call-twiceL2": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "revertCounterL2": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "revertFromOtherChainL2": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "multi-call-twice": {
+    "baseline": {
+      "740000": 9,
+      "530000": 15,
+      "320000": 26
+    },
+    "candidate": {
+      "370000": 10,
+      "308000": 12,
+      "246000": 25,
+      "493000": 2,
+      "342000": 1
+    },
+    "baseline_mean": 458600.0,
+    "candidate_mean": 297480.0
+  },
+  "counter-multi-tx": {
+    "baseline": {
+      "160000": 148,
+      "370000": 2
+    },
+    "candidate": {
+      "123000": 143,
+      "370000": 3,
+      "219000": 4
+    },
+    "baseline_mean": 162800.0,
+    "candidate_mean": 130500.0
+  },
+  "reentrant": {
+    "baseline": {
+      "370000": 20
+    },
+    "candidate": {
+      "370000": 20
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "revertCounter": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  },
+  "revertFromOtherChain": {
+    "baseline": {
+      "370000": 50
+    },
+    "candidate": {
+      "370000": 50
+    },
+    "baseline_mean": 370000.0,
+    "candidate_mean": 370000.0
+  }
+}

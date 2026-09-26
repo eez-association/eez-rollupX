@@ -661,7 +661,7 @@ registration; it does not identify a specific failed eligibility check.
 `general_reserve_lower` keeps the existing reserve when the new storage estimate
 would be larger. Counts sum to the source's entry count. These explain proposed
 per-entry pricing; `batch_discount_revoked` separately records when the proposed
-prefix crosses the measured 128-total-entry bound, restoring general reserves
+prefix exceeds the measured 128-total-entry bound, restoring general reserves
 for the entire prefix. A rejected group does not change accepted prefix pricing.
 Both columns remain null for older events; do not infer a reason from missing
 history. Upgrade the additive views/collector/dashboard before Composer and

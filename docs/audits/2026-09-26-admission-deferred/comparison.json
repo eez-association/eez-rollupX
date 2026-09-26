@@ -1,0 +1,194 @@
+{
+  "baseline_source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "candidate_source": "85f3691cb9c7ccbf8c0b8700576733283e5af7fc",
+  "baseline": {
+    "source_count": 870,
+    "source_window_seconds": 147.557,
+    "sources_per_second": 5.896026620221338,
+    "postings_with_sources": 25,
+    "post_batch_gas_total": 177949152,
+    "skipped_slots_between_first_last": 3,
+    "produced_blocks_between_first_last": 26
+  },
+  "candidate": {
+    "source_count": 870,
+    "source_window_seconds": 191.278,
+    "sources_per_second": 4.548353705078473,
+    "postings_with_sources": 28,
+    "post_batch_gas_total": 177916082,
+    "skipped_slots_between_first_last": 5,
+    "produced_blocks_between_first_last": 32
+  },
+  "source_window_change_percent": 29.629905731344497,
+  "admission_to_receipt_ratio": 1.5500020397256724,
+  "admission_stop_reasons": {
+    "fifo_fairness_limit": 7,
+    "l1_tx_gas_budget": 5,
+    "pipeline_time": 11,
+    "l1_bundle_gas_budget": 2,
+    "eligible_sources_exhausted": 1,
+    "submission_backoff": 1,
+    "snapshot_exhausted": 1
+  },
+  "families": {
+    "counter": {
+      "sources": 100,
+      "entry_reserve_gas": 16307000,
+      "calldata_gas": 231820,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 0,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "counterL2": {
+      "sources": 100,
+      "entry_reserve_gas": 37000000,
+      "calldata_gas": 377784,
+      "l1_target_simulation_gas": 4815068,
+      "l1_calls": 100,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "nestedCounterL2": {
+      "sources": 50,
+      "entry_reserve_gas": 5250000,
+      "calldata_gas": 250704,
+      "l1_target_simulation_gas": 3749190,
+      "l1_calls": 50,
+      "nested_rows": 50,
+      "discounted_complex_immediate_sources": 50
+    },
+    "multi-call-nestedL2": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 411680,
+      "l1_target_simulation_gas": 5583428,
+      "l1_calls": 100,
+      "nested_rows": 100,
+      "discounted_complex_immediate_sources": 0
+    },
+    "nestedCounter": {
+      "sources": 50,
+      "entry_reserve_gas": 9790000,
+      "calldata_gas": 207996,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 50,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "multi-call-twiceL2": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 287936,
+      "l1_target_simulation_gas": 3960104,
+      "l1_calls": 100,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "revertCounterL2": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 188904,
+      "l1_target_simulation_gas": 1304940,
+      "l1_calls": 50,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "multi-call-nested": {
+      "sources": 50,
+      "entry_reserve_gas": 23861000,
+      "calldata_gas": 531884,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 100,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "revertFromOtherChainL2": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 189504,
+      "l1_target_simulation_gas": 2407576,
+      "l1_calls": 50,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "multi-call-twice": {
+      "sources": 50,
+      "entry_reserve_gas": 14874000,
+      "calldata_gas": 231808,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 0,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "counter-multi-tx": {
+      "sources": 150,
+      "entry_reserve_gas": 19575000,
+      "calldata_gas": 347856,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 0,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "reentrant": {
+      "sources": 20,
+      "entry_reserve_gas": 7400000,
+      "calldata_gas": 113516,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 20,
+      "nested_rows": 20,
+      "discounted_complex_immediate_sources": 0
+    },
+    "revertCounter": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 145880,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 0,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    },
+    "revertFromOtherChain": {
+      "sources": 50,
+      "entry_reserve_gas": 18500000,
+      "calldata_gas": 307712,
+      "l1_target_simulation_gas": 0,
+      "l1_calls": 100,
+      "nested_rows": 0,
+      "discounted_complex_immediate_sources": 0
+    }
+  },
+  "interpretation": "One sequential live wave per revision, same 770-job / 870-source profile and concurrency. Chain slots, retained queue storage, cold startup and host/network noise differ; this is not an isolated causal throughput benchmark.",
+  "baseline_admission_to_receipt_ratio": 1.8453626685447762,
+  "worker_prefunding_xdai": {
+    "baseline": "0.005",
+    "candidate": "0.0045",
+    "scope": "Setup balance floor only; same gas limits, 770 jobs, 870 sources, concurrency and semantic checks."
+  },
+  "directional_ratios": {
+    "outbound_only": {
+      "postings": 8,
+      "admission_gas": 110380325,
+      "receipt_gas": 92271861,
+      "preflight_gas_required": 92271861,
+      "admission_to_required": 1.1962512059879231
+    },
+    "has_inbound": {
+      "postings": 20,
+      "admission_gas": 165389965,
+      "receipt_gas": 85644221,
+      "preflight_gas_required": 89680328,
+      "admission_to_required": 1.844216771820906
+    }
+  },
+  "estimate_reasons": {
+    "deferred_storage": 543,
+    "immediate_evidence_unavailable": 300,
+    "immediate_registered": 50,
+    "deferred_old_slot": 43,
+    "general_reserve_lower": 20,
+    "deferred_reverted": 40,
+    "deferred_call_flags": 24
+  },
+  "batch_discount_revoked_sources": 0
+}

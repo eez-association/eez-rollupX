@@ -1,0 +1,85 @@
+{
+  "events": [
+    {
+      "timestamp": "2026-09-26T15:13:33.358323Z",
+      "fields": {
+        "message": "compared meaningful stream estimate with final encoding, excluding physical padding",
+        "event_name": "eez.composer.settlement.encoding_estimate",
+        "rollup_id": 1,
+        "from": 75295,
+        "to": 75410,
+        "candidate_hash": "0x62d4a4e9a6127f689f9955f5b89d9cba304b81bd26ed038f6969b7410a2cc39a",
+        "estimate_source": "incremental_candidate",
+        "estimated_bytes": 265916,
+        "actual_bytes": 265916,
+        "estimate_error_bytes": "0",
+        "whole_pending_estimate": "Some(265916)"
+      }
+    },
+    {
+      "timestamp": "2026-09-26T15:13:33.358700Z",
+      "fields": {
+        "message": "actual capacity requires a finite historical predecessor for these admitted groups",
+        "event_name": "eez.composer.settlement.predecessor",
+        "rollup_id": 1,
+        "required_endpoint": "L2Endpoint { number: 75405, hash: 0x0d364d154cc238f94490e6772827b4eb9d9d69f5b0587d2e857a157cb954abbf }"
+      }
+    },
+    {
+      "timestamp": "2026-09-26T15:13:33.375542Z",
+      "fields": {
+        "message": "compared meaningful stream estimate with final encoding, excluding physical padding",
+        "event_name": "eez.composer.settlement.encoding_estimate",
+        "rollup_id": 1,
+        "from": 75295,
+        "to": 75410,
+        "candidate_hash": "0x19e7182bcd549c6cc15414ea8bd009ed2cf01dbc0fe714f5319b9e2eff35c12b",
+        "estimate_source": "incremental_candidate",
+        "estimated_bytes": 215437,
+        "actual_bytes": 215437,
+        "estimate_error_bytes": "0",
+        "whole_pending_estimate": "Some(215437)"
+      }
+    },
+    {
+      "timestamp": "2026-09-26T15:13:35.974354Z",
+      "fields": {
+        "message": "canonical receipt charges; normalized integer costs round down and exclude zero denominators",
+        "event_name": "eez.composer.postbatch.actual_cost",
+        "rollup_id": 1,
+        "chain_id": 10200,
+        "native_currency": "xDAI",
+        "unit": "native_base_units",
+        "action": "apply",
+        "post_batch_hash": "0xe915a57958c2dab2c15c144ec871ace4a3efdc93ee11657aa8e44baf390294c9",
+        "canonical_sample_number": 23240327,
+        "canonical_sample_hash": "0x397817cd6cacc7f59b871c00f2631fb46f385533b717b8649621e1916357d707",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "post_execution_cost": "109117000763819",
+        "post_blob_cost": "262144000000000",
+        "post_total_cost": "371261000763819",
+        "companion_execution_cost": "0",
+        "companion_blob_cost": "0",
+        "companion_total_cost": "0",
+        "bundle_total_cost": "371261000763819",
+        "post_gas_used": 109117,
+        "post_blob_gas_used": 262144,
+        "settled_l2_blocks": 115,
+        "included_l2_transactions": 493,
+        "post_cost_per_l2_block": "Some(3228356528381)",
+        "post_cost_per_l2_transaction": "Some(753064910271)",
+        "applied_endpoint": "Some(L2Endpoint { number: 75410, hash: 0x19e7182bcd549c6cc15414ea8bd009ed2cf01dbc0fe714f5319b9e2eff35c12b })",
+        "companions": "[]"
+      }
+    }
+  ],
+  "effective_blob_limit": 2,
+  "usable_bytes_per_blob": 126976,
+  "candidate_bytes": 265916,
+  "historical_only_bytes": 215437,
+  "historical_only_post_gas": 109117,
+  "historical_only_post_block": 23240327,
+  "historical_only_post_hash": "0xe915a57958c2dab2c15c144ec871ace4a3efdc93ee11657aa8e44baf390294c9",
+  "not_in_source_posting_totals": true
+}

@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput` and deployed locally at `b352124`. Local checks and the verified 870-source live comparison passed. The September 26 audit records results, the gas trade-off and remaining infrastructure limits. Current runtime contract is documented in the settlement/RPC specifications. |
+| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; the latest gas-estimation follow-up is deployed at `85f3691`. Local validation and all 770 live semantic checks passed. The latest wave improved estimation accuracy but had lower observed throughput; the linked audits preserve both results. Current runtime behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
 | Related contracts | [Settlement policy](../configurable-settlement-policy.md), [original proposal](configurable-settlement-policy.md), [RPC failure handling](../../crates/eez-control-rpc/SPEC.md#6-failure-handling), [posting history](posting-lifecycle-history.md), [replacement design](skipped-slot-speculative-retry.md) |
-| Evidence | [Latest 870-source wave](../audits/2026-09-25-latest-wave-analysis/README.md) and its per-attempt CSV |
+| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [latest deferred-storage validation and comparison](../audits/2026-09-26-admission-deferred/README.md) |
 
 ## 1. Objective and evidence
 
@@ -182,6 +182,13 @@ compare a semantically verified workload to the previous wave. Report preparatio
 overhead, required gas, fallback coverage and actual cutoff reasons as well as
 receipt ratios. Keep upgraded additive monitoring views on runtime rollback;
 historical missing fallback reasons stay unknown. No queue persistence is added.
+
+Implementation `85f3691` is deployed locally. The [deferred-storage audit](../audits/2026-09-26-admission-deferred/README.md)
+records the bounded storage measurements, native regressions, image identities
+and live comparison. Gas overestimation improved, while the observed 870-source
+window was longer; timing, fairness, skipped slots and a historical-data
+predecessor remain relevant limits. Lower admission gas alone is not evidence
+of higher throughput.
 
 #### September 26 follow-up: selection visibility and gas shapes
 

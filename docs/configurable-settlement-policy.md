@@ -135,8 +135,10 @@ New words absent from the old inventory pay the fresh allowance. Roots and rolli
 hashes are priced as nonzero before stitching. The current and old layouts are
 bounded to one root update, four total callbacks, four nested result rows,
 256-byte callback input and 64-byte results. Current entries/calls are own-rollup,
-successful mutable zero-value work with implicit gas forwarding; reverted/static
-rows and other unmeasured shapes keep the previous estimate. Parent inventory
+successful mutable zero-value calls with implicit gas forwarding. Nested rows
+must be successful with a zero `revertedOrStaticRollingHash`; the storage model
+does not infer the hash preimage's call mode. Reverted rows, nonzero reverted/static
+hashes and other unmeasured shapes keep the previous estimate. Parent inventory
 reads are bounded before narrowing lengths or walking arrays, including inactive
 mapping slots. No writes in a speculative candidate earn reuse credit.
 
