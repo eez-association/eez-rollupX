@@ -60,8 +60,25 @@ fn admission_schema_rejects_wrong_context_and_malformed_gas() {
     assert!(parse(&line(&source), &config()).is_ok());
     source["detail"]["projected_after"] = json!("not a number");
     assert!(parse(&line(&source), &config()).is_err());
+    let invalid_count = event(2, "summary", json!({"examined_count":-1}));
+    assert!(parse(&line(&invalid_count), &config()).is_err());
     let oversized = event(2, "finished", json!({"extra":"x".repeat(64*1024)}));
     assert!(parse(&line(&oversized), &config()).is_err());
+}
+
+fn dashboard_sql(panel: &Value) -> String {
+    panel["targets"][0]["rawSql"]
+        .as_str()
+        .unwrap()
+        .replace("${candidate:sqlstring}", "'*'")
+        .replace("${source:sqlstring}", "'*'")
+        .replace("$__timeFilter(time)", "true")
+        .replace("$__timeFilter(c.time)", "true")
+        .replace("$__timeFilter(p.time)", "true")
+        .replace(
+            "$__timeFilter(to_timestamp((data->>'timestamp_ms')::bigint/1000.0))",
+            "true",
+        )
 }
 
 #[tokio::test]
@@ -88,7 +105,7 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         event(
             1,
             "source_selected",
-            json!({"source_hash":source,"direction":"inbound","position":0}),
+            json!({"source_hash":source,"direction":"inbound","position":0,"timing_basis":"source_checks"}),
         ),
         event(
             2,
@@ -104,7 +121,7 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         event(
             4,
             "summary",
-            json!({"accepted":1,"deferred":1,"projected_gas":500000,"planning_cap":1000000}),
+            json!({"accepted":1,"deferred":1,"projected_gas":500000,"planning_cap":1000000,"examined_count":1,"not_examined_count":1,"selection_filtered_count":0}),
         ),
         event(
             5,
@@ -140,6 +157,24 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
             .get::<_, i64>(0),
         300000
     );
+    let dashboard: Value =
+        serde_json::from_str(include_str!("../dashboards/admission.json")).unwrap();
+    let source_panel = dashboard["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == 3)
+        .unwrap();
+    let rows = client
+        .query(&dashboard_sql(source_panel), &[])
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get::<_, Option<f64>>("source_checks_and_simulation_ms"),
+        Some(1.0)
+    );
+
     // A conflicting duplicate cannot advance the shared file checkpoint.
     let mut bad = records[0].clone();
     bad["detail"]["selected"] = json!(99);
@@ -277,18 +312,7 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
     let dashboard: Value =
         serde_json::from_str(include_str!("../dashboards/admission.json")).unwrap();
     for panel in dashboard["panels"].as_array().unwrap() {
-        let sql = panel["targets"][0]["rawSql"]
-            .as_str()
-            .unwrap()
-            .replace("${candidate:sqlstring}", "'*'")
-            .replace("${source:sqlstring}", "'*'")
-            .replace("$__timeFilter(time)", "true")
-            .replace("$__timeFilter(c.time)", "true")
-            .replace("$__timeFilter(p.time)", "true")
-            .replace(
-                "$__timeFilter(to_timestamp((data->>'timestamp_ms')::bigint/1000.0))",
-                "true",
-            );
+        let sql = dashboard_sql(panel);
         let rows = client
             .query(&sql, &[])
             .await
@@ -298,6 +322,8 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
                 .iter()
                 .find(|r| r.get::<_, String>("candidate_id") == "123-456:1:0")
                 .unwrap();
+            assert_eq!(prediction.get::<_, Option<i64>>("examined"), Some(1));
+            assert_eq!(prediction.get::<_, Option<i64>>("not_examined"), Some(1));
             assert_eq!(
                 prediction.get::<_, Option<f64>>("proof_estimate_ms"),
                 Some(125.0)

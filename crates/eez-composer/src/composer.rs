@@ -2360,19 +2360,9 @@ where
                 parent_hash,
                 bundle_target,
                 drained.len(),
-                pool.len() + drained.len(),
+                pool.len(),
                 previous.clone(),
             ));
-            for (position, held) in drained.iter().enumerate() {
-                candidate.emit(
-                    "source_selected",
-                    serde_json::json!({"source_hash":held.hash,
-                    "position":position,"direction":match held.direction {
-                        Direction::Inbound => "inbound",
-                        Direction::Outbound => "outbound",
-                    }}),
-                );
-            }
             *previous = Some(candidate.id.clone());
             candidate
         };
@@ -2643,6 +2633,10 @@ where
         };
         pool.begin_evaluation(source_state);
         let snapshot = drained.clone();
+        // Observations follow examined work. Re-emitting every untouched suffix
+        // on each candidate would make retained telemetry quadratic in backlog.
+        let mut examined = std::collections::HashSet::new();
+        let mut selection_filtered = 0usize;
         let (outbounds, mut inbounds): (Vec<(usize, HeldTx)>, Vec<(usize, HeldTx)>) = drained
             .into_iter()
             .enumerate()
@@ -2657,12 +2651,17 @@ where
         let mut out_iter = outbounds.into_iter();
         while let Some((idx, held)) = out_iter.next() {
             if !selection.consider(idx) {
-                candidate.emit(
-                    "source_outcome",
-                    serde_json::json!({"source_hash":held.hash,"reason":"dependency_or_selection"}),
-                );
+                selection_filtered += 1;
                 continue;
             }
+            examined.insert(idx);
+            candidate.emit(
+                "source_selected",
+                serde_json::json!({"source_hash":held.hash,
+                "position":idx,"timing_basis":"source_checks","direction":match held.direction {
+                    Direction::Inbound => "inbound", Direction::Outbound => "outbound",
+                }}),
+            );
             if !pool.claim(&held) {
                 candidate.emit(
                     "source_outcome",
@@ -3333,12 +3332,17 @@ where
         let mut in_iter = inbounds.into_iter();
         while let Some((idx, held)) = in_iter.next() {
             if !selection.consider(idx) {
-                candidate.emit(
-                    "source_outcome",
-                    serde_json::json!({"source_hash":held.hash,"reason":"dependency_or_selection"}),
-                );
+                selection_filtered += 1;
                 continue;
             }
+            examined.insert(idx);
+            candidate.emit(
+                "source_selected",
+                serde_json::json!({"source_hash":held.hash,
+                "position":idx,"timing_basis":"source_checks","direction":match held.direction {
+                    Direction::Inbound => "inbound", Direction::Outbound => "outbound",
+                }}),
+            );
             if !pool.claim(&held) {
                 candidate.emit(
                     "source_outcome",
@@ -3769,11 +3773,18 @@ where
             rollup_id,
             source_deferred.iter().map(|(_, held)| held.hash),
         );
-        for (index, held) in &deferred {
+        for (index, held) in deferred
+            .iter()
+            .filter(|(index, _)| examined.contains(index))
+        {
             candidate.emit("source_outcome", serde_json::json!({"source_hash":held.hash,"position":index,
                 "reason":admission_cut.or(budget.rejected_constraint).unwrap_or("l2_block_capacity")}));
         }
-        for &index in selection.fee_blocked() {
+        for &index in selection
+            .fee_blocked()
+            .iter()
+            .filter(|index| examined.contains(*index))
+        {
             candidate.emit(
                 "source_outcome",
                 serde_json::json!({"source_hash":snapshot[index].hash,"reason":"source_fee"}),
@@ -3794,6 +3805,10 @@ where
             "summary",
             serde_json::json!({
                 "accepted":survivors.len(), "deferred":deferred.len(),
+                "examined_count":examined.len(),
+                "not_examined_count":snapshot.len().saturating_sub(examined.len()),
+                "selection_filtered_count":selection_filtered,
+                "source_fee_count":selection.fee_blocked().len(),
                 "reason":admission_cut.or(budget.rejected_constraint),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
                 "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,

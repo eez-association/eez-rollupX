@@ -615,8 +615,18 @@ Inbound companion preflight and indexed source receipt gas are separate columns;
 L2 outbound receipt gas is not collected here. No exact per-source share of the
 aggregate canonical postBatch receipt is claimed.
 
+Selected counts describe the finite snapshot. Queued counts exclude claimed
+sources reused by a rebuild. Only sources reaching individual
+checks receive source records; untouched and selection-filtered work is counted
+in each summary. This keeps repeated backlog logging bounded by examined work.
+The source timing column measures checks through the gas estimate, before append
+and finalization. Historical records without that explicit boundary stay null.
+
 Preparation, proving, native finalization, relay acknowledgement and dispatch
-headroom are distinct observations. A relay acknowledgement is not settlement.
+headroom are distinct observations. The timing table also shows the proof
+prediction, its configured/covering/scaled basis and finalization reserve next
+to measured durations. Historical predictions remain null. A relay
+acknowledgement is not settlement.
 Sequence gaps are explicit; `finished` records the expected final sequence.
 Missing historical estimates and candidates that never reached simulation remain
 null. Check collector status and its last successful check before interpreting

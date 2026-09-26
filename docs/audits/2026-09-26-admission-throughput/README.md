@@ -57,9 +57,14 @@ completed validation record.
 | Cancun/Prague/Osaka gas pin fixtures | Embedded EVM | 26 passed per fork, zero skipped (`gas-pins-{cancun,prague,osaka}.log`) |
 | Existing indexer canonical restart/reorg/checkpoint recovery | PostgreSQL/mocked RPC | 1 selected/passed (`indexer-recovery.log`) |
 | Chiado configuration propagation | Mocked Compose/config | 13 passed; Chiado and Kurtosis policy checker passed |
-| Final Composer/driver/L1/RPC/client unit run at `3cb712c` | Unit/local RPC | Composer 239 passed/1 manual profile ignored; driver 58, L1 144, control RPC 6 and prover client 30 passed. `--lib` did not select the signer binary; its separate run is pending. |
+| Final Composer/driver/L1/RPC/client unit run at `3cb712c` | Unit/local RPC | Composer 239 passed/1 manual profile ignored; driver 58, L1 144, control RPC 6 and prover client 30 passed. `--lib` did not select the signer binary; its separate run passed 330 tests, with two diagnostic utilities intentionally ignored (`signer-tests.log`). |
 | Complete integration contracts | Embedded EVM | 45 passed, zero failed/skipped (`contracts-full.log`) |
 | Cold timing probe correction | Unit | Composer 240 passed, 1 existing manual timing profile ignored (`cold-probe-composer-tests.log`) |
+| Final Composer proof prediction and floor at `7b36ffe` | Unit | 242 passed, 1 existing manual timing profile ignored (`final-composer-tests.log`) |
+| Final workspace/indexer Clippy and formatting | Static | All targets passed with `-D warnings`; both workspaces format clean (`workspace-clippy-final.log`, `indexer-clippy-final.log`) |
+| Proof prediction SQL, populated and historical-null rows | PostgreSQL | 2 passed, zero skipped (`admission-db-predictions-final.log`) |
+| Skipped slot and late original at `088c9d5` | Native process | Both original regressions passed with unchanged timing/assertions; final floor refinement is included in the broader final run |
+| Grafana browser validation | Browser/PostgreSQL | All seven panels render; candidate/source filters, SQL metacharacter literal, canonical CSV export, missing/open history and collector outage checked. Updated prediction panel renders without SQL errors. |
 
 ### First failures retained
 
@@ -128,8 +133,7 @@ L1 setup payload hashes and network identity were checked before relaying to
 the existing external endpoint. The first concurrent relay accepted 297 and
 received 55 HTTP errors; the remaining 55 were rechecked and accepted sequentially.
 No signatures, nonces, fees or values changed. Source send plus monitoring took
-201.354 seconds, with 870 successful source receipts; semantic verification is
-still in progress. Raw artifacts and each relay result remain local-only.
+201.354 seconds, with 870 successful source receipts; all 770 per-job semantic verifications subsequently passed. Raw artifacts and each relay result remain local-only.
 
 Outstanding: final unit/format checks, wider native semantic/replay and
 reconciliation regressions, image builds with recorded source/digests, additive
@@ -155,6 +159,8 @@ range inspection corrected 146 source heights recorded before reconciliation.
 | Skipped slots inside that span | 4 |
 | Total postBatch receipt gas | 177,245,257 |
 | Per-job semantic verification | 770 passed, zero failed |
+| Bulk send to canonical settlement p50 / p95 | 115.362 / 195.362 s |
+| Per-source send uncertainty | At most the 1.226 s bulk send duration |
 
 Preparation/setup and semantic verification are outside the measured source
 window. Setup needed relay of original signed setup transactions after local
@@ -178,3 +184,39 @@ Each context contains only an archived commit and its recursive pinned protocol
 submodules; operator files are excluded. Recipes, commands and image IDs are
 retained in `images-<revision>-shipping/`. The existing node and signer still run
 the baseline images pending native regression completion.
+
+### Repeating the canonical measurement
+
+The read-only [measurement helper](measure-wave.py) rechecks source block bodies
+and receipts, block hashes, and exact canonical L2 settlement ranges. It exists
+because the upstream runner's initial mined heights can change during
+reconciliation. It is intentionally scoped to these 870-source, L2 6292 cohorts
+and rejects ambiguous multiple postings in one L1 block. It does not replace
+per-job semantic assertions or independent follower replay. Retain private
+output directories; full blocks/receipts are not committed.
+
+```bash
+python3 docs/audits/2026-09-26-admission-throughput/measure-wave.py \
+  eez-core-protocol/tmp/e2e-staged-net/20260926-075533 \
+  artifacts/admission-throughput/baseline
+```
+
+Run the same command with the candidate run/output directories after its source
+monitor completes. The summary reports send plus monitoring time separately
+from canonical settlement timestamps. Per-source send uncertainty is bounded
+by the bulk-send duration; neither timestamp measure is prover-only latency.
+
+### Telemetry scope refinement before deployment
+
+Review of the candidate emitter at `7b36ffe` found that it logged the whole
+pending snapshot and every untouched deferred source on each attempt. That
+created repeated work proportional to the backlog rather than examined groups.
+The refinement records sources when they reach individual checks and includes
+examined, unexamined and selection-filtered counts in the summary. It also fixes
+a doubled queue count: `candidates()` leaves sources in the queue until claimed.
+Source checks-to-estimate elapsed time is now attributable to an explicit start
+marker; earlier records without that marker remain null. Scheduling, gas gates
+and ownership transitions are unchanged by this telemetry refinement. Its
+database checks passed (2 tests, zero skipped), all seven Grafana panels
+rendered, and workspace/indexer Clippy passed. The native telemetry capture
+and final image rebuild are pending.

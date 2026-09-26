@@ -173,7 +173,8 @@ pub fn parse(line: &[u8], config: &Config) -> Result<Option<Value>> {
                 | "blobs"
                 | "calldata_bytes"
                 | "entry_count"
-        ) || key.ends_with("_gas")
+        ) || key.ends_with("_count")
+            || key.ends_with("_gas")
             || key.ends_with("_cap")
             || key.ends_with("_discount")
             || matches!(

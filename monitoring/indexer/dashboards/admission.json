@@ -87,7 +87,7 @@
       "id": 2,
       "type": "table",
       "title": "Preparation, proof and delivery",
-      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch. Proof predictions show the configured seed, covering measurements or upward-scaled measurements; missing historical predictions remain null.",
+      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch. Proof predictions show the configured seed, covering measurements or upward-scaled measurements; missing historical predictions remain null. Selected is the finite snapshot; examined reaches source checks. Untouched or selection-filtered sources have aggregate counts and no invented gas estimate.",
       "datasource": {
         "type": "postgres",
         "uid": "eez-indexer-postgres"
@@ -103,7 +103,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT c.time,c.candidate_id,c.selected,c.accepted,c.preparation_ms,c.nominal_preparation_ms,(p.detail->>'proof_estimate_ms')::float8 AS proof_estimate_ms,p.detail->>'proof_estimate_basis' AS proof_estimate_basis,c.proof_ms,(p.detail->>'post_reserve_ms')::float8 AS post_reserve_ms,c.finalization_ms,c.delivery_ms,c.relay_acknowledged,c.dispatch_remaining_ms,c.reason,c.history FROM eez_indexer.admission_candidates c LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='proof_requested' ORDER BY sequence DESC LIMIT 1) p ON true WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) ORDER BY c.time DESC LIMIT 2000",
+          "rawSql": "SELECT c.time,c.candidate_id,c.selected,(s.detail->>'examined_count')::bigint AS examined,(s.detail->>'not_examined_count')::bigint AS not_examined,(s.detail->>'selection_filtered_count')::bigint AS selection_filtered,c.accepted,c.preparation_ms,c.nominal_preparation_ms,(p.detail->>'proof_estimate_ms')::float8 AS proof_estimate_ms,p.detail->>'proof_estimate_basis' AS proof_estimate_basis,c.proof_ms,(p.detail->>'post_reserve_ms')::float8 AS post_reserve_ms,c.finalization_ms,c.delivery_ms,c.relay_acknowledged,c.dispatch_remaining_ms,c.reason,c.history FROM eez_indexer.admission_candidates c LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='proof_requested' ORDER BY sequence DESC LIMIT 1) p ON true LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='summary' ORDER BY sequence DESC LIMIT 1) s ON true WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) ORDER BY c.time DESC LIMIT 2000",
           "editorMode": "code"
         }
       ],
@@ -128,7 +128,7 @@
       "id": 3,
       "type": "table",
       "title": "Gas estimates per source transaction",
-      "description": "Filter by candidate ID or source hash; Inspect \u2192 Data exports CSV. Source simulation gas is not an exact share of the canonical postBatch receipt. Source preflight and canonical source receipt gas refer to inbound L1 companions; outbound L2 receipt gas is not collected here. Accepted deltas may include revocation of earlier discounts at a shape boundary. No estimate recorded means selection did not reach a recorded gas estimate, or telemetry is incomplete.",
+      "description": "Filter by candidate ID or source hash; Inspect \u2192 Data exports CSV. Source simulation gas is not an exact share of the canonical postBatch receipt. Source preflight and canonical source receipt gas refer to inbound L1 companions; outbound L2 receipt gas is not collected here. Accepted deltas may include revocation of earlier discounts at a shape boundary. No estimate recorded means selection did not reach a recorded gas estimate, or telemetry is incomplete. Source timing covers source checks through the gas estimate, excluding subsequent append/finalization/proof. Earlier records without this timing boundary remain null.",
       "datasource": {
         "type": "postgres",
         "uid": "eez-indexer-postgres"
@@ -144,7 +144,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time,candidate_id,source_hash,direction,position,decision,gas_constraint,source_simulation_gas::float8,l1_target_simulation_gas::float8,entry_count,entry_pin_gas::float8,entry_discount::float8,calldata_gas::float8,companion_declared_gas::float8,companion_simulation_gas::float8,source_preflight_gas::float8,source_required_gas::float8,canonical_source_receipt_gas::float8,projected_before::float8,projected_after::float8,accepted_delta_gas::float8,postbatch_hash,canonical_l1_block,reason,history FROM eez_indexer.admission_sources WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) AND (${source:sqlstring}='*' OR source_hash=${source:sqlstring}) ORDER BY time DESC,candidate_id,position LIMIT 10000",
+          "rawSql": "SELECT time,candidate_id,source_hash,direction,position,decision,gas_constraint,t.estimate_ms-t.start_ms AS source_checks_and_simulation_ms,source_simulation_gas::float8,l1_target_simulation_gas::float8,entry_count,entry_pin_gas::float8,entry_discount::float8,calldata_gas::float8,companion_declared_gas::float8,companion_simulation_gas::float8,source_preflight_gas::float8,source_required_gas::float8,canonical_source_receipt_gas::float8,projected_before::float8,projected_after::float8,accepted_delta_gas::float8,postbatch_hash,canonical_l1_block,reason,history FROM eez_indexer.admission_sources s LEFT JOIN LATERAL (SELECT min((data->>'elapsed_ms')::float8) FILTER (WHERE data->>'kind'='source_selected' AND data->'detail'->>'timing_basis'='source_checks') AS start_ms,max((data->>'elapsed_ms')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS estimate_ms FROM eez_indexer.admission_events e WHERE e.candidate_id=s.candidate_id AND data->'detail'->>'source_hash'=s.source_hash) t ON true WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) AND (${source:sqlstring}='*' OR source_hash=${source:sqlstring}) ORDER BY time DESC,candidate_id,position LIMIT 10000",
           "editorMode": "code"
         }
       ],
