@@ -1,0 +1,32 @@
+[
+  {
+    "candidate_id": "1-1790435613106:1:117",
+    "l1_block": 23241660,
+    "families": {
+      "reentrant": 8,
+      "counter-multi-tx": 3,
+      "revertCounter": 26
+    },
+    "admission_companion_sim_gas": 2145869,
+    "canonical_companion_gas": 5274545,
+    "postbatch_estimate_gas": 13180248,
+    "postbatch_receipt_gas": 5034337,
+    "canonical_bundle_gas": 10308882,
+    "canonical_block_gas_limit": 17267407
+  },
+  {
+    "candidate_id": "1-1790435613106:1:119",
+    "l1_block": 23241661,
+    "families": {
+      "revertFromOtherChain": 16,
+      "revertCounter": 19,
+      "reentrant": 1
+    },
+    "admission_companion_sim_gas": 1700862,
+    "canonical_companion_gas": 5673973,
+    "postbatch_estimate_gas": 13660600,
+    "postbatch_receipt_gas": 5281684,
+    "canonical_bundle_gas": 10955657,
+    "canonical_block_gas_limit": 17284268
+  }
+]
