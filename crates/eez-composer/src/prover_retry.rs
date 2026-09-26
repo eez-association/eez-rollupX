@@ -232,13 +232,13 @@ impl TimingHistory {
             .map(|d| d.saturating_add(d / 4))
     }
 
-    fn extrapolate(&self, workload: Workload) -> Option<Duration> {
+    fn extrapolate(&self, workload: Workload) -> Option<(Duration, Duration)> {
         self.0
             .lock()
             .unwrap()
             .iter()
             .map(|(sample, elapsed)| {
-                [
+                let scaled = [
                     (workload.groups, sample.groups),
                     (workload.blobs, sample.blobs),
                     (workload.witnesses, sample.witnesses),
@@ -257,10 +257,18 @@ impl TimingHistory {
                         None => Duration::MAX,
                     }
                 })
-                .fold(*elapsed, Duration::max)
+                .fold(*elapsed, Duration::max);
+                (scaled, *elapsed)
             })
-            .max()
-            .map(|d| d.saturating_add(d / 4))
+            .reduce(|(scaled, observed), (next_scaled, next_observed)| {
+                (scaled.max(next_scaled), observed.max(next_observed))
+            })
+            .map(|(scaled, observed)| {
+                (
+                    scaled.saturating_add(scaled / 4),
+                    observed.saturating_add(observed / 4),
+                )
+            })
     }
 }
 
@@ -270,7 +278,9 @@ pub(crate) struct ProofPrediction {
 }
 
 /// Bounded histories with 25% headroom. Proofs outside observed coverage scale
-/// by the largest workload ratio, capped at the configured bootstrap estimate.
+/// by the largest workload ratio, capped at the greater of the bootstrap estimate
+/// and the observed proof floor. Scaling must never price a larger request below
+/// an already observed slower proof.
 /// This avoids returning to a prohibitive cold allocation for each new witness
 /// count while keeping the shared deadline authoritative. Finalization requires
 /// covering samples because envelope/preflight cost need not scale like proof work.
@@ -286,8 +296,11 @@ impl PipelineTimings {
     pub fn proof_prediction(&self, configured: Duration, workload: Workload) -> ProofPrediction {
         let (duration, basis) = if let Some(estimate) = self.proof.estimate(workload) {
             (estimate, "covering_sample")
-        } else if let Some(estimate) = self.proof.extrapolate(workload) {
-            (estimate.min(configured), "scaled_sample")
+        } else if let Some((estimate, observed_floor)) = self.proof.extrapolate(workload) {
+            (
+                estimate.min(configured.max(observed_floor)),
+                "scaled_sample",
+            )
         } else {
             return ProofPrediction {
                 duration: configured,
@@ -942,7 +955,7 @@ mod tests {
             groups: usize::MAX,
             ..workload
         };
-        assert_eq!(timings.proof_estimate(configured, huge), configured);
+        assert_eq!(timings.proof_estimate(configured, huge), Duration::MAX);
         // Covered slow observations remain authoritative even above the seed.
         assert_eq!(
             timings.proof_estimate(configured, Workload::default()),
@@ -950,6 +963,32 @@ mod tests {
         );
         // Proof scaling does not train the finalization history.
         assert_eq!(timings.post_reserve(huge), POST_PROOF_RESERVE);
+    }
+
+    #[test]
+    fn scaling_never_prices_larger_work_below_a_slow_observation() {
+        let timings = PipelineTimings::default();
+        let small = Workload {
+            groups: 1,
+            blobs: 1,
+            witnesses: 2,
+        };
+        timings.observe_proof(small, Duration::from_millis(600));
+        let configured = Duration::from_millis(450);
+        assert_eq!(
+            timings.proof_estimate(configured, small),
+            Duration::from_millis(750)
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    witnesses: 3,
+                    ..small
+                }
+            ),
+            Duration::from_millis(750)
+        );
     }
 
     #[derive(Debug)]

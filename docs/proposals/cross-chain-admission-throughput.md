@@ -132,7 +132,8 @@ the number of classes and samples; never create per-address estimators. Do not
 scale proof cost solely by group count or assume linear KZG cost across blobs.
 The implementation uses covering proof samples when available, otherwise the
 largest upward group/blob/witness ratio with 25% headroom, capped at the
-configured bootstrap seed. It records the prediction basis; finalization keeps
+greater of the configured bootstrap seed and the observed duration with
+headroom, so scaling never prices larger work below an observed slow proof. It records the prediction basis; finalization keeps
 covering-sample estimates. This permits learning across gradually growing witness
 ranges without repeatedly imposing the cold seed. The absolute deadline still
 bounds every attempt; extrapolation is a planning heuristic to validate with

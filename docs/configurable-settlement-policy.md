@@ -96,7 +96,9 @@ finalization retain at most 32 observations per rollup and stage, with 25%
 headroom. Proof samples covering the requested group, physical blob and witness
 block counts are used directly. Otherwise, observed durations scale upward by
 the largest ratio across those three dimensions (zero counts use a denominator
-of one), capped at the configured proof seed, with a 25 ms floor. With no proof
+of one), capped at the greater of the configured proof seed and the slowest
+observed proof with headroom, with a 25 ms floor. A larger request never scales
+below an already observed slower proof. With no proof
 observations the configured seed applies. This is a scheduling estimate, not a
 proof completion guarantee; the shared deadline remains authoritative. Each proof
 request records the estimate and its `configured_seed`, `covering_sample` or

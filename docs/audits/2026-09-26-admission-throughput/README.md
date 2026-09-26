@@ -91,7 +91,9 @@ It is not reported as a passing suite. The corrected `f37fb4f` run passed
 showed that increasing witness counts repeatedly restored the cold proof seed,
 preventing the expected next-slot replacement dispatch. The subsequent correction
 scales recent proof observations upward across all three dimensions, capped at
-the configured seed. Its focused native regression is pending; the original
+the greater of the configured seed and observed proof duration with headroom.
+The focused skipped-slot regression passed at `088c9d5`; the final refinement
+ensures extrapolation cannot fall below a measured slow proof. The original
 failure remains in `native-dynamic-admission-corrected.log`.
 
 Actual Grafana rendering caught a nested `$__timeFilter` expansion failure in
