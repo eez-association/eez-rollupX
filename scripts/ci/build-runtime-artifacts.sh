@@ -19,6 +19,10 @@ publish="${EEZ_PUBLISH_IMAGES:-false}"
 [[ "$publish" == true || "$publish" == false ]] || { echo "EEZ_PUBLISH_IMAGES must be true or false" >&2; exit 1; }
 cache="${EEZ_RUNTIME_CACHE:-true}"
 [[ "$cache" == true || "$cache" == false ]] || { echo "EEZ_RUNTIME_CACHE must be true or false" >&2; exit 1; }
+state_cache="${EEZ_CARGO_STATE_CACHE:-false}"
+[[ "$state_cache" == true || "$state_cache" == false ]] || { echo "EEZ_CARGO_STATE_CACHE must be true or false" >&2; exit 1; }
+operation="${1:-build}"
+[[ "$operation" == build || "$operation" == prepare-state || "$operation" == export-state ]] || exit 2
 
 root_commit="$(git rev-parse HEAD)"
 protocol_commit="$(git -C eez-core-protocol rev-parse HEAD)"
@@ -36,6 +40,113 @@ fi
 driver="$(docker buildx inspect default | awk '$1 == "Driver:" {print $2}')"
 [[ "$driver" == docker ]] || { echo "The default Buildx builder must use the docker driver" >&2; exit 1; }
 [[ "$(docker info --format '{{.Architecture}}')" == x86_64 ]] || { echo "Runtime builds currently require an amd64 Docker host" >&2; exit 1; }
+
+# Resolve a moving tag once, shared by all outputs in this job.
+resolve_base() {
+    local tagged="$1" repository="${1%:*}" digest reference
+    if [[ "$tagged" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        reference="$tagged"
+    else
+        digest="$(docker buildx imagetools inspect "$tagged" --format '{{.Manifest.Digest}}')"
+        [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Invalid base digest for $tagged" >&2; return 1; }
+        reference="$repository@$digest"
+    fi
+    if ! docker image inspect "$reference" >/dev/null 2>&1; then
+        docker pull --platform linux/amd64 "$reference" >&2
+    fi
+    printf '%s\n' "$reference"
+}
+
+# Keep the cache path stable for Actions, but never reuse a local job directory.
+# Only transport/ belongs to the cache; the authoritative checkout and plan do not.
+state_dir="$REPO/.ci-cargo-state"
+inputs=(Cargo.toml Cargo.lock crates vendor contracts/test/PostBatchGasPins.t.sol
+        .config/nextest.toml scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh)
+state_build=(docker buildx build --builder default --platform linux/amd64 --progress plain
+             --provenance=false -f Dockerfile.runtime --build-arg EEZ_COMPILER_CACHE=none
+             --build-arg BUILD_STAGE=build-offline
+             --resource cpu-period=100000 --resource cpu-quota=400000
+             --resource memory=20g --resource memory-swap=20g)
+if [[ "$operation" == prepare-state ]]; then
+    [[ "$state_cache" == true ]]
+    git diff --quiet HEAD -- "${inputs[@]}" || { echo 'Cargo state requires clean compilation inputs' >&2; exit 1; }
+    [[ -z "$(git ls-files --others --exclude-standard -- "${inputs[@]}")" ]] || {
+        echo 'Cargo state requires tracked compilation inputs' >&2; exit 1;
+    }
+    [[ "$(docker info --format '{{.MemTotal}}')" -ge 25769803776 ]] || {
+        echo '20-GiB Cargo builds require a Docker host with at least 24 GiB RAM' >&2; exit 1;
+    }
+    [[ "$(df -PB1 "$REPO" | awk 'NR == 2 {print $4}')" -ge 53687091200 ]] || {
+        echo 'Cargo state requires 50 GiB free disk; no automatic cleanup' >&2; exit 1;
+    }
+    mkdir "$state_dir"
+    rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
+    "${state_build[@]}" --build-arg "RUST_IMAGE=$rust_base" --target build-contract \
+        --output "type=local,dest=$state_dir/contract" .
+    compatibility="$( { printf '%s\n' "$rust_base"; cat "$state_dir/contract/toolchain.txt";
+        sha256sum Dockerfile.runtime scripts/ci/native-tests.py .config/nextest.toml;
+    } | sha256sum | cut -d' ' -f1)"
+    source="$(git ls-tree -r HEAD -- "${inputs[@]}" | sha256sum | cut -d' ' -f1)"
+    jq -n --arg root "$root_commit" --arg protocol "$protocol_commit" --arg rust "$rust_base" \
+        --arg compatibility "$compatibility" --arg source "$source" \
+        '{root:$root, protocol:$protocol, rust:$rust, compatibility:$compatibility, source:$source}' \
+        > "$state_dir/plan.json"
+    prefix="cargo-oci-v1-linux-amd64-$compatibility-"
+    printf 'key=%s%s\nprefix=%s\n' "$prefix" "$source" "$prefix" >> "${GITHUB_OUTPUT:?}"
+    exit 0
+fi
+
+# OCI blobs are opaque Docker inputs, not a tar archive extracted beside source.
+# Validate the bounded layout/config before BuildKit reads and verifies its blobs.
+state_digest() {
+    local layout="$1" compatibility="$2" digest manifest config
+    [[ -d "$layout" && ! -L "$layout" ]] || return 1
+    [[ -z "$(find "$layout" ! -type d ! -type f -print -quit)" ]] || return 1
+    [[ "$(du -sb "$layout" | cut -f1)" -le 4294967296 ]] || return 1
+    [[ "$(stat -c %s "$layout/index.json")" -le 1048576 ]] || return 1
+    digest="$(jq -er '.manifests | select(length == 1) | .[0].digest | select(test("^sha256:[0-9a-f]{64}$"))' "$layout/index.json")" || return 1
+    manifest="$layout/blobs/sha256/${digest#sha256:}"
+    [[ "$(stat -c %s "$manifest")" -le 1048576 ]] || return 1
+    config="$(jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$manifest")" || return 1
+    config="$layout/blobs/sha256/${config#sha256:}"
+    [[ "$(stat -c %s "$config")" -le 1048576 ]] || return 1
+    jq -e --arg compatibility "$compatibility" '
+        .os == "linux" and .architecture == "amd64" and
+        .config.Labels["io.eez.cargo.compatibility"] == $compatibility
+    ' "$config" >/dev/null || return 1
+    printf '%s\n' "$digest"
+}
+
+if [[ "$state_cache" == true ]]; then
+    jq -e --arg root "$root_commit" --arg protocol "$protocol_commit" \
+        '.root == $root and .protocol == $protocol' "$state_dir/plan.json" >/dev/null
+    git diff --quiet HEAD -- "${inputs[@]}" || exit 1
+    rust_base="$(jq -er .rust "$state_dir/plan.json")"
+    compatibility="$(jq -er .compatibility "$state_dir/plan.json")"
+    state_build+=(--build-arg "RUST_IMAGE=$rust_base")
+fi
+if [[ "$operation" == export-state ]]; then
+    [[ "$state_cache" == true && "${GITHUB_EVENT_NAME:-}" == push &&
+       "${GITHUB_REF:-}" == "refs/heads/${EEZ_DEFAULT_BRANCH:-main}" ]] || {
+        echo 'Only default-branch pushes may save Cargo state' >&2; exit 1;
+    }
+    jq -e -s --arg root "$root_commit" --arg protocol "$protocol_commit" '
+        length == 2 and .[0] == .[1] and
+        .[0].root_commit == $root and .[0].protocol_commit == $protocol
+    ' "$EEZ_NATIVE_TEST_OUTPUT_DIR/manifest.json" "$EEZ_NATIVE_TEST_OUTPUT_DIR/unit-passed.json" >/dev/null
+    previous="$(jq -er '.previous // ""' "$state_dir/plan.json")"
+    [[ -z "$previous" ]] || state_build+=(--build-context "previous-state=$previous")
+    "${state_build[@]}" --target cargo-state \
+        --label "io.eez.cargo.compatibility=$compatibility" \
+        --output "type=oci,tar=false,compression=zstd,compression-level=1,dest=$state_dir/next" .
+    state_digest "$state_dir/next" "$compatibility" >/dev/null
+    # Keep restored blobs available until the export finishes. Neither directory
+    # can contain the authoritative checkout; both are owned by this job.
+    [[ ! -e "$state_dir/transport" ]] || mv "$state_dir/transport" "$state_dir/restored"
+    mv "$state_dir/next" "$state_dir/transport"
+    printf 'upload=true\n' >> "${GITHUB_OUTPUT:?}"
+    exit 0
+fi
 
 mkdir -p "$EEZ_RUNTIME_OUTPUT_DIR"
 [[ -z "$(ls -A "$EEZ_RUNTIME_OUTPUT_DIR")" ]] || { echo "Runtime output directory must be empty" >&2; exit 1; }
@@ -82,7 +193,9 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
                 deploy_cache_from=(--cache-from "type=registry,ref=$deploy_ref")
             fi
             if [[ "$scope" == "$GITHUB_REF" ]]; then
-                runtime_cache_to=(--cache-to "type=registry,ref=$runtime_ref,mode=max,ignore-error=true")
+                # Large binaries and already-compressed test archives do not
+                # justify gzip's CPU cost. Existing cache blobs remain reusable.
+                runtime_cache_to=(--cache-to "type=registry,ref=$runtime_ref,mode=min,compression=zstd,compression-level=1,ignore-error=true")
                 deploy_cache_to=(--cache-to "type=registry,ref=$deploy_ref,mode=max,ignore-error=true")
             fi
         done
@@ -93,23 +206,15 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
 fi
 echo "==> BuildKit cache: $cache_status"
 
-# Resolve moving base tags once. Every output must use the same toolchain/base,
-# even if a registry tag changes between binary export and image packaging.
-resolve_base() {
-    local tagged="$1" repository="${1%:*}" digest
-    digest="$(docker buildx imagetools inspect "$tagged" --format '{{.Manifest.Digest}}')"
-    [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Invalid base digest for $tagged" >&2; return 1; }
-    docker pull --platform linux/amd64 "$repository@$digest" >&2
-    printf '%s@%s\n' "$repository" "$digest"
-}
-rust_base="$(resolve_base rust:1.95.0-bookworm)"
-runtime_base="$(resolve_base debian:bookworm-slim)"
+[[ "$state_cache" == true ]] || rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
+runtime_base="$(resolve_base "${RUNTIME_IMAGE:-debian:bookworm-slim}")"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")
 runtime_build=("${build[@]}" "${runtime_cache_from[@]}" -f Dockerfile.runtime --build-arg "RUST_IMAGE=$rust_base")
 # Only the backend name is a build argument. Credential values travel through
 # BuildKit secret mounts, never argv, layer history, metadata or GHCR caches.
 compiler_cache="${EEZ_COMPILER_CACHE:-none}"
+[[ "$state_cache" == false ]] || compiler_cache=none
 [[ "$compiler_cache" == none || "$compiler_cache" == redis || "$compiler_cache" == gha ]] || {
     echo "Invalid runtime compiler cache backend" >&2; exit 1;
 }
@@ -131,9 +236,32 @@ labels=(--label "org.opencontainers.image.source=$source_url"
         --label "io.eez.protocol.revision=$protocol_commit"
         --label "io.eez.build.profile=release")
 
+if [[ "$state_cache" == true ]]; then
+    runtime_build+=(--build-arg BUILD_STAGE=build-offline
+                    --resource cpu-period=100000 --resource cpu-quota=400000
+                    --resource memory=20g --resource memory-swap=20g)
+    previous=""
+    if digest="$(state_digest "$state_dir/transport" "$compatibility" 2>/dev/null)"; then
+        candidate="oci-layout://$state_dir/transport@$digest"
+        # Only restoration can fall back. A Cargo or test failure is never retried.
+        if timeout 600 "${state_build[@]}" --build-context "previous-state=$candidate" \
+            --target checked-state --output type=cacheonly .; then
+            previous="$candidate"
+            runtime_build+=(--build-context "previous-state=$previous")
+        else
+            echo '::warning::Cargo state rejected before compilation; building cold'
+        fi
+    fi
+    jq --arg previous "$previous" '. + {previous:$previous}' "$state_dir/plan.json" > "$state_dir/selected.json"
+    mv "$state_dir/selected.json" "$state_dir/plan.json"
+    echo "==> Docker Cargo state: $([[ -n "$previous" ]] && echo hit || echo miss)"
+fi
+
 phase=compilation
 echo "==> compiling runtime binaries, then release tests (linux/amd64, same target)"
-"${runtime_build[@]}" --target binaries \
+# Cache only the flat executable output, not Cargo state or its intermediate
+# layers. Node and signer both consume this same cached binaries stage.
+"${runtime_build[@]}" --target binaries "${runtime_cache_to[@]}" \
     --output "type=local,dest=$build_dir/binaries" \
     --metadata-file "$output/binaries-build.json" .
 
@@ -153,7 +281,6 @@ echo "==> packaging runtime images"
 "${runtime_build[@]}" --target node "${labels[@]}" \
     --load -t "$node_image" --metadata-file "$output/node-build.json" .
 "${runtime_build[@]}" --target signer "${labels[@]}" \
-    "${runtime_cache_to[@]}" \
     --load -t "$signer_image" --metadata-file "$output/signer-build.json" .
 "${build[@]}" -f testing/kurtosis/Dockerfile.deploy "${labels[@]}" \
     "${deploy_cache_from[@]}" "${deploy_cache_to[@]}" \

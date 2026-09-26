@@ -1,11 +1,25 @@
 # syntax=docker/dockerfile:1
-# Build shipping binaries and release test executables in one ephemeral target.
+# Build shipping binaries and release test executables in one target.
 # Local development keeps the existing Dockerfile / Dockerfile.signer entrypoints.
 ARG RUST_IMAGE=rust:1.95.0-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
-FROM ${RUST_IMAGE} AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time \
+ARG BUILD_STAGE=build-online
+FROM scratch AS previous-state
+WORKDIR /build
+WORKDIR /cargo/registry
+WORKDIR /cargo/git
+
+FROM scratch AS source
+COPY Cargo.toml Cargo.lock /checkout/
+COPY crates /checkout/crates
+COPY vendor /checkout/vendor
+COPY contracts/test/PostBatchGasPins.t.sol /checkout/contracts/test/PostBatchGasPins.t.sol
+COPY .config/nextest.toml /checkout/.config/nextest.toml
+COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh /checkout/scripts/ci/
+
+FROM ${RUST_IMAGE} AS tools
+RUN --network=default apt-get update && apt-get install -y --no-install-recommends \
+        clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time rsync \
     && rm -rf /var/lib/apt/lists/*
 ENV CARGO_INCREMENTAL=0 \
     RUST_MIN_STACK=16777216 \
@@ -14,27 +28,76 @@ ENV CARGO_INCREMENTAL=0 \
 WORKDIR /build
 COPY scripts/ci/install-sccache.sh scripts/ci/with-compiler-cache.sh /usr/local/lib/eez/
 COPY scripts/ci/install-nextest.sh /usr/local/lib/eez/
-RUN bash /usr/local/lib/eez/install-nextest.sh /usr/local/bin
+RUN --network=default bash /usr/local/lib/eez/install-nextest.sh /usr/local/bin
 # No runner-specific paths or credentials in image layers. The portable binary
 # supports Redis on ARC and GitHub's cache service on hosted runners.
 ARG EEZ_COMPILER_CACHE=none
-RUN if [ "$EEZ_COMPILER_CACHE" != none ]; then \
+RUN --network=default if [ "$EEZ_COMPILER_CACHE" != none ]; then \
         bash /usr/local/lib/eez/install-sccache.sh /usr/local/bin \
         || echo 'Compiler cache download unavailable; building uncached'; \
     fi
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-COPY vendor ./vendor
-# Composer unit tests embed the Solidity gas pins at compile time.
-COPY contracts/test/PostBatchGasPins.t.sol ./contracts/test/PostBatchGasPins.t.sol
-COPY .config/nextest.toml ./.config/nextest.toml
-COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh ./scripts/ci/
-# Only source downloads are cache mounts. Compile and remove target in the same
-# RUN: neither the exported binaries nor cached image layers contain Cargo state.
-# This also holds for mode=max registry exports of the intermediate builder.
-RUN --mount=type=cache,id=runtime-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=runtime-cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=secret,id=ACTIONS_RESULTS_URL,env=ACTIONS_RESULTS_URL \
+COPY <<'BUILD_RUNTIME' /usr/local/lib/eez/build-runtime.sh
+#!/usr/bin/env bash
+set -euo pipefail
+case "$EEZ_EXPORT_CARGO_STATE" in true|false) ;; *) exit 2 ;; esac
+if [ "$EEZ_EXPORT_CARGO_STATE" = true ]; then
+    test "$(cat /sys/fs/cgroup/cpu.max)" = '400000 100000'
+    test "$(cat /sys/fs/cgroup/memory.max)" = 21474836480
+    test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0
+    export CARGO_BUILD_JOBS=4 CARGO_NET_OFFLINE=true
+fi
+rm -rf /build/target/release/eez-runtime
+EEZ_BUILD_METRICS_DIR=/out/build-metrics \
+    bash /usr/local/lib/eez/with-compiler-cache.sh runtime cargo build --locked --timings --profile release \
+        -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 \
+        --bin eez-composer --bin eez-follower --bin eez-proof-signer \
+        --example genesis_state_root --example genesis_block_hash \
+        --example e2e-causal-verify --example verify_blob_evidence
+install -D target/release/eez-composer /out/bin/eez-composer
+install -D target/release/eez-follower /out/bin/eez-follower
+install -D target/release/eez-proof-signer /out/bin/eez-proof-signer
+install -D target/release/examples/genesis_state_root /out/bin/eez-genesis-state-root
+install -D target/release/examples/genesis_block_hash /out/bin/eez-genesis-block-hash
+install -D target/release/examples/e2e-causal-verify /out/bin/e2e-causal-verify
+install -D target/release/examples/verify_blob_evidence /out/bin/verify_blob_evidence
+cp target/cargo-timings/cargo-timing.html /out/cargo-timing.html
+rustc -Vv > /out/rustc-version.txt
+cargo -V > /out/cargo-version.txt
+EEZ_BUILD_METRICS_DIR=/out/build-metrics \
+    python3 scripts/ci/native-tests.py build /out/native-tests --runtime-bin /out/bin
+if [ "$EEZ_EXPORT_CARGO_STATE" = false ]; then
+    rm -rf /build/target /usr/local/cargo/registry /usr/local/cargo/git
+fi
+BUILD_RUNTIME
+RUN rustc -Vv > /toolchain.txt \
+    && cargo -V >> /toolchain.txt \
+    && cargo-nextest nextest --version >> /toolchain.txt \
+    && dpkg-query -W >> /toolchain.txt
+
+FROM scratch AS build-contract
+COPY --from=tools /toolchain.txt /toolchain.txt
+
+FROM tools AS checked-state
+COPY --from=previous-state /build/ /build/
+COPY --from=previous-state /cargo/registry/ /usr/local/cargo/registry/
+COPY --from=previous-state /cargo/git/ /usr/local/cargo/git/
+# Check restored state before Cargo starts. Docker owns extraction and digest
+# checks; cached programs still require trusted writers. No host path is writable.
+RUN --network=none test "$(du -sb /build /usr/local/cargo/registry /usr/local/cargo/git | awk '{n += $1} END {printf "%.0f\n", n}')" -le 34359738368 \
+    && test -z "$(find /build /usr/local/cargo/registry /usr/local/cargo/git -newermt now -print -quit)" \
+    && find /build /usr/local/cargo/registry /usr/local/cargo/git -type l -exec sh -ec \
+        'for link do resolved=$(readlink -m "$link"); case "$resolved" in /build/*|/usr/local/cargo/registry/*|/usr/local/cargo/git/*) ;; *) exit 1 ;; esac; done' sh {} +
+
+FROM checked-state AS build-inputs
+ENV EEZ_EXPORT_CARGO_STATE=false
+# Reconcile authoritative inputs by content, retaining unchanged mtimes. Never
+# restore /out: each invocation exports and archives the current Cargo result.
+RUN --network=default --mount=type=bind,from=source,source=/checkout,target=/checkout \
+    rsync --recursive --checksum --delete --perms --exclude=/target /checkout/ /build/ \
+    && cargo fetch --locked
+# Both entry steps execute the same recipe; only their network/secret access differs.
+FROM build-inputs AS build-online
+RUN --mount=type=secret,id=ACTIONS_RESULTS_URL,env=ACTIONS_RESULTS_URL \
     --mount=type=secret,id=ACTIONS_RUNTIME_TOKEN,env=ACTIONS_RUNTIME_TOKEN \
     --mount=type=secret,id=SCCACHE_REDIS_ENDPOINT,env=SCCACHE_REDIS_ENDPOINT \
     --mount=type=secret,id=SCCACHE_REDIS_USERNAME,env=SCCACHE_REDIS_USERNAME \
@@ -44,25 +107,24 @@ RUN --mount=type=cache,id=runtime-cargo-registry,target=/usr/local/cargo/registr
     --mount=type=secret,id=SCCACHE_REDIS_TTL,env=SCCACHE_REDIS_TTL \
     --mount=type=secret,id=SCCACHE_REDIS_EXPIRATION,env=SCCACHE_REDIS_EXPIRATION \
     --mount=type=secret,id=SCCACHE_REDIS_RW_MODE,env=SCCACHE_REDIS_RW_MODE \
-    EEZ_BUILD_METRICS_DIR=/out/build-metrics \
-    bash /usr/local/lib/eez/with-compiler-cache.sh runtime cargo build --locked --timings --profile release \
-        -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 \
-        --bin eez-composer --bin eez-follower --bin eez-proof-signer \
-        --example genesis_state_root --example genesis_block_hash \
-        --example e2e-causal-verify --example verify_blob_evidence \
-    && install -D target/release/eez-composer /out/bin/eez-composer \
-    && install -D target/release/eez-follower /out/bin/eez-follower \
-    && install -D target/release/eez-proof-signer /out/bin/eez-proof-signer \
-    && install -D target/release/examples/genesis_state_root /out/bin/eez-genesis-state-root \
-    && install -D target/release/examples/genesis_block_hash /out/bin/eez-genesis-block-hash \
-    && install -D target/release/examples/e2e-causal-verify /out/bin/e2e-causal-verify \
-    && install -D target/release/examples/verify_blob_evidence /out/bin/verify_blob_evidence \
-    && cp target/cargo-timings/cargo-timing.html /out/cargo-timing.html \
-    && rustc -Vv > /out/rustc-version.txt \
-    && cargo -V > /out/cargo-version.txt \
-    && EEZ_BUILD_METRICS_DIR=/out/build-metrics \
-        python3 scripts/ci/native-tests.py build /out/native-tests --runtime-bin /out/bin \
-    && rm -rf /build/target
+    bash /usr/local/lib/eez/build-runtime.sh
+
+FROM build-inputs AS build-offline
+ENV EEZ_EXPORT_CARGO_STATE=true
+RUN --network=none bash /usr/local/lib/eez/build-runtime.sh
+
+FROM ${BUILD_STAGE} AS builder
+
+FROM builder AS state-export
+RUN --network=none test "$EEZ_EXPORT_CARGO_STATE" = true \
+    && test "$(du -sb /build /usr/local/cargo/registry /usr/local/cargo/git | awk '{n += $1} END {printf "%.0f\n", n}')" -le 34359738368
+
+# Flatten the seed instead of extending its ancestry on every new build.
+# Cargo state is a trusted build input, not a runtime or verified test artifact.
+FROM scratch AS cargo-state
+COPY --from=state-export /build/ /build/
+COPY --from=state-export /usr/local/cargo/registry/ /cargo/registry/
+COPY --from=state-export /usr/local/cargo/git/ /cargo/git/
 
 FROM scratch AS binaries
 COPY --from=builder /out/ /
@@ -72,14 +134,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 
 FROM runtime-base AS node
-COPY --from=builder /out/bin/eez-composer /out/bin/eez-follower /out/bin/eez-genesis-state-root /out/bin/eez-genesis-block-hash /usr/local/bin/
+COPY --from=binaries /bin/eez-composer /bin/eez-follower /bin/eez-genesis-state-root /bin/eez-genesis-block-hash /usr/local/bin/
 ENTRYPOINT ["eez-composer"]
 CMD ["--help"]
 
 FROM runtime-base AS signer
 RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder --chmod=0555 /out/bin/eez-proof-signer /usr/local/bin/eez-proof-signer
+COPY --from=binaries --chmod=0555 /bin/eez-proof-signer /usr/local/bin/eez-proof-signer
 WORKDIR /app
 USER 65532:65532
 EXPOSE 50061/tcp

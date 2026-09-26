@@ -6,6 +6,10 @@ on:
       runner:
         required: true
         type: string
+      cargo-state-cache:
+        description: Use Docker-native Cargo state (homelab only)
+        type: boolean
+        default: false
     outputs:
       runtime-ref:
         description: Immutable GHCR runtime payload digest
@@ -33,6 +37,7 @@ jobs:
       # Optional registry layer cache; compiler caching is configured separately.
       EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}
       EEZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      EEZ_CARGO_STATE_CACHE: ${{ (inputs.cargo-state-cache || vars.CI_CARGO_STATE_CACHE == 'true') && inputs.runner == 'homelab-rust' }}
     outputs:
       runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}
@@ -85,9 +90,34 @@ jobs:
           EEZ_ORIGINAL_DOCKER_HOST: ${{ steps.docker-cache.outputs.original-host }}
         run: bash scripts/ci/hosted-docker-cache.sh select
       - uses: ./.github/actions/compiler-cache
+        if: ${{ env.EEZ_CARGO_STATE_CACHE != 'true' }}
         with:
           mode: docker
           enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
+      - name: Prepare Docker-native Cargo state
+        id: cargo-state
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' }}
+        timeout-minutes: 10
+        run: |
+          # Job-private client; no runner image, daemon or cluster changes.
+          mkdir -p "$DOCKER_CONFIG/cli-plugins"
+          curl --fail --silent --show-error --location --max-time 90 \
+            https://github.com/docker/buildx/releases/download/v0.37.1/buildx-v0.37.1.linux-amd64 \
+            -o "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+          printf '%s  %s\n' 9447199cdb435f25880548343c128a4b6650e8891ee598905d8d29d39a8e359b \
+            "$DOCKER_CONFIG/cli-plugins/docker-buildx" | sha256sum --check --status
+          chmod 755 "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+          bash scripts/ci/build-runtime-artifacts.sh prepare-state
+      - name: Restore compatible OCI state (optional)
+        id: cargo-restore
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' }}
+        timeout-minutes: 10
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport
+          key: ${{ steps.cargo-state.outputs.key }}
+          restore-keys: ${{ steps.cargo-state.outputs.prefix }}
       - name: Log in to GHCR
         id: ghcr-login
         if: ${{ steps.init.outputs.published == 'true' }}
@@ -101,6 +131,20 @@ jobs:
         run: bash scripts/ci/init-cargo-target.sh
       - name: Run all release unit tests and protocol vectors
         run: python3 scripts/ci/native-tests.py run "$EEZ_NATIVE_TEST_OUTPUT_DIR" --suite unit
+      - name: Export bounded OCI state (optional, main only)
+        id: cargo-export
+        if: ${{ env.EEZ_CARGO_STATE_CACHE == 'true' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.cargo-restore.outputs.cache-hit != 'true' }}
+        timeout-minutes: 10
+        continue-on-error: true
+        run: bash scripts/ci/build-runtime-artifacts.sh export-state
+      - name: Save compatible OCI state (optional, main only)
+        if: ${{ steps.cargo-export.outcome == 'success' && steps.cargo-export.outputs.upload == 'true' }}
+        timeout-minutes: 10
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .ci-cargo-state/transport
+          key: ${{ steps.cargo-state.outputs.key }}
       - name: Export E2E execution inputs only
         id: e2e-export
         run: |
