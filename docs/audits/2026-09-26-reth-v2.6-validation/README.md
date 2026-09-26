@@ -1,5 +1,10 @@
 # Official Reth v2.6.0 local validation
 
+> Follow-up: the [main-based PR audit](../2026-09-26-reth-v2.6-pr/README.md)
+> corrects the policy-restart test contract and supersedes this audit's
+> recommendation to select production L2 persistence overrides. Results below
+> remain historical evidence for their recorded binaries.
+
 | Field | Value |
 | --- | --- |
 | Date and status | 2026-09-26; validation complete; unmodified v2.6.0 not accepted for release |

@@ -1,0 +1,58 @@
+{
+  "rust_units_and_vectors": {
+    "passed": 1195,
+    "failed": 0,
+    "ignored": 3,
+    "log": "rust-unit-tests.log"
+  },
+  "stateless_and_tries": {
+    "passed": 9,
+    "failed": 0,
+    "ignored": 0,
+    "log": "stateless-tests.log"
+  },
+  "clippy": {
+    "result": "pass",
+    "first_attempt": "duration-suboptimal-units failure, corrected before second check",
+    "log": "clippy-02.log"
+  },
+  "tooling_latest_main": {
+    "selected": 265,
+    "passed": 261,
+    "skipped": 4,
+    "failed": 0,
+    "log": "tooling-main-3346.log"
+  },
+  "real_docker_packaging_fixture": {
+    "selected": 1,
+    "passed": 1,
+    "failed": 0,
+    "seconds": 49.594,
+    "log": "docker-fixture-main-3346.log",
+    "scope": "tiny Rust workspace with vendor path dependency; optional OCI-state/flat-cache controls not selected"
+  },
+  "cargo_deny": {
+    "result": "pass",
+    "scope": "advisories bans sources"
+  },
+  "cargo_audit": {
+    "result": "pass",
+    "allowed_warnings": 9
+  },
+  "fee_ceiling_paired": {
+    "baseline": "fail: missing receipt after SIGKILL",
+    "after": "pass: SIGTERM helper, identical native runtime binaries",
+    "selected_each": 1
+  },
+  "focused_partial_crash": {
+    "selected": 1,
+    "passed": 0,
+    "failed": 1,
+    "seconds": 175.03,
+    "runtime": "baseline/bin (frozen native build)",
+    "test": "final-executables/partial_consumption",
+    "failure": "boot-time catch_up parent metadata mismatch after sparse-trie stall",
+    "log": "crash-check/test.log"
+  },
+  "availability": "Full logs, binaries and failure datadirs are local-only under artifacts/reth260-pr; checked-in summaries are portable."
+}

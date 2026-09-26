@@ -1,0 +1,76 @@
+[
+  {
+    "timestamp": "2026-09-26T20:00:42.473708Z",
+    "level": "WARN",
+    "fields": {
+      "message": "persistent correlation tail does not match canonical L1/local L2; removing its L1-block suffix",
+      "l1_block": 9,
+      "indexed_l1_hash": "0x914650e66c7f6acc7343fa3cdf692b8ffe97552ae66c4338fba8c70a578b3a1b",
+      "canonical_l1_hash": "0x914650e66c7f6acc7343fa3cdf692b8ffe97552ae66c4338fba8c70a578b3a1b",
+      "l2_block": 46,
+      "indexed_l2_hash": "0x7df954ba2ad002fbfed58254fa3732349ea7e45b0abf3f9561e4dd66db4da6d8",
+      "local_l2_hash": "None",
+      "removed": 1
+    }
+  },
+  {
+    "timestamp": "2026-09-26T20:00:42.479683Z",
+    "level": "INFO",
+    "fields": {
+      "message": "starting batch scan to populate L1CanonicalHead and reconcile L2 chain",
+      "local_head": 16,
+      "from_l1_block": 0,
+      "to_l1_block": 9,
+      "cumulative_start": 0
+    }
+  },
+  {
+    "timestamp": "2026-09-26T20:00:44.677064Z",
+    "level": "INFO",
+    "fields": {
+      "message": "reconcile_batch_blocks entered",
+      "l1_block_number": 9,
+      "tx_hash": "0x938c5ad8660bbd56a24957e254d59bc67e54d01407c88db5e3586a241b3f9dff",
+      "from_block": 1,
+      "block_count": 46,
+      "l2_entries_len": 3,
+      "cross_chain": true
+    }
+  },
+  {
+    "timestamp": "2026-09-26T20:00:44.677436Z",
+    "level": "WARN",
+    "fields": {
+      "message": "L1 ran only part of this batch; reconstructing exactly that slice",
+      "tx_hash": "0x938c5ad8660bbd56a24957e254d59bc67e54d01407c88db5e3586a241b3f9dff",
+      "outbound": 0,
+      "inbound": 3,
+      "outbound_skip": 0,
+      "outbound_take": 0,
+      "inbound_skip": 0,
+      "inbound_take": 1,
+      "anchor_applied": true
+    }
+  },
+  {
+    "timestamp": "2026-09-26T20:00:44.748737Z",
+    "level": "ERROR",
+    "fields": {
+      "message": "sparse trie task stalled: pending updates remain but no proof targets are queued or in flight",
+      "account_targets": "[]",
+      "account_targets_truncated": 0,
+      "storage_targets": "[(0x37d65eaa92c6bc4c13a5ec45527f0c18ea8932588728769ec7aecfe6d9f32e42, 0x86191ee368ecef4cc3fd530366d60aec0033ceda9c0bcfd9451a6a6fa0cfe880, Some(ProofV2TargetParent(Some(0))))]",
+      "storage_targets_truncated": 0
+    }
+  },
+  {
+    "timestamp": "2026-09-26T20:00:44.857861Z",
+    "level": "ERROR",
+    "fields": {
+      "message": "boot-time catch_up failed; refusing to start L1-active tasks before reconciliation",
+      "event_name": "eez.node.deriver.boot_catch_up.failed",
+      "mode": "composer",
+      "error": "local L2 block 46 diverged from L1-confirmed batch; the on-chain claimed newRoot doesn't match local STF output (self-contained block metadata does not extend the local parent)"
+    }
+  }
+]

@@ -4554,7 +4554,7 @@ impl CrossChainWorld {
                 signal.success(),
                 "sending composer SIGTERM failed: {signal}"
             );
-            let status = wait_for(Duration::from_secs(60), || async {
+            let status = wait_for(Duration::from_mins(1), || async {
                 self.node
                     .child
                     .lock()

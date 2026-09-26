@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft PR preparation; prior validation recorded; main-based candidate checks in progress; upstream forkchoice blocker remains |
+| Design status | Draft PR preparation; prior validation recorded; main-based candidate checks in progress; forkchoice and crash-replay blockers remain |
 | Date | 2026-09-26 |
-| PR base | Latest `origin/main` fetched for preparation: `7c90266a5fe8cfdb46b249c61079badc2dce71a3`; unrelated admission-branch commits excluded |
+| PR base | Latest `origin/main` fetched for preparation: `3346d966f3c8611be790db484abc63b3b259d367`; unrelated admission-branch commits excluded |
 | Prior validation baseline | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc` on an isolated validation branch |
 | Protocol baseline | `9d13218a355e7d543ca8a9927eea2962600b716d`, unchanged |
 
@@ -26,6 +26,9 @@ durability requirement or zero-loss guarantee. Earlier binaries and Kurtosis
 results do not validate this new base. Unmodified v2.6.0 remains blocked by the
 independently reproduced #27429 forkchoice issue; no backport is authorized by
 the official-release requirement.
+See the [main-based PR evidence](../audits/2026-09-26-reth-v2.6-pr/README.md)
+for the new source identity and checks, including an unresolved partial-consumption
+crash-replay failure after the explicit L1 persistence barrier.
 
 ## Implementation boundary
 
@@ -47,7 +50,7 @@ current protocol, genesis commitments, signing gates, and queue semantics.
 | R5 | Changes are reproducible and reviewable | Dependency source provenance, toolchain/build configuration, test logs and an audit distinguishing failures, exclusions, and live evidence |
 
 Validation owns enclaves `eez-reth260-20260926` and
-`eez-reth260-20260926-v2`, and uniquely tagged candidate images. Existing services and operator state remain outside its scope. Use the
+`eez-reth260-20260926-v2`, and `eez-reth260-pr-20260926`, with uniquely tagged candidate images. Existing services and operator state remain outside its scope. Use the
 [Kurtosis guide](../../testing/kurtosis/README.md) and record failures before
 cleanup. Passing startup or throughput alone does not satisfy R2–R4. A failure
 on official v2.6.0 must be reported as such, rather than silently patching Reth
