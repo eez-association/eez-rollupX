@@ -29,7 +29,23 @@ def option(name):
     return args[args.index(name) + 1]
 def role(image):
     return 1 if "-proof-signer" in image else 2 if "-deploy" in image else 0
-if tool == "cargo":
+def oci_layout(output, compatibility):
+    blobs = output / "blobs/sha256"
+    blobs.mkdir(parents=True)
+    def blob(value):
+        data = json.dumps(value).encode()
+        digest = hashlib.sha256(data).hexdigest()
+        (blobs / digest).write_bytes(data)
+        return {"digest": "sha256:" + digest, "size": len(data)}
+    config = blob({"os": "linux", "architecture": "amd64",
+                   "config": {"Labels": {"io.eez.cargo.compatibility": compatibility}}})
+    manifest = blob({"schemaVersion": 2, "config": config, "layers": []})
+    (output / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [manifest]}))
+    (output / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}')
+if tool == "df":
+    print("Filesystem 1-blocks Used Available Use% Mounted")
+    print("fixture 100000000000 0 " + os.environ.get("MOCK_FREE_DISK", "90000000000") + " 0% /")
+elif tool == "cargo":
     binary = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/examples" / option("--example")
     binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text("#!/bin/sh\nexit 0\n")
@@ -48,11 +64,25 @@ elif args[0] == "info":
     if option("--format") == "{{json .DriverStatus}}":
         print(json.dumps([["driver-type", "io.containerd.snapshotter.v1"]]
                          if os.environ.get("MOCK_IMAGE_STORE") == "containerd" else []))
+    elif option("--format") == "{{.MemTotal}}":
+        print(os.environ.get("MOCK_MEMORY", "64000000000"))
     else:
         print("x86_64")
 elif args[:2] == ["buildx", "build"]:
-    if os.environ.get("MOCK_BUILD_FAIL"):
+    target = option("--target") if "--target" in args else ""
+    if os.environ.get("MOCK_BUILD_FAIL") or os.environ.get("MOCK_FAIL_TARGET") == target:
         sys.exit(1)
+    if target == "build-contract":
+        output = Path(option("--output").split("dest=", 1)[1])
+        output.mkdir(parents=True)
+        (output / "toolchain.txt").write_text("Rust/native toolchain fixture")
+        sys.exit(0)
+    if target == "checked-state":
+        sys.exit(0)
+    if target == "cargo-state":
+        output = Path(option("--output").split("dest=", 1)[1])
+        oci_layout(output, option("--label").split("=", 1)[1])
+        sys.exit(0)
     index = role(option("-t")) if "-t" in args else 0
     metadata = {"containerimage.digest": "sha256:" + str(index + 1) * 64}
     Path(option("--metadata-file")).write_text(json.dumps(metadata))
@@ -80,6 +110,8 @@ elif args[:2] == ["buildx", "build"]:
         }))
 elif args[:2] == ["image", "inspect"]:
     image = args[-1]
+    if image.startswith(("rust@", "debian@")) and os.environ.get("MOCK_BASE_MISSING"):
+        sys.exit(1)
     index = role(image)
     if "--format" not in args:
         print(json.dumps([{
@@ -97,6 +129,8 @@ elif args[:2] == ["image", "inspect"]:
     else:
         digit = str(index + 1) if os.environ.get("MOCK_IMAGE_STORE") == "containerd" else "abc"[index]
         print("sha256:" + digit * 64)
+elif args[0] == "pull" and os.environ.get("MOCK_PULL_FAIL"):
+    sys.exit(23)
 elif args[0] not in ("pull", "push"):
     raise SystemExit("Unexpected mocked command: " + repr(args))
 '''
@@ -114,11 +148,12 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.output = self.root / "artifacts"
         self.log = self.root / "commands.jsonl"
         self.log.touch()
-        for name in ("docker", "cargo", "kurtosis"):
+        for name in ("docker", "cargo", "kurtosis", "df"):
             path = self.tools / name
             path.write_text(MOCK_TOOL)
             path.chmod(0o755)
         for path in (
+            "Dockerfile.runtime", ".config/nextest.toml",
             "scripts/ci/build-runtime-artifacts.sh",
             "scripts/ci/prepare-runtime-artifacts.sh",
             "scripts/ci/native-tests.py",
@@ -154,6 +189,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
             "GITHUB_REF": "refs/pull/14/merge", "EEZ_DEFAULT_BRANCH": "main",
             "EEZ_RUNTIME_CACHE": "true",
             "EEZ_COMPILER_CACHE": "none",
+            "EEZ_CARGO_STATE_CACHE": "false", "GITHUB_OUTPUT": str(self.root / "github-output"),
             "RUNNER_TEMP": str(self.root), "GITHUB_ENV": str(self.env_file),
             "GITHUB_PATH": str(self.path_file), "GITHUB_STEP_SUMMARY": str(self.root / "summary"),
             "EEZ_RUNTIME_OUTPUT_DIR": str(self.output),
@@ -192,6 +228,124 @@ class RuntimeArtifactsTest(unittest.TestCase):
 
     def manifest(self):
         return json.loads((self.output / "manifest.json").read_text())
+
+    def prepare_state(self, seed=True):
+        self.env["EEZ_CARGO_STATE_CACHE"] = "true"
+        self.run_script("build-runtime-artifacts.sh", "prepare-state")
+        state = self.repo / ".ci-cargo-state"
+        if seed:
+            compatibility = json.loads((state / "plan.json").read_text())["compatibility"]
+            subprocess.run([str(self.tools / "docker"), "buildx", "build", "--target", "cargo-state",
+                            "--label", f"io.eez.cargo.compatibility={compatibility}",
+                            "--output", f"type=oci,dest={state / 'transport'}"], env=self.env, check=True)
+        self.log.write_text("")
+        return state
+
+    def test_oci_state_hit_is_bounded_offline_and_does_not_pass_compiler_secrets(self):
+        self.prepare_state()
+        self.env.update(EEZ_COMPILER_CACHE="redis", SCCACHE_REDIS_ENDPOINT="private-fixture")
+        result = self.run_script("build-runtime-artifacts.sh")
+        self.assertIn("Docker Cargo state: hit", result.stdout)
+        calls = [c for c in self.commands() if c[:3] == ["docker", "buildx", "build"]]
+        self.assertEqual(sum("binaries" in c for c in calls), 1)
+        self.assertEqual(sum("checked-state" in c for c in calls), 1)
+        for command in calls:
+            if "Dockerfile.runtime" not in command:
+                continue
+            for setting in ("cpu-quota=400000", "memory=20g", "memory-swap=20g",
+                            "BUILD_STAGE=build-offline", "EEZ_COMPILER_CACHE=none"):
+                self.assertIn(setting, command)
+            self.assertNotIn("--secret", command)
+            self.assertTrue(any(c.startswith("previous-state=oci-layout://") for c in command))
+
+    def test_unusable_oci_layouts_fall_back_before_compilation(self):
+        state = self.prepare_state()
+        transport = state / "transport"
+        original = self.root / "original-state"
+        shutil.copytree(transport, original)
+        for case in ("missing", "invalid-index", "oversized", "symlink", "incompatible"):
+            with self.subTest(case=case):
+                shutil.rmtree(transport, ignore_errors=True)
+                if case != "missing":
+                    shutil.copytree(original, transport)
+                    if case == "invalid-index":
+                        (transport / "index.json").write_text("not JSON")
+                    elif case == "oversized":
+                        with (transport / "oversized").open("wb") as stream:
+                            stream.truncate(4 * 1024**3 + 1)
+                    elif case == "symlink":
+                        (transport / "outside").symlink_to(self.repo, target_is_directory=True)
+                    else:
+                        plan = json.loads((state / "plan.json").read_text())
+                        plan["compatibility"] = "incompatible"
+                        (state / "plan.json").write_text(json.dumps(plan))
+                self.env["EEZ_RUNTIME_OUTPUT_DIR"] = str(self.root / case)
+                self.log.write_text("")
+                result = self.run_script("build-runtime-artifacts.sh")
+                self.assertIn("Docker Cargo state: miss", result.stdout)
+                self.assertFalse(any("checked-state" in c for c in self.commands()))
+                self.assertEqual(sum("binaries" in c for c in self.commands()), 1)
+
+    def test_rejected_docker_state_falls_back_but_failed_cargo_is_not_retried(self):
+        self.prepare_state()
+        self.env["MOCK_FAIL_TARGET"] = "checked-state"
+        result = self.run_script("build-runtime-artifacts.sh")
+        self.assertIn("rejected before compilation", result.stdout)
+        self.assertEqual(sum("checked-state" in c for c in self.commands()), 1)
+        self.assertEqual(sum("binaries" in c for c in self.commands()), 1)
+        self.env.update(MOCK_FAIL_TARGET="binaries", EEZ_RUNTIME_OUTPUT_DIR=str(self.root / "failed"))
+        self.log.write_text("")
+        self.run_script("build-runtime-artifacts.sh", success=False)
+        self.assertEqual(sum("binaries" in c for c in self.commands()), 1)
+        self.assertFalse(any(c[:2] == ["docker", "push"] for c in self.commands()))
+
+    def test_oci_export_requires_main_push_and_exact_unit_success(self):
+        state = self.prepare_state(seed=False)
+        self.run_script("build-runtime-artifacts.sh")
+        self.env.update(GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/main")
+        self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
+        self.env["GITHUB_EVENT_NAME"] = "push"
+        self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
+        tests = Path(self.env["EEZ_NATIVE_TEST_OUTPUT_DIR"])
+        (tests / "unit-passed.json").write_text("wrong candidate")
+        self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
+        # The real runner writes compact JSON, while sealing uses indentation.
+        (tests / "unit-passed.json").write_text(json.dumps(json.loads((tests / "manifest.json").read_text())))
+        self.log.write_text("")
+        self.run_script("build-runtime-artifacts.sh", "export-state")
+        self.assertTrue((state / "transport/index.json").is_file())
+        self.assertEqual(sum("cargo-state" in c for c in self.commands()), 1)
+        self.assertNotIn("mode=max", json.dumps(self.commands()))
+        self.assertIn("upload=true", Path(self.env["GITHUB_OUTPUT"]).read_text())
+
+    def test_state_prepare_rejects_insufficient_memory_and_disk(self):
+        self.env["EEZ_CARGO_STATE_CACHE"] = "true"
+        for memory, disk in (("1000000000", "90000000000"), ("64000000000", "1000000000")):
+            with self.subTest(memory=memory, disk=disk):
+                self.env.update(MOCK_MEMORY=memory, MOCK_FREE_DISK=disk)
+                self.log.write_text("")
+                self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+                self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_failed_base_pull_stops_before_building(self):
+        self.env.update(EEZ_CARGO_STATE_CACHE="true", MOCK_BASE_MISSING="1", MOCK_PULL_FAIL="1",
+                        RUST_IMAGE="rust@sha256:" + "d" * 64)
+        self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+        self.assertTrue(any(c[1] == "pull" for c in self.commands()))
+        self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_source_reconciliation_and_cache_validation_precede_cargo(self):
+        dockerfile = (REPO / "Dockerfile.runtime").read_text()
+        self.assertIn("--checksum --delete --perms --exclude=/target", dockerfile)
+        self.assertNotIn("--times", dockerfile)
+        self.assertIn("-newermt now", dockerfile)
+        self.assertIn("34359738368", dockerfile)
+        self.assertIn('readlink -m "$link"', dockerfile)
+        self.assertLess(dockerfile.index("-newermt now"), dockerfile.index("cargo fetch --locked"))
+        fetched = dockerfile.split("FROM checked-state AS build-inputs", 1)[1].split("FROM build-inputs AS build-online", 1)[0]
+        self.assertIn("cargo fetch --locked", fetched)
+        self.assertIn("FROM build-inputs AS build-offline\nENV EEZ_EXPORT_CARGO_STATE=true\nRUN --network=none bash /usr/local/lib/eez/build-runtime.sh", dockerfile)
+        self.assertIn("export CARGO_BUILD_JOBS=4 CARGO_NET_OFFLINE=true", dockerfile)
 
     def test_no_publication_same_job_needs_no_image_archive_or_pull(self):
         self.build(published=False)
@@ -279,10 +433,11 @@ class RuntimeArtifactsTest(unittest.TestCase):
             imports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-from"]
             self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])}"])
             exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
-            if "signer" in command or role == "deploy":
-                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode=max,ignore-error=true"])
+            if "binaries" in command or role == "deploy":
+                settings = "mode=max" if role == "deploy" else "mode=min,compression=zstd,compression-level=1"
+                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},{settings},ignore-error=true"])
             else:
-                self.assertEqual(exports, [], "export the shared compiler stage only once")
+                self.assertEqual(exports, [], "export flat executable output only once, never Cargo state")
         self.assertEqual(len(builds), 4, "caching must not add another compilation")
         self.assertTrue(all("@sha256:" in image["reference"] for image in self.manifest()["images"].values()))
 
@@ -300,8 +455,9 @@ class RuntimeArtifactsTest(unittest.TestCase):
             expected_ref = "refs/heads/main" if role == "node" else self.env["GITHUB_REF"]
             self.assertEqual(imports, [f"type=registry,ref={repo}:{tag(expected_ref)}"])
             exports = [command[i+1] for i, arg in enumerate(command) if arg == "--cache-to"]
-            if "signer" in command or role == "deploy":
-                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},mode=max,ignore-error=true"])
+            if "binaries" in command or role == "deploy":
+                settings = "mode=max" if role == "deploy" else "mode=min,compression=zstd,compression-level=1"
+                self.assertEqual(exports, [f"type=registry,ref={repo}:{tag(self.env['GITHUB_REF'])},{settings},ignore-error=true"])
 
     def test_main_cache_is_imported_only_once(self):
         self.env.update(MOCK_IMAGE_STORE="containerd", GITHUB_REF="refs/heads/trunk", EEZ_DEFAULT_BRANCH="trunk")
@@ -328,15 +484,23 @@ class RuntimeArtifactsTest(unittest.TestCase):
 
     def test_target_is_not_in_persistent_runtime_cache_layers(self):
         dockerfile = (REPO / "Dockerfile.runtime").read_text()
-        instructions = dockerfile.replace("\\\n", "").splitlines()
-        compile_steps = [line for line in instructions if line.startswith("RUN ") and "cargo build" in line]
-        self.assertEqual(len(compile_steps), 1)
-        self.assertIn("rm -rf /build/target", compile_steps[0])
+        self.assertEqual(dockerfile.count("runtime cargo build"), 1)
+        compile_steps = [dockerfile.split("COPY <<'BUILD_RUNTIME'", 1)[1].split("\nBUILD_RUNTIME", 1)[0]]
+        self.assertIn("ENV EEZ_EXPORT_CARGO_STATE=false", dockerfile)
+        cleanup = 'if [ "$EEZ_EXPORT_CARGO_STATE" = false ]; then'
+        self.assertIn("rm -rf /build/target /usr/local/cargo/registry /usr/local/cargo/git", compile_steps[0])
         self.assertIn("native-tests.py build /out/native-tests --runtime-bin /out/bin", compile_steps[0])
         self.assertLess(compile_steps[0].index("install -D target/release/eez-composer"),
                         compile_steps[0].index("native-tests.py build"))
         self.assertLess(compile_steps[0].index("native-tests.py build"),
-                        compile_steps[0].index("rm -rf /build/target"))
+                        compile_steps[0].index(cleanup))
+        self.assertIn("FROM scratch AS cargo-state", dockerfile)
+        self.assertIn("FROM scratch AS binaries\nCOPY --from=builder /out/ /", dockerfile)
+        runtime = dockerfile.split("FROM ${RUNTIME_IMAGE} AS runtime-base", 1)[1]
+        self.assertNotIn("--from=builder", runtime)
+        self.assertIn("COPY --from=binaries", runtime)
+        self.assertNotIn("/build", runtime)
+        self.assertNotIn("/cargo", runtime)
         self.assertNotIn("target=/build/target", dockerfile)
         self.assertIn("CARGO_INCREMENTAL=0", dockerfile)
 
