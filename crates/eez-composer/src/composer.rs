@@ -577,7 +577,7 @@ fn trace_admission_budget(
     entries: &[eez_protocol::abi::ExecutionEntrySol],
     source_sim_gas: u64,
     companion_limit: u64,
-    companion_estimate: u64,
+    companion_estimate: gas::CompanionEstimate,
     prior_cleanup: u64,
     gas_gate_accepted: bool,
 ) {
@@ -600,7 +600,10 @@ fn trace_admission_budget(
         "l1_target_sim_gas": cost.target_gas,
         "source_sim_gas": source_sim_gas,
         "companion_declared_gas": companion_limit,
-        "companion_sim_gas": companion_estimate,
+        "companion_sim_gas": if direction == "inbound" { source_sim_gas } else { 0 },
+        "companion_estimate_gas": companion_estimate.gas,
+        "companion_protocol_reserve_gas": companion_estimate.protocol_reserve,
+        "companion_estimate_basis": companion_estimate.basis,
         "postbatch_planning_cap": before.cap,
         "whole_block_cap": before.block_cap,
     });
@@ -3029,7 +3032,7 @@ where
                         &l1_entries,
                         gas.source,
                         0,
-                        0,
+                        gas::CompanionEstimate::declared(0),
                         prior_cleanup,
                         gas_accepted,
                     );
@@ -3510,8 +3513,17 @@ where
                             projection.cost(&composition.source.batch.entries, 0, false, None)
                         },
                     );
-                    let (companion_limit, companion_gas) =
-                        (declared_gas_limit(&held.raw_tx), gas.source);
+                    let companion_limit = declared_gas_limit(&held.raw_tx);
+                    let companion_estimate = match (&mut gas_projection, &mut gas_parent) {
+                        (Some(projection), Some(parent)) => projection.companion_estimate(
+                            &composition.source.batch.entries, &composition.actions, gas.source, companion_limit, parent,
+                        ).unwrap_or_else(|error| {
+                            event!(Level::DEBUG, %error, "companion gas evidence unavailable; reserving signed limit");
+                            gas::CompanionEstimate::declared(companion_limit)
+                        }),
+                        _ => gas::CompanionEstimate::declared(companion_limit),
+                    };
+                    let companion_gas = companion_estimate.gas;
                     let mut next_budget = budget;
                     let gas_accepted =
                         next_budget.try_accept_with_companion(cost, companion_limit, companion_gas);
@@ -3527,7 +3539,7 @@ where
                         &composition.source.batch.entries,
                         gas.source,
                         companion_limit,
-                        companion_gas,
+                        companion_estimate,
                         prior_cleanup,
                         gas_accepted,
                     );
@@ -3673,7 +3685,7 @@ where
                     }
                     budget = next_budget;
                     if let Some(projection) = &mut gas_projection {
-                        projection.accept_deferred(composition.source.batch.entries.len());
+                        projection.accept_deferred(&composition.source.batch.entries);
                     }
                     blob_budget = next_blob;
                     effect_hashes.extend(group_hashes);

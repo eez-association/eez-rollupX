@@ -15,7 +15,7 @@ pub(super) const ITEM_GAS: u64 = 8_000;
 const MAX_CALLS: usize = 4;
 const MAX_ROWS: usize = 4;
 const MAX_INPUT: usize = 256;
-const MAX_RESULT: usize = 64;
+const MAX_RESULT: usize = 256;
 
 pub(super) struct Slot {
     head: U256,
@@ -142,9 +142,6 @@ impl Slot {
         entry: &ExecutionEntrySol,
         rollup: u64,
     ) -> Result<u64, EstimateReason> {
-        if !entry.success {
-            return Err(EstimateReason::DeferredReverted);
-        }
         if entry.rootUpdates.len() > 1
             || entry
                 .rootUpdates
@@ -178,17 +175,16 @@ impl Slot {
         write_calls(&mut writes, at(self.head, 2), &entry.l2ToL1Calls, rollup)?;
         writes.insert(at(self.head, 3), rows != 0);
         for (i, row) in entry.expectedL1ToL2Calls.iter().enumerate() {
-            if !row.success || !row.revertedOrStaticRollingHash.is_zero() {
-                return Err(EstimateReason::DeferredRevertedOrStaticRow);
-            }
             if row.returnData.len() > MAX_RESULT {
                 return Err(EstimateReason::DeferredSizeBound);
             }
             let head = at(data(at(self.head, 3)), i * 5);
             // The position hash also binds the stitched rolling hash.
             writes.insert(head, true);
-            writes.insert(at(head, 2), false);
-            writes.insert(at(head, 3), true);
+            // The position key does not reveal static/reverted call mode.
+            // Reserve a nonzero rolling-hash word even before final stitching.
+            writes.insert(at(head, 2), true);
+            writes.insert(at(head, 3), row.success);
             write_calls(&mut writes, at(head, 1), &row.l2ToL1Calls, rollup)?;
             write_bytes(&mut writes, at(head, 4), &row.returnData);
         }
@@ -228,19 +224,20 @@ fn write_calls(
 ) -> Result<(), EstimateReason> {
     writes.insert(head, !calls.is_empty());
     for (i, call) in calls.iter().enumerate() {
-        if call.sourceRollupId != rollup
-            || call.revertNextNCalls != 0
-            || call.isStatic
-            || call.gas != 0
-            || !call.value.is_zero()
-        {
+        if call.sourceRollupId != rollup || !call.value.is_zero() {
             return Err(EstimateReason::DeferredCallFlags);
         }
         if call.data.len() > MAX_INPUT {
             return Err(EstimateReason::DeferredSizeBound);
         }
         let call_head = at(data(head), i * 4);
-        writes.insert(call_head, !call.sourceAddress.is_zero());
+        writes.insert(
+            call_head,
+            !call.sourceAddress.is_zero()
+                || call.revertNextNCalls != 0
+                || call.isStatic
+                || call.gas != 0,
+        );
         writes.insert(
             at(call_head, 1),
             call.sourceRollupId != 0 || !call.targetAddress.is_zero(),
@@ -360,7 +357,7 @@ mod tests {
             (at(head, 6), U256::MAX),
             (at(head, 6), U256::from(64)),
             (at(head, 6), U256::from(63)),
-            (at(head, 6), U256::from(131)),
+            (at(head, 6), U256::from(515)),
             (at(data(at(head, 2)), 3), U256::from(515)),
         ] {
             let mut words = retained();
@@ -389,18 +386,80 @@ mod tests {
     }
 
     #[test]
+    fn reverted_flagged_storage_is_priced_with_bounded_payloads() {
+        let slot = read(&BTreeMap::new());
+        let mut e = entry();
+        e.success = false;
+        e.returnData = Bytes::from(vec![0xa5; 100]);
+        e.l2ToL1Calls[0].revertNextNCalls = 1;
+        assert!(
+            slot.gas(&e, 1).is_ok(),
+            "posting only stores bounded reverted metadata: {:?}",
+            slot.gas(&e, 1)
+        );
+    }
+
+    #[test]
+    fn packed_flags_and_stitched_nested_hashes_reserve_nonzero_words() {
+        let slot = read(&BTreeMap::new());
+        let mut e = entry();
+        e.l2ToL1Calls[0].sourceAddress = Address::ZERO;
+        let zero = slot.gas(&e, 1).unwrap();
+        for flag in 0..3 {
+            let mut flagged = e.clone();
+            match flag {
+                0 => flagged.l2ToL1Calls[0].revertNextNCalls = u16::MAX,
+                1 => flagged.l2ToL1Calls[0].isStatic = true,
+                _ => flagged.l2ToL1Calls[0].gas = u64::MAX,
+            }
+            assert_eq!(slot.gas(&flagged, 1).unwrap(), zero + FRESH_WORD_GAS);
+        }
+        e.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            success: false,
+            returnData: Bytes::from(vec![0xa5; 256]),
+            expectedL1toL2Hash: B256::ZERO,
+            revertedOrStaticRollingHash: B256::ZERO,
+            l2ToL1Calls: Vec::new(),
+        });
+        let before = slot.gas(&e, 1).unwrap();
+        e.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(9);
+        e.expectedL1ToL2Calls[0].revertedOrStaticRollingHash = B256::repeat_byte(8);
+        assert_eq!(slot.gas(&e, 1).unwrap(), before);
+        e.expectedL1ToL2Calls[0].returnData = Bytes::from(vec![0xa5; 257]);
+        assert!(slot.gas(&e, 1).is_err());
+    }
+
+    #[test]
+    fn long_retained_result_tails_are_read_and_charged_when_truncated() {
+        let head = U256::from(123);
+        for length in [65usize, 68, 100, 255, 256] {
+            let mut words = retained();
+            words.insert(at(head, 6), U256::from(length * 2 + 1));
+            for i in 0..length.div_ceil(32) {
+                words.insert(at(data(at(head, 6)), i), U256::from(5));
+            }
+            let slot = read(&words);
+            let mut e = entry();
+            e.success = false;
+            e.returnData = Bytes::new();
+            let short = read(&retained()).gas(&e, 1).unwrap();
+            assert_eq!(
+                slot.gas(&e, 1).unwrap(),
+                short + (length.div_ceil(32) as u64 - 1) * WORD_GAS
+            );
+        }
+    }
+
+    #[test]
     fn current_shape_bounds_preserve_fallbacks() {
         let slot = read(&retained());
         let base = entry();
-        let changes: [fn(&mut ExecutionEntrySol); 10] = [
-            |e| e.success = false,
+        let changes: [fn(&mut ExecutionEntrySol); 7] = [
             |e| e.proxyEntryHash = B256::ZERO,
             |e| e.rootUpdates[0].rollupId = 2,
             |e| e.destinationRollupId = 2,
-            |e| e.returnData = Bytes::from(vec![0; 65]),
+            |e| e.returnData = Bytes::from(vec![0; 257]),
             |e| e.l2ToL1Calls[0].data = Bytes::from(vec![0; 257]),
-            |e| e.l2ToL1Calls[0].revertNextNCalls = 1,
-            |e| e.l2ToL1Calls[0].isStatic = true,
             |e| e.l2ToL1Calls[0].value = U256::from(1),
             |e| e.l2ToL1Calls = vec![e.l2ToL1Calls[0].clone(); 5],
         ];

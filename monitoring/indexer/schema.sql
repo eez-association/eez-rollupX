@@ -214,6 +214,19 @@ CREATE INDEX IF NOT EXISTS admission_events_time ON eez_indexer.admission_events
     (((data->>'timestamp_ms')::bigint));
 CREATE INDEX IF NOT EXISTS posting_candidate ON eez_indexer.posting_events
     ((data->'detail'->>'candidate_id')) WHERE data->>'stage'='prepared';
+-- Separate from settlement transactions: sources without registry logs must
+-- not change settlement cost totals. Canonical posting deletion invalidates
+-- enrichment and permits collection again if the same source is re-included.
+CREATE TABLE IF NOT EXISTS eez_indexer.admission_source_receipts (
+    block_hash text NOT NULL, postbatch_hash text NOT NULL, source_hash text NOT NULL,
+    coverage text NOT NULL CHECK(coverage IN ('available','absent','before_postbatch')),
+    gas_used numeric(78,0), success boolean,
+    checked_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY(block_hash,postbatch_hash,source_hash),
+    FOREIGN KEY(block_hash,postbatch_hash) REFERENCES eez_indexer.transactions(block_hash,transaction_hash) ON DELETE CASCADE,
+    CHECK((coverage='available' AND gas_used IS NOT NULL AND gas_used >= 0 AND success IS NOT NULL)
+       OR (coverage<>'available' AND gas_used IS NULL AND success IS NULL))
+);
 CREATE OR REPLACE VIEW eez_indexer.admission_candidates AS
 WITH events AS (
     SELECT candidate_id, min((data->>'timestamp_ms')::bigint) AS first_ms,
@@ -259,7 +272,8 @@ SELECT e.candidate_id, to_timestamp(e.first_ms/1000.0) AS time,
     e.preflight AS preflight_detail,
     (e.started->>'selection_limit')::numeric AS selection_limit,
     e.started->>'selection_limit_reason' AS selection_limit_reason,
-    e.summary->>'reason' AS admission_stop_reason
+    e.summary->>'reason' AS admission_stop_reason,
+    p.canonical_l1_hash
 FROM events e
 LEFT JOIN eez_indexer.posting_events link ON link.data->>'stage'='prepared'
     AND link.data->'detail'->>'candidate_id'=e.candidate_id
@@ -298,12 +312,22 @@ SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.s
     c.transaction_hash AS postbatch_hash,c.canonical_l1_block,c.reason,c.history,
     (s.preflight->>'preflight_used_gas')::numeric AS source_preflight_gas,
     (s.preflight->>'preflight_required_gas')::numeric AS source_required_gas,
-    t.gas_used AS canonical_source_receipt_gas,
+    (CASE WHEN s.accepted IS NOT NULL THEN coalesce(r.gas_used,t.gas_used) END)::numeric(78,0) AS canonical_source_receipt_gas,
     (s.estimate->>'entry_reserve_gas')::numeric AS entry_reserve_gas,
     (s.estimate->>'l1_call_count')::numeric AS l1_call_count,
     (s.estimate->>'nested_result_count')::numeric AS nested_result_count,
     s.estimate->'estimate_reasons' AS estimate_reasons,
-    (s.estimate->>'batch_discount_revoked')::boolean AS batch_discount_revoked
+    (s.estimate->>'batch_discount_revoked')::boolean AS batch_discount_revoked,
+    r.coverage AS source_receipt_coverage,
+    r.success AS source_receipt_success,
+    (s.estimate->>'companion_estimate_gas')::numeric AS companion_estimate_gas,
+    (s.estimate->>'companion_protocol_reserve_gas')::numeric AS companion_protocol_reserve_gas,
+    s.estimate->>'companion_estimate_basis' AS companion_estimate_basis
 FROM sources s JOIN eez_indexer.admission_candidates c USING(candidate_id)
+LEFT JOIN eez_indexer.transactions post ON post.transaction_hash=c.transaction_hash AND post.block_hash=c.canonical_l1_hash
 LEFT JOIN eez_indexer.transactions t ON t.transaction_hash=s.source_hash
-    AND coalesce(s.estimate->>'direction',s.selected->>'direction')='inbound';
+    AND t.block_hash=c.canonical_l1_hash AND t.transaction_index>post.transaction_index
+    AND coalesce(s.estimate->>'direction',s.selected->>'direction')='inbound'
+LEFT JOIN eez_indexer.admission_source_receipts r ON r.block_hash=c.canonical_l1_hash
+    AND r.postbatch_hash=c.transaction_hash AND r.source_hash=s.source_hash
+    AND s.accepted IS NOT NULL AND coalesce(s.estimate->>'direction',s.selected->>'direction')='inbound';

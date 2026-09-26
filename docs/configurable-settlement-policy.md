@@ -125,7 +125,7 @@ no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
 
-Estimator `deferred-storage-3` additionally inventories bounded retained callback
+Estimator `companion-storage-4` inventories bounded retained callback
 and result storage. For supported deferred entries it reserves 35,000 per entry,
 8,000 per callback/result row, 8,000 per written storage word, and another 15,000
 for each nonzero new word whose canonical-parent value is zero or unknown.
@@ -134,18 +134,36 @@ credited. The lower of this measured reserve and the previous reserve is used.
 New words absent from the old inventory pay the fresh allowance. Roots and rolling
 hashes are priced as nonzero before stitching. The current and old layouts are
 bounded to one root update, four total callbacks, four nested result rows,
-256-byte callback input and 64-byte results. Current entries/calls are own-rollup,
-successful mutable zero-value calls with implicit gas forwarding. Nested rows
-must be successful with a zero `revertedOrStaticRollingHash`; the storage model
-does not infer the hash preimage's call mode. Reverted rows, nonzero reverted/static
-hashes and other unmeasured shapes keep the previous estimate. Parent inventory
+256-byte callback input and 256-byte results (64 in `deferred-storage-3`). Current
+entries/calls are own-rollup and zero-value. Posting can store reverted entries,
+static/revert-span/explicit-gas call flags, and reverted/static nested rows within
+these bounds. Packed flags count as a nonzero word even with a zero source address.
+Nested rolling hashes reserve a nonzero word before stitching; the position key
+alone does not reveal the nested call mode. Other unmeasured shapes keep the
+previous estimate. Parent inventory
 reads are bounded before narrowing lengths or walking arrays, including inactive
 mapping slots. No writes in a speculative candidate earn reuse credit.
 
-These storage prices cover posting; companion execution retains its separate
-budget. The existing 128-total-entry limit, full-calldata projection and final
+These storage prices cover posting. Companion source simulation omits protocol
+execution, so version 4 adds a separate measured reserve: 90,000 per entry,
+60,000 per callback, 3,000 per 32-byte input/result word, and a queue scan allowance
+of 4,000 per preceding deferred entry (12,000 for a matching identity that must
+also inspect roots). The measured family is one deferred entry, at most four
+registered own-rollup callbacks, 256-byte root/callback input and root result,
+64-byte successful callback results, no nested rows, zero value, mutable calls
+and implicit callback gas forwarding. A reverted root result is supported.
+Canonical-parent registration and bounded execution evidence are required.
+Other groups reserve their full signed companion limit. The simulation plus
+reserve is capped at that limit: an uncertain prediction cannot establish that
+the source is invalid. A prior successful-looking entry does not prove that its
+source advanced the queue cursor, so the entire prefix remains in the scan
+allowance. Final native execution still checks actual consumption, required gas,
+declared limits and effects. This conservative allowance can reduce batch size;
+receipt ratios alone do not justify removing it.
+
+The existing 128-total-entry limit, full-calldata projection and final
 ordered native validation still apply. No protocol pin, ABI, signer profile,
-configuration, database or historical follower decoding changes are required.
+configuration, runtime database or historical follower decoding changes are required.
 
 The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery

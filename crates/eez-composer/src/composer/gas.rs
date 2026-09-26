@@ -16,6 +16,38 @@ use crate::local::L1TargetSession;
 mod deferred;
 
 #[derive(Clone, Copy, Debug)]
+pub(super) struct CompanionEstimate {
+    pub gas: u64,
+    pub protocol_reserve: Option<u64>,
+    pub basis: &'static str,
+}
+
+impl CompanionEstimate {
+    pub fn declared(gas: u64) -> Self {
+        Self {
+            gas,
+            protocol_reserve: None,
+            basis: "declared_limit",
+        }
+    }
+
+    fn bounded(simulated: u64, protocol_reserve: u64, declared: u64) -> Self {
+        // An admission prediction above the signed limit is not evidence that
+        // this source is invalid. Native execution remains the acceptance gate.
+        let predicted = simulated.saturating_add(protocol_reserve);
+        Self {
+            gas: predicted.min(declared),
+            protocol_reserve: Some(protocol_reserve),
+            basis: if predicted > declared {
+                "bounded_capped"
+            } else {
+                "bounded_protocol"
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 enum EstimateReason {
     ParentStateUnavailable,
     ImmediateRegistered,
@@ -23,25 +55,21 @@ enum EstimateReason {
     DeferredStorage,
     DeferredLegacy,
     DeferredOldSlot,
-    DeferredReverted,
     DeferredShape,
     DeferredSizeBound,
-    DeferredRevertedOrStaticRow,
     DeferredCallFlags,
     GeneralReserveLower,
 }
 
-const REASON_NAMES: [&str; 12] = [
+const REASON_NAMES: [&str; 10] = [
     "parent_state_unavailable",
     "immediate_registered",
     "immediate_evidence_unavailable",
     "deferred_storage",
     "deferred_legacy",
     "deferred_old_slot",
-    "deferred_reverted",
     "deferred_shape",
     "deferred_size_bound",
-    "deferred_reverted_or_static_row",
     "deferred_call_flags",
     "general_reserve_lower",
 ];
@@ -103,6 +131,7 @@ pub(super) struct Projection {
     deferred_discounts: Vec<u64>,
     deferred_storage: Vec<Option<deferred::Slot>>,
     deferred_count: usize,
+    deferred_hashes: Vec<B256>,
     parent_proxies: std::collections::HashMap<(u64, Address), bool>,
 }
 
@@ -157,12 +186,120 @@ impl Projection {
             deferred_discounts,
             deferred_storage,
             deferred_count: 0,
+            deferred_hashes: Vec::new(),
             parent_proxies: Default::default(),
         }))
     }
 
     pub fn initial_gas(&self) -> u64 {
         21_000 + POSTBATCH_BASE_GAS_PIN + self.cleanup_gas
+    }
+
+    /// Source simulation intercepts cross-chain calls and omits queue decoding,
+    /// proxy dispatch and rolling hashes. Cover only measured bounded shapes;
+    /// other sources retain their entire signed limit as consumption reserve.
+    pub fn companion_estimate(
+        &mut self,
+        entries: &[ExecutionEntrySol],
+        actions: &[ExecutedAction],
+        simulated: u64,
+        declared: u64,
+        parent: &mut L1TargetSession,
+    ) -> Result<CompanionEstimate, String> {
+        let Some(reserve) = self.companion_reserve(entries) else {
+            return Ok(CompanionEstimate::declared(declared));
+        };
+        if !self.companion_actions(&entries[0], actions) {
+            return Ok(CompanionEstimate::declared(declared));
+        }
+        for call in &entries[0].l2ToL1Calls {
+            let key = (call.sourceRollupId, call.sourceAddress);
+            let registered = if let Some(known) = self.parent_proxies.get(&key) {
+                *known
+            } else {
+                let found = parent
+                    .proxy_is_registered(call.sourceAddress, RollupId(call.sourceRollupId))
+                    .map_err(|error| error.to_string())?;
+                self.parent_proxies.insert(key, found);
+                found
+            };
+            if !registered {
+                return Ok(CompanionEstimate::declared(declared));
+            }
+        }
+        Ok(CompanionEstimate::bounded(simulated, reserve, declared))
+    }
+
+    fn companion_actions(&self, entry: &ExecutionEntrySol, actions: &[ExecutedAction]) -> bool {
+        let Some((root, callbacks)) = actions.split_first() else {
+            return false;
+        };
+        root.parent_index.is_none()
+            && root.source_rollup_id == RollupId::MAINNET
+            && root.target_rollup_id.0 == self.rollup_id
+            && root.call_mode == CallMode::Mutable && root.value.is_zero() && root.data.len() <= 256
+            && matches!(&root.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
+                if *success == entry.success && return_data.as_slice() == entry.returnData.as_ref())
+            && callbacks.len() == entry.l2ToL1Calls.len()
+            && callbacks.iter().zip(&entry.l2ToL1Calls).all(|(action, call)| {
+                action.parent_index == Some(0) && action.revert_span.is_none()
+                    && action.call_mode == CallMode::Mutable && action.value.is_zero()
+                    && action.source_rollup_id.0 == call.sourceRollupId
+                    && action.source_address == call.sourceAddress
+                    && action.target_rollup_id == RollupId::MAINNET
+                    && action.target_address == call.targetAddress && action.data == call.data
+                    && matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. }
+                        if return_data.len() <= 64)
+            })
+    }
+
+    fn companion_reserve(&self, entries: &[ExecutionEntrySol]) -> Option<u64> {
+        let [entry] = entries else {
+            return None;
+        };
+        if self.deferred_count >= MAX_SHAPED_ENTRIES as usize
+            || entry.proxyEntryHash.is_zero()
+            || entry.destinationRollupId != self.rollup_id
+            || entry.rootUpdates.len() > 1
+            || entry
+                .rootUpdates
+                .iter()
+                .any(|r| r.rollupId != self.rollup_id || !r.etherDelta.is_zero())
+            || !entry.expectedL1ToL2Calls.is_empty()
+            || entry.l2ToL1Calls.len() > 4
+            || entry.returnData.len() > 256
+            || entry.l2ToL1Calls.iter().any(|c| {
+                c.sourceRollupId != self.rollup_id
+                    || c.data.len() > 256
+                    || c.revertNextNCalls != 0
+                    || c.isStatic
+                    || c.gas != 0
+                    || !c.value.is_zero()
+            })
+        {
+            return None;
+        }
+        // A reverted source can restore the cursor. Charge a scan across the
+        // entire accepted prefix; matching identities also inspect root pins.
+        // Do not infer consumption from entry.success or a simulation outcome.
+        let scan = self
+            .deferred_hashes
+            .iter()
+            .map(|hash| {
+                if *hash == entry.proxyEntryHash {
+                    12_000
+                } else {
+                    4_000
+                }
+            })
+            .sum::<u64>();
+        let words = entry.returnData.len().div_ceil(32)
+            + entry
+                .l2ToL1Calls
+                .iter()
+                .map(|c| c.data.len().div_ceil(32))
+                .sum::<usize>();
+        Some(90_000 + 60_000 * entry.l2ToL1Calls.len() as u64 + 3_000 * words as u64 + scan)
     }
 
     /// Evidence includes successful bounded execution and every L1 source
@@ -469,8 +606,14 @@ impl Projection {
             .extend(std::iter::repeat_n(established, count));
     }
 
-    pub fn accept_deferred(&mut self, count: usize) {
-        self.deferred_count = self.deferred_count.saturating_add(count);
+    pub fn accept_deferred(&mut self, entries: &[ExecutionEntrySol]) {
+        self.deferred_hashes.extend(
+            entries
+                .iter()
+                .take((MAX_SHAPED_ENTRIES as usize).saturating_sub(self.deferred_count))
+                .map(|entry| entry.proxyEntryHash),
+        );
+        self.deferred_count = self.deferred_count.saturating_add(entries.len());
     }
 
     pub fn batch_gas(&self, batch: &eez_protocol::EvmBatch, calldata: u64, target: u64) -> u64 {
@@ -600,6 +743,7 @@ mod tests {
             deferred_discounts: vec![0; MAX_SHAPED_ENTRIES as usize],
             deferred_storage: (0..MAX_SHAPED_ENTRIES).map(|_| None).collect(),
             deferred_count: 0,
+            deferred_hashes: Vec::new(),
             parent_proxies: Default::default(),
         }
     }
@@ -704,13 +848,13 @@ mod tests {
                 .entry_discount,
             140_000
         );
-        p.accept_deferred(1);
+        p.accept_deferred(std::slice::from_ref(&short));
         assert_eq!(
             p.cost(std::slice::from_ref(&word), 0, false, None)
                 .entry_discount,
             0
         );
-        p.accept_deferred(1);
+        p.accept_deferred(std::slice::from_ref(&short));
         assert_eq!(
             p.cost(std::slice::from_ref(&word), 0, false, None)
                 .entry_discount,
@@ -1186,7 +1330,7 @@ mod tests {
         let mut budget = PostBatchGasBudget::new(100_000_000);
         budget.projected = p.initial_gas();
         assert!(budget.try_accept(cost));
-        p.accept_deferred(2);
+        p.accept_deferred(&[e.clone(), e.clone()]);
         let final_batch = batch(vec![anchor(), e.clone(), e.clone()], 1);
         assert_eq!(
             budget.projected,
@@ -1197,6 +1341,78 @@ mod tests {
         assert!(!budget.try_accept(p.cost(&[e], 0, false, None)));
         assert_eq!(budget.projected, prior.projected);
         assert_eq!(p.deferred_count, 2);
+    }
+
+    #[test]
+    fn companion_protocol_reserve_tracks_reverted_prefix_and_declared_cap() {
+        let mut p = model(0);
+        let mut e = deferred();
+        e.returnData = Bytes::from(vec![0xa5; 100]);
+        let one = std::slice::from_ref(&e);
+        let reserve = p.companion_reserve(one).unwrap();
+        assert_eq!(reserve, 102_000);
+        let estimated = CompanionEstimate::bounded(40_000, reserve, 200_000);
+        assert_eq!(estimated.gas, 142_000);
+        assert_eq!(estimated.basis, "bounded_protocol");
+        let capped = CompanionEstimate::bounded(40_000, reserve, 100_000);
+        assert_eq!(capped.gas, 100_000);
+        assert_eq!(capped.basis, "bounded_capped");
+        let mut budget = PostBatchGasBudget::new(10_000_000);
+        assert!(budget.try_accept_with_companion(p.cost(one, 0, false, None), 100_000, capped.gas));
+        // Reverted metadata does not authorize assuming a cursor advance.
+        e.success = false;
+        p.accept_deferred(std::slice::from_ref(&e));
+        assert_eq!(
+            p.companion_reserve(std::slice::from_ref(&e)),
+            Some(reserve + 12_000)
+        );
+        e.proxyEntryHash = B256::repeat_byte(99);
+        assert_eq!(
+            p.companion_reserve(std::slice::from_ref(&e)),
+            Some(reserve + 4_000)
+        );
+        assert!(p.companion_reserve(&[e.clone(), e.clone()]).is_none());
+        e.returnData = Bytes::from(vec![0; 257]);
+        assert!(p.companion_reserve(std::slice::from_ref(&e)).is_none());
+        let fallback = CompanionEstimate::declared(500_000);
+        assert_eq!(fallback.gas, 500_000);
+        assert_eq!(fallback.protocol_reserve, None);
+    }
+
+    #[test]
+    fn companion_evidence_rejects_unmeasured_results_and_nested_execution() {
+        let p = model(0);
+        let (mut entry, mut callback) = immediate();
+        entry.proxyEntryHash = B256::repeat_byte(8);
+        callback.parent_index = Some(0);
+        let mut root = callback.clone();
+        root.parent_index = None;
+        root.source_rollup_id = RollupId::MAINNET;
+        root.target_rollup_id = RollupId(1);
+        root.outcome = ExecutionOutcome::Resolved {
+            success: true,
+            return_data: Vec::new(),
+            gas_used: 1,
+        };
+        let actions = [root, callback];
+        assert!(p.companion_actions(&entry, &actions));
+        for change in 0..4 {
+            let mut invalid = actions.clone();
+            match change {
+                0 => {
+                    invalid[1].outcome = ExecutionOutcome::Resolved {
+                        success: true,
+                        return_data: vec![0; 65],
+                        gas_used: 1,
+                    }
+                }
+                1 => invalid[1].outcome = ExecutionOutcome::Pending,
+                2 => invalid[1].parent_index = Some(1),
+                _ => invalid[0].call_mode = CallMode::Static,
+            }
+            assert!(!p.companion_actions(&entry, &invalid));
+        }
+        assert!(!p.companion_actions(&entry, &actions[..1]));
     }
 
     #[test]

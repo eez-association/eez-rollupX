@@ -125,10 +125,16 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         .batch_execute("DROP SCHEMA IF EXISTS eez_indexer CASCADE")
         .await
         .unwrap();
-    client
-        .batch_execute(include_str!("../schema.sql"))
-        .await
-        .unwrap();
+    // Version 3 inherited numeric(78,0) from transactions.gas_used. A CASE/
+    // coalesce expression must preserve that typmod during CREATE OR REPLACE.
+    let schema = include_str!("../schema.sql");
+    let legacy_type = schema.replace(
+        "(CASE WHEN s.accepted IS NOT NULL THEN coalesce(r.gas_used,t.gas_used) END)::numeric(78,0)",
+        "t.gas_used",
+    );
+    assert_ne!(legacy_type, schema);
+    client.batch_execute(&legacy_type).await.unwrap();
+    client.batch_execute(schema).await.unwrap();
     let source = B256::repeat_byte(4);
     let records = [
         event(
@@ -348,10 +354,22 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
             .get::<_, i64>(0),
         400000
     );
+    exercise_source_receipts(&client, block, signed, source).await;
     client
         .execute("DELETE FROM eez_indexer.blocks WHERE height=10", &[])
         .await
         .unwrap();
+    assert_eq!(
+        client
+            .query_one(
+                "SELECT count(*) FROM eez_indexer.admission_source_receipts",
+                &[]
+            )
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        0
+    );
     assert!(
         client
             .query_one(
@@ -429,4 +447,120 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         }
     }
     connection.abort();
+}
+
+async fn exercise_source_receipts(
+    client: &tokio_postgres::Client,
+    block: B256,
+    post: B256,
+    source: B256,
+) {
+    use axum::{Json, Router, extract::State, routing::post as route_post};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    // A later receipt for the same source must never fill this attempt's gap.
+    let later = B256::repeat_byte(8).to_string();
+    client
+        .execute(
+            "INSERT INTO eez_indexer.blocks VALUES(11,$1,$2,105)",
+            &[&later, &block.to_string()],
+        )
+        .await
+        .unwrap();
+    client
+        .execute(
+            "INSERT INTO eez_indexer.transactions VALUES($1,$2,1,999,1,999,0,0,0)",
+            &[&later, &source.to_string()],
+        )
+        .await
+        .unwrap();
+    assert!(
+        client
+            .query_one(
+                "SELECT canonical_source_receipt_gas::text FROM eez_indexer.admission_sources",
+                &[]
+            )
+            .await
+            .unwrap()
+            .get::<_, Option<String>>(0)
+            .is_none()
+    );
+    let mode = Arc::new(AtomicUsize::new(0));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route("/", route_post({
+        let reads = reads.clone();
+        move |State(mode): State<Arc<AtomicUsize>>, Json(request): Json<Value>| {
+            let reads = reads.clone();
+            async move {
+                let mode = mode.load(Ordering::SeqCst);
+                let result = match request["method"].as_str().unwrap() {
+                    "eth_chainId" => json!("0x27d8"),
+                    "eth_getBlockByNumber" if request["params"][0] == "0x0" => json!({
+                        "number":"0x0","hash":B256::repeat_byte(1),"parentHash":B256::ZERO,"timestamp":"0x0","transactions":[]}),
+                    "eth_getBlockByNumber" => {
+                        let changed = mode == 3 && reads.fetch_add(1,Ordering::SeqCst) > 0;
+                        json!({"number":"0xa","hash":if changed {B256::ZERO} else {block},
+                            "parentHash":B256::repeat_byte(9),"timestamp":"0x64","transactions":[post,source]})
+                    },
+                    "eth_getTransactionReceipt" if mode == 0 => Value::Null,
+                    "eth_getTransactionReceipt" => json!({"blockNumber":"0xa","blockHash":if mode==1 {B256::ZERO} else {block},
+                        "transactionHash":source,"transactionIndex":"0x1","status":"0x1","gasUsed":"0x12345","logs":[]}),
+                    other => panic!("unexpected RPC {other}"),
+                };
+                Json(json!({"jsonrpc":"2.0","id":1,"result":result}))
+            }
+        }
+    })).with_state(mode.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let rpc =
+        eez_indexer::rpc::Rpc::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    for failure in [0, 1, 3] {
+        mode.store(failure, Ordering::SeqCst);
+        assert!(
+            eez_indexer::admission_receipts::refresh(client, &rpc, &config())
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            client
+                .query_one(
+                    "SELECT count(*) FROM eez_indexer.admission_source_receipts",
+                    &[]
+                )
+                .await
+                .unwrap()
+                .get::<_, i64>(0),
+            0
+        );
+    }
+    mode.store(2, Ordering::SeqCst);
+    eez_indexer::admission_receipts::refresh(client, &rpc, &config())
+        .await
+        .unwrap();
+    eez_indexer::admission_receipts::refresh(client, &rpc, &config())
+        .await
+        .unwrap();
+    let actual = client.query_one("SELECT canonical_source_receipt_gas::bigint,source_receipt_coverage,source_receipt_success FROM eez_indexer.admission_sources", &[]).await.unwrap();
+    assert_eq!(actual.get::<_, i64>(0), 0x12345);
+    assert_eq!(actual.get::<_, String>(1), "available");
+    assert!(actual.get::<_, bool>(2));
+    assert_eq!(
+        client
+            .query_one("SELECT count(*) FROM eez_indexer.transactions", &[])
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        2
+    );
+    // Reapplying the additive schema preserves existing observations.
+    client
+        .batch_execute(include_str!("../schema.sql"))
+        .await
+        .unwrap();
+    server.abort();
 }

@@ -667,6 +667,39 @@ Both columns remain null for older events; do not infer a reason from missing
 history. Upgrade the additive views/collector/dashboard before Composer and
 keep them on runtime rollback, as described above.
 
+From `companion-storage-4`, bounded reverted/flagged storage and results up to
+256 bytes can use `deferred_storage`. Historical `deferred_reverted` and
+`deferred_reverted_or_static_row` reasons remain readable; new events do not emit
+them. `deferred_call_flags` now denotes unsupported value/routing for storage.
+`companion_simulation_gas` remains the raw source simulation. New columns show
+`companion_protocol_reserve_gas`, `companion_estimate_gas` (the amount used in the
+bundle budget), and `companion_estimate_basis`: `bounded_protocol`,
+`bounded_capped`, or `declared_limit`. A declared-limit fallback has no measured
+protocol reserve. Candidate summary `companion_gas` now totals these consumption
+estimates. Old estimates remain null in the new columns.
+
+The optional details worker also enriches accepted inbound sources independently
+of registry events. It checks source receipts against the canonical posting's
+block and transaction order, then rechecks the block before saving. This fills
+receipts for calls whose registry logs reverted. `source_receipt_coverage` is
+`available`, `absent`, or `before_postbatch`; null means not collected or not
+applicable. Included sources with unavailable or mismatched RPC receipts retry;
+a null RPC response never establishes absence. `source_receipt_success` is only
+the receipt's outer status, not evidence that the protocol call succeeded.
+These observations do not allocate postBatch gas to a source or complete queue
+ownership. A source must be after the posting in the same canonical block;
+its receipt in another attempt/block cannot fill this row.
+
+Collection uses at most 32 sources per round with four concurrent RPC sequences
+under the existing details worker. Cancellation drops pending requests. The
+separate `admission_source_receipts` table references the canonical posting;
+reorg deletion removes observations and rejects late stale inserts. It does
+not add no-log sources to settlement cost totals. Historical accepted sources
+are enriched as the worker catches up, newest blocks first. Deploy the additive
+schema/collector before the dashboard and Composer, preserve the existing log
+checkpoints, and retain this indexer when rolling Composer back. No queue data
+or protocol storage migration is involved.
+
 Composer emits bounded-label `eez_composer_admission_events_total` and
 `eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in
 the retained event records. Logs use the existing nonblocking tracing sink.

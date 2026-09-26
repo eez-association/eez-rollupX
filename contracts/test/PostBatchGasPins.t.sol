@@ -72,6 +72,21 @@ contract BoundedReturnTarget {
 /// Raw `call`, not a typed one: re-encoding a 51-entry struct would bill the
 /// ABI encoder to the per-entry marginal.
 contract PostBatchGasProbe {
+    function measureOutcome(
+        address target,
+        bytes calldata input,
+        bool expectedSuccess,
+        bytes calldata expectedResult
+    )
+        external
+        returns (uint256 gasUsed)
+    {
+        uint256 start = gasleft();
+        (bool ok, bytes memory result) = target.call(input);
+        gasUsed = start - gasleft();
+        require(ok == expectedSuccess && keccak256(result) == keccak256(expectedResult), "companion outcome mismatch");
+    }
+
     function measure(address eez, bytes calldata postCall) external returns (uint256 gasUsed) {
         uint256 start = gasleft();
         (bool ok, bytes memory revertData) = eez.call(postCall);
@@ -730,6 +745,20 @@ contract PostBatchGasPinsTest is Test {
         }
     }
 
+    function testDeferredStorageRevertedAndFlaggedMetadata() external {
+        uint256[3] memory counts = [uint256(1), 10, 127];
+        for (uint256 i; i < counts.length; i++) {
+            _storageTransitions(counts[i], DeferredShape(2, 2, 1, 256, 256), true);
+        }
+    }
+
+    function testDeferredStorageRevertPayloadBoundaries() external {
+        uint256[5] memory sizes = [uint256(65), 68, 100, 255, 256];
+        for (uint256 i; i < sizes.length; i++) {
+            _storageTransitions(10, DeferredShape(0, 0, 0, 0, sizes[i]), true);
+        }
+    }
+
     function _storageLadder(DeferredShape memory shape) private {
         uint256[3] memory counts = [uint256(1), 10, 127];
         for (uint256 i; i < counts.length; i++) {
@@ -748,6 +777,10 @@ contract PostBatchGasPinsTest is Test {
     }
 
     function _storageTransitions(uint256 count, DeferredShape memory complex) private {
+        _storageTransitions(count, complex, false);
+    }
+
+    function _storageTransitions(uint256 count, DeferredShape memory complex, bool flagged) private {
         vm.pauseGasMetering();
         delete touched;
         StorageRun memory run;
@@ -765,6 +798,7 @@ contract PostBatchGasPinsTest is Test {
             uint256 reserve = POSTBATCH_BASE_GAS_PIN;
             for (uint256 i; i < (reset ? 0 : count); i++) {
                 _storageEntry(batch.entries[i + 1], shape, i + wave * count);
+                if (flagged) _flagStorageMetadata(batch.entries[i + 1], wave % 2 == 0);
                 // Exercise zero payload words without changing array lengths.
                 if (count == 10 && wave == 1) _zeroStoragePayloads(batch.entries[i + 1]);
                 uint256 head = uint256(keccak256(abi.encode(i, run.queue)));
@@ -789,6 +823,28 @@ contract PostBatchGasPinsTest is Test {
             vm.roll(block.number + 1);
         }
         vm.resumeGasMetering();
+    }
+
+    // Only storage is measured here. Consumption semantics and source effects
+    // remain independently checked by the native cross-chain suites.
+    function _flagStorageMetadata(ExecutionEntry memory entry, bool reverted) private pure {
+        entry.success = !reverted;
+        for (uint256 i; i < entry.l2ToL1Calls.length; i++) {
+            L2ToL1Call memory call_ = entry.l2ToL1Calls[i];
+            call_.sourceAddress = address(0);
+            call_.revertNextNCalls = reverted ? 1 : 0;
+            call_.isStatic = !reverted;
+            call_.gas = type(uint64).max;
+        }
+        for (uint256 i; i < entry.expectedL1ToL2Calls.length; i++) {
+            ExpectedL1ToL2Call memory row = entry.expectedL1ToL2Calls[i];
+            row.success = !reverted;
+            row.revertedOrStaticRollingHash = keccak256(abi.encode(i, reverted));
+            for (uint256 j; j < row.l2ToL1Calls.length; j++) {
+                row.l2ToL1Calls[j].isStatic = !reverted;
+                row.l2ToL1Calls[j].revertNextNCalls = reverted ? 1 : 0;
+            }
+        }
     }
 
     function _zeroStoragePayloads(ExecutionEntry memory entry) private pure {
@@ -891,7 +947,14 @@ contract PostBatchGasPinsTest is Test {
         for (uint256 i; i < calls.length; i++) {
             L2ToL1Call memory c = calls[i];
             uint256 slot = start + i * 4;
-            _word(words, slot, bytes32(uint256(uint160(c.sourceAddress)) << 88));
+            _word(
+                words,
+                slot,
+                bytes32(
+                    uint256(c.revertNextNCalls) | (uint256(c.isStatic ? 1 : 0) << 16) | (uint256(c.gas) << 24)
+                        | (uint256(uint160(c.sourceAddress)) << 88)
+                )
+            );
             _word(words, slot + 1, bytes32(uint256(c.sourceRollupId) | (uint256(uint160(c.targetAddress)) << 64)));
             _word(words, slot + 2, bytes32(c.value));
             _bytesWords(words, slot + 3, c.data);
@@ -915,11 +978,11 @@ contract PostBatchGasPinsTest is Test {
             _word(words, slot, row.expectedL1toL2Hash);
             _callWords(words, slot + 1, row.l2ToL1Calls);
             _word(words, slot + 2, row.revertedOrStaticRollingHash);
-            _word(words, slot + 3, bytes32(uint256(1)));
+            _word(words, slot + 3, bytes32(uint256(row.success ? 1 : 0)));
             _bytesWords(words, slot + 4, row.returnData);
         }
         _word(words, head + 4, entry.rollingHash);
-        _word(words, head + 5, bytes32(uint256(ROLLUP_ID) | (uint256(1) << 64)));
+        _word(words, head + 5, bytes32(uint256(ROLLUP_ID) | (uint256(entry.success ? 1 : 0) << 64)));
         _bytesWords(words, head + 6, entry.returnData);
     }
 
@@ -936,6 +999,85 @@ contract PostBatchGasPinsTest is Test {
             resultSizes[i] = resultBytes;
         }
         return _deferredRung(resultSizes, consume);
+    }
+
+    function testCompanionRegisteredCallbackLadder() public {
+        for (uint256 calls = 0; calls <= 4; calls++) {
+            _companionRung(1, calls, 256, false, false);
+            _companionRung(10, calls, 256, false, false);
+        }
+        _companionRung(10, 4, 256, true, false);
+    }
+
+    function testCompanionQueueScanAndRevertedResults() public {
+        _companionRung(127, 0, 100, true, false);
+        _companionRung(127, 0, 256, false, false);
+        _companionRung(127, 0, 256, false, true);
+    }
+
+    // Each measured call starts cold. Skipped entries deliberately retain the
+    // same live root, so the final call must scan their identities. A reverted
+    // result restores the cursor/root; catching it must not count consumption.
+    function _companionRung(
+        uint256 count,
+        uint256 calls,
+        uint256 resultBytes,
+        bool reverted,
+        bool repeatedHash
+    )
+        private
+    {
+        delete touched;
+        (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+        BoundedReturnTarget target = new BoundedReturnTarget(64);
+        touched.push(address(target));
+        address remote = address(0x9000);
+        address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
+        touched.push(proxy);
+        ProofSystemBatchPerVerificationEntries memory batch =
+            _batch(eez, proofSystem, address(target), Rung(count, calls, true, true, 1));
+        batch.immediateEntryCount = 1;
+        bytes32 root = batch.entries[0].rollupUpdates[0].newRoot;
+        for (uint256 i = 1; i <= count; i++) {
+            ExecutionEntry memory entry = batch.entries[i];
+            entry.rollupUpdates[0].currentRoot = repeatedHash && i < count ? bytes32(uint256(i)) : root;
+            entry.proxyEntryHash = eez.computeCrossChainCallHash(
+                false,
+                address(probe),
+                eez.MAINNET_ROLLUP_ID(),
+                remote,
+                ROLLUP_ID,
+                0,
+                0,
+                abi.encode(repeatedHash ? count : i)
+            );
+            entry.returnData = _nonzeroBytes(resultBytes);
+            entry.success = !reverted;
+            bytes32 rolling = keccak256(abi.encodePacked(bytes32(0), ROLLUP_ID, root));
+            rolling = keccak256(abi.encodePacked(rolling, entry.proxyEntryHash));
+            for (uint256 j = 0; j < calls; j++) {
+                // ABI accepts trailing bytes; price the largest supported input.
+                entry.l2ToL1Calls[j].data = abi.encodePacked(EmptyTarget.ping.selector, new bytes(252));
+                L2ToL1Call memory call_ = entry.l2ToL1Calls[j];
+                rolling = _callBegin(eez, rolling, call_);
+                rolling = keccak256(abi.encodePacked(rolling, uint8(2), true, _nonzeroBytes(64)));
+            }
+            entry.rollingHash = rolling;
+        }
+        _measure(eez, batch, root);
+        for (uint256 i = 0; i < touched.length; i++) {
+            vm.cool(touched[i]);
+        }
+        uint256 used = probe.measureOutcome(proxy, abi.encode(count), !reverted, _nonzeroBytes(resultBytes));
+        // Caller frame excludes source intrinsic/calldata/application gas.
+        uint256 reserve = 90_000 + 60_000 * calls + 3_000 * ((resultBytes + 31) / 32 + 8 * calls)
+            + (repeatedHash ? 12_000 : 4_000) * (count - 1);
+        console.log("companion calls / skipped", calls, count - 1);
+        console.log("  execution gas / reserve", used, reserve);
+        assertLe(used, reserve, "bounded companion protocol reserve");
+        assertEq(eez.entryQueueIndex(ROLLUP_ID), reverted ? 0 : count, "reverted cursor is retained");
+        (, bytes32 finalRoot,) = eez.rollups(ROLLUP_ID);
+        assertEq(finalRoot, reverted ? root : batch.entries[count].rollupUpdates[0].newRoot);
     }
 
     function _deferredRung(

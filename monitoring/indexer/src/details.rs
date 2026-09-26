@@ -40,6 +40,9 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
         .timeout(Duration::from_secs(10))
         .build()?;
     loop {
+        if let Err(error) = crate::admission_receipts::refresh(&client, &l1, config).await {
+            tracing::warn!(%error, "admission source receipts will retry");
+        }
         let rows = client.query("SELECT t.block_hash,t.transaction_hash,t.transaction_index,b.height,b.timestamp,t.blob_gas_used::text,d.data::text,t.gas_used::text,t.gas_price_wei::text FROM eez_indexer.transactions t JOIN eez_indexer.blocks b ON b.hash=t.block_hash LEFT JOIN eez_indexer.details d USING(block_hash,transaction_hash) WHERE d.retry_at IS NULL OR d.retry_at <= now() ORDER BY d.checked_at NULLS FIRST,b.height DESC,t.transaction_index DESC LIMIT 8", &[]).await?;
         // Each future owns a different details row. Dropping the worker cancels
         // all outstanding requests; FK checks discard results orphaned by L1 reorgs.

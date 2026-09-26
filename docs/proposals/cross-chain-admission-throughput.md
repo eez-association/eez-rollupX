@@ -150,6 +150,50 @@ that extra storage compatibility work.
 
 ### Explain and tighten the gas model
 
+#### September 26 follow-up: companion costs and reverted storage
+
+Authorized by the user's request to keep improving after the second repeat
+(`20e81da`, deployed runtime `85f3691`, protocol `9d13218`). The
+[repeat evidence](../audits/2026-09-26-admission-deferred/rerun2/README.md)
+shows conservative postBatch reserves alongside underestimated companion work.
+This iteration measures them separately before changing admission:
+
+- Extend bounded deferred storage pricing to measured reverted/flagged metadata
+  and ordinary revert payload sizes, including retained old slots. Price packed
+  flags and nonzero reverted/static hashes correctly. Posting stores these
+  fields; the later companion executes them. No signer/profile extension.
+- Measure the missing companion protocol overhead with the pinned contracts;
+  retain declared transaction limits, whole-group admission and final ordered
+  native validation. An uncertain estimate must not evict an otherwise valid
+  source solely because its predicted overhead exceeds its signed limit.
+- Collect canonical inbound source receipts even when consumption logs revert.
+  Receipt gas is operational evidence, not proof of complete consumption. Bind
+  enrichment to canonical block/posting identity, retain null for absent receipts,
+  and invalidate it on reorg. Upgrade additive schema/collector before dashboard
+  consumers and Composer; old histories remain readable.
+
+Acceptance includes cold caller-frame storage/consumption measurements, malformed
+and boundary metadata, Composer gas-budget regressions, all four admission/policy
+process suites, and receipt enrichment tests for missing logs, missing receipts,
+wrong block/position and reorg cleanup. Run the shipping build and required
+fmt/clippy checks, then deploy the exact local image and repeat the full verified
+770-job wave. Compare actual companion/postBatch gas, cutoff distribution and
+canonical completion with the recorded same-host baseline. Runtime warm state
+and live slot variation remain explicit limits on performance attribution.
+
+External builder non-inclusion and scheduler/retry-policy changes remain separate
+follow-ups; this iteration does not infer their causes from unused block gas.
+
+The initial companion model covers one deferred entry with bounded registered
+callbacks and no nested rows. Larger groups, unregistered proxies, flagged
+callbacks, or unmeasured execution outcomes reserve the signed source limit.
+Root results may revert; a matching queue identity costs more to scan because
+the contract checks root preconditions. The [settlement contract](../configurable-settlement-policy.md)
+defines the bounds and the [monitoring contract](../../monitoring/indexer/README.md#admission-history)
+defines nullable receipt coverage and mixed-version behavior. Broader companion
+discounts require additional measurements. Report any packing regression caused
+by correcting previously omitted gas.
+
 #### September 26 follow-up: deferred storage and overwrite estimates
 
 Authorized by the user after the `036b50a` wave: prioritize bounded inbound
