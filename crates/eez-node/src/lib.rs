@@ -821,7 +821,10 @@ async fn launch_composer(
         let l1_entry_client: Arc<LocalChainClient> = match l1_variant {
             EmbeddedL1::Ethereum(l1_handle) => {
                 let l1_provider = l1_handle.node.provider.clone();
-                let l1_evm_config = l1_handle.node.evm_config.clone();
+                // Source simulation uses the interpreter with the engine's exact chain rules.
+                let l1_evm_config = reth_evm_ethereum::EthEvmConfig::new(
+                    l1_handle.node.evm_config.chain_spec().clone(),
+                );
                 LocalChainClient::new_entry(
                     l1_provider,
                     l1_evm_config,

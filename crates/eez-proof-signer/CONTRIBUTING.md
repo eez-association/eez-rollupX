@@ -96,10 +96,10 @@ execution binding, value, call-hash, and outcome checks in `settlement/`.
 
 ## Pinned Stateless fork
 
-The production dependency pins an exact commit from
-[`eez-association/stateless`](https://github.com/eez-association/stateless)
-in the workspace root `Cargo.toml`; this crate consumes it through its workspace
-dependency. The fork exposes the computed pre-state and post-state roots and
+The production dependency uses the local port in
+[`vendor/stateless`](../../vendor/stateless); its exact upstream base and API
+adaptations are recorded in [`vendor/README.md`](../../vendor/README.md).
+This crate consumes it through the root workspace dependency. The fork exposes the computed pre-state and post-state roots and
 selected transaction-state checkpoints while preserving upstream
 Stateless/Reth consensus and execution validation.
 
@@ -121,7 +121,7 @@ needs focused fixture coverage.
   Composer-controlled semantic rejection as a failed precondition.
 - Add focused tests beside the owning module and a service-level regression
   when orchestration, status mapping, timeout, cancellation, or signing changes.
-- This crate requires Rust 1.93.
+- This crate requires Rust 1.95.
 
 ## Verify
 
@@ -135,12 +135,12 @@ cargo test --package eez-proof-signer --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --locked
 ```
 
-Before updating the dependency pin, verify the fork change from a checkout of
-the fork repository:
+When changing the local dependency, verify its fixtures and trie tests using
+the dependency workspace:
 
 ```bash
-cargo test --package stateless
-cargo clippy --package stateless --all-targets -- -D warnings
+cargo +1.95.0 test --manifest-path vendor/stateless/Cargo.toml --locked -p stateless -p tries
+cargo +1.95.0 clippy --manifest-path vendor/stateless/Cargo.toml --locked -p stateless --all-targets -- -D warnings
 ```
 
-After updating the pin, rerun the signer checks above.
+After updating the dependency, rerun the signer checks above.

@@ -147,7 +147,7 @@ its Solidity implementation/tests and the applicable fork contract:
 - Edit the wire schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
   Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` using `protoc`;
   the [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
-  with `cargo +1.94.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
+  with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates `genesis.json`,
@@ -159,10 +159,10 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ## Build and validate
 
-For source builds, use Rust **1.94.0** (CI; manifest minimum 1.93) and Foundry
+For source builds, use Rust **1.95.0** (CI; manifest minimum 1.95) and Foundry
 **1.7.1**. Native dependencies are listed in [CI](.github/workflows/ci.yml), including
 `libclang-dev`, `pkg-config`, `libssl-dev`, `cmake`, and `protobuf-compiler`.
-Build workspace binaries with `cargo +1.94.0 build --locked --workspace`.
+Build workspace binaries with `cargo +1.95.0 build --locked --workspace`.
 
 During iteration, run focused packages/targets. Before completing a change, run
 the applicable checks below and regressions for changed behavior; do not repeat
@@ -176,9 +176,9 @@ task authorization.
 
 | Changed area | Expected checks |
 | --- | --- |
-| Rust code | `cargo +1.94.0 fmt --all --check`; `cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.94.0 test --locked -p eez-composer --lib` |
-| ABI, commitments, blob codecs | `cargo +1.94.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
-| Signer or prover RPC | `cargo +1.94.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
+| Rust code | `cargo +1.95.0 fmt --all --check`; `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.95.0 test --locked -p eez-composer --lib` |
+| ABI, commitments, blob codecs | `cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
+| Signer or prover RPC | `cargo +1.95.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
 | Settlement/admission | Composer unit tests; relevant `eez-node-e2e` targets: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
 | Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `resumption`; `cross_chain` / `chained_interstate` when group semantics change |
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
@@ -218,7 +218,7 @@ stale prebuilt executables, build integration contracts, and retain diagnostics:
   forge build --root contracts
   EEZ_TEST_LOG_DIR="$PWD/artifacts/native-e2e/logs" \
   EEZ_TEST_DATADIR_DIR="$PWD/artifacts/native-e2e/datadirs" \
-  cargo +1.94.0 test --locked -p eez-node-e2e --test cross_chain -- --test-threads=1
+  cargo +1.95.0 test --locked -p eez-node-e2e --test cross_chain -- --test-threads=1
 )
 ```
 

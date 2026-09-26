@@ -262,9 +262,18 @@ which this protocol does not currently define.
 
 ## Build, test, teardown
 
+Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to the official
+v2.6.0 commit; related local dependency ports are described in
+[`vendor/README.md`](vendor/README.md). Private `testing` and `testing-gnosis`
+L1 miners retain the previous two-block persistence threshold, without state
+masking or an in-memory buffer. They have no consensus peers to recover a lost
+chain after a crash. Consensus-driven `devnet` and `chiado` launchers use Reth's
+upstream persistence defaults. Recent unpersisted blocks can still be lost on
+an abrupt stop; database persistence is not durable queue recovery.
+
 ```bash
-cargo build --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace                  # Rust; `cd contracts && forge test` for Solidity
+cargo +1.95.0 build --locked --workspace
+cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.95.0 test --locked --workspace                  # Rust; `cd contracts && forge test` for Solidity
 bash scripts/teardown-chiado.sh         # stop eez-node + eez-proof-signer + lighthouse (datadirs untouched)
 ```

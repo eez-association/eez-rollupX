@@ -1,7 +1,7 @@
 //! A read barrier for Reth's pure post-execution Ethereum assembler.
 //!
 //! This is not an empty database. Every state operation fails, and even a
-//! swallowed error or an infallible trait call prevents returning a block.
+//! swallowed error prevents returning a block.
 
 use alloy_primitives::{Address, B256, Bytes, U256};
 use reth_primitives_traits::{Account, Bytecode};
@@ -11,8 +11,9 @@ use reth_storage_api::{
     errors::provider::{ProviderError, ProviderResult},
 };
 use reth_trie::{
-    AccountProof, ExecutionWitnessMode, HashedPostState, HashedStorage, MultiProof,
-    MultiProofTargets, StorageMultiProof, StorageProof, TrieInput, updates::TrieUpdates,
+    AccountProof, DecodedMultiProofV2, ExecutionWitnessMode, HashedPostState, HashedStorage,
+    MultiProof, MultiProofTargets, MultiProofTargetsV2, StorageMultiProof, StorageProof, TrieInput,
+    updates::TrieUpdates,
 };
 use revm::database::BundleState;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -59,12 +60,8 @@ impl StateProvider for NoStateReads {
     }
 }
 impl HashedPostStateProvider for NoStateReads {
-    fn hashed_post_state(&self, _: &BundleState) -> HashedPostState {
-        self.0.store(true, Ordering::Relaxed);
-        // This trait cannot return an error. ensure_unused rejects the entire
-        // assembly result before it can leave the adapter, even if the assembler
-        // ignores this result. No placeholder is ever accepted as replay data.
-        HashedPostState::default()
+    fn hashed_post_state(&self, _: &BundleState) -> ProviderResult<HashedPostState> {
+        self.reject()
     }
 }
 impl StateRootProvider for NoStateReads {
@@ -105,6 +102,13 @@ impl StateProofProvider for NoStateReads {
         self.reject()
     }
     fn multiproof(&self, _: TrieInput, _: MultiProofTargets) -> ProviderResult<MultiProof> {
+        self.reject()
+    }
+    fn multiproof_v2(
+        &self,
+        _: TrieInput,
+        _: MultiProofTargetsV2,
+    ) -> ProviderResult<DecodedMultiProofV2> {
         self.reject()
     }
     fn witness(

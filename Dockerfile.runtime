@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 # Build shipping binaries and release test executables in one ephemeral target.
 # Local development keeps the existing Dockerfile / Dockerfile.signer entrypoints.
-ARG RUST_IMAGE=rust:1.94.0-bookworm
+ARG RUST_IMAGE=rust:1.95.0-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 FROM ${RUST_IMAGE} AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time \
     && rm -rf /var/lib/apt/lists/*
 ENV CARGO_INCREMENTAL=0 \
+    RUST_MIN_STACK=16777216 \
     CARGO_TARGET_DIR=/build/target \
     RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 WORKDIR /build
@@ -23,6 +24,7 @@ RUN if [ "$EEZ_COMPILER_CACHE" != none ]; then \
     fi
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 # Composer unit tests embed the Solidity gas pins at compile time.
 COPY contracts/test/PostBatchGasPins.t.sol ./contracts/test/PostBatchGasPins.t.sol
 COPY .config/nextest.toml ./.config/nextest.toml

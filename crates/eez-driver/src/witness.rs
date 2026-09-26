@@ -29,7 +29,7 @@ use reth_evm::{ConfigureEvm, execute::Executor};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
 use reth_revm::{database::StateProviderDatabase, witness::ExecutionWitnessRecord};
-use reth_storage_api::{HeaderProvider, StateProviderFactory};
+use reth_storage_api::{HashedPostStateProvider, HeaderProvider, StateProviderFactory};
 use reth_trie::{HashedPostState, HashedStorage};
 use revm::database::State;
 use std::collections::HashSet;
@@ -217,13 +217,14 @@ where
     let block_number = block.header().number();
 
     // Record the access set (cheap: cache walk, no trie).
-    let record = ExecutionWitnessRecord::from_executed_state(state, mode);
-    let (account_removal_state, removal_accounts) = touched_account_removal_state(&record);
-    let (storage_removal_state, removal_slots) = touched_storage_removal_state(&record)?;
+    let record = ExecutionWitnessRecord::new(state);
 
     // One batched trie pass against the parent → trie nodes + headers.
     //    Re-open the parent provider (the first was consumed by the executor).
     let state_provider = provider.state_by_block_hash(parent_hash)?;
+    let accesses = witness_access_state(state, state_provider.as_ref())?;
+    let (account_removal_state, removal_accounts) = touched_account_removal_state(&accesses);
+    let (storage_removal_state, removal_slots) = touched_storage_removal_state(&accesses)?;
     let mut witness =
         record.into_execution_witness(state_provider.as_ref(), provider, block_number, mode)?;
     let endpoint_state_nodes = witness.state.len();
@@ -275,9 +276,9 @@ where
 /// Every touched account staged as a removal (`None`), so reth fetches the
 /// account-trie collapse siblings even for accounts whose end-state is present
 /// (deleted mid-block then re-funded). Returns the state and the account count.
-fn touched_account_removal_state(record: &ExecutionWitnessRecord) -> (HashedPostState, usize) {
+fn touched_account_removal_state(accesses: &HashedPostState) -> (HashedPostState, usize) {
     let mut state = HashedPostState::default();
-    for &hashed_address in record.hashed_state.accounts.keys() {
+    for &hashed_address in accesses.accounts.keys() {
         state.accounts.insert(hashed_address, None);
     }
     let count = state.accounts.len();
@@ -287,18 +288,17 @@ fn touched_account_removal_state(record: &ExecutionWitnessRecord) -> (HashedPost
 /// Every touched storage slot staged as removed, account kept present, so reth
 /// fetches the storage-trie collapse siblings. Returns the state and slot count.
 fn touched_storage_removal_state(
-    record: &ExecutionWitnessRecord,
+    accesses: &HashedPostState,
 ) -> eyre::Result<(HashedPostState, usize)> {
-    let mut state = HashedPostState::with_capacity(record.hashed_state.storages.len());
+    let mut state = HashedPostState::with_capacity(accesses.storages.len());
     let mut slot_count = 0usize;
 
-    for (&hashed_address, storage) in &record.hashed_state.storages {
+    for (&hashed_address, storage) in &accesses.storages {
         if storage.storage.is_empty() {
             continue;
         }
 
-        let account = record
-            .hashed_state
+        let account = accesses
             .accounts
             .get(&hashed_address)
             .copied()
@@ -321,6 +321,31 @@ fn touched_storage_removal_state(
     Ok((state, slot_count))
 }
 
+/// Mirror Reth's private witness access collection for EEZ's prefix-root closure.
+/// Include read-only cached slots as well as the provider's expanded storage
+/// resets; final bundle values take precedence over the execution cache.
+fn witness_access_state<DB>(
+    state: &State<DB>,
+    provider: &(impl HashedPostStateProvider + ?Sized),
+) -> eyre::Result<HashedPostState> {
+    let mut accesses = HashedPostState::default();
+    for (address, account) in &state.cache.accounts {
+        let hashed_address = keccak256(address);
+        accesses.accounts.insert(
+            hashed_address,
+            account.account.as_ref().map(|a| (&a.info).into()),
+        );
+        let storage = accesses.storages.entry(hashed_address).or_default();
+        if let Some(account) = &account.account {
+            for (slot, value) in &account.storage {
+                storage.storage.insert(keccak256(B256::from(*slot)), *value);
+            }
+        }
+    }
+    accesses.extend(provider.hashed_post_state(&state.bundle_state)?);
+    Ok(accesses)
+}
+
 fn extend_unique_by_hash(target: &mut Vec<Bytes>, extra: impl IntoIterator<Item = Bytes>) -> usize {
     let mut seen: HashSet<B256> = target.iter().map(keccak256).collect();
     let mut added = 0usize;
@@ -338,9 +363,8 @@ fn extend_unique_by_hash(target: &mut Vec<Bytes>, extra: impl IntoIterator<Item 
 #[cfg(test)]
 mod tests {
     use super::{
-        B256, Block, Bytes, ExecutionWitnessMode, ExecutionWitnessRecord, HashedPostState,
-        HashedStorage, Header, U256, block_execution_witness,
-        block_execution_witness_with_observations, extend_unique_by_hash,
+        B256, Block, Bytes, ExecutionWitnessMode, HashedPostState, HashedStorage, Header, U256,
+        block_execution_witness, block_execution_witness_with_observations, extend_unique_by_hash,
         touched_account_removal_state, touched_storage_removal_state,
     };
     use crate::observation::BlockObservation;
@@ -356,6 +380,61 @@ mod tests {
     const MANAGER: Address = address!("4200000000000000000000000000000000000007");
     const TARGET: Address = address!("0000000000000000000000000000000000001234");
 
+    #[test]
+    fn removal_closure_keeps_read_only_slots_and_expanded_storage_resets() {
+        use reth_storage_api::{HashedPostStateProvider, errors::provider::ProviderResult};
+        use revm::database::{BundleState, EmptyDB, State, states::CacheAccount};
+        use revm::state::AccountInfo;
+
+        struct ExpandedState(HashedPostState);
+        impl HashedPostStateProvider for ExpandedState {
+            fn hashed_post_state(&self, _: &BundleState) -> ProviderResult<HashedPostState> {
+                Ok(self.0.clone())
+            }
+        }
+
+        let read_address = Address::with_last_byte(1);
+        let destroyed_address = Address::with_last_byte(2);
+        let read_slot = U256::from(3);
+        let destroyed_slot = alloy_primitives::keccak256(B256::from(U256::from(4)));
+        let read_hash = alloy_primitives::keccak256(read_address);
+        let destroyed_hash = alloy_primitives::keccak256(destroyed_address);
+        let mut executed = State::builder().with_database(EmptyDB::default()).build();
+        executed.cache.accounts.insert(
+            read_address,
+            CacheAccount::new_loaded(
+                AccountInfo::default(),
+                [(read_slot, U256::from(7))].into_iter().collect(),
+            ),
+        );
+        // A destroyed account's old slot is absent from the execution cache;
+        // the parent provider expands it into an explicit zero write.
+        let provider = ExpandedState(
+            HashedPostState::default()
+                .with_accounts([(destroyed_hash, None)])
+                .with_storages([(
+                    destroyed_hash,
+                    HashedStorage::from_iter([(destroyed_slot, U256::ZERO)]),
+                )]),
+        );
+        let accesses = super::witness_access_state(&executed, &provider).unwrap();
+        let (accounts, count) = touched_account_removal_state(&accesses);
+        assert_eq!(count, 2);
+        assert_eq!(accounts.accounts.get(&read_hash), Some(&None));
+        assert_eq!(accounts.accounts.get(&destroyed_hash), Some(&None));
+        let (storage, count) = touched_storage_removal_state(&accesses).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(
+            storage.storages[&read_hash].storage
+                [&alloy_primitives::keccak256(B256::from(read_slot))],
+            U256::ZERO,
+        );
+        assert_eq!(
+            storage.storages[&destroyed_hash].storage[&destroyed_slot],
+            U256::ZERO
+        );
+    }
+
     /// Every touched account is staged as a removal (`None`) — including one whose
     /// end-state is present (the delete-then-refund case) — so reth fetches the
     /// account-collapse siblings.
@@ -368,12 +447,7 @@ mod tests {
             .accounts
             .insert(present, Some(Default::default()));
         hashed_state.accounts.insert(destroyed, None);
-        let record = ExecutionWitnessRecord {
-            hashed_state,
-            ..Default::default()
-        };
-
-        let (state, count) = touched_account_removal_state(&record);
+        let (state, count) = touched_account_removal_state(&hashed_state);
         assert_eq!(count, 2);
         assert!(matches!(state.accounts.get(&present), Some(None)));
         assert!(matches!(state.accounts.get(&destroyed), Some(None)));
@@ -391,12 +465,7 @@ mod tests {
         storage.storage.insert(s1, U256::from(5));
         storage.storage.insert(s2, U256::from(7));
         hashed_state.storages.insert(addr, storage);
-        let record = ExecutionWitnessRecord {
-            hashed_state,
-            ..Default::default()
-        };
-
-        let (state, slots) = touched_storage_removal_state(&record).unwrap();
+        let (state, slots) = touched_storage_removal_state(&hashed_state).unwrap();
         assert_eq!(slots, 2);
         assert!(matches!(state.accounts.get(&addr), Some(Some(_)))); // account kept present
         let st = state.storages.get(&addr).unwrap();

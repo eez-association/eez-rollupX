@@ -102,7 +102,7 @@ resolve_base() {
     docker pull --platform linux/amd64 "$repository@$digest" >&2
     printf '%s@%s\n' "$repository" "$digest"
 }
-rust_base="$(resolve_base rust:1.94.0-bookworm)"
+rust_base="$(resolve_base rust:1.95.0-bookworm)"
 runtime_base="$(resolve_base debian:bookworm-slim)"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")

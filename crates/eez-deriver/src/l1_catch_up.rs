@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 const POLL: Duration = Duration::from_secs(2);
-const WAIT: Duration = Duration::from_secs(60);
+const WAIT: Duration = Duration::from_mins(1);
 
 pub(crate) async fn wait_for_head<F, Probe>(block: u64, mut probe: F) -> bool
 where
