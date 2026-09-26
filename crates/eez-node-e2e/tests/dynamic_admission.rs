@@ -648,6 +648,32 @@ async fn single_sync_wave(
             U256::from(inbound_count)
         );
         let events = world.node.signals_since(cursor).unwrap();
+        if wave > 0 && inbound_count > 0 {
+            let estimates: Vec<serde_json::Value> = events
+                .iter()
+                .filter(|e| e.name == "eez.composer.admission.v1")
+                .map(|e| {
+                    serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap()
+                })
+                .filter(|e: &serde_json::Value| {
+                    e["kind"] == "source_estimate" && e["detail"]["direction"] == "inbound"
+                })
+                .collect();
+            assert_eq!(estimates.len(), inbound_count as usize);
+            assert!(
+                estimates
+                    .iter()
+                    .any(|e| e["detail"]["estimate_reasons"]["deferred_storage"]
+                        .as_u64()
+                        .is_some_and(|n| n > 0)),
+                "retained storage pricing must reach native settlement"
+            );
+            for estimate in estimates {
+                assert_eq!(estimate["estimator_version"], "deferred-storage-3");
+                assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
+                assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
+            }
+        }
         let dispatched: Vec<_> = events
             .iter()
             .filter(|e| e.name == "eez.composer.bundle.dispatched")

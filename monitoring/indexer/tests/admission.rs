@@ -58,6 +58,27 @@ fn admission_schema_rejects_wrong_context_and_malformed_gas() {
         "gas_gate_accepted":true,"projected_before":200000,"projected_after":500000,"source_sim_gas":50000}),
     );
     assert!(parse(&line(&source), &config()).is_ok());
+    let mut priced = source.clone();
+    priced["detail"]["entry_count"] = json!(3);
+    priced["detail"]["estimate_reasons"] = json!({"deferred_storage":2,"deferred_old_slot":1});
+    priced["detail"]["batch_discount_revoked"] = json!(false);
+    assert!(parse(&line(&priced), &config()).is_ok());
+    for invalid in [
+        json!(null),
+        json!([]),
+        json!({"bad":-1}),
+        json!({"bad":3.5}),
+        json!({"bad":0}),
+        json!({"bad":2}),
+        json!({"bad key":3}),
+        json!({"a":u64::MAX,"b":1}),
+    ] {
+        let mut bad = priced.clone();
+        bad["detail"]["estimate_reasons"] = invalid;
+        assert!(parse(&line(&bad), &config()).is_err());
+    }
+    priced["detail"]["batch_discount_revoked"] = json!("false");
+    assert!(parse(&line(&priced), &config()).is_err());
     source["detail"]["projected_after"] = json!("not a number");
     assert!(parse(&line(&source), &config()).is_err());
     let invalid_count = event(2, "summary", json!({"examined_count":-1}));
@@ -186,6 +207,40 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
     assert_eq!(
         rows[0].get::<_, Option<f64>>("source_checks_and_simulation_ms"),
         Some(1.0)
+    );
+    assert!(
+        rows[0]
+            .get::<_, Option<String>>("estimate_reasons")
+            .is_none()
+    );
+    assert!(
+        rows[0]
+            .get::<_, Option<bool>>("batch_discount_revoked")
+            .is_none()
+    );
+
+    let mut priced = records[2].clone();
+    priced["detail"]["entry_count"] = json!(3);
+    priced["detail"]["estimate_reasons"] = json!({"deferred_storage":2,"deferred_old_slot":1});
+    priced["detail"]["batch_discount_revoked"] = json!(false);
+    assert!(parse(&line(&priced), &config()).is_ok());
+    client
+        .execute(
+            "UPDATE eez_indexer.admission_events SET data=$1::text::jsonb WHERE sequence=2",
+            &[&priced.to_string()],
+        )
+        .await
+        .unwrap();
+    let rows = client
+        .query(&dashboard_sql(source_panel), &[])
+        .await
+        .unwrap();
+    let reasons: Value =
+        serde_json::from_str(&rows[0].get::<_, String>("estimate_reasons")).unwrap();
+    assert_eq!(reasons, priced["detail"]["estimate_reasons"]);
+    assert_eq!(
+        rows[0].get::<_, Option<bool>>("batch_discount_revoked"),
+        Some(false)
     );
 
     // A conflicting duplicate cannot advance the shared file checkpoint.

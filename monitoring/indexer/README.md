@@ -650,6 +650,23 @@ the proposed group's shape cost before any batch-size discount revocation.
 For inbound sources, the call and result counts describe metadata stored by
 postBatch; executing their companion transactions remains a separate charge.
 
+From `deferred-storage-3`, `estimate_reasons` counts entries by pricing decision:
+`deferred_storage`, `deferred_legacy`, `immediate_registered`, or a fallback
+(`parent_state_unavailable`, `immediate_evidence_unavailable`, `deferred_old_slot`,
+`deferred_reverted`, `deferred_shape`, `deferred_size_bound`,
+`deferred_reverted_or_static_row`, `deferred_call_flags`, `general_reserve_lower`).
+The immediate evidence reason includes unsupported execution and missing proxy
+registration; it does not identify a specific failed eligibility check.
+`deferred_old_slot` means the canonical-parent layout could not be bounded.
+`general_reserve_lower` keeps the existing reserve when the new storage estimate
+would be larger. Counts sum to the source's entry count. These explain proposed
+per-entry pricing; `batch_discount_revoked` separately records when the proposed
+prefix crosses the measured 128-total-entry bound, restoring general reserves
+for the entire prefix. A rejected group does not change accepted prefix pricing.
+Both columns remain null for older events; do not infer a reason from missing
+history. Upgrade the additive views/collector/dashboard before Composer and
+keep them on runtime rollback, as described above.
+
 Composer emits bounded-label `eez_composer_admission_events_total` and
 `eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in
 the retained event records. Logs use the existing nonblocking tracing sink.

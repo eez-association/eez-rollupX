@@ -150,6 +150,39 @@ that extra storage compatibility work.
 
 ### Explain and tighten the gas model
 
+#### September 26 follow-up: deferred storage and overwrite estimates
+
+Authorized by the user after the `036b50a` wave: prioritize bounded inbound
+callback/result storage and replacement of retained complex slots, with explicit
+estimator fallback reasons in Grafana. Baseline checkout is `bfcb68d`, protocol
+remains `9d13218`; deployed baseline and the 870-source comparison are recorded
+in the [shape audit](../audits/2026-09-26-admission-shapes/README.md).
+
+Price bounded storage writes and cleared tails using the exact canonical-parent
+slot inventory. Read inactive mapping entries too. Bound arrays and byte lengths
+before walking storage, charge unknown new words as fresh, and retain the general
+reserve when either layout is unsupported. Preserve the existing immediate-call
+model, whole groups, the 128-entry boundary, and final ordered native execution.
+Root stitching must not invalidate the preliminary reserve: charge roots and
+rolling hashes as nonzero even before their final values exist. No speculative
+storage reuse, receipt-refund credits, protocol or signer-profile extensions.
+
+Pinned CORE/EXECUTION_ENTRY specifications describe array queues and clearing;
+the pinned Solidity uses mappings with reset active bounds and retained payloads.
+The accepted fork settlement contract already documents this discrepancy's
+operational behavior. Measure the pinned implementation; do not change its ABI
+or reinterpret logical replacement as physical deletion.
+
+Acceptance: cold caller-frame gas ladders before refunds for fresh, retained,
+shrinking and expanding callbacks/results, including inactive slots; independent
+storage-layout assertions; Rust boundary and group-repricing tests; mixed-history
+PostgreSQL/dashboard checks; native admission/settlement and semantic replay.
+Then build local shipping images, preserve runtime state during deployment, and
+compare a semantically verified workload to the previous wave. Report preparation
+overhead, required gas, fallback coverage and actual cutoff reasons as well as
+receipt ratios. Keep upgraded additive monitoring views on runtime rollback;
+historical missing fallback reasons stay unknown. No queue persistence is added.
+
 #### September 26 follow-up: selection visibility and gas shapes
 
 The user authorized the first two follow-up priorities: explicit selection-cap

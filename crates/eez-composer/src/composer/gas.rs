@@ -13,6 +13,61 @@ use super::{
 };
 use crate::local::L1TargetSession;
 
+mod deferred;
+
+#[derive(Clone, Copy, Debug)]
+enum EstimateReason {
+    ParentStateUnavailable,
+    ImmediateRegistered,
+    ImmediateEvidenceUnavailable,
+    DeferredStorage,
+    DeferredLegacy,
+    DeferredOldSlot,
+    DeferredReverted,
+    DeferredShape,
+    DeferredSizeBound,
+    DeferredRevertedOrStaticRow,
+    DeferredCallFlags,
+    GeneralReserveLower,
+}
+
+const REASON_NAMES: [&str; 12] = [
+    "parent_state_unavailable",
+    "immediate_registered",
+    "immediate_evidence_unavailable",
+    "deferred_storage",
+    "deferred_legacy",
+    "deferred_old_slot",
+    "deferred_reverted",
+    "deferred_shape",
+    "deferred_size_bound",
+    "deferred_reverted_or_static_row",
+    "deferred_call_flags",
+    "general_reserve_lower",
+];
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct EstimateReasons([u64; REASON_NAMES.len()]);
+
+impl EstimateReasons {
+    pub(super) fn unavailable(entries: u64) -> Self {
+        let mut reasons = Self::default();
+        reasons.0[EstimateReason::ParentStateUnavailable as usize] = entries;
+        reasons
+    }
+
+    pub(super) fn json(self) -> serde_json::Value {
+        serde_json::Value::Object(
+            REASON_NAMES
+                .into_iter()
+                .zip(self.0)
+                .filter(|(_, count)| *count != 0)
+                .map(|(name, count)| (name.to_owned(), count.into()))
+                .collect(),
+        )
+    }
+}
+
 // Caller-frame gas (before refunds), pinned on Cancun/Prague/Osaka by
 // contracts/test/PostBatchGasPins.t.sol. Intrinsic/calldata/target gas and the
 // operator's percentage margin are separate. Unknown shapes keep the old pin.
@@ -46,6 +101,7 @@ pub(super) struct Projection {
     immediate_calls: Vec<Option<B256>>,
     deferred_slots: Vec<bool>,
     deferred_discounts: Vec<u64>,
+    deferred_storage: Vec<Option<deferred::Slot>>,
     deferred_count: usize,
     parent_proxies: std::collections::HashMap<(u64, Address), bool>,
 }
@@ -64,6 +120,7 @@ impl Projection {
         // shape keeps the full per-entry reserve.
         let mut deferred_slots = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
         let mut deferred_discounts = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
+        let mut deferred_storage = Vec::with_capacity(MAX_SHAPED_ENTRIES as usize);
         for index in 0..MAX_SHAPED_ENTRIES {
             let entry_slot =
                 U256::from_be_bytes(keccak256((U256::from(index), queue_head).abi_encode()).0);
@@ -85,6 +142,12 @@ impl Projection {
             };
             deferred_discounts.push(discount);
             deferred_slots.push(bounded);
+            deferred_storage.push(deferred::Slot::read(entry_slot, |slot| {
+                state
+                    .storage(registry, B256::from(slot))
+                    .map(Option::unwrap_or_default)
+                    .map_err(|e| e.to_string())
+            })?);
         }
         Ok(Some(Self {
             rollup_id,
@@ -92,6 +155,7 @@ impl Projection {
             immediate_calls: Vec::new(),
             deferred_slots,
             deferred_discounts,
+            deferred_storage,
             deferred_count: 0,
             parent_proxies: Default::default(),
         }))
@@ -330,7 +394,7 @@ impl Projection {
         POSTBATCH_ENTRY_GAS_PIN
     }
 
-    fn deferred_entry_gas(&self, entry: &ExecutionEntrySol, index: usize) -> u64 {
+    fn legacy_deferred_entry_gas(&self, entry: &ExecutionEntrySol, index: usize) -> u64 {
         if self.deferred_slots.get(index) != Some(&true)
             || !self.common_shape(entry)
             || entry.proxyEntryHash.is_zero()
@@ -347,6 +411,26 @@ impl Projection {
         fresh.saturating_sub(self.deferred_discounts.get(index).copied().unwrap_or(0))
     }
 
+    fn deferred_price(&self, entry: &ExecutionEntrySol, index: usize) -> (u64, EstimateReason) {
+        let legacy = self.legacy_deferred_entry_gas(entry, index);
+        let priced = self
+            .deferred_storage
+            .get(index)
+            .and_then(Option::as_ref)
+            .ok_or(EstimateReason::DeferredOldSlot)
+            .and_then(|slot| slot.gas(entry, self.rollup_id));
+        match priced {
+            Ok(gas) if gas < legacy => (gas, EstimateReason::DeferredStorage),
+            _ if legacy < POSTBATCH_ENTRY_GAS_PIN => (legacy, EstimateReason::DeferredLegacy),
+            Ok(_) => (legacy, EstimateReason::GeneralReserveLower),
+            Err(reason) => (legacy, reason),
+        }
+    }
+
+    fn deferred_entry_gas(&self, entry: &ExecutionEntrySol, index: usize) -> u64 {
+        self.deferred_price(entry, index).0
+    }
+
     pub fn cost(
         &self,
         entries: &[ExecutionEntrySol],
@@ -355,15 +439,25 @@ impl Projection {
         established: Option<B256>,
     ) -> TxL1Gas {
         let mut cost = projected_tx_l1_gas(entries, target_gas);
+        cost.estimate_reasons = EstimateReasons::default();
         cost.entry_discount = entries
             .iter()
             .enumerate()
             .map(|(index, entry)| {
-                let priced = if immediate {
-                    self.entry_gas(entry, true, established)
+                let (priced, reason) = if immediate {
+                    let gas = self.entry_gas(entry, true, established);
+                    (
+                        gas,
+                        if gas < POSTBATCH_ENTRY_GAS_PIN {
+                            EstimateReason::ImmediateRegistered
+                        } else {
+                            EstimateReason::ImmediateEvidenceUnavailable
+                        },
+                    )
                 } else {
-                    self.deferred_entry_gas(entry, self.deferred_count + index)
+                    self.deferred_price(entry, self.deferred_count + index)
                 };
+                cost.estimate_reasons.0[reason as usize] += 1;
                 POSTBATCH_ENTRY_GAS_PIN - priced
             })
             .fold(0, u64::saturating_add);
@@ -504,6 +598,7 @@ mod tests {
             immediate_calls: Vec::new(),
             deferred_slots: vec![false; MAX_SHAPED_ENTRIES as usize],
             deferred_discounts: vec![0; MAX_SHAPED_ENTRIES as usize],
+            deferred_storage: (0..MAX_SHAPED_ENTRIES).map(|_| None).collect(),
             deferred_count: 0,
             parent_proxies: Default::default(),
         }
@@ -1071,6 +1166,59 @@ mod tests {
             .parse::<u64>()
             .unwrap();
         assert_eq!(value, EXISTING_PROXY_ENTRY_GAS);
+    }
+
+    #[test]
+    fn deferred_storage_pricing_survives_stitching_and_rejected_groups() {
+        let mut p = model(0);
+        p.deferred_storage = (0..MAX_SHAPED_ENTRIES)
+            .map(|i| {
+                deferred::Slot::read(U256::from(i * 100), |_| Ok::<_, ()>(U256::ZERO)).unwrap()
+            })
+            .collect();
+        let mut e = immediate().0;
+        e.proxyEntryHash = B256::repeat_byte(7);
+        e.l2ToL1Calls[0].data = Bytes::from(vec![1; 4]);
+        let mut unstitched = e.clone();
+        unstitched.rootUpdates.clear();
+        let cost = p.cost(&[unstitched.clone(), unstitched], 0, false, None);
+        assert_eq!(cost.estimate_reasons.json()["deferred_storage"], 2);
+        let mut budget = PostBatchGasBudget::new(100_000_000);
+        budget.projected = p.initial_gas();
+        assert!(budget.try_accept(cost));
+        p.accept_deferred(2);
+        let final_batch = batch(vec![anchor(), e.clone(), e.clone()], 1);
+        assert_eq!(
+            budget.projected,
+            p.batch_gas(&final_batch, cost.calldata_gas, 0)
+        );
+        let prior = budget;
+        budget.cap = budget.projected;
+        assert!(!budget.try_accept(p.cost(&[e], 0, false, None)));
+        assert_eq!(budget.projected, prior.projected);
+        assert_eq!(p.deferred_count, 2);
+    }
+
+    #[test]
+    fn deferred_storage_constants_match_executable_measurements() {
+        let contract = include_str!("../../../../contracts/test/PostBatchGasPins.t.sol");
+        for (name, value) in [
+            ("DEFERRED_STORAGE_ENTRY_GAS", deferred::ENTRY_GAS),
+            ("DEFERRED_STORAGE_WORD_GAS", deferred::WORD_GAS),
+            ("DEFERRED_STORAGE_FRESH_WORD_GAS", deferred::FRESH_WORD_GAS),
+            ("DEFERRED_STORAGE_ITEM_GAS", deferred::ITEM_GAS),
+        ] {
+            let line = format!("uint256 private constant {name} = ");
+            let actual = contract
+                .lines()
+                .find_map(|l| l.trim().strip_prefix(&line))
+                .unwrap()
+                .trim_end_matches(';')
+                .replace('_', "")
+                .parse::<u64>()
+                .unwrap();
+            assert_eq!(actual, value, "{name}");
+        }
     }
 
     #[test]

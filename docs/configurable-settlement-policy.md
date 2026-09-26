@@ -118,12 +118,32 @@ that target cannot train capacity even if some of its sources completed in a
 replacement. Source dispositions and replacement ownership still reconcile
 independently. `admission.skipped_slot` records this distinction.
 
-The bounded deferred-entry gas model can discount six fixed storage words that
+The legacy deferred-entry gas model can discount six fixed storage words that
 are already nonzero in the exact canonical parent. It discounts 15,000 gas per
 observed word; dynamic result storage, unknown shapes and speculative writes earn
 no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
+
+Estimator `deferred-storage-3` additionally inventories bounded retained callback
+and result storage. For supported deferred entries it reserves 35,000 per entry,
+8,000 per callback/result row, 8,000 per written storage word, and another 15,000
+for each nonzero new word whose canonical-parent value is zero or unknown.
+Each old word outside the new layout adds 8,000 for truncation; refunds are never
+credited. The lower of this measured reserve and the previous reserve is used.
+New words absent from the old inventory pay the fresh allowance. Roots and rolling
+hashes are priced as nonzero before stitching. The current and old layouts are
+bounded to one root update, four total callbacks, four nested result rows,
+256-byte callback input and 64-byte results. Current entries/calls are own-rollup,
+successful mutable zero-value work with implicit gas forwarding; reverted/static
+rows and other unmeasured shapes keep the previous estimate. Parent inventory
+reads are bounded before narrowing lengths or walking arrays, including inactive
+mapping slots. No writes in a speculative candidate earn reuse credit.
+
+These storage prices cover posting; companion execution retains its separate
+budget. The existing 128-total-entry limit, full-calldata projection and final
+ordered native validation still apply. No protocol pin, ABI, signer profile,
+configuration, database or historical follower decoding changes are required.
 
 The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
@@ -151,7 +171,7 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-At protocol `9d13218`, bounded simple deferred entries reserve gas according
+At protocol `9d13218`, the legacy simple deferred-entry reserve is priced according
 to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
 and 270,000 for 33–64 bytes, provided the corresponding retained queue mapping
 slot is empty or contains only one root update, no nested/callback rows, and
@@ -170,8 +190,8 @@ The measured topology is top-level L1 calls, L2 reentries and leaf L1 callbacks;
 deeper recursion, forced reverts and static rows retain the general reserve.
 Call/result evidence stays bound to the accepted occurrence through root
 stitching and final ABI sizing. These immediate rows use transient storage;
-deferred queue entries continue using the separate retained-word model above.
-New proxies, unmeasured shapes, reverting or larger entries retain the existing
+deferred queue entries use the separate storage models above.
+New proxies and unmeasured immediate shapes retain the existing
 370,000 reserve. Actual target execution is added separately in every case.
 The measured simple family permits up to 64 result bytes; an immediate call
 also permits at most 256 input bytes and requires its entry result to be empty.

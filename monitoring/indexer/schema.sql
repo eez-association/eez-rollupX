@@ -301,7 +301,9 @@ SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.s
     t.gas_used AS canonical_source_receipt_gas,
     (s.estimate->>'entry_reserve_gas')::numeric AS entry_reserve_gas,
     (s.estimate->>'l1_call_count')::numeric AS l1_call_count,
-    (s.estimate->>'nested_result_count')::numeric AS nested_result_count
+    (s.estimate->>'nested_result_count')::numeric AS nested_result_count,
+    s.estimate->'estimate_reasons' AS estimate_reasons,
+    (s.estimate->>'batch_discount_revoked')::boolean AS batch_discount_revoked
 FROM sources s JOIN eez_indexer.admission_candidates c USING(candidate_id)
 LEFT JOIN eez_indexer.transactions t ON t.transaction_hash=s.source_hash
     AND coalesce(s.estimate->>'direction',s.selected->>'direction')='inbound';

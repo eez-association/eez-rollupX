@@ -406,6 +406,7 @@ const fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas
 /// What one accepted held tx adds to the postBatch projection, per term.
 #[derive(Debug, Clone, Copy)]
 struct TxL1Gas {
+    estimate_reasons: gas::EstimateReasons,
     /// `batch.entries` rows it contributes, each costing [`POSTBATCH_ENTRY_GAS_PIN`].
     entries: u64,
     /// Saving justified by a bounded entry shape and canonical-parent evidence.
@@ -437,6 +438,7 @@ fn projected_tx_l1_gas(
 ) -> TxL1Gas {
     use alloy_sol_types::SolValue as _;
     TxL1Gas {
+        estimate_reasons: gas::EstimateReasons::unavailable(batch_entries.len() as u64),
         entries: batch_entries.len() as u64,
         entry_discount: 0,
         calldata_gas: batch_entries
@@ -589,6 +591,8 @@ fn trace_admission_budget(
         "entry_count": cost.entries,
         "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
         "entry_discount": cost.entry_discount,
+        "estimate_reasons": cost.estimate_reasons.json(),
+        "batch_discount_revoked": before.entries.saturating_add(cost.entries) >= gas::MAX_SHAPED_ENTRIES,
         "entry_reserve_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries).saturating_sub(cost.entry_discount),
         "l1_call_count": entries.iter().map(|e| e.l2ToL1Calls.len() + e.expectedL1ToL2Calls.iter().map(|r| r.l2ToL1Calls.len()).sum::<usize>()).sum::<usize>(),
         "nested_result_count": entries.iter().map(|e| e.expectedL1ToL2Calls.len()).sum::<usize>(),
@@ -7133,6 +7137,7 @@ mod tests {
         budget.block_cap = 17_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 1,
             entry_discount: 0,
             calldata_gas: 0,
@@ -7152,6 +7157,7 @@ mod tests {
         budget.block_cap = 60_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 0,
             entry_discount: 0,
             calldata_gas: 0,
@@ -7170,6 +7176,7 @@ mod tests {
         budget.block_cap = 17_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 1,
             entry_discount: 0,
             calldata_gas: 5_000,
@@ -7198,6 +7205,7 @@ mod tests {
         let mut budget = PostBatchGasBudget::new(16_777_216);
         budget.block_cap = 10_000_000;
         let free = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 0,
             entry_discount: 0,
             calldata_gas: 0,
@@ -7764,6 +7772,7 @@ mod tests {
         let mut budget = PostBatchGasBudget::new(MIN_VIABLE_POSTBATCH_GAS);
         assert!(
             budget.try_accept(TxL1Gas {
+                estimate_reasons: Default::default(),
                 entries: 1,
                 entry_discount: 0,
                 calldata_gas: 0,

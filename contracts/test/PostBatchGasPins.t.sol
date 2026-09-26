@@ -110,6 +110,10 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant RETAINED_WORD_DISCOUNT = 15_000;
     uint256 private constant EXTRA_IMMEDIATE_CALL_GAS = 40_000;
     uint256 private constant IMMEDIATE_RESULT_ROW_GAS = 35_000;
+    uint256 private constant DEFERRED_STORAGE_ENTRY_GAS = 35_000;
+    uint256 private constant DEFERRED_STORAGE_WORD_GAS = 8_000;
+    uint256 private constant DEFERRED_STORAGE_FRESH_WORD_GAS = 15_000;
+    uint256 private constant DEFERRED_STORAGE_ITEM_GAS = 8_000;
 
     uint64 private constant ROLLUP_ID = 1;
     uint256 private constant PROVER_KEY = 0xA11CE;
@@ -683,6 +687,240 @@ contract PostBatchGasPinsTest is Test {
             false, call_.sourceAddress, ROLLUP_ID, call_.targetAddress, eez.MAINNET_ROLLUP_ID(), 0, 0, call_.data
         );
         return keccak256(abi.encodePacked(hash, uint8(1), callHash));
+    }
+
+    struct StoredWord {
+        uint256 slot;
+        bytes32 value;
+    }
+
+    struct StoredWords {
+        StoredWord[] words;
+        uint256 count;
+    }
+
+    struct DeferredShape {
+        uint256 calls;
+        uint256 rows;
+        uint256 nestedCalls;
+        uint256 inputBytes;
+        uint256 resultBytes;
+    }
+
+    function testDeferredStorageCallbacksShort() external {
+        _storageLadder(DeferredShape(1, 0, 0, 4, 32));
+    }
+
+    function testDeferredStorageCallbacksMaximum() external {
+        _storageLadder(DeferredShape(4, 0, 0, 256, 64));
+    }
+
+    function testDeferredStorageRowsAndCallbacks() external {
+        _storageLadder(DeferredShape(2, 2, 1, 32, 32));
+    }
+
+    function testDeferredStorageRowsMaximum() external {
+        _storageLadder(DeferredShape(0, 4, 1, 256, 64));
+    }
+
+    function testDeferredStorageByteBoundaries() external {
+        uint256[7] memory sizes = [uint256(0), 1, 31, 32, 33, 63, 64];
+        for (uint256 i; i < sizes.length; i++) {
+            _storageTransitions(10, DeferredShape(1, 1, 1, sizes[i], sizes[i]));
+        }
+    }
+
+    function _storageLadder(DeferredShape memory shape) private {
+        uint256[3] memory counts = [uint256(1), 10, 127];
+        for (uint256 i; i < counts.length; i++) {
+            _storageTransitions(counts[i], shape);
+        }
+    }
+
+    /// Every transition starts cold and checks the actual compiler layout.
+    /// Fresh -> same shape -> empty active queue -> shorter arrays -> expansion
+    /// exercises retained inactive words and Solidity's tail deletion.
+    struct StorageRun {
+        EEZ eez;
+        ECDSAProofSystem proofSystem;
+        StoredWords[] old;
+        uint256 queue;
+    }
+
+    function _storageTransitions(uint256 count, DeferredShape memory complex) private {
+        vm.pauseGasMetering();
+        delete touched;
+        StorageRun memory run;
+        (run.eez, run.proofSystem) = _deployProtocol();
+        run.old = new StoredWords[](count);
+        run.queue = uint256(keccak256(abi.encode(ROLLUP_ID, uint256(3)))) + 1;
+        for (uint256 wave; wave < 5; wave++) {
+            bool reset = wave == 2;
+            DeferredShape memory shape = wave == 3 ? DeferredShape(0, 0, 0, 0, 0) : complex;
+            ProofSystemBatchPerVerificationEntries memory batch = _batch(
+                run.eez, run.proofSystem, address(0xA123), Rung(reset ? 0 : count, shape.calls, false, false, 64)
+            );
+            batch.immediateEntryCount = 1;
+            StoredWords[] memory next = new StoredWords[](count);
+            uint256 reserve = POSTBATCH_BASE_GAS_PIN;
+            for (uint256 i; i < (reset ? 0 : count); i++) {
+                _storageEntry(batch.entries[i + 1], shape, i + wave * count);
+                // Exercise zero payload words without changing array lengths.
+                if (count == 10 && wave == 1) _zeroStoragePayloads(batch.entries[i + 1]);
+                uint256 head = uint256(keccak256(abi.encode(i, run.queue)));
+                next[i] = _entryWords(head, batch.entries[i + 1]);
+                reserve += _storagePrice(run.eez, next[i], run.old[i], shape);
+            }
+            vm.resumeGasMetering();
+            uint256 used = _measure(run.eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
+            vm.pauseGasMetering();
+            assertLe(used, reserve, "deferred storage reserve exceeded before refunds");
+            assertEq(run.eez.queueLength(ROLLUP_ID), reset ? 0 : count);
+            assertEq(run.eez.entryQueueIndex(ROLLUP_ID), 0, "post did not execute callbacks");
+            for (uint256 i; i < (reset ? 0 : count); i++) {
+                for (uint256 j; j < next[i].count; j++) {
+                    StoredWord memory word = next[i].words[j];
+                    assertEq(vm.load(address(run.eez), bytes32(word.slot)), word.value, "compiler storage layout drift");
+                }
+                run.old[i] = next[i];
+            }
+            console.log("storage entries / wave:", count, wave);
+            console.log("  execution gas / reserve:", used, reserve);
+            vm.roll(block.number + 1);
+        }
+        vm.resumeGasMetering();
+    }
+
+    function _zeroStoragePayloads(ExecutionEntry memory entry) private pure {
+        entry.returnData = new bytes(entry.returnData.length);
+        for (uint256 j; j < entry.l2ToL1Calls.length; j++) {
+            entry.l2ToL1Calls[j].data = new bytes(entry.l2ToL1Calls[j].data.length);
+        }
+        for (uint256 j; j < entry.expectedL1ToL2Calls.length; j++) {
+            ExpectedL1ToL2Call memory row = entry.expectedL1ToL2Calls[j];
+            row.returnData = new bytes(row.returnData.length);
+            for (uint256 k; k < row.l2ToL1Calls.length; k++) {
+                row.l2ToL1Calls[k].data = new bytes(row.l2ToL1Calls[k].data.length);
+            }
+        }
+    }
+
+    function _storageEntry(ExecutionEntry memory entry, DeferredShape memory shape, uint256 salt) private pure {
+        entry.proxyEntryHash = keccak256(abi.encode(salt, uint256(17)));
+        entry.rollingHash = keccak256(abi.encode(salt, uint256(18)));
+        entry.returnData = _nonzeroBytes(shape.resultBytes);
+        for (uint256 i; i < entry.l2ToL1Calls.length; i++) {
+            entry.l2ToL1Calls[i].data = _nonzeroBytes(shape.inputBytes);
+        }
+        entry.expectedL1ToL2Calls = new ExpectedL1ToL2Call[](shape.rows);
+        for (uint256 i; i < shape.rows; i++) {
+            L2ToL1Call[] memory calls = new L2ToL1Call[](shape.nestedCalls);
+            for (uint256 j; j < calls.length; j++) {
+                calls[j] = L2ToL1Call(
+                    0,
+                    false,
+                    0,
+                    address(uint160(0x7777 + j)),
+                    ROLLUP_ID,
+                    address(0xA123),
+                    0,
+                    _nonzeroBytes(shape.inputBytes)
+                );
+            }
+            entry.expectedL1ToL2Calls[i] = ExpectedL1ToL2Call(
+                keccak256(abi.encode(salt, i)), calls, bytes32(0), true, _nonzeroBytes(shape.resultBytes)
+            );
+        }
+    }
+
+    function _storagePrice(
+        EEZ eez,
+        StoredWords memory next,
+        StoredWords memory old,
+        DeferredShape memory shape
+    )
+        private
+        view
+        returns (uint256 gas)
+    {
+        gas = DEFERRED_STORAGE_ENTRY_GAS + (shape.calls + shape.rows * (1 + shape.nestedCalls))
+            * DEFERRED_STORAGE_ITEM_GAS;
+        for (uint256 i; i < next.count; i++) {
+            gas += DEFERRED_STORAGE_WORD_GAS;
+            if (next.words[i].value != bytes32(0) && vm.load(address(eez), bytes32(next.words[i].slot)) == bytes32(0)) {
+                gas += DEFERRED_STORAGE_FRESH_WORD_GAS;
+            }
+        }
+        for (uint256 i; i < old.count; i++) {
+            bool kept;
+            for (uint256 j; j < next.count; j++) {
+                if (old.words[i].slot == next.words[j].slot) {
+                    kept = true;
+                    break;
+                }
+            }
+            if (!kept) gas += DEFERRED_STORAGE_WORD_GAS;
+        }
+    }
+
+    function _word(StoredWords memory words, uint256 slot, bytes32 value) private pure {
+        words.words[words.count++] = StoredWord(slot, value);
+    }
+
+    function _bytesWords(StoredWords memory words, uint256 head, bytes memory value) private pure {
+        if (value.length < 32) {
+            bytes32 packed;
+            // Reads the first word of a nonempty, Solidity-allocated byte array.
+            if (value.length != 0) assembly ("memory-safe") { packed := mload(add(value, 0x20)) }
+            _word(words, head, packed | bytes32(value.length * 2));
+        } else {
+            _word(words, head, bytes32(value.length * 2 + 1));
+            uint256 start = uint256(keccak256(abi.encode(head)));
+            for (uint256 i; i < value.length; i += 32) {
+                bytes32 packed;
+                // i < length; the final word lies within the allocated, padded array.
+                assembly ("memory-safe") { packed := mload(add(add(value, 0x20), i)) }
+                _word(words, start + i / 32, packed);
+            }
+        }
+    }
+
+    function _callWords(StoredWords memory words, uint256 head, L2ToL1Call[] memory calls) private pure {
+        _word(words, head, bytes32(calls.length));
+        uint256 start = uint256(keccak256(abi.encode(head)));
+        for (uint256 i; i < calls.length; i++) {
+            L2ToL1Call memory c = calls[i];
+            uint256 slot = start + i * 4;
+            _word(words, slot, bytes32(uint256(uint160(c.sourceAddress)) << 88));
+            _word(words, slot + 1, bytes32(uint256(c.sourceRollupId) | (uint256(uint160(c.targetAddress)) << 64)));
+            _word(words, slot + 2, bytes32(c.value));
+            _bytesWords(words, slot + 3, c.data);
+        }
+    }
+
+    function _entryWords(uint256 head, ExecutionEntry memory entry) private pure returns (StoredWords memory words) {
+        words.words = new StoredWord[](128);
+        _word(words, head, bytes32(uint256(1)));
+        uint256 roots = uint256(keccak256(abi.encode(head)));
+        _word(words, roots, bytes32(uint256(ROLLUP_ID)));
+        _word(words, roots + 1, entry.rollupUpdates[0].currentRoot);
+        _word(words, roots + 2, entry.rollupUpdates[0].newRoot);
+        _word(words, head + 1, entry.proxyEntryHash);
+        _callWords(words, head + 2, entry.l2ToL1Calls);
+        _word(words, head + 3, bytes32(entry.expectedL1ToL2Calls.length));
+        uint256 rows = uint256(keccak256(abi.encode(head + 3)));
+        for (uint256 i; i < entry.expectedL1ToL2Calls.length; i++) {
+            ExpectedL1ToL2Call memory row = entry.expectedL1ToL2Calls[i];
+            uint256 slot = rows + i * 5;
+            _word(words, slot, row.expectedL1toL2Hash);
+            _callWords(words, slot + 1, row.l2ToL1Calls);
+            _word(words, slot + 2, row.revertedOrStaticRollingHash);
+            _word(words, slot + 3, bytes32(uint256(1)));
+            _bytesWords(words, slot + 4, row.returnData);
+        }
+        _word(words, head + 4, entry.rollingHash);
+        _word(words, head + 5, bytes32(uint256(ROLLUP_ID) | (uint256(1) << 64)));
+        _bytesWords(words, head + 6, entry.returnData);
     }
 
     function _deferredRung(

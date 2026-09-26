@@ -210,6 +210,33 @@ pub fn parse(line: &[u8], config: &Config) -> Result<Option<Value>> {
         }
     }
     if kind == "source_estimate" {
+        if let Some(reasons) = detail.get("estimate_reasons") {
+            let reasons = reasons.as_object().context("invalid estimate reasons")?;
+            ensure!(reasons.len() <= 32, "too many estimate reasons");
+            let mut total = 0_u64;
+            for (reason, count) in reasons {
+                ensure!(
+                    !reason.is_empty()
+                        && reason.len() <= 64
+                        && reason.bytes().all(|c| c.is_ascii_lowercase() || c == b'_'),
+                    "invalid estimate reason"
+                );
+                let count = count
+                    .as_u64()
+                    .filter(|v| *v != 0)
+                    .context("invalid estimate reason count")?;
+                total = total
+                    .checked_add(count)
+                    .context("estimate reason count overflow")?;
+            }
+            ensure!(
+                detail.get("entry_count").and_then(Value::as_u64) == Some(total),
+                "estimate reasons do not cover entries"
+            );
+        }
+        if let Some(revoked) = detail.get("batch_discount_revoked") {
+            ensure!(revoked.is_boolean(), "invalid batch discount flag");
+        }
         ensure!(
             data["detail"]["gas_gate_accepted"].is_boolean(),
             "missing gas decision"
