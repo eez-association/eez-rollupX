@@ -14,6 +14,10 @@ on:
         options:
           - ubuntu-24.04
           - homelab-rust
+      cargo-state-cache:
+        description: Opt into bounded Cargo state for this run (homelab only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +43,7 @@ jobs:
       packages: write
     with:
       runner: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+      cargo-state-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.cargo-state-cache == true }}
 
   kurtosis-e2e:
     name: Kurtosis E2E

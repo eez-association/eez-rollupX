@@ -151,6 +151,24 @@ The current token cannot read repository variables (HTTP 403); the operator must
 confirm its value when arranging rollout.
 Rollback is to unset it; artifacts and consumer interfaces do not change.
 
+For pre-merge validation without a repository-wide change, the ordinary `CI`
+workflow also accepts the default-off boolean `cargo-state-cache` on manual
+dispatch. It forwards that opt-in to the same reusable producer; the homelab-only
+guard, publication, sharded consumers, and final gate are unchanged:
+
+```bash
+gh workflow run ci.yml --repo eduadiez/rollupX --ref perf/ci-cargo-state-cache \
+  -f runner=homelab-rust -f cargo-state-cache=true
+```
+
+The input is an additional opt-in, not an override: false still honors an enabled
+repository variable. PR/push events do not opt in through the manual input.
+Manual branch runs do not promote `latest` or save Cargo state (saves remain
+default-branch-push-only). Experimental caches on another branch are not available
+to this branch, so its first optimized production-pipeline run may be cold.
+The earlier isolated integration pass does not establish that this normal
+publication-and-shard workflow has passed; that remains a pre-merge check.
+
 `cargo-state.py prepare` builds the existing Dockerfile's tools-only stage,
 records compatibility and stages tracked inputs. The workflow restores one
 optional `.ci-cargo-state/transport.tar.gz`; `build-runtime-artifacts.sh` invokes

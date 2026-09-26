@@ -256,6 +256,20 @@ elif args[0] != "logout":
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="homelab-small"),
                                  "homelab-small" if name == "lint" else "homelab-rust")
 
+    def test_cargo_state_manual_opt_in_is_default_off_and_producer_only(self):
+        caller = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
+        producer = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
+        for workflow, trigger in ((caller, "workflow_dispatch"), (producer, "workflow_call")):
+            triggers = workflow.get("on", workflow.get(True))
+            option = triggers[trigger]["inputs"]["cargo-state-cache"]
+            self.assertEqual(option["type"], "boolean")
+            self.assertIs(option["default"], False)
+        self.assertEqual(self.jobs["build-runtime"]["with"]["cargo-state-cache"],
+                         "${{ github.event_name == 'workflow_dispatch' && inputs.cargo-state-cache == true }}")
+        for name, job in self.jobs.items():
+            if name != "build-runtime":
+                self.assertNotIn("cargo-state-cache", job.get("with", {}))
+
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):
             for job in yaml.safe_load(path.read_text())["jobs"].values():

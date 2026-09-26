@@ -219,7 +219,7 @@ class CargoStateTest(unittest.TestCase):
         workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
         job = workflow["jobs"]["build"]
         self.assertEqual(job["env"]["EEZ_CARGO_STATE_CACHE"],
-                         "${{ vars.CI_CARGO_STATE_CACHE == 'true' && inputs.runner == 'homelab-rust' }}")
+                         "${{ (inputs.cargo-state-cache || vars.CI_CARGO_STATE_CACHE == 'true') && inputs.runner == 'homelab-rust' }}")
         steps = job["steps"]
         restore = next(s for s in steps if s.get("id") == "cargo-restore")
         archive = next(s for s in steps if s.get("id") == "cargo-archive")
