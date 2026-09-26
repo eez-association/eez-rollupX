@@ -648,6 +648,33 @@ async fn single_sync_wave(
             U256::from(inbound_count)
         );
         let events = world.node.signals_since(cursor).unwrap();
+        // The production caller must budget protocol work omitted by source
+        // simulation while retaining the original signed transaction limit.
+        let companion_estimates: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|e| e.name == "eez.composer.admission.v1")
+            .map(|e| serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap())
+            .filter(|e: &serde_json::Value| {
+                e["kind"] == "source_estimate" && e["detail"]["direction"] == "inbound"
+            })
+            .collect();
+        assert_eq!(companion_estimates.len(), inbound_count as usize);
+        for estimate in &companion_estimates {
+            assert_eq!(estimate["estimator_version"], "companion-storage-4");
+            let detail = &estimate["detail"];
+            assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
+            assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
+            let reserve = detail["companion_protocol_reserve_gas"].as_u64().unwrap();
+            assert!(reserve >= 90_000);
+            assert_eq!(
+                detail["companion_estimate_gas"].as_u64().unwrap(),
+                detail["companion_sim_gas"].as_u64().unwrap() + reserve
+            );
+            assert!(
+                detail["companion_estimate_gas"].as_u64().unwrap()
+                    < detail["companion_declared_gas"].as_u64().unwrap()
+            );
+        }
         if wave > 0 && inbound_count > 0 {
             let estimates: Vec<serde_json::Value> = events
                 .iter()
@@ -669,7 +696,7 @@ async fn single_sync_wave(
                 "retained storage pricing must reach native settlement"
             );
             for estimate in estimates {
-                assert_eq!(estimate["estimator_version"], "deferred-storage-3");
+                assert_eq!(estimate["estimator_version"], "companion-storage-4");
                 assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
                 assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
             }
