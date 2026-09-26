@@ -285,9 +285,10 @@ async fn gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_non
     let mut settings = env();
     settings.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()));
     // Isolate gas packing from the first cold proof of deployment history.
-    // Deadline behavior has separate regressions in dynamic_admission.
+    // The 3,600 ms total including slack fits this fixture's 4,000 ms Future
+    // region. Deadline behavior has separate regressions in dynamic_admission.
     settings.extend([
-        ("EEZ_PREPARATION_TIME_MS", "2000".into()),
+        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
         ("EEZ_PROOF_TIME_MS", "2000".into()),
     ]);
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &settings)
