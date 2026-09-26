@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation authorized by the user on 2026-09-26; in progress on `feat/cross-chain-admission-throughput`. Current runtime contract is documented in the settlement/RPC specifications. Validation and deployment status are tracked in the September 26 audit. |
+| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput` and deployed locally at `b352124`. Local checks and the verified 870-source live comparison passed. The September 26 audit records results, the gas trade-off and remaining infrastructure limits. Current runtime contract is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |

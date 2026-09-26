@@ -1,0 +1,46 @@
+{
+  "checked_at": "2026-09-26T09:43:32.305793+00:00",
+  "images": [
+    {
+      "image": "eez-node:b352124-shipping-local",
+      "image_id": "sha256:e4b506c10d7b3cfb0b89c9f9b72a196f52a91e24ef83078bd3b0565fac4ce551",
+      "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "bfe645e4d29918a8a953a6a6500cfa52cb00566ca5dbe2fd577390c7d3c49646  /usr/local/bin/eez-composer",
+        "f6919c2445718d5a7143f9b6444a64d08e98740a8c00981aa05333dd9c0d6a3f  /usr/local/bin/eez-follower",
+        "498f59d0c5ae5b5aad35bfb1de8f85857a205fd6014083206ea7da36c4d3f93f  /usr/local/bin/eez-genesis-state-root",
+        "0eb6d3fb9bfcf6451cc5d12bb402370a0b375e8f69cbddac229004fdab3c3b13  /usr/local/bin/eez-genesis-block-hash"
+      ]
+    },
+    {
+      "image": "eez-proof-signer:b352124-shipping-local",
+      "image_id": "sha256:cb79158c6219f1de01af4b874ade326d9a3f4325be0eee083e8840cf5de0cd85",
+      "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "c84a2fe6454fe95a10f67414b297720c646bc05db6c679c4779192a359de2e68  /usr/local/bin/eez-proof-signer"
+      ]
+    },
+    {
+      "image": "eez-deploy:b352124-shipping-local",
+      "image_id": "sha256:557934f732a5ee0a4116d1448e509514014df970d2eed5d22bc2265924cbcf47",
+      "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64"
+    },
+    {
+      "image": "eez-indexer:b352124-shipping-local",
+      "image_id": "sha256:ed6110a67333ee8c27e1a8ab4280e821ccd1e28cb15f38aa0fcfb1ac4577c253",
+      "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64"
+    }
+  ],
+  "original_genesis_matches": {
+    "eez-genesis-block-hash": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+    "eez-genesis-state-root": "0x6b5837ca86d97b30ee9e3b69fb1c7ad29c64a3f97861ad2b240de7931dbe1dad"
+  }
+}

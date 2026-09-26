@@ -6590,9 +6590,9 @@ fn ensure_batch_registry_native(
     Ok(())
 }
 
-/// Only a canonically proven skipped target with every source still retryable
-/// is unrelated to submission capacity. Partial application, spent nonces and
-/// ordinary exclusions retain the existing conservative learning behavior.
+/// A canonically proven skipped target does not measure submission capacity,
+/// including when replacement attempts consumed some sources. Produced targets
+/// retain the existing conservative learning for incomplete source outcomes.
 fn submission_backoff_required(
     outcomes: &[crate::optimistic::SourceOutcome],
     skipped_slot: bool,

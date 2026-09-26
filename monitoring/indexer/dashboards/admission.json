@@ -62,7 +62,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time,candidate_id,accepted,deferred,reason,admission_gas::float8,full_projection_gas::float8,preflight_gas_used::float8,preflight_gas_required::float8,signed_gas_limit::float8,canonical_receipt_gas::float8,admission_gas::float8/nullif(canonical_receipt_gas,0) AS estimate_receipt_ratio,canonical_l1_block,transaction_hash,chain_status,history,rebuild_of FROM eez_indexer.admission_candidates WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
+          "rawSql": "SELECT time,canonical_l1_block,accepted,admission_gas::float8,canonical_receipt_gas::float8,admission_gas::float8/nullif(canonical_receipt_gas,0) AS estimate_receipt_ratio,reason,deferred,full_projection_gas::float8,preflight_gas_used::float8,preflight_gas_required::float8,signed_gas_limit::float8,candidate_id,transaction_hash,chain_status,history,rebuild_of FROM eez_indexer.admission_candidates WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
           "editorMode": "code"
         }
       ],

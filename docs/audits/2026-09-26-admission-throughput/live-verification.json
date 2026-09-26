@@ -1,0 +1,129 @@
+{
+  "run": "eez-core-protocol/tmp/e2e-staged-net/20260926-103808",
+  "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+  "started_at": "2026-09-26T10:38:07.942280+00:00",
+  "finished_at": "2026-09-26T11:02:57.818703+00:00",
+  "exit_code": 0,
+  "semantic_jobs": 770,
+  "semantic_passed": 770,
+  "semantic_failed": 0,
+  "phases": [
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "build",
+      "start_ms": "1790419088330",
+      "end_ms": "1790419088489",
+      "duration_ms": "159",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "fund",
+      "start_ms": "1790419088489",
+      "end_ms": "1790419200584",
+      "duration_ms": "112095",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "nonce-barrier",
+      "start_ms": "1790419200585",
+      "end_ms": "1790419202205",
+      "duration_ms": "1620",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan-inputs",
+      "start_ms": "1790419202205",
+      "end_ms": "1790419203024",
+      "duration_ms": "819",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan",
+      "start_ms": "1790419203025",
+      "end_ms": "1790419243566",
+      "duration_ms": "40541",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-send",
+      "start_ms": "1790419243567",
+      "end_ms": "1790419245731",
+      "duration_ms": "2164",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-mine",
+      "start_ms": "1790419245732",
+      "end_ms": "1790419709880",
+      "duration_ms": "464148",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-liveness",
+      "start_ms": "1790419709881",
+      "end_ms": "1790419712582",
+      "duration_ms": "2701",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "finish",
+      "start_ms": "1790419717952",
+      "end_ms": "1790419717960",
+      "duration_ms": "8",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "send",
+      "start_ms": "1790419717989",
+      "end_ms": "1790419719427",
+      "duration_ms": "1438",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "monitor",
+      "start_ms": "1790419719428",
+      "end_ms": "1790419885787",
+      "duration_ms": "166359",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "verify",
+      "start_ms": "1790419885792",
+      "end_ms": "1790420577789",
+      "duration_ms": "691997",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "total",
+      "start_ms": "1790419088320",
+      "end_ms": "1790420577792",
+      "duration_ms": "1489472",
+      "status": "pass"
+    }
+  ]
+}

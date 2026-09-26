@@ -1,0 +1,15 @@
+{
+  "prepared_at": "2026-09-26T10:30:52.161315+00:00",
+  "start_block": 23237088,
+  "start_hash": "0xe8d28b20f49bee1136349f681a8c680ba85e97430dfb4d89f4bcca4101ef6138",
+  "end_block": 23237283,
+  "end_hash": "0xfb27b711638d59dc22c4f01e5e263ace4637a498d6d6f7afdd074ddfa089a164",
+  "beacon_slot": "25004468",
+  "validated_payloads": 195,
+  "method": "engine_newPayloadV4",
+  "forkchoice_calls": 0,
+  "datadir_resets": 0,
+  "peer_configuration_changes": 0,
+  "prepared_sha256": "1d48ea104723d8328e6a0bd0b3e0fa5bdf35dbe0b903bd5a560c2c27805f744b",
+  "results_sha256": "fd4906ee98be03920fde5e901fdf8211736b9c5250ca86c4e4d9715499352a83"
+}

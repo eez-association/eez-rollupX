@@ -1,0 +1,67 @@
+{
+  "live_panels": 7,
+  "successful_datasource_queries": 7,
+  "browser_errors": 0,
+  "sql_errors": 0,
+  "comparison_rows": 34,
+  "comparison_first_columns": [
+    "time",
+    "canonical_l1_block",
+    "accepted",
+    "admission_gas",
+    "canonical_receipt_gas",
+    "estimate_receipt_ratio"
+  ],
+  "candidate_filter_and_source_filter_and_csv_and_gap_outage_fixtures": "passed in the disposable Grafana before cleanup",
+  "prometheus": {
+    "checked_at": "2026-09-26T11:04:03.632188+00:00",
+    "route_prefix": "/prometheus",
+    "event_total": [
+      {
+        "metric": {},
+        "value": [
+          1790420643.637,
+          "4490"
+        ]
+      }
+    ],
+    "stage_samples": [
+      {
+        "metric": {
+          "stage": "proof"
+        },
+        "value": [
+          1790420643.667,
+          "34"
+        ]
+      },
+      {
+        "metric": {
+          "stage": "delivery"
+        },
+        "value": [
+          1790420643.667,
+          "34"
+        ]
+      },
+      {
+        "metric": {
+          "stage": "finalization"
+        },
+        "value": [
+          1790420643.667,
+          "34"
+        ]
+      },
+      {
+        "metric": {
+          "stage": "preparation"
+        },
+        "value": [
+          1790420643.667,
+          "34"
+        ]
+      }
+    ]
+  }
+}
