@@ -100,8 +100,8 @@ impl Selection {
         self.remaining -= 1;
     }
 
-    /// Canonical outbound-first execution can spend the budget before an older
-    /// eligible inbound. Only that kind of cut needs reduced FIFO lookahead.
+    /// Observe when canonical outbound-first execution passes an older eligible
+    /// inbound. This diagnostic does not impose a capacity limit.
     pub fn fifo_bypassed(&self) -> bool {
         self.eligible
             .first()
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn only_bypassed_eligible_fifo_work_needs_capacity_backoff() {
+    fn observes_bypassed_eligible_fifo_work_without_counting_blocked_sources() {
         let users = vec![
             tx(1, 0, Direction::Inbound),
             tx(2, 0, Direction::Outbound),

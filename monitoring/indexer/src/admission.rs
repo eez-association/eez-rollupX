@@ -209,6 +209,40 @@ pub fn parse(line: &[u8], config: &Config) -> Result<Option<Value>> {
             );
         }
     }
+    if kind == "summary" {
+        if let Some(flag) = detail.get("fifo_bypassed") {
+            ensure!(flag.is_boolean(), "invalid FIFO bypass flag");
+        }
+        if let Some(reasons) = detail.get("capacity_deferrals") {
+            let reasons = reasons.as_object().context("invalid capacity deferrals")?;
+            ensure!(reasons.len() <= 32, "too many capacity deferral reasons");
+            let mut total = 0_u64;
+            for (reason, count) in reasons {
+                ensure!(
+                    !reason.is_empty()
+                        && reason.len() <= 64
+                        && reason
+                            .bytes()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'),
+                    "invalid capacity deferral reason"
+                );
+                let count = count
+                    .as_u64()
+                    .filter(|n| *n > 0)
+                    .context("invalid capacity deferral count")?;
+                total = total
+                    .checked_add(count)
+                    .context("capacity deferral count overflow")?;
+            }
+            ensure!(
+                detail
+                    .get("deferred")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|n| total <= n),
+                "capacity deferrals exceed deferred groups"
+            );
+        }
+    }
     if kind == "source_estimate" {
         if let Some(reasons) = detail.get("estimate_reasons") {
             let reasons = reasons.as_object().context("invalid estimate reasons")?;

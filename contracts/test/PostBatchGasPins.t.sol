@@ -87,6 +87,22 @@ contract PostBatchGasProbe {
         require(ok == expectedSuccess && keccak256(result) == keccak256(expectedResult), "companion outcome mismatch");
     }
 
+    function measureGroup(
+        address target,
+        bytes[] calldata inputs,
+        bytes calldata expectedResult
+    )
+        external
+        returns (uint256 gasUsed)
+    {
+        uint256 start = gasleft();
+        for (uint256 i = 0; i < inputs.length; i++) {
+            (bool ok, bytes memory result) = target.call(inputs[i]);
+            require(ok && keccak256(result) == keccak256(expectedResult), "group outcome mismatch");
+        }
+        gasUsed = start - gasleft();
+    }
+
     function measure(address eez, bytes calldata postCall) external returns (uint256 gasUsed) {
         uint256 start = gasleft();
         (bool ok, bytes memory revertData) = eez.call(postCall);
@@ -671,7 +687,12 @@ contract PostBatchGasPinsTest is Test {
 
     function _nestedEntry(EEZ eez, ExecutionEntry memory entry, NestedShape memory shape, uint256 index) private {
         entry.l2ToL1Calls[0].data = _nonzeroBytes(256);
-        bytes32 hash = _rollingHash(eez, entry.rollupUpdates, new L2ToL1Call[](0));
+        bytes32 hash;
+        for (uint256 i = 0; i < entry.rollupUpdates.length; i++) {
+            hash =
+                keccak256(abi.encodePacked(hash, entry.rollupUpdates[i].rollupId, entry.rollupUpdates[i].currentRoot));
+        }
+        hash = keccak256(abi.encodePacked(hash, entry.proxyEntryHash));
         hash = _callBegin(eez, hash, entry.l2ToL1Calls[0]);
         entry.expectedL1ToL2Calls = new ExpectedL1ToL2Call[](shape.rows);
         for (uint256 j = 0; j < shape.rows; j++) {
@@ -1013,6 +1034,156 @@ contract PostBatchGasPinsTest is Test {
         _companionRung(127, 0, 100, true, false);
         _companionRung(127, 0, 256, false, false);
         _companionRung(127, 0, 256, false, true);
+    }
+
+    function testCompanionNestedRows() public {
+        for (uint256 rows = 1; rows <= 4; rows++) {
+            _companionNestedRung(1, rows, 0, false, false);
+        }
+        _companionNestedRung(10, 4, 3, false, false);
+    }
+
+    function testCompanionNestedMaximumQueue() public {
+        _companionNestedRung(127, 4, 0, false, true);
+    }
+
+    function testCompanionNestedRevertedSpan() public {
+        _companionNestedRung(127, 4, 3, true, false);
+    }
+
+    function testCompanionNestedRevertedSpanRepeatedIdentity() public {
+        _companionNestedRung(127, 4, 3, true, true);
+    }
+
+    function _companionNestedRung(
+        uint256 count,
+        uint256 rows,
+        uint256 callbacks,
+        bool revertedSpan,
+        bool repeatedHash
+    )
+        private
+    {
+        delete touched;
+        (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+        address remote = address(0x9000);
+        address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
+        NestedPinTarget target = new NestedPinTarget(proxy, rows);
+        BoundedReturnTarget callback = new BoundedReturnTarget(64);
+        touched.push(proxy);
+        touched.push(address(target));
+        touched.push(address(callback));
+        ProofSystemBatchPerVerificationEntries memory batch =
+            _batch(eez, proofSystem, address(target), Rung(count, 1, true, true, 1));
+        batch.immediateEntryCount = 1;
+        bytes32 root = batch.entries[0].rollupUpdates[0].newRoot;
+        for (uint256 i = 1; i <= count; i++) {
+            ExecutionEntry memory entry = batch.entries[i];
+            entry.rollupUpdates[0].currentRoot = repeatedHash && i < count ? bytes32(i) : root;
+            entry.proxyEntryHash = eez.computeCrossChainCallHash(
+                false,
+                address(probe),
+                eez.MAINNET_ROLLUP_ID(),
+                remote,
+                ROLLUP_ID,
+                0,
+                0,
+                abi.encode(repeatedHash ? count : i)
+            );
+            entry.returnData = _nonzeroBytes(256);
+            _nestedEntry(eez, entry, NestedShape(address(target), address(callback), rows, callbacks), i);
+            entry.l2ToL1Calls[0].revertNextNCalls = revertedSpan ? 1 : 0;
+            if (revertedSpan) {
+                for (uint256 j = 0; j < entry.expectedL1ToL2Calls.length; j++) {
+                    if (entry.expectedL1ToL2Calls[j].l2ToL1Calls.length != 0) {
+                        entry.expectedL1ToL2Calls[j].l2ToL1Calls[0].revertNextNCalls = 1;
+                    }
+                }
+            }
+        }
+        _measure(eez, batch, root);
+        for (uint256 i = 0; i < touched.length; i++) {
+            vm.cool(touched[i]);
+        }
+        uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(256));
+        // Includes this fixture's application work, so the production estimate's
+        // separately added callback simulation only increases the allowance.
+        uint256 reserve = 90_000 + 60_000 * (1 + callbacks) + 40_000 * rows + 3_000
+            * (8 + 8 * (1 + callbacks) + 10 * rows) + (repeatedHash ? 12_000 : 4_000) * (count - 1)
+            + (revertedSpan ? 60_000 * (1 + callbacks) : 0);
+        console.log("nested companion rows / callbacks", rows, callbacks);
+        console.log("  execution gas / reserve", used, reserve);
+        assertLe(used, reserve, "bounded nested companion protocol reserve");
+        assertEq(eez.entryQueueIndex(ROLLUP_ID), count);
+        (, bytes32 finalRoot,) = eez.rollups(ROLLUP_ID);
+        assertEq(finalRoot, batch.entries[count].rollupUpdates[0].newRoot);
+    }
+
+    function testCompanionSequentialRoots() public {
+        _companionGroupRung(4, 4, false, 0);
+        _companionGroupRung(127, 2, false, 0);
+    }
+
+    function testCompanionSequentialRootsRepeatedIdentity() public {
+        _companionGroupRung(128, 4, true, 0);
+    }
+
+    function testCompanionRevertedCallbackSpanSizes() public {
+        _companionGroupRung(4, 4, false, 1);
+        _companionGroupRung(127, 2, false, 4);
+    }
+
+    function _companionGroupRung(uint256 count, uint256 groups, bool repeatedHash, uint16 span) private {
+        delete touched;
+        (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+        BoundedReturnTarget target = new BoundedReturnTarget(64);
+        touched.push(address(target));
+        address remote = address(0x9000);
+        address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
+        touched.push(proxy);
+        ProofSystemBatchPerVerificationEntries memory batch =
+            _batch(eez, proofSystem, address(target), Rung(count, 4, true, true, 1));
+        batch.immediateEntryCount = 1;
+        bytes32 root = batch.entries[0].rollupUpdates[0].newRoot;
+        bytes32 current = root;
+        uint256 skip = count - groups;
+        bytes[] memory inputs = new bytes[](groups);
+        uint256 reserve;
+        for (uint256 i = 1; i <= count; i++) {
+            ExecutionEntry memory entry = batch.entries[i];
+            entry.rollupUpdates[0].currentRoot = i <= skip ? bytes32(i) : current;
+            bytes memory input = abi.encode(repeatedHash ? count : i);
+            entry.proxyEntryHash = eez.computeCrossChainCallHash(
+                false, address(probe), eez.MAINNET_ROLLUP_ID(), remote, ROLLUP_ID, 0, 0, input
+            );
+            entry.returnData = _nonzeroBytes(256);
+            bytes32 rolling = keccak256(abi.encodePacked(bytes32(0), ROLLUP_ID, entry.rollupUpdates[0].currentRoot));
+            rolling = keccak256(abi.encodePacked(rolling, entry.proxyEntryHash));
+            for (uint256 j = 0; j < 4; j++) {
+                entry.l2ToL1Calls[j].data = _nonzeroBytes(256);
+                rolling = _callBegin(eez, rolling, entry.l2ToL1Calls[j]);
+                rolling = keccak256(abi.encodePacked(rolling, uint8(2), true, _nonzeroBytes(64)));
+            }
+            entry.rollingHash = rolling;
+            entry.l2ToL1Calls[0].revertNextNCalls = span;
+            if (i > skip) {
+                current = entry.rollupUpdates[0].newRoot;
+                inputs[i - skip - 1] = input;
+                reserve += 90_000 + 60_000 * 4 + 3_000 * 40 + (repeatedHash ? 12_000 : 4_000) * (i - 1)
+                    + (span > 0 ? 60_000 : 0);
+            }
+        }
+        _measure(eez, batch, root);
+        for (uint256 i = 0; i < touched.length; i++) {
+            vm.cool(touched[i]);
+        }
+        uint256 used = probe.measureGroup(proxy, inputs, _nonzeroBytes(256));
+        console.log("companion roots / skipped", groups, skip);
+        console.log("  execution gas / reserve", used, reserve);
+        assertLe(used, reserve, "bounded sequential companion reserve");
+        assertEq(eez.entryQueueIndex(ROLLUP_ID), count);
+        (, bytes32 finalRoot,) = eez.rollups(ROLLUP_ID);
+        assertEq(finalRoot, current);
     }
 
     // Each measured call starts cold. Skipped entries deliberately retain the

@@ -278,6 +278,145 @@ async fn gnosis_low_byte_expensive_new_proxies_split_only_complete_groups() {
     assert_gas_first(NativeL1Profile::GnosisPrague).await;
 }
 
+/// A nonfitting group must not hide an independent cheap group behind it.
+/// Its same-sender successor must wait, even though that successor is cheap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces() {
+    let mut settings = env();
+    settings.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()));
+    // Isolate gas packing from the first cold proof of deployment history.
+    // Deadline behavior has separate regressions in dynamic_admission.
+    settings.extend([
+        ("EEZ_PREPARATION_TIME_MS", "2000".into()),
+        ("EEZ_PROOF_TIME_MS", "2000".into()),
+    ]);
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &settings)
+        .await
+        .unwrap();
+    let (target_a, proxy_a) = expensive_target(&world, 100).await;
+    let (target_b, proxy_b) = expensive_target(&world, 100).await;
+    let (target_c, proxy_c) = expensive_target(&world, 1).await;
+    let (target_successor, proxy_successor) = expensive_target(&world, 1).await;
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower = NodeHandle::start(
+        "packing-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let b_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
+    quiet_sync(&world).await;
+    let cursor = world.node.signal_cursor().unwrap();
+    let first = outbound(&world, ANVIL_KEY_2, proxy_a).await;
+    let deferred = outbound(&world, ANVIL_KEY_4, proxy_b).await;
+    let successor = sign_and_send(
+        &world.l2_xchain(),
+        ANVIL_KEY_4,
+        world.l2_chain_id,
+        b_nonce + 1,
+        Some(proxy_successor),
+        U256::ZERO,
+        vec![0x12, 0x34, 0x56, 0x78],
+        600_000,
+    )
+    .await
+    .unwrap();
+    let independent = outbound(&world, ANVIL_KEY_1, proxy_c).await;
+    let mut receipts = Vec::new();
+    for hash in [first, deferred, successor, independent] {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "packing source missing: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        receipts.push(receipt);
+    }
+    let through = receipts
+        .iter()
+        .map(|r| r.block_number.unwrap())
+        .max()
+        .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], through, TIMEOUT)
+        .await
+        .unwrap();
+    let events = world.node.signals_since(cursor).unwrap();
+    let admission: Vec<serde_json::Value> = events
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let start = admission.iter().find(|e| e["kind"] == "started").unwrap();
+    assert_eq!(
+        start["detail"]["selected"], 4,
+        "all four must reach the same initial snapshot"
+    );
+    let candidate = &start["candidate_id"];
+    assert!(admission.iter().any(|e| &e["candidate_id"] == candidate
+        && e["kind"] == "source_estimate"
+        && e["detail"]["source_hash"] == deferred.to_string()
+        && e["detail"]["constraint"] == "l1_tx_gas_budget"));
+    let summary = admission
+        .iter()
+        .find(|e| e["kind"] == "summary" && &e["candidate_id"] == candidate)
+        .unwrap();
+    assert_eq!(
+        summary["detail"]["capacity_deferrals"]["l1_tx_gas_budget"],
+        1
+    );
+    assert_eq!(summary["detail"]["fifo_bypassed"], true);
+    assert_eq!(
+        receipts[0].block_hash, receipts[3].block_hash,
+        "the independent cheap group must fill the first batch after a whole-group rejection"
+    );
+    assert!(receipts[1].block_number > receipts[0].block_number);
+    assert!(receipts[2].block_number >= receipts[1].block_number);
+    if receipts[2].block_hash == receipts[1].block_hash {
+        assert!(receipts[2].transaction_index > receipts[1].transaction_index);
+    }
+    for (target, slot) in [
+        (target_a, 99),
+        (target_b, 99),
+        (target_c, 0),
+        (target_successor, 0),
+    ] {
+        assert_eq!(
+            l1.get_storage_at(target, U256::from(slot)).await.unwrap(),
+            U256::from(1)
+        );
+    }
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
+        b_nonce + 2
+    );
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(
+        events
+            .iter()
+            .filter(|e| e.name == "eez.composer.bundle.dispatched")
+            .all(|e| e.fields["attempt_counts"] == "[0, 0]")
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 /// A low-byte L1 source performs expensive local storage writes before calling
 /// the existing inbound proxy. Each source fits individually; two exceed the
 /// actual block gas budget even though postBatch itself is cheap.

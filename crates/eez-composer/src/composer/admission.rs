@@ -179,21 +179,23 @@ impl AutomaticAdmission {
             // Source/provider/prover uncertainty does not measure capacity.
             self.retry_limit
         };
-        // Shrink lookahead when outbound-first execution bypassed an older
-        // eligible group. A successful FIFO prefix already made fair progress;
-        // let the next opportunity use its measured budgets, not a count cap.
-        if progress.limited && (progress.fifo_bypassed || progress.prepared.is_none()) {
-            let fair_limit = SelectionLimit {
+        // A completed attempt without a preparation observation, or a stale
+        // pipeline estimate that prevented work, still needs a bounded probe.
+        // A later infrastructure abort after a capacity miss supplies no usable
+        // sample and must preserve the prior limit.
+        // Bypassing an older independent group does not measure capacity: FIFO
+        // is a preference, and the next snapshot uses its resource/time budgets.
+        if (progress.completed || progress.estimate_blocked)
+            && progress.limited
+            && progress.prepared.is_none()
+        {
+            let probe_limit = SelectionLimit {
                 count: progress.accepted.max(1).min((attempt.selected / 2).max(1)),
-                reason: if progress.fifo_bypassed {
-                    "fifo_fairness_limit"
-                } else {
-                    "preparation_probe_limit"
-                },
+                reason: "preparation_probe_limit",
             };
             self.retry_limit = Some(
                 self.retry_limit
-                    .map_or(fair_limit, |limit| limit.tighter(fair_limit)),
+                    .map_or(probe_limit, |limit| limit.tighter(probe_limit)),
             );
         }
     }
@@ -776,15 +778,38 @@ mod tests {
     }
 
     #[test]
+    fn capacity_miss_followed_by_infrastructure_abort_does_not_train_a_probe_limit() {
+        let mut state = AutomaticAdmission::default();
+        let a = attempt(100, 3, true, None);
+        a.progress.lock().unwrap().completed = false;
+        state.finish(&a);
+        assert_eq!(state.limit(100, Duration::from_secs(1)), 100);
+        state.submission_failed(80);
+        state.finish(&a);
+        assert_eq!(state.limit(100, Duration::from_secs(1)), 40);
+        assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
+    }
+
+    #[test]
+    fn fifo_bypass_does_not_cap_the_next_fitting_snapshot() {
+        let mut state = AutomaticAdmission::default();
+        let previous = attempt(100, 30, true, Some(sample(30, 100)));
+        previous.progress.lock().unwrap().fifo_bypassed = true;
+        state.finish(&previous);
+        assert_eq!(state.limit(100, Duration::from_secs(1)), 100);
+        assert!(state.retry_limit.is_none());
+    }
+
+    #[test]
     fn selection_causes_survive_tighter_limits_and_resource_cuts_take_precedence() {
         let mut state = AutomaticAdmission::default();
         let fair = attempt(100, 30, true, Some(sample(30, 100)));
         fair.progress.lock().unwrap().fifo_bypassed = true;
         state.finish(&fair);
-        assert_eq!(state.retry_limit.unwrap().reason, "fifo_fairness_limit");
+        assert!(state.retry_limit.is_none());
         state.submission_failed(80);
-        assert_eq!(state.retry_limit.unwrap().count, 30);
-        assert_eq!(state.retry_limit.unwrap().reason, "fifo_fairness_limit");
+        assert_eq!(state.retry_limit.unwrap().count, 40);
+        assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
         state.submission_failed(40);
         assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
         let mut a = attempt(20, 20, false, Some(sample(20, 100)));
@@ -835,28 +860,14 @@ mod tests {
     }
 
     #[test]
-    fn capacity_cuts_reduce_fifo_lookahead_until_an_older_opposite_direction_is_alone() {
-        let mut state = AutomaticAdmission {
-            sample: Some(sample(64, 100)),
-            retry_limit: None,
-            timings: Arc::default(),
-        };
-        let mut selected = 64;
-        while selected > 1 {
-            // Outbound-first execution used the budget before the FIFO's oldest inbound.
-            let a = attempt(
-                selected,
-                selected - 1,
-                true,
-                Some(sample(selected - 1, 100)),
-            );
+    fn repeated_capacity_cuts_do_not_install_a_fifo_count_limit() {
+        let mut state = AutomaticAdmission::default();
+        for accepted in [63, 30, 10, 1] {
+            let a = attempt(64, accepted, true, Some(sample(accepted, 100)));
             a.progress.lock().unwrap().fifo_bypassed = true;
             state.finish(&a);
-            let next = state.limit(1000, Duration::from_secs(1));
-            assert!(next < selected);
-            selected = next;
+            assert_eq!(state.limit(1000, Duration::from_secs(1)), 1000);
         }
-        assert_eq!(selected, 1);
     }
 
     #[test]

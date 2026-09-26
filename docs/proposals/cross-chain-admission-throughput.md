@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; the latest gas-estimation follow-up is deployed at `85f3691`. Local validation and all 770 live semantic checks passed. The latest wave improved estimation accuracy but had lower observed throughput; the linked audits preserve both results. Current runtime behavior is documented in the settlement/RPC specifications. |
+| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; the completed companion/storage follow-up is deployed at `e57c7a5`. Its 870-source wave passed all 770 semantic checks but required 33 postBatches versus 27 previously. The accepted September 26 packing follow-up below is implemented and undergoing local validation; it has not yet been deployed. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
 | Related contracts | [Settlement policy](../configurable-settlement-policy.md), [original proposal](configurable-settlement-policy.md), [RPC failure handling](../../crates/eez-control-rpc/SPEC.md#6-failure-handling), [posting history](posting-lifecycle-history.md), [replacement design](skipped-slot-speculative-retry.md) |
-| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [latest deferred-storage validation and comparison](../audits/2026-09-26-admission-deferred/README.md) |
+| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md) |
 
 ## 1. Objective and evidence
 
@@ -18,7 +18,7 @@ age and p50/p95 completion latency alongside throughput so larger batches do
 not hide starvation. Count unique canonical sources independently of retries;
 show static-only completion separately from effectful delivery.
 
-The latest wave completed 870 sources using 29 successful postings and 36
+The initial investigation wave completed 870 sources using 29 successful postings and 36
 attempts. Preparation took 336 ms median / 559 ms maximum; proof round trips
 took 84 / 116 ms. Six absent slots and two produced blocks without postings
 offset the four-post reduction relative to the earlier run. These measurements
@@ -149,6 +149,55 @@ that extra storage compatibility work.
 ## 4. Gas packing and retry learning
 
 ### Explain and tighten the gas model
+
+#### September 26 follow-up: packing with a FIFO preference
+
+**Accepted scope:** after the `e57c7a5` verified wave, the user explicitly
+prioritized the most cross-chain sources in the fewest postBatches, with FIFO
+preferred but not a mandatory cutoff. The source baseline is `b5caf1b`, the
+deployed runtime is `e57c7a5`, and the protocol remains `9d13218`. The
+[companion audit](../audits/2026-09-26-admission-companions/README.md) records
+870 canonical sources / 770 semantic checks, 33 postings, two final FIFO cuts,
+and 19 final whole-bundle gas cuts. The 170 signed-limit companion fallbacks
+reserved 170 million gas versus 30.6 million observed receipt gas.
+
+- Remove the independent `fifo_fairness_limit` count backoff. Preserve FIFO
+  discovery/order where compatible with canonical outbound-before-inbound
+  execution, source-chain nonce dependencies, and whole call groups. FIFO
+  becomes a preference, not a promise of global cross-direction ordering.
+  Retain bounded source discovery and its resume cursor.
+- A group that does not fit the remaining gas/blob capacity should not end
+  discovery of independent groups that may fit. Keep the group and its nonce
+  successors queued, leave accepted state/budgets unchanged, and continue within
+  the same finite snapshot and shared deadline. Genuine deadline/finishing
+  limits still stop preparation. Per-source deferral reasons must remain accurate
+  when a later independent source is accepted or hits a different constraint.
+- Measure and extend bounded companion execution estimates to the observed
+  multi-call, nested/reentrant and reverted-callback families. Require bounded
+  action/ABI evidence and pinned-parent proxy registration; unsupported shapes
+  retain a fallback. Charge separately measured L1 callback execution as well as
+  source simulation and protocol overhead: intercepted calls return gas to the
+  source simulator, so a fixed protocol reserve cannot cover arbitrary target
+  work. Expose that execution component separately in telemetry. Preserve
+  signed-limit start-of-transaction gas envelopes,
+  final ordered native validation, and exact-target proof/submission. Do not
+  substitute aggregate receipt discounts or infer cursor advancement from a
+  successful entry when its enclosing frame may revert.
+- Keep admission estimates and source decisions available in Grafana. Historical
+  FIFO-cut records remain valid history; new producers stop emitting that count
+  limit. Document estimator/policy versions and nullable new telemetry fields.
+
+Acceptance: reproduce the count-cap and first-nonfitting-group behavior at the
+baseline; regress independent-group packing, rejected-group retention, nonce
+successors, blocked sources, whole nested groups and the shared deadline. Measure
+new gas families and boundaries against the pinned contracts on the supported
+forks. Run affected Composer/native admission, gas and queue cases, formatting,
+clippy and shipping builds. Deploy exact local images and repeat the verified
+770-job wave. Primary comparison is canonical postBatch count and sources per
+posting, followed by gas prediction error, cutoff counts, latency, missed targets
+and preparation overhead. Report live noise and any regression; elapsed time
+alone does not satisfy packing improvement. No protocol, signer-profile, queue
+persistence or speculative-replacement extension is part of this change.
 
 #### September 26 follow-up: companion costs and reverted storage
 

@@ -164,6 +164,7 @@ pub struct CrossChainWiring {
 type SlotSessions =
     HashMap<eez_protocol::RollupId, Box<dyn eez_protocol::TargetExecutionSession + Send>>;
 
+#[derive(Clone, Copy)]
 struct CompositionGas {
     source: u64,
     l1_target: u64,
@@ -485,7 +486,7 @@ impl PostBatchGasBudget {
     }
 
     /// Charge `cost` if it fits. `false` leaves the projection untouched, so the
-    /// caller can defer this tx and stop draining.
+    /// caller can retain this group and try another independent source.
     fn try_accept(&mut self, cost: TxL1Gas) -> bool {
         self.try_accept_with_companion(cost, 0, 0)
     }
@@ -575,7 +576,7 @@ fn trace_admission_budget(
     after: PostBatchGasBudget,
     cost: TxL1Gas,
     entries: &[eez_protocol::abi::ExecutionEntrySol],
-    source_sim_gas: u64,
+    simulated: CompositionGas,
     companion_limit: u64,
     companion_estimate: gas::CompanionEstimate,
     prior_cleanup: u64,
@@ -598,9 +599,10 @@ fn trace_admission_budget(
         "nested_result_count": entries.iter().map(|e| e.expectedL1ToL2Calls.len()).sum::<usize>(),
         "calldata_gas": cost.calldata_gas,
         "l1_target_sim_gas": cost.target_gas,
-        "source_sim_gas": source_sim_gas,
+        "source_sim_gas": simulated.source,
         "companion_declared_gas": companion_limit,
-        "companion_sim_gas": if direction == "inbound" { source_sim_gas } else { 0 },
+        "companion_sim_gas": if direction == "inbound" { simulated.source } else { 0 },
+        "companion_target_sim_gas": if direction == "inbound" { simulated.l1_target } else { 0 },
         "companion_estimate_gas": companion_estimate.gas,
         "companion_protocol_reserve_gas": companion_estimate.protocol_reserve,
         "companion_estimate_basis": companion_estimate.basis,
@@ -928,6 +930,40 @@ fn defer_source(
     pool.record_blocked(&held, condition, source_state);
     selection.block(idx);
     deferred.push((idx, held));
+}
+
+/// Capacity misses retain ownership while the finite snapshot continues. Keep
+/// their individual reasons separate from a later deadline or provider abort;
+/// requeue them together with the remainder on every exit from the drain.
+#[derive(Default)]
+struct CapacityDeferrals {
+    groups: Vec<(usize, HeldTx)>,
+    reasons: std::collections::BTreeMap<&'static str, usize>,
+    last_reason: Option<&'static str>,
+}
+
+impl CapacityDeferrals {
+    fn defer(
+        &mut self,
+        selection: &mut selection::Selection,
+        candidate: &crate::admission_events::Candidate,
+        idx: usize,
+        held: HeldTx,
+        reason: &'static str,
+    ) {
+        candidate.emit(
+            "source_outcome",
+            serde_json::json!({
+                "source_hash":held.hash,"position":idx,"reason":reason,
+            }),
+        );
+        // Only independent senders/directions can bypass this group. Its nonce
+        // successors remain unclaimed in the pool, without a failed attempt.
+        selection.block(idx);
+        self.groups.push((idx, held));
+        *self.reasons.entry(reason).or_default() += 1;
+        self.last_reason = Some(reason);
+    }
 }
 
 alloy_sol_types::sol! {
@@ -2575,13 +2611,16 @@ where
             .posting
             .transaction_gas_cap(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
-        // Set by a budget cut: the tx that did not fit plus everything after it,
-        // owed back to the pool unpenalized.
+        // A deadline stops the drain; capacity misses only block their source
+        // chain. Both sets remain owned and are restored without an attempt.
         let mut deferred: Vec<(usize, HeldTx)> = Vec::new();
-        // Cost of the tx that tripped the budget, for the cut event.
+        let mut capacity = CapacityDeferrals::default();
+        let mut gas_constraint = None;
+        // First gas refusal for the legacy cut event. If no group fits, this
+        // describes the head considered for the existing unfittable eviction.
+        // Individual observations retain all later constraints and costs.
         let mut rejected_cost: Option<u64> = None;
-        // Set instead when it was the L2 block's gas, not the postBatch's, that
-        // ran out. The two are mutually exclusive: the first refusal ends the drain.
+        // Retain diagnostics even when a later independent group fits.
         let mut block_gas_cut: Option<BlockGasCut> = None;
         let mut admission_cut: Option<&str> = None;
         let mut blob_budget = match build_sync_block(
@@ -2972,12 +3011,14 @@ where
                                 gas_used: draft.gas_used(),
                                 declared,
                             });
-                            deferred = abort_rest(
-                                Some((idx, held)),
-                                &mut out_iter,
-                                std::mem::take(&mut inbounds),
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
                             );
-                            break;
+                            continue;
                         }
                         BlockGasFit::Unfittable => {
                             event!(
@@ -3030,7 +3071,7 @@ where
                         next_budget,
                         cost,
                         &l1_entries,
-                        gas.source,
+                        gas,
                         0,
                         gas::CompanionEstimate::declared(0),
                         prior_cleanup,
@@ -3040,14 +3081,19 @@ where
                         if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
                             admission_cut = Some("prior_queue_cleanup");
                         }
-                        budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(cost.total());
-                        deferred = abort_rest(
-                            Some((idx, held)),
-                            &mut out_iter,
-                            std::mem::take(&mut inbounds),
-                        );
-                        break;
+                        if gas_constraint.is_none() {
+                            gas_constraint = next_budget.rejected_constraint;
+                            rejected_cost = Some(cost.total());
+                        }
+                        let reason = if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
+                            "prior_queue_cleanup"
+                        } else {
+                            next_budget
+                                .rejected_constraint
+                                .unwrap_or("l1_tx_gas_budget")
+                        };
+                        capacity.defer(&mut selection, &candidate, idx, held, reason);
+                        continue;
                     }
                     // ── ACCEPT ───────────────────────────────────────
                     // Block first, state second: a pair evicted at append must
@@ -3094,17 +3140,18 @@ where
                         bundle_target,
                     ) {
                         Ok(Some((next, false))) if !survivors.is_empty() => {
-                            admission_cut = Some("composition_blob_limit");
                             event!(name: "eez.composer.admission.blob_cut", Level::INFO,
                                 event_name = "eez.composer.admission.blob_cut", rollup_id,
                                 companion_blobs = next.companion_blobs,
                                 "terminal Sync would exceed the target's remaining blob allowance");
-                            deferred = abort_rest(
-                                Some((idx, held)),
-                                &mut out_iter,
-                                std::mem::take(&mut inbounds),
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "composition_blob_limit",
                             );
-                            break;
+                            continue;
                         }
                         Ok(next) => next.map(|(next, _)| next),
                         Err(error) => {
@@ -3484,8 +3531,14 @@ where
                                 gas_used: draft.gas_used(),
                                 declared,
                             });
-                            deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                            break;
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
+                            );
+                            continue;
                         }
                         BlockGasFit::Unfittable => {
                             event!(
@@ -3516,7 +3569,7 @@ where
                     let companion_limit = declared_gas_limit(&held.raw_tx);
                     let companion_estimate = match (&mut gas_projection, &mut gas_parent) {
                         (Some(projection), Some(parent)) => projection.companion_estimate(
-                            &composition.source.batch.entries, &composition.actions, gas.source, companion_limit, parent,
+                            &composition.source.batch.entries, &composition.actions, gas, companion_limit, parent,
                         ).unwrap_or_else(|error| {
                             event!(Level::DEBUG, %error, "companion gas evidence unavailable; reserving signed limit");
                             gas::CompanionEstimate::declared(companion_limit)
@@ -3537,7 +3590,7 @@ where
                         next_budget,
                         cost,
                         &composition.source.batch.entries,
-                        gas.source,
+                        gas,
                         companion_limit,
                         companion_estimate,
                         prior_cleanup,
@@ -3552,10 +3605,24 @@ where
                         ) {
                             admission_cut = Some("prior_queue_cleanup");
                         }
-                        budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(cost.total());
-                        deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                        break;
+                        if gas_constraint.is_none() {
+                            gas_constraint = next_budget.rejected_constraint;
+                            rejected_cost = Some(cost.total());
+                        }
+                        let reason = if budget.blocked_by_cleanup(
+                            cost,
+                            companion_limit,
+                            companion_gas,
+                            prior_cleanup,
+                        ) {
+                            "prior_queue_cleanup"
+                        } else {
+                            next_budget
+                                .rejected_constraint
+                                .unwrap_or("l1_tx_gas_budget")
+                        };
+                        capacity.defer(&mut selection, &candidate, idx, held, reason);
+                        continue;
                     }
                     // ── ACCEPT ───────────────────────────────────────
                     let deliveries = match eez_protocol::system_tx::build_inbound_system_txs(
@@ -3611,9 +3678,14 @@ where
                         bundle_target,
                     ) {
                         Ok(Some((_, false))) if !survivors.is_empty() => {
-                            admission_cut = Some("composition_blob_limit");
-                            deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                            break;
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "composition_blob_limit",
+                            );
+                            continue;
                         }
                         Ok(next) => next.map(|(next, _)| next),
                         Err(error) => {
@@ -3806,8 +3878,11 @@ where
             .iter()
             .filter(|(index, _)| examined.contains(index))
         {
-            candidate.emit("source_outcome", serde_json::json!({"source_hash":held.hash,"position":index,
-                "reason":admission_cut.or(budget.rejected_constraint).unwrap_or("l2_block_capacity")}));
+            candidate.emit(
+                "source_outcome",
+                serde_json::json!({"source_hash":held.hash,"position":index,
+                "reason":admission_cut.unwrap_or("pipeline_time")}),
+            );
         }
         for &index in selection
             .fee_blocked()
@@ -3824,12 +3899,17 @@ where
         // ── Deferred work: settle what fits, keep the rest held. ──────
         // Normal under load. Before the poison sweep, so an eviction here rides
         // the same nonce cascade.
-        let deferred_was_empty = deferred.is_empty();
-        admission.phase_finished(
-            survivors.len(),
-            !deferred.is_empty(),
-            selection.fifo_bypassed(),
-        );
+        let resource_reason = capacity.last_reason;
+        // Capacity-blocked chains leave Selection's eligible set; include them
+        // when reporting that a later independent source passed older work.
+        let fifo_bypassed = selection.fifo_bypassed()
+            || survivors
+                .iter()
+                .map(|(index, _)| *index)
+                .max()
+                .is_some_and(|last| capacity.groups.iter().any(|(index, _)| *index < last));
+        deferred.extend(capacity.groups);
+        admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
         candidate.emit(
             "summary",
             serde_json::json!({
@@ -3838,14 +3918,16 @@ where
                 "not_examined_count":snapshot.len().saturating_sub(examined.len()),
                 "selection_filtered_count":selection_filtered,
                 "source_fee_count":selection.fee_blocked().len(),
-                "reason":admission.stop_reason(admission_cut.or(budget.rejected_constraint).or((!deferred.is_empty()).then_some("l2_block_capacity")), survivors.len(), snapshot.len()),
+                "capacity_deferrals":capacity.reasons,
+                "fifo_bypassed":fifo_bypassed,
+                "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
                 "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
                 "companion_gas":budget.companion_gas,
                 "cold_timing_probe":admission.used_cold_timing_probe(),
             }),
         );
-        if !deferred.is_empty() {
+        if transient.is_none() && !deferred.is_empty() {
             let deferred_count = deferred.len();
             let accepted_count = survivors.len();
             // A block-gas cut needs gas on the block, which needs an accepted tx,
@@ -3854,7 +3936,9 @@ where
                 accepted_count > 0 || block_gas_cut.is_none(),
                 "a block-gas cut cannot happen with nothing accepted"
             );
-            if let Some(constraint) = admission_cut {
+            if let Some(constraint) = admission_cut
+                .or(resource_reason.filter(|reason| *reason == "composition_blob_limit"))
+            {
                 event!(name: "eez.composer.admission.cut", Level::INFO,
                     event_name = "eez.composer.admission.cut", rollup_id,
                     accepted_count, deferred_count, constraint,
@@ -3875,7 +3959,7 @@ where
                     prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
-                    constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
+                    constraint = gas_constraint.unwrap_or("l1_tx_gas_budget"),
                     operator_gas_cap = self.inner.emission.max_gas,
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
@@ -3910,7 +3994,7 @@ where
                     prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
-                    constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
+                    constraint = gas_constraint.unwrap_or("l1_tx_gas_budget"),
                     operator_gas_cap = self.inner.emission.max_gas,
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
@@ -3951,17 +4035,10 @@ where
             }
         }
 
-        if transient.is_none() && !deferred.is_empty() {
-            requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
-        }
-
         // ── Transient abort: re-queue survivors + remainder, minimal. ──
-        // A cut empties the inbound queue, so phase 2 can't also fail here.
-        // Asserted so a future edit can't double-push the survivors.
-        debug_assert!(
-            transient.is_none() || deferred_was_empty,
-            "budget cut and transient abort are mutually exclusive"
-        );
+        // Earlier capacity misses are disjoint from the failing remainder.
+        // Restore all three sets together so a later provider failure cannot
+        // strand their composing reservations or alter their nonce order.
         if let Some((err, rest)) = transient {
             event!(
                 name: "eez.composer.phase2.transient",
@@ -3972,6 +4049,7 @@ where
                 "transient compose failure; re-queueing and degrading to minimal postBatch this slot",
             );
             let mut requeue = survivors;
+            requeue.extend(deferred);
             requeue.extend(rest);
             self.cancel_historical_predecessor_groups(
                 rollup_id,
@@ -3991,6 +4069,8 @@ where
                 )
                 .await;
         }
+
+        requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
 
         // Nothing composed (all evicted or over budget). Still post a minimal
         // batch so L1 keeps tracking L2's progression.
@@ -7303,6 +7383,75 @@ mod tests {
             sender,
             nonce,
             direction,
+        }
+    }
+
+    #[test]
+    fn capacity_deferrals_and_a_later_abort_restore_every_nonce_without_attempts() {
+        for reason in [
+            "l1_tx_gas_budget",
+            "l1_bundle_gas_budget",
+            "l2_block_capacity",
+            "composition_blob_limit",
+        ] {
+            let pool = HeldPool::new(Default::default());
+            let users = vec![
+                held(Address::repeat_byte(1), Direction::Outbound, 0, 1),
+                held(Address::repeat_byte(2), Direction::Outbound, 0, 2),
+                held(Address::repeat_byte(2), Direction::Outbound, 1, 3),
+                held(Address::repeat_byte(3), Direction::Inbound, 0, 4),
+            ];
+            for user in &users {
+                pool.push_contiguous(user.clone(), 0).unwrap();
+            }
+            let mut selection = selection::Selection::new(&users, 4, 0, 0);
+            let candidate = crate::admission_events::Candidate::new(
+                10200,
+                Address::repeat_byte(9),
+                1,
+                B256::repeat_byte(8),
+                BundleTarget::NextBlock,
+                4,
+                4,
+                (4, None),
+                None,
+            );
+            assert!(selection.consider(0));
+            assert!(pool.claim(&users[0]));
+            selection.accept(0);
+            assert!(selection.consider(1));
+            assert!(pool.claim(&users[1]));
+            let mut capacity = CapacityDeferrals::default();
+            capacity.defer(&mut selection, &candidate, 1, users[1].clone(), reason);
+            assert!(!selection.consider(2));
+            assert!(selection.consider(3));
+            assert!(pool.claim(&users[3]));
+            // A provider failure in the later inbound must restore its source,
+            // earlier accepted work, and the independently held capacity miss.
+            let rest = abort_rest(
+                Some((3, users[3].clone())),
+                &mut std::iter::empty(),
+                Vec::new(),
+            );
+            let mut requeue = vec![(0, users[0].clone())];
+            requeue.extend(capacity.groups);
+            requeue.extend(rest);
+            requeue_unprocessed(&pool, 1, &[], requeue);
+            let recovered = pool.candidates();
+            let mut recovered_hashes: Vec<_> = recovered.iter().map(|t| t.hash).collect();
+            recovered_hashes.sort();
+            let mut expected_hashes: Vec<_> = users.iter().map(|t| t.hash).collect();
+            expected_hashes.sort();
+            assert_eq!(recovered_hashes, expected_hashes);
+            // Recovered groups return to the pool front. The unclaimed suffix
+            // can move relative to an independent chain, but not its own root.
+            let position = |hash| recovered.iter().position(|t| t.hash == hash).unwrap();
+            assert!(position(users[1].hash) < position(users[2].hash));
+            for user in recovered {
+                assert_eq!(user.attempts, 0);
+                assert!(pool.claim(&user), "no composing reservation stranded");
+            }
+            assert_eq!(capacity.reasons[reason], 1);
         }
     }
 

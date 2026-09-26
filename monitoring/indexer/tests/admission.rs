@@ -92,6 +92,27 @@ fn admission_schema_rejects_wrong_context_and_malformed_gas() {
             .is_err()
         );
     }
+    let packing = event(
+        2,
+        "summary",
+        json!({"deferred":2,"capacity_deferrals":{"l1_bundle_gas_budget":1,"composition_blob_limit":1},"fifo_bypassed":true}),
+    );
+    assert!(parse(&line(&packing), &config()).is_ok());
+    for reasons in [
+        json!(null),
+        json!([]),
+        json!({"bad key":1}),
+        json!({"l1_tx_gas_budget":3}),
+        json!({"l1_tx_gas_budget":0}),
+        json!({"l1_tx_gas_budget":-1}),
+    ] {
+        let mut bad = packing.clone();
+        bad["detail"]["capacity_deferrals"] = reasons;
+        assert!(parse(&line(&bad), &config()).is_err());
+    }
+    let mut bad = packing;
+    bad["detail"]["fifo_bypassed"] = json!("true");
+    assert!(parse(&line(&bad), &config()).is_err());
     let oversized = event(2, "finished", json!({"extra":"x".repeat(64*1024)}));
     assert!(parse(&line(&oversized), &config()).is_err());
 }
@@ -133,6 +154,11 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         "t.gas_used",
     );
     assert_ne!(legacy_type, schema);
+    let legacy_type = legacy_type.replace(
+        ",\n    e.summary->'capacity_deferrals' AS capacity_deferrals,\n    (e.summary->>'fifo_bypassed')::boolean AS fifo_bypassed", ""
+    ).replace(
+        ",\n    (s.estimate->>'companion_target_sim_gas')::numeric AS companion_target_simulation_gas,\n    s.outcome->>'reason' AS source_outcome_reason", ""
+    );
     client.batch_execute(&legacy_type).await.unwrap();
     client.batch_execute(schema).await.unwrap();
     let source = B256::repeat_byte(4);
@@ -225,7 +251,23 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
             .is_none()
     );
 
+    assert!(
+        rows[0]
+            .get::<_, Option<f64>>("companion_target_simulation_gas")
+            .is_none()
+    );
+    let legacy = client
+        .query_one(
+            "SELECT capacity_deferrals::text,fifo_bypassed FROM eez_indexer.admission_candidates",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert!(legacy.get::<_, Option<String>>(0).is_none());
+    assert!(legacy.get::<_, Option<bool>>(1).is_none());
+
     let mut priced = records[2].clone();
+    priced["detail"]["companion_target_sim_gas"] = json!(123456);
     priced["detail"]["entry_count"] = json!(3);
     priced["detail"]["estimate_reasons"] = json!({"deferred_storage":2,"deferred_old_slot":1});
     priced["detail"]["batch_discount_revoked"] = json!(false);
@@ -248,6 +290,34 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         rows[0].get::<_, Option<bool>>("batch_discount_revoked"),
         Some(false)
     );
+
+    assert_eq!(
+        rows[0].get::<_, Option<f64>>("companion_target_simulation_gas"),
+        Some(123456.0)
+    );
+    let mut packed = records[4].clone();
+    packed["detail"]["capacity_deferrals"] = json!({"l1_bundle_gas_budget":1});
+    packed["detail"]["fifo_bypassed"] = json!(true);
+    assert!(parse(&line(&packed), &config()).is_ok());
+    client
+        .execute(
+            "UPDATE eez_indexer.admission_events SET data=$1::text::jsonb WHERE sequence=4",
+            &[&packed.to_string()],
+        )
+        .await
+        .unwrap();
+    let packed_row = client
+        .query_one(
+            "SELECT capacity_deferrals::text,fifo_bypassed FROM eez_indexer.admission_candidates",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&packed_row.get::<_, String>(0)).unwrap(),
+        json!({"l1_bundle_gas_budget":1})
+    );
+    assert!(packed_row.get::<_, bool>(1));
 
     // A conflicting duplicate cannot advance the shared file checkpoint.
     let mut bad = records[0].clone();

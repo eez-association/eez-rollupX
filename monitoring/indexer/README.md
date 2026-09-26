@@ -678,6 +678,23 @@ bundle budget), and `companion_estimate_basis`: `bounded_protocol`,
 protocol reserve. Candidate summary `companion_gas` now totals these consumption
 estimates. Old estimates remain null in the new columns.
 
+From `companion-execution-5`, `companion_target_simulation_gas` shows separately
+measured L1 callback application gas, including reverted frames. Bounded estimates
+sum source simulation, callback simulation and protocol reserve, capped at the
+signed limit. Earlier rows retain null callback gas; do not infer zero. See the
+[versioned admission profile](../../docs/configurable-settlement-policy.md) for
+shape bounds and fallbacks.
+
+Policy `packing-fifo-preference-2` continues past nonfitting independent groups.
+The candidate table exposes `capacity_deferrals` counts per reason and the
+`fifo_bypassed` diagnostic; FIFO does not install a count cap. Source rows expose
+`source_outcome_reason`, including a blob rejection after a successful gas check.
+The final candidate stop reason and earlier individual deferrals can differ.
+Old histories retain null fields and historical `fifo_fairness_limit` reasons.
+Apply the additive schema and dashboard before the new Composer, keep retained
+logs/checkpoints, and retain these views on rollback. No historical follower
+encoding, node storage, signer profile or configuration input changes.
+
 The optional details worker also enriches accepted inbound sources independently
 of registry events. It checks source receipts against the canonical posting's
 block and transaction order, then rechecks the block before saving. This fills

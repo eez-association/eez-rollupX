@@ -273,7 +273,9 @@ SELECT e.candidate_id, to_timestamp(e.first_ms/1000.0) AS time,
     (e.started->>'selection_limit')::numeric AS selection_limit,
     e.started->>'selection_limit_reason' AS selection_limit_reason,
     e.summary->>'reason' AS admission_stop_reason,
-    p.canonical_l1_hash
+    p.canonical_l1_hash,
+    e.summary->'capacity_deferrals' AS capacity_deferrals,
+    (e.summary->>'fifo_bypassed')::boolean AS fifo_bypassed
 FROM events e
 LEFT JOIN eez_indexer.posting_events link ON link.data->>'stage'='prepared'
     AND link.data->'detail'->>'candidate_id'=e.candidate_id
@@ -322,7 +324,9 @@ SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.s
     r.success AS source_receipt_success,
     (s.estimate->>'companion_estimate_gas')::numeric AS companion_estimate_gas,
     (s.estimate->>'companion_protocol_reserve_gas')::numeric AS companion_protocol_reserve_gas,
-    s.estimate->>'companion_estimate_basis' AS companion_estimate_basis
+    s.estimate->>'companion_estimate_basis' AS companion_estimate_basis,
+    (s.estimate->>'companion_target_sim_gas')::numeric AS companion_target_simulation_gas,
+    s.outcome->>'reason' AS source_outcome_reason
 FROM sources s JOIN eez_indexer.admission_candidates c USING(candidate_id)
 LEFT JOIN eez_indexer.transactions post ON post.transaction_hash=c.transaction_hash AND post.block_hash=c.canonical_l1_hash
 LEFT JOIN eez_indexer.transactions t ON t.transaction_hash=s.source_hash

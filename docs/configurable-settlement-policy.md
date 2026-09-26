@@ -108,8 +108,12 @@ memory and are discarded on restart; they are not durable queue state.
 
 A nominal preparation overrun or infrastructure error does not halve selection.
 A full proving-window failure can reduce the next selection using admitted work,
-and a resource cut that bypasses older eligible FIFO work retains the fairness
-backoff. A successful FIFO prefix removes a redundant count cap. If a stale
+while a resource cut does not impose a FIFO count backoff. FIFO remains a
+preference within the canonical outbound-before-inbound phases and per-source
+nonce chains. A nonfitting gas/blob group is retained with its nonce successors;
+discovery continues through independent groups in the finite snapshot while the
+shared pipeline deadline permits it. Earlier capacity deferrals also remain owned
+if a later provider failure aborts the candidate. If a stale
 estimate blocks every group, the next opportunity makes a bounded probe under
 all resource/deadline checks. Canonically observed, charged exclusions or partial
 consumption in produced blocks retain submission backoff. A strict timestamp gap
@@ -125,7 +129,7 @@ no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
 
-Estimator `companion-storage-4` inventories bounded retained callback
+Estimator `companion-execution-5` (storage model introduced in `companion-storage-4`) inventories bounded retained callback
 and result storage. For supported deferred entries it reserves 35,000 per entry,
 8,000 per callback/result row, 8,000 per written storage word, and another 15,000
 for each nonzero new word whose canonical-parent value is zero or unknown.
@@ -144,22 +148,32 @@ previous estimate. Parent inventory
 reads are bounded before narrowing lengths or walking arrays, including inactive
 mapping slots. No writes in a speculative candidate earn reuse credit.
 
-These storage prices cover posting. Companion source simulation omits protocol
-execution, so version 4 adds a separate measured reserve: 90,000 per entry,
-60,000 per callback, 3,000 per 32-byte input/result word, and a queue scan allowance
-of 4,000 per preceding deferred entry (12,000 for a matching identity that must
-also inspect roots). The measured family is one deferred entry, at most four
-registered own-rollup callbacks, 256-byte root/callback input and root result,
-64-byte successful callback results, no nested rows, zero value, mutable calls
-and implicit callback gas forwarding. A reverted root result is supported.
-Canonical-parent registration and bounded execution evidence are required.
-Other groups reserve their full signed companion limit. The simulation plus
-reserve is capped at that limit: an uncertain prediction cannot establish that
-the source is invalid. A prior successful-looking entry does not prove that its
-source advanced the queue cursor, so the entire prefix remains in the scan
-allowance. Final native execution still checks actual consumption, required gas,
-declared limits and effects. This conservative allowance can reduce batch size;
-receipt ratios alone do not justify removing it.
+These storage prices cover posting. Companion execution adds measured L1 source
+gas, separately measured L1 callback application gas (including reverted work),
+and bounded protocol overhead. Intercepted callbacks return their gas to the
+source caller, so source gas alone omits that work. Version 5 reserves 90,000 per
+entry, 60,000 per callback, 40,000 per nested result row, 60,000 per nonzero revert
+span marker, and 3,000 per 32-byte input/result word. Nested input is conservatively
+charged at its 256-byte bound. Queue scans cost 4,000 per preceding deferred entry
+or 12,000 for a matching identity requiring root checks.
+
+The measured family permits one to four sequential root entries per source,
+up to four callbacks and four nested result rows per entry, 256-byte root/callback
+inputs and root results, 64-byte successful callback/nested results, own-rollup
+zero-value mutable calls and implicit gas forwarding. The bounded forest covers
+root L2 calls, L1 callbacks, L2 reentries and leaf L1 callbacks. Reverted root
+results and bounded callback revert spans are supported; deeper recursion,
+static calls, explicit callback gas and unsupported outcomes use the full signed
+companion limit. Every callback proxy must already be registered in the canonical
+parent. These are admission profiles, not an extension of the signer profile.
+
+The combined prediction is capped at the signed limit: an uncertain prediction
+cannot establish source invalidity. A successful-looking root does not prove
+that the source advanced the cursor; an outer revert can undo it. The full
+accepted prefix, including preceding roots of this same source, is charged for
+each scan. Final ordered native execution still checks actual consumption,
+required gas, signed limits and complete effects. Receipt ratios do not replace
+these checks.
 
 The existing 128-total-entry limit, full-calldata projection and final
 ordered native validation still apply. No protocol pin, ABI, signer profile,
@@ -169,7 +183,8 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`shared-deadline-1` identifies the scheduling behavior. Deploy the additive
+`packing-fifo-preference-2` identifies the scheduling behavior. Historical
+`shared-deadline-1` events retain their former FIFO count semantics. Deploy the additive
 collector/schema/dashboard before the new Composer; old collectors ignore the
 new family and old histories retain null estimates. Rollback can leave those
 additive tables and checkpoints in place. No ABI, storage migration, protocol
@@ -237,12 +252,16 @@ execution remains mandatory before submission.
 
 Admission telemetry keeps the finite snapshot (`selected`) separate from the
 effective `selection_limit` and its originating reason. Summary reasons identify
-gas/blob/time cuts, `configured_count_limit`, `fifo_fairness_limit`,
+gas/blob/time cuts, `configured_count_limit`,
 `submission_backoff`, `pipeline_deadline_backoff`, `preparation_probe_limit`,
 `snapshot_exhausted`, or `eligible_sources_exhausted`. A resource cut takes
 precedence if it occurs before reaching the count cap. Snapshot exhaustion does
 not describe arrivals after the snapshot. These observations do not change the
-underlying fairness, retry, or ownership rules. New source records additionally
+retry or ownership rules. `fifo_fairness_limit` is historical only; new candidates
+record `fifo_bypassed` as a diagnostic without restricting selection. The summary's
+`capacity_deferrals` counts each individually rejected group by reason, even when
+other work fits later or a deadline ends discovery. Each rejected source retains
+its own outcome reason. New source records additionally
 separate entry reserve, L1 call count and nested result count from target gas.
 
 The new fields are additive within the existing admission event family.

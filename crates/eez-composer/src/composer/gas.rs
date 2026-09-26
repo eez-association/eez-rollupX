@@ -31,10 +31,12 @@ impl CompanionEstimate {
         }
     }
 
-    fn bounded(simulated: u64, protocol_reserve: u64, declared: u64) -> Self {
+    fn bounded(simulated: u64, callback_gas: u64, protocol_reserve: u64, declared: u64) -> Self {
         // An admission prediction above the signed limit is not evidence that
         // this source is invalid. Native execution remains the acceptance gate.
-        let predicted = simulated.saturating_add(protocol_reserve);
+        let predicted = simulated
+            .saturating_add(callback_gas)
+            .saturating_add(protocol_reserve);
         Self {
             gas: predicted.min(declared),
             protocol_reserve: Some(protocol_reserve),
@@ -202,17 +204,24 @@ impl Projection {
         &mut self,
         entries: &[ExecutionEntrySol],
         actions: &[ExecutedAction],
-        simulated: u64,
+        simulated: super::CompositionGas,
         declared: u64,
         parent: &mut L1TargetSession,
     ) -> Result<CompanionEstimate, String> {
         let Some(reserve) = self.companion_reserve(entries) else {
             return Ok(CompanionEstimate::declared(declared));
         };
-        if !self.companion_actions(&entries[0], actions) {
+        if !self.companion_actions(entries, actions) {
             return Ok(CompanionEstimate::declared(declared));
         }
-        for call in &entries[0].l2ToL1Calls {
+        for call in entries.iter().flat_map(|entry| {
+            entry.l2ToL1Calls.iter().chain(
+                entry
+                    .expectedL1ToL2Calls
+                    .iter()
+                    .flat_map(|row| &row.l2ToL1Calls),
+            )
+        }) {
             let key = (call.sourceRollupId, call.sourceAddress);
             let registered = if let Some(known) = self.parent_proxies.get(&key) {
                 *known
@@ -227,79 +236,215 @@ impl Projection {
                 return Ok(CompanionEstimate::declared(declared));
             }
         }
-        Ok(CompanionEstimate::bounded(simulated, reserve, declared))
+        // Intercepted cross-chain frames return gas to their source caller.
+        // Every L1 callback's measured application work is therefore separate
+        // from source simulation, including work in a reverted span.
+        Ok(CompanionEstimate::bounded(
+            simulated.source,
+            simulated.l1_target,
+            reserve,
+            declared,
+        ))
     }
 
-    fn companion_actions(&self, entry: &ExecutionEntrySol, actions: &[ExecutedAction]) -> bool {
-        let Some((root, callbacks)) = actions.split_first() else {
+    fn companion_actions(&self, entries: &[ExecutionEntrySol], actions: &[ExecutedAction]) -> bool {
+        if self.companion_reserve(entries).is_none() {
             return false;
-        };
-        root.parent_index.is_none()
-            && root.source_rollup_id == RollupId::MAINNET
-            && root.target_rollup_id.0 == self.rollup_id
-            && root.call_mode == CallMode::Mutable && root.value.is_zero() && root.data.len() <= 256
-            && matches!(&root.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
-                if *success == entry.success && return_data.as_slice() == entry.returnData.as_ref())
-            && callbacks.len() == entry.l2ToL1Calls.len()
-            && callbacks.iter().zip(&entry.l2ToL1Calls).all(|(action, call)| {
-                action.parent_index == Some(0) && action.revert_span.is_none()
-                    && action.call_mode == CallMode::Mutable && action.value.is_zero()
-                    && action.source_rollup_id.0 == call.sourceRollupId
-                    && action.source_address == call.sourceAddress
-                    && action.target_rollup_id == RollupId::MAINNET
-                    && action.target_address == call.targetAddress && action.data == call.data
-                    && matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. }
-                        if return_data.len() <= 64)
+        }
+        let expected = entries
+            .iter()
+            .map(|entry| {
+                1 + entry.l2ToL1Calls.len()
+                    + entry
+                        .expectedL1ToL2Calls
+                        .iter()
+                        .map(|row| 1 + row.l2ToL1Calls.len())
+                        .sum::<usize>()
             })
+            .sum::<usize>();
+        if actions.len() != expected {
+            return false;
+        }
+        let roots: Vec<_> = actions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, action)| action.parent_index.is_none().then_some(index))
+            .collect();
+        if roots.len() != entries.len() || roots.first() != Some(&0) {
+            return false;
+        }
+        for (entry_index, entry) in entries.iter().enumerate() {
+            let start = roots[entry_index];
+            let end = roots.get(entry_index + 1).copied().unwrap_or(actions.len());
+            let root = &actions[start];
+            if !matches!(&root.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
+                if *success == entry.success && return_data.as_slice() == entry.returnData.as_ref())
+            {
+                return false;
+            }
+            let mut calls: Vec<_> = entry
+                .l2ToL1Calls
+                .iter()
+                .chain(
+                    entry
+                        .expectedL1ToL2Calls
+                        .iter()
+                        .flat_map(|row| &row.l2ToL1Calls),
+                )
+                .collect();
+            let mut rows = entry.expectedL1ToL2Calls.iter();
+            let mut ancestors = Vec::new();
+            for (index, action) in actions.iter().enumerate().take(end).skip(start) {
+                if let Some(parent) = action.parent_index {
+                    let Some(position) = ancestors.iter().position(|p| *p == parent) else {
+                        return false;
+                    };
+                    ancestors.truncate(position + 1);
+                } else if index != start {
+                    return false;
+                }
+                let depth = ancestors.len();
+                if depth > 3
+                    || action.call_mode != CallMode::Mutable
+                    || !action.value.is_zero()
+                    || action.data.len() > 256
+                {
+                    return false;
+                }
+                let outbound = depth % 2 == 1;
+                if outbound {
+                    if action.source_rollup_id.0 != self.rollup_id
+                        || action.target_rollup_id != RollupId::MAINNET
+                    {
+                        return false;
+                    }
+                    let Some(call_index) = calls.iter().position(|call| {
+                        action.source_address == call.sourceAddress
+                            && action.target_address == call.targetAddress
+                            && action.data == call.data
+                            && action.revert_span.unwrap_or(0) == u32::from(call.revertNextNCalls)
+                    }) else {
+                        return false;
+                    };
+                    calls.swap_remove(call_index);
+                    if !matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. }
+                        if return_data.len() <= 64)
+                    {
+                        return false;
+                    }
+                } else {
+                    if action.source_rollup_id != RollupId::MAINNET
+                        || action.target_rollup_id.0 != self.rollup_id
+                        || action.revert_span.is_some()
+                    {
+                        return false;
+                    }
+                    if depth == 2 {
+                        let Some(row) = rows.next() else {
+                            return false;
+                        };
+                        if !matches!(&action.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
+                            if *success == row.success && return_data.as_slice() == row.returnData.as_ref())
+                        {
+                            return false;
+                        }
+                    }
+                }
+                ancestors.push(index);
+            }
+            if !calls.is_empty() || rows.next().is_some() {
+                return false;
+            }
+        }
+        true
     }
 
     fn companion_reserve(&self, entries: &[ExecutionEntrySol]) -> Option<u64> {
-        let [entry] = entries else {
-            return None;
-        };
-        if self.deferred_count >= MAX_SHAPED_ENTRIES as usize
-            || entry.proxyEntryHash.is_zero()
-            || entry.destinationRollupId != self.rollup_id
-            || entry.rootUpdates.len() > 1
-            || entry
-                .rootUpdates
-                .iter()
-                .any(|r| r.rollupId != self.rollup_id || !r.etherDelta.is_zero())
-            || !entry.expectedL1ToL2Calls.is_empty()
-            || entry.l2ToL1Calls.len() > 4
-            || entry.returnData.len() > 256
-            || entry.l2ToL1Calls.iter().any(|c| {
-                c.sourceRollupId != self.rollup_id
-                    || c.data.len() > 256
-                    || c.revertNextNCalls != 0
-                    || c.isStatic
-                    || c.gas != 0
-                    || !c.value.is_zero()
-            })
+        if !(1..=4).contains(&entries.len())
+            || self.deferred_count.saturating_add(entries.len()) > MAX_SHAPED_ENTRIES as usize
         {
             return None;
         }
-        // A reverted source can restore the cursor. Charge a scan across the
-        // entire accepted prefix; matching identities also inspect root pins.
-        // Do not infer consumption from entry.success or a simulation outcome.
-        let scan = self
-            .deferred_hashes
-            .iter()
-            .map(|hash| {
-                if *hash == entry.proxyEntryHash {
-                    12_000
-                } else {
-                    4_000
-                }
-            })
-            .sum::<u64>();
-        let words = entry.returnData.len().div_ceil(32)
-            + entry
-                .l2ToL1Calls
+        let mut reserve = 0;
+        for (index, entry) in entries.iter().enumerate() {
+            // Reject unmeasured array sizes before collecting or traversing
+            // their contents. The action evidence then has at most nine nodes
+            // per root (one root, four callbacks and four reentries).
+            if entry.expectedL1ToL2Calls.len() > 4
+                || entry.l2ToL1Calls.len() > 4
+                || entry
+                    .expectedL1ToL2Calls
+                    .iter()
+                    .any(|row| row.l2ToL1Calls.len() > 4)
+            {
+                return None;
+            }
+            let arrays: Vec<_> = std::iter::once(&entry.l2ToL1Calls)
+                .chain(entry.expectedL1ToL2Calls.iter().map(|row| &row.l2ToL1Calls))
+                .collect();
+            let calls: Vec<_> = arrays.iter().flat_map(|calls| calls.iter()).collect();
+            if entry.proxyEntryHash.is_zero()
+                || entry.destinationRollupId != self.rollup_id
+                || entry.rootUpdates.len() > 1
+                || entry
+                    .rootUpdates
+                    .iter()
+                    .any(|r| r.rollupId != self.rollup_id || !r.etherDelta.is_zero())
+                || entry.expectedL1ToL2Calls.len() > 4
+                || calls.len() > 4
+                || entry.returnData.len() > 256
+                || entry.expectedL1ToL2Calls.iter().any(|r| {
+                    !r.success
+                        || !r.revertedOrStaticRollingHash.is_zero()
+                        || r.returnData.len() > 64
+                })
+                || arrays.iter().any(|array| {
+                    array.iter().enumerate().any(|(i, c)| {
+                        c.sourceRollupId != self.rollup_id
+                            || c.data.len() > 256
+                            || usize::from(c.revertNextNCalls) > array.len() - i
+                            || c.isStatic
+                            || c.gas != 0
+                            || !c.value.is_zero()
+                    })
+                })
+            {
+                return None;
+            }
+            // Any outer source revert can restore the cursor. Charge the full
+            // prior queue, including earlier roots in this same source group.
+            let scan = self
+                .deferred_hashes
                 .iter()
-                .map(|c| c.data.len().div_ceil(32))
-                .sum::<usize>();
-        Some(90_000 + 60_000 * entry.l2ToL1Calls.len() as u64 + 3_000 * words as u64 + scan)
+                .copied()
+                .chain(entries[..index].iter().map(|e| e.proxyEntryHash))
+                .map(|hash| {
+                    if hash == entry.proxyEntryHash {
+                        12_000
+                    } else {
+                        4_000
+                    }
+                })
+                .sum::<u64>();
+            let words = entry.returnData.len().div_ceil(32)
+                + calls
+                    .iter()
+                    .map(|c| c.data.len().div_ceil(32))
+                    .sum::<usize>()
+                + entry
+                    .expectedL1ToL2Calls
+                    .iter()
+                    .map(|r| 8 + r.returnData.len().div_ceil(32))
+                    .sum::<usize>();
+            let spans = calls.iter().filter(|c| c.revertNextNCalls != 0).count();
+            reserve += 90_000
+                + 60_000 * calls.len() as u64
+                + 3_000 * words as u64
+                + scan
+                + 40_000 * entry.expectedL1ToL2Calls.len() as u64
+                + 60_000 * spans as u64;
+        }
+        Some(reserve)
     }
 
     /// Evidence includes successful bounded execution and every L1 source
@@ -1351,10 +1496,10 @@ mod tests {
         let one = std::slice::from_ref(&e);
         let reserve = p.companion_reserve(one).unwrap();
         assert_eq!(reserve, 102_000);
-        let estimated = CompanionEstimate::bounded(40_000, reserve, 200_000);
+        let estimated = CompanionEstimate::bounded(40_000, 0, reserve, 200_000);
         assert_eq!(estimated.gas, 142_000);
         assert_eq!(estimated.basis, "bounded_protocol");
-        let capped = CompanionEstimate::bounded(40_000, reserve, 100_000);
+        let capped = CompanionEstimate::bounded(40_000, 0, reserve, 100_000);
         assert_eq!(capped.gas, 100_000);
         assert_eq!(capped.basis, "bounded_capped");
         let mut budget = PostBatchGasBudget::new(10_000_000);
@@ -1371,7 +1516,11 @@ mod tests {
             p.companion_reserve(std::slice::from_ref(&e)),
             Some(reserve + 4_000)
         );
-        assert!(p.companion_reserve(&[e.clone(), e.clone()]).is_none());
+        assert_eq!(
+            p.companion_reserve(&[e.clone(), e.clone()]),
+            Some(2 * (reserve + 4_000) + 12_000)
+        );
+        assert!(p.companion_reserve(&vec![e.clone(); 5]).is_none());
         e.returnData = Bytes::from(vec![0; 257]);
         assert!(p.companion_reserve(std::slice::from_ref(&e)).is_none());
         let fallback = CompanionEstimate::declared(500_000);
@@ -1395,7 +1544,7 @@ mod tests {
             gas_used: 1,
         };
         let actions = [root, callback];
-        assert!(p.companion_actions(&entry, &actions));
+        assert!(p.companion_actions(std::slice::from_ref(&entry), &actions));
         for change in 0..4 {
             let mut invalid = actions.clone();
             match change {
@@ -1410,9 +1559,100 @@ mod tests {
                 2 => invalid[1].parent_index = Some(1),
                 _ => invalid[0].call_mode = CallMode::Static,
             }
-            assert!(!p.companion_actions(&entry, &invalid));
+            assert!(!p.companion_actions(std::slice::from_ref(&entry), &invalid));
         }
-        assert!(!p.companion_actions(&entry, &actions[..1]));
+        assert!(!p.companion_actions(std::slice::from_ref(&entry), &actions[..1]));
+    }
+
+    #[test]
+    fn companion_execution_charges_callbacks_and_caps_overflow_without_rejection() {
+        let estimate = CompanionEstimate::bounded(40_000, 1_000_000, 90_000, 2_000_000);
+        assert_eq!(estimate.gas, 1_130_000);
+        assert_eq!(estimate.basis, "bounded_protocol");
+        assert_eq!(
+            CompanionEstimate::bounded(u64::MAX, 1, 1, 500_000).gas,
+            500_000
+        );
+    }
+
+    #[test]
+    fn companion_group_evidence_bounds_sequential_nested_and_reverted_actions() {
+        use eez_protocol::abi::ExpectedL1ToL2CallSol;
+        let mut p = model(0);
+        let (mut entry, mut callback) = immediate();
+        entry.proxyEntryHash = B256::repeat_byte(8);
+        entry.l2ToL1Calls[0].revertNextNCalls = 1;
+        callback.parent_index = Some(0);
+        callback.revert_span = Some(1);
+        let mut root = callback.clone();
+        root.parent_index = None;
+        root.revert_span = None;
+        root.source_rollup_id = RollupId::MAINNET;
+        root.target_rollup_id = RollupId(1);
+        root.outcome = ExecutionOutcome::Resolved {
+            success: true,
+            return_data: Vec::new(),
+            gas_used: 1,
+        };
+        let mut nested = root.clone();
+        nested.parent_index = Some(1);
+        nested.outcome = ExecutionOutcome::Resolved {
+            success: true,
+            return_data: vec![0xff; 64],
+            gas_used: 1,
+        };
+        let mut leaf = callback.clone();
+        leaf.parent_index = Some(2);
+        leaf.revert_span = None;
+        let mut call = entry.l2ToL1Calls[0].clone();
+        call.revertNextNCalls = 0;
+        entry.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: B256::repeat_byte(7),
+            l2ToL1Calls: vec![call],
+            success: true,
+            returnData: Bytes::from(vec![0xff; 64]),
+            revertedOrStaticRollingHash: B256::ZERO,
+        });
+        let actions = vec![root, callback, nested, leaf];
+        let one = std::slice::from_ref(&entry);
+        assert!(p.companion_actions(one, &actions));
+        let reserve = p.companion_reserve(one).unwrap();
+        for roots in 1..=4 {
+            let entries = vec![entry.clone(); roots];
+            let forest: Vec<_> = (0..roots)
+                .flat_map(|index| {
+                    actions.iter().cloned().map(move |mut action| {
+                        action.parent_index = action.parent_index.map(|parent| parent + index * 4);
+                        action
+                    })
+                })
+                .collect();
+            assert!(p.companion_actions(&entries, &forest));
+            assert_eq!(
+                p.companion_reserve(&entries),
+                Some(reserve * roots as u64 + 12_000 * (roots * (roots - 1) / 2) as u64)
+            );
+        }
+        for change in 0..6 {
+            let mut invalid = actions.clone();
+            match change {
+                0 => invalid[3].parent_index = Some(3),
+                1 => invalid[2].target_rollup_id = RollupId(2),
+                2 => invalid[1].revert_span = None,
+                3 => invalid[2].outcome = ExecutionOutcome::Pending,
+                4 => invalid[3].data = vec![1; 257].into(),
+                _ => invalid[3].call_mode = CallMode::Static,
+            }
+            assert!(!p.companion_actions(one, &invalid), "change {change}");
+        }
+        p.accept_deferred(&vec![entry.clone(); 127]);
+        assert!(p.companion_reserve(one).is_some());
+        assert!(
+            p.companion_reserve(&[entry.clone(), entry.clone()])
+                .is_none()
+        );
+        p.accept_deferred(one);
+        assert!(p.companion_reserve(one).is_none());
     }
 
     #[test]

@@ -1,0 +1,32 @@
+[
+  {
+    "log": "contracts-final.log",
+    "passed": 69,
+    "failed": 0,
+    "ignored_or_skipped": 0
+  },
+  {
+    "log": "gas-pins-final-cancun.log",
+    "passed": 50,
+    "failed": 0,
+    "ignored_or_skipped": 0
+  },
+  {
+    "log": "gas-pins-final-prague.log",
+    "passed": 50,
+    "failed": 0,
+    "ignored_or_skipped": 0
+  },
+  {
+    "log": "gas-pins-final-osaka.log",
+    "passed": 50,
+    "failed": 0,
+    "ignored_or_skipped": 0
+  },
+  {
+    "log": "indexer-tests-corrected.log",
+    "passed": 25,
+    "failed": 0,
+    "ignored_or_skipped": 0
+  }
+]
