@@ -1,0 +1,50 @@
+[package]
+name = "ef-tests"
+version.workspace = true
+description = "Ethereum Foundation test support for stateless validation."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+ef-tests = []
+asm-keccak = ["alloy-primitives/asm-keccak", "revm/asm-keccak"]
+
+[dependencies]
+stateless.workspace = true
+tries.workspace = true
+
+reth-chainspec = { workspace = true, features = ["std"] }
+reth-ethereum-primitives = { workspace = true, features = ["std"] }
+reth-primitives-traits = { workspace = true, features = ["std", "rayon"] }
+reth-consensus = { workspace = true, features = ["std"] }
+reth-db = { workspace = true, features = ["mdbx", "test-utils", "disable-lock"] }
+reth-db-api.workspace = true
+reth-db-common.workspace = true
+reth-provider = { workspace = true, features = ["test-utils"] }
+reth-evm = { workspace = true, features = ["std"] }
+reth-evm-ethereum = { workspace = true, features = ["std"] }
+reth-ethereum-consensus = { workspace = true, features = ["std"] }
+reth-revm = { workspace = true, features = ["std", "witness"] }
+reth-trie-common = { workspace = true, features = ["std"] }
+reth-tracing.workspace = true
+reth-trie.workspace = true
+reth-trie-db.workspace = true
+revm = { workspace = true, features = ["secp256k1", "blst", "c-kzg", "memory_limit"] }
+
+alloy-rlp.workspace = true
+alloy-primitives.workspace = true
+alloy-eips.workspace = true
+alloy-consensus.workspace = true
+alloy-genesis.workspace = true
+
+walkdir.workspace = true
+serde = { workspace = true, features = ["std"] }
+serde_json.workspace = true
+thiserror = { workspace = true, features = ["std"] }
+rayon.workspace = true
