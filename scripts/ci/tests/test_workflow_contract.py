@@ -256,6 +256,42 @@ elif args[0] != "logout":
                 self.assertEqual(selected(primary="homelab-rust", auxiliary="homelab-small"),
                                  "homelab-small" if name == "lint" else "homelab-rust")
 
+    def test_cargo_state_opt_in_main_only_save_and_required_build(self):
+        caller = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
+        producer = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
+        for workflow, trigger in ((caller, "workflow_dispatch"), (producer, "workflow_call")):
+            triggers = workflow.get("on", workflow.get(True))
+            option = triggers[trigger]["inputs"]["cargo-state-cache"]
+            self.assertEqual(option["type"], "boolean")
+            self.assertIs(option["default"], False)
+        self.assertEqual(self.jobs["build-runtime"]["with"]["cargo-state-cache"],
+                         "${{ github.event_name == 'workflow_dispatch' && inputs.cargo-state-cache == true }}")
+        for name, job in self.jobs.items():
+            if name != "build-runtime":
+                self.assertNotIn("cargo-state-cache", job.get("with", {}))
+        job = producer["jobs"]["build"]
+        self.assertEqual(job["env"]["EEZ_CARGO_STATE_CACHE"],
+                         "${{ (inputs.cargo-state-cache || vars.CI_CARGO_STATE_CACHE == 'true') && inputs.runner == 'homelab-rust' }}")
+        steps = job["steps"]
+        restore = next(s for s in steps if s.get("id") == "cargo-restore")
+        archive = next(s for s in steps if s.get("id") == "cargo-archive")
+        save = next(s for s in steps if s.get("uses", "").startswith("actions/cache/save@"))
+        self.assertEqual(restore["with"]["path"], save["with"]["path"])
+        self.assertEqual(restore["with"]["key"], save["with"]["key"])
+        self.assertIn("steps.cargo-state.outputs.prefix", restore["with"]["restore-keys"])
+        self.assertIn("cargo-state.py archive", archive["run"])
+        self.assertIn("github.event_name == 'push'", archive["if"])
+        self.assertIn("github.event.repository.default_branch", archive["if"])
+        self.assertIn("cache-hit != 'true'", archive["if"])
+        self.assertIn("steps.cargo-archive.outputs.upload == 'true'", save["if"])
+        for step in (restore, archive, save):
+            self.assertTrue(step["continue-on-error"])
+            self.assertEqual(step["timeout-minutes"], 10)
+        for step in steps:
+            if "build-runtime-artifacts.sh" in step.get("run", "") or "--suite unit" in step.get("run", ""):
+                self.assertNotIn("continue-on-error", step)
+        self.assertIn(".ci-cargo-state/", (REPO / ".dockerignore").read_text())
+
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):
             for job in yaml.safe_load(path.read_text())["jobs"].values():
@@ -274,9 +310,6 @@ elif args[0] != "logout":
         self.assertEqual(by_id["local-runtime"]["env"]["EEZ_EXPECT_PUBLISHED"], "false")
         optional = [s for s in steps if "run" in s and s.get("continue-on-error", False)]
         self.assertEqual([s["id"] for s in optional], ["cargo-archive"])
-        self.assertIn("cargo-state.py archive", optional[0]["run"])
-        self.assertIn("github.event_name == 'push'", optional[0]["if"])
-        self.assertIn("github.event.repository.default_branch", optional[0]["if"])
 
 
 if __name__ == "__main__":

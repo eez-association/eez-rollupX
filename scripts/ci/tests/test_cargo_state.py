@@ -1,4 +1,4 @@
-"""Cache rejection, authoritative sources, resource limits and workflow gates."""
+"""Cache rejection, authoritative sources, resource limits and failure handling."""
 import importlib.util
 import io
 import json
@@ -10,7 +10,6 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
-import yaml
 
 REPO = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("state", REPO / "scripts/ci/cargo-state.py")
@@ -214,27 +213,3 @@ class CargoStateTest(unittest.TestCase):
                 state.archive(work)
             self.assertEqual(output.read_text(), "upload=false\n")
             self.assertTrue((work / "transport.tar.gz").exists())
-
-    def test_workflow_default_rollback_main_only_save_and_required_build(self):
-        workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
-        job = workflow["jobs"]["build"]
-        self.assertEqual(job["env"]["EEZ_CARGO_STATE_CACHE"],
-                         "${{ vars.CI_CARGO_STATE_CACHE == 'true' && inputs.runner == 'homelab-rust' }}")
-        steps = job["steps"]
-        restore = next(s for s in steps if s.get("id") == "cargo-restore")
-        archive = next(s for s in steps if s.get("id") == "cargo-archive")
-        save = next(s for s in steps if s.get("uses", "").startswith("actions/cache/save@"))
-        self.assertEqual(restore["with"]["path"], save["with"]["path"])
-        self.assertEqual(restore["with"]["key"], save["with"]["key"])
-        self.assertIn("steps.cargo-state.outputs.prefix", restore["with"]["restore-keys"])
-        self.assertIn("github.event_name == 'push'", archive["if"])
-        self.assertIn("github.event.repository.default_branch", archive["if"])
-        self.assertIn("cache-hit != 'true'", archive["if"])
-        self.assertIn("steps.cargo-archive.outputs.upload == 'true'", save["if"])
-        for step in (restore, archive, save):
-            self.assertTrue(step["continue-on-error"])
-            self.assertEqual(step["timeout-minutes"], 10)
-        for step in steps:
-            if "build-runtime-artifacts.sh" in step.get("run", "") or "--suite unit" in step.get("run", ""):
-                self.assertNotIn("continue-on-error", step)
-        self.assertIn(".ci-cargo-state/", (REPO / ".dockerignore").read_text())

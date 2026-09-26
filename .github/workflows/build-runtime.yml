@@ -6,6 +6,10 @@ on:
       runner:
         required: true
         type: string
+      cargo-state-cache:
+        description: Opt into bounded Cargo state for this run (homelab only)
+        type: boolean
+        default: false
     outputs:
       runtime-ref:
         description: Immutable GHCR runtime payload digest
@@ -34,7 +38,7 @@ jobs:
       EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}
       EEZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       # Opt-in until real hosted memory/transfer behavior is measured separately.
-      EEZ_CARGO_STATE_CACHE: ${{ vars.CI_CARGO_STATE_CACHE == 'true' && inputs.runner == 'homelab-rust' }}
+      EEZ_CARGO_STATE_CACHE: ${{ (inputs.cargo-state-cache || vars.CI_CARGO_STATE_CACHE == 'true') && inputs.runner == 'homelab-rust' }}
     outputs:
       runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}

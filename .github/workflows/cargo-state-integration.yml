@@ -2,8 +2,7 @@ name: Cargo state integration validation
 
 # Temporary validation branch only; never part of the merge candidate.
 on:
-  push:
-    branches: [test/ci-cargo-state-integration]
+  workflow_dispatch:
 
 permissions:
   contents: read
