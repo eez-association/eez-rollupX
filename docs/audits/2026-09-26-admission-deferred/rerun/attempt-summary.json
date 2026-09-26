@@ -1,0 +1,12 @@
+{
+  "attempts": 41,
+  "canonical": 26,
+  "histories": {
+    "Complete sequence": 41
+  },
+  "noncanonical_targets": {
+    "produced_target_slot": 9,
+    "absent_target_slot": 6
+  },
+  "delivery_timeouts": 1
+}

@@ -1,0 +1,170 @@
+{
+  "affected_sources": 17,
+  "accepted_occurrences": 85,
+  "submissions_per_affected_source": 5,
+  "charged_failures_per_affected_source": 3,
+  "configured_source_attempt_limit": 3,
+  "entry_reserve_gas": 370000,
+  "estimate_reason": "immediate_evidence_unavailable",
+  "new_deferred_storage_model_used": false,
+  "disposition": "AttemptsExhausted, inferred from three charged Retryable resolutions and the deployed ownership transition; individual terminal ledger state has no public RPC",
+  "resubmissions_performed_by_agent": 0,
+  "attempts": [
+    {
+      "candidate_id": "1-1790435613106:1:55",
+      "target_block": 23241075,
+      "target_time": "2026-09-26T16:23:40+00:00",
+      "transaction_hash": "0xef3fb0d1279bf9fca95494d222647d3662accaa4432ca1a5fd5624257e188b0d",
+      "accepted": 36,
+      "admission_stop_reason": "l1_tx_gas_budget",
+      "preparation_ms": 402,
+      "proof_ms": 93.155618,
+      "signed_gas_limit": 13142191,
+      "preflight_gas_required": 12516372,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 842,
+      "delivery_ms": 171.204695,
+      "target_evidence": {
+        "canonical_block_hash": "0xf644bd3db8f5cc02e5e3075435f23025f4b54e40bca18fcd35fa2983ef4ab5d8",
+        "canonical_timestamp": 1790439825,
+        "requested_timestamp": 1790439820,
+        "canonical_parent_matches": true,
+        "classification": "absent_target_slot"
+      },
+      "charged_settlement_episode": false,
+      "all_source_outcomes_retryable": true,
+      "source_nonce_in_outcomes": 20,
+      "all_signed_gas_limits": [
+        13142191
+      ],
+      "all_preflight_gas_required": [
+        12516372
+      ]
+    },
+    {
+      "candidate_id": "1-1790435613106:1:56",
+      "target_block": 23241075,
+      "target_time": "2026-09-26T16:23:45+00:00",
+      "transaction_hash": "0xc114d232e63a64523efa2c6d1855f8f6fcf94ea1f98376f2d4a05c116d72de42",
+      "accepted": 36,
+      "admission_stop_reason": "fifo_fairness_limit",
+      "preparation_ms": 387,
+      "proof_ms": 111.260838,
+      "signed_gas_limit": 12950945,
+      "preflight_gas_required": 12334233,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 815.973874,
+      "delivery_ms": 172.58721799999998,
+      "target_evidence": {
+        "canonical_block_hash": "0xf644bd3db8f5cc02e5e3075435f23025f4b54e40bca18fcd35fa2983ef4ab5d8",
+        "canonical_timestamp": 1790439825,
+        "requested_timestamp": 1790439825,
+        "canonical_parent_matches": true,
+        "classification": "produced_target_slot"
+      },
+      "charged_settlement_episode": true,
+      "all_source_outcomes_retryable": true,
+      "source_nonce_in_outcomes": 20,
+      "all_signed_gas_limits": [
+        12950945
+      ],
+      "all_preflight_gas_required": [
+        12334233
+      ]
+    },
+    {
+      "candidate_id": "1-1790435613106:1:57",
+      "target_block": 23241076,
+      "target_time": "2026-09-26T16:23:50+00:00",
+      "transaction_hash": "0x7f36107718d63b13e997dc2098ab3e4985b1e2680e911dc1151a0c1d85caeb95",
+      "accepted": 18,
+      "admission_stop_reason": "submission_backoff",
+      "preparation_ms": 262,
+      "proof_ms": 57.046739,
+      "signed_gas_limit": 6650139,
+      "preflight_gas_required": 6333465,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1019.483686,
+      "delivery_ms": 169.909966,
+      "target_evidence": {
+        "canonical_block_hash": "0x1191ba99093448a41237b7e70b1b76580f9c9abe5eb41bfb5d04c88527385fa7",
+        "canonical_timestamp": 1790439835,
+        "requested_timestamp": 1790439830,
+        "canonical_parent_matches": true,
+        "classification": "absent_target_slot"
+      },
+      "charged_settlement_episode": false,
+      "all_source_outcomes_retryable": true,
+      "source_nonce_in_outcomes": 20,
+      "all_signed_gas_limits": [
+        6650139
+      ],
+      "all_preflight_gas_required": [
+        6333465
+      ]
+    },
+    {
+      "candidate_id": "1-1790435613106:1:58",
+      "target_block": 23241076,
+      "target_time": "2026-09-26T16:23:55+00:00",
+      "transaction_hash": "0xe19970806d7046132073b40815aa2a12e8f332f8df0ce632dbaad0a790e38e0d",
+      "accepted": 36,
+      "admission_stop_reason": "l1_tx_gas_budget",
+      "preparation_ms": 401,
+      "proof_ms": 94.942468,
+      "signed_gas_limit": 13142015,
+      "preflight_gas_required": 12516204,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 822.8507149999999,
+      "delivery_ms": 171.690265,
+      "target_evidence": {
+        "canonical_block_hash": "0x1191ba99093448a41237b7e70b1b76580f9c9abe5eb41bfb5d04c88527385fa7",
+        "canonical_timestamp": 1790439835,
+        "requested_timestamp": 1790439835,
+        "canonical_parent_matches": true,
+        "classification": "produced_target_slot"
+      },
+      "charged_settlement_episode": true,
+      "all_source_outcomes_retryable": true,
+      "source_nonce_in_outcomes": 20,
+      "all_signed_gas_limits": [
+        13142015
+      ],
+      "all_preflight_gas_required": [
+        12516204
+      ]
+    },
+    {
+      "candidate_id": "1-1790435613106:1:59",
+      "target_block": 23241077,
+      "target_time": "2026-09-26T16:24:00+00:00",
+      "transaction_hash": "0xa25950278fed6b44daba0a6fb4b1797501b2c9768a37445465dc20e80a84012e",
+      "accepted": 18,
+      "admission_stop_reason": "submission_backoff",
+      "preparation_ms": 279,
+      "proof_ms": 55.787298,
+      "signed_gas_limit": 6650189,
+      "preflight_gas_required": 6333513,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1010,
+      "delivery_ms": 168.8252,
+      "target_evidence": {
+        "canonical_block_hash": "0xa3c4da15eb4bb378601e93939a574e0b94083e6f070bf0ee1ed48ec30bd427b4",
+        "canonical_timestamp": 1790439840,
+        "requested_timestamp": 1790439840,
+        "canonical_parent_matches": true,
+        "classification": "produced_target_slot"
+      },
+      "charged_settlement_episode": true,
+      "all_source_outcomes_retryable": true,
+      "source_nonce_in_outcomes": 20,
+      "all_signed_gas_limits": [
+        6650189
+      ],
+      "all_preflight_gas_required": [
+        6333513
+      ]
+    }
+  ],
+  "interpretation": "Two absent target slots were not charged. Three produced target slots without inclusion were charged, reaching the existing limit. All five relay acknowledgements succeeded and preflight required gas fit signed limits. External builder exclusion reason remains unknown."
+}

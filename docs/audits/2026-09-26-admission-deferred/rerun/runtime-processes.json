@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-09-26T16:13:37.239195+00:00",
+  "services": {
+    "eez-node": {
+      "container_id": "bc8265ad918805059d5e084608f16ed628c1120decd2fc650ba61848e095fe59",
+      "started_at": "2026-09-26T15:05:21.46721481Z",
+      "image_id": "sha256:6db0ad2d2a470e11bfb1f0f35e49e103c65eef0eb9fccb951176d37130371f2f",
+      "restart_count": 0
+    },
+    "eez-proof-signer": {
+      "container_id": "288e7b6119ea163564876e3d51a7c88106f1871e00dd68d183476c57874cf08c",
+      "started_at": "2026-09-26T15:05:15.062636165Z",
+      "image_id": "sha256:8e2077def8877379ac074cf79328c78607f1ee0250111bb7b76a2884798c56cf",
+      "restart_count": 0
+    }
+  },
+  "host_load_1_5_15": [
+    17.01318359375,
+    18.8134765625,
+    12.10009765625
+  ],
+  "available_cpus": 22
+}

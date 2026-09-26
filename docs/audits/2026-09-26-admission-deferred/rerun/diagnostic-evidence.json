@@ -1,0 +1,14 @@
+{
+  "measure-canonical-first.log": {
+    "sha256": "ca96d1b56f2e486e3c611acee7ecb9e8bb9f55c71ae428e3ff71132440e35aee",
+    "local_only": true
+  },
+  "measure-incomplete.log": {
+    "sha256": "6735b23b129e72ccc465893c6d0f58733848bc2353872cadb4f2e2a94f524b80",
+    "local_only": true
+  },
+  "eviction-window.private.log": {
+    "sha256": "b466e9a83f83477a7ad3ab2f96f18c1ea52b3248e9a19c4f3513bf8829576993",
+    "local_only": true
+  }
+}

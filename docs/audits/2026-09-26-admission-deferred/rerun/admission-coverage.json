@@ -1,0 +1,35 @@
+{
+  "checked_at": "2026-09-26T16:32:48.832869+00:00",
+  "postings": 26,
+  "postings_with_complete_estimates": 26,
+  "canonical_sources": 853,
+  "intended_sources": 870,
+  "missing_sources": 17,
+  "wave_complete": false,
+  "canonical_sources_with_accepted_estimates": 853,
+  "source_attempt_rows": 1335,
+  "admission_stop_reasons": {
+    "fifo_fairness_limit": 6,
+    "submission_backoff": 5,
+    "pipeline_time": 8,
+    "l1_tx_gas_budget": 3,
+    "l1_bundle_gas_budget": 3,
+    "snapshot_exhausted": 1
+  },
+  "selection_limit_reasons": {
+    "fifo_fairness_limit": 8,
+    "submission_backoff": 5,
+    "uncapped": 13
+  },
+  "new_shape_fields_complete": true,
+  "nominal_preparation_overruns": 0,
+  "admission_gas_total": 269332530,
+  "receipt_gas_total": 172772733,
+  "history_complete": true,
+  "collector": [
+    {
+      "checked_at": "2026-09-26T16:32:48.880488+00:00",
+      "healthy": true
+    }
+  ]
+}

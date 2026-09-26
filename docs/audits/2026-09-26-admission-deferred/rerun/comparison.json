@@ -1,0 +1,133 @@
+{
+  "cohorts": {
+    "baseline": {
+      "source_count": 870,
+      "source_window_seconds": 147.557,
+      "sources_per_second": 5.896026620221338,
+      "postings_with_sources": 25,
+      "post_batch_gas_total": 177949152,
+      "skipped_slots_between_first_last": 3,
+      "produced_blocks_between_first_last": 26,
+      "admission_gas_total": 328380722,
+      "weighted_admission_to_receipt": 1.8453626685447762,
+      "admission_stop_reasons": {
+        "l1_tx_gas_budget": 13,
+        "l1_bundle_gas_budget": 3,
+        "fifo_fairness_limit": 2,
+        "pipeline_time": 5,
+        "submission_backoff": 1,
+        "snapshot_exhausted": 1
+      },
+      "directional_ratios": {
+        "has_inbound": {
+          "postings": 16,
+          "admission_gas": 193635709,
+          "preflight_gas_required": 69550990,
+          "ratio": 2.784082713991562
+        },
+        "outbound_only": {
+          "postings": 9,
+          "admission_gas": 134745013,
+          "preflight_gas_required": 112342621,
+          "ratio": 1.199411334723978
+        }
+      }
+    },
+    "candidate_first": {
+      "source_count": 870,
+      "source_window_seconds": 191.278,
+      "sources_per_second": 4.548353705078473,
+      "postings_with_sources": 28,
+      "post_batch_gas_total": 177916082,
+      "skipped_slots_between_first_last": 5,
+      "produced_blocks_between_first_last": 32,
+      "admission_gas_total": 275770290,
+      "weighted_admission_to_receipt": 1.5500020397256724,
+      "admission_stop_reasons": {
+        "fifo_fairness_limit": 7,
+        "l1_tx_gas_budget": 5,
+        "pipeline_time": 11,
+        "l1_bundle_gas_budget": 2,
+        "eligible_sources_exhausted": 1,
+        "submission_backoff": 1,
+        "snapshot_exhausted": 1
+      },
+      "directional_ratios": {
+        "has_inbound": {
+          "postings": 20,
+          "admission_gas": 165389965,
+          "preflight_gas_required": 89680328,
+          "ratio": 1.844216771820906
+        },
+        "outbound_only": {
+          "postings": 8,
+          "admission_gas": 110380325,
+          "preflight_gas_required": 92271861,
+          "ratio": 1.1962512059879231
+        }
+      }
+    },
+    "candidate_repeat": {
+      "source_count": 853,
+      "source_window_seconds": 207.092,
+      "sources_per_second": 4.118942305835088,
+      "postings_with_sources": 26,
+      "post_batch_gas_total": 172772733,
+      "skipped_slots_between_first_last": 6,
+      "produced_blocks_between_first_last": 34,
+      "admission_gas_total": 269332530,
+      "weighted_admission_to_receipt": 1.5588833105973963,
+      "admission_stop_reasons": {
+        "fifo_fairness_limit": 6,
+        "submission_backoff": 5,
+        "pipeline_time": 8,
+        "l1_tx_gas_budget": 3,
+        "l1_bundle_gas_budget": 3,
+        "snapshot_exhausted": 1
+      },
+      "directional_ratios": {
+        "has_inbound": {
+          "postings": 21,
+          "admission_gas": 194621476,
+          "preflight_gas_required": 113424933,
+          "ratio": 1.7158615028672752
+        },
+        "outbound_only": {
+          "postings": 5,
+          "admission_gas": 74711054,
+          "preflight_gas_required": 63438943,
+          "ratio": 1.1776844075097532
+        }
+      }
+    }
+  },
+  "invariants": {
+    "canonical_candidates": 26,
+    "fresh_unique_sources": 853,
+    "intended_sources": 870,
+    "unsettled_sources": 17,
+    "wave_complete": false,
+    "source_hashes_reused_from_first_candidate": 0,
+    "accepted_counts_match_canonical_sources": true,
+    "complete_histories": true,
+    "all_canonical_acknowledgements_before_deadline": true,
+    "all_required_gas_within_signed_limits": true,
+    "minimum_acknowledgement_headroom_ms": 44.41958100000002,
+    "admission_below_required_count": 0,
+    "preparation_ms": {
+      "median": 407.0,
+      "max": 782
+    },
+    "proof_ms": {
+      "median": 104.3471705,
+      "max": 187.170833
+    },
+    "finalization_ms": {
+      "median": 121.56321249999999,
+      "max": 216.256499
+    }
+  },
+  "comparison_warning": "Repeat cohort is incomplete; its provisional receipt-monitor window is not full-settlement latency.",
+  "repeat_window_change_percent": 8.267547757713922,
+  "limits": "One baseline and two candidate waves on live Chiado. Repeat retained the process and timing calibration; storage, source interleaving, slots and historical backlog differ. Worker prefunding 0.005 / 0.0045 / 0.00445 xDAI, with unchanged gas limits and workload. No isolated causal throughput claim."
+}

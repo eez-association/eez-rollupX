@@ -7,6 +7,7 @@
 | Branch / baseline | `feat/cross-chain-admission-throughput`, `bfcb68dce74b2196bff1df4a648ee0dc127f469d`; runtime baseline `036b50a3c7d0dee45e6308388a6233ded7a7d2ca` |
 | Protocol | Clean `9d13218a355e7d543ca8a9927eea2962600b716d`, unchanged |
 | Implementation | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc`; subsequent changes are documentation/evidence only |
+| Later rerun | [Requested repeat](rerun/README.md) failed full completion: 853/870 sources canonical, 753 job semantic passes and 17 missing-receipt failures after retry exhaustion. The first wave below remains its original successful result. |
 | Tools | Rust 1.94.0, locked dependencies, Foundry 1.7.1, Solidity 0.8.34 |
 | Contract | [Proposal](../../proposals/cross-chain-admission-throughput.md), [settlement policy](../../configurable-settlement-policy.md), [monitoring](../../../monitoring/indexer/README.md#admission-history) |
 | Prior evidence | [Baseline live wave](../2026-09-26-admission-shapes/README.md) |
