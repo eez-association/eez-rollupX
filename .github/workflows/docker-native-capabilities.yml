@@ -1,0 +1,40 @@
+name: Docker native build capabilities
+on:
+  push:
+    branches: [test/docker-native-capabilities]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: homelab-rust
+    timeout-minutes: 10
+    steps:
+      - name: Inspect current client and daemon
+        run: |
+          docker version
+          docker buildx version
+          docker buildx inspect default
+      - name: Use job-private pinned Buildx
+        run: |
+          config="$(mktemp -d "$RUNNER_TEMP/docker-probe.XXXXXXXX")"
+          mkdir "$config/cli-plugins"
+          curl --fail --silent --show-error --location --max-time 90 \
+            https://github.com/docker/buildx/releases/download/v0.37.1/buildx-v0.37.1.linux-amd64 \
+            -o "$config/cli-plugins/docker-buildx"
+          printf '%s  %s\n' 9447199cdb435f25880548343c128a4b6650e8891ee598905d8d29d39a8e359b \
+            "$config/cli-plugins/docker-buildx" | sha256sum --check --status
+          chmod 755 "$config/cli-plugins/docker-buildx"
+          echo "DOCKER_CONFIG=$config" >> "$GITHUB_ENV"
+      - name: Assert limits inside a real build step
+        run: |
+          docker buildx version
+          docker buildx build --builder default --progress plain --provenance=false \
+            --resource cpu-period=100000 --resource cpu-quota=100000 \
+            --resource memory=256m --resource memory-swap=256m - <<'DOCKERFILE'
+          FROM debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+          RUN test "$(cat /sys/fs/cgroup/cpu.max)" = '100000 100000' \
+           && test "$(cat /sys/fs/cgroup/memory.max)" = 268435456 \
+           && test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0 \
+           && grep -H . /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max
+          DOCKERFILE
