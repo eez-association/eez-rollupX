@@ -123,6 +123,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "GITHUB_REPOSITORY": "eez-ci-fixture/runtime-" + hashlib.sha256(root.name.encode()).hexdigest()[:16],
                 "GITHUB_SHA": sha,
                 "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_TEMP": str(root),
+                "EEZ_CARGO_STATE_CACHE": "false", "EEZ_COMPILER_CACHE": "none", "EEZ_RUNTIME_CACHE": "false",
                 "EEZ_RUNTIME_OUTPUT_DIR": str(root / "artifacts"), "EEZ_PUBLISH_IMAGES": "false",
                 "EEZ_NATIVE_TEST_OUTPUT_DIR": str(root / "test-artifacts"),
                 "EEZ_EXPECT_PUBLISHED": "false", "GITHUB_ENV": str(root / "github-env"),
