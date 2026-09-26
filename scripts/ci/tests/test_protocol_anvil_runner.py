@@ -105,8 +105,11 @@ class ProtocolAnvilRunnerTest(unittest.TestCase):
     def test_suite_timeout_is_not_a_successful_partial_run(self):
         self.add_scenario("hang")
         self.add_scenario("pass")
-        result = self.run_suite(EEZ_ANVIL_SUITE_TIMEOUT="1")
-        self.assertEqual(result.returncode, 1)
+        # The suite clock starts before spawning the first scenario. One second
+        # can expire during process startup on a busy runner, testing NOT_RUN
+        # instead of the intended running-child timeout and remaining-work gate.
+        result = self.run_suite(EEZ_ANVIL_SUITE_TIMEOUT="5")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual([r["result"] for r in self.results()], ["TIMEOUT", "NOT_RUN"])
         self.assert_child_stopped()
 
