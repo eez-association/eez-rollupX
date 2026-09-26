@@ -4,7 +4,7 @@
 //! [`ChainProvider`] bundles the three reth handles every EVM
 //! simulation needs:
 //!
-//! - type-erased `StateProviderFactory` (for opening a state snapshot)
+//! - type-erased [`StateSnapshotProvider`] (for opening a state snapshot)
 //! - type-erased [`HeaderReader`] (dyn-compatible wrapper around
 //!   `HeaderProvider`, which has generic methods that block direct
 //!   `dyn` use)
@@ -51,7 +51,7 @@ where
 /// Everything needed to simulate calls on a chain.
 pub struct ChainProvider {
     /// State provider factory — `.latest()` opens a fresh state snapshot.
-    pub provider: Arc<dyn StateProviderFactory>,
+    pub provider: Arc<dyn StateSnapshotProvider>,
     /// Header reader — dyn-compatible wrapper around `HeaderProvider`.
     pub headers: Arc<dyn HeaderReader>,
     /// EVM config for building envs from headers.
@@ -79,5 +79,41 @@ impl std::fmt::Debug for ChainProvider {
             .field("headers", &"..")
             .field("evm_config", &"..")
             .finish()
+    }
+}
+
+/// State snapshot reads shared by Ethereum and Gnosis simulation.
+///
+/// Reth's factory also accepts executed blocks and therefore carries chain-specific
+/// primitives. Simulation needs only these reads; erasing this smaller interface
+/// keeps Gnosis block/header types out of the Ethereum execution adapter.
+pub trait StateSnapshotProvider: Send + Sync {
+    /// Open the current state snapshot, forwarding the provider's lookup error.
+    fn latest(
+        &self,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>;
+
+    /// Open the exact parent state by hash, including a known pending block.
+    /// Missing or unavailable state is returned as the provider's error.
+    fn state_by_block_hash(
+        &self,
+        hash: alloy_primitives::B256,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>;
+}
+
+impl<T: StateProviderFactory + Sync> StateSnapshotProvider for T {
+    fn latest(
+        &self,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>
+    {
+        StateProviderFactory::latest(self)
+    }
+
+    fn state_by_block_hash(
+        &self,
+        hash: alloy_primitives::B256,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>
+    {
+        StateProviderFactory::state_by_block_hash(self, hash)
     }
 }

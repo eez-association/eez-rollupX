@@ -60,6 +60,11 @@ fn policy_env() -> Vec<(&'static str, String)> {
 async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     let env = policy_env();
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
+    if restart_before_retry {
+        // Persist the ordinary deployment prefix without changing engine defaults.
+        // The later crash must recover settled history above this nonzero prefix.
+        world.restart_composer_with_env(&[]).await.unwrap();
+    }
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
         .unwrap();
@@ -302,7 +307,15 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         );
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
-        world.crash_and_restart_composer().await.unwrap();
+        let (persisted_blocks, persisted_state) = world.crash_and_restart_composer().await.unwrap();
+        assert!(
+            persisted_blocks > 0 && persisted_blocks < height,
+            "crash must leave an intermediate L2 block prefix: {persisted_blocks}, settled={height}"
+        );
+        assert!(
+            persisted_state > 0 && persisted_state < height,
+            "crash must leave an intermediate L2 state prefix: {persisted_state}, settled={height}"
+        );
         wait_for(TIMEOUT, || async {
             Ok((l1.get_block_number().await? > target).then_some(()))
         })

@@ -9,17 +9,17 @@
 -reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
 -reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
 -reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
-+reth = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
++reth = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
  
  # Independent crates
 -reth-codecs = { version = "0.6.0", default-features = false }
 -reth-primitives-traits = { version = "0.6.0", default-features = false }
-+reth-codecs = { version = "0.7.1", default-features = false }
-+reth-primitives-traits = { version = "0.7.1", default-features = false }
++reth-codecs = { version = "0.8.1", default-features = false }
++reth-primitives-traits = { version = "0.8.1", default-features = false }
  
  alloy-primitives = { version = "1.6.1", default-features = false }
  

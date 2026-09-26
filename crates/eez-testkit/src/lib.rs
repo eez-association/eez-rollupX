@@ -4508,7 +4508,8 @@ impl CrossChainWorld {
 
     /// Kill the composer without flushing and reopen its databases with an empty pool.
     /// Callers must establish persistence of any local history their assertions require.
-    pub async fn crash_and_restart_composer(&mut self) -> Result<()> {
+    /// Returns the L2 block/state disk frontiers observed after SIGKILL, before reopening.
+    pub async fn crash_and_restart_composer(&mut self) -> Result<(u64, u64)> {
         {
             let mut child = self.node.child.lock().expect("node child mutex poisoned");
             ensure!(
@@ -4526,7 +4527,29 @@ impl CrossChainWorld {
                 );
             }
         }
-        self.reopen_composer().await
+        let path = self.datadir.path().join("db");
+        let checkpoint = tokio::task::spawn_blocking(move || -> Result<(u64, u64)> {
+            use reth_db::{Database, tables, transaction::DbTx};
+            let db = reth_db::open_db_read_only(path, Default::default())
+                .map_err(|error| anyhow!("open crashed L2: {error:#}"))?;
+            let tx = db.tx()?;
+            let checkpoint = tx
+                .get::<tables::StageCheckpoints>("Finish".into())?
+                .context("crashed L2 has no Finish checkpoint")?;
+            let state_tip = checkpoint
+                .finish_stage_checkpoint()
+                .and_then(|finish| finish.partial_state_trie())
+                .unwrap_or(checkpoint.block_number);
+            Ok((checkpoint.block_number, state_tip))
+        })
+        .await
+        .context("join crashed L2 checkpoint reader")??;
+        eprintln!(
+            "crashed L2 disk frontiers: blocks={}, state={}",
+            checkpoint.0, checkpoint.1
+        );
+        self.reopen_composer().await?;
+        Ok(checkpoint)
     }
 
     /// Flush via SIGTERM before reopening with a new startup policy snapshot.

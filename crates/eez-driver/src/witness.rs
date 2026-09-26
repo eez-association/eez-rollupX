@@ -29,7 +29,9 @@ use reth_evm::{ConfigureEvm, execute::Executor};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
 use reth_revm::{database::StateProviderDatabase, witness::ExecutionWitnessRecord};
-use reth_storage_api::{HashedPostStateProvider, HeaderProvider, StateProviderFactory};
+use reth_storage_api::{
+    EvmStateProviderAdapter, HashedPostStateProvider, HeaderProvider, StateProviderFactory,
+};
 use reth_trie::{HashedPostState, HashedStorage};
 use revm::database::State;
 use std::collections::HashSet;
@@ -140,9 +142,9 @@ where
     let parent_hash = block.header().parent_hash();
     let has_bal = block.header().block_access_list_hash().is_some();
     let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(
+        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
             provider.state_by_block_hash(parent_hash)?,
-        ))
+        )))
         .with_bundle_update()
         .with_bal_builder_if(has_bal)
         .build();
@@ -172,7 +174,7 @@ where
     //    executor builds its own `State` over the parent provider; reads
     //    warm its cache → that cache is the exact access set.
     let mut executor = evm_config.batch_executor(StateProviderDatabase::new(
-        provider.state_by_block_hash(parent_hash)?,
+        EvmStateProviderAdapter(provider.state_by_block_hash(parent_hash)?),
     ));
     executor.execute_one(block)?;
     let state = executor.into_state();
@@ -193,9 +195,9 @@ where
     let parent_hash = block.header().parent_hash();
     let has_bal = block.header().block_access_list_hash().is_some();
     let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(
+        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
             provider.state_by_block_hash(parent_hash)?,
-        ))
+        )))
         .with_bundle_update()
         .with_bal_builder_if(has_bal)
         .build();

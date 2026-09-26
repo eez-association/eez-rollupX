@@ -1,8 +1,10 @@
-# Reth v2.6.0 dependency ports
+# Upstream Reth dependency ports
 
 These local sources make the validation checkout reproducible without publishing
-unreviewed dependency forks. Reth itself is the unmodified official release
-`73a3a00862a8f14f89e30da8de001456f18cfae0`.
+unreviewed dependency forks. Reth itself is unmodified upstream commit
+`444e867155c2a7a4c028e479ca7201b0b6871579`, the merge of
+[#27429](https://github.com/paradigmxyz/reth/pull/27429). This is a post-v2.6.0
+source pin, not a released version; upstream still reports package version 2.5.2.
 
 | Directory | Upstream source | Base revision |
 | --- | --- | --- |
@@ -11,7 +13,8 @@ unreviewed dependency forks. Reth itself is the unmodified official release
 | gnosis-primitives | https://github.com/gnosischain/rust-primitives | 6fd87e36685bc2b5b11136c5d591aa195095595f (v0.2.8) |
 
 Original licenses are retained. Initial changes align manifests with official
-Reth v2.6.0, REVM 43 and Alloy 2.4.2. The upgrade proposal tracks validation acceptance; these sources do not claim
+Reth v2.6.0. The #27429 candidate aligns the ports with Reth core crates 0.8.1,
+REVM 43.0.3 and Alloy 2.5.0. The upgrade proposal tracks validation acceptance; these sources do not claim
 upstream release support for the combined EEZ dependency graph.
 
 The `stateless/crates/tries` manifest and default/lib/zeth modules incorporate
@@ -22,7 +25,8 @@ storage resets before both checkpoint and final roots. Its regression compares
 both paths against an independently constructed trie with blinded old storage.
 Reth-Gnosis adapts the download command's return value and selects the existing
 interpreter features explicitly; the default Reth binary now also selects JIT,
-which is not used by EEZ's custom Gnosis EVM. Gnosis primitives follows the
+which is not used by EEZ's custom Gnosis EVM. Gnosis payload execution uses the upstream EVM state-reader adapter, retaining
+the full provider for roots and proofs. Gnosis primitives follows the
 matching REVM/Alloy type versions. None of these ports modifies Reth source.
 
 ## Reviewing and maintaining the ports

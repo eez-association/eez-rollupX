@@ -30,35 +30,35 @@
 -reth-trie-common = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb", default-features = false }
 -reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb" }
 -reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth", rev = "fd59fd2222b51239abebd9aa234f28b0b5f336eb", default-features = false }
-+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-consensus = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-db-api = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-db-common = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-evm = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-primitives-traits = { version = "0.7.1", default-features = false }
-+reth-provider = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-revm = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-trie = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-trie-common = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
-+reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0" }
-+reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth", rev = "73a3a00862a8f14f89e30da8de001456f18cfae0", default-features = false }
++reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-consensus = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-db-api = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-db-common = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-ethereum-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-evm = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-evm-ethereum = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-primitives-traits = { version = "0.8.1", default-features = false }
++reth-provider = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-revm = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-trie = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-trie-common = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
++reth-trie-db = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
  
  # alloy
 -alloy-consensus = { version = "=2.0.5", default-features = false }
 -alloy-eips = { version = "=2.0.5", default-features = false }
 -alloy-genesis = { version = "=2.0.5", default-features = false }
-+alloy-consensus = { version = "=2.4.2", default-features = false }
-+alloy-eips = { version = "=2.4.2", default-features = false }
-+alloy-genesis = { version = "=2.4.2", default-features = false }
++alloy-consensus = { version = "=2.5.0", default-features = false }
++alloy-eips = { version = "=2.5.0", default-features = false }
++alloy-genesis = { version = "=2.5.0", default-features = false }
  alloy-primitives = { version = "1.6.0", default-features = false, features = ["map-foldhash", "map-indexmap"] }
  alloy-rlp = { version = "0.3.13", default-features = false }
 -alloy-rpc-types-debug = { version = "=2.0.5", default-features = false }
-+alloy-rpc-types-debug = { version = "=2.4.2", default-features = false }
++alloy-rpc-types-debug = { version = "=2.5.0", default-features = false }
  alloy-trie = { version = "0.9.4", default-features = false }
  
  # revm
@@ -66,7 +66,7 @@
 -revm-bytecode = { version = "=10.0.0", default-features = false }
 -revm-database-interface = { version = "=11.0.1", default-features = false }
 -revm-state = { version = "=11.0.1", default-features = false }
-+revm = { version = "43.0.2", default-features = false }
++revm = { version = "43.0.3", default-features = false }
 +revm-bytecode = { version = "43.0.0", default-features = false }
 +revm-database-interface = { version = "43.0.0", default-features = false }
 +revm-state = { version = "43.0.0", default-features = false }

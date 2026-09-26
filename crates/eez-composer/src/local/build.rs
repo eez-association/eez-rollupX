@@ -27,7 +27,7 @@ use reth_primitives_traits::{
     Recovered, RecoveredBlock, SealedHeader, SignedTransaction, SignerRecoverable,
 };
 use reth_revm::database::StateProviderDatabase;
-use reth_storage_api::{StateProviderBox, StateProviderFactory};
+use reth_storage_api::{EvmStateProviderAdapter, StateProviderBox, StateProviderFactory};
 use revm::database::{CacheState, State};
 use revm::inspector::NoOpInspector;
 use revm::{
@@ -39,7 +39,7 @@ use thiserror::Error;
 
 /// The revm state a Sync block is built over: the parent state provider plus
 /// every change committed by the block's txs so far.
-pub type DraftDb = State<StateProviderDatabase<StateProviderBox>>;
+pub type DraftDb = State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>;
 
 /// Errors raised by [`build_sync_block`].
 #[derive(Debug, Error)]
@@ -138,7 +138,7 @@ fn recover_tx(raw: &Bytes, idx: usize) -> Result<Recovered<TransactionSigned>, B
 /// Open the revm state for a block built on `parent_hash`, optionally
 /// preloaded with an already-warmed cache.
 fn open_draft_db(
-    provider: &dyn StateProviderFactory,
+    provider: &dyn super::provider::StateSnapshotProvider,
     parent_hash: B256,
     cache: Option<CacheState>,
 ) -> Result<DraftDb, BuildError> {
@@ -146,7 +146,9 @@ fn open_draft_db(
         .state_by_block_hash(parent_hash)
         .map_err(|e| BuildError::Provider(format!("state_by_block_hash({parent_hash}): {e}")))?;
     let mut builder = State::builder()
-        .with_database(StateProviderDatabase::new(state_provider))
+        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
+            state_provider,
+        )))
         .with_bundle_update();
     if let Some(cache) = cache {
         builder = builder.with_cached_prestate(cache);
@@ -182,7 +184,7 @@ where
     let state_provider = l2_provider
         .state_by_block_hash(parent_hash)
         .map_err(|e| BuildError::Provider(format!("state_by_block_hash({parent_hash}): {e}")))?;
-    let state_db = StateProviderDatabase::new(state_provider.as_ref());
+    let state_db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
     let mut db = State::builder()
         .with_database(state_db)
         .with_bundle_update()
@@ -302,7 +304,7 @@ where
 /// (withdrawals, balance increments) are NOT applied — those belong to block
 /// close, not to mid-block state.
 pub struct SyncBlockState {
-    provider: Arc<dyn StateProviderFactory>,
+    provider: Arc<dyn super::provider::StateSnapshotProvider>,
     evm_config: EthEvmConfig,
     parent_hash: B256,
     evm_env: EvmEnvFor<EthEvmConfig>,
@@ -332,7 +334,7 @@ impl SyncBlockState {
     ///
     /// See [`BuildError`].
     pub fn open(
-        provider: Arc<dyn StateProviderFactory>,
+        provider: Arc<dyn super::provider::StateSnapshotProvider>,
         evm_config: &EthEvmConfig,
         parent: &SealedHeader<Header>,
         timestamp: u64,
