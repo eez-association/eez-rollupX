@@ -19,7 +19,8 @@
 - Cold automatic admission considers the finite queue without a mandatory
   one-source calibration post. Preparation overruns alone do not discard an
   accepted candidate or halve capacity. Bounded workload-aware timing history
-  replaces bootstrap estimates only using equal-or-larger measured requests.
+  uses covering samples or bounded upward proof scaling across group/blob/witness
+  dimensions, with prediction basis recorded for analysis.
 - Gas admission discounts fixed words observed nonzero in retained deferred
   storage at the exact parent. Unknown shapes and dynamic slots keep existing
   reserves. Full-ABI sizing, signed gas checks, native complete-effect validation,
@@ -85,7 +86,13 @@ groups because the cold reserves consumed the entire planning window. The
 bounded first-group timing probe described in the proposal corrects that case.
 The obsolete full run was stopped after those failures; its logs/datadirs remain
 under `native/`, with ownership/termination recorded in `native-initial-stop.json`.
-It is not reported as a passing suite. A corrected full run is pending.
+It is not reported as a passing suite. The corrected `f37fb4f` run passed
+19 of 20 cases; both recovery fixtures passed. Its remaining skipped-slot failure
+showed that increasing witness counts repeatedly restored the cold proof seed,
+preventing the expected next-slot replacement dispatch. The subsequent correction
+scales recent proof observations upward across all three dimensions, capped at
+the configured seed. Its focused native regression is pending; the original
+failure remains in `native-dynamic-admission-corrected.log`.
 
 Actual Grafana rendering caught a nested `$__timeFilter` expansion failure in
 the timeline panel that the SQL-only check did not model. Moving its timestamp
@@ -127,3 +134,45 @@ reconciliation regressions, image builds with recorded source/digests, additive
 monitoring rollout, queue-drained local-image rollout, comparable baseline/candidate
 waves, semantic verification and live Grafana coverage. Earlier receipt-only
 waves are performance context and do not replace those correctness checks.
+
+## Live baseline (original runtime)
+
+The original `7c90266a5fe8cfdb46b249c61079badc2dce71a3` runtime processed the
+locked, semantically verified staged run `20260926-075533` on existing rollup 1,
+L1 Chiado 10200 and L2 6292. It completed at 08:18:04 UTC: all 770 per-job
+semantic checks passed, all 870 sources (520 inbound / 350 outbound) had
+canonical successful receipts. Independent canonical block/receipt and settlement
+range inspection corrected 146 source heights recorded before reconciliation.
+
+| Baseline measure | Result |
+| --- | --- |
+| Send plus source monitoring | 201.354 s |
+| Source throughput | 4.321/s |
+| Postings containing workload sources | 30 |
+| Canonical L1 block span | 23235692–23235725 |
+| Skipped slots inside that span | 4 |
+| Total postBatch receipt gas | 177,245,257 |
+| Per-job semantic verification | 770 passed, zero failed |
+
+Preparation/setup and semantic verification are outside the measured source
+window. Setup needed relay of original signed setup transactions after local
+propagation stalled; chain/genesis/common-head identity, each raw hash, active
+wallet lock and sender nonce order were checked. An initial parallel relay had
+55 HTTP failures; the sequential remainder succeeded. No source transaction was
+re-signed or repriced. Source-window logs, canonical CSVs, private block/receipt
+snapshots, funding and relay evidence are retained under `baseline/`. This is one
+live baseline cohort; candidate comparisons must account for skipped slots,
+network timing and runtime build profiles.
+
+## Local image build identity
+
+Early `3cb712c-local` and `f37fb4f-local` images used separate package builds.
+Comparing Cargo unit graphs against `Dockerfile.runtime` found four dependency
+feature differences. Those node/signer images were not deployed. The subsequent
+shipping build uses the exact five packages, three binaries and four examples
+selected by `Dockerfile.runtime`, Rust 1.94.0, locked dependencies and the release
+profile. It uses local cargo-chef/mold caching and omits CI test-archive generation.
+Each context contains only an archived commit and its recursive pinned protocol
+submodules; operator files are excluded. Recipes, commands and image IDs are
+retained in `images-<revision>-shipping/`. The existing node and signer still run
+the baseline images pending native regression completion.

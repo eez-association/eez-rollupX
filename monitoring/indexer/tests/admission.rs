@@ -106,7 +106,12 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
             "summary",
             json!({"accepted":1,"deferred":1,"projected_gas":500000,"planning_cap":1000000}),
         ),
-        event(5, "finished", json!({})),
+        event(
+            5,
+            "proof_requested",
+            json!({"proof_estimate_ms":125.0,"proof_estimate_basis":"scaled_sample","post_reserve_ms":150.0}),
+        ),
+        event(6, "finished", json!({})),
     ];
     let batch = eez_indexer::postings::Batch {
         file_id: "admission-test".into(),
@@ -284,10 +289,31 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
                 "$__timeFilter(to_timestamp((data->>'timestamp_ms')::bigint/1000.0))",
                 "true",
             );
-        client
+        let rows = client
             .query(&sql, &[])
             .await
-            .unwrap_or_else(|e| panic!("dashboard {}: {e}", panel["title"]));
+            .unwrap_or_else(|e| panic!("dashboard {}: {e:?}", panel["title"]));
+        if panel["id"] == 2 {
+            let prediction = rows
+                .iter()
+                .find(|r| r.get::<_, String>("candidate_id") == "123-456:1:0")
+                .unwrap();
+            assert_eq!(
+                prediction.get::<_, Option<f64>>("proof_estimate_ms"),
+                Some(125.0)
+            );
+            assert_eq!(
+                prediction
+                    .get::<_, Option<String>>("proof_estimate_basis")
+                    .as_deref(),
+                Some("scaled_sample")
+            );
+            let legacy = rows
+                .iter()
+                .find(|r| r.get::<_, String>("candidate_id") == "123-456:1:1")
+                .unwrap();
+            assert!(legacy.get::<_, Option<f64>>("proof_estimate_ms").is_none());
+        }
     }
     connection.abort();
 }

@@ -6269,11 +6269,18 @@ where
             timings: admission.map(|a| Arc::clone(&a.timings)),
         };
         if let Some(candidate) = &preparation_timing.candidate {
+            let prediction = admission.map(|attempt| {
+                attempt
+                    .timings
+                    .proof_prediction(self.inner.emission.timing.proof_time(), workload)
+            });
             candidate.emit(
                 "proof_requested",
                 serde_json::json!({"deadline_ms":deadline.map(|d|d.unix_ms),
                 "remaining_ms":deadline.map(|d|d.remaining().as_secs_f64()*1000.0),
                 "post_reserve_ms":post_reserve.as_secs_f64()*1000.0,
+                "proof_estimate_ms":prediction.as_ref().map(|p|p.duration.as_secs_f64()*1000.0),
+                "proof_estimate_basis":prediction.as_ref().map(|p|p.basis),
                 "nominal_preparation_ms":self.inner.emission.timing.preparation_time().as_millis(),
                 "preparation_ms":proof_gate_ms.saturating_sub(preparation_started_ms),
                 "groups":workload.groups,"blobs":workload.blobs,"witnesses":workload.witnesses}),

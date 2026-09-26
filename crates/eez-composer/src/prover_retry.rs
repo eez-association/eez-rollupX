@@ -198,9 +198,8 @@ impl PipelineDeadline {
 pub(crate) const POST_PROOF_RESERVE: Duration = Duration::from_millis(150);
 pub(crate) const DELIVERY_RESERVE: Duration = Duration::from_millis(25);
 
-/// Work dimensions bound reuse of a timing observation. A small proof must not
-/// train a cheaper reserve for a larger blob/witness request. Samples are local
-/// to the running binary/prover and disappear on restart.
+/// Work dimensions bound reuse and upward scaling of a timing observation.
+/// Samples are local to the running binary/prover and disappear on restart.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Workload {
     pub groups: usize,
@@ -232,10 +231,49 @@ impl TimingHistory {
             .max()
             .map(|d| d.saturating_add(d / 4))
     }
+
+    fn extrapolate(&self, workload: Workload) -> Option<Duration> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(sample, elapsed)| {
+                [
+                    (workload.groups, sample.groups),
+                    (workload.blobs, sample.blobs),
+                    (workload.witnesses, sample.witnesses),
+                ]
+                .into_iter()
+                .filter(|(requested, observed)| *requested > (*observed).max(1))
+                .map(|(requested, observed)| {
+                    let nanos = elapsed
+                        .as_nanos()
+                        .checked_mul(requested as u128)
+                        .map(|n| n.div_ceil(observed.max(1) as u128));
+                    match nanos.filter(|n| *n <= Duration::MAX.as_nanos()) {
+                        Some(n) => {
+                            Duration::new((n / 1_000_000_000) as u64, (n % 1_000_000_000) as u32)
+                        }
+                        None => Duration::MAX,
+                    }
+                })
+                .fold(*elapsed, Duration::max)
+            })
+            .max()
+            .map(|d| d.saturating_add(d / 4))
+    }
 }
 
-/// Bounded histories with 25% headroom. Only equal-or-larger observed workloads
-/// may replace the bootstrap allocation; unknown dimensions keep the seed.
+pub(crate) struct ProofPrediction {
+    pub duration: Duration,
+    pub basis: &'static str,
+}
+
+/// Bounded histories with 25% headroom. Proofs outside observed coverage scale
+/// by the largest workload ratio, capped at the configured bootstrap estimate.
+/// This avoids returning to a prohibitive cold allocation for each new witness
+/// count while keeping the shared deadline authoritative. Finalization requires
+/// covering samples because envelope/preflight cost need not scale like proof work.
 #[derive(Default, Debug)]
 pub(crate) struct PipelineTimings {
     proof: TimingHistory,
@@ -243,10 +281,23 @@ pub(crate) struct PipelineTimings {
 }
 impl PipelineTimings {
     pub fn proof_estimate(&self, configured: Duration, workload: Workload) -> Duration {
-        self.proof
-            .estimate(workload)
-            .map(|d| d.max(Duration::from_millis(25)))
-            .unwrap_or(configured)
+        self.proof_prediction(configured, workload).duration
+    }
+    pub fn proof_prediction(&self, configured: Duration, workload: Workload) -> ProofPrediction {
+        let (duration, basis) = if let Some(estimate) = self.proof.estimate(workload) {
+            (estimate, "covering_sample")
+        } else if let Some(estimate) = self.proof.extrapolate(workload) {
+            (estimate.min(configured), "scaled_sample")
+        } else {
+            return ProofPrediction {
+                duration: configured,
+                basis: "configured_seed",
+            };
+        };
+        ProofPrediction {
+            duration: duration.max(Duration::from_millis(25)),
+            basis,
+        }
     }
     pub fn post_reserve(&self, workload: Workload) -> Duration {
         self.finalization
@@ -798,7 +849,7 @@ mod tests {
     const TEST_NOW_MS: u64 = 1_700_000_000_000;
 
     #[test]
-    fn calibration_is_bounded_and_small_proofs_do_not_price_larger_workloads() {
+    fn proof_calibration_scales_each_dimension_and_retains_bounded_history() {
         let timings = PipelineTimings::default();
         let small = Workload {
             groups: 10,
@@ -806,23 +857,54 @@ mod tests {
             witnesses: 5,
         };
         let configured = Duration::from_millis(450);
+        assert_eq!(
+            timings.proof_prediction(configured, small).basis,
+            "configured_seed"
+        );
         timings.observe_proof(small, Duration::from_millis(80));
+        assert_eq!(
+            timings.proof_prediction(configured, small).basis,
+            "covering_sample"
+        );
         assert_eq!(
             timings.proof_estimate(configured, small),
             Duration::from_millis(100)
         );
-        for large in [
-            Workload {
-                groups: 11,
-                ..small
-            },
-            Workload { blobs: 2, ..small },
-            Workload {
-                witnesses: 6,
-                ..small
-            },
+        for (large, expected_ms) in [
+            (
+                Workload {
+                    groups: 11,
+                    ..small
+                },
+                110,
+            ),
+            (Workload { blobs: 2, ..small }, 200),
+            (
+                Workload {
+                    witnesses: 6,
+                    ..small
+                },
+                120,
+            ),
+            (
+                Workload {
+                    groups: 20,
+                    blobs: 3,
+                    witnesses: 10,
+                },
+                300,
+            ),
+            (
+                Workload {
+                    groups: usize::MAX,
+                    ..small
+                },
+                450,
+            ),
         ] {
-            assert_eq!(timings.proof_estimate(configured, large), configured);
+            let prediction = timings.proof_prediction(configured, large);
+            assert_eq!(prediction.basis, "scaled_sample");
+            assert_eq!(prediction.duration, Duration::from_millis(expected_ms));
         }
         timings.observe_proof(small, Duration::from_millis(400));
         for _ in 0..30 {
@@ -839,6 +921,35 @@ mod tests {
             timings.proof_estimate(configured, small),
             Duration::from_millis(100)
         );
+    }
+
+    #[test]
+    fn proof_extrapolation_handles_zero_dimensions_and_saturates_overflow() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(450);
+        timings.observe_proof(Workload::default(), Duration::from_millis(10));
+        let workload = Workload {
+            groups: 1,
+            blobs: 2,
+            witnesses: 0,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, workload),
+            Duration::from_millis(25)
+        );
+        timings.observe_proof(Workload::default(), Duration::MAX);
+        let huge = Workload {
+            groups: usize::MAX,
+            ..workload
+        };
+        assert_eq!(timings.proof_estimate(configured, huge), configured);
+        // Covered slow observations remain authoritative even above the seed.
+        assert_eq!(
+            timings.proof_estimate(configured, Workload::default()),
+            Duration::MAX
+        );
+        // Proof scaling does not train the finalization history.
+        assert_eq!(timings.post_reserve(huge), POST_PROOF_RESERVE);
     }
 
     #[derive(Debug)]

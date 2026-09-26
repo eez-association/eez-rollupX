@@ -130,6 +130,13 @@ Retain bounded rolling observations by relevant workload dimensions: physical
 blob count/bytes, proof witness size and number/shape of admitted groups. Limit
 the number of classes and samples; never create per-address estimators. Do not
 scale proof cost solely by group count or assume linear KZG cost across blobs.
+The implementation uses covering proof samples when available, otherwise the
+largest upward group/blob/witness ratio with 25% headroom, capped at the
+configured bootstrap seed. It records the prediction basis; finalization keeps
+covering-sample estimates. This permits learning across gradually growing witness
+ranges without repeatedly imposing the cold seed. The absolute deadline still
+bounds every attempt; extrapolation is a planning heuristic to validate with
+observed prediction error, not an execution guarantee.
 Reuse existing admission state and Reth task ownership; do not introduce a
 second request scheduler or speculative branch.
 

@@ -87,7 +87,7 @@
       "id": 2,
       "type": "table",
       "title": "Preparation, proof and delivery",
-      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch.",
+      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch. Proof predictions show the configured seed, covering measurements or upward-scaled measurements; missing historical predictions remain null.",
       "datasource": {
         "type": "postgres",
         "uid": "eez-indexer-postgres"
@@ -103,7 +103,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT time,candidate_id,selected,accepted,preparation_ms,nominal_preparation_ms,proof_ms,finalization_ms,delivery_ms,relay_acknowledged,dispatch_remaining_ms,reason,history FROM eez_indexer.admission_candidates WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
+          "rawSql": "SELECT c.time,c.candidate_id,c.selected,c.accepted,c.preparation_ms,c.nominal_preparation_ms,(p.detail->>'proof_estimate_ms')::float8 AS proof_estimate_ms,p.detail->>'proof_estimate_basis' AS proof_estimate_basis,c.proof_ms,(p.detail->>'post_reserve_ms')::float8 AS post_reserve_ms,c.finalization_ms,c.delivery_ms,c.relay_acknowledged,c.dispatch_remaining_ms,c.reason,c.history FROM eez_indexer.admission_candidates c LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='proof_requested' ORDER BY sequence DESC LIMIT 1) p ON true WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) ORDER BY c.time DESC LIMIT 2000",
           "editorMode": "code"
         }
       ],

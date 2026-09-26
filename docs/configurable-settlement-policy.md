@@ -93,9 +93,15 @@ rebuilds and source-state waits retain conservative estimates. The calibrated
 finishing reserve includes 10% of the available window for variation. A rejected
 next group does not invalidate the accepted prefix's clean sample. Proof and
 finalization retain at most 32 observations per rollup and stage, with 25%
-headroom. Only samples covering at least the requested group count, physical
-blob count and witness block count replace their bootstrap estimate. Finalization
-reserves at least 150 ms, including 25 ms for delivery. These samples are in
+headroom. Proof samples covering the requested group, physical blob and witness
+block counts are used directly. Otherwise, observed durations scale upward by
+the largest ratio across those three dimensions (zero counts use a denominator
+of one), capped at the configured proof seed, with a 25 ms floor. With no proof
+observations the configured seed applies. This is a scheduling estimate, not a
+proof completion guarantee; the shared deadline remains authoritative. Each proof
+request records the estimate and its `configured_seed`, `covering_sample` or
+`scaled_sample` basis. Finalization only uses covering observations and reserves
+at least 150 ms, including 25 ms for delivery. These samples are in
 memory and are discarded on restart; they are not durable queue state.
 
 A nominal preparation overrun or infrastructure error does not halve selection.
