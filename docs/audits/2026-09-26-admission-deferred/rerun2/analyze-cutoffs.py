@@ -132,7 +132,9 @@ for c in candidates:
         used = required = 0
         for a in prior + [e]:
             required = max(required, used + a['companion_declared_gas'])
-            used += a['companion_sim_gas']
+            # New producers budget simulation plus protocol execution (or the
+            # signed limit). Historical producers budgeted simulation alone.
+            used += a.get('companion_estimate_gas', a['companion_sim_gas'])
         rejection_rows.append({
             'candidate_id': c['candidate_id'], 'canonical': c['transaction_hash'] in post_hashes,
             'source_hash': e['source_hash'], 'job': jobs.get(e['source_hash']),
@@ -168,8 +170,9 @@ for family in sorted({j.rsplit('-', 1)[0] for j in jobs.values()}):
     stats = {'family': family, 'sources': len(rows), 'direction': rows[0]['direction']}
     for k in ['entry_count', 'entry_reserve_gas', 'calldata_gas', 'l1_target_simulation_gas',
               'accepted_delta_gas', 'source_simulation_gas', 'source_preflight_gas',
-              'source_required_gas', 'canonical_source_receipt_gas', 'canonical_source_execution_gas']:
-        values = [s[k] for s in rows if s[k] is not None]
+              'source_required_gas', 'canonical_source_receipt_gas', 'canonical_source_execution_gas',
+              'companion_simulation_gas', 'companion_estimate_gas', 'companion_protocol_reserve_gas']:
+        values = [s[k] for s in rows if s.get(k) is not None]
         stats[k + '_mean'] = sum(values) / len(values) if values else None
     stats['estimate_reasons'] = dict(sum((collections.Counter(s['estimate_reasons']) for s in rows), collections.Counter()))
     stats['batch_discount_revoked_sources'] = sum(s['batch_discount_revoked'] for s in rows)
