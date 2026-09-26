@@ -61,9 +61,25 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     let env = policy_env();
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
     if restart_before_retry {
-        // Persist the ordinary deployment prefix without changing engine defaults.
-        // The later crash must recover settled history above this nonzero prefix.
+        // This restart also stops the isolated L1. Preserve its proxy deployments
+        // before flushing an ordinary L2 prefix for the later crash-recovery check.
+        let (number, hash) = block_number_and_hash_at(&world.l1_rpc(), BlockNumberOrTag::Latest)
+            .await
+            .unwrap()
+            .expect("the isolated L1 has a head after fixture deployment");
+        world
+            .wait_for_persisted_l1_block(
+                alloy_rpc_types_eth::BlockNumHash::new(number, hash),
+                TIMEOUT,
+            )
+            .await
+            .unwrap();
         world.restart_composer_with_env(&[]).await.unwrap();
+        let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+        assert!(
+            !l1.get_code_at(world.setter_proxy).await.unwrap().is_empty(),
+            "the setup restart must retain the source proxy before the partial-settlement wave"
+        );
     }
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
