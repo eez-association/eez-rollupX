@@ -1,7 +1,8 @@
 # Reth v2.6 PR preparation on main
 
-Status: validation in progress; draft only, blocked by upstream forkchoice #27429
-and an unresolved partial-consumption crash-replay failure.
+Status: selected local validation complete; draft only. Release acceptance is
+blocked by upstream forkchoice #27429 and the unresolved partial-consumption
+crash-replay failure. Draft PR: [#41](https://github.com/eduadiez/rollupX/pull/41).
 
 ## Identity and scope
 
@@ -80,12 +81,20 @@ existing short-window control erases this failure. Its relation to #27429 is
 unproven; no validation guard or production persistence default was changed to
 hide it. Diagnosis and a passing controlled regression remain acceptance work.
 
+The subsequent shipping-release run passed all five partial-consumption cases,
+including the intentional crash. Its restart log shows `local_head=0`, followed
+by reconstruction to settled block 45. The earlier optimized test-profile
+runtime had opened at block 16 before failing at block 46. This is a different
+runtime build and persisted starting state, not a controlled reproduction of
+the failure followed by a fix. The next diagnostic should force and record an
+intermediate persisted L2 prefix before killing the shipping process, then test
+reconstruction from that exact prefix. The known failure remains unresolved. The [shipping restart events](shipping-crash-replay-events.json) record the passing run's starting state.
+
 ## Evidence
 
 Local logs, failure datadirs, frozen runtime/test executables and build commands
 are under this checkout's `artifacts/reth260-pr/`. They are local-only and are not
-available in another checkout. Small portable summaries are recorded here when
-validation completes. Prior-branch results do not validate this new base.
+available in another checkout. Small portable summaries are recorded alongside this audit. Prior-branch results do not validate this new base.
 
 The initial container build was rejected by cache-directory ownership; rerunning
 with the original cache paths/ownership built successfully. An initial deploy
@@ -124,6 +133,7 @@ binary identity. It does not replace CI's complete exact-revision artifact lane.
 | Cargo audit | Passed with 9 allowed warnings | `cargo-audit.log` |
 | Latest-main Python tooling | 261 passed, 4 opt-in checks skipped | `tooling-main-3346.log` |
 | Real Docker producer/verifier/consumer fixture with vendored dependency | 1 passed; unique fixture images removed | `docker-fixture-main-3346.log` |
+| Native shipping process suites | 65 passed, 0 failed, 0 ignored: settlement policy 31, partial consumption 5, queue reorg 1, gas policy 4, cross-chain 24 | `native-final/results.json`, [checks.json](checks.json) |
 | Graceful restart controlled comparison | Old SIGKILL helper failed; SIGTERM helper passed using identical native binaries | `baseline/`, `fixed/` |
 | Intentional partial-consumption crash | Failed after L1 disk barrier passed | `crash-check/`, [selected events](crash-replay-events.json) |
 
@@ -168,7 +178,9 @@ with the frozen `eez-node`, `eez-proof-signer` and `eez-deploy` images listed in
 [candidate.json](candidate.json). The canonical L1 uses official Reth v2.6.0
 image digest `sha256:8ce703acf113b2a20705b6e76adebed20f74ba8591bc7c9407203b2968aca70d`;
 Lighthouse is v8.1.2. The separate rbuilder fixture image reports Reth v2.2.0;
-not every execution component in this PBS topology is v2.6.0.
+not every execution component in this PBS topology is v2.6.0. The
+[container image records](topology-images.json) preserve the executed IDs and
+manifest descriptors, including the builder image behind its moving tag.
 
 The checked-in CI runner was copied locally with only its location resolution
 and cleanup trap adjusted to retain the enclave for follow-up checks. Assertions
@@ -178,6 +190,42 @@ explicit stop/start of the owned housekeeper at 20:08:58–20:09:01 UTC refreshe
 it. The runner also performed its normal refresh at 20:09:39–20:09:43. Before/after
 logs are retained. This was an environment intervention; the result does not
 establish unassisted cold relay startup.
+
+The full eligible protocol suite passed: 32/32 scenarios, with complete
+accounting, independent causal verification and authenticated semantic blob
+coverage. Four scenarios are excluded by the pinned upstream runner's `all`
+selection; they are listed in [protocol-summary.json](protocol-summary.json).
+The four wave modes exercised 4 inbound, 4 outbound, 8 mixed and 8 mixed-pure
+operations, followed by the state-chaining suite. The real signer completed 26
+signed windows and the Composer accepted 26 remote attestations. No commitment
+divergence was reported. See [kurtosis-result.json](kurtosis-result.json).
+
+The clean restart check passed for settled L2 block 720, including the same
+block hash, forward/reverse settlement correlation and L1-registry convergence.
+RPC recovered in 10 seconds and correlations in 20 seconds. This is SIGTERM
+service restart evidence, not forced-crash recovery. The full small result is
+[restart.json](restart.json).
+
+The additional blob DA check passed for a Counter deployment and two mutations,
+with value 42 at safe L2 block 840. Two canonical L1 blob batches authenticate
+the three receipts; both correlation directions were checked. Blobscan was
+explicitly disabled because the lean CI topology does not include it. The
+subsequent fresh follower, sourcing only canonical L1 and Beacon data, passed
+independent reconstruction checks for 120 blocks (118 derived) and all three
+receipts. [Blob summary](blob.json) and [replay result](independent-replay.json)
+record the authenticated endpoint and transaction identities. The one selected
+replay test passed in 3.77 seconds; this is correctness evidence, not a benchmark.
+
+Follow-ups used the repository's `verify-node-restart-recovery.sh` and
+`verify-blob-da.sh` with separate result directories and the frozen blob verifier.
+The replay wrapper preserves `verify-policy-replay.sh` setup and assertions,
+replacing only its location resolution and final Cargo invocation with the
+frozen `kurtosis_policy_replay --ignored --test-threads=1` executable. The
+public Kurtosis reconstruction key was supplied explicitly.
+
+The enclave dump completed and only the owned enclave was removed. A subsequent
+inspection confirmed it no longer exists. Frozen images, binaries, logs and
+failure datadirs remain local for reproduction; see [cleanup.json](cleanup.json).
 
 ## Remaining acceptance
 
@@ -191,3 +239,7 @@ The partial-consumption crash must also be diagnosed without weakening parent/
 commitment checks, and its controlled recovery regression must pass. The full
 release-artifact CI matrix, public Gnosis/Chiado operation, historical database
 migration and rollback were not established by this fresh-network validation.
+
+GitHub check details were unavailable with the available token. The draft PR
+exists and targets `main`, but these local results do not claim a passing GitHub
+CI gate. No release tag was promoted and no existing network was upgraded.

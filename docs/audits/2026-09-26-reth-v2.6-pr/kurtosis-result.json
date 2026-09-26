@@ -1,0 +1,28 @@
+{
+  "result": "pass",
+  "exit_code": 0,
+  "candidate_image": "eez-node:reth260-pr-8ff44bc",
+  "commits": {
+    "root": "8ff44bce1d0860987267c6c456c088dfccfcc5ae",
+    "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d"
+  },
+  "images": {
+    "node": "eez-node:reth260-pr-8ff44bc",
+    "proof_signer": "eez-proof-signer:reth260-pr-8ff44bc",
+    "deploy": "eez-deploy:reth260-pr-8ff44bc"
+  },
+  "proof_flow": {
+    "signed_windows": 26,
+    "remote_attestations": 26
+  },
+  "modes": [
+    "inbound",
+    "outbound",
+    "mixed",
+    "mixed-pure"
+  ],
+  "cross_chain_convergence": "pass",
+  "state_chaining": "pass",
+  "l1_l2_root_divergence": 0,
+  "safe_head_convergence": "pass"
+}

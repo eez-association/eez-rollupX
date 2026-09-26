@@ -1,0 +1,18 @@
+{
+  "enclave": "eez-reth260-pr-20260926",
+  "diagnostics": "artifacts/reth260-pr/enclave-dump (local only)",
+  "dump_completed": true,
+  "removed": true,
+  "post_cleanup_inspection": "No running enclave found with identifier eez-reth260-pr-20260926",
+  "other_enclaves_and_operator_services": "not operated by this validation",
+  "retained": [
+    "frozen runtime and test executables",
+    "all first-failure logs and datadirs",
+    "candidate images for reproduction"
+  ],
+  "log_sha256": {
+    "enclave-dump.log": "b678cd83454ee8e8c2eb4ac9063083ad5a7273bebb1aee5ecc121ff587883391",
+    "enclave-cleanup.log": "f44a069b0d9d0b466b90b2224437afd368fb2bc25fd1ecaa4b665f74b5443a86",
+    "enclave-after-cleanup.log": "4025600b41e85cfc3f8eb5764fb12e348b045675428a615a352f821d5cb6651f"
+  }
+}

@@ -41,10 +41,11 @@
     }
   ],
   "runtime_build_base": "7c90266a5fe8cfdb46b249c61079badc2dce71a3",
-  "main_integration_commit": "ac711ea",
+  "main_integration_commit": "ac711ea4466ae31ff0b628d2510ad79121675a8e",
   "paired_native_runtime_sha256": {
     "eez-composer": "77c56e1681b23fa1ce1e902e40285bf5725c566b47ec7f5bc606193b399e63d7",
     "eez-follower": "b7420bdaf1c374181ddf6a9d9c69aa51b25a46b33f00153eebb30e2c3a284000",
     "eez-proof-signer": "c5dad63c4a0cf75295918d5ae4b7504824b17eb696f777aebef6c6f86e4f464e"
-  }
+  },
+  "final_code_commit": "b2ed876ea4793db8dc77346464a9cbfc864a62f0"
 }

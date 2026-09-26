@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft PR preparation; prior validation recorded; main-based candidate checks in progress; forkchoice and crash-replay blockers remain |
+| Design status | Draft PR #41; selected main-based local validation complete; forkchoice and crash-replay blockers remain |
 | Date | 2026-09-26 |
 | PR base | Latest `origin/main` fetched for preparation: `3346d966f3c8611be790db484abc63b3b259d367`; unrelated admission-branch commits excluded |
 | Prior validation baseline | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc` on an isolated validation branch |

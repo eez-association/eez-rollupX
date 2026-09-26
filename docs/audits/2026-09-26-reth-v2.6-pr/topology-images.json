@@ -1,0 +1,89 @@
+{
+  "source": "Docker container specifications captured by Kurtosis enclave dump before cleanup",
+  "services": [
+    {
+      "service": "eez-node",
+      "requested_image": "eez-node:reth260-pr-8ff44bc",
+      "image_id": "sha256:cb2d9d41cd171a29f2f34a7b072867b1d0e67a8be065ce7ee438ecbf0226f570",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:b0ca9a28a32e127523332306920bb3067fe4f04c3de33100c2b82b7bafdc86e4",
+        "size": 867,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    },
+    {
+      "service": "eez-proof-signer",
+      "requested_image": "eez-proof-signer:reth260-pr-8ff44bc",
+      "image_id": "sha256:ef95c5a3a8483446aa39890155d43ece1e71047e5f8de383081ca1359bf0a0cc",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:4344af37604a8e7f74eaa2a7a2fd518cb1e6a7f0fca01cbe2fe1251eb9a11e0c",
+        "size": 1244,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    },
+    {
+      "service": "el-1-reth-lighthouse",
+      "requested_image": "ghcr.io/paradigmxyz/reth@sha256:8ce703acf113b2a20705b6e76adebed20f74ba8591bc7c9407203b2968aca70d",
+      "image_id": "sha256:8ce703acf113b2a20705b6e76adebed20f74ba8591bc7c9407203b2968aca70d",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:ba073fa018150bf387eb4f0835a16c393cd06136bc4873311200782f4918510a",
+        "size": 1817,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    },
+    {
+      "service": "el-2-reth-builder-lighthouse",
+      "requested_image": "ethpandaops/reth-rbuilder:develop",
+      "image_id": "sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:cf8406db14f3cb875b4d372dec848c1306d1de93525a8df4f889e732f2e905f7",
+        "size": 4081,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    },
+    {
+      "service": "cl-1-lighthouse-reth",
+      "requested_image": "sigp/lighthouse:v8.1.2",
+      "image_id": "sha256:9e71f6db59d358acb43719fcc5240952811821cc2fc4c3cfa90e57f2e4b38288",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:b741d4118a7e2f665c16a71183a34bd1ec7c609602cc446898f398d0141644e4",
+        "size": 867,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    },
+    {
+      "service": "cl-2-lighthouse-reth-builder",
+      "requested_image": "sigp/lighthouse:v8.1.2",
+      "image_id": "sha256:9e71f6db59d358acb43719fcc5240952811821cc2fc4c3cfa90e57f2e4b38288",
+      "manifest_descriptor": {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:b741d4118a7e2f665c16a71183a34bd1ec7c609602cc446898f398d0141644e4",
+        "size": 867,
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      }
+    }
+  ]
+}

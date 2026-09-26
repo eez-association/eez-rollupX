@@ -371,6 +371,10 @@ was never persisted has no such recovery source. Clients must reconcile receipts
 and nonces before resubmitting unsettled transactions. The policy does not make
 in-memory request ownership or retry counters durable.
 
+The draft Reth v2.6 port has an observed crash-replay failure from an intermediate
+persisted L2 prefix. This violates the recovery contract above; the draft is not
+accepted for release. See the [port validation record](audits/2026-09-26-reth-v2.6-pr/README.md#crash-recovery-failure).
+
 Reth persistence settings are local storage choices, not consensus parameters.
 The v2.6 port retains upstream production L2 defaults. The short persistence
 window for isolated native-test L1 miners exists because those miners have no
