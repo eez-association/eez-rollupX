@@ -1,0 +1,96 @@
+{
+  "started_at": "2026-09-27T12:08:38.859337+00:00",
+  "source_revision": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "files": {
+    "crates/eez-composer/src/composer.rs": "25a4586e1900419072ee90351663167191f201da3d735ce96fd90adaae091d99",
+    "crates/eez-composer/src/composer/admission.rs": "f67667f05ae5e127d3f0b19b9497241764855a2ea87f0eb7cb979240dc568b4b",
+    "crates/eez-composer/src/composer/gas.rs": "adf57f78cd9756b5238e0a499140fbff203d166dc9eb652abba4747ab5c96519",
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": "7d8e59d6c5e27bca234cd475e6b1f25b5bff4c84315ef0a82468ad0a72da5063",
+    "scripts/builder-stub.py": "79718ddad08ab5d2e8e200eecd281cc72c1f535aab0af52ad177f27259635fcd"
+  },
+  "status": "finished",
+  "contracts": {
+    "exit_code": 0,
+    "command": [
+      "forge",
+      "build",
+      "--root",
+      "contracts"
+    ]
+  },
+  "focused-native": {
+    "exit_code": 0,
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "dynamic_admission",
+      "--test",
+      "settlement_policy_gas",
+      "--test",
+      "partial_consumption",
+      "--",
+      "--test-threads=1",
+      "automatic_selection_preserves_capacity_after_one_exclusion",
+      "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+      "automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix",
+      "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+    ]
+  },
+  "finished_at": "2026-09-27T12:18:06.575969+00:00",
+  "test_source_revision": "8c2b42451f84332328a3ba94874b053deeb123b6",
+  "suites": [
+    {
+      "suite": "dynamic_admission",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "automatic_selection_preserves_capacity_after_one_exclusion",
+        "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+        "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+        "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+        "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix"
+      ]
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "gnosis_actual_companion_gas_reduces_whole_groups_before_proving"
+      ]
+    },
+    {
+      "suite": "partial_consumption",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ]
+    }
+  ],
+  "first_run_failures": [
+    [
+      "dynamic_admission",
+      "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source"
+    ],
+    [
+      "dynamic_admission",
+      "automatic_selection_preserves_capacity_after_one_exclusion"
+    ]
+  ],
+  "correction": "Optional tracing None values are absent fields. Corrected assertions accept absent or null; runtime code unchanged.",
+  "logs": {
+    "focused-native-first.log": "ae85cef67a3548ab2c6a15c8f57a65a4f4368c4e7404def40e4b58d82623d5e1",
+    "focused-native.log": "4751b2a203cba51ff21ee0cf26b728534bd83df7ea5ea13188af0e4c18874abb"
+  }
+}

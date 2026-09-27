@@ -1,0 +1,27 @@
+{
+  "checked_at": "2026-09-27T12:10:14.462764+00:00",
+  "from_ms": 1790503680000,
+  "to_ms": 1790503920000,
+  "panels": [
+    {
+      "id": 2,
+      "rows": 41,
+      "new_fields": [
+        "blob_preparation_ms",
+        "prefix_hash_executed_tx_count",
+        "prefix_hash_ms",
+        "submission_backoff_threshold",
+        "submission_failure_streak",
+        "witness_preparation_ms"
+      ],
+      "new_field_nonnull_rows": {
+        "submission_failure_streak": 0,
+        "prefix_hash_ms": 41,
+        "witness_preparation_ms": 41,
+        "blob_preparation_ms": 41,
+        "prefix_hash_executed_tx_count": 41,
+        "submission_backoff_threshold": 0
+      }
+    }
+  ]
+}

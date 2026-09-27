@@ -1,0 +1,196 @@
+{
+  "suites": [
+    {
+      "suite": "dynamic_admission",
+      "tests": [
+        "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+        "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+        "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+        "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+        "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+        "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+        "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+        "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+        "historical_blob_prefix_preserves_the_skipped_slot_replacement_target"
+      ],
+      "excluded": [],
+      "already_validated": [
+        "automatic_selection_preserves_capacity_after_one_exclusion",
+        "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+        "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+        "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+        "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix"
+      ]
+    },
+    {
+      "suite": "settlement_policy",
+      "tests": [
+        "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+        "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+        "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+        "ethereum_fee_waits_do_not_consume_the_first_outbound_selection",
+        "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+        "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+        "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+        "gnosis_fee_waits_do_not_consume_the_first_outbound_selection",
+        "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+        "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+        "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement"
+      ],
+      "excluded": [
+        "always_skips_idle_syncs_then_settles_included_activity_and_replays",
+        "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+        "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+        "fee_ceiling_blocks_posting_without_losing_activity_or_splitting",
+        "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+        "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "general_block_rule_consolidates_empty_history_before_the_pure_interval",
+        "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+        "interval_posts_accumulated_activity_using_the_registration_l1_timestamp",
+        "interval_preserves_execution_but_waits_below_all_thresholds",
+        "late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target",
+        "lowering_blob_cap_rejects_retained_unsplittable_history_without_losing_it",
+        "more_than_three_hundred_blocks_settle_in_one_native_batch",
+        "native_gnosis_always_settles_with_native_blob_fees_and_independent_replay",
+        "ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+        "ordinary_rpc_rejects_unpostable_data_without_consuming_nonce",
+        "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+        "restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+        "retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays",
+        "retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty"
+      ],
+      "already_validated": []
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "tests": [
+        "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+        "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces"
+      ],
+      "excluded": [],
+      "already_validated": [
+        "gnosis_actual_companion_gas_reduces_whole_groups_before_proving"
+      ]
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "tests": [
+        "ethereum_receipts_use_bounded_fee_history_priority",
+        "gnosis_receipts_use_bounded_fee_history_priority"
+      ],
+      "excluded": [],
+      "already_validated": []
+    },
+    {
+      "suite": "queue_liveness",
+      "tests": [
+        "ethereum_delayed_escrow_funding_with_normal_bundle_limit",
+        "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding"
+      ],
+      "excluded": [],
+      "already_validated": []
+    },
+    {
+      "suite": "partial_consumption",
+      "tests": [
+        "first_source_omission_keeps_the_registration_anchor",
+        "last_source_omission_keeps_two_user_prefix",
+        "partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent"
+      ],
+      "excluded": [],
+      "already_validated": [
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ]
+    },
+    {
+      "suite": "queue_reorg",
+      "tests": [
+        "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order"
+      ],
+      "excluded": [],
+      "already_validated": []
+    }
+  ],
+  "command": [
+    "cargo",
+    "+1.94.0",
+    "test",
+    "--locked",
+    "-p",
+    "eez-node-e2e",
+    "--test",
+    "dynamic_admission",
+    "--test",
+    "settlement_policy",
+    "--test",
+    "settlement_policy_gas",
+    "--test",
+    "settlement_policy_cost",
+    "--test",
+    "queue_liveness",
+    "--test",
+    "partial_consumption",
+    "--test",
+    "queue_reorg",
+    "--",
+    "--test-threads=1",
+    "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+    "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+    "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+    "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+    "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+    "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+    "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+    "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+    "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+    "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+    "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+    "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+    "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+    "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+    "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+    "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+    "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+    "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+    "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+    "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+    "ethereum_fee_waits_do_not_consume_the_first_outbound_selection",
+    "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+    "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+    "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+    "gnosis_fee_waits_do_not_consume_the_first_outbound_selection",
+    "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+    "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+    "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement",
+    "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+    "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces",
+    "ethereum_receipts_use_bounded_fee_history_priority",
+    "gnosis_receipts_use_bounded_fee_history_priority",
+    "ethereum_delayed_escrow_funding_with_normal_bundle_limit",
+    "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "first_source_omission_keeps_the_registration_anchor",
+    "last_source_omission_keeps_two_user_prefix",
+    "partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+    "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+    "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order"
+  ],
+  "selected_count": 42,
+  "exclusion_reason": "Unchanged ordinary-only settlement trigger, historical-capacity and restart-policy cases; changed cross-chain discovery, gas, queue, partial-consumption and reorg paths remain selected.",
+  "reason": "Changed automatic failure tolerance and bounded companion gas: full affected admission, gas/cost, partial consumption and queue/reorg suite; unchanged ordinary-only policy cases excluded explicitly."
+}

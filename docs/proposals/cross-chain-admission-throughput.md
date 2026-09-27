@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `7fdb3fc` is deployed with policy `packing-minimum-check-3` and estimator `companion-storage-6`. The September 27 wave settled 870 sources in 26 postBatches and passed all 770 semantic jobs. Previous runtime `e5b2cde` needed 28 postBatches. Versioned behavior is documented in the settlement/RPC specifications. |
+| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `9c11c1a` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-reserve-7`. All 870 sources settled in 24 source-bearing postBatches (25 total with ordinary history), versus 28 previously; all 770 semantic jobs and 50 selected native process cases passed. Canonical receipts and live Grafana fields were checked. Local checks, exclusions and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
 | Related contracts | [Settlement policy](../configurable-settlement-policy.md), [original proposal](configurable-settlement-policy.md), [RPC failure handling](../../crates/eez-control-rpc/SPEC.md#6-failure-handling), [posting history](posting-lifecycle-history.md), [replacement design](skipped-slot-speculative-retry.md) |
-| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md); [September 27 refinement](../audits/2026-09-27-admission-refinement/README.md) |
+| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md); [September 27 refinement](../audits/2026-09-27-admission-refinement/README.md); [preparation](../audits/2026-09-27-admission-preparation/README.md); [failure tolerance and gas](../audits/2026-09-27-admission-backoff-gas/README.md) |
 
 ## 1. Objective and evidence
 

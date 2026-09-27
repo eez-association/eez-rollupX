@@ -1,0 +1,42 @@
+{
+  "suites": {
+    "dynamic_admission": [
+      "automatic_selection_preserves_capacity_after_one_exclusion",
+      "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+      "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix"
+    ],
+    "settlement_policy_gas": [
+      "gnosis_actual_companion_gas_reduces_whole_groups_before_proving"
+    ],
+    "partial_consumption": [
+      "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+    ]
+  },
+  "command": [
+    "cargo",
+    "+1.94.0",
+    "test",
+    "--locked",
+    "-p",
+    "eez-node-e2e",
+    "--test",
+    "dynamic_admission",
+    "--test",
+    "settlement_policy_gas",
+    "--test",
+    "partial_consumption",
+    "--",
+    "--test-threads=1",
+    "automatic_selection_preserves_capacity_after_one_exclusion",
+    "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+    "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+    "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+    "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+    "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+  ],
+  "selected_count": 8
+}

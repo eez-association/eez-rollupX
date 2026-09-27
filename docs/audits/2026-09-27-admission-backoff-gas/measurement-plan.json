@@ -1,0 +1,21 @@
+{
+  "runtime_source": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "semantic_workload": {
+    "jobs": 770,
+    "sources": 870,
+    "prepare_workers": 200,
+    "send_workers": 28,
+    "semantic_verifiers": 4,
+    "fund_eth": "0.0033"
+  },
+  "compare_to": "docs/audits/2026-09-27-admission-preparation/candidate",
+  "measurement_tools": [
+    "docs/audits/2026-09-26-admission-throughput/measure-wave.py",
+    "artifacts/admission-shapes/measure-admission.py",
+    "docs/audits/2026-09-26-admission-deferred/rerun2/analyze-cutoffs.py",
+    "artifacts/admission-backoff-gas/analyze-packing.py",
+    "docs/audits/2026-09-27-admission-preparation/classify-targets.py",
+    "docs/audits/2026-09-27-admission-preparation/profile-preparation.py"
+  ],
+  "broader_gate": "42 additional cases, after bulk send/monitor measurement ends; no compiler load during throughput window"
+}

@@ -1,0 +1,8 @@
+{
+  "diagnosis": "Both new checks failed after all source receipt/follower assertions, at missing next_selection_max indexing. tracing omits None; corrected test accepts absent or JSON null.",
+  "failure_lines": [
+    "thread 'automatic_selection_backs_off_after_five_exclusions_and_retries_every_source' (3149628) panicked at crates/eez-node-e2e/tests/dynamic_admission.rs:1186:33:\nno entry found for key",
+    "thread 'automatic_selection_preserves_capacity_after_one_exclusion' (3157392) panicked at crates/eez-node-e2e/tests/dynamic_admission.rs:1186:33:\nno entry found for key"
+  ],
+  "initial_test_executable_sha256": "aac0e73f74b31bc4f933c93b5ffeb0d6743d8b2bd2e5701abef977e08cfff32c"
+}

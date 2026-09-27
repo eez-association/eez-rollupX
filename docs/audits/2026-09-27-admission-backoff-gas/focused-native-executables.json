@@ -1,0 +1,32 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742876312,
+    "sha256": "9eacaec67d0e6b461b5239f79b60c47db4d00e74a9d230e35d6a4d5869d4e629"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632851488,
+    "sha256": "b66a7a99f1919297e300e7c24373e7d478f483bbe74b84c0c822df2f4bfdcd54"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558912,
+    "sha256": "bc02742d632c1bdeac5a57ccbb0f67971e85e8f84c6e4f79cd6d18a27b599dc5"
+  },
+  {
+    "path": "target/debug/deps/dynamic_admission-6915341cab43fd8e",
+    "size_bytes": 453316448,
+    "sha256": "2aabb46098083052ee59bf1459d4c32c07be6f242964084db584a25c499cfea2"
+  },
+  {
+    "path": "target/debug/deps/partial_consumption-19b71bfaefd0d7bb",
+    "size_bytes": 452819576,
+    "sha256": "4ea438291d30665f7782c74d5a1a3f9fcc17b503a75c604cefb9cc5290ed12e3"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_gas-867cb4f57bea1329",
+    "size_bytes": 452647016,
+    "sha256": "71ad7e34eb5b82d8d4eac5ee0316bc1034baa5801faafd85ec061bda66293e34"
+  }
+]

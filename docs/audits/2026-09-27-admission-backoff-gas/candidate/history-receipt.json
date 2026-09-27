@@ -1,0 +1,9 @@
+{
+  "checked_at": "2026-09-27T13:03:58.910992+00:00",
+  "transaction_hash": "0xa83fee1ef4f34e38df5938210d0957741c84007e74578ad24564a26c61d3407b",
+  "block": 23254116,
+  "block_hash": "0xa4d3e695754d19f24c58a4308943dc6cc69f09dd1c9db66b43d9b63d542abeb9",
+  "receipt_gas": 109117,
+  "status": 1,
+  "matches_external_canonical_receipt": true
+}
