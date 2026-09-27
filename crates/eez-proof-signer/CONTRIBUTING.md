@@ -96,9 +96,9 @@ execution binding, value, call-hash, and outcome checks in `settlement/`.
 
 ## Pinned Stateless fork
 
-The production dependency uses the local port in
-[`vendor/stateless`](../../vendor/stateless); its exact upstream base and API
-adaptations are recorded in [`vendor/README.md`](../../vendor/README.md).
+The production dependency pins the
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3);
+its provenance is recorded in [`vendor/README.md`](../../vendor/README.md).
 This crate consumes it through the root workspace dependency. The fork exposes the computed pre-state and post-state roots and
 selected transaction-state checkpoints while preserving upstream
 Stateless/Reth consensus and execution validation.
@@ -135,12 +135,9 @@ cargo test --package eez-proof-signer --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --locked
 ```
 
-When changing the local dependency, verify its fixtures and trie tests from
-the repository root using the same workspace lockfile:
-
-```bash
-cargo +1.95.0 test --locked -p stateless -p tries -p zeth-mpt
-cargo +1.95.0 clippy --locked -p stateless -p tries -p zeth-mpt --all-targets -- -D warnings
-```
-
-After updating the dependency, rerun the signer checks above.
+When changing the dependency, run the fork's checkpoint and trie checks at the
+exact proposed commit, following its
+[host validation instructions](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#eez-reth-compatibility-branch).
+Those crates are Git dependencies, so EEZ workspace tests do not execute their
+own tests. After updating the pin, rerun the signer checks above and the affected
+process tests with EEZ's root lockfile.

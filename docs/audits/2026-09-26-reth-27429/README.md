@@ -94,6 +94,44 @@ profile; release-artifact and Kurtosis validation remain the final CI gate.
 Vendor patches, documentation links and whitespace checks also passed.
 Commands and logs are local-only under `artifacts/reth-cleanup-2/`.
 
+## Stateless fork handoff (2026-09-27)
+
+Prepared from EEZ `74d4cdbc577909eef3a94fad30469d32618dd94d`, the next cleanup
+replaces the three vendored Stateless crates with Git dependencies pinned to
+`eez-association/stateless` commit `ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3`,
+on `feat/reth-27429`. Its parent is the former fork base `4fc3806`; its 24 runtime
+source and fixture files are byte-identical to the vendored port. The Reth and
+protocol pins remain unchanged. Standalone manifests and the fork's own lockfile
+restore independent builds; a branch CI workflow runs all 26 checkpoint/trie
+tests. EEZ workspace tests no longer execute dependency-owned tests.
+
+The shipping dependency tree, including enabled features, matches after
+normalizing source paths/identities. No retained lockfile package changed;
+ten optional/test-only packages leave EEZ's lockfile. The fork retains them
+where needed. Formatting, fork Clippy, all 26 fork tests and the fork audit
+passed (three existing warnings; cached advisory database). EEZ's 366 signer/RPC
+tests passed with two manual utilities ignored; workspace Clippy, formatting and
+Cargo deny/audit passed (nine existing audit warnings).
+The Python tooling suite passed 261 tests, with four opt-in Docker, Kurtosis and
+archive checks skipped. The two signer ignores are inventory and feasibility
+utilities. The fork's retained EF and RISC-V procedures were not run.
+The exact `Dockerfile.runtime` package/target selection built successfully in
+the host dev profile. This is not a release-artifact or live-network check.
+
+The first sandboxed signer run could not bind its local test sockets (75
+`PermissionDenied` failures); the same suite passed with local socket access.
+Cargo deny initially could not write its advisory-cache lock; it passed with
+cache access. These environment failures are retained in local logs.
+
+The Git bundle was verified and cloned to recover the exact fork commit. At
+handoff it is unpublished: local Cargo validation used a command-scoped Git URL
+redirect to the prepared repository, without changing global Git configuration.
+Public fetching, fork CI, final release CI and local Kurtosis validation of this
+dependency switch remain pending. The full earlier Kurtosis results do not
+establish that the unpublished commit can be fetched in a fresh environment.
+The packet and logs are local-only at
+`artifacts/stateless-reth-27429/` in the operator checkout.
+
 ## Retained failures and limits
 
 - Official v2.6.0 reproduced a stale-persisted-head forkchoice failure. The

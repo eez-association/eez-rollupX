@@ -19,9 +19,6 @@ members = [
     "crates/eez-prover",
     "crates/eez-prover-client",
     "crates/eez-testkit",
-    "vendor/stateless/crates/stateless",
-    "vendor/stateless/crates/tries",
-    "vendor/stateless/crates/zeth-mpt",
 ]
 
 [workspace.package]
@@ -101,10 +98,10 @@ reth-trie-common                = { git = "https://github.com/paradigmxyz/reth",
 reth-libmdbx                    = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
 
 # Stateless execution, aligned with the same Reth revision used by the node.
-stateless-reth = { package = "stateless", path = "vendor/stateless/crates/stateless" }
-stateless-tries = { package = "tries", path = "vendor/stateless/crates/tries" }
+stateless-reth = { package = "stateless", git = "https://github.com/eez-association/stateless", rev = "ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3" }
+stateless-tries = { package = "tries", git = "https://github.com/eez-association/stateless", rev = "ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3" }
 
-# Gnosis and Stateless are ported locally to the same upstream Reth revision.
+# Gnosis is ported locally to the same upstream Reth revision.
 # Source revisions and local adaptations are recorded in vendor/README.md.
 reth_gnosis = { path = "vendor/reth-gnosis" }
 gnosis-primitives = { path = "vendor/gnosis-primitives" }
