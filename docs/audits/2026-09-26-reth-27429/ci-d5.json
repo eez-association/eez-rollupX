@@ -122,5 +122,8 @@
     "log_sha256": "6a70f0e2ac9d955182794e4d35a337f6836cefade7786ac3d839542574dc7f0e",
     "artifact_availability": "Upload failed because GitHub artifact storage quota was reached. Job console is retrievable; complete failure artifacts are unavailable.",
     "diagnosis": "Not reproduced by isolated or full parallel local runs on the same candidate. Receipt relocation is a hypothesis; bounded post-failure receipt sampling added for a subsequent CI run. Original failure remains an acceptance blocker."
-  }
+  },
+  "tested_merge_commit": "e82857e8a341abef7d974c7048ae2c742473b877",
+  "tested_merge_tree": "94f1085adb700919e4889012b03573eaa95b132d",
+  "merge_tree_matches_pr_head": true
 }

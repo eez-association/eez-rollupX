@@ -1,0 +1,234 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 89f36e2..635a2db 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -34,6 +34,8 @@ jobs:
+           version: v1.7.1
+       - name: Build
+         run: forge build
++      - name: Network receipt regression tests
++        run: python3 -m unittest discover -s script/e2e/tests -p 'test_*.py' -v
+       # EEZ sits within ~1 KB of the EIP-170 runtime limit. `forge build --sizes`
+       # cannot be used directly: BlobTranslator (script-side tooling, never
+       # deployed) is far over the limit, so check only the deployable contracts.
+diff --git a/script/e2e/README.md b/script/e2e/README.md
+index 317ee1d..1c27b14 100644
+--- a/script/e2e/README.md
++++ b/script/e2e/README.md
+@@ -211,6 +211,21 @@ and the receipt block of the trigger tx is
+ only ever a *candidate* — the composer may bundle the actual consumption in a
+ later block on either chain.
+ 
++For an L2 trigger, both the full and staged verification paths re-read its
++receipt until its current block is canonical and covered by the L2 `safe` head.
++This follows a transaction moved by a missed settlement instead of checking its
++discarded optimistic block. The L2 RPC must support the standard `safe` block
++tag; missing receipts or unavailable safe state fail after `RECEIPT_TIMEOUT`
++rather than falling back to `latest`. Table fields, event requirements, and L1
++settlement checks still run against the selected blocks.
++
++The receipt polling regressions use deterministic RPC responses and a controlled
++clock, without a running network:
++
++```bash
++python3 -m unittest discover -s script/e2e/tests -p 'test_*.py' -v
++```
++
+ ## What a network run verifies
+ 
+ - **L1 settlement**: batch consumed our entries (`ExecutionConsumed` routing,
+diff --git a/script/e2e/run/network.sh b/script/e2e/run/network.sh
+index 5b8d76d..3e51fa7 100755
+--- a/script/e2e/run/network.sh
++++ b/script/e2e/run/network.sh
+@@ -321,6 +321,29 @@ fi
+ 
+ fi  # ── end of the full/prepare-stage block (steps 1–4); verification below is stage-shared ──
+ 
++# A missed settlement can move an L2 trigger after its first receipt. Eventless
++# rollback scenarios have no surviving call event to repair a stale block scan.
++# Both the full and staged paths must select the current settled receipt before
++# correlating L1 or verifying the loaded L2 table.
++if [[ "$_TRIGGER_CHAIN" == "L2" ]]; then
++    echo "Waiting for canonical safe L2 trigger receipts"
++    _safe_receipt_deadline=$(( $(date +%s) + ${RECEIPT_TIMEOUT:-300} ))
++    _trigger_hashes=("${TX_HASHES[@]}")
++    (( ${#_trigger_hashes[@]} > 0 )) || _trigger_hashes=("$TX_HASH")
++    TX_BLOCK_NUMBERS=()
++    for _hash in "${_trigger_hashes[@]}"; do
++        _safe_receipt=$(_poll_safe_l2_receipt "$L2_RPC" "$_hash" "$_safe_receipt_deadline") || exit 1
++        _safe_number=$(jq -r .blockNumber <<< "$_safe_receipt")
++        TX_BLOCK_NUMBERS+=("$(printf '%d' "$_safe_number")")
++        echo "settled tx: $_hash block: $_safe_number hash: $(jq -r .blockHash <<< "$_safe_receipt")"
++    done
++    TX_BLOCK_NUMBER="${TX_BLOCK_NUMBERS[0]}"
++    for _number in "${TX_BLOCK_NUMBERS[@]}"; do
++        (( _number < TX_BLOCK_NUMBER )) && TX_BLOCK_NUMBER="$_number"
++    done
++    L2_BLOCK="$TX_BLOCK_NUMBER"
++fi
++
+ # ══════════════════════════════════════════════
+ #  5. Find & verify L1 batch (BatchPosted event)
+ #     L1 trigger: batch is in the same block as the user tx.
+diff --git a/script/e2e/shared/E2EBase.sh b/script/e2e/shared/E2EBase.sh
+index e540631..9dc8815 100755
+--- a/script/e2e/shared/E2EBase.sh
++++ b/script/e2e/shared/E2EBase.sh
+@@ -903,6 +903,39 @@ _poll_receipt() {
+     return 1
+ }
+ 
++# An L2 receipt can name an optimistic block that is replaced when its L1
++# settlement misses inclusion. Re-read it until its current block is canonical
++# and covered by the safe head before choosing blocks for protocol verification.
++# Return the receipt unchanged; status and table/event checks stay with callers.
++_poll_safe_l2_receipt() {
++    local rpc="$1" tx_hash="$2" deadline="$3"
++    local out receipt number hash safe_number canonical_hash
++    while [[ $(date +%s) -lt $deadline ]]; do
++        out=$(_eez_rpc "$rpc" eth_getTransactionReceipt "[\"$tx_hash\"]") || out=""
++        receipt=$(jq -ce --arg tx "$tx_hash" '.result | select(type == "object") |
++            select(.transactionHash == $tx) |
++            select(.blockNumber | type == "string" and test("^0x[0-9a-fA-F]+$")) |
++            select(.blockHash | type == "string" and test("^0x[0-9a-fA-F]{64}$"))' <<< "$out" 2>/dev/null) || receipt=""
++        if [[ -n "$receipt" ]]; then
++            number=$(jq -r .blockNumber <<< "$receipt")
++            hash=$(jq -r .blockHash <<< "$receipt")
++            out=$(_eez_rpc "$rpc" eth_getBlockByNumber '["safe",false]') || out=""
++            safe_number=$(jq -er '.result.number | select(type == "string" and test("^0x[0-9a-fA-F]+$"))' <<< "$out" 2>/dev/null) || safe_number=""
++            if [[ -n "$safe_number" ]] && (( number >= 0 && safe_number >= 0 && number <= safe_number )); then
++                out=$(_eez_rpc "$rpc" eth_getBlockByNumber "[\"$number\",false]") || out=""
++                canonical_hash=$(jq -er --arg number "$number" '.result | select(.number == $number) | .hash' <<< "$out" 2>/dev/null) || canonical_hash=""
++                if [[ "${canonical_hash,,}" == "${hash,,}" ]]; then
++                    printf '%s\n' "$receipt"
++                    return 0
++                fi
++            fi
++        fi
++        sleep 2
++    done
++    echo "ERROR: no canonical safe L2 receipt for tx $tx_hash before the receipt deadline" >&2
++    return 1
++}
++
+ # ── Publish RLP_ENCODED_TX and wait for its receipt ──
+ # Sets TX_HASH and TX_BLOCK_NUMBER. Override the wait with RECEIPT_TIMEOUT (seconds).
+ publish_user_tx() {
+diff --git a/script/e2e/tests/test_safe_receipt.py b/script/e2e/tests/test_safe_receipt.py
+new file mode 100644
+index 0000000..0520585
+--- /dev/null
++++ b/script/e2e/tests/test_safe_receipt.py
+@@ -0,0 +1,111 @@
++"""The network verifier must follow a replaced L2 receipt to settled history."""
++import json
++import os
++from pathlib import Path
++import subprocess
++import tempfile
++import unittest
++
++
++TX = "0x" + "11" * 32
++OLD = "0x" + "22" * 32
++NEW = "0x" + "33" * 32
++EMPTY = "0x" + "44" * 32
++HELPERS = Path(__file__).resolve().parents[1] / "shared" / "E2EBase.sh"
++
++
++def receipt(number, block_hash, status="0x1"):
++    return dict(transactionHash=TX, blockNumber=hex(number), blockHash=block_hash, status=status)
++
++
++def rpc(method, params, result):
++    return dict(method=method, params=params, response={"jsonrpc": "2.0", "id": 1, "result": result})
++
++
++def query_receipt(value):
++    return rpc("eth_getTransactionReceipt", [TX], value)
++
++
++def query_block(tag, number, block_hash):
++    return rpc("eth_getBlockByNumber", [tag, False], {"number": hex(number), "hash": block_hash})
++
++
++class SafeReceiptTests(unittest.TestCase):
++    def poll(self, responses, *, deadline=4):
++        with tempfile.TemporaryDirectory() as temporary:
++            directory = Path(temporary)
++            (directory / "responses.json").write_text(json.dumps(responses))
++            (directory / "index").write_text("0")
++            (directory / "clock").write_text("0")
++            fixture = directory / "rpc.py"
++            fixture.write_text('''import json, os, pathlib, sys
++p = pathlib.Path(os.environ["FIXTURE"])
++responses = json.loads((p / "responses.json").read_text())
++index = int((p / "index").read_text())
++if index >= len(responses):
++    raise SystemExit("unexpected extra RPC")
++row = responses[index]
++assert (sys.argv[1], json.loads(sys.argv[2])) == (row["method"], row["params"])
++(p / "index").write_text(str(index + 1))
++print(json.dumps(row["response"]))
++''')
++            env = os.environ | {"FIXTURE": temporary, "HELPERS": str(HELPERS), "TX": TX, "DEADLINE": str(deadline)}
++            result = subprocess.run(["bash", "-c", '''source "$HELPERS"
++date() { cat "$FIXTURE/clock"; }
++sleep() { local tick; tick=$(cat "$FIXTURE/clock"); echo $((tick + 1)) > "$FIXTURE/clock"; }
++_eez_rpc() { python3 "$FIXTURE/rpc.py" "$2" "$3"; }
++_poll_safe_l2_receipt fixture "$TX" "$DEADLINE"
++'''], env=env, text=True, capture_output=True, timeout=10)
++            self.assertNotIn("unexpected extra RPC", result.stderr)
++            self.assertNotIn("AssertionError", result.stderr)
++            self.assertEqual(int((directory / "index").read_text()), len(responses))
++            return result
++
++    def test_follows_receipt_moved_after_missed_inclusion(self):
++        settled = receipt(900, NEW)
++        result = self.poll([
++            query_receipt(receipt(882, OLD)), query_block("safe", 876, EMPTY),
++            query_receipt(None),
++            query_receipt(settled), query_block("safe", 900, NEW), query_block("0x384", 900, NEW),
++        ])
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(json.loads(result.stdout), settled)
++
++    def test_rejects_orphan_receipt_even_below_safe_height(self):
++        settled = receipt(900, NEW)
++        result = self.poll([
++            query_receipt(receipt(882, OLD)), query_block("safe", 900, NEW), query_block("0x372", 882, EMPTY),
++            query_receipt(settled), query_block("safe", 900, NEW), query_block("0x384", 900, NEW),
++        ])
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(json.loads(result.stdout), settled)
++
++    def test_preserves_reverted_transaction_status(self):
++        settled = receipt(900, NEW, status="0x0")
++        result = self.poll([query_receipt(settled), query_block("safe", 900, NEW), query_block("0x384", 900, NEW)])
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(json.loads(result.stdout), settled)
++
++    def test_missing_receipt_times_out(self):
++        result = self.poll([query_receipt(None)] * 3, deadline=3)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertEqual(result.stdout, "")
++        self.assertIn("no canonical safe L2 receipt", result.stderr)
++
++    def test_malformed_or_unrelated_receipt_does_not_pass(self):
++        unrelated = receipt(900, NEW) | {"transactionHash": "0x" + "55" * 32}
++        malformed = receipt(900, NEW) | {"blockNumber": "not-a-number"}
++        result = self.poll([query_receipt(unrelated), query_receipt(malformed)], deadline=2)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertEqual(result.stdout, "")
++
++    def test_unavailable_safe_head_does_not_fall_back_to_latest(self):
++        unavailable = {"method": "eth_getBlockByNumber", "params": ["safe", False],
++                       "response": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "unsupported tag"}}}
++        result = self.poll([query_receipt(receipt(900, NEW)), unavailable], deadline=1)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertEqual(result.stdout, "")
++
++
++if __name__ == "__main__":
++    unittest.main()

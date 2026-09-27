@@ -1,0 +1,9 @@
+{
+  "check": "stateless_transaction_checkpoints",
+  "source_commit": "3893cfd9c97084d79c7059acd064cd539e58deed",
+  "command": "cargo +1.95.0 test --locked --manifest-path vendor/stateless/Cargo.toml -p stateless --test state_checkpoints",
+  "passed": 1,
+  "failed": 0,
+  "ignored": 0,
+  "log_sha256": "ff62d50f338cde607b1ce7b907d94db4570f3cb0cf5e61b52f1f392336698d31"
+}

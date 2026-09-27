@@ -1,0 +1,129 @@
+{
+  "run_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785",
+  "head_commit": "3893cfd9c97084d79c7059acd064cd539e58deed",
+  "tested_merge_commit": "22e4ecad06184dc5f6df36aea1fbd7708a500018",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "id": 108564640411,
+      "name": "Lint",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108564640411"
+    },
+    {
+      "id": 108564640545,
+      "name": "Build runtime artifacts / build",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108564640545"
+    },
+    {
+      "id": 108571828800,
+      "name": "Embedded E2E Tests (slice:3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828800",
+      "tests_run": 9,
+      "passed": 9,
+      "log_sha256": "e27a2831ba21dcde38f2c08c0ec35f09e5e7e63421eef24f117cc0aef291fe7c"
+    },
+    {
+      "id": 108571828809,
+      "name": "Embedded E2E Tests (slice:1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828809",
+      "tests_run": 9,
+      "passed": 9,
+      "log_sha256": "e6ec2dac40cd0f90ce8bca736459ed8e768f317043ff2e1e4606eccc1158c13a"
+    },
+    {
+      "id": 108571828812,
+      "name": "Embedded E2E Tests (slice:4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828812",
+      "tests_run": 9,
+      "passed": 9,
+      "log_sha256": "da66fdf8f7223a1eebfb1992dec11578dfd6121769c98ab3d7e9e0b424e6bb49"
+    },
+    {
+      "id": 108571828819,
+      "name": "Cross-Chain E2E Tests (slice:2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828819",
+      "tests_run": 16,
+      "passed": 16,
+      "log_sha256": "9e59c1bcfb3c027bdbcc18614a8d46080e842ef9b70b48c882ca0500b7fb3009"
+    },
+    {
+      "id": 108571828822,
+      "name": "Embedded E2E Tests (slice:2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828822",
+      "tests_run": 9,
+      "passed": 9,
+      "log_sha256": "5a8eab39a0f27162de6e1c133875ba52eefafcbc0cabbaa5e3a635cae318e1f7"
+    },
+    {
+      "id": 108571828843,
+      "name": "Kurtosis E2E / Kurtosis E2E",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828843"
+    },
+    {
+      "id": 108571828858,
+      "name": "Cross-Chain E2E Tests (slice:4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828858",
+      "tests_run": 15,
+      "passed": 15,
+      "log_sha256": "7e1b43754dd50d405f7f2ec984251df0f5269ed9aa13412afd8777f8dafd3dd2"
+    },
+    {
+      "id": 108571828859,
+      "name": "Cross-Chain E2E Tests (slice:3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828859",
+      "tests_run": 16,
+      "passed": 16,
+      "log_sha256": "4eb069575813176afaf3c951f3e58da975457b0882fc75d55d2d9e01b434ff07"
+    },
+    {
+      "id": 108571828861,
+      "name": "Cross-Chain E2E Tests (slice:1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108571828861",
+      "tests_run": 16,
+      "passed": 16,
+      "log_sha256": "9a75c82dbc977009ed934853bb0a3241123cf57c3031924970bebaa2396bfd68"
+    },
+    {
+      "id": 108576762675,
+      "name": "CI Result",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36299583785/job/108576762675"
+    }
+  ],
+  "native_selected": 99,
+  "kurtosis": {
+    "passed": 32,
+    "failed": 0,
+    "evidence_complete": true,
+    "causal_coverage_complete": true,
+    "semantic_blob_coverage_complete": true,
+    "log_sha256": "44402ef8776bf63d73c9735d07463283e15376189a940a50961fb8e98043b7c0"
+  },
+  "limits": [
+    "This CI run still uses the original pinned protocol runner, without the safe-receipt correction. It is a later pass, not reclassification of the earlier failure.",
+    "Raw logs are local only; job URLs provide retrievable CI logs while retained."
+  ]
+}

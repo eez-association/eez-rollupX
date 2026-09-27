@@ -40,6 +40,7 @@ proof that the complete GitHub release-artifact gate has passed.
 | Rust formatting and vendor patch reverse-application checks | Passed |
 | Workspace libraries, signer binary and four independent vector targets | 1,195 passed, 3 ignored |
 | Standalone Stateless and tries libraries | 8 passed |
+| Stateless transaction checkpoints against a full-state root oracle | [1 passed](stateless-checkpoints.json) |
 | Exact upstream engine library | 205 passed, including both #27429 regressions |
 | Exact upstream forkchoice RPC tests | 3 passed, including persisted-head restoration and invalid-state handling |
 | Cargo deny advisories/bans/sources | Passed with unmatched-source exception warnings |
@@ -178,7 +179,9 @@ ignored tests; see [independent-replay.json](independent-replay.json).
 ## CI follow-up: September 27
 
 [Run 36275978196](https://github.com/eduadiez/rollupX/actions/runs/36275978196)
-tested `d5f92cbb454c7fcb5e13678e50070dbf5ae9f816`. Lint, runtime artifact
+tested PR head `d5f92cbb454c7fcb5e13678e50070dbf5ae9f816` through merge
+commit `e82857e8a341abef7d974c7048ae2c742473b877`. Both have the same source
+tree; the downloaded node/signer images carry the merge revision. Lint, runtime artifact
 production, and all eight native E2E shards passed: 63 cross-chain and 36 embedded
 cases, **99 selected process tests** in total. Partition-excluded tests are not
 counted as executed. These CI binaries predate the corrected masked-state crash
@@ -206,11 +209,11 @@ see [ci-parallel-diagnostic.json](ci-parallel-diagnostic.json). These diagnostic
 runs reused the local enclave. They do not erase the CI failure or establish
 that it was a test-only issue.
 
-The pinned runner reads the trigger receipt before waiting for settlement. Its
-L2 content scan depends on surviving call hashes, which this rollback scenario
-does not have. A receipt that later changes block is therefore a possible
-explanation, not a demonstrated cause. The original CI log lacks a second
-receipt observation. The wrapper now samples the first trigger's current
+The initial investigation found that the pinned runner reads the trigger receipt
+before waiting for settlement. Its L2 content scan depends on surviving call
+hashes, which this rollback scenario does not have. Receipt relocation was then
+a hypothesis: the original CI log lacks a second receipt observation.
+The wrapper now samples the first trigger's current
 receipt for up to four failed scenarios, with one three-second RPC request per
 scenario, and prints only its identity, position and status. This never changes
 the original failed verdict or retries verification. An offline regression
@@ -221,12 +224,80 @@ skips; shell syntax, Markdown file links, JSON parsing and whitespace checks
 also passed. [checks.json](checks.json) retains the corrected diagnostic test's
 initial setup failure and subsequent full-suite result.
 
+## Local reproduction and correction: September 27
+
+The fresh enclave `eez-reth27429-local-20260927` used the exact public node and
+signer image digests from the failed CI job. Their merge revision is `e82857e`,
+whose tree equals PR head `d5f92cb`. The CI payload and deploy image could not be
+pulled anonymously. Deployment and independent verifiers therefore used the
+retained local shipping build, with matching contract/script/genesis sources.
+The [identity and results](local-ci-reproduction.json) distinguish these inputs.
+An observational loopback proxy recorded receipt/log RPC responses unchanged;
+its additional request latency and closed-client connections are recorded.
+
+The first complete run passed all four workload modes, state chaining and all
+32 eligible protocol scenarios, including independent causal and semantic blob
+verification. It recorded 34 signed windows and 34 accepted attestations. None
+of the 15 observed L2 trigger receipts moved in that run. Relay startup required
+manual intervention; an additional API restart reset its validator cache and
+delayed payload reveal. This is not unassisted cold-start evidence.
+
+A controlled follow-up paused only the enclave's builder for 28 seconds when
+the rollback trigger was submitted, then resumed it automatically. This
+reproduced the missing-table failure with the unchanged protocol runner:
+
+| Runner | First receipt block | Settled receipt block | Result |
+| --- | --- | --- | --- |
+| Pinned runner | 882 | 900 | Failed: verifier still checked 882 |
+| Corrected runner | 1104 | 1128 | Passed, including independent causal/blob checks |
+
+The same unchanged field-level verifier failed at block 882 and passed at block
+900 with the same expected table. The original receipt hash was orphaned, the
+L1 counter remained zero, and the L2 enclosing-revert flag was true. Thus the
+controlled failure is a stale test observation. The historical CI signer also
+approved a replacement from range 847–852 to 847–858, which is consistent with
+this mechanism; its missing final receipt prevents direct attribution of that
+particular historical transaction.
+
+The [test-runner patch](protocol-safe-receipt.patch) makes full and staged L2
+verification wait for a current canonical receipt covered by the safe head.
+It retains the existing table fields, event policy, settlement checks and failed
+verdicts. Six mocked polling regressions passed, including moved/orphaned
+receipts, missing/malformed responses, reverted status and unavailable safe
+state. The corrected full live suite then passed **32/32**, with independent
+causal and semantic blob verification. The core Solidity suite passed **517**
+tests with the repository's explicit `script/*` and two named exclusions. All
+**36 Anvil scenarios** passed on the dedicated 28545–28616 port range. These
+include four cases excluded from the live EEZ runner; their Anvil success does
+not extend the live signer's supported profile.
+
+Local protocol commit `7a55be9d54f75eabad6a876f1fd0309c50cb4e7e` contains only the
+runner, tests, CI step and documentation. Contract sources and compiler settings
+are unchanged. Its patch applies cleanly to the pinned revision and merges
+cleanly with `feature/events` at `edf592f`; the latter's additional contract
+changes are outside this migration. GitHub rejected both an organization-branch
+push and personal fork creation with HTTP 403. The patch is attached for review;
+the root protocol gitlink remains unchanged until the fix can be published.
+
+Separately, [CI run 36299583785](https://github.com/eduadiez/rollupX/actions/runs/36299583785)
+passed all lanes for implementation head `3893cfd`: lint, runtime production,
+**99 selected native tests** across all eight shards, and **32/32** Kurtosis
+scenarios with independent evidence. See [ci-3893cfd.json](ci-3893cfd.json).
+That run uses the original protocol runner and is a later passing observation;
+the earlier failure remains recorded.
+
 ## Evidence and remaining acceptance
 
 The enclave dump completed, then only `eez-reth27429-20260926` was removed.
 Inspection confirmed that the enclave and its containers are gone. Frozen
 binaries/images, native failure datadirs and the dump remain available locally;
 see [cleanup.json](cleanup.json).
+
+The September 27 reproduction enclave was also removed after its databases,
+rejected-bundle captures, service logs and enclave artifacts were saved. Its
+compressed database archive and checksum are recorded in
+[local-ci-reproduction.json](local-ci-reproduction.json); these raw artifacts
+remain local-only under the reproduction checkout.
 
 Local-only commands, logs, failure datadirs and frozen executables are retained
 under `artifacts/reth27429/` in the isolated PR checkout. They are ignored and
@@ -235,7 +306,8 @@ evidence. Earlier v2.6.0 evidence remains in the
 [previous audit](../2026-09-26-reth-v2.6-pr/README.md) and does not validate this
 candidate.
 
-CI Kurtosis acceptance and diagnosis of its failed scenario remain pending.
+Local and CI runtime validation passed. Publishing and adopting the separately
+validated protocol test correction remains pending because of repository access.
 No existing network was upgraded and no release tag was promoted. Public
 Gnosis/Chiado operation and historical database migration/rollback are outside
 this fresh-network validation.
