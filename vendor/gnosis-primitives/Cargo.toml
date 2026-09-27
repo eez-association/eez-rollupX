@@ -1,0 +1,49 @@
+[package]
+name = "gnosis-primitives"
+version = "0.2.8"
+edition = "2024"
+
+[dependencies]
+reth = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
+reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
+reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
+reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
+
+# Independent crates
+reth-codecs = { version = "0.8.1", default-features = false }
+reth-primitives-traits = { version = "0.8.1", default-features = false }
+
+alloy-primitives = { version = "1.6.1", default-features = false }
+
+alloy-consensus = { version = "2.3.0", default-features = false }
+alloy-eips = { version = "2.3.0", default-features = false }
+alloy-serde = { version = "2.3.0", default-features = false }
+
+alloy-rpc-types = { version = "2.3.0", features = ["eth"], default-features = false }
+alloy-rlp = { version = "0.3.16", default-features = false }
+
+serde = { version = "1.0", features = ["derive"], default-features = false }
+derive_more = { version = "2", default-features = false, features = ["full"] }
+
+alloy-trie = { version = "0.9.4", features = ["ethereum"] }
+serde_with = "3"
+test-fuzz = { version = "7" }
+modular-bitfield = { version = "0.13.1" }
+
+[dependencies.criterion]
+version = "0.5"
+features = ["html_reports"]
+optional = true
+
+
+[features]
+default = []
+bench = ["criterion"]
+
+[[bench]]
+name = "header_performance"
+harness = false
+required-features = ["bench"]
+
+[workspace]

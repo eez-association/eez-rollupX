@@ -18,7 +18,7 @@ use reth_chainspec::EthereumHardforks as _;
 use reth_ethereum_primitives::{Block, Receipt, TransactionSigned};
 use reth_evm::{
     ConfigureEvm, NextBlockEnvAttributes,
-    execute::{BlockAssembler as _, BlockAssemblerInput, BlockExecutionOutput},
+    execute::{BlockAssemblerInput, BlockExecutionOutput},
 };
 use reth_evm_ethereum::{EthEvmConfig, revm_spec_by_timestamp_and_block_number};
 use reth_primitives_traits::SealedHeader;
@@ -226,11 +226,8 @@ fn assemble(
     );
     let evm_env = config.next_evm_env(parent, &attributes)?;
     let execution_ctx = config.context_for_next_block(parent, attributes)?;
-    Ok(config
-        .block_assembler()
-        .assemble_block(BlockAssemblerInput::<
-            <EthEvmConfig as ConfigureEvm>::BlockExecutorFactory,
-        >::new(
+    Ok(config.block_assembler().assemble_block(
+        BlockAssemblerInput::<<EthEvmConfig as ConfigureEvm>::BlockExecutorFactory>::new(
             evm_env,
             execution_ctx,
             parent,
@@ -240,7 +237,11 @@ fn assemble(
             state_provider,
             post_state_root,
             None, // Profile 1 excludes Amsterdam's block-access-list field.
-        ))?)
+        ),
+        None,
+        None,
+        None,
+    )?)
 }
 
 /// Require exact canonical whole-block equality. This checks representation,

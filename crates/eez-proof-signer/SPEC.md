@@ -8,9 +8,12 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses
-`eez-association/stateless` at commit
-`4fc3806bdd0e6b296c761ef4d4b260938365cf45`.
+`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses the
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3),
+pinned to commit `ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3`. Its
+[documented adaptations](../../vendor/README.md) preserve the transaction
+checkpoints required by this profile; the root lockfile selects the runtime
+dependency graph. This dependency port does not extend the admitted proof profile.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. Solidity
 defines on-chain behavior. This document defines the additional conditions the

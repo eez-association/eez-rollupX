@@ -13,7 +13,9 @@ use reth_evm::{ConfigureEvm, Evm as _};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::SignerRecoverable;
 use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_storage_api::{BlockNumReader, HeaderProvider, StateProviderBox, StateProviderFactory};
+use reth_storage_api::{
+    BlockNumReader, EvmStateProviderAdapter, HeaderProvider, StateProviderBox, StateProviderFactory,
+};
 use revm::DatabaseCommit;
 use revm::context::result::EVMError;
 
@@ -102,7 +104,8 @@ impl LocalChainClient {
             + 'static,
     {
         let headers: Arc<dyn HeaderReader> = Arc::new(provider.clone());
-        let state_provider: Arc<dyn StateProviderFactory> = Arc::new(provider.clone());
+        let state_provider: Arc<dyn super::provider::StateSnapshotProvider> =
+            Arc::new(provider.clone());
         ChainProvider {
             provider: state_provider,
             headers,
@@ -289,7 +292,7 @@ impl LocalChainClient {
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
-        state: &mut State<StateProviderDatabase<StateProviderBox>>,
+        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     ) -> ExecutorResult<bool> {
         self.simulate_source_tx_on_with_retries(raw_tx, dispatcher, state, evm_env, false)
@@ -302,7 +305,7 @@ impl LocalChainClient {
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
-        state: &mut State<StateProviderDatabase<StateProviderBox>>,
+        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
         evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
         retry_unavailable_conditions: bool,
     ) -> ExecutorResult<SourceSimulation> {

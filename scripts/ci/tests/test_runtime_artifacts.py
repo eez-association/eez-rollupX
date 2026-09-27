@@ -102,7 +102,7 @@ elif args[:2] == ["buildx", "build"]:
         (tests / "manifest.json").write_text(json.dumps({
             "schema": 3, "cargo_lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
             "platform": "linux/amd64", "profile": "release", "rustflags": "-C link-arg=-fuse-ld=mold",
-            "nextest": "0.9.143", "rust": "1.94.0", "glibc": "glibc 2.36",
+            "nextest": "0.9.143", "rust": "1.95.0", "glibc": "glibc 2.36",
             "archives_sha256": {"native-tests.tar.zst": hashlib.sha256(b"fixture tests").hexdigest(),
                                 "composer-unit-tests.tar.zst": hashlib.sha256(b"fixture composer tests").hexdigest()},
             "runtime_sha256": {name: hashlib.sha256((output / "bin" / name).read_bytes()).hexdigest()
@@ -166,6 +166,9 @@ class RuntimeArtifactsTest(unittest.TestCase):
             shutil.copy2(REPO / path, destination)
         (self.repo / "Cargo.lock").write_text("fixture lockfile\n")
         (self.repo / "Cargo.toml").write_text("[workspace]\n")
+        port = self.repo / "vendor/port/src/lib.rs"
+        port.parent.mkdir(parents=True)
+        port.write_text("pub const VALUE: u8 = 1;\n")
         protocol = self.repo / "eez-core-protocol"
         protocol.mkdir()
         (protocol / "fixture").write_text("protocol\n")
@@ -326,6 +329,32 @@ class RuntimeArtifactsTest(unittest.TestCase):
                 self.log.write_text("")
                 self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
                 self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_cargo_state_rejects_modified_or_untracked_vendor_sources(self):
+        self.env.update(EEZ_CARGO_STATE_CACHE="true", EEZ_PUBLISH_IMAGES="false")
+        port = self.repo / "vendor/port/src/lib.rs"
+        port.write_text("pub const VALUE: u8 = 2;\n")
+        result = self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+        self.assertIn("Cargo state requires clean compilation inputs", result.stderr)
+        self.git(self.repo, "restore", "vendor")
+        (port.parent / "untracked.rs").write_text("pub const VALUE: u8 = 3;\n")
+        result = self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+        self.assertIn("Cargo state requires tracked compilation inputs", result.stderr)
+        self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_vendor_commit_changes_cargo_state_source_key(self):
+        state = self.prepare_state(seed=False)
+        before = json.loads((state / "plan.json").read_text())
+        shutil.rmtree(state)
+        (self.repo / "vendor/port/src/lib.rs").write_text("pub const VALUE: u8 = 2;\n")
+        self.git(self.repo, "add", "vendor")
+        self.git(self.repo, "-c", "user.name=CI Test", "-c", "user.email=ci@example.invalid",
+                 "commit", "-qm", "change port")
+        self.env["GITHUB_SHA"] = self.git(self.repo, "rev-parse", "HEAD").strip()
+        state = self.prepare_state(seed=False)
+        after = json.loads((state / "plan.json").read_text())
+        self.assertEqual(before["compatibility"], after["compatibility"])
+        self.assertNotEqual(before["source"], after["source"])
 
     def test_failed_base_pull_stops_before_building(self):
         self.env.update(EEZ_CARGO_STATE_CACHE="true", MOCK_BASE_MISSING="1", MOCK_PULL_FAIL="1",

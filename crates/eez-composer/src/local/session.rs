@@ -13,7 +13,7 @@ use eez_evm_inspector::{OverlayChannelHandle, SessionInspectorFactory};
 use reth_evm::{ConfigureEvm, Evm as _};
 use reth_evm_ethereum::EthEvmConfig;
 use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_storage_api::{BlockNumReader, StateProviderFactory};
+use reth_storage_api::EvmStateProviderAdapter;
 use revm::database::CacheState;
 use revm::interpreter::Interpreter;
 use revm::{DatabaseCommit, Inspector};
@@ -55,7 +55,8 @@ impl<CTX> Inspector<CTX> for ForceStaticInspector {
 /// the full `executeIncomingCrossChainCall` path.
 pub struct LocalExecutionSession {
     evm_config: EthEvmConfig,
-    state: State<StateProviderDatabase<reth_storage_api::StateProviderBox>>,
+    state:
+        State<StateProviderDatabase<EvmStateProviderAdapter<reth_storage_api::StateProviderBox>>>,
     evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
     chain_id: u64,
     manager_address: Address,
@@ -99,10 +100,7 @@ impl LocalExecutionSession {
         cache: Option<CacheState>,
         overlay_channel: OverlayChannelHandle,
     ) -> ExecutorResult<Self> {
-        let num = provider
-            .provider
-            .best_block_number()
-            .map_err(provider_err)?;
+        let num = provider.headers.best_block_number().map_err(provider_err)?;
         tracing::debug!(block = num, "target session: best block number");
 
         let header = provider
@@ -122,7 +120,7 @@ impl LocalExecutionSession {
         let chain_id = evm_env.cfg_env.chain_id;
         disable_checks(&mut evm_env);
 
-        let db = StateProviderDatabase::new(state_prov);
+        let db = StateProviderDatabase::new(EvmStateProviderAdapter(state_prov));
         let mut builder = State::builder().with_database(db).with_bundle_update();
         if let Some(cache) = cache {
             builder = builder.with_cached_prestate(cache);

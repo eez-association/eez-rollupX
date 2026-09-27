@@ -60,7 +60,7 @@ resolve_base() {
 # Keep the cache path stable for Actions, but never reuse a local job directory.
 # Only transport/ belongs to the cache; the authoritative checkout and plan do not.
 state_dir="$REPO/.ci-cargo-state"
-inputs=(Cargo.toml Cargo.lock crates contracts/test/PostBatchGasPins.t.sol
+inputs=(Cargo.toml Cargo.lock crates vendor contracts/test/PostBatchGasPins.t.sol
         .config/nextest.toml scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh)
 state_build=(docker buildx build --builder default --platform linux/amd64 --progress plain
              --provenance=false -f Dockerfile.runtime --build-arg EEZ_COMPILER_CACHE=none
@@ -80,7 +80,7 @@ if [[ "$operation" == prepare-state ]]; then
         echo 'Cargo state requires 50 GiB free disk; no automatic cleanup' >&2; exit 1;
     }
     mkdir "$state_dir"
-    rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.94.0-bookworm}")"
+    rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
     "${state_build[@]}" --build-arg "RUST_IMAGE=$rust_base" --target build-contract \
         --output "type=local,dest=$state_dir/contract" .
     compatibility="$( { printf '%s\n' "$rust_base"; cat "$state_dir/contract/toolchain.txt";
@@ -206,7 +206,7 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
 fi
 echo "==> BuildKit cache: $cache_status"
 
-[[ "$state_cache" == true ]] || rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.94.0-bookworm}")"
+[[ "$state_cache" == true ]] || rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
 runtime_base="$(resolve_base "${RUNTIME_IMAGE:-debian:bookworm-slim}")"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")

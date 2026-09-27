@@ -19,7 +19,7 @@ use eez_testkit::{
     wait_for,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(120);
+const TIMEOUT: Duration = Duration::from_mins(2);
 
 async fn attempt_event(
     world: &eez_testkit::CrossChainWorld,
@@ -247,6 +247,9 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
         let held = wait_for(TIMEOUT, || async { world.held_bundle() })
             .await
             .unwrap();
+        // The hold is one-shot. Keep later allowed replacements out of L1
+        // while the original partial prefix crosses the persistence boundary.
+        world.fail_rpc_methods(&["eth_sendBundle"]).unwrap();
         assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
         assert_eq!(held["params"][0]["txs"][1], request["txs"][omitted + 1]);
         let target = u64::from_str_radix(
@@ -281,17 +284,44 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             retry.b256("sync_hash").unwrap(),
             "repricing must preserve the proved retry endpoint"
         );
-        // This fixture embeds L1 in the same process. Advance beyond reth's
-        // two-block persistence threshold before killing it, then verify the
-        // original receipt survives. The dev chain does not advance finality.
+        // Killing the composer also kills this fixture's isolated L1. Establish
+        // disk persistence of the settled prefix before testing lost retry ownership.
+        world
+            .wait_for_persisted_l1_block(
+                alloy_rpc_types_eth::BlockNumHash::new(inclusion_block, posted.block_hash.unwrap()),
+                TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert!(
+            l1.get_transaction_receipt(hashes[omitted])
+                .await
+                .unwrap()
+                .is_none(),
+            "restart fixture must still own an unsettled source before the crash"
+        );
+        // Exercise Reth's normal masked persistence: block history has reached
+        // disk while the state/trie frontier still lags. A graceful flush would
+        // collapse these frontiers and miss this crash-recovery path.
         wait_for(TIMEOUT, || async {
-            Ok((l1.get_block_number().await? > inclusion_block + 2).then_some(()))
+            Ok(world
+                .persisted_l2_frontiers()
+                .await?
+                .filter(|(blocks, state)| *state > 0 && state < blocks && *state < height))
         })
         .await
         .unwrap();
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
-        world.restart_composer().await.unwrap();
+        let (persisted_blocks, persisted_state) = world.crash_and_restart_composer().await.unwrap();
+        assert!(
+            persisted_blocks > persisted_state,
+            "crash must leave masked L2 state: blocks={persisted_blocks}, state={persisted_state}"
+        );
+        assert!(
+            persisted_state > 0 && persisted_state < height,
+            "crash must leave an intermediate L2 state prefix: {persisted_state}, settled={height}"
+        );
         wait_for(TIMEOUT, || async {
             Ok((l1.get_block_number().await? > target).then_some(()))
         })
@@ -323,6 +353,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             .unwrap()
             .parse()
             .unwrap();
+        world.fail_rpc_methods(&[]).unwrap();
         let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
         let resubmitted = wait_for(TIMEOUT, || async {
             match front.send_raw_transaction(&raw).await {

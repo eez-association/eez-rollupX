@@ -8,7 +8,7 @@ use eez_testkit::{
 };
 use std::time::Duration;
 
-const TIMEOUT: Duration = Duration::from_secs(240);
+const TIMEOUT: Duration = Duration::from_mins(4);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order() {

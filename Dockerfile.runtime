@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build shipping binaries and release test executables in one target.
 # Local development keeps the existing Dockerfile / Dockerfile.signer entrypoints.
-ARG RUST_IMAGE=rust:1.94.0-bookworm
+ARG RUST_IMAGE=rust:1.95.0-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG BUILD_STAGE=build-online
 FROM scratch AS previous-state
@@ -12,6 +12,7 @@ WORKDIR /cargo/git
 FROM scratch AS source
 COPY Cargo.toml Cargo.lock /checkout/
 COPY crates /checkout/crates
+COPY vendor /checkout/vendor
 COPY contracts/test/PostBatchGasPins.t.sol /checkout/contracts/test/PostBatchGasPins.t.sol
 COPY .config/nextest.toml /checkout/.config/nextest.toml
 COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh /checkout/scripts/ci/
@@ -21,6 +22,7 @@ RUN --network=default apt-get update && apt-get install -y --no-install-recommen
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time rsync \
     && rm -rf /var/lib/apt/lists/*
 ENV CARGO_INCREMENTAL=0 \
+    RUST_MIN_STACK=16777216 \
     CARGO_TARGET_DIR=/build/target \
     RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 WORKDIR /build

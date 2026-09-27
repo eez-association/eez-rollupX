@@ -52,12 +52,13 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-blob-codec": {},
             }
             (repo / "Cargo.toml").write_text(
-                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
+                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\nexclude = ["vendor/fixture-port"]\n'
                 '[profile.release]\nlto = "thin"\nstrip = true\ncodegen-units = 16\n'
             )
             (repo / "Cargo.lock").write_text("version = 4\n" + "".join(
                 f'\n[[package]]\nname = "{name}"\nversion = "0.1.0"\n'
-                for name in sorted(packages)
+                + ('dependencies = ["fixture-port"]\n' if name == 'eez-follower' else '')
+                for name in sorted([*packages, 'fixture-port'])
             ))
             for name, targets in packages.items():
                 package = repo / "crates" / name
@@ -87,7 +88,14 @@ class RuntimeDockerTest(unittest.TestCase):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_text(f'fn main() {{ println!("{output}"); }}\n')
 
+            port = repo / "vendor/fixture-port"
+            (port / "src").mkdir(parents=True)
+            (port / "Cargo.toml").write_text(
+                '[package]\nname = "fixture-port"\nversion = "0.1.0"\nedition = "2021"\n')
+            (port / "src/lib.rs").write_text('pub const NAME: &str = "eez-follower";\n')
             follower_package = repo / "crates/eez-follower"
+            with (follower_package / "Cargo.toml").open("a") as manifest:
+                manifest.write('[dependencies]\nfixture-port = { path = "../../vendor/fixture-port" }\n')
             (follower_package / "build-value.txt").write_text("")
             (follower_package / "obsolete.txt").write_text("must disappear after source deletion")
             (follower_package / "build.rs").write_text(
@@ -104,7 +112,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 '}\n'
             )
             (follower_package / "src/bin/eez-follower.rs").write_text(
-                'fn main() { println!("eez-follower{}", env!("FIXTURE_MARKER")); }\n')
+                'fn main() { println!("{}{}", fixture_port::NAME, env!("FIXTURE_MARKER")); }\n')
 
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()

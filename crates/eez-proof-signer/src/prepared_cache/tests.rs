@@ -154,7 +154,7 @@ fn leases_bound_ownership_protect_overlap_and_expire_without_authority() {
             None,
             B256::repeat_byte(1),
             &facts[..2],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
     let second = cache
@@ -162,7 +162,7 @@ fn leases_bound_ownership_protect_overlap_and_expire_without_authority() {
             None,
             B256::repeat_byte(1),
             &facts[1..],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
     assert_eq!(cache.lease_count(), 2);
@@ -213,7 +213,7 @@ fn lease_count_is_bounded_across_crashed_client_overlap() {
     for _ in 0..eez_control_rpc::MAX_PREPARATION_LEASES {
         leases.push(
             cache
-                .retain_facts(None, B256::repeat_byte(1), &facts, Duration::from_secs(60))
+                .retain_facts(None, B256::repeat_byte(1), &facts, Duration::from_mins(1))
                 .unwrap(),
         );
     }
@@ -222,7 +222,7 @@ fn lease_count_is_bounded_across_crashed_client_overlap() {
         usize::try_from(eez_control_rpc::MAX_PREPARATION_LEASES).unwrap()
     );
     assert!(matches!(
-        cache.retain_facts(None, B256::repeat_byte(1), &facts, Duration::from_secs(60)),
+        cache.retain_facts(None, B256::repeat_byte(1), &facts, Duration::from_mins(1)),
         Err(CacheError::Capacity)
     ));
     for lease in leases {
@@ -242,7 +242,7 @@ fn exact_lease_replacement_preserves_overlapping_reservations() {
             None,
             B256::repeat_byte(1),
             &facts[..2],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
     let second = cache
@@ -250,7 +250,7 @@ fn exact_lease_replacement_preserves_overlapping_reservations() {
             None,
             B256::repeat_byte(1),
             &facts[1..],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
 
@@ -259,7 +259,7 @@ fn exact_lease_replacement_preserves_overlapping_reservations() {
             first,
             B256::repeat_byte(1),
             &facts[2..],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
     assert_eq!(
@@ -312,7 +312,7 @@ fn failed_refcount_transitions_leave_leases_and_entries_unchanged() {
             None,
             B256::repeat_byte(1),
             &facts[..2],
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .unwrap();
 
@@ -327,7 +327,7 @@ fn failed_refcount_transitions_leave_leases_and_entries_unchanged() {
             lease,
             B256::repeat_byte(1),
             &facts[2..],
-            Duration::from_secs(60)
+            Duration::from_mins(1)
         ),
         Err(CacheError::Endpoint)
     );

@@ -28,7 +28,9 @@ use reth_primitives_traits::{
 };
 use reth_provider::StateProviderFactory;
 use reth_revm::database::StateProviderDatabase;
-use reth_storage_api::{BlockReader, ReceiptProvider, TransactionsProvider};
+use reth_storage_api::{
+    BlockReader, EvmStateProviderAdapter, ReceiptProvider, TransactionsProvider,
+};
 use revm::database::State;
 use tokio::sync::broadcast;
 use tracing::{Level, event};
@@ -1171,7 +1173,7 @@ where
                 );
                 DeriverError::l2_provider(e)
             })?;
-        let state_db = StateProviderDatabase::new(state_provider.as_ref());
+        let state_db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
         let mut db = State::builder()
             .with_database(state_db)
             .with_bundle_update()

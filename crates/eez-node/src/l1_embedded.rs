@@ -105,8 +105,14 @@ pub fn build_testing_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Ch
     // must not reject an otherwise fitting nonce chain partway through.
     // Global pool size and actual block gas limits still bound testing nodes.
     node_cfg.txpool.max_account_slots = usize::MAX;
+    // This isolated miner has no consensus peer that can restore lost history.
+    // Preserve the former short persistence window for crash/restart fixtures;
+    // Reth v2.6's 50-block default can otherwise lose their entire L1 chain.
+    node_cfg.engine.persistence_threshold = 2;
+    node_cfg.engine.num_state_masking_blocks = 0;
+    node_cfg.engine.memory_block_buffer_target = Some(0);
     // Synchronous state-root path for dev determinism.
-    node_cfg.engine.legacy_state_root_task_enabled = true;
+    node_cfg.engine.state_root_fallback = true;
     Ok(node_cfg)
 }
 
@@ -140,14 +146,17 @@ pub fn build_chiado_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Gno
         })
         .with_network(network_args)
         .with_rpc(rpc_args);
-    // Reth's async StateRootTask computes wrong roots for gnosis chains
-    // in this reth pin (→ "incorrect state root" / SIGABRT on chiado
-    // newPayload); force the legacy synchronous path (as the Testing L1 does).
-    node_cfg.engine.legacy_state_root_task_enabled = true;
+    // Preserve the synchronous root path used by the Gnosis integration.
+    // Reth v2.6 ignores the old legacy-state-root switch.
+    node_cfg.engine.state_root_fallback = true;
     if testing {
         node_cfg = node_cfg.dev();
         node_cfg.dev.block_time = Some(TESTING_L1_BLOCK_TIME);
         node_cfg.txpool.max_account_slots = usize::MAX;
+        // Match the private Ethereum miner's crash/restart persistence window.
+        node_cfg.engine.persistence_threshold = 2;
+        node_cfg.engine.num_state_masking_blocks = 0;
+        node_cfg.engine.memory_block_buffer_target = Some(0);
     }
     Ok(node_cfg)
 }
@@ -164,7 +173,7 @@ pub fn build_devnet_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Cha
         })
         .with_network(network_args)
         .with_rpc(rpc_args);
-    node_cfg.engine.legacy_state_root_task_enabled = true;
+    node_cfg.engine.state_root_fallback = true;
     Ok(node_cfg)
 }
 
@@ -206,6 +215,46 @@ fn build_network_rpc_args(cfg: &EmbeddedL1Config) -> Result<(NetworkArgs, RpcSer
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_private_miners_use_the_short_persistence_window() {
+        let mut cfg = EmbeddedL1Config {
+            dev_chain_spec: Arc::new(ChainSpec::default()),
+            kind: L1ChainKind::Testing,
+            datadir: PathBuf::from("/tmp/unused-eez-persistence-test"),
+            http_port: 18_545,
+            auth_port: 18_551,
+            p2p_port: 30_303,
+            discv5_port: 30_304,
+            jwtsecret: None,
+            trusted_peers: Vec::new(),
+        };
+        let testing = build_testing_node_config(&cfg).unwrap().engine;
+        cfg.kind = L1ChainKind::Devnet;
+        let devnet = build_devnet_node_config(&cfg).unwrap().engine;
+        cfg.dev_chain_spec = Arc::new(ChainSpec::from(CHIADO_GENESIS.clone()));
+        cfg.kind = L1ChainKind::TestingGnosis;
+        let testing_gnosis = build_chiado_node_config(&cfg).unwrap().engine;
+        cfg.kind = L1ChainKind::Chiado;
+        let chiado = build_chiado_node_config(&cfg).unwrap().engine;
+        for engine in [testing, testing_gnosis] {
+            assert_eq!(engine.persistence_threshold, 2);
+            assert_eq!(engine.num_state_masking_blocks, 0);
+            assert_eq!(engine.memory_block_buffer_target(), 0);
+        }
+        let defaults = reth_node_core::args::EngineArgs::default();
+        for engine in [devnet, chiado] {
+            assert_eq!(engine.persistence_threshold, defaults.persistence_threshold);
+            assert_eq!(
+                engine.num_state_masking_blocks,
+                defaults.num_state_masking_blocks
+            );
+            assert_eq!(
+                engine.memory_block_buffer_target(),
+                defaults.memory_block_buffer_target()
+            );
+        }
+    }
 
     #[test]
     fn embedded_l1_http_rpc_exposes_classifier_trace_method() {

@@ -4506,24 +4506,156 @@ impl CrossChainWorld {
         self.witness_dir.path()
     }
 
-    /// Crash the composer and reopen the same chain databases with an empty pool.
-    pub async fn restart_composer(&mut self) -> Result<()> {
-        self.restart_composer_with_env(&[]).await
+    /// Kill the composer without flushing and reopen its databases with an empty pool.
+    /// Callers must establish persistence of any local history their assertions require.
+    /// Returns the L2 block/state disk frontiers observed after SIGKILL, before reopening.
+    pub async fn crash_and_restart_composer(&mut self) -> Result<(u64, u64)> {
+        {
+            let mut child = self.node.child.lock().expect("node child mutex poisoned");
+            ensure!(
+                child.try_wait().context("read composer status")?.is_none(),
+                "composer exited before the intended crash"
+            );
+            child.kill().context("crash composer for restart")?;
+            let status = child.wait().context("wait for composer exit")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                ensure!(
+                    status.signal() == Some(9),
+                    "composer did not exit via SIGKILL: {status}"
+                );
+            }
+        }
+        let checkpoint = self
+            .persisted_l2_frontiers()
+            .await?
+            .context("crashed L2 has no Finish checkpoint")?;
+        eprintln!(
+            "crashed L2 disk frontiers: blocks={}, state={}",
+            checkpoint.0, checkpoint.1
+        );
+        self.reopen_composer().await?;
+        Ok(checkpoint)
     }
 
-    /// Reopen retained chain/witness data with a new startup policy snapshot.
+    /// Read the persisted L2 block and state/trie frontiers in a fresh MDBX
+    /// transaction. Returns `None` before the first Finish checkpoint exists.
+    /// The blocking reader closes before returning; RPC height is not a disk barrier.
+    pub async fn persisted_l2_frontiers(&self) -> Result<Option<(u64, u64)>> {
+        let path = self.datadir.path().join("db");
+        tokio::task::spawn_blocking(move || -> Result<Option<(u64, u64)>> {
+            use reth_db::{Database, tables, transaction::DbTx};
+            let db = reth_db::open_db_read_only(path, Default::default())
+                .map_err(|error| anyhow!("open persisted L2: {error:#}"))?;
+            let tx = db.tx()?;
+            let Some(checkpoint) = tx.get::<tables::StageCheckpoints>("Finish".into())? else {
+                return Ok(None);
+            };
+            let state_tip = checkpoint
+                .finish_stage_checkpoint()
+                .and_then(|finish| finish.partial_state_trie())
+                .unwrap_or(checkpoint.block_number);
+            Ok(Some((checkpoint.block_number, state_tip)))
+        })
+        .await
+        .context("join persisted L2 checkpoint reader")?
+    }
+
+    /// Flush via SIGTERM before reopening with a new startup policy snapshot.
+    /// A failed or timed-out graceful shutdown fails the test; it is never
+    /// silently replaced with SIGKILL. Already-exited startup failures may be retried.
     pub async fn restart_composer_with_env(
         &mut self,
         extra_env: &[(&'static str, String)],
     ) -> Result<()> {
-        self.env.extend_from_slice(extra_env);
-        {
+        let pid = {
             let mut child = self.node.child.lock().expect("node child mutex poisoned");
-            if child.try_wait().context("read composer status")?.is_none() {
-                child.kill().context("stop composer for restart")?;
-                child.wait().context("wait for composer exit")?;
-            }
+            child
+                .try_wait()
+                .context("read composer status")?
+                .is_none()
+                .then(|| child.id())
+        };
+        if let Some(pid) = pid {
+            let signal = tokio::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status()
+                .await
+                .context("send composer SIGTERM")?;
+            ensure!(
+                signal.success(),
+                "sending composer SIGTERM failed: {signal}"
+            );
+            let status = wait_for(Duration::from_mins(1), || async {
+                self.node
+                    .child
+                    .lock()
+                    .expect("node child mutex poisoned")
+                    .try_wait()
+                    .context("wait for graceful composer shutdown")
+            })
+            .await
+            .with_context(|| {
+                format!(
+                    "composer did not stop gracefully:\n{}",
+                    self.node.log_tail(60)
+                )
+            })?;
+            ensure!(
+                status.success(),
+                "composer graceful shutdown failed: {status}\n{}",
+                self.node.log_tail(60)
+            );
         }
+        self.env.extend_from_slice(extra_env);
+        self.reopen_composer().await
+    }
+
+    /// Wait for this isolated miner's block and state to be committed to MDBX.
+    /// Latest RPC height includes the engine's in-memory suffix and is not a
+    /// persistence barrier. Each poll opens a fresh read-only transaction in a
+    /// blocking worker and closes it before sleeping or restarting the process.
+    pub async fn wait_for_persisted_l1_block(
+        &self,
+        block: BlockNumHash,
+        timeout: Duration,
+    ) -> Result<()> {
+        ensure!(
+            self.l1_reorg_control.is_none(),
+            "persistence barrier requires the isolated L1 miner"
+        );
+        let path = self.datadir.path().join("embedded-l1/db");
+        wait_for(timeout, || {
+            let path = path.clone();
+            async move {
+                let persisted = tokio::task::spawn_blocking(move || -> Result<bool> {
+                    use reth_db::{Database, tables, transaction::DbTx};
+                    let db = reth_db::open_db_read_only(path, Default::default())
+                        .map_err(|error| anyhow!("open persisted L1: {error:#}"))?;
+                    let tx = db.tx()?;
+                    let Some(checkpoint) = tx.get::<tables::StageCheckpoints>("Finish".into())?
+                    else {
+                        return Ok(false);
+                    };
+                    let state_tip = checkpoint
+                        .finish_stage_checkpoint()
+                        .and_then(|finish| finish.partial_state_trie())
+                        .unwrap_or(checkpoint.block_number);
+                    Ok(checkpoint.block_number >= block.number
+                        && state_tip >= block.number
+                        && tx.get::<tables::HeaderNumbers>(block.hash)? == Some(block.number))
+                })
+                .await
+                .context("join persisted L1 reader")??;
+                Ok(persisted.then_some(()))
+            }
+        })
+        .await
+        .context("wait for the required L1 block and state to persist")
+    }
+
+    async fn reopen_composer(&mut self) -> Result<()> {
         self.node = NodeHandle::start_with_datadir(
             "restarted-composer",
             self.datadir.path(),
