@@ -554,11 +554,15 @@ async fn gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work() {
             .unwrap(),
         2
     );
-    assert!(
-        events
-            .iter()
-            .filter(|e| e.name == "eez.composer.bundle.dispatched")
-            .all(|e| e.fields["attempt_counts"] == "[0, 0]")
+    let attempt_counts: Vec<Vec<u32>> = events
+        .iter()
+        .filter(|e| e.name == "eez.composer.bundle.dispatched")
+        .map(|e| serde_json::from_str(e.fields["attempt_counts"].as_str().unwrap()).unwrap())
+        .collect();
+    assert_eq!(
+        attempt_counts,
+        vec![vec![0], vec![0, 0, 0]],
+        "FIFO splits the four sources 1+3 without charging capacity deferrals"
     );
     world.node.assert_no_divergence_failure_logs();
     follower.assert_no_divergence_failure_logs();
