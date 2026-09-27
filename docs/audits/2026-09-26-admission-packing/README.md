@@ -349,6 +349,72 @@ Receipt ratios alone cannot justify scaling reserves: some cold/boundary fixture
 have much less margin, and each signed transaction's start-of-execution gas
 envelope must fit. Gas, blob, nonce and shared-deadline constraints remain necessary.
 
+## September 27 review: is the whole-bundle gas limit too restrictive?
+
+The block limit is correctly taken from the canonical L1 parent's `gas_limit`
+([assignment](../../../crates/eez-composer/src/composer.rs)); no percentage
+discount is applied to that whole-block cap. The separate postBatch transaction
+budget is reduced for its configured signing margin and the fixed 600,000-gas
+drain reserve. The bundle gate compares the following with the block cap:
+
+```text
+estimated postBatch gas + 600,000
+  + max(estimated preceding companion consumption + next companion signed limit)
+```
+
+The last term preserves the transaction-start gas requirement. It does not add
+all signed companion limits. Final ordered native execution remains the check
+on cumulative gas, signed limits and complete effects.
+
+The existing canonical wave was reanalyzed, without changing configuration or
+running another workload. All 28 companion estimate totals reconcile with their
+candidate summaries, and every companion order matches its canonical L1 block.
+For the **17 postings whose final reason was `l1_bundle_gas_budget`**:
+
+| Quantity | Observed value |
+| --- | ---: |
+| Admission block caps | 17.659–17.937 million gas |
+| Accepted candidates' estimated start envelopes / caps | 94.6–99.8% |
+| Actual bundle consumption / admission cap, mean | **43.0%** |
+| Actual signed start envelope / admission cap, mean | **47.7%** |
+| Headroom after actual signed start envelope | **6.49–11.06 million gas** |
+| Aggregate postBatch estimate / receipt gas | **1.957×** |
+| Aggregate companion estimate / receipt gas | **2.310×** |
+| Combined consumption estimate / receipt gas | **2.145×** |
+
+Example: block **23245824** admitted 14 sources. Its budget was 17.763 million;
+the estimated start envelope reached 17.589 million. Actual postBatch plus
+companions used 6.164 million, and the signed start envelope was 6.924 million,
+leaving 10.839 million against the same budget.
+
+This shows substantial conservative admission in this workload. Both postBatch
+storage/work reserves and companion protocol reserves contribute. The companion
+model charges possible rescanning of earlier queue entries for every root,
+because an enclosing source revert can restore the cursor. Its callback/nested
+framing reserves also remain conservative. The fixed 600,000 reserve is only
+about 3.4% of these block budgets and cannot explain the observed gap alone.
+
+The calculation uses each canonical receipt's gas consumption, exact signed
+transaction limits and actual order. For the actual signed start envelope it
+takes `max(prefix receipt gas + next signed limit)`, including postBatch as the
+first transaction. This accounts for transaction-start headroom beyond receipt
+gas; it is an empty-block bundle requirement, not a simulation of a larger batch.
+The candidate's canonical-parent cap is kept separate from its inclusion block's
+slightly larger limit. Every observed block also had 21,000 gas of other work.
+
+Recommended follow-up: tighten estimates using verified queue progress and
+measured storage/call shapes, or use a bounded exact execution check near an
+estimated cutoff, while retaining the block cap, source nonce dependencies,
+shared deadline and final native validation. Larger-batch execution can change
+storage, refunds, queue scans, blobs and proof time. These measurements establish
+over-reservation for the included work; they do not establish that doubling the
+batch size would succeed. No limit or production configuration was changed by
+this review.
+
+[Per-post breakdown](results/bundle-budget-per-post.csv) and
+[reconciliation/input digests](results/bundle-budget-review.json) retain the
+results. Detailed inputs remain the ignored local artifacts listed there.
+
 ## Monitoring and final checks
 
 Actual Grafana datasource queries returned **33 candidates and all 8,771 source-

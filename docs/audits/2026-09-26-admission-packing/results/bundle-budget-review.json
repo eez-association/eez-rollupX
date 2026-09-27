@@ -1,0 +1,48 @@
+{
+  "scope": "September 27 read-only review of wave 20260926-233435; no merged-batch replay or new workload",
+  "runtime_revision": "e5b2cde65c9166ceae87bd4ee723820ed63ea5f6",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "review_checkout": "046cbb816b8ce62b0a794033746705b7f8085457",
+  "postings_reviewed": 28,
+  "bundle_limited_postings": 17,
+  "all_companion_estimates_reconciled_to_candidate_summaries": true,
+  "all_companion_transaction_orders_matched_canonical_blocks": true,
+  "mean_actual_consumption_fraction": 0.4295907096586808,
+  "mean_signed_start_envelope_fraction": 0.47737095636363097,
+  "min_start_envelope_headroom": 6487982,
+  "max_start_envelope_headroom": 11059966,
+  "aggregate_gas": {
+    "post_estimate": 119282272,
+    "post_actual": 60943303,
+    "companion_estimate": 159433056,
+    "companion_actual": 69023502,
+    "estimated_consumption": 278715328,
+    "actual_bundle_gas": 129966805
+  },
+  "inputs": [
+    {
+      "path": "artifacts/admission-packing/candidate/canonical-snapshot.private.json",
+      "size_bytes": 13823936,
+      "sha256": "a21cf67ad66e84177d1ba102bce4c25f0b62c182f41c0b48c2ff36a424af7d84",
+      "availability": "local-only ignored artifact"
+    },
+    {
+      "path": "artifacts/admission-packing/candidate/detail/all-candidates.json",
+      "size_bytes": 64446,
+      "sha256": "d6779bef538554c98bb6fd848f27bfa08abbfb5f8b34946aaf9c7444d6ff84e5",
+      "availability": "local-only ignored artifact"
+    },
+    {
+      "path": "artifacts/admission-packing/candidate/detail/events.private.json",
+      "size_bytes": 33298271,
+      "sha256": "26cc544a087c1cd0264276948d599d0683d6ebd87fb121c1b9fcaa7809fb7376",
+      "availability": "local-only ignored artifact"
+    },
+    {
+      "path": "artifacts/admission-packing/candidate/detail/source-estimates.csv",
+      "size_bytes": 387564,
+      "sha256": "348d654edd20dba8df4ff7cd8e054c995f3a6c4e1c231d1365ad92cafc40b941",
+      "availability": "local-only ignored artifact"
+    }
+  ]
+}
