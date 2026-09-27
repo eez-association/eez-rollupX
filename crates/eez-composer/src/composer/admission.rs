@@ -232,6 +232,9 @@ impl AutomaticAdmission {
 struct Progress {
     source_deferred: bool,
     estimate_blocked: bool,
+    /// Offset within the shared attempt where the current candidate began.
+    /// Discarded work consumes the deadline, but is not future execution/KZG.
+    candidate_started: Duration,
     phase: Duration,
     accepted: usize,
     limited: bool,
@@ -253,7 +256,7 @@ impl Progress {
     fn sample(&self, groups: usize, elapsed: Duration) -> Sample {
         Sample {
             groups,
-            preparation: elapsed,
+            preparation: elapsed.saturating_sub(self.candidate_started),
             tail: elapsed.saturating_sub(self.phase),
             blob_preparation: self.blob_preparation,
             blobs: self.blobs,
@@ -386,7 +389,13 @@ impl Attempt {
     /// forever. Probe at most one complete group when the ordinary estimate
     /// refuses it, retaining finishing/finalization reserves and the original
     /// proof deadline. Wider windows still use normal multi-group admission.
-    fn cold_probe_fits(&self, groups: usize, blobs: usize, elapsed: Duration) -> bool {
+    fn cold_probe_fits(
+        &self,
+        groups: usize,
+        blobs: usize,
+        elapsed: Duration,
+        work: Duration,
+    ) -> bool {
         if self.deadline.is_none() || self.previous.is_some() || groups != 1 {
             return false;
         }
@@ -397,7 +406,7 @@ impl Attempt {
         });
         self.available.saturating_sub(elapsed).as_nanos()
             > self
-                .bootstrap_tail(blobs, elapsed)
+                .bootstrap_tail(blobs, work)
                 .saturating_add(post.saturating_add(Duration::from_millis(25)).as_nanos())
     }
 
@@ -411,25 +420,29 @@ impl Attempt {
             return (false, false);
         }
         let next = accepted.saturating_add(1);
-        let blobs = self.progress.lock().unwrap().blobs.max(1);
+        let (blobs, work) = {
+            let progress = self.progress.lock().unwrap();
+            (
+                progress.blobs.max(1),
+                elapsed.saturating_sub(progress.candidate_started),
+            )
+        };
         let jitter = self.jitter_reserve();
-        let tail = self
-            .previous
-            .map_or(self.bootstrap_tail(blobs, elapsed), |s| {
-                s.tail_for(next, blobs, elapsed, jitter)
-            });
+        let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
+            s.tail_for(next, blobs, work, jitter)
+        });
         let group = if accepted == 0 {
             self.previous.map_or(0, |s| {
                 s.preparation.saturating_sub(s.tail).as_nanos() / s.groups.max(1) as u128
             })
         } else {
-            elapsed.as_nanos() / accepted as u128
+            work.as_nanos() / accepted as u128
         };
         let estimated = remaining.as_nanos()
             > group
                 .saturating_add(tail)
                 .saturating_add(self.pipeline_reserve(next, blobs));
-        let probe = !estimated && self.cold_probe_fits(next, blobs, elapsed);
+        let probe = !estimated && self.cold_probe_fits(next, blobs, elapsed, work);
         (estimated || probe, probe)
     }
 
@@ -462,12 +475,11 @@ impl Attempt {
     fn can_finish_at(&self, groups: usize, blobs: usize, elapsed: Duration) -> bool {
         let remaining = self.available.saturating_sub(elapsed);
         let jitter = self.jitter_reserve();
-        let tail = self
-            .previous
-            .map_or(self.bootstrap_tail(blobs, elapsed), |s| {
-                s.tail_for(groups, blobs, elapsed, jitter)
-            });
         let mut progress = self.progress.lock().unwrap();
+        let work = elapsed.saturating_sub(progress.candidate_started);
+        let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
+            s.tail_for(groups, blobs, work, jitter)
+        });
         let measured = progress
             .group_started
             .take()
@@ -479,7 +491,7 @@ impl Attempt {
         progress.unmeasured_work |= measured.is_none();
         let estimated =
             remaining.as_nanos() > tail.saturating_add(self.pipeline_reserve(groups, blobs));
-        let probe = !estimated && self.cold_probe_fits(groups, blobs, elapsed);
+        let probe = !estimated && self.cold_probe_fits(groups, blobs, elapsed, work);
         progress.cold_timing_probe |= probe;
         if !estimated && !probe {
             // This matching group is refused before its duration is added or
@@ -531,11 +543,24 @@ impl Attempt {
     }
 
     pub fn rebuilding(&self) {
+        self.rebuilding_at(self.started.elapsed());
+    }
+
+    fn rebuilding_at(&self, elapsed: Duration) {
         // Rejected speculative work is included in elapsed preparation, but
         // cannot calibrate the cost of the replacement's accepted groups.
         let mut progress = self.progress.lock().unwrap();
+        progress.candidate_started = elapsed;
+        progress.blobs = 0;
+        progress.blob_preparation = Duration::ZERO;
+        progress.started_groups = 0;
+        progress.measured_groups = 0;
+        progress.group_started = None;
+        progress.group_work = Duration::ZERO;
         progress.unmeasured_work = true;
         progress.accepted = 0;
+        progress.prepared = None;
+        progress.completed = false;
     }
 
     pub fn prepared(&self, rollup_id: u64, groups: usize) {
@@ -793,6 +818,52 @@ mod tests {
         assert!(!attempt.next_group_fits(0, attempt.available));
         assert!(attempt.can_start_group(0));
         assert_eq!(attempt.progress.lock().unwrap().started_groups, 1);
+    }
+
+    #[test]
+    fn fifo_rebuild_resets_candidate_work_without_extending_the_window() {
+        let a = attempt(
+            100,
+            39,
+            true,
+            Some(Sample {
+                groups: 1,
+                preparation: Duration::from_millis(200),
+                tail: Duration::from_millis(100),
+                blob_preparation: Duration::from_millis(50),
+                blobs: 1,
+                group_work: None,
+            }),
+        );
+        {
+            let mut progress = a.progress.lock().unwrap();
+            progress.blobs = 8;
+            progress.started_groups = 40;
+            progress.measured_groups = 39;
+            progress.group_work = Duration::from_millis(280);
+        }
+        a.rebuilding_at(Duration::from_millis(300));
+        assert_eq!(
+            a.progress.lock().unwrap().blobs,
+            0,
+            "discarded blobs cannot reserve KZG work for the smaller replacement"
+        );
+        assert!(a.can_start_at(0, Duration::from_millis(400)));
+        assert!(a.can_finish_at(1, 1, Duration::from_millis(450)));
+        assert!(
+            a.can_start_at(1, Duration::from_millis(500)),
+            "discarded work is elapsed time, not the next group's execution cost"
+        );
+        assert!(
+            !a.can_start_at(1, Duration::from_millis(990)),
+            "the original window still includes all discarded work"
+        );
+        let mut progress = a.progress.lock().unwrap();
+        progress.phase = Duration::from_millis(500);
+        let next = progress.sample(1, Duration::from_millis(700));
+        assert_eq!(next.preparation, Duration::from_millis(400));
+        assert_eq!(next.tail, Duration::from_millis(200));
+        assert_eq!(next.group_work, None, "rebuild samples stay conservative");
     }
 
     #[test]

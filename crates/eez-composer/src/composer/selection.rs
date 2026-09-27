@@ -15,6 +15,7 @@ pub(super) struct Selection {
     blocked: HashSet<(Address, Direction)>,
     capacity_cut: Option<usize>,
     last_accepted: Option<usize>,
+    accepted: usize,
     remaining: usize,
     /// First underpriced nonce in each source chain, in snapshot order.
     fee_blocked: Vec<usize>,
@@ -61,6 +62,7 @@ impl Selection {
             blocked: HashSet::new(),
             capacity_cut: None,
             last_accepted: None,
+            accepted: 0,
             remaining: limit,
             fee_blocked,
         };
@@ -96,11 +98,15 @@ impl Selection {
     pub fn accept(&mut self, index: usize) {
         assert!(self.eligible.remove(&index), "accept only eligible groups");
         self.last_accepted = Some(self.last_accepted.map_or(index, |last| last.max(index)));
+        self.accepted += 1;
         self.remaining -= 1;
     }
 
-    /// The first omitted eligible source bounds a fresh canonical rebuild.
-    /// Include that source so even an inbound at the head can make progress.
+    /// Start a fresh FIFO rebuild at the number of complete groups that fitted,
+    /// including at least the first omitted eligible source. Truncating directly
+    /// at that source can turn a large mixed candidate into a one-user post.
+    /// Different source costs can require further cuts; no estimate authorizes
+    /// submission without reexecuting and checking the complete FIFO prefix.
     /// Every returned prefix is strictly shorter than the current snapshot:
     /// an accepted younger source exists beyond its last position.
     pub fn fifo_prefix_len(&self) -> Option<usize> {
@@ -108,7 +114,7 @@ impl Selection {
             .first()
             .zip(self.last_accepted)
             .filter(|(first, last)| **first < *last)
-            .map(|(first, _)| first + 1)
+            .map(|(first, _)| (first + 1).max(self.accepted))
     }
 
     pub fn fifo_bypassed(&self) -> bool {
@@ -316,12 +322,54 @@ mod tests {
         assert!(selection.consider(0));
         selection.cut(0);
         assert!(!selection.consider(2));
-        assert_eq!(selection.fifo_prefix_len(), Some(1));
+        assert_eq!(selection.fifo_prefix_len(), Some(2));
 
-        let mut retry = Selection::new(&users[..1], 4, 0, 0);
+        let mut retry = Selection::new(&users[..2], 4, 0, 0);
+        assert!(retry.consider(1));
+        retry.accept(1);
         assert!(retry.consider(0));
         retry.accept(0);
         assert_eq!(retry.fifo_prefix_len(), None);
+    }
+
+    #[test]
+    fn mixed_repair_keeps_measured_width_without_bypassing_the_older_source() {
+        let users: Vec<_> = (0_u8..128)
+            .map(|index| {
+                tx(
+                    index,
+                    0,
+                    if index % 2 == 0 {
+                        Direction::Inbound
+                    } else {
+                        Direction::Outbound
+                    },
+                )
+            })
+            .collect();
+        let mut selection = Selection::new(&users, users.len(), 0, 0);
+        for index in (1..76).step_by(2) {
+            selection.accept(index);
+        }
+        selection.accept(0);
+        selection.cut(2);
+        assert_eq!(
+            selection.fifo_prefix_len(),
+            Some(39),
+            "39 simulated groups should seed a FIFO prefix, not a three-source post"
+        );
+        let mut retry = Selection::new(&users[..39], users.len(), 0, 0);
+        for index in (1..39).step_by(2) {
+            retry.accept(index);
+        }
+        assert!(retry.fifo_bypassed());
+        for index in (0..39).step_by(2) {
+            retry.accept(index);
+        }
+        assert!(
+            !retry.fifo_bypassed(),
+            "every older eligible source is now included"
+        );
     }
 
     #[test]

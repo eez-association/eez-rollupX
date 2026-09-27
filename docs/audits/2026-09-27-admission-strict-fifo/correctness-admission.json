@@ -1,0 +1,201 @@
+[
+  {
+    "test": "gnosis_older_inbound_precedes_capacity_filling_outbound",
+    "cutoff_reasons": {
+      "fifo_prefix_rebuild": 1,
+      "snapshot_exhausted": 2
+    },
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ]
+  },
+  {
+    "test": "ethereum_older_inbound_precedes_capacity_filling_outbound",
+    "cutoff_reasons": {
+      "fifo_prefix_rebuild": 1,
+      "snapshot_exhausted": 2
+    },
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ]
+  },
+  {
+    "test": "gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      3
+    ]
+  },
+  {
+    "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ]
+  },
+  {
+    "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ]
+  },
+  {
+    "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 2,
+      "pipeline_deadline_backoff": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ]
+  },
+  {
+    "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+    "cutoff_reasons": {
+      "configured_count_limit": 3,
+      "eligible_sources_exhausted": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 5,
+      "configured_count_limit": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 7,
+      "pipeline_deadline_backoff": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+    "cutoff_reasons": {
+      "snapshot_exhausted": 2
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      3
+    ]
+  },
+  {
+    "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+    "cutoff_reasons": {
+      "snapshot_exhausted": 10,
+      "fifo_prefix_rebuild": 15
+    },
+    "fifo_bypass_candidates": 15,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      3,
+      18,
+      8,
+      20,
+      8,
+      2,
+      2,
+      8,
+      59
+    ]
+  },
+  {
+    "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+    "cutoff_reasons": {
+      "snapshot_exhausted": 3,
+      "fifo_prefix_rebuild": 1
+    },
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      17,
+      111
+    ]
+  },
+  {
+    "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+    "cutoff_reasons": {
+      "composition_blob_limit": 5,
+      "snapshot_exhausted": 1
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "cutoff_reasons": {
+      "snapshot_exhausted": 3
+    },
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      4
+    ]
+  }
+]

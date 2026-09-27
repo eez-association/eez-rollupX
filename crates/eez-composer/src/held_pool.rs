@@ -116,8 +116,8 @@ struct PoolState {
     /// or evicted by its caller; a forgotten reservation bricks its nonce
     /// slot (admission forever expects past it).
     in_flight: HashMap<TxHash, (Address, Direction, u64)>,
-    /// Retain an omitted eligible source as the end of the next FIFO snapshot
-    /// when the current deadline cannot accommodate canonical recomposition.
+    /// Retain the end of a shrinking FIFO retry snapshot when the current
+    /// deadline cannot accommodate canonical recomposition.
     /// Identity, rather than hash, lets an ingress replacement keep its position.
     fifo_boundary: Option<(Address, Direction, u64)>,
     telemetry: status::QueueTelemetry,
@@ -663,8 +663,8 @@ impl HeldPool {
     }
 
     /// Finite FIFO view. Transactions stay replaceable until claimed. A prior
-    /// discarded candidate may restrict this snapshot through its oldest omitted
-    /// source, preventing younger outbounds from consuming its capacity again.
+    /// discarded candidate may restrict this snapshot to its retry prefix;
+    /// admission must still include every older eligible source before posting.
     pub(crate) fn candidates(&self) -> Vec<HeldTx> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         let mut candidates: Vec<_> = state.txs.iter().cloned().collect();

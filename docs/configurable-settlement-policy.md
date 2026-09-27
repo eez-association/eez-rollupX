@@ -142,17 +142,29 @@ capacity refusal stops younger work; a cheaper independent source cannot bypass
 it. Within one batch, execution retains the signer's canonical outbound-first
 order. If that execution order leaves an older eligible inbound out after
 accepting younger outbounds, discard the speculative candidate and rebuild the
-FIFO prefix through the first omitted source before proving. All effects are
-recomputed against the same parent and target, under the original shared
-deadline. Each rebuild strictly shortens the snapshot; a concurrently enlarged
+FIFO prefix including the first omitted source before proving. Start its width
+at the number of complete groups just simulated, rather than always stopping at
+the first omitted source; differing source costs may require further cuts. All
+effects are recomputed against the same parent and target, under the original
+shared deadline. Each rebuild strictly shortens the snapshot; a concurrently enlarged
 prefix waits for a fresh opportunity. Fitting mixed snapshots still use one batch.
 
-When rebuilding cannot finish in time, the held pool remembers the omitted
-source's sender/direction/nonce as the next snapshot boundary. Repeated attempts
-cannot spend that source's capacity on younger outbounds. Replacements inherit
+When rebuilding cannot finish in time, the held pool remembers the retry prefix's
+last sender/direction/nonce as the next snapshot boundary. Repeated attempts
+cannot submit younger sources without the older eligible requests. Replacements inherit
 its position; removal, consumption, or a classified source condition clears the
 boundary. This is an in-memory scheduling boundary, not a learned transaction
-count or a settlement failure. Queue snapshots no longer promote a younger chain
+count or a settlement failure.
+
+Discarded preparation remains elapsed time against the same deadline. A rebuild
+resets the candidate's blob/group observations and predicts future work using
+only the replacement's elapsed preparation. Its finishing sample likewise excludes
+discarded work. Do not divide the old pass's elapsed time by the replacement's
+smaller source count or reserve KZG for blobs discarded with that pass. Rebuild
+samples retain the conservative uncalibrated finishing estimate; final execution
+and deadline checks remain authoritative.
+
+Queue snapshots no longer promote a younger chain
 merely because it was not visited. Nonce, fee, balance and escrow waits remain
 eligibility exceptions; independent eligible sources can proceed. Discarded
 simulations retain ownership without charging attempts. If a stale
@@ -393,8 +405,10 @@ pipeline refusal that caused it. `fifo_bypassed=true` may describe a discarded
 candidate, which must never reach proving/submission; its replacement is linked
 by `rebuild_of`. Successful candidates have `fifo_bypassed=false`. The summary's
 `capacity_deferrals` counts each individually rejected group by reason, even when
-other work fits later or a deadline ends discovery. Each rejected source retains
-its own outcome reason. New source records additionally
+older work fits in the later execution phase or a deadline ends discovery. Each
+examined rejected source retains its own outcome reason. Younger sources beyond
+the FIFO cutoff remain unexamined and have no simulated gas estimate;
+`not_examined_count` and `selection_filtered_count` expose that suffix. New source records additionally
 separate entry reserve, L1 call count and nested result count from target gas.
 
 The new fields are additive within the existing admission event family.
@@ -666,5 +680,8 @@ and optional detail fields; historical reasons remain valid. Upgrade the Compose
 to enforce this policy; older Composers retain relaxed admission. No storage
 migration is required. Restart loses pending in-memory queue state and its FIFO
 boundary under the existing recovery contract; clients may need to resubmit.
-Rollback restores the older scheduling behavior. The separate main-branch Reth
+FIFO constrains the proposed source set. L1 partial consumption can still omit
+inbound companions from that same proposal; canonical reconciliation retains
+and retries eligible omitted sources under the existing contract. Rollback
+restores the older scheduling behavior. The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.

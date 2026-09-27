@@ -2,7 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `aa515c8` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-input-8`. All 870 sources settled in 25 source-bearing postBatches (26 total with ordinary history), versus 24 previously; all 770 semantic jobs and 50 selected native cases passed. Packing did not improve in this comparison. Canonical receipts and live Grafana fields were checked. Local checks, exclusions, the unrelated tooling flake and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
+| Design status | Strict FIFO admission implemented at `52f8e15`, with 14 selected native cases and 284 Composer unit tests passing. Fresh paired performance validation is recorded in the [FIFO audit](../audits/2026-09-27-admission-strict-fifo/README.md). The earlier rollout evidence below is historical. |
+| Earlier rollout record | Implemented on `feat/cross-chain-admission-throughput`; local runtime `aa515c8` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-input-8`. All 870 sources settled in 25 source-bearing postBatches (26 total with ordinary history), versus 24 previously; all 770 semantic jobs and 50 selected native cases passed. Packing did not improve in this comparison. Canonical receipts and live Grafana fields were checked. Local checks, exclusions, the unrelated tooling flake and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
@@ -22,12 +23,22 @@ mandatory. A fitting mixed snapshot should still use one batch.
 
 Stop discovery beyond the first resource refusal. If canonical phase ordering
 has already accepted younger sources, discard that speculative candidate and
-recompose the queue prefix through the first omitted eligible source. Keep the
+recompose a queue prefix including the first omitted eligible source. Seed its
+width from the number of groups just simulated; cutting directly at the first
+omission needlessly produced tiny posts in the first FIFO iteration. Keep the
 same parent, target, deadline and source ownership; every rebuild must shorten
-the snapshot. Remember that source boundary for the next opportunity if the
+the snapshot. Remember the retry prefix's last source for the next opportunity if the
 deadline prevents rebuilding, so repeated outbound-first attempts cannot starve
 the inbound head. Replacements inherit the boundary by sender/direction/nonce.
 Canonical consumption, removal, or a classified source condition clears it.
+
+The first FIFO iteration's 500 ms Ethereum fixture used nine measured posts and
+15 repairs. Investigation found discarded blobs and elapsed work contaminating
+future per-group/finishing estimates. Reset those candidate observations on a
+rebuild, and train the next sample on the replacement alone. The original shared
+clock still charges all elapsed work; this must never extend the deadline. Keep
+both the first results and a deterministic accounting regression, then repeat
+native FIFO/deadline cases and paired throughput checks before completion.
 
 Fee, balance, nonce and escrow waits remain eligibility exceptions. Preserve
 whole groups, nonce dependencies, exact final execution and five-failure backoff.
