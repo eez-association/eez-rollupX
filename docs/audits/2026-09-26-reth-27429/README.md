@@ -1,9 +1,9 @@
 # Upstream Reth migration validation
 
-[PR #41](https://github.com/eduadiez/rollupX/pull/41) passed local validation and
-all twelve CI jobs at `ab5060afb29f7fe25dc2ae19413f281d5840520c`.
-The subsequent cleanup removes unused vendor files and condenses documentation;
-its own CI result is required before merge.
+[PR #41](https://github.com/eduadiez/rollupX/pull/41) passed local release-image
+and Kurtosis validation at `1888b7431eee2ae421d03e323cef72d34256758c`, consuming
+the published Stateless fork. Final-head CI remains required before merge;
+earlier CI successes and failures are recorded below.
 
 ## Scope and source identity
 
@@ -131,6 +131,44 @@ dependency switch remain pending. The full earlier Kurtosis results do not
 establish that the unpublished commit can be fetched in a fresh environment.
 The packet and logs are local-only at
 `artifacts/stateless-reth-27429/` in the operator checkout.
+
+Publication was subsequently verified by fetching `ffe41a3` into a fresh Git
+repository over public HTTPS, with global/system Git configuration disabled.
+The fork's [host CI passed](https://github.com/eez-association/stateless/actions/runs/36328488920).
+The dependency switch was applied as EEZ commit `1888b7431eee2ae421d03e323cef72d34256758c`.
+The preceding cleanup's [CI run](https://github.com/eduadiez/rollupX/actions/runs/36319986847)
+passed Kurtosis and seven native shards, but failed the multi-blob backlog test:
+the follower lost its L1 source during restart, then exited because the scan
+completion block was unavailable. The same test passed locally at `1888b74`
+(one selected case, 127.66s, source-built binaries and retained logs/datadirs).
+The catch-up error path was not changed, so this is diagnostic evidence, not
+a claimed fix for the earlier timing failure. Local publication-validation
+evidence is under `artifacts/stateless-published-validation/` in the PR checkout.
+
+Fresh node, signer and deploy release images built at `1888b74`. The genesis
+fixture check passed using the helper extracted from the node image. The normal
+`testing/kurtosis/run-ci.sh` then passed all four traffic modes, state chaining,
+and **32/32 eligible protocol scenarios** (four explicit exclusions). Independent
+causal and semantic blob verification and scenario accounting were complete;
+the proof-flow summary recorded 29 signed windows and 29 remote attestations.
+The standard runner handled startup without manual service intervention and
+removed its owned enclave, `eez-stateless-ffe41a3`, after success.
+
+The canonical L1 was official Reth v2.6.0 (`73a3a008`), pinned in the local args
+to image digest `sha256:8ce703acf113b2a20705b6e76adebed20f74ba8591bc7c9407203b2968aca70d`.
+The embedded EEZ node used `444e867`. Node/signer/deploy images carried the
+`1888b74` revision label and these local image IDs:
+
+| Image | SHA-256 |
+| --- | --- |
+| Node | `bd7d1c4720b45824951893167011c54871aac10ef386cbcd060a87f2549cfed6` |
+| Signer | `4c5d3b7c9014f78f1b34a8f41fad0a6be8f5a3f57e825dae4526245588efd8bd` |
+| Deploy | `d162aed83daafc2bfc4dfb937699ff55bbe0d8b28cf739d9220bc731a008799e` |
+
+The independent verifiers used the same source and locked dependencies, built
+in the host dev profile. `identity.json`, `kurtosis/result.json` and
+`kurtosis/protocol-e2e/summary.json` in the local evidence directory retain the
+environment, executable hashes and results. Bulk evidence is local-only.
 
 ## Retained failures and limits
 
