@@ -1,0 +1,4 @@
+reason,all_candidates,canonical_candidates,canonical_sources,accepted_min,accepted_max,preparation_ms_median,proof_prediction_ms_median,proof_ms_median,dispatch_remaining_ms_median,planning_utilization_mean,admission_gas,preflight_gas_required,canonical_receipt_gas,admission_receipt_ratio
+l1_bundle_gas_budget,18,13,462,16,54,381,216.062717,130.764023,808.297586,0.46067049589852394,93407972,62499228,58056340,1.608919404840195
+l1_tx_gas_budget,10,9,354,32,51,439,216.062717,113.479385,785,0.9962152141063539,141794894,118241402,118241402,1.1991983484769573
+snapshot_exhausted,1,1,54,54,54,362,199.428826,166.49949999999998,729.911244,0.372265384928309,5752136,3250933,3116533,1.845684290844987

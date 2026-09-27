@@ -1,0 +1,123 @@
+{
+  "fixture": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+  "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "writes": 180,
+  "operator_gas_cap": 5000000,
+  "preflight_gas_required": 4419636,
+  "signed_gas_limit_at_5_percent": 4640618,
+  "would_require_at_20_percent": 5303564,
+  "canonical_inclusion_recorded": true,
+  "failure": "Fixture waits for oversized-unit eviction although its complete postBatch now fits the configured cap.",
+  "events": [
+    {
+      "attempt_id": "2374058-1790531490752650718:1:2",
+      "chain_id": 1337,
+      "detail": {
+        "candidate_id": "2374058-1790531489004:1:3",
+        "deadline_ms": 1790531505900,
+        "preparation_started_ms": 1790531504003,
+        "proof_received_ms": 1790531504209,
+        "proof_requested_ms": 1790531504182
+      },
+      "dispatch_elapsed_ms": null,
+      "elapsed_ms": 0.006261,
+      "posting_id": "0x5a0a61333cde6bd7f00b986aaca5887be1939b7e949b3a1f5250ea581a352b69",
+      "registry": "0x8464135c8f25da09e49bc8782676a84730c318bc",
+      "rollup_id": 1,
+      "sequence": 0,
+      "stage": "prepared",
+      "sync_height": 66,
+      "target_block": 13,
+      "target_timestamp": 1790531506,
+      "timestamp_ms": 1790531504230,
+      "transaction_hash": "0x0135210b05fe6bfd6a22624ab029bd633ffd1704e68244484317fbe93b150420",
+      "trigger_reasons": [
+        "cross_chain"
+      ],
+      "version": 1
+    },
+    {
+      "attempt_id": "2374058-1790531490752650718:1:2",
+      "chain_id": 1337,
+      "detail": {
+        "candidate_id": "2374058-1790531489004:1:3",
+        "finalization_ms": 95.568094,
+        "preflight_gas_required": [
+          4419636
+        ],
+        "preflight_gas_used": [
+          4419636
+        ],
+        "preflight_ms": 74.604962,
+        "signed_gas_limits": [
+          4640618
+        ],
+        "signing_ms": 20.963131999999998
+      },
+      "dispatch_elapsed_ms": null,
+      "elapsed_ms": 74.682519,
+      "posting_id": "0x5a0a61333cde6bd7f00b986aaca5887be1939b7e949b3a1f5250ea581a352b69",
+      "registry": "0x8464135c8f25da09e49bc8782676a84730c318bc",
+      "rollup_id": 1,
+      "sequence": 1,
+      "stage": "repriced",
+      "sync_height": 66,
+      "target_block": 13,
+      "target_timestamp": 1790531506,
+      "timestamp_ms": 1790531504304,
+      "transaction_hash": "0xb1b9c92cb8ab7733ce88b5afbcd7af091b14f48c1f6c121a97c23baed06d49ea",
+      "trigger_reasons": [
+        "cross_chain"
+      ],
+      "version": 1
+    },
+    {
+      "attempt_id": "2374058-1790531490752650718:1:2",
+      "chain_id": 1337,
+      "detail": {
+        "target_block": 13,
+        "target_timestamp": 1790531506
+      },
+      "dispatch_elapsed_ms": 0.002692,
+      "elapsed_ms": 75.33652000000001,
+      "posting_id": "0x5a0a61333cde6bd7f00b986aaca5887be1939b7e949b3a1f5250ea581a352b69",
+      "registry": "0x8464135c8f25da09e49bc8782676a84730c318bc",
+      "rollup_id": 1,
+      "sequence": 2,
+      "stage": "dispatched",
+      "sync_height": 66,
+      "target_block": 13,
+      "target_timestamp": 1790531506,
+      "timestamp_ms": 1790531504305,
+      "transaction_hash": "0xb1b9c92cb8ab7733ce88b5afbcd7af091b14f48c1f6c121a97c23baed06d49ea",
+      "trigger_reasons": [
+        "cross_chain"
+      ],
+      "version": 1
+    },
+    {
+      "attempt_id": "2374058-1790531490752650718:1:2",
+      "chain_id": 1337,
+      "detail": {
+        "l1_block": 13,
+        "l1_block_hash": "0x7fdd946447a27e4ba9297ad9f6318f826c61120674a951ff22a2f4ca159ae28b"
+      },
+      "dispatch_elapsed_ms": 2033.1185440000002,
+      "elapsed_ms": 2108.451981,
+      "posting_id": "0x5a0a61333cde6bd7f00b986aaca5887be1939b7e949b3a1f5250ea581a352b69",
+      "registry": "0x8464135c8f25da09e49bc8782676a84730c318bc",
+      "rollup_id": 1,
+      "sequence": 3,
+      "stage": "included",
+      "sync_height": 66,
+      "target_block": 13,
+      "target_timestamp": 1790531506,
+      "timestamp_ms": 1790531506338,
+      "transaction_hash": "0xb1b9c92cb8ab7733ce88b5afbcd7af091b14f48c1f6c121a97c23baed06d49ea",
+      "trigger_reasons": [
+        "cross_chain"
+      ],
+      "version": 1
+    }
+  ]
+}

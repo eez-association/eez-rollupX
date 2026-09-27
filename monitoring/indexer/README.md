@@ -780,7 +780,9 @@ Estimator `candidate-framing-9` adds a per-candidate framing reserve, complete
 admission estimate, bounded calldata gas, active calldata-floor flag, general
 execution fallback flag and gas-margin percentage to the postBatch table.
 Source drilldowns show each group's framing contribution and accumulated framing/
-full estimates before and after admission. `admission_gas` remains the original
+full estimates before and after the gas gate. After-values are provisional until
+the source outcome confirms acceptance; later blob/timing checks can defer it.
+`admission_gas` remains the original
 incremental projection; compare `admission_including_framing_gas` with the full
 planning cap for versions 9 and later. Historical rows keep null values for the new fields.
 Queries read these additive details from retained events; no schema migration

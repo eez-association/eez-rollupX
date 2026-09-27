@@ -1,0 +1,397 @@
+{
+  "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "estimator_version": "candidate-framing-10",
+  "canonical": {
+    "checked_at": "2026-09-27T17:37:30.789452+00:00",
+    "run": "20260927-171022",
+    "source_count": 870,
+    "canonical_by_layer": {
+      "L1": 520,
+      "L2": 350
+    },
+    "moved_source_heights": 0,
+    "source_window_seconds": 146.88,
+    "sources_per_second": 5.923202614379085,
+    "postings_with_sources": 23,
+    "sources_per_post": [
+      37,
+      37,
+      51,
+      48,
+      32,
+      35,
+      38,
+      39,
+      37,
+      54,
+      51,
+      40,
+      18,
+      16,
+      18,
+      28,
+      38,
+      45,
+      39,
+      36,
+      30,
+      49,
+      54
+    ],
+    "first_l1_block": 23257249,
+    "last_l1_block": 23257274,
+    "skipped_slots_between_first_last": 2,
+    "produced_blocks_between_first_last": 26,
+    "post_batch_gas_total": 179414275,
+    "phases": [
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "build",
+        "start_ms": "1790529022799",
+        "end_ms": "1790529023004",
+        "duration_ms": "205",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "fund",
+        "start_ms": "1790529023005",
+        "end_ms": "1790529030570",
+        "duration_ms": "7565",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "nonce-barrier",
+        "start_ms": "1790529030571",
+        "end_ms": "1790529032225",
+        "duration_ms": "1654",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "plan-inputs",
+        "start_ms": "1790529032226",
+        "end_ms": "1790529033048",
+        "duration_ms": "822",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "plan",
+        "start_ms": "1790529033049",
+        "end_ms": "1790529072884",
+        "duration_ms": "39835",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-send",
+        "start_ms": "1790529072885",
+        "end_ms": "1790529350981",
+        "duration_ms": "278096",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-mine",
+        "start_ms": "1790529350982",
+        "end_ms": "1790529361938",
+        "duration_ms": "10956",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-liveness",
+        "start_ms": "1790529361939",
+        "end_ms": "1790529364611",
+        "duration_ms": "2672",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "finish",
+        "start_ms": "1790529369554",
+        "end_ms": "1790529369566",
+        "duration_ms": "12",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "send",
+        "start_ms": "1790529369597",
+        "end_ms": "1790529370860",
+        "duration_ms": "1263",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "monitor",
+        "start_ms": "1790529370861",
+        "end_ms": "1790529516478",
+        "duration_ms": "145617",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "verify",
+        "start_ms": "1790529516483",
+        "end_ms": "1790530558421",
+        "duration_ms": "1041938",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "total",
+        "start_ms": "1790529022791",
+        "end_ms": "1790530558424",
+        "duration_ms": "1535633",
+        "status": "pass"
+      }
+    ],
+    "bulk_send_to_canonical_settlement_ms": {
+      "p50": 70403.0,
+      "p95": 145403.0,
+      "max": 145403,
+      "send_duration_ms": 1263,
+      "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+    }
+  },
+  "framing": {
+    "postbatches": 23,
+    "sources": 870,
+    "every_final_projection_within_admission_bound": true,
+    "every_signed_limit_has_five_percent_margin": true,
+    "every_post_preflight_matches_receipt": true,
+    "no_fixed_admission_reserve": true,
+    "general_execution_posts": 0,
+    "cutoffs": {
+      "l1_tx_gas_budget": 9,
+      "l1_bundle_gas_budget": 13,
+      "snapshot_exhausted": 1
+    },
+    "framing_reserve_gas": {
+      "min": 120768,
+      "max": 229440,
+      "mean": 171439.30434782608
+    },
+    "observed_framing_gap_gas": {
+      "min": 61276,
+      "max": 117744,
+      "mean": 88066.95652173914
+    },
+    "bound_excess_gas": {
+      "min": 59492,
+      "max": 111696,
+      "mean": 83372.34782608696
+    },
+    "capacity_released_gas": {
+      "min": 370560,
+      "max": 479232,
+      "mean": 428560.6956521739
+    }
+  },
+  "minimum_checks": {
+    "candidates_with_summary": 29,
+    "cheap_refusals": 7397,
+    "cheap_refusals_by_reason": {
+      "l1_tx_gas_budget": 3711,
+      "l1_bundle_gas_budget": 3686
+    },
+    "full_simulations": 3339,
+    "full_gas_refusals": 2282,
+    "cheap_fraction_of_gas_refusals": 0.7642318421324517,
+    "cheap_rows_without_full_estimate": true,
+    "source_outcomes_and_candidate_counters_reconciled": true
+  },
+  "preparation": {
+    "canonical_candidates": 23,
+    "canonical_sources": 870,
+    "intervals": {
+      "accepted_checks_simulation_ms": {
+        "samples": 23,
+        "mean": 13.072148130434792,
+        "median": 11.501572000000007,
+        "max": 35.47856299999998,
+        "sum": 300.6594070000002
+      },
+      "accepted_lowering_hashing_append_ms": {
+        "samples": 23,
+        "mean": 124.9213433478261,
+        "median": 124.35806900000004,
+        "max": 202.01642700000002,
+        "sum": 2873.190897
+      },
+      "rejected_checks_simulation_ms": {
+        "samples": 23,
+        "mean": 23.634668086956573,
+        "median": 0.0,
+        "max": 189.90538100000083,
+        "sum": 543.5973660000012
+      },
+      "rejection_after_estimate_ms": {
+        "samples": 23,
+        "mean": 1.9415386086956226,
+        "median": 0.0,
+        "max": 12.547482999999374,
+        "sum": 44.65538799999932
+      },
+      "cheap_checks_outcome_ms": {
+        "samples": 23,
+        "mean": 7.2191213913043235,
+        "median": 4.651582999999988,
+        "max": 29.08236299999993,
+        "sum": 166.03979199999944
+      },
+      "other_admission_ms": {
+        "samples": 23,
+        "mean": 12.065895260869558,
+        "median": 11.079762000000272,
+        "max": 21.20040099999983,
+        "sum": 277.51559099999986
+      },
+      "final_build_encode_projection_ms": {
+        "samples": 23,
+        "mean": 15.520592260869565,
+        "median": 15.779682000000008,
+        "max": 19.665215999999987,
+        "sum": 356.973622
+      },
+      "blob_preparation_ms": {
+        "samples": 23,
+        "mean": 183.14510860869566,
+        "median": 167.815369,
+        "max": 329.322563,
+        "sum": 4212.337498
+      },
+      "witness_and_remaining_request_ms": {
+        "samples": 23,
+        "mean": 22.239045434782607,
+        "median": 22.990764000000013,
+        "max": 28.887734999999992,
+        "sum": 511.498045
+      },
+      "total_preparation_ms": {
+        "samples": 23,
+        "mean": 403.7594611304348,
+        "median": 392.253145,
+        "max": 607.698187,
+        "sum": 9286.467606
+      },
+      "prefix_hash_ms": {
+        "samples": 23,
+        "mean": 114.33960108695652,
+        "median": 111.234896,
+        "max": 188.022441,
+        "sum": 2629.810825
+      },
+      "witness_preparation_ms": {
+        "samples": 23,
+        "mean": 22.14039847826087,
+        "median": 22.876132,
+        "max": 28.778344,
+        "sum": 509.229165
+      }
+    },
+    "limits": [
+      "Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.",
+      "Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.",
+      "Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.",
+      "Canonical candidates only; failed/excluded attempts are outside this breakdown."
+    ]
+  },
+  "gas": {
+    "checked_at": "2026-09-27T17:19:58.729575+00:00",
+    "cohort_basis": "candidates that examined at least one of the 870 fresh wave sources",
+    "attempted_sources": 870,
+    "canonical_sources": 870,
+    "all_candidates": 29,
+    "canonical_candidates": 23,
+    "candidates_in_send_to_last_settlement_window": 29,
+    "window_candidates_without_wave_source_events": [],
+    "all_sequences_complete": true,
+    "source_attempt_rows": 10736,
+    "unique_wave_sources_with_estimates": 870,
+    "source_decisions_across_attempts": {
+      "Capacity deferred before simulation": 7397,
+      "Accepted": 1057,
+      "Gas deferred": 2282
+    },
+    "estimate_reasons_canonical_entries": {
+      "immediate_evidence_unavailable": 300,
+      "deferred_storage": 652,
+      "immediate_registered": 50,
+      "general_reserve_lower": 18
+    },
+    "batch_discount_revoked_canonical_sources": 0,
+    "cold_timing_probes": 0,
+    "gas": {
+      "admission_gas": 240955002,
+      "full_projection_gas": 242980542,
+      "preflight_gas_used": 179414275,
+      "preflight_gas_required": 183991563,
+      "signed_gas_limit": 193191151,
+      "canonical_receipt_gas": 179414275
+    },
+    "admission_receipt_ratio": 1.3430090888810269,
+    "admission_required_ratio": 1.309598103691309,
+    "preflight_receipt_max_abs_difference": 0,
+    "preflight_required_fits_signed_limits": true,
+    "nominal_preparation_overruns": 0
+  },
+  "bundle_budgets": {
+    "postbatches": 23,
+    "bundle_limited_postbatches": 13,
+    "parent_budget_min_gas": 17676668,
+    "parent_budget_max_gas": 18007470,
+    "all_actual_signed_start_envelopes_fit": true,
+    "all": {
+      "estimate_budget_fraction": 0.9593287507269012,
+      "actual_used_budget_fraction": 0.616411330743262,
+      "actual_start_budget_fraction": 0.6618856681991337
+    },
+    "bundle_limited": {
+      "estimate_budget_fraction": 0.9893220289621425,
+      "actual_used_budget_fraction": 0.539943278012697,
+      "actual_start_budget_fraction": 0.5869501833380021
+    }
+  },
+  "fixed_reserve_counterfactual": {
+    "posts": 23,
+    "same_parent_fixed_reserve_nonfit_posts": 20,
+    "transaction_nonfits": 9,
+    "bundle_nonfits": 11,
+    "limits": "Same admitted sources, pinned parent, configured margin and budgets; does not rerun scheduling or determine a counterfactual total post count."
+  },
+  "inbound_receipts": {
+    "inbound_sources": 520,
+    "all_preflight_gas_matches_canonical_receipts": true
+  },
+  "semantic_jobs": {
+    "jobs": 770,
+    "passed": 770,
+    "failed": 0,
+    "skipped": 0,
+    "each_job_verified_once": true,
+    "runner_exit_code": 0
+  },
+  "stability": {
+    "checked_at": "2026-09-27T17:37:33.437466+00:00",
+    "canonical_source_attributions_unchanged": 870,
+    "canonical_postings_unchanged": 23,
+    "external_canonical_receipts_match": 23
+  }
+}

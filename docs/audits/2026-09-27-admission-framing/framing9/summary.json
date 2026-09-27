@@ -1,0 +1,329 @@
+{
+  "source_revision": "57266aec768f8d604cf45a4eca0aedff500d33fb",
+  "estimator_version": "candidate-framing-9",
+  "canonical": {
+    "checked_at": "2026-09-27T16:56:01.200768+00:00",
+    "run": "20260927-163032",
+    "source_count": 870,
+    "canonical_by_layer": {
+      "L1": 520,
+      "L2": 350
+    },
+    "moved_source_heights": 0,
+    "source_window_seconds": 166.277,
+    "sources_per_second": 5.232232960662028,
+    "postings_with_sources": 23,
+    "sources_per_post": [
+      37,
+      37,
+      51,
+      48,
+      32,
+      35,
+      38,
+      39,
+      37,
+      53,
+      51,
+      39,
+      19,
+      18,
+      18,
+      28,
+      39,
+      44,
+      39,
+      35,
+      30,
+      49,
+      54
+    ],
+    "first_l1_block": 23256799,
+    "last_l1_block": 23256829,
+    "skipped_slots_between_first_last": 1,
+    "produced_blocks_between_first_last": 31,
+    "post_batch_gas_total": 178052062,
+    "phases": [
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "build",
+        "start_ms": "1790526632373",
+        "end_ms": "1790526632539",
+        "duration_ms": "166",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "fund",
+        "start_ms": "1790526632540",
+        "end_ms": "1790526635315",
+        "duration_ms": "2775",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "nonce-barrier",
+        "start_ms": "1790526635316",
+        "end_ms": "1790526636920",
+        "duration_ms": "1604",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "plan-inputs",
+        "start_ms": "1790526636921",
+        "end_ms": "1790526637751",
+        "duration_ms": "830",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "plan",
+        "start_ms": "1790526637751",
+        "end_ms": "1790526689794",
+        "duration_ms": "52043",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-send",
+        "start_ms": "1790526689795",
+        "end_ms": "1790526946920",
+        "duration_ms": "257125",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-mine",
+        "start_ms": "1790526946921",
+        "end_ms": "1790526957392",
+        "duration_ms": "10471",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "deploy-liveness",
+        "start_ms": "1790526957393",
+        "end_ms": "1790526960039",
+        "duration_ms": "2646",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "finish",
+        "start_ms": "1790526964963",
+        "end_ms": "1790526964971",
+        "duration_ms": "8",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "send",
+        "start_ms": "1790526965003",
+        "end_ms": "1790526966245",
+        "duration_ms": "1242",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "monitor",
+        "start_ms": "1790526966245",
+        "end_ms": "1790527131280",
+        "duration_ms": "165035",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "verify",
+        "start_ms": "1790527131285",
+        "end_ms": "1790528052968",
+        "duration_ms": "921683",
+        "status": "pass"
+      },
+      {
+        "attempt": "1",
+        "scope": "run",
+        "name": "total",
+        "start_ms": "1790526632362",
+        "end_ms": "1790528052971",
+        "duration_ms": "1420609",
+        "status": "pass"
+      }
+    ],
+    "bulk_send_to_canonical_settlement_ms": {
+      "p50": 69997.0,
+      "p95": 164997.0,
+      "max": 164997,
+      "send_duration_ms": 1242,
+      "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+    }
+  },
+  "framing": {
+    "postbatches": 23,
+    "sources": 870,
+    "every_final_projection_within_admission_bound": true,
+    "every_signed_limit_has_five_percent_margin": true,
+    "every_post_preflight_matches_receipt": true,
+    "no_fixed_admission_reserve": true,
+    "general_execution_posts": 0,
+    "cutoffs": {
+      "l1_tx_gas_budget": 7,
+      "pipeline_time": 1,
+      "eligible_sources_exhausted": 1,
+      "l1_bundle_gas_budget": 13,
+      "snapshot_exhausted": 1
+    },
+    "framing_reserve_gas": {
+      "min": 120768,
+      "max": 229440,
+      "mean": 171439.30434782608
+    },
+    "observed_framing_gap_gas": {
+      "min": 61180,
+      "max": 117804,
+      "mean": 88037.21739130435
+    },
+    "bound_excess_gas": {
+      "min": 59588,
+      "max": 111636,
+      "mean": 83402.08695652174
+    },
+    "capacity_released_gas": {
+      "min": 370560,
+      "max": 479232,
+      "mean": 428560.6956521739
+    }
+  },
+  "minimum_checks": {
+    "candidates_with_summary": 28,
+    "cheap_refusals": 3072,
+    "cheap_refusals_by_reason": {
+      "l1_tx_gas_budget": 1197,
+      "l1_bundle_gas_budget": 1875
+    },
+    "full_simulations": 5901,
+    "full_gas_refusals": 4808,
+    "cheap_fraction_of_gas_refusals": 0.3898477157360406,
+    "cheap_rows_without_full_estimate": true,
+    "source_outcomes_and_candidate_counters_reconciled": true
+  },
+  "preparation": {
+    "canonical_candidates": 23,
+    "canonical_sources": 870,
+    "intervals": {
+      "accepted_checks_simulation_ms": {
+        "samples": 23,
+        "mean": 13.405446608695643,
+        "median": 11.203894000000012,
+        "max": 29.383861000000017,
+        "sum": 308.3252719999998
+      },
+      "accepted_lowering_hashing_append_ms": {
+        "samples": 23,
+        "mean": 131.70973439130432,
+        "median": 131.389862,
+        "max": 192.023704,
+        "sum": 3029.3238909999995
+      },
+      "rejected_checks_simulation_ms": {
+        "samples": 23,
+        "mean": 45.08650808695655,
+        "median": 30.246108999999848,
+        "max": 197.02235300000063,
+        "sum": 1036.9896860000006
+      },
+      "rejection_after_estimate_ms": {
+        "samples": 23,
+        "mean": 3.7984820869565947,
+        "median": 2.859358999999955,
+        "max": 12.726470000000177,
+        "sum": 87.36508800000168
+      },
+      "cheap_checks_outcome_ms": {
+        "samples": 23,
+        "mean": 3.5260156956522106,
+        "median": 1.7578040000000925,
+        "max": 11.882109999999955,
+        "sum": 81.09836100000084
+      },
+      "other_admission_ms": {
+        "samples": 23,
+        "mean": 13.264082565217281,
+        "median": 11.82017799999997,
+        "max": 25.063659999999288,
+        "sum": 305.0738989999974
+      },
+      "final_build_encode_projection_ms": {
+        "samples": 23,
+        "mean": 15.647461521739128,
+        "median": 15.196476000000018,
+        "max": 33.74203,
+        "sum": 359.89161499999994
+      },
+      "blob_preparation_ms": {
+        "samples": 23,
+        "mean": 187.00742273913045,
+        "median": 170.981899,
+        "max": 339.057472,
+        "sum": 4301.170723
+      },
+      "witness_and_remaining_request_ms": {
+        "samples": 23,
+        "mean": 20.968913739130418,
+        "median": 21.038444000000027,
+        "max": 27.30334099999999,
+        "sum": 482.28501599999964
+      },
+      "total_preparation_ms": {
+        "samples": 23,
+        "mean": 434.4140674347826,
+        "median": 428.745373,
+        "max": 667.64985,
+        "sum": 9991.523551
+      },
+      "prefix_hash_ms": {
+        "samples": 23,
+        "mean": 120.58549491304348,
+        "median": 119.588018,
+        "max": 177.681306,
+        "sum": 2773.466383
+      },
+      "witness_preparation_ms": {
+        "samples": 23,
+        "mean": 20.860461869565217,
+        "median": 20.937524999999997,
+        "max": 27.225107,
+        "sum": 479.790623
+      }
+    },
+    "limits": [
+      "Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.",
+      "Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.",
+      "Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.",
+      "Canonical candidates only; failed/excluded attempts are outside this breakdown."
+    ]
+  },
+  "semantic_jobs": {
+    "passed": 770,
+    "failed": 0,
+    "skipped": 0
+  },
+  "stability": {
+    "checked_at": "2026-09-27T16:56:04.161473+00:00",
+    "canonical_source_attributions_unchanged": 870,
+    "canonical_postings_unchanged": 23,
+    "external_canonical_receipts_match": 23
+  }
+}

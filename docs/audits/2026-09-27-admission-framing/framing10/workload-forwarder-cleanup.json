@@ -1,0 +1,15 @@
+{
+  "checked_at": "2026-09-27T17:38:02.076077+00:00",
+  "owned_pid": 1816492,
+  "process_exited": true,
+  "task_port_closed": true,
+  "counts": {
+    "local_requests": 56101,
+    "forwarded_raw_transactions": 1397,
+    "upstream_rate_limits": 0,
+    "errors": 2503,
+    "error_types": {
+      "BrokenPipeError": 2503
+    }
+  }
+}

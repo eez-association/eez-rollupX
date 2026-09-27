@@ -118,12 +118,15 @@ async fn outbound(world: &CrossChainWorld, key: &str, proxy: Address) -> B256 {
 }
 
 async fn assert_gas_first(profile: NativeL1Profile) {
+    // Cold SSTORE execution alone costs 5,304,000 gas, above the operator cap
+    // regardless of the configured margin or admission framing allowance.
+    const OVERSIZED_WRITES: u16 = 240;
     let world = setup_cross_chain_with_profile(profile, &env())
         .await
         .unwrap();
     let (target_a, proxy_a) = expensive_target(&world, 100).await;
     let (target_b, proxy_b) = expensive_target(&world, 100).await;
-    let (oversized, oversized_proxy) = expensive_target(&world, 180).await;
+    let (oversized, oversized_proxy) = expensive_target(&world, OVERSIZED_WRITES).await;
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let follower = NodeHandle::start(
@@ -252,7 +255,9 @@ async fn assert_gas_first(profile: NativeL1Profile) {
             .is_none()
     );
     assert_eq!(
-        l1.get_storage_at(oversized, U256::from(179)).await.unwrap(),
+        l1.get_storage_at(oversized, U256::from(OVERSIZED_WRITES - 1))
+            .await
+            .unwrap(),
         U256::ZERO
     );
     assert!(

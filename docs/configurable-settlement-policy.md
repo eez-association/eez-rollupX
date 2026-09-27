@@ -278,7 +278,9 @@ New summary fields separate `framing_reserve_gas`, `full_estimate_gas`,
 `calldata_bound_gas`, floor activation, general execution pricing and configured
 margin. `planning_cap` now bounds the full estimate, rather than subtracting a
 fixed reserve in advance. Source events expose framing and full totals before
-and after acceptance; rejected groups leave the accumulated ledger unchanged.
+and after the gas gate. The after-values are provisional: a later blob or timing
+gate can still defer the source. Use its source outcome to establish acceptance;
+rejected groups leave the accumulated ledger unchanged.
 Cheap-check events add `minimum_mutable_entry_gas` and
 `minimum_static_general_fallback`; `minimum_entry_gas` retains the zero inbound
 minimum for compatibility. Historical estimator versions keep their old meanings. Existing collectors can

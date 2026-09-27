@@ -1,0 +1,52 @@
+{
+  "runtime_source": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "checks": [
+    {
+      "command": "cargo +1.94.0 test --locked -p eez-composer --lib",
+      "passed": 278,
+      "failed": 0,
+      "ignored": 1,
+      "note": "Existing manual performance test excluded."
+    },
+    {
+      "command": "cargo +1.94.0 test --locked -p eez-l1 --lib",
+      "passed": 144,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "status": "passed"
+    },
+    {
+      "command": "cargo +1.94.0 fmt --all --check",
+      "status": "passed"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v",
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "python3 scripts/check-settlement-policy-config.py",
+      "profiles": [
+        "chiado",
+        "kurtosis"
+      ],
+      "status": "passed"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_kurtosis_ci.py' -v",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 1,
+      "note": "Opt-in isolated real relay-resource probe excluded; unrelated to margin transport."
+    }
+  ],
+  "limits": [
+    "L1/configuration checks cover unchanged files from the implementation checkpoint; Composer checks were repeated for the final estimator.",
+    "Configuration tests validate parsing/propagation; native signing and live receipts provide execution evidence."
+  ],
+  "clippy_and_format_repeated_after_fixture_correction": true
+}

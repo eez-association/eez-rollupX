@@ -749,3 +749,8 @@ does not introduce full-projection failures or loss of complete groups. A live
 comparison must show whether extra admission capacity reduces source posts;
 released gas alone is not a throughput result. The broader companion scan
 reserves remain a larger measured source of unused block capacity.
+
+Implemented as `candidate-framing-10`, deployed from `e556e12`, with the 500-basis-point
+default and preserved explicit overrides. See the [framing/default validation](../audits/2026-09-27-admission-framing/README.md)
+for the verified live comparison, retained intermediate failures, native fixture
+correction, gas/cutoff tables and validation limits.

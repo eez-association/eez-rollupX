@@ -1,0 +1,294 @@
+{
+  "runtime_source": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "final_test_fixture_patch_sha256": "de2eee9392c19a9afd252f8ba053486c0dfec9b2100e92ad0ac390d27fbaa6c3",
+  "selected_cases_passed": 42,
+  "failed_current_cases": 0,
+  "ignored_selected_cases": 0,
+  "first_broad_run": {
+    "passed": 31,
+    "failed": 2,
+    "exit_code": 101
+  },
+  "corrected_fixture_run": {
+    "passed": 2,
+    "failed": 0
+  },
+  "cases": [
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_admission_recovers_an_orphaned_ordinary_l2_predecessor",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_admission_reorg_keeps_outbound_sources_out_of_ordinary_sequencing",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_preserves_capacity_after_one_exclusion",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_automatic_mixed_wave_exceeds_twelve_and_replays",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "partial_consumption",
+      "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "ethereum_fee_waits_do_not_consume_the_first_outbound_selection",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_fee_waits_do_not_consume_the_first_outbound_selection",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "prover_resource_and_transport_failures_preserve_the_whole_due_range",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "test": "ethereum_receipts_use_bounded_fee_history_priority",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "test": "gnosis_receipts_use_bounded_fee_history_priority",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "status": "ok",
+      "evidence": "fixture-native-results.json",
+      "fixture_corrected": true
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "status": "ok",
+      "evidence": "focused-native-results.json"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "status": "ok",
+      "evidence": "fixture-native-results.json",
+      "fixture_corrected": true
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces",
+      "status": "ok",
+      "evidence": "broad-native-first-results.json"
+    }
+  ],
+  "excluded_settlement_policy_tests": [
+    "always_skips_idle_syncs_then_settles_included_activity_and_replays",
+    "blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+    "ethereum_ordinary_burst_is_budgeted_across_sync_intervals",
+    "fee_ceiling_blocks_posting_without_losing_activity_or_splitting",
+    "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+    "fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+    "general_block_rule_consolidates_empty_history_before_the_pure_interval",
+    "gnosis_ordinary_burst_is_budgeted_across_sync_intervals",
+    "interval_posts_accumulated_activity_using_the_registration_l1_timestamp",
+    "interval_preserves_execution_but_waits_below_all_thresholds",
+    "late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target",
+    "lowering_blob_cap_rejects_retained_unsplittable_history_without_losing_it",
+    "more_than_three_hundred_blocks_settle_in_one_native_batch",
+    "native_gnosis_always_settles_with_native_blob_fees_and_independent_replay",
+    "ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+    "ordinary_rpc_rejects_unpostable_data_without_consuming_nonce",
+    "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+    "restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+    "retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays",
+    "retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty"
+  ]
+}

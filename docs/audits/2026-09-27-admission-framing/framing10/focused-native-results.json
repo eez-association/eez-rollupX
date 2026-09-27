@@ -1,0 +1,103 @@
+{
+  "started_at": "2026-09-27T16:54:29.713121+00:00",
+  "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "files": {
+    "crates/eez-composer/src/composer.rs": "3e487d16b8e378d33b84544f527f782717eb1f4ad80d6524339049684f8cf43e",
+    "crates/eez-composer/src/composer/admission.rs": "f67667f05ae5e127d3f0b19b9497241764855a2ea87f0eb7cb979240dc568b4b",
+    "crates/eez-composer/src/composer/gas.rs": "ff1cf7b21073064bbc985c19ca9a3e9a451486c47aecf8d4fd7d0b3c62dd925f",
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": "5726eb95a9c99d9ebad4a299b3c2434f4024edcdc16253543d504ec190cb277a",
+    "scripts/builder-stub.py": "79718ddad08ab5d2e8e200eecd281cc72c1f535aab0af52ad177f27259635fcd",
+    "crates/eez-composer/src/composer/gas/framing.rs": "a95ca6b2ed1b00f2f25baf730be0c8ef68245af3414f17c52758110d3c0151c5",
+    "crates/eez-l1/src/posting_fees.rs": "29f18f213e2b38178ba26ff134627638f5c617bd1b66a28778938a5ba4d7cffc",
+    "crates/eez-node-e2e/tests/settlement_policy_cost.rs": "649aa37ea3cc45e8d3fe2612aa02a6abd71c32005d384099b31dcce35d89e780"
+  },
+  "status": "finished",
+  "contracts": {
+    "exit_code": 0,
+    "command": [
+      "forge",
+      "build",
+      "--root",
+      "contracts"
+    ]
+  },
+  "focused-native": {
+    "exit_code": 0,
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "dynamic_admission",
+      "--test",
+      "settlement_policy_gas",
+      "--test",
+      "settlement_policy_cost",
+      "--test",
+      "partial_consumption",
+      "--",
+      "--test-threads=1",
+      "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+      "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+      "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "ethereum_receipts_use_bounded_fee_history_priority",
+      "gnosis_receipts_use_bounded_fee_history_priority",
+      "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+    ]
+  },
+  "finished_at": "2026-09-27T17:07:03.186935+00:00",
+  "suites": [
+    {
+      "suite": "dynamic_admission",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+        "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+        "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+        "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+        "gnosis_actual_companion_gas_reduces_whole_groups_before_proving"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "ethereum_receipts_use_bounded_fee_history_priority",
+        "gnosis_receipts_use_bounded_fee_history_priority"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "partial_consumption",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ],
+      "excluded": []
+    }
+  ],
+  "log_sha256": "1b7823c199248180a3dd233b1ec8a6253d3dcd7c531a65b8465ed3f02d781f11"
+}
