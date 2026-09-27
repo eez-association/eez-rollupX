@@ -1,3 +1,2 @@
 testing/kurtosis/blobscan/*.patch -whitespace
 deploy/explorers/*.patch -whitespace
-docs/audits/2026-09-26-reth-27429/protocol-safe-receipt.patch -whitespace

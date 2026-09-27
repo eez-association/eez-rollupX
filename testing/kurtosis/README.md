@@ -683,11 +683,6 @@ passing evidence in each run. Failed or missing scenario results also print a
 bounded, prefixed log tail to the job console so artifact quota failures do not
 hide the scenario error.
 
-For up to four failed scenarios, the console also records a later RPC receipt
-for the first trigger (one request with a three-second timeout). Compare its
-block number/hash with the original scenario log when diagnosing reorg timing.
-This diagnostic never changes the failed verdict or reruns verification.
-
 Parallel scenarios can share settlement and delivery blocks. The collector
 therefore selects table transactions by runtime entry hashes recomputed from
 canonical L2 calldata, not the upstream summary's first load/all-calls hints.

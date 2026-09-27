@@ -371,13 +371,8 @@ was never persisted has no such recovery source. Clients must reconcile receipts
 and nonces before resubmitting unsettled transactions. The policy does not make
 in-memory request ownership or retry counters durable.
 
-The initial Reth v2.6 port exposed a crash-replay failure from an intermediate
-persisted L2 prefix; its [original record](audits/2026-09-26-reth-v2.6-pr/README.md#crash-recovery-failure)
-is retained. The subsequent upstream #27429 candidate passes controlled recovery
-with masked persisted state in shipping and host builds. Those comparisons also
-pass on v2.6.0, so they do not attribute the original failure to that upstream fix.
-See the [candidate validation record](audits/2026-09-26-reth-27429/README.md#crash-comparison)
-for exact frontiers, executable identities and remaining acceptance limits.
+See the [migration validation record](audits/2026-09-26-reth-27429/README.md#retained-failures-and-limits)
+for tested crash/restart behavior, retained failures and recovery limits.
 
 Reth persistence settings are local storage choices, not consensus parameters.
 The v2.6 port retains upstream production L2 defaults. The short persistence

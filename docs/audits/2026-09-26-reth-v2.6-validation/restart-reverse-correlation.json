@@ -1,8 +1,0 @@
-{
-  "verified": true,
-  "reverse_correlation_records": 3,
-  "unique_l1_postings": 1,
-  "safe_l2_block": 1116,
-  "safe_l2_block_hash": "0x1b828522bb7ae1b45948240e06c2daefa3671e310e2788e9c271560c11a0fac3",
-  "l1_registry_commitment": "0x1b828522bb7ae1b45948240e06c2daefa3671e310e2788e9c271560c11a0fac3"
-}

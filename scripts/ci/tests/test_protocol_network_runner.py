@@ -472,39 +472,6 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.assertFalse(self.summary()["evidence_complete"])
         self.assertTrue(self.summary()["accounting"]["valid"])
 
-    def test_failed_l2_scenario_reports_later_receipt_without_overriding_failure(self):
-        self.add_scenarios("rollback")
-        scenario = self.protocol / "script/e2e/fixtures/L1_to_L2/rollback/E2EFixture.s.sol"
-        scenario.write_text("contract ExecuteNetworkL2 {}\n")
-        worker = Path(self.env["WORKER"])
-        worker.write_text(WORKER.replace('record("start")', '''record("start")
-print("tx: 0x" + "11" * 32, flush=True)
-print("block: 0x1 (status: 0x1)", flush=True)
-'''))
-        wrapper = self.set_up_outer_wrapper()
-        self.env["FAIL"] = "rollback"
-        self.tool("curl", '''#!/usr/bin/env python3
-import json, sys
-assert sys.argv[-1] == "l2"
-assert sys.argv[sys.argv.index("--max-time") + 1] == "3"
-request = json.loads(sys.argv[sys.argv.index("--data") + 1])
-assert request["method"] == "eth_getTransactionReceipt"
-assert request["params"] == ["0x" + "11" * 32]
-print(json.dumps({"result": {"transactionHash": request["params"][0],
-    "blockNumber": "0x2", "blockHash": "0x" + "22" * 32,
-    "transactionIndex": "0x1", "status": "0x1", "logs": "bulk receipt data"}}))
-''')
-        result = self.run_outer(wrapper)
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('[rollback] post-failure receipt', result.stdout)
-        self.assertIn('"blockNumber":"0x2"', result.stdout)
-        self.assertNotIn("bulk receipt data", result.stdout)
-        summary = self.summary()
-        self.assertEqual(summary["failed"], ["rollback"])
-        self.assertEqual(summary["passed"], [])
-        self.assertFalse(summary["evidence_complete"])
-        self.assertTrue(summary["accounting"]["valid"])
-
     def test_pass_marker_without_causal_or_blob_claims_is_rejected(self):
         self.add_scenarios("one")
         wrapper = self.set_up_outer_wrapper()

@@ -1,51 +1,39 @@
-# Upstream Reth dependency ports
+# Reth dependency ports
 
-These local sources make the validation checkout reproducible without publishing
-unreviewed dependency forks. Reth itself is unmodified upstream commit
-`444e867155c2a7a4c028e479ca7201b0b6871579`, the merge of
-[#27429](https://github.com/paradigmxyz/reth/pull/27429). This is a post-v2.6.0
-source pin, not a released version; upstream still reports package version 2.5.2.
+Reth itself is unmodified upstream commit
+`444e867155c2a7a4c028e479ca7201b0b6871579`, containing
+[#27429](https://github.com/paradigmxyz/reth/pull/27429). Its package version is
+still 2.5.2; the commit identifies the tested post-v2.6.0 source.
 
-| Directory | Upstream source | Base revision |
-| --- | --- | --- |
-| stateless | https://github.com/eez-association/stateless | 4fc3806bdd0e6b296c761ef4d4b260938365cf45 |
-| reth-gnosis | https://github.com/gnosischain/reth_gnosis | 3482cbe6ed962830d71b154773c9209267edf1dd |
-| gnosis-primitives | https://github.com/gnosischain/rust-primitives | 6fd87e36685bc2b5b11136c5d591aa195095595f (v0.2.8) |
+| Directory | Upstream | Base revision | Local changes |
+| --- | --- | --- | --- |
+| stateless | [eez-association/stateless](https://github.com/eez-association/stateless) | `4fc3806bdd0e6b296c761ef4d4b260938365cf45` | Dependency/API alignment; batch trie updates and storage resets; retain transaction checkpoints |
+| reth-gnosis | [gnosischain/reth_gnosis](https://github.com/gnosischain/reth_gnosis) | `3482cbe6ed962830d71b154773c9209267edf1dd` | Dependency/API alignment; retain interpreter features for the custom Gnosis EVM |
+| gnosis-primitives | [gnosischain/rust-primitives](https://github.com/gnosischain/rust-primitives) | `6fd87e36685bc2b5b11136c5d591aa195095595f` | Match Reth/REVM/Alloy types |
 
-Original licenses are retained. Initial changes align manifests with official
-Reth v2.6.0. The #27429 candidate aligns the ports with Reth core crates 0.8.1,
-REVM 43.0.3 and Alloy 2.5.0. The upgrade proposal tracks validation acceptance; these sources do not claim
-upstream release support for the combined EEZ dependency graph.
+Cargo builds these local sources. The [Stateless](patches/stateless.patch),
+[Reth-Gnosis](patches/reth-gnosis.patch) and
+[Gnosis primitives](patches/gnosis-primitives.patch) patches show retained
+source/manifest differences from their bases; lockfiles and packaging/docs are
+excluded. Check them from the repository root:
 
-The `stateless/crates/tries` manifest and default/lib/zeth modules incorporate
-upstream Stateless `923f1b759c916b2b5e42c26fa3a55a8d0b820bc3` to use Reth's batch leaf updates and explicit storage-reset API, including its reset tests.
+```bash
+git apply --reverse --check vendor/patches/*.patch
+```
 
-The Stateless validator retains the fork's transaction checkpoints and applies
-storage resets before both checkpoint and final roots. Its regression compares
-both paths against an independently constructed trie with blinded old storage.
-Reth-Gnosis adapts the download command's return value and selects the existing
-interpreter features explicitly; the default Reth binary now also selects JIT,
-which is not used by EEZ's custom Gnosis EVM. Gnosis payload execution uses the upstream EVM state-reader adapter, retaining
-the full provider for roots and proofs. Gnosis primitives follows the
-matching REVM/Alloy type versions. None of these ports modifies Reth source.
+Runtime sources, manifests, tests and supplied licenses are retained. Upstream
+GitHub workflows, Gnosis deployment/vector-generation scripts and image build
+files, benchmark reports, and the two Gnosis lockfiles are omitted. EEZ uses the
+root `Cargo.lock`; Stateless keeps its own lockfile for standalone regressions.
+Upstream operational instructions remain available at the revisions above.
 
-## Reviewing and maintaining the ports
+The Stateless trie port incorporates `923f1b759c916b2b5e42c26fa3a55a8d0b820bc3`
+from upstream Stateless. Storage resets must precede checkpoint and final roots;
+regressions retain blinded-storage and independent full-state-root oracles.
+Gnosis wraps upstream EVM state reads while retaining full providers for roots
+and proofs. None of these adapters changes Reth source or chain rules.
 
-The [Stateless](patches/stateless.patch), [Reth-Gnosis](patches/reth-gnosis.patch),
-and [Gnosis primitives](patches/gnosis-primitives.patch) patches show the exact
-source/manifest differences from the revisions above. They exclude generated
-Cargo lockfiles; the root lockfile selects EEZ's shipping graph and Stateless's
-lockfile supports its standalone regression tests. Gnosis also has whitespace
-normalization in imported scripts/workflows. No upstream tracked file was omitted.
-These patches are review artifacts; Cargo builds the adjacent source directories.
-From the repository root, `git apply --reverse --check vendor/patches/*.patch`
-checks that they still describe those sources. Regenerate them against the
-recorded bases whenever a port changes.
-
-EEZ owns maintenance of these local modifications. Prefer upstreaming the
-dependency/API compatibility work and replacing the Gnosis ports with an exact
-compatible upstream revision after validation. Stateless must retain the signer's
-transaction checkpoints and destroyed-storage handling until an upstream API or
-a separately reviewed adapter provides equivalent validation. A newer dependency
-version alone does not establish that equivalence. Preserve the checkpoint and
-storage-reset regressions when changing either base.
+EEZ maintains these ports until exact compatible upstream revisions can replace
+them. Preserve transaction checkpoints, destroyed-storage handling and their
+regressions when updating. Version compatibility alone does not establish
+validation equivalence. See the [migration audit](../docs/audits/2026-09-26-reth-27429/README.md).
