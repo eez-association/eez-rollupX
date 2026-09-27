@@ -577,6 +577,44 @@ Deployment, wallet operations and live workloads are separate execution steps.
 
 ## 9. Additional opportunities after the first measurements
 
+### September 27 preparation follow-up (accepted for implementation)
+
+The user requested preparation profiling and a shorter devnet iteration loop:
+focused correctness checks first, then the authorized local-image Chiado trial,
+then broader applicable regressions before completion. The current baseline is
+`2b9ca04` (runtime `7fdb3fc`, protocol `9d13218`), with the verified 870-source
+wave recorded in the September 27 admission-refinement audit.
+
+The 26 canonical candidates average 453 ms to proof request. Event intervals
+attribute 199 ms to accepted-source lowering, prefix hashes and canonical append,
+and 195 ms to KZG/witness preparation. Retained preparation logs identify 172 ms
+of the latter as blob sidecar construction. These are wall-clock intervals;
+prefix execution is not yet separately timed. The code rebuilds each growing
+effect prefix from its parent, repeating previous transaction execution.
+
+Implement a candidate-local checkpoint for canonical prefix hashing. Reuse only
+an identical transaction prefix under one immutable parent and block environment.
+Preserve pre-execution changes, receipts, cumulative gas and the complete REVM
+state; finalize a separate copy through Reth's canonical block builder so
+post-block changes never enter the next transaction's pre-state. Divergent or
+shortened prefixes discard the checkpoint; any failed construction invalidates
+it. Keep canonical append, the final independent block rebuild, witness replay,
+signer checkpoint recomputation and signed-bundle validation intact. This cache
+does not establish source acceptance or queue ownership.
+
+Expose prefix-hashing and blob/witness timing separately in retained admission
+details. Compare every checkpoint hash against the uncached builder across
+supported forks, reverts, logs, state changes, prefix replacement and errors.
+Measure execution counts and elapsed time on identical workloads before claiming
+an improvement. Run relevant process coverage before the devnet trial; complete
+the remaining admission/settlement and affected replay tests afterward. No wire,
+protocol pin, configuration or historical decoding change is intended.
+
+Further KZG optimization requires measurement; merely moving it to another
+thread does not remove its work. Reusing speculative results across changed
+prefixes, skipping verification, or treating receipt gas as a consensus budget
+is outside this change.
+
 - Profile repeated prefix replay, witness reconstruction, duplicate encoding and
   the final two simulation passes. Reuse only immutable results tied to exact
   parent/target/batch identity; invalidate on changed input, fees where relevant,

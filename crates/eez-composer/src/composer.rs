@@ -45,8 +45,9 @@ use tracing::{Level, event};
 use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
-    BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
-    build_sync_block, sync_block_hashes_at_positions,
+    BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
+    build::{SyncBlockState, SyncPrefixHashes},
+    build_sync_block,
 };
 use crate::optimistic::AttemptId;
 use crate::optimistic::OptimisticallyIncluded;
@@ -2514,23 +2515,26 @@ where
                 txs,
             )
         };
-        // Compute each effect's canonical prefix hash once, while admission is
-        // measuring elapsed work. Replaying all prefixes after the drain hid a
-        // quadratic cost in its final-tail estimate. Full blocks, witnesses and
-        // proofs still use the canonical builder below.
-        let hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
+        // Candidate-local execution checkpoints avoid rerunning every earlier
+        // transaction at each effect boundary. A changed prospective prefix
+        // invalidates reuse; final block and proof replay stay independent.
+        let mut prefix_hashes = SyncPrefixHashes::new(
+            rollup.l2_provider.as_ref(),
+            &self.inner.evm_config,
+            parent_header,
+            timestamp,
+            suggested_fee_recipient,
+        );
+        let mut prefix_hash_elapsed = std::time::Duration::ZERO;
+        let mut hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
+            let started = std::time::Instant::now();
             let txs: Vec<_> = prefix.iter().chain(group).cloned().collect();
             let positions: Vec<_> = positions.iter().map(|p| prefix.len() + p).collect();
-            sync_block_hashes_at_positions(
-                rollup.l2_provider.as_ref(),
-                &self.inner.evm_config,
-                parent_header,
-                timestamp,
-                suggested_fee_recipient,
-                &txs,
-                &positions,
-            )
-            .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>())
+            let result = prefix_hashes
+                .at_positions(&txs, &positions)
+                .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>());
+            prefix_hash_elapsed += started.elapsed();
+            result
         };
         let composition_quote = self
             .inner
@@ -4038,6 +4042,9 @@ where
                 .is_some_and(|last| capacity.groups.iter().any(|(index, _)| *index < last));
         deferred.extend(capacity.groups);
         admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
+        let prefix_hash_executed_tx_count = prefix_hashes.executed_transactions;
+        drop(prefix_hashes);
+        candidate.duration("prefix_hashing", prefix_hash_elapsed);
         candidate.emit(
             "summary",
             serde_json::json!({
@@ -4049,6 +4056,8 @@ where
                 "capacity_deferrals":capacity.reasons,
                 "minimum_check_count":capacity.minimum_check_count,
                 "simulation_count":simulation_count,
+                "prefix_hash_ms":prefix_hash_elapsed.as_secs_f64()*1000.0,
+                "prefix_hash_executed_tx_count":prefix_hash_executed_tx_count,
                 "fifo_bypassed":fifo_bypassed,
                 "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
@@ -6338,8 +6347,9 @@ where
             maximum_blobs,
         )
         .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?;
+        let blob_preparation_elapsed = blob_preparation_started.elapsed();
         if let Some(attempt) = admission {
-            attempt.blobs_prepared(blob_count, blob_preparation_started.elapsed());
+            attempt.blobs_prepared(blob_count, blob_preparation_elapsed);
         }
 
         // Prove the assembled window (proofs[] empty — not part of the
@@ -6352,6 +6362,7 @@ where
         // The encoded payload and compact ancestry identities are sufficient;
         // release the full-block vector before materializing witness inputs.
         drop(block_rlps);
+        let witness_started = std::time::Instant::now();
         let (block_witnesses, observed_outcomes) = match self.inner.witness_source.as_ref() {
             // Remote-prover mode. Intermediate blocks `[from..sync)` are committed
             // (served by the witness store); a freshly-built endpoint isn't, so
@@ -6453,6 +6464,7 @@ where
                 (Vec::new(), outcomes)
             }
         };
+        let witness_elapsed = witness_started.elapsed();
         if let Some(mismatch) =
             first_observation_mismatch(&observation_schedule, &observed_outcomes)?
         {
@@ -6537,6 +6549,8 @@ where
                 "proof_estimate_basis":prediction.as_ref().map(|p|p.basis),
                 "nominal_preparation_ms":self.inner.emission.timing.preparation_time().as_millis(),
                 "preparation_ms":proof_gate_ms.saturating_sub(preparation_started_ms),
+                "blob_preparation_ms":blob_preparation_elapsed.as_secs_f64()*1000.0,
+                "witness_preparation_ms":witness_elapsed.as_secs_f64()*1000.0,
                 "groups":workload.groups,"blobs":workload.blobs,"witnesses":workload.witnesses}),
             );
             candidate.duration(

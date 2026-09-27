@@ -634,6 +634,11 @@ headroom are distinct observations. The timing table also shows the proof
 prediction, its configured/covering/scaled basis and finalization reserve next
 to measured durations. Historical predictions remain null. A relay
 acknowledgement is not settlement.
+The timing table also exposes prefix hashing, its executed transaction count,
+blob sidecar preparation and witness preparation. These are subintervals of
+preparation. Witness time includes blocking-worker scheduling. Older events
+leave these columns null; the dashboard reads optional details from existing
+event kinds, so this timing addition needs no collector or schema migration.
 Sequence gaps are explicit; `finished` records the expected final sequence.
 Missing historical estimates and candidates that never reached simulation remain
 null. Check collector status and its last successful check before interpreting

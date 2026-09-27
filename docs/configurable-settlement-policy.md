@@ -69,6 +69,23 @@ blob; these are planning estimates, not consensus limits. See the
 [validation record](audits/2026-09-26-admission-throughput/README.md) for measured
 profiles and remaining limits.
 
+Canonical effect-prefix hashing retains one candidate-local execution
+checkpoint. Reuse requires the same raw transaction prefix, parent and block
+environment. A changed or shorter prefix discards it; any construction error
+invalidates it. The checkpoint contains pre-finalization state, receipts and
+gas accounting. Each prefix is finalized separately through Reth, preventing
+post-block changes from reaching the next transaction's pre-state. Canonical
+append, the final full block rebuild, witness replay and signer validation are
+independent. This changes local preparation work only: no protocol, ABI,
+configuration, persistent storage or follower replay migration is required.
+
+Blob admission uses a bounded encoded-size estimate before KZG work. The final
+assembled batch still requires its real blob bytes, commitments and propagation
+proofs. `prefix_hash_ms`, `prefix_hash_executed_tx_count`, `blob_preparation_ms`
+and `witness_preparation_ms` expose preparation subintervals in retained admission
+events. Existing collectors accept these optional details; historical values
+remain absent. They are included in total preparation time, not added to it.
+
 If the uncalibrated proof allocation would reject even the first group forever,
 one complete group may probe the available window. This retains the finishing
 and finalization reserves plus a 25 ms minimum proof opportunity, and proving
