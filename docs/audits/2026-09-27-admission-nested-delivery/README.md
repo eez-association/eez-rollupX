@@ -40,3 +40,17 @@ into ten independent cases passed. The first Composer run had one incorrect
 new expected discount because its nested action inherited a 256-byte input;
 explicitly using a short input fixed that test. Neither was a runtime failure.
 Initial Clippy flagged four Option-return simplifications; these were corrected.
+
+Additional short-data fixtures cover empty/32-/64-byte root results and 4-/36-byte
+callback inputs, including maximum matching queue and reverted spans. These four
+measurements also fit the reserve. Final fixture selection is 63 tests on Cancun
+and Prague and 82 integration tests on Osaka. The candidate runtime remains
+`b6fe9f5ca3f21f45bd83d8e43445d6ffe9873f34`; the additional change affects test
+fixtures only. Workspace Clippy passes with warnings denied.
+
+The full tooling run selected 264 tests: 259 passed, four opt-in infrastructure
+tests skipped, and `test_all_workers_follow_discovered_inventory` failed because
+its four completed mock workers reached a measured concurrency peak of three.
+The unchanged test requires a peak of four. First-run output is retained in
+`tooling-first.log`; a diagnostic retry will be recorded separately, not promoted
+to a clean first pass. No protocol network runner code changed in this round.

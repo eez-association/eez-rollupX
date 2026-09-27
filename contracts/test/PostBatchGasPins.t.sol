@@ -687,7 +687,7 @@ contract PostBatchGasPinsTest is Test {
             _batch(eez, proofSystem, address(target), Rung(entries, 1, true, false, 64));
         for (uint256 i = 1; i < batch.entries.length; i++) {
             _nestedEntry(
-                eez, batch.entries[i], NestedShape(address(target), address(callback), rows, callbacks, 256), i
+                eez, batch.entries[i], NestedShape(address(target), address(callback), rows, callbacks, 256, 256), i
             );
         }
         return _measure(eez, batch, batch.entries[entries].rollupUpdates[0].newRoot);
@@ -699,10 +699,11 @@ contract PostBatchGasPinsTest is Test {
         uint256 rows;
         uint256 callbacks;
         uint256 inputBytes;
+        uint256 callbackBytes;
     }
 
     function _nestedEntry(EEZ eez, ExecutionEntry memory entry, NestedShape memory shape, uint256 index) private {
-        entry.l2ToL1Calls[0].data = _nonzeroBytes(256);
+        entry.l2ToL1Calls[0].data = _nonzeroBytes(shape.callbackBytes);
         bytes32 hash;
         for (uint256 i = 0; i < entry.rollupUpdates.length; i++) {
             hash =
@@ -726,7 +727,8 @@ contract PostBatchGasPinsTest is Test {
             if (calls.length != 0) {
                 address source = address(uint160(0x10000 + index * 4 + j));
                 touched.push(eez.createCrossChainProxy(source, ROLLUP_ID));
-                calls[0] = L2ToL1Call(0, false, 0, source, ROLLUP_ID, shape.callback, 0, _nonzeroBytes(256));
+                calls[0] =
+                    L2ToL1Call(0, false, 0, source, ROLLUP_ID, shape.callback, 0, _nonzeroBytes(shape.callbackBytes));
             }
             entry.expectedL1ToL2Calls[j] = ExpectedL1ToL2Call(
                 keccak256(abi.encodePacked(nestedHash, hash)), calls, bytes32(0), true, new bytes(64)
@@ -1153,6 +1155,16 @@ contract PostBatchGasPinsTest is Test {
         _companionNestedInputRung(127, 4, 3, true, true, 256);
     }
 
+    function testCompanionNestedShortCallData() public {
+        _companionNestedDataRung(10, 4, 3, false, false, 36, 0, 4);
+        _companionNestedDataRung(10, 3, 3, false, false, 36, 32, 36);
+        _companionNestedDataRung(10, 2, 2, false, false, 36, 64, 36);
+    }
+
+    function testCompanionNestedShortCallDataReverted() public {
+        _companionNestedDataRung(127, 4, 3, true, true, 36, 0, 4);
+    }
+
     function _companionNestedRung(
         uint256 count,
         uint256 rows,
@@ -1172,6 +1184,21 @@ contract PostBatchGasPinsTest is Test {
         bool revertedSpan,
         bool repeatedHash,
         uint256 inputBytes
+    )
+        private
+    {
+        _companionNestedDataRung(count, rows, callbacks, revertedSpan, repeatedHash, inputBytes, 256, 256);
+    }
+
+    function _companionNestedDataRung(
+        uint256 count,
+        uint256 rows,
+        uint256 callbacks,
+        bool revertedSpan,
+        bool repeatedHash,
+        uint256 inputBytes,
+        uint256 resultBytes,
+        uint256 callbackBytes
     )
         private
     {
@@ -1201,8 +1228,13 @@ contract PostBatchGasPinsTest is Test {
                 0,
                 abi.encode(repeatedHash ? count : i)
             );
-            entry.returnData = _nonzeroBytes(256);
-            _nestedEntry(eez, entry, NestedShape(address(target), address(callback), rows, callbacks, inputBytes), i);
+            entry.returnData = _nonzeroBytes(resultBytes);
+            _nestedEntry(
+                eez,
+                entry,
+                NestedShape(address(target), address(callback), rows, callbacks, inputBytes, callbackBytes),
+                i
+            );
             entry.l2ToL1Calls[0].revertNextNCalls = revertedSpan ? 1 : 0;
             if (revertedSpan) {
                 for (uint256 j = 0; j < entry.expectedL1ToL2Calls.length; j++) {
@@ -1216,13 +1248,14 @@ contract PostBatchGasPinsTest is Test {
         for (uint256 i = 0; i < touched.length; i++) {
             vm.cool(touched[i]);
         }
-        uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(256));
+        uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(resultBytes));
         // Includes this fixture's application work, so the production estimate's
         // separately added callback simulation only increases the allowance.
         uint256 inputWords = (inputBytes + 31) / 32;
         if (inputWords < 4) inputWords = 4;
         uint256 reserve = COMPANION_ROOT_GAS + COMPANION_CALLBACK_GAS * (1 + callbacks) + COMPANION_ROW_GAS * rows
-            + COMPANION_WORD_GAS * (8 + 8 * (1 + callbacks) + (inputWords + 2) * rows)
+            + COMPANION_WORD_GAS
+            * ((resultBytes + 31) / 32 + ((callbackBytes + 31) / 32) * (1 + callbacks) + (inputWords + 2) * rows)
             + (repeatedHash ? COMPANION_MATCHING_SCAN_GAS : COMPANION_SCAN_GAS) * (count - 1)
             + (revertedSpan ? COMPANION_REVERT_SPAN_GAS * (1 + callbacks) : 0);
         console.log("nested companion input bytes", inputBytes);
