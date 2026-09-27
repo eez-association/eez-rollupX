@@ -101,7 +101,7 @@ impl PostingFeeConfig {
             execution_headroom_bps: bps("EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS", 10_000)?,
             blob_headroom_bps: bps("EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS", 10_000)?,
             // Gas selection is validated for complete effects after this margin.
-            gas_margin_bps: bps("EEZ_L1_POSTBATCH_GAS_MARGIN_BPS", 2_000)?,
+            gas_margin_bps: bps("EEZ_L1_POSTBATCH_GAS_MARGIN_BPS", 500)?,
         };
         if config.priority_min > config.priority_max
             || config.priority_max > config.execution_price_ceiling
@@ -441,12 +441,30 @@ mod tests {
     }
 
     #[test]
+    fn gas_margin_defaults_to_five_percent_and_preserves_explicit_values() {
+        assert_eq!(
+            config(&[]).unwrap().declared_gas(100_000, 120_000).unwrap(),
+            105_000
+        );
+        for (value, expected) in [("0", 100_000), ("500", 105_000), ("2000", 120_000)] {
+            let fees = config(&[("EEZ_L1_POSTBATCH_GAS_MARGIN_BPS", value)]).unwrap();
+            assert_eq!(fees.declared_gas(100_000, 120_000).unwrap(), expected);
+        }
+        for value in ["", "bad", "-1", "5%", "18446744073709551616"] {
+            assert!(
+                config(&[("EEZ_L1_POSTBATCH_GAS_MARGIN_BPS", value)]).is_err(),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
     fn dynamic_fee_history_requires_an_independent_priority_ceiling() {
         let config = config(&[]).unwrap();
         assert_eq!(config.priority_override, None);
         assert_eq!(config.priority_min, 0);
         assert_eq!(config.priority_max, 500);
-        assert_eq!(config.gas_margin_bps, 2000);
+        assert_eq!(config.gas_margin_bps, 500);
         let quote = config.quote(sample()).unwrap();
         assert_eq!(quote.max_fee_per_gas, 202);
         assert_eq!(quote.max_fee_per_blob_gas, 6);
@@ -815,7 +833,7 @@ mod tests {
 
     #[test]
     fn admission_budget_is_the_largest_estimate_whose_margin_fits() {
-        for margin in [0, 1, 2_000, 10_000, u64::MAX] {
+        for margin in [0, 1, 500, 2_000, 10_000, u64::MAX] {
             let mut config = config(&[]).unwrap();
             config.gas_margin_bps = margin;
             for maximum in [0, 1, 21_000, 120_001, 16_777_216, u64::MAX] {
@@ -838,11 +856,11 @@ mod tests {
         assert_eq!(with_margin(u128::MAX, 0).unwrap(), u128::MAX);
         assert!(with_margin(u128::MAX, 1).is_err());
         let config = config(&[]).unwrap();
-        assert_eq!(config.declared_gas(100_001, 1_000_000).unwrap(), 120_002);
-        assert!(config.declared_gas(100_001, 120_001).is_err());
+        assert_eq!(config.declared_gas(100_001, 1_000_000).unwrap(), 105_002);
+        assert!(config.declared_gas(100_001, 105_001).is_err());
         let quote = config.quote(sample()).unwrap();
         let estimate = quote.estimate(100_001, 1).unwrap();
-        let reserve = quote.reserve(120_002, 1).unwrap();
+        let reserve = quote.reserve(105_002, 1).unwrap();
         assert!(reserve.total > estimate.total);
         assert_eq!(
             estimate.blobs,

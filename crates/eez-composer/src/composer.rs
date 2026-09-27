@@ -369,10 +369,6 @@ const MAX_PROOF_BYTES: usize = 128;
 #[cfg(test)]
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
 
-/// The final check prices ABI framing, proof and root metadata the drain cannot
-/// see, so the drain must stop earlier. Observed framing gap: 230k.
-const POSTBATCH_DRAIN_MARGIN: u64 = 600_000;
-
 /// Execution for a batch with just the leading immediate entry, calldata aside.
 /// Measured 139k, 10% slack; pinned by `contracts/test/PostBatchGasPins.t.sol`.
 const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
@@ -382,8 +378,9 @@ const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
 const POSTBATCH_ENTRY_GAS_PIN: u64 = 370_000;
 
 #[cfg(test)]
-const MIN_VIABLE_POSTBATCH_GAS: u64 =
-    projected_postbatch_gas(2, 0, 0).saturating_add(POSTBATCH_DRAIN_MARGIN);
+fn minimum_viable_postbatch_gas() -> u64 {
+    projected_postbatch_gas(2, 0, 0).saturating_add(gas::framing::base(64))
+}
 
 /// EIP-7623 calldata floor — below it the tx is invalid and dies at simulation.
 fn calldata_floor_gas(calldata: &[u8]) -> u64 {
@@ -410,7 +407,7 @@ const fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas
 }
 
 /// What one accepted held tx adds to the postBatch projection, per term.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct TxL1Gas {
     estimate_reasons: gas::EstimateReasons,
     /// `batch.entries` rows it contributes, each costing [`POSTBATCH_ENTRY_GAS_PIN`].
@@ -419,6 +416,10 @@ struct TxL1Gas {
     entry_discount: u64,
     /// Standard-rate gas for every byte it puts in the postBatch calldata.
     calldata_gas: u64,
+    /// Additional final calldata: root/hash rewrites and enclosing entry offsets.
+    framing_gas: u64,
+    /// Static entries make the final execution projection use general pins.
+    general: bool,
     /// Probed cost of the target call EEZ.sol runs inline (outbound only).
     target_gas: u64,
 }
@@ -451,6 +452,11 @@ fn projected_tx_l1_gas(
             .iter()
             .map(|entry| calldata_gas(&entry.abi_encode()))
             .fold(0, u64::saturating_add),
+        framing_gas: batch_entries
+            .iter()
+            .map(gas::framing::mutable)
+            .fold(0, u64::saturating_add),
+        general: false,
         target_gas,
     }
 }
@@ -460,10 +466,18 @@ fn projected_tx_l1_gas(
 /// bundle execution establishes actual gas consumption and complete effects.
 #[derive(Debug, Clone, Copy)]
 struct PostBatchGasBudget {
+    /// Maximum complete pre-margin estimate, including framing and any floor.
     cap: u64,
     /// Running total, seeded with the leading immediate entry every postBatch
     /// carries. The projection is linear, so costs just add.
     projected: u64,
+    calldata_gas: u64,
+    framing_gas: u64,
+    floor_active: bool,
+    general: bool,
+    /// The shaped projection does not charge a generic entry for the anchor.
+    /// Restore it if a static pool forces final sizing onto general pins.
+    anchor_discount: u64,
     entries: u64,
     entry_discount: u64,
     block_cap: u64,
@@ -476,10 +490,20 @@ struct PostBatchGasBudget {
 }
 
 impl PostBatchGasBudget {
+    #[cfg(test)]
     fn new(max_gas: u64) -> Self {
+        Self::with_calldata_limits(max_gas, 64, true)
+    }
+
+    fn with_calldata_limits(max_gas: u64, maximum_blobs: usize, floor_active: bool) -> Self {
         Self {
-            cap: max_gas.saturating_sub(POSTBATCH_DRAIN_MARGIN),
+            cap: max_gas,
             projected: projected_postbatch_gas(1, 0, 0),
+            calldata_gas: 0,
+            framing_gas: gas::framing::base(maximum_blobs),
+            floor_active,
+            general: maximum_blobs > 64,
+            anchor_discount: 0,
             entries: 0,
             entry_discount: 0,
             block_cap: u64::MAX,
@@ -490,6 +514,26 @@ impl PostBatchGasBudget {
         }
     }
 
+    fn use_projection(&mut self, initial_gas: u64) {
+        self.projected = if self.general {
+            initial_gas.saturating_add(POSTBATCH_ENTRY_GAS_PIN)
+        } else {
+            self.anchor_discount = POSTBATCH_ENTRY_GAS_PIN;
+            initial_gas
+        };
+    }
+
+    fn full_estimate(&self) -> u64 {
+        let standard = self.projected.saturating_add(self.framing_gas);
+        if self.floor_active {
+            standard.max(gas::framing::floor(
+                self.calldata_gas.saturating_add(self.framing_gas),
+            ))
+        } else {
+            standard
+        }
+    }
+
     /// Charge `cost` if it fits. `false` leaves the projection untouched, so the
     /// caller can retain this group and try another independent source.
     fn try_accept(&mut self, cost: TxL1Gas) -> bool {
@@ -497,7 +541,9 @@ impl PostBatchGasBudget {
     }
 
     /// Establish a nonfit in the admission model without source execution using
-    /// its least expensive entry and zero new companion consumption. Unknown calls can only add
+    /// its least expensive shape and zero new companion consumption. An inbound
+    /// source can be static-only, so it cannot require a mutable entry here.
+    /// Unknown calls can only add
     /// cost. Use the same admission arithmetic, including discount revocation
     /// and each signed transaction's start envelope; never cache a simulated
     /// price across changed parents or accepted prefixes.
@@ -507,10 +553,15 @@ impl PostBatchGasBudget {
         }
         let cost = TxL1Gas {
             estimate_reasons: Default::default(),
-            entries: 1,
-            entry_discount: POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(!inbound),
+            entries: u64::from(!inbound),
+            entry_discount: if inbound {
+                0
+            } else {
+                POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(true)
+            },
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         let mut next = *self;
         if next.try_accept_with_companion(cost, if inbound { declared } else { 0 }, 0) {
@@ -545,7 +596,8 @@ impl PostBatchGasBudget {
         estimated_companion_gas: u64,
     ) -> bool {
         let entries = self.entries.saturating_add(cost.entries);
-        let discount = if entries < gas::MAX_SHAPED_ENTRIES {
+        let general = self.general || cost.general;
+        let discount = if !general && entries < gas::MAX_SHAPED_ENTRIES {
             self.entry_discount.saturating_add(cost.entry_discount)
         } else {
             0
@@ -558,6 +610,7 @@ impl PostBatchGasBudget {
             .and_then(|gas| gas.checked_add(cost.target_gas))
             .and_then(|gas| gas.checked_add(self.entry_discount))
             .and_then(|gas| gas.checked_add(self.projected))
+            .and_then(|gas| gas.checked_add(if general { self.anchor_discount } else { 0 }))
             .and_then(|gas| gas.checked_sub(discount));
         let Some(next) = next else {
             self.rejected_constraint = Some("l1_tx_gas_budget");
@@ -568,16 +621,21 @@ impl PostBatchGasBudget {
             return false;
         };
         let required = required.max(self.companion_required_gas);
-        if next > self.cap
+        let mut next_budget = *self;
+        next_budget.projected = next;
+        next_budget.framing_gas = self.framing_gas.saturating_add(cost.framing_gas);
+        next_budget.calldata_gas = self.calldata_gas.saturating_add(cost.calldata_gas);
+        let full_estimate = next_budget.full_estimate();
+        if full_estimate == u64::MAX
+            || full_estimate > self.cap
             || declared_companion_gas > self.transaction_cap
             || estimated_companion_gas > declared_companion_gas
         {
             self.rejected_constraint = Some("l1_tx_gas_budget");
             return false;
         }
-        if next
-            .checked_add(POSTBATCH_DRAIN_MARGIN)
-            .and_then(|gas| gas.checked_add(required))
+        if full_estimate
+            .checked_add(required)
             .is_none_or(|gas| gas > self.block_cap)
         {
             self.rejected_constraint = Some("l1_bundle_gas_budget");
@@ -585,6 +643,12 @@ impl PostBatchGasBudget {
         }
         self.rejected_constraint = None;
         self.projected = next;
+        self.calldata_gas = next_budget.calldata_gas;
+        self.framing_gas = next_budget.framing_gas;
+        self.general = general;
+        if general {
+            self.anchor_discount = 0;
+        }
         self.entries = entries;
         self.entry_discount = discount;
         // estimated <= declared, whose addition was checked above.
@@ -613,7 +677,12 @@ fn trace_admission_budget(
 ) {
     let detail = serde_json::json!({
         "kind": "admission_budget", "source_hash": source_hash, "direction": direction,
-        "l1_parent": parent,"fixed_drain_reserve_gas": POSTBATCH_DRAIN_MARGIN,
+        "l1_parent": parent,"fixed_drain_reserve_gas": 0,
+        "framing_reserve_gas":cost.framing_gas,
+        "framing_reserve_before":before.framing_gas,
+        "framing_reserve_after":gas_gate_accepted.then_some(after.framing_gas),
+        "full_estimate_before":before.full_estimate(),
+        "full_estimate_after":gas_gate_accepted.then_some(after.full_estimate()),
         "gas_gate_accepted": gas_gate_accepted, "constraint": after.rejected_constraint,
         "projected_before": before.projected,
         "projected_after": gas_gate_accepted.then_some(after.projected),
@@ -622,7 +691,7 @@ fn trace_admission_budget(
         "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
         "entry_discount": cost.entry_discount,
         "estimate_reasons": cost.estimate_reasons.json(),
-        "batch_discount_revoked": before.entries.saturating_add(cost.entries) >= gas::MAX_SHAPED_ENTRIES,
+        "batch_discount_revoked": before.general || cost.general || before.entries.saturating_add(cost.entries) >= gas::MAX_SHAPED_ENTRIES,
         "entry_reserve_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries).saturating_sub(cost.entry_discount),
         "l1_call_count": entries.iter().map(|e| e.l2ToL1Calls.len() + e.expectedL1ToL2Calls.iter().map(|r| r.l2ToL1Calls.len()).sum::<usize>()).sum::<usize>(),
         "nested_result_count": entries.iter().map(|e| e.expectedL1ToL2Calls.len()).sum::<usize>(),
@@ -1006,12 +1075,13 @@ impl CapacityDeferrals {
             serde_json::json!({
                 "source_hash":held.hash,"direction":if inbound {"inbound"} else {"outbound"},
                 "constraint":reason,"basis":"minimum_admission_cost",
-                "minimum_entry_gas":gas::minimum_entry_gas(!inbound),
+                "minimum_entry_gas":if inbound {0} else {gas::minimum_entry_gas(true)},
                 "projected_before":budget.projected,"postbatch_planning_cap":budget.cap,
                 "companion_prefix_gas":budget.companion_gas,
                 "companion_required_gas":budget.companion_required_gas,
                 "companion_declared_gas":if inbound {declared} else {0},
-                "fixed_drain_reserve_gas":POSTBATCH_DRAIN_MARGIN,
+                "fixed_drain_reserve_gas":0,
+                "framing_reserve_gas":budget.framing_gas,"full_estimate_gas":budget.full_estimate(),
                 "whole_block_cap":budget.block_cap,"transaction_cap":budget.transaction_cap,
                 "l2_used_gas":l2_used,"minimum_l2_gas":l2_minimum,"l2_block_cap":BUILDER_GAS_LIMIT,
             }),
@@ -2671,7 +2741,11 @@ where
             .gas_budget(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
         let estimated_budget = self.inner.posting.fees.estimate_budget(gas_budget);
-        let mut budget = PostBatchGasBudget::new(estimated_budget);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(
+            estimated_budget,
+            self.posting_blob_allowance(bundle_target, 0)?,
+            self.inner.posting.calldata_floor_active(bundle_target),
+        );
         // This separate view never receives accepted speculative effects.
         // Failed lookups or unsupported prior queues retain conservative pins.
         let provider = local.l1_entry.chain_provider();
@@ -2694,7 +2768,7 @@ where
             None
         };
         if let Some(projection) = &gas_projection {
-            budget.projected = projection.initial_gas();
+            budget.use_projection(projection.initial_gas());
         }
         let prior_cleanup = gas_projection.as_ref().map_or(0, |p| p.cleanup_gas);
         event!(name: "eez.composer.admission.gas_projection", Level::INFO,
@@ -3720,6 +3794,13 @@ where
                             projection.cost(&composition.source.batch.entries, 0, false, None)
                         },
                     );
+                    let mut cost = cost;
+                    for entry in &composition.source.batch.staticEntries {
+                        let (calldata, framing) = gas::framing::static_entry(entry);
+                        cost.calldata_gas = cost.calldata_gas.saturating_add(calldata);
+                        cost.framing_gas = cost.framing_gas.saturating_add(framing);
+                        cost.general = true;
+                    }
                     let companion_limit = declared_gas_limit(&held.raw_tx);
                     let companion_estimate = match (&mut gas_projection, &mut gas_parent) {
                         (Some(projection), Some(parent)) => projection.companion_estimate(
@@ -4083,6 +4164,12 @@ where
                 "fifo_bypassed":fifo_bypassed,
                 "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
+                "framing_reserve_gas":budget.framing_gas,
+                "full_estimate_gas":budget.full_estimate(),
+                "calldata_bound_gas":budget.calldata_gas.saturating_add(budget.framing_gas),
+                "calldata_floor_active":budget.floor_active,
+                "general_execution_reserve":budget.general,
+                "gas_margin_bps":self.inner.posting.fees.gas_margin_bps,
                 "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
                 "companion_gas":budget.companion_gas,
                 "cold_timing_probe":admission.used_cold_timing_probe(),
@@ -4125,7 +4212,7 @@ where
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
                     companion_gas = budget.companion_gas,
-                    planning_margin = POSTBATCH_DRAIN_MARGIN,
+                    planning_margin = budget.framing_gas,
                     tx_hash = %head.hash,
                     "one complete group exceeds the resolved L1 gas budget; applying existing admission and nonce-chain rejection",
                 );
@@ -4160,7 +4247,7 @@ where
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
                     companion_gas = budget.companion_gas,
-                    planning_margin = POSTBATCH_DRAIN_MARGIN,
+                    planning_margin = budget.framing_gas,
                     "L1 gas budget reached; complete deferred groups remain queued without a failed attempt",
                 );
             }
@@ -6297,17 +6384,7 @@ where
                 projection.batch_gas(&batch, calldata_gas(&projected), outbound_target_gas)
             },
         );
-        let floor_active = match bundle_target {
-            BundleTarget::Exact { timestamp, .. } => {
-                use reth_chainspec::EthereumHardforks as _;
-                posting
-                    .chain
-                    .evm_config
-                    .chain_spec()
-                    .is_prague_active_at_timestamp(timestamp)
-            }
-            BundleTarget::NextBlock => true,
-        };
+        let floor_active = posting.calldata_floor_active(bundle_target);
         if floor_active {
             projected_gas = projected_gas.max(calldata_floor_gas(&projected));
         }
@@ -7323,7 +7400,10 @@ mod tests {
         let entry = outbound_entry();
         let cost = projected_tx_l1_gas(std::slice::from_ref(&entry), l1_target_gas(&actions));
         assert_eq!(cost.target_gas, 170_000);
-        let cap = projected_postbatch_gas(1, 0, 0) + POSTBATCH_DRAIN_MARGIN + cost.total();
+        let cap = projected_postbatch_gas(1, 0, 0)
+            + gas::framing::base(64)
+            + cost.total()
+            + cost.framing_gas;
         assert!(PostBatchGasBudget::new(cap).try_accept(cost));
 
         actions[1] = gas_action(0, 1, Some(0), u64::MAX, true);
@@ -7406,12 +7486,12 @@ mod tests {
     #[test]
     fn minimum_capacity_check_keeps_empty_and_fitting_candidates_eligible() {
         let minimum = gas::minimum_entry_gas(true);
-        let mut budget = PostBatchGasBudget::new(POSTBATCH_DRAIN_MARGIN + minimum);
+        let mut budget = PostBatchGasBudget::new(1_000_000);
         // The first source must reach ordinary classification even if malformed
         // or individually unpostable. Capacity misses cannot evict it early.
         assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
         budget.entries = 1;
-        budget.projected = budget.cap - minimum;
+        budget.projected = budget.cap - budget.framing_gas - minimum;
         assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
         budget.projected += 1;
         assert_eq!(budget.minimum_rejection(false, 0), Some("l1_tx_gas_budget"));
@@ -7421,11 +7501,11 @@ mod tests {
     fn minimum_capacity_check_preserves_signed_prefix_envelopes_and_smaller_work() {
         let mut budget = PostBatchGasBudget::new(16_777_216);
         budget.entries = 5;
-        budget.block_cap = 17_000_000;
         budget.transaction_cap = 16_777_216;
         budget.projected = 6_000_000;
         budget.companion_gas = 9_500_000;
         budget.companion_required_gas = 9_600_000;
+        budget.block_cap = budget.full_estimate() + budget.companion_gas + 1_000_000 - 1;
         let before = budget;
         assert_eq!(
             budget.minimum_rejection(true, 1_000_000),
@@ -7463,6 +7543,7 @@ mod tests {
                                 entry_discount: added * (POSTBATCH_ENTRY_GAS_PIN - minimum),
                                 calldata_gas: extra,
                                 target_gas: extra,
+                                ..Default::default()
                             };
                             let mut next = budget;
                             let fits = next.try_accept_with_companion(
@@ -7491,6 +7572,7 @@ mod tests {
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(budget.try_accept_with_companion(cost, 8_000_000, 8_000_000));
         let accepted = budget;
@@ -7511,6 +7593,7 @@ mod tests {
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(!budget.try_accept_with_companion(cost, 16_777_217, 16_777_217));
         assert_eq!(budget.companion_gas, 0);
@@ -7530,6 +7613,7 @@ mod tests {
             entry_discount: 0,
             calldata_gas: 5_000,
             target_gas: 0,
+            ..Default::default()
         };
         for _ in 0..17 {
             assert!(budget.try_accept_with_companion(cost, 1_000_000, 160_000));
@@ -7559,9 +7643,11 @@ mod tests {
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(budget.try_accept_with_companion(free, 8_000_000, 21_000));
         assert!(budget.try_accept_with_companion(free, 100_000, 21_000));
+        budget.block_cap = budget.full_estimate() + 8_000_000 + 3 * POSTBATCH_ENTRY_GAS_PIN - 1;
         let accepted = budget;
         assert!(!budget.try_accept(TxL1Gas { entries: 3, ..free }));
         assert_eq!(budget.projected, accepted.projected);
@@ -8188,7 +8274,7 @@ mod tests {
     /// Any ceiling the clamp accepts must let the drain take at least one tx.
     #[test]
     fn the_lowest_accepted_ceiling_still_admits_one_held_tx() {
-        let mut budget = PostBatchGasBudget::new(MIN_VIABLE_POSTBATCH_GAS);
+        let mut budget = PostBatchGasBudget::new(minimum_viable_postbatch_gas());
         assert!(
             budget.try_accept(TxL1Gas {
                 estimate_reasons: Default::default(),
@@ -8196,6 +8282,7 @@ mod tests {
                 entry_discount: 0,
                 calldata_gas: 0,
                 target_gas: 0,
+                ..Default::default()
             }),
             "the lowest accepted ceiling admits no tx — every drain would evict \
              its first held tx as poison",
@@ -8451,14 +8538,11 @@ mod tests {
         assert_eq!(cost.calldata_gas, encoded);
 
         let mut budget = PostBatchGasBudget::new(DEFAULT_MAX_POSTBATCH_GAS);
-        // The drain leaves the belt's margin below the cap, or the belt refuses
-        // what the drain accepted and the same set requeues forever.
-        assert_eq!(
-            budget.cap,
-            DEFAULT_MAX_POSTBATCH_GAS - POSTBATCH_DRAIN_MARGIN
-        );
-        let per_tx = POSTBATCH_ENTRY_GAS_PIN + cost.calldata_gas + cost.target_gas;
-        let expected = (budget.cap - budget.projected) / per_tx;
+        // Framing is now charged per candidate, while the cap retains the
+        // complete pre-margin transaction budget.
+        assert_eq!(budget.cap, DEFAULT_MAX_POSTBATCH_GAS);
+        let per_tx = cost.total() + cost.framing_gas;
+        let expected = (budget.cap - budget.full_estimate()) / per_tx;
         let mut accepted = 0u64;
         // The drain never offers more than the per-bundle cap.
         while accepted < 50 && budget.try_accept(cost) {

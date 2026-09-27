@@ -719,10 +719,16 @@ protocol change is intended; old binaries can ignore additive observations.
 
 Evidence: [nested-input and delivery follow-up](../audits/2026-09-27-admission-nested-delivery/README.md).
 
-### Fixed admission overhead follow-up (recommended, not implemented)
+### Fixed admission overhead follow-up (accepted for implementation)
 
-The deployed gas margin is 5% (`EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=500`), although
-the code default remains 20%. Its separate fixed admission reserve is 600,000
+The user accepted this follow-up and requested a 5% default. Explicit operator
+overrides retain precedence; absent values change from 2000 to 500 basis points.
+Empty/malformed values remain errors in the runtime parser. Older binaries keep
+their old default unless explicitly configured; pin 500 for mixed versions.
+No wire, persistent state, protocol or signer profile change is intended.
+
+The baseline deployed gas margin is 5% (`EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=500`), although
+its code default remains 20%. Its separate fixed admission reserve is 600,000
 gas. In the latest wave, full sizing added at most 122,808 gas to the incremental
 projection. A smaller fixed allowance would cover that cohort, but one/two-blob
 observations do not establish coverage for larger history or calldata floors.

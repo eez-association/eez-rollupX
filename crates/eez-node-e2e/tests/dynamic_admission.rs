@@ -660,7 +660,7 @@ async fn single_sync_wave(
             .collect();
         assert_eq!(companion_estimates.len(), inbound_count as usize);
         for estimate in &companion_estimates {
-            assert_eq!(estimate["estimator_version"], "companion-input-8");
+            assert_eq!(estimate["estimator_version"], "candidate-framing-9");
             let detail = &estimate["detail"];
             assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
             assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
@@ -698,11 +698,32 @@ async fn single_sync_wave(
                 "retained storage pricing must reach native settlement"
             );
             for estimate in estimates {
-                assert_eq!(estimate["estimator_version"], "companion-input-8");
+                assert_eq!(estimate["estimator_version"], "candidate-framing-9");
                 assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
                 assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
             }
         }
+        let admission: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.name == "eez.composer.admission.v1")
+            .map(|event| {
+                serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+            })
+            .collect();
+        let summary = admission
+            .iter()
+            .find(|event| event["kind"] == "summary")
+            .unwrap();
+        let projection = admission
+            .iter()
+            .find(|event| event["kind"] == "full_projection")
+            .unwrap();
+        assert!(
+            projection["detail"]["projected_gas"].as_u64().unwrap()
+                <= summary["detail"]["full_estimate_gas"].as_u64().unwrap(),
+            "incremental framing must cover the production batch's final sizing"
+        );
+        assert!(summary["detail"]["framing_reserve_gas"].as_u64().unwrap() < 600_000);
         let deliveries: Vec<serde_json::Value> = events
             .iter()
             .filter(|event| event.name == "eez.composer.admission.v1")

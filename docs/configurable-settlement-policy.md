@@ -42,13 +42,22 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
-| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
+| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
 Execution, blob, and gas margins use checked
 `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
 prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
+
+The gas-margin default is now 500 basis points (5%). Explicit values, including
+zero and the former 2000 default, override it; empty or malformed values are
+errors. Compose forwards the operator value to the node and leaves an absent
+setting to the runtime. Shell environment takes precedence over `.env`. Signers
+do not consume this operator margin. For mixed versions, explicitly set 500 to
+keep older Composers consistent. This changes future gas planning/signing only;
+no wire, database or follower-replay migration is required. Rollback restores
+the older default if the setting is absent, so preserve explicit operator values.
 
 Requests without L1 posting context are rejected.
 The batch, DA and signature formats remain unchanged.
@@ -237,6 +246,35 @@ of actual execution. A miss retains the source without charging an attempt and
 blocks its nonce dependants, while independent sources remain eligible. Empty
 candidates still run normal simulation/classification. Cheap checks do not train
 execution timing samples. No execution estimate is cached across changed state.
+
+Estimator `candidate-framing-9` replaces the fixed 600,000 admission reserve
+with a bound on each candidate's calldata. It counts the native single-rollup
+ECDSA envelope/anchor, up to 128 proof bytes, and the target fork/operator's
+maximum permitted blob indices. Each source adds its encoded entries plus
+allowance for one root update per mutable entry, one pin per static entry,
+position/rolling hashes and dynamic offsets. Actual payload bytes remain in
+native blobs. The envelope is sized once, with per-source work only; accepted
+prefixes are not re-encoded and KZG is not run for these estimates.
+
+Admission compares the complete bound (including the active EIP-7623 floor)
+against the margin-adjusted transaction budget and the original ordered
+companion start requirements. Static pools revoke the same execution discounts
+as final batch sizing, including the cheaper anchor. Unsupported entry shapes
+retain general execution pins; metadata costs grow with their actual arrays.
+The cheap inbound check now permits zero mutable entries, since a source can
+contain only static lookups. Zero is a lower bound for that precheck, not a full
+execution or calldata estimate. Final native execution at signed gas limits,
+the shared deadline and whole-group handling remain unchanged.
+
+`projected_gas` retains the incremental execution/original-calldata projection.
+New summary fields separate `framing_reserve_gas`, `full_estimate_gas`,
+`calldata_bound_gas`, floor activation, general execution pricing and configured
+margin. `planning_cap` now bounds the full estimate, rather than subtracting a
+fixed reserve in advance. Source events expose framing and full totals before
+and after acceptance; rejected groups leave the accumulated ledger unchanged.
+Historical estimator versions keep their old meanings. Existing collectors can
+retain the additive fields without a database migration; update the dashboard
+before or after Composer and preserve historical events/checkpoints on rollback.
 
 Version 4 candidate `started` records add nullable `submission_failure_streak`
 and `submission_backoff_threshold` details, displayed in Grafana's preparation

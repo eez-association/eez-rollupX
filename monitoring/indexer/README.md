@@ -776,6 +776,18 @@ validated nested companion calls with their measured lengths, retaining a
 four-word minimum for repeated table copying. Protocol reserve and total
 companion estimate remain available in the source drill-down.
 
+Estimator `candidate-framing-9` adds a per-candidate framing reserve, complete
+admission estimate, bounded calldata gas, active calldata-floor flag, general
+execution fallback flag and gas-margin percentage to the postBatch table.
+Source drilldowns show each group's framing contribution and accumulated framing/
+full estimates before and after admission. `admission_gas` remains the original
+incremental projection; compare `admission_including_framing_gas` with the full
+planning cap for version 9. Historical rows keep null values for the new fields.
+Queries read these additive details from retained events; no schema migration
+or collector rebuild is needed. Static-only sources have a zero mutable-entry
+minimum in cheap capacity checks, while their full estimates still price the
+actual calldata and general execution projection.
+
 The preparation/proof/delivery table also exposes relay bundle hash (when
 returned as a valid 32-byte hash), target block/timestamp, expected parent,
 transaction count and `ack_remaining_ms`. The latter measures the shared

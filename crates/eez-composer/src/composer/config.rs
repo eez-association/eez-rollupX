@@ -208,6 +208,8 @@ mod tests {
         let fees = config.posting_fees;
         assert_eq!(fees.priority_override, None);
         assert_eq!(fees.priority_max, 2_000_000_000);
+        assert_eq!(fees.gas_margin_bps, 500);
+        assert_eq!(fees.declared_gas(100_000, 105_000).unwrap(), 105_000);
     }
 
     #[test]

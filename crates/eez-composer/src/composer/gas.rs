@@ -14,6 +14,7 @@ use super::{
 use crate::local::L1TargetSession;
 
 mod deferred;
+pub(super) mod framing;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CompanionEstimate {
@@ -902,7 +903,7 @@ fn bounded_old_slot<E>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{POSTBATCH_DRAIN_MARGIN, PostBatchGasBudget};
+    use super::super::PostBatchGasBudget;
     use super::*;
     use alloy_primitives::Bytes;
     use eez_protocol::abi::{
@@ -1159,9 +1160,9 @@ mod tests {
             .collect();
         let cost = p.cost(&entries, 0, false, None);
         assert_eq!(cost.entry_discount, 0);
-        let cap = p.initial_gas() + 2 * cost.total() + POSTBATCH_DRAIN_MARGIN;
+        let cap = p.initial_gas() + 2 * (cost.total() + cost.framing_gas) + framing::base(64);
         let mut budget = PostBatchGasBudget::new(cap);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         assert!(budget.try_accept(cost));
         assert!(budget.try_accept(cost));
         let before = budget.projected;
@@ -1236,7 +1237,7 @@ mod tests {
         let (entry, _) = immediate();
         let key = Some(keccak256(entry.l2ToL1Calls[0].abi_encode()));
         let mut budget = PostBatchGasBudget::new(16_777_216);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         let a = p.cost(std::slice::from_ref(&entry), 10_000, true, key);
         assert!(budget.try_accept(a));
         p.accept_immediate(1, key);
@@ -1287,7 +1288,7 @@ mod tests {
         assert_eq!(p.entry_gas(&entry, true, key), 145_000);
         let cost = p.cost(std::slice::from_ref(&entry), 50_000, true, key);
         let mut budget = PostBatchGasBudget::new(16_777_216);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         assert!(budget.try_accept(cost));
         p.accept_immediate(1, key);
         entry.rootUpdates[0].currentRoot = B256::repeat_byte(8);
@@ -1390,7 +1391,7 @@ mod tests {
         let p = model(0);
         let cost = p.cost(&[deferred()], 0, false, None);
         let mut budget = PostBatchGasBudget::new(100_000_000);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         for _ in 0..127 {
             assert!(budget.try_accept(cost));
         }
@@ -1444,11 +1445,11 @@ mod tests {
         .unwrap()
         .estimate_budget(16_777_216);
         let mut budget = PostBatchGasBudget::new(cap);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         for _ in 0..30 {
             assert!(budget.try_accept(p.cost(&[deferred()], 0, false, None)));
         }
-        assert!(budget.projected + POSTBATCH_DRAIN_MARGIN <= cap);
+        assert!(budget.full_estimate() <= cap);
     }
 
     #[test]
@@ -1503,7 +1504,7 @@ mod tests {
         let cost = p.cost(&[unstitched.clone(), unstitched], 0, false, None);
         assert_eq!(cost.estimate_reasons.json()["deferred_storage"], 2);
         let mut budget = PostBatchGasBudget::new(100_000_000);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         assert!(budget.try_accept(cost));
         p.accept_deferred(&[e.clone(), e.clone()]);
         let final_batch = batch(vec![anchor(), e.clone(), e.clone()], 1);
@@ -1739,7 +1740,7 @@ mod tests {
         let p = model(1_300_000);
         let cost = p.cost(&[deferred()], 0, false, None);
         let mut budget = PostBatchGasBudget::new(1_700_000);
-        budget.projected = p.initial_gas();
+        budget.use_projection(p.initial_gas());
         assert!(!budget.try_accept_with_companion(cost, 200_000, 100_000));
         assert!(budget.blocked_by_cleanup(cost, 200_000, 100_000, p.cleanup_gas));
         assert!(!budget.blocked_by_cleanup(cost, 200_000, 100_000, 0));

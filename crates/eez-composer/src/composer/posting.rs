@@ -81,6 +81,17 @@ pub(super) struct BundleExecution {
 }
 
 impl PostingRuntime {
+    pub fn calldata_floor_active(&self, target: BundleTarget) -> bool {
+        match target {
+            BundleTarget::Exact { timestamp, .. } => self
+                .chain
+                .evm_config
+                .chain_spec()
+                .is_prague_active_at_timestamp(timestamp),
+            BundleTarget::NextBlock => true,
+        }
+    }
+
     pub fn native_currency(&self) -> &'static str {
         if self.chain.gnosis_evm_config.is_some() {
             "xDAI"
