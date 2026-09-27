@@ -1,0 +1,271 @@
+{
+  "status": "passed",
+  "test_binary_sha256": "d5eafebf94e29875c8ebd12c2dbce01700f88fdf511bd0c35f78d7f8d4483278",
+  "test_source_revision": "ac7e0abb12914c166546cdd0afcd5ff439fc75ec",
+  "cases": [
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:10:34.726017+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.386197765008546,
+      "finished_at": "2026-09-27T19:11:27.112349+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:11:27.112830+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.44800896802917,
+      "finished_at": "2026-09-27T19:12:19.560954+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/03-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:12:19.561242+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.04002207698068,
+      "finished_at": "2026-09-27T19:13:21.614623+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/04-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:13:21.614941+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.996288642985746,
+      "finished_at": "2026-09-27T19:14:18.624537+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/05-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:14:18.624877+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 57.05877697997494,
+      "finished_at": "2026-09-27T19:15:15.696978+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/06-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:15:15.697318+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 57.01328964903951,
+      "finished_at": "2026-09-27T19:16:12.710700+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/07-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:16:12.711177+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.546853962005116,
+      "finished_at": "2026-09-27T19:17:05.271580+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/08-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:17:05.272061+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.947153127985075,
+      "finished_at": "2026-09-27T19:17:57.219375+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/09-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:17:57.219913+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 58.10841052798787,
+      "finished_at": "2026-09-27T19:18:55.328511+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/10-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:18:55.329133+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.04866575100459,
+      "finished_at": "2026-09-27T19:19:51.391006+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/11-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:19:51.391538+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 61.64889966195915,
+      "finished_at": "2026-09-27T19:20:53.053777+00:00"
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/12-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:20:53.054339+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.20851164398482,
+      "finished_at": "2026-09-27T19:21:55.263076+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/13-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:21:55.263645+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.34257911599707,
+      "finished_at": "2026-09-27T19:22:47.606437+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/14-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:22:47.606786+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.83073772903299,
+      "finished_at": "2026-09-27T19:23:50.450876+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/15-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:23:50.451229+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 63.505769160052296,
+      "finished_at": "2026-09-27T19:24:53.970426+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/16-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:24:53.971040+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.368432219023816,
+      "finished_at": "2026-09-27T19:25:50.339698+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/17-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:25:50.340191+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 61.647836668998934,
+      "finished_at": "2026-09-27T19:26:51.988202+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/18-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:26:51.988676+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 63.46846766298404,
+      "finished_at": "2026-09-27T19:27:55.470440+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/19-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:27:55.470832+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.945896271034144,
+      "finished_at": "2026-09-27T19:28:47.430703+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/20-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T19:28:47.431353+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.97916255402379,
+      "finished_at": "2026-09-27T19:29:39.410800+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/21-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:29:39.411180+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.04595049895579,
+      "finished_at": "2026-09-27T19:30:35.457313+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/22-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:30:35.457916+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.112361961975694,
+      "finished_at": "2026-09-27T19:31:37.570570+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "baseline",
+      "artifacts": "artifacts/admission-main-alignment/comparison/23-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:31:37.571019+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 61.639089843956754,
+      "finished_at": "2026-09-27T19:32:39.223508+00:00"
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "variant": "candidate",
+      "artifacts": "artifacts/admission-main-alignment/comparison/24-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T19:32:39.224182+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 61.69740721798735,
+      "finished_at": "2026-09-27T19:33:40.927157+00:00"
+    }
+  ]
+}

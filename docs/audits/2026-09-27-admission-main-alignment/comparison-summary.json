@@ -1,0 +1,866 @@
+{
+  "status": "passed",
+  "variants": {
+    "baseline": {
+      "waves": 24,
+      "sources": 920,
+      "cutoffs": {
+        "snapshot_exhausted": 24
+      },
+      "receipt_gas_coverage": 24,
+      "preparation_ms": {
+        "count": 24,
+        "mean": 151.70833333333334,
+        "median": 150.0,
+        "min": 81,
+        "max": 231
+      },
+      "prefix_hash_ms": {
+        "count": 24,
+        "mean": 17.599831666666667,
+        "median": 18.012929999999997,
+        "min": 11.231691999999999,
+        "max": 28.092447999999997
+      },
+      "proof_ms": {
+        "count": 24,
+        "mean": 60.20941033333333,
+        "median": 56.9860405,
+        "min": 45.165062,
+        "max": 86.218422
+      },
+      "blob_ms": {
+        "count": 24,
+        "mean": 107.21822908333333,
+        "median": 105.72963549999999,
+        "min": 49.81058,
+        "max": 169.687366
+      },
+      "witness_ms": {
+        "count": 24,
+        "mean": 4.3215937916666665,
+        "median": 4.230644,
+        "min": 2.9293829999999996,
+        "max": 6.082389
+      },
+      "finalization_ms": {
+        "count": 24,
+        "mean": 70.25448825,
+        "median": 72.921833,
+        "min": 23.652383,
+        "max": 126.33877700000001
+      },
+      "delivery_ms": {
+        "count": 24,
+        "mean": 17.836285416666666,
+        "median": 16.7584575,
+        "min": 7.066749,
+        "max": 33.738324999999996
+      },
+      "pipeline_ms": {
+        "count": 24,
+        "mean": 302.38288470833334,
+        "median": 298.21367699999996,
+        "min": 163.640638,
+        "max": 457.13037
+      },
+      "full_estimate_gas": {
+        "count": 24,
+        "mean": 7547137.666666667,
+        "median": 7037332.0,
+        "min": 3445207,
+        "max": 13226392
+      },
+      "full_projection_gas": {
+        "count": 24,
+        "mean": 7474202.5,
+        "median": 6958416.0,
+        "min": 3385319,
+        "max": 13150060
+      },
+      "native_used_gas": {
+        "count": 24,
+        "mean": 4276670.333333333,
+        "median": 3655408.0,
+        "min": 1619832,
+        "max": 7897554
+      },
+      "framing_gas": {
+        "count": 24,
+        "mean": 147925.33333333334,
+        "median": 153152.0,
+        "min": 120768,
+        "max": 169856
+      }
+    },
+    "candidate": {
+      "waves": 24,
+      "sources": 920,
+      "cutoffs": {
+        "snapshot_exhausted": 24
+      },
+      "receipt_gas_coverage": 22,
+      "preparation_ms": {
+        "count": 24,
+        "mean": 157.5,
+        "median": 156.0,
+        "min": 82,
+        "max": 269
+      },
+      "prefix_hash_ms": {
+        "count": 24,
+        "mean": 16.888547958333334,
+        "median": 17.3635885,
+        "min": 11.151146,
+        "max": 24.391682000000003
+      },
+      "proof_ms": {
+        "count": 24,
+        "mean": 50.66628829166667,
+        "median": 50.726712500000005,
+        "min": 38.772828000000004,
+        "max": 62.74658599999999
+      },
+      "blob_ms": {
+        "count": 24,
+        "mean": 113.9316925,
+        "median": 107.05085549999998,
+        "min": 49.74042,
+        "max": 211.057901
+      },
+      "witness_ms": {
+        "count": 24,
+        "mean": 3.956613583333333,
+        "median": 3.91406,
+        "min": 2.247774,
+        "max": 6.9787230000000005
+      },
+      "finalization_ms": {
+        "count": 24,
+        "mean": 69.79683095833333,
+        "median": 70.7809035,
+        "min": 24.886409,
+        "max": 119.433834
+      },
+      "delivery_ms": {
+        "count": 24,
+        "mean": 21.339559875,
+        "median": 21.163556,
+        "min": 10.019027999999999,
+        "max": 34.862744
+      },
+      "pipeline_ms": {
+        "count": 24,
+        "mean": 301.63746345833334,
+        "median": 301.273041,
+        "min": 160.725364,
+        "max": 463.582138
+      },
+      "full_estimate_gas": {
+        "count": 24,
+        "mean": 7547137.666666667,
+        "median": 7037332.0,
+        "min": 3445207,
+        "max": 13226392
+      },
+      "full_projection_gas": {
+        "count": 24,
+        "mean": 7474232,
+        "median": 6958422.0,
+        "min": 3385295,
+        "max": 13150048
+      },
+      "native_used_gas": {
+        "count": 24,
+        "mean": 4276699.833333333,
+        "median": 3655414.0,
+        "min": 1619808,
+        "max": 7897602
+      },
+      "framing_gas": {
+        "count": 24,
+        "mean": 147925.33333333334,
+        "median": 153152.0,
+        "min": 120768,
+        "max": 169856
+      }
+    }
+  },
+  "paired_waves": 24,
+  "pair_ratios": {
+    "preparation_ms_ratio": {
+      "count": 24,
+      "mean": 1.0308693570576761,
+      "median": 1.0201050717316629,
+      "min": 0.8316831683168316,
+      "max": 1.4010416666666667
+    },
+    "proof_ms_ratio": {
+      "count": 24,
+      "mean": 0.8582449352349772,
+      "median": 0.8732490681642064,
+      "min": 0.5857868070683864,
+      "max": 1.1228329315179415
+    },
+    "pipeline_ms_ratio": {
+      "count": 24,
+      "mean": 0.9989681033915503,
+      "median": 0.9798866214848743,
+      "min": 0.8260281727557629,
+      "max": 1.2502278038696177
+    }
+  },
+  "cases": [
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 52.386197765008546,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 52.44800896802917,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 62.04002207698068,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 56.996288642985746,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 57.05877697997494,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 57.01328964903951,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 52.546853962005116,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.947153127985075,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 58.10841052798787,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 56.04866575100459,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 61.64889966195915,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 62.20851164398482,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 52.34257911599707,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 62.83073772903299,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 63.505769160052296,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 56.368432219023816,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 61.647836668998934,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 63.46846766298404,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.945896271034144,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.97916255402379,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 56.04595049895579,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 62.112361961975694,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 61.639089843956754,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 61.69740721798735,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    }
+  ],
+  "pairs": [
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 1.4010416666666667,
+      "proof_ms_ratio": 1.0577881191423888,
+      "pipeline_ms_ratio": 1.2502278038696177
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 1.0732984293193717,
+      "proof_ms_ratio": 0.7441646614830055,
+      "pipeline_ms_ratio": 0.9775883409529279
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 0.9901477832512315,
+      "proof_ms_ratio": 0.9013243520888732,
+      "pipeline_ms_ratio": 1.0168150104680311
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 0.9774774774774775,
+      "proof_ms_ratio": 0.626219152338618,
+      "pipeline_ms_ratio": 0.9319493967217598
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 45,
+      "preparation_ms_ratio": 1.223809523809524,
+      "proof_ms_ratio": 0.5911597407802244,
+      "pipeline_ms_ratio": 1.0138810625426755
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 45,
+      "preparation_ms_ratio": 0.948051948051948,
+      "proof_ms_ratio": 0.8036649516558761,
+      "pipeline_ms_ratio": 0.9144654970090916
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 1.1022727272727273,
+      "proof_ms_ratio": 0.767587733218578,
+      "pipeline_ms_ratio": 1.0295927865509953
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 1.035294117647059,
+      "proof_ms_ratio": 0.5857868070683864,
+      "pipeline_ms_ratio": 0.8260281727557629
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 0.93,
+      "proof_ms_ratio": 0.8711369447966893,
+      "pipeline_ms_ratio": 0.9715786417291917
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 0.9489795918367347,
+      "proof_ms_ratio": 1.0061361979528565,
+      "pipeline_ms_ratio": 1.038255100370507
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 45,
+      "preparation_ms_ratio": 1.0515463917525774,
+      "proof_ms_ratio": 0.908628944467974,
+      "pipeline_ms_ratio": 1.0534931662436438
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 45,
+      "preparation_ms_ratio": 0.9320388349514563,
+      "proof_ms_ratio": 0.9341901308298227,
+      "pipeline_ms_ratio": 0.9351021920701073
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 1.0198019801980198,
+      "proof_ms_ratio": 0.7599087956447566,
+      "pipeline_ms_ratio": 0.9264029023859679
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 1.086734693877551,
+      "proof_ms_ratio": 0.8732266547093415,
+      "pipeline_ms_ratio": 1.0692059753008125
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 1.075,
+      "proof_ms_ratio": 1.1228329315179415,
+      "pipeline_ms_ratio": 1.0606316711711863
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 0.9852216748768473,
+      "proof_ms_ratio": 0.8593031275855603,
+      "pipeline_ms_ratio": 0.9341110909697117
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 45,
+      "preparation_ms_ratio": 1.02803738317757,
+      "proof_ms_ratio": 0.6574770782972328,
+      "pipeline_ms_ratio": 0.9766509162267525
+    },
+    {
+      "repetition": 2,
+      "test": "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 45,
+      "preparation_ms_ratio": 0.9282511210762332,
+      "proof_ms_ratio": 1.0411337632983622,
+      "pipeline_ms_ratio": 0.9738254616655941
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 0.8316831683168316,
+      "proof_ms_ratio": 0.8628993588572805,
+      "pipeline_ms_ratio": 0.8832234584103728
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 1.0123456790123457,
+      "proof_ms_ratio": 0.9321803413519697,
+      "pipeline_ms_ratio": 0.9821849020168206
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 1.0204081632653061,
+      "proof_ms_ratio": 0.9051060872400212,
+      "pipeline_ms_ratio": 1.064506120480427
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 1.074468085106383,
+      "proof_ms_ratio": 0.873359121525767,
+      "pipeline_ms_ratio": 1.046006847616794
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 45,
+      "preparation_ms_ratio": 1.12,
+      "proof_ms_ratio": 0.8732714816190714,
+      "pipeline_ms_ratio": 0.9673148627084509
+    },
+    {
+      "repetition": 2,
+      "test": "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 45,
+      "preparation_ms_ratio": 0.944954128440367,
+      "proof_ms_ratio": 1.0393919681688562,
+      "pipeline_ms_ratio": 1.1321931011600042
+    }
+  ]
+}

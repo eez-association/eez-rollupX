@@ -1,0 +1,72 @@
+{
+  "workspace-units": {
+    "path": "artifacts/admission-main-alignment/workspace-units.log",
+    "sha256": "2ba5224571e288bad447f9685a41775c55db877efcaf5d71dc940d37591d8a30",
+    "availability": "local only"
+  },
+  "protocol-rpc-tests": {
+    "path": "artifacts/admission-main-alignment/protocol-rpc-tests.log",
+    "sha256": "2ea94bee08149e75da168f938014bc244defef7a2b202409b17496a79574c3c8",
+    "availability": "local only"
+  },
+  "indexer-tests": {
+    "path": "artifacts/admission-main-alignment/indexer-tests.log",
+    "sha256": "2fa90964317b7d03b68c752d3a7c130aa66d47036eecb1e26abb42f8f71696ec",
+    "availability": "local only"
+  },
+  "tooling-tests": {
+    "path": "artifacts/admission-main-alignment/tooling-tests.log",
+    "sha256": "290f00c95dfb1224a7d909198634537e593a02ff95661a66152f9e54d699b9a5",
+    "availability": "local only"
+  },
+  "clippy": {
+    "path": "artifacts/admission-main-alignment/clippy.log",
+    "sha256": "82277e3870b7665ce715db1c9f468725c4ab1c90de45ced5ae49661e6801f9d6",
+    "availability": "local only"
+  },
+  "fmt": {
+    "path": "artifacts/admission-main-alignment/fmt.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "availability": "local only"
+  },
+  "settlement-config": {
+    "path": "artifacts/admission-main-alignment/settlement-config.log",
+    "sha256": "94e5f2e17561eacca28652d721fbe207b0cad7727db5b94c43e94c04405a7bbc",
+    "availability": "local only"
+  },
+  "forge-build": {
+    "path": "artifacts/admission-main-alignment/forge-build.log",
+    "sha256": "163240c4e3d9da011c656829e7b3a2ef8ed72c41339d132fa2d7db894be56ba7",
+    "availability": "local only"
+  },
+  "forge-tests": {
+    "path": "artifacts/admission-main-alignment/forge-tests.log",
+    "sha256": "96f418951c418ae84d2944dd7d3f8e6cec114fa882427f90695095276b662804",
+    "availability": "local only"
+  },
+  "forge-fmt": {
+    "path": "artifacts/admission-main-alignment/forge-fmt.log",
+    "sha256": "62b001a939e4626b3b8abe69ad1620a8a8377b27095fa1432c1d52ad447ff7df",
+    "availability": "local only"
+  },
+  "forge-changed-fmt": {
+    "path": "artifacts/admission-main-alignment/forge-changed-fmt.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "availability": "local only"
+  },
+  "workspace-units-first-failure": {
+    "path": "artifacts/admission-main-alignment/workspace-units-first-failure.log",
+    "sha256": "e3f9f779501cdf8a85bd5c6b7eabebabae7486b13fe0c16072aab1047848906a",
+    "availability": "local only"
+  },
+  "workspace-units-fixture-compile": {
+    "path": "artifacts/admission-main-alignment/workspace-units-fixture-compile.log",
+    "sha256": "5140d04c5a385268e196ed6c4313d352c5ae98e7a1c6a0872f0984530d1c2d34",
+    "availability": "local only"
+  },
+  "clippy-first-failure": {
+    "path": "artifacts/admission-main-alignment/clippy-first-failure.log",
+    "sha256": "b83f7718af458ef75476619f00df7d003582a562d7134b64c60aa8a2bec456d9",
+    "availability": "local only"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "baseline": [
+    {
+      "binary": "eez-composer",
+      "sha256": "78e6ecca9780dde2498dc96072379624cf472a1eaa195acfc0435be7a3b2c09a",
+      "image_id": "sha256:6d18cae7ed8142a5ae1d4ad8b18546ca96cb7a3beabe2f9a2174ecfc6aca6b4f",
+      "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f"
+    },
+    {
+      "binary": "eez-follower",
+      "sha256": "f6919c2445718d5a7143f9b6444a64d08e98740a8c00981aa05333dd9c0d6a3f",
+      "image_id": "sha256:6d18cae7ed8142a5ae1d4ad8b18546ca96cb7a3beabe2f9a2174ecfc6aca6b4f",
+      "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f"
+    },
+    {
+      "binary": "eez-proof-signer",
+      "sha256": "c84a2fe6454fe95a10f67414b297720c646bc05db6c679c4779192a359de2e68",
+      "image_id": "sha256:5221613c22b5f4f77c0346bd78fb58a6d70a888dfef597b8e0e639296219be90",
+      "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f"
+    }
+  ],
+  "candidate": [
+    {
+      "binary": "eez-composer",
+      "sha256": "b8bf1f034211cfccc03fdf10750bd51d938584f4b4cb4883908832f5c390bc76",
+      "image_id": "sha256:ac93be260f4f72e804a7bb43d56bcaeba96e569cf72f606ae2d93f0ad54f3b30",
+      "source_revision": "62b8e066ef96ae54d9e4bda4636c08ba5a1c7b67"
+    },
+    {
+      "binary": "eez-follower",
+      "sha256": "6b0cc805d10494445c70cd4d82e7243d8bec927b61b500c459df9f84d495ffc6",
+      "image_id": "sha256:ac93be260f4f72e804a7bb43d56bcaeba96e569cf72f606ae2d93f0ad54f3b30",
+      "source_revision": "62b8e066ef96ae54d9e4bda4636c08ba5a1c7b67"
+    },
+    {
+      "binary": "eez-proof-signer",
+      "sha256": "a8e6d6513a05b431c7c85493f595f9fbf89761f27a05282a0ceb41bd21b32c34",
+      "image_id": "sha256:f3371efe0afdf45c4184de4c5edf56a8ff5685573173caab64ffb4f7725abb3f",
+      "source_revision": "62b8e066ef96ae54d9e4bda4636c08ba5a1c7b67"
+    }
+  ],
+  "build": {
+    "source_revision": "62b8e066ef96ae54d9e4bda4636c08ba5a1c7b67",
+    "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "tag": "62b8e06-main-alignment-local",
+    "build_profile": "release",
+    "cargo_jobs": 4,
+    "rust": "1.95.0",
+    "created_at": "2026-09-27T18:37:17.516245+00:00",
+    "build_selection": "Same archived shipping recipe and package/bin/example selection as e556e12 baseline; main toolchain and vendor inputs added; production Dockerfile.runtime selection retained.",
+    "recipe_sha256": "487927133fef042edb584e80f506344cc05a80193ac6b427203a656b883c572c",
+    "cargo_lock_sha256": "5df4d4c089faea59ef3f0d37313a2c7d66eab6ce755cb15a13118113940f32ea"
+  },
+  "test_harness_revision": "ac7e0abb12914c166546cdd0afcd5ff439fc75ec",
+  "note": "Local release build; no CI provenance claim. The test-only ac7e0ab duration-expression change does not change shipping behavior."
+}

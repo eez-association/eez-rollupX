@@ -1,0 +1,386 @@
+[
+  {
+    "path": "artifacts/admission-main-alignment/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2691653-2.log",
+    "sha256": "eb06cd00552d60cbf1f3ad55334b65a83f90419f49a9aee1b7c422d0e322a31e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2691653-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2691653-0.log",
+    "sha256": "50fff6a9b325fe804b869fb5791a2a9f85af768ae436d9f570880984f5848977"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2691653-3.log",
+    "sha256": "11da4bd7c4741fce2d509a404bfbc2a18eb6f15d4810726e4f7d0bb0d8e80f35"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2693857-3.log",
+    "sha256": "e865dacfaf6c48efe5f88de0ca44fe3a6f8815cdad4dbd5d18ad77bd1bdf2c5b"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2693857-2.log",
+    "sha256": "8778ebb331f933fd0b93bc06c9798c0254a03c4f5748f9f5dad8cfffd86b6028"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2693857-0.log",
+    "sha256": "46840457f3d3547d801aac0602f75b1883439bda5e63e27f70c6b80cfa87165e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2693857-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/03-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2696777-0.log",
+    "sha256": "7772e75fe9ac1e797f15a0ab3eb0aeb33249bcc0fdf1004777672dfbd5e35b3a"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/03-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2696777-2.log",
+    "sha256": "d705eb251e31866421e79d83f58d92df79da1f032ccba0c0635e124d7ecabdb4"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/03-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2696777-3.log",
+    "sha256": "dcafbe19cc5fe7be233f3f1196aab75ac61bc775db68adfa287ca31603ba9f08"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/03-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2696777-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/04-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2700336-2.log",
+    "sha256": "acfa8cee18249722218521ec6a04e736a0488fdf5fefd82da7d87cd9b4873b26"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/04-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2700336-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/04-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2700336-0.log",
+    "sha256": "864f23153f9d1c0a4348293e9006f268569db7582355733e94b30d2ea480bf59"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/04-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2700336-3.log",
+    "sha256": "a9bf5ff1048f63cb1411099a1da9a45913931042834b544d1256b389be37315e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/05-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2704163-0.log",
+    "sha256": "adedd775d23d4d6e34f8b9ee69c3dfadb799cb0c68e3b8c2e742f8490526e93e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/05-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2704163-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/05-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2704163-2.log",
+    "sha256": "2533932bed6d7c59c038ba22f7c241e36cece5c7a9777b8fa28002f236bc9bb5"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/05-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2704163-3.log",
+    "sha256": "ab67d3fdeb4d21f6bd4cb2b2c7b49abc61f28a7f2a2e1b302d2a1addef363b18"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/06-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2707486-3.log",
+    "sha256": "c7e01e65d4db077d436147c1cf6065ff216634df89085e4310ff78b545e47899"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/06-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2707486-0.log",
+    "sha256": "407c9a47b1d600e65c0e188c49f10ae433ce22c413c521d1eb0be7ebfc4c5fb1"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/06-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2707486-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/06-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2707486-2.log",
+    "sha256": "118e4d88df1542f4e145a4670f66e748296129ba277ad6cd20c731a897efbe67"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/07-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2710803-0.log",
+    "sha256": "19d12bcd709be57eba19e2bcc9c6c28de194975bec03e062fe70e39b6c391eab"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/07-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2710803-3.log",
+    "sha256": "d12e5fb7ce2f0d6c7982c396e417d17c69d9a6dbb0898f0cd379eeb2d01f5b5f"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/07-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2710803-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/07-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2710803-2.log",
+    "sha256": "64248c3b8d6da874da2f336828321ceab58a640268a7bd95a32a59da4cdbcfdb"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/08-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2713904-2.log",
+    "sha256": "1bd82e4f5e6d79a449f9ce5cb503886935f7b4302aee24fbf7ea6fb5cdafa726"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/08-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2713904-3.log",
+    "sha256": "a820e8977614d1977e98c6d070f6e1173f6c327a9f7b3b1dcf180695f6da733b"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/08-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2713904-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/08-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2713904-0.log",
+    "sha256": "49420e4cac7f14431a3df8b12ef7124983f243c0e637720b5bf9dd36fc7147f6"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/09-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2717002-2.log",
+    "sha256": "30e512125e765214edee8a9bbc1ce594cfe7baa3d3d4522a3c70dca390afe1e7"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/09-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2717002-3.log",
+    "sha256": "0509a38e838ded4d6981d218903e0ef9f468e02f5a5980a8bcd191d0adfe72d8"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/09-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2717002-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/09-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2717002-0.log",
+    "sha256": "c1f6e3278fd4489e0fb9cca90ca73bbae4b91bfaa6757a606be59823e860d818"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/10-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2720333-0.log",
+    "sha256": "4430a7fe4eedf78eba85a869d19da2b2a7c20ddaaef2fa7d0b5b3ea86ada84d9"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/10-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2720333-3.log",
+    "sha256": "714f7aec35c7b12fbbb22396cc28e71dba3c60b9bbd2648719b405babec18eb0"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/10-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2720333-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/10-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2720333-2.log",
+    "sha256": "b5815c37d51153e0c2bcdba18a5a4c92622b3d0d44d52d1fb9a1cc85590a5618"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/11-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2723556-2.log",
+    "sha256": "4bda0dd417dc64e0aae59dddd016a0070b8f64038073c7721c7aee630215a33e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/11-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2723556-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/11-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2723556-3.log",
+    "sha256": "7ebe260f0e166b0eecc719e46fafd68ee10c4283d90efef07c3a00848e2ba112"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/11-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2723556-0.log",
+    "sha256": "e152c983fb223f182e41f13c74702b5118fe8cddc2464e904dd8fec916c96eb4"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/12-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2727005-3.log",
+    "sha256": "3218aff78a724e8409971edb29bafee3a9ab2181089a8c6db481c3c0ec63a22d"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/12-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2727005-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/12-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2727005-2.log",
+    "sha256": "bfd67c251f04dba7a152cb8ecd9cb0f6bfbd46a0433e9a9faead61ae60be0326"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/12-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2727005-0.log",
+    "sha256": "718ccedc8d81e766e1788bbcea340fab89c3c24cea3a5b2fcfeca535bab18b09"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/13-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2730595-3.log",
+    "sha256": "eda275c84660cc6564bafa66d3c0f1574e22f6ee9e2e3e7c2ea8f48630867716"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/13-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2730595-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/13-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2730595-0.log",
+    "sha256": "31edaedd41a366b987c87fee0677efb1f08321cb9f873b87a9da0845467a0c53"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/13-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2730595-2.log",
+    "sha256": "d1d3324ad6b243aca889e1606957cffae23bd9a8ef4a62d2c3f494b2139e07b8"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/14-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2733694-2.log",
+    "sha256": "18c02ee310c1fab55a2a458481c5cad77e8490aa04f1a0061fedb27951606171"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/14-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2733694-0.log",
+    "sha256": "1435779cac1bd8563714f5c2a82e71de52bfa971d09b8a6b1efd0805b526b179"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/14-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2733694-3.log",
+    "sha256": "24ec2c888163555e80d128aabc53615b527626a7dbfd6b104aa50f136c7f328c"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/14-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2733694-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/15-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2737204-0.log",
+    "sha256": "942df7d8f57f910e72374bf44f12e0049f1d39d1a2e046cb50f0cf7389ce0228"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/15-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2737204-2.log",
+    "sha256": "d9c09f8bffa06c0d14ad21d01f93ca0a95e28cdc301806b7fe842de55a9f9ceb"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/15-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2737204-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/15-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2737204-3.log",
+    "sha256": "99441a189225fb0c109c33cbca914e4f1a4dc9e4828f3cc66377be20dd445bbd"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/16-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2740700-2.log",
+    "sha256": "932ef22503ba78ae6a774a2d88828a73d83a194d9abb167a35eab3b6360336e5"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/16-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2740700-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/16-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2740700-0.log",
+    "sha256": "1961e696a88ee95387bb5ed98b88ea77c76cfc1abbd554a5ea80b57159352b72"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/16-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2740700-3.log",
+    "sha256": "37e740ade357c534c76d6022dcc1690beda2f849635998ec29ba34aaa1e99479"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/17-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2744070-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/17-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2744070-2.log",
+    "sha256": "3441c89ff953e9a716ba9d05b113364d9edb531d09f1e76744beccdd8c90ecce"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/17-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2744070-0.log",
+    "sha256": "a488d2f6cec64068cea29bf789b980c6d995c935a250c0acd1cf312c962b52fe"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/17-candidate-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2744070-3.log",
+    "sha256": "bca6f77512f7218145d1df7a7a7786e2fde2d60da7b4cf1b919baaeea22c969e"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/18-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2747569-2.log",
+    "sha256": "d6116376d2a05cad6f45b539639fd07eeac4a3e736ebf8538255b450f32dd01a"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/18-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2747569-3.log",
+    "sha256": "6b87be20a620d5ad6d07eda61ee7bb5f4af622042bb9a29c2936b25908762043"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/18-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2747569-0.log",
+    "sha256": "1a2f5f56e402354f6a92ef8ff7d84f831db3f69942cabadcbc55ee02c8eaed17"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/18-baseline-ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2747569-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/19-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2751191-2.log",
+    "sha256": "699d913609d7d3dae199c611fd927c07fdfe423e8942c89dda5ee69c545fdf97"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/19-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2751191-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/19-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2751191-0.log",
+    "sha256": "1f66678f9c24c02aee2141c33fd8fa9c160bb7dba8fe931d7d09d962503fc7ba"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/19-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2751191-3.log",
+    "sha256": "02c3a84649fc2d97fdbf552bc8f018ddb72c09f6f6a9571ba7470319c9afc247"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/20-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/builder-stub-2754207-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/20-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-single-sync-follower-2754207-3.log",
+    "sha256": "4dd419660338964f8db11f02f3a9553cee5a36f8f9eea2b14d70f58f1a39dbc0"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/20-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-proof-signer-2754207-0.log",
+    "sha256": "8418e9abb5586e54de13631907faa31b4aa126a025b1b5780166920ca9b763f8"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/20-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post/logs/eez-node-node-2754207-2.log",
+    "sha256": "01400fd06e6777f294efdceced8cf68339863bc3a0130d974caeb817412cf840"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/21-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2757271-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/21-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2757271-3.log",
+    "sha256": "d0c7d797c793110841a36b1fb5f47e74e4ecda990188ef44bb26b70a4ac051af"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/21-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2757271-2.log",
+    "sha256": "bd1df2b6cb79088d8662bc2cc05df6196ed4c70136d02744b5fec0b2501fca2a"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/21-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2757271-0.log",
+    "sha256": "a9feb34399333de02478d807e1c0b2d9c54d4eb701caeb4b2b1cad27949e4f14"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/22-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2760496-2.log",
+    "sha256": "1e6f79fca003b1ab5e6bfc188ea0f85c83087568b53f0876906a86467439fe7a"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/22-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2760496-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/22-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2760496-0.log",
+    "sha256": "dde12b4af58b7aa9c3554f2b5985b0af34438b906ab0bcb36fd0ca1108f18d20"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/22-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2760496-3.log",
+    "sha256": "a1388dc3b4fb2a105c94cea3969390760dc9ea855bb2fda81f89bd819dbc7cb4"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/23-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2764212-0.log",
+    "sha256": "b3a568c20a11867b54d360afb1cc8b89395928a2ca8eb0584e401747eef03612"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/23-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2764212-3.log",
+    "sha256": "6e3782b32682c0c3f332e2bb10e42aff84c633c0e08a1fe925f3138b98725a6f"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/23-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2764212-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/23-baseline-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2764212-2.log",
+    "sha256": "384365530949c82dbd2840d5dc09b6929ec82e44e5c5b631db06f3ffb0977313"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/24-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-node-2767606-2.log",
+    "sha256": "5e3f33a7da83627ec8ac81b2929595e94514e1a4dbcab8b007de84e28351bebc"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/24-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/builder-stub-2767606-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/24-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-node-single-sync-follower-2767606-3.log",
+    "sha256": "00aba141d16709f42240c4c0c30c6dea7077a097f47419464d5098fc1dac9e6f"
+  },
+  {
+    "path": "artifacts/admission-main-alignment/comparison/24-candidate-gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay/logs/eez-proof-signer-2767606-0.log",
+    "sha256": "e4caaa1131dc3cf75517fe4a6dc4d68fb61a9f7b12f46510ea4baa97c9480715"
+  }
+]
