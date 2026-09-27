@@ -1062,6 +1062,11 @@ async fn automatic_selection_backs_off_after_five_exclusions_and_retries_every_s
     consecutive_exclusions(5).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix() {
+    consecutive_exclusions(6).await;
+}
+
 async fn consecutive_exclusions(failures: u32) {
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
         .await
@@ -1134,6 +1139,66 @@ async fn consecutive_exclusions(failures: u32) {
     let mut hashes = Vec::new();
     for i in 1..=4 {
         hashes.push(send(&world, chain, nonce + i, i + 1).await);
+    }
+    if failures == 6 {
+        wait_for(TIMEOUT, || async {
+            Ok(world
+                .node
+                .signals_since(cursor)?
+                .iter()
+                .any(|e| {
+                    e.name == "eez.composer.admission.submission_failure"
+                        && e.fields["consecutive_failures"] == 6
+                        && e.fields["submitted_groups"] == 2
+                })
+                .then_some(()))
+        })
+        .await
+        .unwrap();
+        let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+        let queue: serde_json::Value = l2
+            .client()
+            .request("eez_getCrossChainQueueStatus", ())
+            .await
+            .unwrap();
+        for field in ["queued", "inFlight", "blocked", "unknown"] {
+            assert_eq!(
+                queue[field], 0,
+                "exhaustion must release the complete nonce suffix"
+            );
+        }
+        for hash in &hashes {
+            assert!(l1.get_transaction_receipt(*hash).await.unwrap().is_none());
+        }
+        assert_eq!(
+            onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+            nonce + 1
+        );
+        assert_eq!(
+            l2_value(&follower.l2_rpc_url(), world.value_l2)
+                .await
+                .unwrap(),
+            U256::from(1)
+        );
+        // Exhaustion is explicit disposition. Fresh user resubmission can
+        // reacquire the same signed nonce without historical owners erasing it.
+        let resubmitted = send(&world, chain, nonce + 1, 2).await;
+        assert_eq!(resubmitted, hashes[0]);
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l1.get_transaction_receipt(resubmitted).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        wait_for(TIMEOUT, || async {
+            Ok(
+                (l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(2))
+                    .then_some(()),
+            )
+        })
+        .await
+        .unwrap();
+        return;
     }
     for hash in hashes {
         let receipt = wait_for(TIMEOUT, || async {
